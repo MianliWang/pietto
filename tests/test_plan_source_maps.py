@@ -23,7 +23,7 @@ from pietto._project.project_sql_plan_verification import (
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
 from _pietto_plan_reports import _cases
 from _pietto_plan_joins import _roots
-from _pietto_plan_joins import _source as join_source
+from _pietto_project_join import _prefix_existence_source
 
 from _pietto_plan_named import _chain, _repeated_sets
 
@@ -36,6 +36,7 @@ P = literals.ProjectSQLLiteralPolicy
 K = maps.ProjectSQLSourceAssociationKind
 R = sql.ProjectSQLOriginRole
 V = sql.ProjectSQLOriginProvenance
+PREDICATE_KINDS = (K.PREDICATE_CALL, K.PREDICATE_BODY, K.PREDICATE_ARGUMENT)
 
 
 def _mapped(roots, policy=P.BIND_SAFE_LITERALS):
@@ -62,7 +63,16 @@ def test_unknown_ast_node_source_membership_fails_closed():
     )
     authority = SimpleNamespace(
         catalogs=SimpleNamespace(catalogs=()),
-        modules=(SimpleNamespace(parsed_input=SimpleNamespace(script=script)),),
+        modules=(
+            SimpleNamespace(
+                parsed_input=SimpleNamespace(
+                    script=script,
+                    scalar_callables=(),
+                    existence_generators=(),
+                    existence_values=(),
+                )
+            ),
+        ),
     )
     plan = SimpleNamespace(
         scope=SimpleNamespace(
@@ -81,9 +91,9 @@ def test_unknown_ast_node_source_membership_fails_closed():
 
 # Two existence reads: a let and a module query, each an expression block use.
 EXISTS = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 query flagged:
     from tags
     select:
@@ -104,10 +114,10 @@ query result:
 
 # Phase70 S10: a correlated let read by EXISTS keeps its capture record.
 CAPTURE = """shape Row:
-    id: Int not null
-    key: Int nullable
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+    key: Int | None
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 query result:
     let matched:
         capture rows
@@ -166,11 +176,13 @@ def corpus(tmp_path_factory):
 def test_all_original_roles_have_closed_real_mapping_rules(corpus):
     assert not set(maps.SYNTAX_ROLES) & set(maps.GENERATED_ROLES)
     assert set(maps.SYNTAX_ROLES) | set(maps.GENERATED_ROLES) == set(R)
+    # Only retired endpoint metadata and VIA paths produced relationship
+    # matches; the modern public parser refuses both forms.
     assert {
         entry.original.role
         for product in corpus.values()
         for entry in product[3].entries
-    } == set(R)
+    } == set(R) - {R.RELATIONSHIP_MATCH}
 
 
 @pytest.mark.parametrize("policy", tuple(P))
@@ -192,9 +204,20 @@ def test_flat_original_inventory_and_exact_forward_reverse_relations(corpus, pol
             expected = tuple(a for a in product.associations if a.entry is entry)
             assert view.associations(entry.ref) == expected
             causes = tuple(a for a in expected if a.kind is K.CAUSE)
-            assert causes and all(
+            expansions = tuple(
+                a
+                for a in expected
+                if a.kind in PREDICATE_KINDS and a.observed is original.cause
+            )
+            # A predicate-expanded cause is no authored site: the authored call,
+            # template body and arguments observe it instead of one CAUSE.
+            assert bool(causes) is not bool(expansions)
+            assert all(
                 a.site.occurrence is original.cause and a.observed is original.cause
                 for a in causes
+            )
+            assert not expansions or not any(
+                site.occurrence is original.cause for site in product.sites
             )
             for association in expected:
                 assert association in view.reverse(
@@ -366,12 +389,12 @@ def test_shared_named_window_has_one_original_site_and_distinct_effective_links(
 
 def _imported(tmp_path: Path):
     (tmp_path / "a.pietto").write_text(
-        'type Money = Decimal(12, 2)\nshape Row:\n    amount: Money nullable\nsource rows: Row is mysql.table("rows")\ntable first:\n    from rows\n    select:\n        amount\nexport:\n    table first\n'
+        'type Money = Decimal(12, 2)\nshape Row:\n    amount: Money | None\nsource rows: Row = mysql.table("rows")\ntable first:\n    from rows\n    select:\n        amount\nexport table first\n'
     )
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import (table first as Public)\nexport table Public\n'
     )
-    text = 'import "b.pietto":\n    table Public as Alias\nquery result:\n    from Alias\n    select:\n        renamed = amount\n'
+    text = 'from "b.pietto" import (table Public as Alias)\nquery result:\n    from Alias\n    select:\n        renamed = amount\n'
     return _mapped(_roots(tmp_path, text))
 
 
@@ -447,11 +470,16 @@ def test_import_hops_are_exact_ordered_source_correspondences(tmp_path, change):
 
 def test_relationship_source_container_is_not_the_consuming_query(corpus):
     _, plan, _, value, _, view = corpus["path", P.PRESERVE_LITERALS]
-    entry = next(e for e in value.entries if e.original.role is R.RELATIONSHIP_MATCH)
-    (cause,) = tuple(a for a in view.associations(entry.ref) if a.kind is K.CAUSE)
-    assert type(cause.site.container) is ast.RelationshipMetadata
-    assert cause.site.declaration is None
-    assert entry.original.owner is plan.scope.selected_owner
+    # Relationship matches came only from retired endpoint metadata; a modern
+    # predicate keeps its template body in the template's own container.
+    assert not plan.relationship_matches
+    bodies = tuple(a for a in value.associations if a.kind is K.PREDICATE_BODY)
+    assert bodies
+    for body in bodies:
+        assert type(body.site.container) is ast.RelationshipTemplate
+        assert body.site.declaration is None
+        assert body.entry.original.owner is plan.scope.selected_owner
+        assert body in view.associations(body.entry.ref)
 
 
 @pytest.mark.parametrize(
@@ -490,8 +518,13 @@ def test_hidden_values_membership_and_pending_proofs_remain_explainable(corpus, 
 def test_matching_only_right_inputs_remain_sources_without_becoming_exports(
     tmp_path, kind
 ):
-    _, plan, _, product, _, view = _mapped(_roots(tmp_path, join_source(kind, "true")))
+    # A JOIN-prefix `[not] any` (a semi/anti JOIN before S6) plans one hidden
+    # SEMI/ANTI JOIN, whose right input only matches.
+    roots = _roots(tmp_path, _prefix_existence_source("True", kind))
+    _, plan, _, product, _, view = _mapped(roots)
+    assert [join.kind.value for join in plan.joins] == [kind, "inner"]
     right = plan.join_inputs[1]
+    assert right.join is plan.joins[0].ref and right.ordinal == 1
     assert view.associations(right.ref)
     assert all(p.identity.name != "right_id" for p in plan.exports)
     assert any(
@@ -958,7 +991,7 @@ def test_unavailable_bindings_only_and_uninitialized_inputs_are_controlled(
         maps.build_project_sql_source_map(
             cast(ProjectSQLPlanVerification, binding_verification)
         )
-    invalid = _roots(tmp_path, row_source("    select:\n        value = null\n"))
+    invalid = _roots(tmp_path, row_source("    select:\n        value = None\n"))
     failed = verify_project_sql_plan(sql.build_project_sql_plan(*invalid), *invalid)
     with pytest.raises(ValueError):
         maps.build_project_sql_source_map(failed)
@@ -982,3 +1015,218 @@ def test_rejections_do_not_dump_payload_or_chained_exception_repr(
     with pytest.raises(ValueError) as raised:
         maps.build_project_sql_source_map(source)
     assert marker not in "".join(traceback.format_exception(raised.value))
+
+
+class _Exploding:
+    def __repr__(self):
+        raise AssertionError("A debug repr formatted a shared plan-graph child.")
+
+
+def test_plan_and_source_map_debug_reprs_never_format_the_shared_graph(tmp_path):
+    # No graph-holding fixture: pytest reports a failing test's arguments too.
+    text = row_source("    select:\n        value = id + 1\n")
+    _, plan, source, product, checked, view = _mapped(_roots(tmp_path, text))
+    for value, first in (
+        (plan, "literal_policy"),
+        (source, "plan"),
+        (product, "source_verification"),
+    ):
+        repr(_graft(value, **{first: _Exploding()}))
+    for value in (plan, source, product, checked, view):
+        shown = repr(value)
+        assert len(shown) < 1024 and shown == repr(value)
+
+
+def test_predicate_expansions_map_to_exact_calls_bodies_and_arguments(tmp_path: Path):
+    source = """shape Row:
+    id: Int
+source rows: Row = postgres.table("rows")
+relationship FloatSame(a: Row, b: Row):
+    Float(a.id) == Float(b.id)
+query result:
+    from rows
+    where FloatSame(rows, rows) or not FloatSame(rows, rows)
+    select:
+        accepted = FloatSame(rows, rows)
+        id
+"""
+    roots, plan, checked, product, verified, _ = _mapped(_roots(tmp_path, source))
+    assert verified.verified
+    records = tuple(
+        record
+        for site in plan.expression_sites
+        if (record := sql.predicate_expression(site)) is not None
+    )
+    calls = tuple(call for record in records for call in record.calls)
+    assert len(calls) == 3
+    call_associations = tuple(
+        item for item in product.associations if item.kind is K.PREDICATE_CALL
+    )
+    assert {id(item.evidence) for item in call_associations} == {
+        id(call) for call in calls
+    }
+    for call in calls:
+        root_associations = tuple(
+            item for item in call_associations if item.observed is call.expanded
+        )
+        assert root_associations
+        assert all(
+            item.site.occurrence is call.call and item.evidence is call
+            for item in root_associations
+        )
+        assert not any(site.occurrence is call.expanded for site in product.sites)
+    bodies = tuple(
+        item for item in product.associations if item.kind is K.PREDICATE_BODY
+    )
+    assert bodies and all(
+        isinstance(item.site.container, ast.RelationshipTemplate) for item in bodies
+    )
+    arguments = tuple(
+        item for item in product.associations if item.kind is K.PREDICATE_ARGUMENT
+    )
+    assert arguments
+    assert all(
+        any(
+            item.site.occurrence is argument.argument
+            for call in calls
+            for argument in call.arguments
+        )
+        for item in arguments
+    )
+    damaged = _graft(
+        product,
+        associations=tuple(
+            item for item in product.associations if item is not arguments[0]
+        ),
+    )
+    assert not maps.verify_project_sql_source_map(damaged, checked).verified
+
+
+def test_scalar_any_sources_keep_original_generators_and_local_binders(tmp_path: Path):
+    roots, plan, checked, product, verified, _ = _mapped(
+        _roots(
+            tmp_path,
+            """shape Row:
+    id: Int
+source rows: Row = postgres.table("rows")
+relationship Same(a: Row, b: Row):
+    a.id == b.id
+query result:
+    from rows
+    select:
+        accepted = any(Same(rows, item) for item in rows)
+""",
+        )
+    )
+    assert verified.verified
+    (origin,) = plan.scalar_existence_generators
+    assert any(site.occurrence is origin.authored_expression for site in product.sites)
+    local_sites = tuple(
+        site for site in product.sites if site.container is origin.authored_expression
+    )
+    assert local_sites
+    calls = tuple(
+        item for item in product.associations if item.kind is K.PREDICATE_CALL
+    )
+    assert calls
+    assert all(
+        any(site.occurrence is item.site.occurrence for site in local_sites)
+        for item in calls
+    )
+    assert maps.verify_project_sql_source_map(product, checked).verified
+
+
+def test_duplicated_scalar_any_sources_keep_value_roles_through_predicate_expansion(
+    tmp_path: Path,
+) -> None:
+    from pietto._project import project_sql_plan_portable as portable
+    from pietto._project import project_sql_plan_portable_schema as schema
+    from pietto._project import project_sql_plan_pure_boundary as pure
+
+    mapped = _mapped(
+        _roots(
+            tmp_path,
+            """shape Row:
+    id: Int
+source rows: Row = postgres.table("rows")
+source others: Row = postgres.table("others")
+relationship Same(a: Row, b: Row):
+    a.id == b.id
+def Twice(value: Bool) -> Bool | None:
+    return value and value
+query result:
+    from rows
+    select:
+        accepted = Twice(any(Same(rows, item) for item in others))
+""",
+        )
+    )
+    _, plan, checked, product, verified, _ = mapped
+    origins = plan.scalar_existence_generators
+    assert len(origins) == 2
+    assert origins[0].expression is not origins[1].expression
+    authored = origins[0].authored_expression
+    assert origins[1].authored_expression is authored
+    assert all(origin.expression is not authored for origin in origins)
+    operations = tuple(
+        value for value in plan.expressions if isinstance(value, sql.row.ProjectSQLAny)
+    )
+    assert len(operations) == 2
+    assert operations[0].expression is not operations[1].expression
+    assert all(
+        operation.evidence.input.binding.origin is origin
+        for operation, origin in zip(operations, origins, strict=True)
+    )
+    observation = portable.build_project_sql_plan_portable(checked, source_map=verified)
+    assert portable.verify_project_sql_plan_portable(observation, checked).verified
+    document = observation.document
+    assert pure.evaluate_project_sql_plan_document(document).status is pure.Status.OK
+    assert any(site.occurrence is authored for site in product.sites)
+    assert not any(item.kind is K.ANY_EXPANSION for item in product.associations)
+    for operation, origin in zip(operations, origins, strict=True):
+        associations = tuple(
+            item
+            for item in product.associations
+            if item.observed is operation.expression
+            and item.kind is K.ANY_VALUE_EXPANSION
+        )
+        assert associations
+        assert all(
+            item.site.occurrence is authored and item.evidence is origin
+            for item in associations
+        )
+    original = next(
+        item for item in product.associations if item.kind is K.ANY_VALUE_EXPANSION
+    )
+    damaged = _graft(
+        product,
+        associations=_changed(
+            product.associations, original, _graft(original, kind=K.ANY_EXPANSION)
+        ),
+    )
+    _reject(mapped, damaged)
+    record = next(
+        record
+        for record in document.records
+        if record.kind == "project_sql_source_association"
+        and any(
+            field.name == "kind" and field.value.data == K.ANY_VALUE_EXPANSION.value
+            for field in record.fields
+        )
+    )
+    changed = replace(
+        record,
+        fields=tuple(
+            replace(field, value=schema.Value(schema.Tag.ENUM, K.ANY_EXPANSION.value))
+            if field.name == "kind"
+            else field
+            for field in record.fields
+        ),
+    )
+    damaged_document = replace(
+        document, records=_changed(document.records, record, changed)
+    )
+    assert (
+        pure.evaluate_project_sql_plan_document(damaged_document).status
+        is not pure.Status.OK
+    )

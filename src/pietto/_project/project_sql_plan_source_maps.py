@@ -35,6 +35,8 @@ from pietto._project.project_sql_plan_verification import (
     verify_project_sql_plan,
 )
 from pietto.semantic.model import ValueType
+from pietto.semantic.existence_generators import AnyUseInfo
+from pietto._project.project_query_block_ir_inspection import _predicate_expressions
 
 __all__: tuple[str, ...] = ()
 
@@ -81,6 +83,12 @@ _KNOWN_NODES = frozenset(
         ast.RelationshipEndpoint,
         ast.RelationshipMatchClause,
         ast.RelationshipMetadata,
+        ast.RelationshipTemplate,
+        ast.RelationshipParameter,
+        ast.QueryLetDeclaration,
+        ast.FunctionDef,
+        ast.AnyExpr,
+        ast.JoinFilterClause,
         ast.ImportItem,
         ast.ImportStatement,
         ast.ExportItem,
@@ -208,6 +216,14 @@ class ProjectSQLSourceAssociationKind(StrEnum):
     EFFECTIVE_WINDOW = "effective_to_authored_window"
     WINDOW_COMPONENT = "authored_or_inherited_window_component"
     NAMED_WINDOW = "named_window_declaration"
+    PREDICATE_CALL = "relationship_predicate_call"
+    PREDICATE_BODY = "relationship_predicate_body"
+    PREDICATE_ARGUMENT = "relationship_predicate_argument"
+    NORMALIZED_EXPRESSION = "normalized_expression"
+    ANY_EXPANSION = "existence_generator_expansion"
+    ANY_VALUE_EXPANSION = "existence_value_expansion"
+    GENERATED_PREDICATE_CALL = "relationship_predicate_generated_call"
+    GENERATED_PREDICATE_ARGUMENT = "relationship_predicate_generated_argument"
 
 
 class ProjectSQLPositionAvailability(StrEnum):
@@ -315,6 +331,15 @@ class _Member:
 
 
 class _SourceTables(TypedDict):
+    predicate_routes: dict[
+        int,
+        tuple[
+            tuple[
+                ProjectSQLSourceAssociationKind, ast.Node, ast.Node, object, None, None
+            ],
+            ...,
+        ],
+    ]
     members_by_node: dict[int, tuple[_Member, ...]]
     uses: dict[sql.ProjectSQLPlanRef, sql.ProjectSQLInputUse]
     sources: dict[sql.ProjectSQLPlanRef, sql.ProjectSQLSourceBinding]
@@ -360,7 +385,8 @@ class ProjectSQLSourceMapIndexes:
     ]
 
 
-@dataclass(frozen=True, slots=True, kw_only=True, eq=False, init=False)
+# repr=False: a generated repr expands the shared plan graph as a tree.
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False, init=False, repr=False)
 class ProjectSQLSourceMap:
     source_verification: ProjectSQLPlanVerification
     plan: sql.ProjectSQLPlan
@@ -431,15 +457,35 @@ def membership(plan):
         ast.ImportStatement,
         ast.ExportStatement,
         ast.RelationshipMetadata,
+        ast.RelationshipTemplate,
+        ast.FunctionDef,
+        ast.AnyExpr,
     )
     for module in authority.modules:
         if module.parsed_input is None:
             raise ValueError("Mapped sources require their original parsed input.")
         script = module.parsed_input.script
-        pending = [(script, None, script)]
+        uses = module.parsed_input.existence_generators
+        scalar_uses = module.parsed_input.existence_values
+        synthetic = {id(use.clause) for use in uses}
+        synthetic.update(
+            id(use.expression)
+            for use in scalar_uses
+            if use.expression is not use.authored_expression
+        )
+        pending = [
+            (value, None, value)
+            for value in reversed((script, *module.parsed_input.scalar_callables))
+        ]
+        pending.extend(
+            (use.authored_owner, owners[id(module), id(use.owner)], use.owner)
+            for use in reversed((*uses, *scalar_uses))
+        )
         seen = set()
         while pending:
             value, owner, container = pending.pop()
+            if id(value) in synthetic:
+                continue
             if isinstance(value, ast.Node) and type(value) not in _KNOWN_NODES:
                 raise ValueError("Unknown source AST node")
             declaration = owners.get((id(module), id(value)))
@@ -578,9 +624,206 @@ def _buckets(values, key):
     return {key: tuple(items) for key, items in result.items()}
 
 
+def _predicate_source_routes(plan):
+    """Associate current plan owners' copied nodes with their authored sources."""
+    K = ProjectSQLSourceAssociationKind
+    routes = {}
+    owners = {id(definition.entry.owner) for definition in plan.bindings.definitions}
+    for value in _predicate_expressions(plan.scope.analysis_bundle.root):
+        if id(value.owner) not in owners:
+            continue
+        calls = {id(call.expanded): call for call in value.calls}
+        pending = [(value.authored, value.expression)]
+        visited = set()
+        while pending:
+            authored, normalized = pending.pop()
+            if isinstance(normalized, ast.Node):
+                identity = (id(authored), id(normalized))
+                if identity in visited:
+                    raise ValueError(
+                        "Predicate normalization requires distinct tree occurrences."
+                    )
+                visited.add(identity)
+            call = calls.get(id(normalized))
+            if call is not None:
+                copied = [(call.template.declaration.body, normalized)]
+                copied_nodes = set()
+                while copied:
+                    original, expanded = copied.pop()
+                    if original is expanded:
+                        continue
+                    if isinstance(expanded, ast.Node):
+                        identity = (id(original), id(expanded))
+                        if identity in copied_nodes:
+                            raise ValueError(
+                                "Predicate expansion requires distinct tree occurrences."
+                            )
+                        copied_nodes.add(identity)
+                        if type(original) is not type(expanded):
+                            raise ValueError(
+                                "Predicate expansion lost its template structure."
+                            )
+                        local = routes.setdefault(id(expanded), [])
+                        local.extend(
+                            (
+                                (
+                                    K.PREDICATE_CALL,
+                                    call.call,
+                                    expanded,
+                                    call,
+                                    None,
+                                    None,
+                                ),
+                                (
+                                    K.PREDICATE_BODY,
+                                    original,
+                                    expanded,
+                                    call,
+                                    None,
+                                    None,
+                                ),
+                            )
+                        )
+                        if isinstance(original, ast.DottedNameExpr):
+                            local.extend(
+                                (
+                                    K.PREDICATE_ARGUMENT,
+                                    argument.argument,
+                                    expanded,
+                                    argument,
+                                    None,
+                                    None,
+                                )
+                                for argument in call.arguments
+                                if original.parts[0] == argument.parameter.name
+                            )
+                    before, after = _children(original), _children(expanded)
+                    if len(before) != len(after):
+                        raise ValueError(
+                            "Predicate expansion lost its ordered template members."
+                        )
+                    copied.extend(reversed(tuple(zip(before, after, strict=True))))
+                continue
+            if authored is normalized:
+                continue
+            if isinstance(normalized, ast.Node):
+                if type(authored) is not type(normalized):
+                    raise ValueError(
+                        "Normalized row expression lost its authored context."
+                    )
+                routes.setdefault(id(normalized), []).append(
+                    (K.NORMALIZED_EXPRESSION, authored, normalized, value, None, None)
+                )
+            before, after = _children(authored), _children(normalized)
+            if len(before) != len(after):
+                raise ValueError(
+                    "Normalized row expression lost its ordered authored members."
+                )
+            pending.extend(reversed(tuple(zip(before, after, strict=True))))
+    return {key: tuple(value) for key, value in routes.items()}
+
+
+def _normalization_source_routes(plan, members):
+    """Compose generator/LET and predicate normalization over exact source facts."""
+    K = ProjectSQLSourceAssociationKind
+    authored = {id(member.node) for values in members.values() for member in values}
+    routes = {}
+    generators = {}
+
+    def nodes(root):
+        pending, seen = [root], set()
+        while pending:
+            value = pending.pop()
+            if isinstance(value, ast.Node):
+                if id(value) in seen:
+                    continue
+                seen.add(id(value))
+                yield value
+            pending.extend(reversed(_children(value)))
+
+    conditions = tuple(join.source.condition for join in plan.joins)
+    for use in plan.existence_generators:
+        matched = tuple(
+            condition for condition in conditions if condition.use.clause is use.clause
+        )
+        if len(matched) != 1:
+            raise ValueError(
+                "ANY source mapping requires its one exact operative condition."
+            )
+        condition = matched[0]
+        for value in (*nodes(use.clause), *nodes(condition.expression)):
+            if id(value) in authored:
+                continue
+            previous = generators.setdefault(id(value), use)
+            if previous is not use:
+                raise ValueError(
+                    "A generated ANY node cannot belong to two input occurrences."
+                )
+            routes.setdefault(id(value), []).append(
+                (K.ANY_EXPANSION, use.expression, value, use, None, None)
+            )
+    for trace in plan.scalar_existence_generators:
+        actual = tuple(
+            value
+            for value in plan.expressions
+            if isinstance(value, sql.row.ProjectSQLAny)
+            and value.evidence.input.binding.origin is trace
+        )
+        if not actual:
+            raise ValueError("Scalar ANY source mapping lost its actual operation.")
+        for operation in actual:
+            for value in (*nodes(trace.expression), *nodes(operation.expression)):
+                if id(value) in authored:
+                    continue
+                generators[id(value)] = trace
+                routes.setdefault(id(value), []).append(
+                    (
+                        K.ANY_VALUE_EXPANSION,
+                        trace.authored_expression,
+                        value,
+                        trace,
+                        None,
+                        None,
+                    )
+                )
+    for identity, values in _predicate_source_routes(plan).items():
+        for kind, node, observed, evidence, path, hop in values:
+            if id(node) in authored:
+                routes.setdefault(identity, []).append(
+                    (kind, node, observed, evidence, path, hop)
+                )
+                continue
+            use = generators.get(id(node))
+            if use is None:
+                raise ValueError(
+                    "Predicate normalization lost its authored source or ANY bridge."
+                )
+            if kind is K.PREDICATE_CALL:
+                kind = K.GENERATED_PREDICATE_CALL
+            elif kind is K.PREDICATE_ARGUMENT:
+                kind = K.GENERATED_PREDICATE_ARGUMENT
+            else:
+                kind = (
+                    K.ANY_EXPANSION
+                    if isinstance(use, AnyUseInfo)
+                    else K.ANY_VALUE_EXPANSION
+                )
+                evidence = use
+            authored_any = (
+                use.expression
+                if isinstance(use, AnyUseInfo)
+                else use.authored_expression
+            )
+            routes.setdefault(identity, []).append(
+                (kind, authored_any, observed, evidence, None, None)
+            )
+    return {identity: tuple(values) for identity, values in routes.items()}
+
+
 def source_tables(plan, members) -> _SourceTables:
     attribution = plan.scope.analysis_bundle.root.base_plan.attribution
     return _SourceTables(
+        predicate_routes=_normalization_source_routes(plan, members),
         members_by_node=_buckets(
             (m for values in members.values() for m in values), lambda m: id(m.node)
         ),
@@ -682,7 +925,11 @@ def evidence_fields(origin):
 def association_routes(origin, tables):
     """Pure traversal of closed retained witnesses, before any site allocation."""
     K = ProjectSQLSourceAssociationKind
-    yield K.CAUSE, origin.cause, origin.cause, origin.evidence, None, None
+    expanded = tables["predicate_routes"].get(id(origin.cause), ())
+    if expanded:
+        yield from expanded
+    else:
+        yield K.CAUSE, origin.cause, origin.cause, origin.evidence, None, None
     yield from reference_sites(origin.cause, tables)
     if isinstance(
         origin.cause,
@@ -697,7 +944,8 @@ def association_routes(origin, tables):
         ),
     ):
         node = origin.cause.expression
-        yield K.EXPRESSION_BODY, node, node, origin.cause, None, None
+        if id(node) in tables["members_by_node"]:
+            yield K.EXPRESSION_BODY, node, node, origin.cause, None, None
     for value in evidence_fields(origin):
         definition = value.field_def
         if definition is not None:

@@ -17,10 +17,10 @@ from pietto.sql import SqlArtifact, SqlArtifactKind, SqlResult
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
 )
 _OUTPUT_ENCODING_ERROR = b"pietto: error: terminal output could not be encoded\n"
 _STDOUT_NO_SPACE = (
@@ -135,7 +135,12 @@ def test_emit_sql_output_file_preserves_multiple_artifact_formatting(
     )
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == ""
+    assert captured.err == (
+        f"{path}:11:5 PIE-S2382 warning: `active_users` is a table of this file; "
+        "single-file SQL reads it by name, so the SQL runs only where the database "
+        "already has a relation named active_users (an EXPLICIT_MODULES project "
+        "emits it as a CTE)\n"
+    )
 
 
 def test_emit_sql_output_keeps_warnings_on_stderr(
@@ -147,7 +152,8 @@ def test_emit_sql_output_keeps_warnings_on_stderr(
         "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
+        'source raw = postgres.table("raw")\n'
         "table user_emails:\n"
         "    from users\n"
         "    select:\n"
@@ -171,7 +177,7 @@ def test_emit_sql_output_keeps_warnings_on_stderr(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "PIE-S2005 warning:" in captured.err
+    assert "PIE-S2303 warning:" in captured.err
     assert output.read_text(encoding="utf-8").startswith("SELECT\n")
 
 
@@ -236,7 +242,8 @@ def test_emit_sql_regular_file_parent_fails_after_compilation(
         "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
+        'source raw = postgres.table("raw")\n'
         "table user_emails:\n"
         "    from users\n"
         "    select:\n"
@@ -268,7 +275,7 @@ def test_emit_sql_regular_file_parent_fails_after_compilation(
     assert captured.out == ""
     # The compiler warning precedes the write error, so compilation ran first.
     warning, write_error = captured.err.splitlines()
-    assert "PIE-S2005 warning:" in warning
+    assert "PIE-S2303 warning:" in warning
     assert write_error == f"{Path('plain-file/out.sql')}: error: {reason}"
 
 
@@ -376,7 +383,7 @@ def test_emit_sql_backend_error_does_not_create_output_file(
         ("syntax.pietto", "shape User {\n", "PIE-P1005"),
         (
             "semantic.pietto",
-            "shape User:\n    email: MissingType not null\n",
+            "shape User:\n    email: MissingType\n",
             "PIE-S2002",
         ),
     ],
@@ -465,8 +472,8 @@ def test_terminal_encoding_failure_returns_safe_output_error(
         tmp_path,
         "emoji.pietto",
         "shape User:\n"
-        "    id: UUID not null\n"
-        'source users: User is postgres.table("secret😀")\n'
+        "    id: UUID\n"
+        'source users: User = postgres.table("secret😀")\n'
         "table active_users:\n"
         "    from users\n"
         "    select:\n"
@@ -647,7 +654,7 @@ def test_closed_stderr_drops_notices_instead_of_writing_them_to_stdout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    bad = _write(tmp_path, "bad.pietto", "shape User:\n    id: Intx not null\n")
+    bad = _write(tmp_path, "bad.pietto", "shape User:\n    id: Intx\n")
     project = tmp_path / "project"
     project.mkdir()
     (project / "pietto.toml").write_text(
@@ -704,8 +711,8 @@ def _large_source(tmp_path: Path) -> Path:
         tmp_path,
         "large.pietto",
         "".join(
-            f"shape S{index}:\n    id: UUID not null\n"
-            f'source s{index}: S{index} is postgres.table("t{index}")\n'
+            f"shape S{index}:\n    id: UUID\n"
+            f'source s{index}: S{index} = postgres.table("t{index}")\n'
             f"table r{index}:\n    from s{index}\n    select:\n        id\n"
             for index in range(40)
         ),
@@ -794,7 +801,8 @@ def test_failing_stderr_keeps_the_command_result(
         "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
+        'source raw = postgres.table("raw")\n'
         "table user_emails:\n"
         "    from users\n"
         "    select:\n"
@@ -864,7 +872,7 @@ def _relation_file(tmp_path: Path) -> Path:
         "active_users.pietto",
         SOURCE + "table active_users:\n"
         "    from users\n"
-        "    where active == true\n"
+        "    where active == True\n"
         "    select:\n"
         "        id\n"
         "        email\n",

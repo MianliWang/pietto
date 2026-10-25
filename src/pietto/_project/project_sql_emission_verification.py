@@ -2615,12 +2615,20 @@ def _verify_row_value(
         expected = columns.get(getattr(expression, "use", None))
         target = value.target
         scalar = type(expression) is row.ProjectSQLRelationScalar
+        any_value = type(expression) is row.ProjectSQLAny
         if (
             type(expression)
-            not in {row.ProjectSQLRelationExists, row.ProjectSQLRelationScalar}
+            not in {
+                row.ProjectSQLRelationExists,
+                row.ProjectSQLRelationScalar,
+                row.ProjectSQLAny,
+            }
             or value.original is not expression
             or value.kind != ("scalar" if scalar else "exists")
-            or reference in children
+            or children.get(reference, ())
+            != ((expression.predicate,) if any_value else ())
+            or (value.predicate is not None) is not any_value
+            or value.operands
             or type(expected) is not _BlockScope
             or type(target) is not rows.SQLBlockTarget
             or target.use is not expected.use
@@ -2662,8 +2670,92 @@ def _verify_row_value(
         state["nodes"] += 1
         state["symbols"].append(target.symbol)
         state.setdefault("block_reads", []).append(expected.use)
+        if any_value:
+            predicate = _verify_row_value(
+                request,
+                value.predicate,
+                expression.predicate,
+                {**columns, (expression.use, "any"): target.symbol},
+                children,
+                state,
+                reference_type=reference_type,
+            )
+            if predicate.tag != "Bool":
+                raise ValueError("ANY predicate type")
         return value.realization
     if type(value) is rows.SQLStageReference:
+        if type(expression) is row.ProjectSQLAnyReference:
+            if value.original is not expression or reference in children:
+                raise ValueError("ANY reference node")
+            if expression.use is None:
+                expected = columns.get(expression.port)
+                port = expression.port
+            else:
+                scope = columns.get(expression.use)
+                alias = columns.get((expression.use, "any"))
+                if (
+                    type(scope) is not _BlockScope
+                    or type(alias) is not SQLSymbol
+                    or alias.binding is not expression.use
+                ):
+                    raise ValueError("ANY lexical input")
+                position = expression.position
+                if type(position) is not int or position < 0:
+                    raise ValueError("ANY field position")
+                if scope.source is not None:
+                    definitions = tuple(
+                        d
+                        for d in plan.bindings.definitions
+                        if d.ref is scope.use.producer
+                    )
+                    fields = tuple(
+                        f for f in scope.producer.fields if f.ordinal == position
+                    )
+                    if (
+                        len(definitions) != 1
+                        or len(fields) != 1
+                        or position >= len(definitions[0].exports)
+                    ):
+                        raise ValueError("ANY source field")
+                    port = definitions[0].exports[position].ref
+                    realization = rows.field_realization(fields[0])
+                    if realization is None:
+                        raise ValueError("ANY source realization")
+                    expected = rows.StageColumn(
+                        position,
+                        fields[0].column,
+                        port,
+                        realization,
+                        field=fields[0],
+                        source_port=port,
+                        scope=alias,
+                    )
+                else:
+                    producer = scope.producer
+                    if position >= len(producer.columns):
+                        raise ValueError("ANY output field")
+                    port = producer.columns[position].column.terminal
+                    name = (
+                        producer.columns[position].label
+                        if _inline_body(producer)
+                        else producer.cte_columns[position].name
+                    )
+                    expected = replace(
+                        producer.columns[position].column, name=name, scope=alias
+                    )
+            if (
+                expected is None
+                or value.port is not port
+                or not _same_read(value.column, expected)
+                or value.scope is not expected.scope
+                or not _same_realization(value.realization, expected.realization)
+                or (rows.value_tag(expression), rows.value_nullable(expression))
+                != (expected.realization.tag, expected.realization.nullable)
+            ):
+                raise ValueError("ANY reference correspondence")
+            state["expressions"].append(expression)
+            state["nodes"] += 1
+            return value.realization
         if (
             type(expression)
             not in {reference_type, plan_windows.ProjectSQLWindowReference}
@@ -3041,6 +3133,28 @@ def _verify_join_unit(request, unit, join, index, context, state, *, guarded=Non
     if (unit.predicate is None) != (join.on is None):
         raise ValueError("match condition presence")
     if join.on is not None:
+        local_reads = {
+            expression.use
+            for expression in plan.expressions
+            if type(expression) is row.ProjectSQLAny
+            and expression.site.block is join.ref
+        }
+        for block_use in plan.expression_block_uses:
+            if block_use.ref not in local_reads:
+                continue
+            source = context["source_refs"].get(block_use.producer)
+            if source is None:
+                producer = context["produced"].get(block_use.producer)
+                if producer is None:
+                    raise ValueError("ANY producer scope")
+            else:
+                candidates = tuple(
+                    s for s in request.sources if s.owner is source.source.owner
+                )
+                if len(candidates) != 1:
+                    raise ValueError("ANY source scope")
+                producer = candidates[0]
+            available[block_use.ref] = _BlockScope(block_use, producer, source)
         realization = _verify_row_value(
             request,
             unit.predicate,
@@ -5186,6 +5300,9 @@ def verify_row_bytes(query, rendered):
                     target.symbol.name,
                     identifier=True,
                 )
+                if value.predicate is not None:
+                    take("syntax", "exists_where", reference, " WHERE ")
+                    scalar(value.predicate, alias)
                 take("syntax", f"{kind}_close", reference, ")")
                 spans.append((kind, reference, start, offset))
                 return
@@ -6535,6 +6652,7 @@ def verify_row_requirements(request, query, original, generated):
                         row.ProjectSQLReference,
                         row.ProjectSQLJoinedReference,
                         row.ProjectSQLMatchReference,
+                        row.ProjectSQLAnyReference,
                         row.ProjectSQLCapturedField,
                         grouping.ProjectSQLResultReference,
                         plan_windows.ProjectSQLWindowReference,

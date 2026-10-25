@@ -234,6 +234,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.UnaryExpr,
         ast.ConditionalExpr,
         ast.MembershipExpr,
+        ast.AnyExpr,
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
@@ -694,7 +695,12 @@ class ProjectModuleLetBindingFact:
             ProjectModuleExpressionReferenceFact,
             "Let reference facts",
         )
-        expected_leaves = _direct_name_leaves(self.binding.expression)
+        expression = (
+            self.scope_facts.binding_expressions[self.binding.name]
+            if self.scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
+            else self.binding.expression
+        )
+        expected_leaves = _direct_name_leaves(expression)
         if len(self.references) != len(expected_leaves) or any(
             reference.owner is not self.owner
             or reference.role is not ProjectModuleFactOccurrenceRole.LET_VALUE
@@ -3779,8 +3785,11 @@ def _let_binding_facts(
                 owner=owner,
                 role=ProjectModuleFactOccurrenceRole.LET_VALUE,
                 container_ordinal=ordinal,
-                expression=binding.expression,
-                relation_qualifier=definition.from_clause.source_name,
+                expression=let_scope.binding_expressions[binding.name]
+                if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
+                else binding.expression,
+                relation_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
                 input_schema=input_schema,
                 input_status=input_status,
                 let_scope=let_scope,

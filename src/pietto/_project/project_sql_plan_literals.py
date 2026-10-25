@@ -47,6 +47,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.ConditionalExpr,
         ast.MembershipExpr,
         ast.RelationExistsExpr,
+        ast.AnyExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
         ast.CapturedFieldExpr,
@@ -210,7 +211,9 @@ def literal_nodes(expression: Expression):
                 parent, position, current = links[current]
                 ancestry.append((parent, position))
             yield node, tuple(reversed(ancestry))
-        if isinstance(node, (BinaryExpr, ComparisonExpr)):
+        if isinstance(node, ast.AnyExpr):
+            children = (node.predicate,)
+        elif isinstance(node, (BinaryExpr, ComparisonExpr)):
             children = (node.left, node.right)
         elif isinstance(node, UnaryExpr):
             children = (node.operand,)
@@ -323,11 +326,20 @@ def positions(plan: ProjectSQLPlan):
             {},
             owner=None if resolution is None else resolution.reference.owner,
         )
+    from pietto._project.project_sql_plan import (
+        _normalized_scalar_expression,
+        expression_types,
+    )
+
     for site in plan.expression_sites:
         root = (
             site.expression
             if isinstance(site, aggregation.ProjectSQLAggregateSite)
-            else site.occurrence.expression
+            else site.evidence.expression
+            if isinstance(site, row.ProjectSQLMatchSite)
+            else _normalized_scalar_expression(
+                site.occurrence.expression, site.evidence
+            )
         )
         add(
             owners[id(site.owner)],
@@ -335,7 +347,7 @@ def positions(plan: ProjectSQLPlan):
             root,
             role_map.get(site.role, R.UNKNOWN),
             site.evidence,
-            {id(e): (e, t) for e, t in row.evidence_types(site.evidence).items()},
+            {id(e): (e, t) for e, t in expression_types(site.evidence).items()},
             site.ref,
         )
     windows = {w.ref: w for w in plan.windows}
@@ -441,6 +453,7 @@ def classify(position: ProjectSQLLiteralPosition, policy: ProjectSQLLiteralPolic
             ConditionalExpr,
             MembershipExpr,
             RelationMembershipExpr,
+            ast.AnyExpr,
             CastExpr,
         )
         for parent, _ in position.ancestry

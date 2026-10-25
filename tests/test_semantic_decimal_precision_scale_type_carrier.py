@@ -22,15 +22,15 @@ from pietto.sql import emit_postgres_sql
 
 def test_decimal_precision_scale_facts_are_stored_for_supported_type_sites() -> None:
     script = _parse(
-        "type Money = Decimal(12, 2) not null\n"
-        "constraint valid(amount: Decimal(38, 38) not null) -> Bool not null:\n"
-        "    true\n"
-        "derive keep(amount: Decimal(1, 0) nullable) -> Decimal(10, 2) nullable:\n"
-        "    amount\n"
+        "type Money = Decimal(12, 2)\n"
+        "constraint valid(amount: Decimal(38, 38)) -> Bool:\n"
+        "    return True\n"
+        "derive keep(amount: Decimal(1, 0) | None) -> Decimal(10, 2) | None:\n"
+        "    return amount\n"
         "shape Product:\n"
-        "    price: Decimal(12, 2) not null\n"
-        "    plain: Decimal not null\n"
-        "    empty: Decimal() not null\n"
+        "    price: Decimal(12, 2)\n"
+        "    plain: Decimal\n"
+        "    empty: Decimal()\n"
     )
 
     result = analyze(script)
@@ -63,16 +63,16 @@ def test_decimal_precision_scale_facts_are_stored_for_supported_type_sites() -> 
 
 def test_decimal_precision_scale_facts_propagate_through_safe_alias_chains() -> None:
     script = _parse(
-        "type Money = Decimal(12, 2) not null\n"
-        "type Price = Money not null\n"
-        "type OptionalPrice = Price nullable\n"
-        "type Label = Text(max = 255) not null\n"
+        "type Money = Decimal(12, 2)\n"
+        "type Price = Money\n"
+        "type OptionalPrice = Price\n"
+        "type Label = Text(max = 255)\n"
         "shape Product:\n"
-        "    direct: Decimal(12, 2) nullable\n"
-        "    money: Money not null\n"
-        "    price: Price not null\n"
-        "    optional: OptionalPrice nullable\n"
-        "    label: Label not null\n"
+        "    direct: Decimal(12, 2) | None\n"
+        "    money: Money\n"
+        "    price: Price\n"
+        "    optional: OptionalPrice | None\n"
+        "    label: Label\n"
     )
 
     result = analyze(script)
@@ -104,12 +104,12 @@ def test_decimal_precision_scale_facts_skip_invalid_plain_empty_and_non_decimal(
     None
 ):
     script = _parse(
-        "type Label = Text(max = 32) not null\n"
+        "type Label = Text(max = 32)\n"
         "shape Product:\n"
-        "    invalid: Decimal(0, 0) not null\n"
-        "    plain: Decimal not null\n"
-        "    empty: Decimal() not null\n"
-        "    label: Label not null\n"
+        "    invalid: Decimal(0, 0)\n"
+        "    plain: Decimal\n"
+        "    empty: Decimal()\n"
+        "    label: Label\n"
     )
 
     result = analyze(script)
@@ -129,12 +129,12 @@ def test_decimal_precision_scale_facts_skip_invalid_plain_empty_and_non_decimal(
 
 def test_unknown_non_decimal_and_cyclic_aliases_do_not_create_decimal_facts() -> None:
     script = _parse(
-        "type Label = Text(max = 32) not null\n"
-        "type Loop = Loop not null\n"
+        "type Label = Text(max = 32)\n"
+        "type Loop = Loop\n"
         "shape Product:\n"
-        "    label: Label not null\n"
-        "    missing: Missing not null\n"
-        "    looped: Loop not null\n"
+        "    label: Label\n"
+        "    missing: Missing\n"
+        "    looped: Loop\n"
     )
 
     result = analyze(script)
@@ -161,8 +161,8 @@ def test_decimal_precision_scale_carrier_does_not_expand_public_output_surfaces(
 ):
     source = (
         "shape Product:\n"
-        "    price: Decimal(12, 2) not null\n"
-        'source products: Product is postgres.table("products")\n'
+        "    price: Decimal(12, 2)\n"
+        'source products: Product = postgres.table("products")\n'
         "table projected:\n"
         "    from products\n"
         "    select:\n"
@@ -247,12 +247,12 @@ def _shape_fields(script: Script, name: str) -> dict[str, FieldDef]:
 @pytest.mark.parametrize("precision,scale", ((39, 4), (65, 30), (65, 65)))
 def test_extended_facts_at_existing_sites_and_safe_aliases(precision, scale):
     script = _parse(
-        f"type Money = Decimal({precision}, {scale}) not null\n"
-        "type Price = Money not null\n"
-        "type OptionalPrice = Price nullable\n"
-        f"constraint valid(amount: Decimal({precision}, {scale}) not null) -> Bool not null:\n    true\n"
-        f"derive keep(amount: Decimal({precision}, {scale}) nullable) -> Decimal({precision}, {scale}) nullable:\n    amount\n"
-        f"shape Product:\n    direct: Decimal({precision}, {scale}) nullable\n    price: OptionalPrice nullable\n    plain: Decimal not null\n    empty: Decimal() not null\n"
+        f"type Money = Decimal({precision}, {scale})\n"
+        "type Price = Money\n"
+        "type OptionalPrice = Price\n"
+        f"constraint valid(amount: Decimal({precision}, {scale})) -> Bool:\n    return True\n"
+        f"derive keep(amount: Decimal({precision}, {scale}) | None) -> Decimal({precision}, {scale}) | None:\n    return amount\n"
+        f"shape Product:\n    direct: Decimal({precision}, {scale}) | None\n    price: OptionalPrice | None\n    plain: Decimal\n    empty: Decimal()\n"
     )
     result = analyze(script)
     assert result.diagnostics == ()

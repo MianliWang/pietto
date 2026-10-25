@@ -94,15 +94,15 @@ BOOL_NON_NULL = TypeRefIR(
 
 BASE_SHAPE = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal not null\n"
-    "    active: Bool not null\n"
+    "    region: Text\n"
+    "    status: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    active: Bool\n"
 )
 
 
@@ -470,7 +470,7 @@ def _source(
 ) -> str:
     group_block = "    group by:\n        region\n" if grouped else ""
     satisfying_block = (
-        f"    satisfying:\n        {satisfying}\n" if satisfying is not None else ""
+        f"    having:\n        {satisfying}\n" if satisfying is not None else ""
     )
     order_block = ""
     if order_by:
@@ -478,7 +478,7 @@ def _source(
         order_block = f"    order by:\n{order_items}"
     limit_block = "" if limit is None else f"    limit {limit}\n"
     return (
-        BASE_SHAPE + f'source orders: Order is {connector}("{table_name}")\n'
+        BASE_SHAPE + f'source orders: Order = {connector}("{table_name}")\n'
         "table aggregate_stats:\n"
         "    from orders\n"
         f"{group_block}"

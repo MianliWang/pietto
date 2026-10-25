@@ -1,6 +1,6 @@
 shape User:
-    id: UUID not null
-    email: Text nullable
+    id: UUID
+    email: Text | None
 
-source users: User is postgres.table("public.users")
-source raw_events is postgres.table("public.events")
+source users: User =  postgres.table("public.users")
+source raw_events =  postgres.table("public.events")

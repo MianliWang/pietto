@@ -11,6 +11,7 @@ from pietto._project.project_compiled_schema import (
     executed_operations,
     scalar_read_port,
     Address,
+    any_context,
     CompiledError,
     Description,
     FIELDS,
@@ -24,6 +25,9 @@ from pietto._project.project_compiled_schema import (
     VERSIONS,
     declaration_values,
     row_bindings,
+    predicate_binding_position,
+    predicate_identity,
+    positive_equalities,
     scalar_wire,
     selected_relations,
     unit_captured_reads,
@@ -629,15 +633,18 @@ def verify_description(value: Description) -> None:
             ref(get("parameter"), {"parameter"})
         elif kind == "read":
             port = ref(get("port"), {"port"})
-            use = ref(get("use"), {"use"})
+            use = ref(
+                get("use"),
+                {"expression_block_use"} if get("role") == "any" else {"use"},
+            )
             need(
                 port is not None
                 and use is not None
-                and port.address in use.get("ports"),
+                and (get("role") == "any" or port.address in use.get("ports")),
                 "READ_USE",
             )
             need(port.get("owner") == use.get("producer"), "READ_PRODUCER")
-            need(get("role") in ("value", "capture"), "READ_ROLE")
+            need(get("role") in ("value", "capture", "any"), "READ_ROLE")
         elif kind == "site":
             ref(get("owner"), {"declaration"})
             need(
@@ -879,6 +886,23 @@ def verify_description(value: Description) -> None:
                     and (read.get("use"), read.get("port")) == pair,
                     "JOIN_OUTPUT_PORT",
                 )
+        elif kind == "any_filter":
+            ref(get("join"), {"join"})
+        elif kind == "any_value":
+            ref(get("read"), {"expression_block_use"})
+        elif kind == "predicate_call":
+            ref(get("owner"), {"row", "join"})
+            refs(get("arguments"), {"predicate_argument"})
+            refs(get("equalities"), {"operation"})
+            for name in ("root", "expression"):
+                ref(
+                    get(name),
+                    {"read", "operation", "literal", "null_literal", "parameter_read"},
+                )
+        elif kind == "predicate_argument":
+            ref(get("call"), {"predicate_call"})
+            ref(get("use"), {"use", "expression_block_use"})
+            refs(get("ports"), {"port"})
         elif kind == "join_value":
             ref(get("owner"), {"join"})
             ref(get("input"), {"read"})
@@ -1253,7 +1277,7 @@ def verify_description(value: Description) -> None:
                 "conditional": ({"if_else"}, 3),
                 "membership": ({"in", "not_in"}, None),
                 "cast": ({"int_to_float"}, 1),
-                "exists": ({"exists"}, 0),
+                "exists": ({"exists"}, None),
                 "scalar": ({"scalar"}, 0),
                 "relation_membership": ({"in", "not_in"}, 1),
                 "scalar_call": (
@@ -1294,6 +1318,7 @@ def verify_description(value: Description) -> None:
                 type(operands) is tuple
                 and (expected_arity is None or len(operands) == expected_arity)
                 and (role != "membership" or len(operands) >= 1)
+                and (role != "exists" or len(operands) <= 1)
                 and (role != "scalar_call" or len(operands) >= 1),
                 "OPERATOR_ARITY",
             )
@@ -1735,7 +1760,535 @@ def verify_description(value: Description) -> None:
                     for item in reversed((*incoming[current], *reads[current]))
                 )
 
+    _verify_any_records(records)
+    _verify_predicate_records(records, _verify_any_scopes(records))
     _verify_compiled_contract(records, entry, contract_data, family)
+
+
+def _source_identity(value):
+    return (
+        type(value) is tuple
+        and len(value) == 6
+        and type(value[0]) is str
+        and all(type(v) is int and v >= 1 for v in value[1:5])
+        and (value[5] is None or type(value[5]) is str)
+    )
+
+
+def _verify_any_records(records):
+    if Address("any_filter", 0) not in records:
+        return
+    filters = tuple(r for r in records.values() if r.address.kind == "any_filter")
+    counts, previous, seen = {}, {}, set()
+    totals = Counter(records[r.get("join")].get("owner") for r in filters)
+    joins = Counter(
+        r.get("owner") for r in records.values() if r.address.kind == "join"
+    )
+    for record in filters:
+        join = records[record.get("join")]
+        owner, ordinal = join.get("owner"), join.get("ordinal")
+        need(
+            join.address not in seen
+            and join.get("kind") in ("semi", "anti")
+            and type(ordinal) is int
+            and ordinal > previous.get(owner, -1),
+            "ANY_STAGE",
+        )
+        seen.add(join.address)
+        previous[owner] = ordinal
+        count = counts.get(owner, 0)
+        need(
+            type(record.get("prefix")) is int
+            and record.get("prefix") >= 0
+            and record.get("prefix") == ordinal - count,
+            "ANY_PREFIX",
+        )
+        counts[owner] = count + 1
+        need(
+            record.get("context") == "join_filter"
+            and record.get("prefix") < joins[owner] - totals[owner],
+            "ANY_CONTEXT",
+        )
+        location, context = record.get("location"), record.get("context_location")
+        need(
+            _source_identity(location)
+            and _source_identity(context)
+            and location[5] is None
+            and context[5] is None
+            and location[0] == context[0]
+            and context[1:3] <= location[1:3] <= location[3:5] <= context[3:5],
+            "ANY_LOCATION",
+        )
+
+
+def verify_any_export(records, plan, values=None):
+    """Bind the complete ordered generator inventory to actual normalized stages."""
+    from pietto.ast_nodes import JoinFilterClause
+    from pietto._project.project_sql_plan_expressions import ProjectSQLAny
+
+    actual = tuple(r for r in records.values() if r.address.kind == "any_filter")
+    need(len(actual) == len(plan.existence_generators), "EXPORT_ANY_INVENTORY")
+    for described, use in zip(actual, plan.existence_generators, strict=True):
+        joins = tuple(
+            join
+            for join in plan.joins
+            if join.source.condition.use.clause is use.clause
+        )
+        need(
+            type(use.context) is JoinFilterClause and len(joins) == 1,
+            "EXPORT_ANY_STAGE",
+        )
+        join = joins[0]
+        owners = tuple(
+            definition.entry.owner
+            for definition in plan.bindings.definitions
+            if definition.ref is join.definition
+        )
+        need(len(owners) == 1, "EXPORT_ANY_OWNER")
+        stage = records[described.get("join")]
+        need(
+            stage.address.kind == "join"
+            and records[stage.get("owner")].values == declaration_values(owners[0])
+            and stage.get("ordinal") == join.position == use.input_ordinal - 1
+            and join.source.condition.use.identity.join_position
+            == use.input_ordinal - 1
+            and stage.get("kind") == use.clause.kind.value
+            and described.get("location") == predicate_identity(use.expression)
+            and described.get("context") == "join_filter"
+            and described.get("context_location") == predicate_identity(use.context)
+            and described.get("prefix") == use.preceding_join_count,
+            "EXPORT_ANY_OCCURRENCE",
+        )
+    actual_values = tuple(r for r in records.values() if r.address.kind == "any_value")
+    expressions = tuple(
+        item for item in plan.expressions if type(item) is ProjectSQLAny
+    )
+    need(len(actual_values) == len(expressions), "EXPORT_ANY_VALUE_INVENTORY")
+    for record, expression in zip(actual_values, expressions, strict=True):
+        origin = expression.evidence.input.binding.origin
+        need(
+            any(origin is item for item in plan.scalar_existence_generators),
+            "EXPORT_ANY_VALUE_ORIGIN",
+        )
+        if values is None or expression.ref not in values:
+            raise CompiledError("COMPILED_EXPORT_ANY_VALUE_EXPRESSION")
+        read = records[record.get("read")]
+        need(
+            read.get("operation") == values[expression.ref][0]
+            and record.get("location") == predicate_identity(origin.authored_expression)
+            and record.get("context") == any_context(origin.authored_context)
+            and record.get("context_location")
+            == predicate_identity(origin.authored_context)
+            and record.get("prefix") == origin.authored_join_count,
+            "EXPORT_ANY_VALUE_OCCURRENCE",
+        )
+
+
+def _verify_any_scopes(records):
+    """Verify every lexical path; an ancestor input cannot become a sibling."""
+    blocks = {
+        r.get("operation"): r.address
+        for r in records.values()
+        if r.address.kind == "expression_block_use"
+    }
+    scopes = {}
+    for owner in (
+        r for r in records.values() if r.address.kind in RELATIONS - {"source"}
+    ):
+        pending: list[tuple[Any, tuple[Address, ...]]] = [(owner.values, ())]
+        seen: set[tuple[Address, tuple[Address, ...]]] = set()
+        while pending:
+            value, active = pending.pop()
+            if type(value) is tuple:
+                pending.extend((item, active) for item in reversed(value))
+                continue
+            if type(value) is not Address or (value, active) in seen:
+                continue
+            seen.add((value, active))
+            if value.kind not in (
+                "operation",
+                "read",
+                "literal",
+                "null_literal",
+                "parameter_read",
+                "aggregate_value",
+                "window_value",
+                "set_value",
+                "join_value",
+            ):
+                continue
+            record = records[value]
+            scopes.setdefault(value, set()).add((owner.address, active))
+            if value.kind in ("literal", "null_literal", "parameter_read"):
+                continue
+            if value.kind == "read":
+                if record.get("role") == "any":
+                    use = record.get("use")
+                    need(
+                        use in active and records[use].get("consumer") == owner.address,
+                        "ANY_SCOPE",
+                    )
+                continue
+            if value.kind == "operation":
+                operands = record.get("operands")
+                if record.get("operator") == ("exists", "exists") and operands:
+                    block = blocks[value]
+                    need(
+                        records[block].get("consumer") == owner.address, "ANY_CONSUMER"
+                    )
+                    active = (*active, block)
+                pending.extend((item, active) for item in reversed(operands))
+            else:
+                pending.append((record.values, active))
+    need(
+        all(
+            r.address in scopes
+            for r in records.values()
+            if r.address.kind == "read" and r.get("role") == "any"
+        ),
+        "ANY_READ_INVENTORY",
+    )
+    values = tuple(r for r in records.values() if r.address.kind == "any_value")
+    described = {r.get("read"): r for r in values}
+    expected = {
+        block
+        for operation, block in blocks.items()
+        if records[operation].get("operator") == ("exists", "exists")
+        and records[operation].get("operands")
+    }
+    need(
+        len(described) == len(values) and set(described) == expected,
+        "ANY_VALUE_INVENTORY",
+    )
+    for block, record in described.items():
+        read = records[block]
+        consumer = records[read.get("consumer")]
+        owner = consumer.get("owner")
+        need(consumer.address.kind in ("row", "join"), "ANY_VALUE_CONSUMER")
+        prefix = (
+            consumer.get("ordinal") + 1
+            if consumer.address.kind == "join"
+            else sum(
+                r.address.kind == "join" and r.get("owner") == owner
+                for r in records.values()
+            )
+        )
+        prefix -= sum(
+            r.address.kind == "any_filter"
+            and records[r.get("join")].get("owner") == owner
+            and records[r.get("join")].get("ordinal") < prefix
+            for r in records.values()
+        )
+        need(
+            type(record.get("prefix")) is int and record.get("prefix") == prefix,
+            "ANY_VALUE_PREFIX",
+        )
+        location, context = record.get("location"), record.get("context_location")
+        need(
+            _source_identity(location)
+            and _source_identity(context)
+            and location[5] is None
+            and location[0] == context[0]
+            and context[1:3] <= location[1:3] <= location[3:5] <= context[3:5],
+            "ANY_VALUE_LOCATION",
+        )
+        role = record.get("context")
+        need(role in ("on", "where", "select", "let", "any"), "ANY_VALUE_CONTEXT")
+        if role == "any":
+            for _, active in scopes[read.get("operation")]:
+                parents = tuple(described[parent] for parent in active[-1:])
+                if not parents and consumer.address.kind == "join":
+                    parents = tuple(
+                        r
+                        for r in records.values()
+                        if r.address.kind == "any_filter"
+                        and r.get("join") == consumer.address
+                    )
+                need(
+                    len(parents) == 1 and parents[0].get("location") == context,
+                    "ANY_VALUE_PARENT",
+                )
+        else:
+            need(
+                (consumer.address.kind == "join" and role == "on")
+                or (
+                    consumer.address.kind == "row"
+                    and consumer.get("stage")
+                    == {"where": "where", "select": "projection", "let": "let"}.get(
+                        role
+                    )
+                ),
+                "ANY_VALUE_CONTEXT",
+            )
+    return scopes
+
+
+def _verify_predicate_records(records, scopes):
+    """Call evidence is closed over actual scalar trees and exact row uses."""
+    calls = tuple(r for r in records.values() if r.address.kind == "predicate_call")
+    arguments = tuple(
+        r.address for r in records.values() if r.address.kind == "predicate_argument"
+    )
+    seen_arguments, identities, templates = [], set(), {}
+
+    def identity(value):
+        need(
+            _source_identity(value),
+            "PREDICATE_IDENTITY",
+        )
+
+    def subtree(root):
+        found, pending = set(), [root]
+        while pending:
+            address = pending.pop()
+            if address in found:
+                continue
+            found.add(address)
+            if address.kind == "operation":
+                pending.extend(records[address].get("operands"))
+        return found
+
+    for call in calls:
+        owner = records[call.get("owner")]
+        role = call.get("role")
+        need(owner.address.kind in ("row", "join"), "PREDICATE_OWNER")
+        need(role in ("on", "where", "select", "let"), "PREDICATE_ROLE")
+        need(
+            all(
+                type(call.get(n)) is int and call.get(n) >= 0
+                for n in ("site", "ordinal")
+            ),
+            "PREDICATE_ORDINAL",
+        )
+        key = (owner.address, role, call.get("site"), call.get("ordinal"))
+        need(key not in identities, "PREDICATE_OCCURRENCE")
+        identities.add(key)
+        identity(call.get("template"))
+        identity(call.get("location"))
+        root = call.get("root")
+        if role == "on":
+            need(
+                owner.address.kind == "join" and root == owner.get("predicate"),
+                "PREDICATE_ROOT",
+            )
+        elif role == "where":
+            need(
+                owner.address.kind == "row" and root == owner.get("predicate"),
+                "PREDICATE_ROOT",
+            )
+        else:
+            need(
+                owner.address.kind == "row" and root in owner.get("values"),
+                "PREDICATE_ROOT",
+            )
+        need(call.get("expression") in subtree(root), "PREDICATE_EXPANSION")
+        uses = tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "use" and r.get("consumer") == owner.address
+        )
+        uses += tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "expression_block_use"
+            and r.get("consumer") == owner.address
+            and scopes.get(call.get("expression"))
+            and all(
+                consumer == owner.address and r.address in active
+                for consumer, active in scopes[call.get("expression")]
+            )
+        )
+        described = call.get("arguments")
+        need(type(described) is tuple, "PREDICATE_ARGUMENTS")
+        signature, supplied = [], set()
+        for ordinal, address in enumerate(described):
+            argument = records[address]
+            need(
+                address.kind == "predicate_argument"
+                and argument.get("call") == call.address
+                and argument.get("ordinal") == ordinal,
+                "PREDICATE_ARGUMENT",
+            )
+            seen_arguments.append(address)
+            need(
+                type(argument.get("parameter")) is str
+                and bool(argument.get("parameter")),
+                "PREDICATE_PARAMETER",
+            )
+            identity(argument.get("shape"))
+            signature.append((argument.get("parameter"), argument.get("shape")))
+            use, ports = argument.get("use"), argument.get("ports")
+            need(
+                use in uses
+                and type(ports) is tuple
+                and bool(ports)
+                and ports in row_bindings(records, use),
+                "PREDICATE_BINDING",
+            )
+            need(
+                type(argument.get("binding")) is int
+                and argument.get("binding")
+                == predicate_binding_position(records, use, ports),
+                "PREDICATE_BINDING",
+            )
+            supplied.update((use, port) for port in ports)
+        signature = tuple(signature)
+        need(
+            len({name for name, _ in signature}) == len(signature),
+            "PREDICATE_PARAMETER",
+        )
+        prior = templates.setdefault(call.get("template"), signature)
+        need(prior == signature, "PREDICATE_TEMPLATE")
+        for address in subtree(call.get("expression")):
+            if address.kind == "read":
+                read = records[address]
+                need((read.get("use"), read.get("port")) in supplied, "PREDICATE_READ")
+        positive = (
+            {item.address for item in positive_equalities(records, root)}
+            if role in ("on", "where")
+            else set()
+        )
+        expected = tuple(
+            item.address
+            for item in positive_equalities(records, call.get("expression"))
+            if item.address in positive
+        )
+        need(call.get("equalities") == expected, "PREDICATE_EQUALITIES")
+    need(tuple(seen_arguments) == arguments, "PREDICATE_ARGUMENT_INVENTORY")
+
+
+def verify_predicate_export(records, plan, values):
+    """Independently bind every compact call back to its source site and uses."""
+    from pietto._project.project_sql_plan import (
+        predicate_expression,
+        predicate_bindings,
+    )
+    from pietto._project.existence_values import ProjectAnyRowBinding
+    from pietto._project.project_sql_plan_expressions import ProjectSQLAny
+
+    actual = tuple(r for r in records.values() if r.address.kind == "predicate_call")
+    expected = []
+    for site in plan.expression_sites:
+        predicate = predicate_expression(site)
+        if predicate is None or not predicate.calls:
+            continue
+        expressions = {
+            id(item.expression): item.ref
+            for item in plan.expressions
+            if item.site is site
+        }
+
+        def value(node):
+            reference = expressions.get(id(node))
+            need(reference in values, "EXPORT_PREDICATE_EXPRESSION")
+            return values[reference]
+
+        root, uses = value(predicate.expression)
+        bindings = predicate_bindings(site)
+        groups = tuple(
+            (use, ports) for use in uses for ports in row_bindings(records, use)
+        )
+        need(
+            len(bindings) == len(groups)
+            or not any(
+                type(binding) is not ProjectAnyRowBinding
+                for arguments in predicate.argument_bindings
+                for binding in arguments
+            ),
+            "EXPORT_PREDICATE_BINDINGS",
+        )
+        for call, bindings_here in zip(
+            predicate.calls, predicate.argument_bindings, strict=True
+        ):
+            parent = predicate.parent
+            if parent is not None:
+                need(
+                    parent.parent is None
+                    and parent.owner is predicate.owner
+                    and parent.context is predicate.context
+                    and any(
+                        call is original and bindings_here is original_bindings
+                        for original, original_bindings in zip(
+                            parent.calls, parent.argument_bindings, strict=True
+                        )
+                    ),
+                    "EXPORT_PREDICATE_PARENT",
+                )
+            need(len(expected) < len(actual), "EXPORT_PREDICATE_INVENTORY")
+            described = actual[len(expected)]
+            expected.append(described.address)
+            owner = {records[use].get("consumer") for use in uses}
+            need(
+                len(owner) == 1
+                and described.get("owner") in owner
+                and described.get("role")
+                == ("on" if site.role.value == "match" else site.role.value)
+                and described.get("site") == site.ordinal
+                and described.get("ordinal") == call.ordinal
+                and described.get("template")
+                == predicate_identity(call.template.declaration)
+                and described.get("location") == predicate_identity(call.call)
+                and described.get("root") == root
+                and described.get("expression") == value(call.expanded)[0]
+                and described.get("equalities")
+                == tuple(value(item)[0] for item in call.mandatory_equalities)
+                and len(described.get("arguments")) == len(call.arguments),
+                "EXPORT_PREDICATE_CALL",
+            )
+            for ordinal, (address, argument, binding) in enumerate(
+                zip(
+                    described.get("arguments"),
+                    call.arguments,
+                    bindings_here,
+                    strict=True,
+                )
+            ):
+                if type(binding) is ProjectAnyRowBinding:
+                    local = tuple(
+                        item
+                        for item in plan.expression_block_uses
+                        if item.expression is binding.expression
+                    )
+                    operations = tuple(
+                        values[item.ref][0]
+                        for item in plan.expressions
+                        if type(item) is ProjectSQLAny
+                        and len(local) == 1
+                        and item.use is local[0].ref
+                        and item.ref in values
+                    )
+                    uses_here = tuple(
+                        item.address
+                        for item in records.values()
+                        if item.address.kind == "expression_block_use"
+                        and item.get("operation") in operations
+                    )
+                    need(len(uses_here) == 1, "EXPORT_PREDICATE_BINDING")
+                    use = uses_here[0]
+                    (ports,) = row_bindings(records, use)
+                else:
+                    positions = tuple(
+                        i for i, item in enumerate(bindings) if item is binding
+                    )
+                    need(len(positions) == 1, "EXPORT_PREDICATE_BINDING")
+                    use, ports = groups[positions[0]]
+                position = getattr(
+                    getattr(binding, "identity", None), "binding_position", 0
+                )
+                need(
+                    records[address].values
+                    == (
+                        described.address,
+                        ordinal,
+                        argument.parameter.name,
+                        predicate_identity(argument.shape),
+                        position,
+                        use,
+                        ports,
+                    ),
+                    "EXPORT_PREDICATE_ARGUMENT",
+                )
+    need(len(expected) == len(actual), "EXPORT_PREDICATE_INVENTORY")
 
 
 def _verify_compiled_contract(
@@ -2078,6 +2631,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         BetweenExpr,
         CallExpr,
         RelationMembershipExpr,
+        AnyExpr,
     )
 
     parent_kinds = {
@@ -2090,6 +2644,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         ConditionalExpr: "conditional",
         MembershipExpr: "membership",
         RelationMembershipExpr: "relation_membership",
+        AnyExpr: "exists",
         CastExpr: "cast",
     }
     expected_declarations = {}
@@ -2454,7 +3009,14 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 "EXPORT_READ_PORT",
             )
 
+    predicate_values = {}
+    any_inputs = {}
+
     def check_scalar(address, actual, producer, use, join_contexts=None):
+        predicate_values[actual.original.ref] = (
+            address,
+            tuple(item[2] for item in join_contexts) if join_contexts else (use,),
+        )
         record = records[address]
         if type(actual) is rows.SQLCapturedReference:
             # A captured field reads the reading body's own input row.
@@ -2462,6 +3024,23 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             outer_producer, outer_use = capture_context[-1]
             check_read(address, actual.column, outer_producer, outer_use, "capture")
         elif type(actual) is rows.SQLStageReference:
+            from pietto._project.project_sql_plan_expressions import (
+                ProjectSQLAnyReference,
+            )
+
+            if (
+                type(actual.original) is ProjectSQLAnyReference
+                and actual.original.use is not None
+            ):
+                local = any_inputs.get(actual.original.use)
+                if local is None:
+                    raise CompiledError("COMPILED_EXPORT_ANY_SCOPE")
+                need(
+                    actual.scope is local[0].symbol,
+                    "EXPORT_ANY_SCOPE",
+                )
+                check_read(address, actual.column, local[0].producer, local[1], "any")
+                return
             if join_contexts is not None:
                 matches = tuple(
                     (p, u) for symbol, p, u in join_contexts if symbol is actual.scope
@@ -2564,8 +3143,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             # the live read's consumer, producer, occurrence, read or compared
             # column and generated alias.
             need(
-                join_contexts is None
-                and record.address.kind == "operation"
+                record.address.kind == "operation"
                 and record.get("operator")
                 == (
                     (actual.kind, actual.kind)
@@ -2573,12 +3151,15 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                     else ("relation_membership", actual.kind)
                 )
                 and record.get("operator") in BLOCK_READ_OPERATORS
-                and len(record.get("operands")) == len(actual.operands)
+                and len(record.get("operands"))
+                == len(actual.operands) + (actual.predicate is not None)
                 and len(actual.operands) == (actual.kind in ("in", "not_in")),
                 "EXPORT_BLOCK_READ",
             )
             for child, expected in zip(
-                record.get("operands"), actual.operands, strict=True
+                record.get("operands")[: len(actual.operands)],
+                actual.operands,
+                strict=True,
             ):
                 check_scalar(child, expected, producer, use, join_contexts)
             matches = tuple(
@@ -2589,6 +3170,18 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             )
             need(len(matches) == 1, "EXPORT_BLOCK_READ")
             target = actual.target
+            if actual.predicate is not None:
+                any_inputs[target.use.ref] = (target, matches[0].address)
+                try:
+                    check_scalar(
+                        record.get("operands")[-1],
+                        actual.predicate,
+                        producer,
+                        use,
+                        join_contexts,
+                    )
+                finally:
+                    del any_inputs[target.use.ref]
             expected_producer = (
                 source_map.get(id(target.producer))
                 if target.source is not None
@@ -2604,7 +3197,9 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 and matches[0].values
                 == (
                     address,
-                    records[use].get("consumer"),
+                    records[join_contexts[0][2] if join_contexts else use].get(
+                        "consumer"
+                    ),
                     expected_producer,
                     actual.column,
                 ),
@@ -3312,6 +3907,8 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 ),
                 "EXPORT_PROVIDER_REQUIREMENT",
             )
+    verify_any_export(records, original.plan, predicate_values)
+    verify_predicate_export(records, original.plan, predicate_values)
     verify_requirement_export(records, artifact, check_declaration)
     check_declaration(entry.get("declaration"), original.verification.selected_owner)
     need(
@@ -3602,6 +4199,7 @@ def _verify_compiled_emission(artifact, request):
     current_bodies: list[Any] = []
     capture_scopes: list[tuple[Any, Any, Any, Any]] = []
     captured = captured_reads(records)
+    lexical_any = {}
 
     def column_name(body, index):
         # A CTE column is read by its generated name, an inline column by label.
@@ -3687,7 +4285,35 @@ def _verify_compiled_emission(artifact, request):
     def scalar(actual, address, producer, use, join_contexts=None):
         record = records[address]
         expected_original = plan.expressions[address]
-        if address.kind == "read" and record.get("role") == "capture":
+        if address.kind == "read" and record.get("role") == "any":
+            local = lexical_any.get(record.get("use"))
+            if local is None:
+                raise CompiledError("COMPILED_EMISSION_ANY_REFERENCE")
+            port = records[record.get("port")]
+            need(
+                type(actual) is rows.SQLStageReference
+                and actual.original is expected_original
+                and actual.port is refs[port.address]
+                and port.get("owner") == local[0]
+                and actual.scope is local[1]
+                and actual.column.scope is local[1]
+                and actual.column.terminal is refs[port.address]
+                and actual.realization is facts[address].realization,
+                "EMISSION_ANY_REFERENCE",
+            )
+            if local[0] in sources:
+                field = sources[local[0]].fields[port.get("ordinal")]
+                need(
+                    actual.column.field is field and actual.column.name == field.column,
+                    "EMISSION_ANY_SOURCE",
+                )
+            else:
+                need(
+                    actual.column.name
+                    == column_name(observed_bodies[local[0]], port.get("ordinal")),
+                    "EMISSION_ANY_OUTPUT",
+                )
+        elif address.kind == "read" and record.get("role") == "capture":
             need(join_contexts is None, "EMISSION_CAPTURE_SCOPE")
             check_capture_read(actual, address)
         elif address.kind == "read":
@@ -3812,6 +4438,7 @@ def _verify_compiled_emission(artifact, request):
             children = record.get("operands")
             if (role, token) in BLOCK_READ_OPERATORS:
                 operand_free = role != "relation_membership"
+                predicate_read = role == "exists" and bool(children)
                 described = tuple(
                     r
                     for r in records.values()
@@ -3819,22 +4446,25 @@ def _verify_compiled_emission(artifact, request):
                     and r.get("operation") == address
                 )
                 need(
-                    len(described) == 1 and len(children) == (0 if operand_free else 1),
+                    len(described) == 1
+                    and len(children)
+                    == (1 if predicate_read or not operand_free else 0),
                     "EMISSION_BLOCK_READ",
                 )
                 block_use = described[0]
                 target = actual.target
+                compared = () if predicate_read else children
                 producer_address = block_use.get("producer")
                 inline = producer_address in inline_units
                 if inline:
                     need(
                         type(actual) is rows.SQLBlockRead
                         and type(target) is rows.SQLBlockTarget
-                        and len(actual.operands) == len(children),
+                        and len(actual.operands) == len(compared),
                         "EMISSION_BLOCK_READ",
                     )
                     # A membership read renders its left value before the let.
-                    for operand, child in zip(actual.operands, children, strict=True):
+                    for operand, child in zip(actual.operands, compared, strict=True):
                         scalar(operand, child, producer, use, join_contexts)
                     check_inline(actual, block_use, use, producer)
                 need(
@@ -3842,9 +4472,14 @@ def _verify_compiled_emission(artifact, request):
                     and actual.original is plan.expression_identities[address]
                     and actual.kind == token
                     and actual.column == block_use.get("column")
-                    and len(actual.operands) == len(children)
+                    and len(actual.operands) == len(compared)
+                    and (actual.predicate is not None) is predicate_read
                     and actual.realization is facts[address].realization
-                    and records[use].get("consumer") == block_use.get("consumer")
+                    and {
+                        records[u].get("consumer")
+                        for u in (tuple(join_contexts) if join_contexts else (use,))
+                    }
+                    == {block_use.get("consumer")}
                     and type(target) is rows.SQLBlockTarget
                     and target.use.ref is refs[block_use.address]
                     and target.symbol.binding is target.use.ref
@@ -3861,8 +4496,16 @@ def _verify_compiled_emission(artifact, request):
                     "EMISSION_BLOCK_READ",
                 )
                 if not inline:
-                    for operand, child in zip(actual.operands, children, strict=True):
+                    for operand, child in zip(actual.operands, compared, strict=True):
                         scalar(operand, child, producer, use, join_contexts)
+                if predicate_read:
+                    lexical_any[block_use.address] = (producer_address, target.symbol)
+                    try:
+                        scalar(
+                            actual.predicate, children[0], producer, use, join_contexts
+                        )
+                    finally:
+                        del lexical_any[block_use.address]
                 return
             if type(actual) is parameters.SQLUnary:
                 need(
@@ -5370,6 +6013,7 @@ def verify_logical_export(description, checked, references):
         syntax.ConditionalExpr: "conditional",
         syntax.MembershipExpr: "membership",
         syntax.RelationMembershipExpr: "relation_membership",
+        syntax.AnyExpr: "exists",
         syntax.CastExpr: "cast",
     }
     literal_addresses = {}
@@ -5427,6 +6071,7 @@ def verify_logical_export(description, checked, references):
     captures = {c.ref: c for c in plan.captures}
     captured_definitions = {c.inner for c in plan.captures}
     plan_blocks = {b.ref: b for b in plan.blocks}
+    any_inputs = {}
 
     def port(reference):
         visited = set()
@@ -5465,7 +6110,10 @@ def verify_logical_export(description, checked, references):
                 break
             current = item.source
 
+    predicate_values = {}
+
     def expression(address, original_ref, uses):
+        predicate_values[original_ref] = (address, uses)
         record, original = records[address], expressions[original_ref]
         need(
             type(original)
@@ -5490,9 +6138,31 @@ def verify_logical_export(description, checked, references):
                 scalar.ProjectSQLRelationScalar,
                 scalar.ProjectSQLRelationMembership,
                 scalar.ProjectSQLCapturedField,
+                scalar.ProjectSQLAny,
+                scalar.ProjectSQLAnyReference,
             ),
             "RETAINED_EXPRESSION_DOMAIN",
         )
+        if type(original) is scalar.ProjectSQLAnyReference:
+            if original.use is None:
+                read(address, original.port, uses)
+            else:
+                local = any_inputs.get(original.use)
+                edge = block_uses.get(original.use)
+                definition = None if edge is None else source_defs.get(edge.producer)
+                need(
+                    local is not None
+                    and definition is not None
+                    and type(original.position) is int
+                    and 0 <= original.position < len(definition.exports)
+                    and record.address.kind == "read"
+                    and record.get("role") == "any"
+                    and record.get("use") == local
+                    and record.get("port")
+                    == port(definition.exports[original.position].ref),
+                    "RETAINED_ANY_REFERENCE",
+                )
+            return
         if type(original) is scalar.ProjectSQLCapturedField:
             # A captured field reads the reading body's input row through
             # that body's own use.
@@ -5593,6 +6263,8 @@ def verify_logical_export(description, checked, references):
             inputs = (original.value,)
         elif type(original) is scalar.ProjectSQLRelationExists:
             expected, inputs = ("exists", "exists"), ()
+        elif type(original) is scalar.ProjectSQLAny:
+            expected, inputs = ("exists", "exists"), (original.predicate,)
         elif type(original) is scalar.ProjectSQLRelationScalar:
             expected, inputs = ("scalar", "scalar"), ()
         elif type(original) is scalar.ProjectSQLRelationMembership:
@@ -5615,6 +6287,7 @@ def verify_logical_export(description, checked, references):
                 scalar.ProjectSQLRelationExists,
                 scalar.ProjectSQLRelationScalar,
                 scalar.ProjectSQLRelationMembership,
+                scalar.ProjectSQLAny,
             ),
         ):
             # The one block use of this read names the actual plan edge's
@@ -5657,8 +6330,14 @@ def verify_logical_export(description, checked, references):
                 "RETAINED_CAPTURE",
             )
             read_edges.add(original.use)
-        for child, ref in zip(record.get("operands"), inputs, strict=True):
-            expression(child, ref, uses)
+            if type(original) is scalar.ProjectSQLAny:
+                any_inputs[original.use] = described[0].address
+        try:
+            for child, ref in zip(record.get("operands"), inputs, strict=True):
+                expression(child, ref, uses)
+        finally:
+            if type(original) is scalar.ProjectSQLAny:
+                del any_inputs[original.use]
 
     def outputs(record):
         result = tuple(records[a] for a in record.get("outputs"))
@@ -6262,6 +6941,8 @@ def verify_logical_export(description, checked, references):
         and entry.get("exports") == tuple(ports[p.ref] for p in selected.exports),
         "RETAINED_TERMINAL",
     )
+    verify_any_export(records, plan, predicate_values)
+    verify_predicate_export(records, plan, predicate_values)
     expected_requests = tuple(
         r
         for r in checked.completed.single_match_requests

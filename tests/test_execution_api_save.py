@@ -55,8 +55,8 @@ def test_save_refuses_wrong_values_before_any_workspace_control_write(
 
 
 SINCE = (
-    "\nquery since(low: Int not null, note: Text nullable):\n    from items\n"
-    "    where id > low and (note is null or label != note)\n    select:\n"
+    "\nquery since(low: Int, note: Text | None):\n    from items\n"
+    "    where id > low and (note is None or label != note)\n    select:\n"
     "        id\n        next = low + 1\n"
 )
 
@@ -538,30 +538,28 @@ def test_replayed_save_operation_is_read_only_before_claim_or_generation(
 VALUES_JOIN = """
 query tagged:
     let tags:
-        values(tid: Int not null, tag: Text not null):
+        values(tid: Int, tag: Text):
             1, "one"
             2, "two"
     from items
-    inner join tags as t:
-        from items
-        on items.id == t.tid
+    let t = tags
+    inner join t on items.id == t.tid
     select:
         id
         tag = t.tag
 """
 VALUES_ONLY = """
 query tagged:
-    values(tid: Int not null, tag: Text not null):
+    values(tid: Int, tag: Text):
         1, "one"
 """
 MYSQL_VALUES_JOIN = """query tagged:
     let tags:
-        values(tid: Int not null, tag: Text not null):
+        values(tid: Int, tag: Text):
             1, "one"
     from lhs
-    inner join tags as t:
-        from lhs
-        on lhs.id == t.tid
+    let t = tags
+    inner join t on lhs.id == t.tid
     select:
         id = lhs.id
         tag = t.tag
@@ -599,7 +597,7 @@ def values_query(directory, case):
 
 
 HEADER_SINCE = """
-query since(low: Int not null):
+query since(low: Int):
     from items
     where id > low and id < low + low
     select:
@@ -794,9 +792,8 @@ query tagged:
         select:
             n
     from items
-    inner join steps as s:
-        from items
-        on items.id == s.n
+    let s = steps
+    inner join s on items.id == s.n
     select:
         id
         step = s.n

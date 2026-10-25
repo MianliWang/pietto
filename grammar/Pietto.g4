@@ -8,7 +8,7 @@ tokens {
 // A run of blank lines belongs to exactly one NEWLINE loop, so no decision
 // reads ahead over the whole run again for each of its lines.
 script
-    : (NEWLINE* header)? NEWLINE* ((definition | relationshipDefinition | moduleStatement) NEWLINE*)* EOF
+    : (NEWLINE* header)? NEWLINE* ((definition | relationshipDefinition | relationshipTemplate | moduleStatement) NEWLINE*)* EOF
     ;
 
 header
@@ -54,6 +54,16 @@ relationshipDefinition
     | RELATIONSHIP identifier COLON expression NEWLINE
     ;
 
+// A predicate body is one expression, on the header line or as the only line
+// of its block, as a `def` body is.
+relationshipTemplate
+    : RELATIONSHIP identifier LPAREN relationshipParameter (COMMA relationshipParameter)* COMMA? RPAREN COLON (NEWLINE NEWLINE* INDENT expression NEWLINE NEWLINE* DEDENT | expression NEWLINE)
+    ;
+
+relationshipParameter
+    : fieldName COLON identifier
+    ;
+
 relationshipBody
     : NEWLINE* relationshipEndpoint NEWLINE* relationshipEndpoint NEWLINE* (relationshipMatchClause NEWLINE*)?
     ;
@@ -74,6 +84,8 @@ moduleStatement
 
 importStatement
     : IMPORT importTarget COLON NEWLINE NEWLINE* INDENT importBody DEDENT
+    | FROM importTarget IMPORT importItem (COMMA importItem)* NEWLINE
+    | FROM importTarget IMPORT LPAREN importItem (COMMA importItem)* COMMA? RPAREN NEWLINE
     ;
 
 importTarget
@@ -85,11 +97,13 @@ importBody
     ;
 
 importItem
-    : moduleDeclarationKind identifier (AS identifier)? NEWLINE
+    : moduleDeclarationKind identifier (AS identifier)? NEWLINE?
     ;
 
 exportStatement
     : EXPORT COLON NEWLINE NEWLINE* INDENT exportBody DEDENT
+    | EXPORT exportItem (COMMA exportItem)* NEWLINE
+    | EXPORT LPAREN exportItem (COMMA exportItem)* COMMA? RPAREN NEWLINE
     ;
 
 exportBody
@@ -97,7 +111,7 @@ exportBody
     ;
 
 exportItem
-    : moduleDeclarationKind identifier NEWLINE
+    : moduleDeclarationKind identifier NEWLINE?
     ;
 
 moduleDeclarationKind
@@ -135,6 +149,7 @@ typeReference
 // Nullability syntax is explicit; absence of a modifier remains implicit.
 nullabilityModifier
     : NULLABLE
+    | PIPE NONE
     | NOT NULL
     ;
 
@@ -156,10 +171,11 @@ typeArgumentName
 // A list clause puts its items on the header line after ':' or in an indented
 // block whose every line may itself be a comma list.  The optional block after
 // a header line and a trailing comma are parsed only so the builder can reject
-// them with a targeted message.
+// them with a targeted message, and a header line without ':' only so the
+// modern spelling admission can.
 enumDefinition
     : ENUM identifier COLON NEWLINE NEWLINE* INDENT enumBody DEDENT
-    | ENUM identifier COLON enumLine (INDENT enumBody DEDENT)?
+    | ENUM identifier COLON? enumLine (INDENT enumBody DEDENT)?
     ;
 
 enumBody
@@ -171,8 +187,9 @@ enumLine
     ;
 
 // Phase 1 parses any return TypeExpr; semantic analysis later requires Bool.
+// Its body returns one expression, on the header line or in its block.
 constraintDefinition
-    : CONSTRAINT identifier LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT constraintBody DEDENT
+    : CONSTRAINT identifier LPAREN parameterList? RPAREN ARROW typeExpression COLON (NEWLINE NEWLINE* INDENT constraintBody DEDENT | RETURN expression NEWLINE)
     ;
 
 parameterList
@@ -184,7 +201,7 @@ parameter
     ;
 
 constraintBody
-    : NEWLINE* expression NEWLINE NEWLINE*
+    : NEWLINE* RETURN? expression NEWLINE NEWLINE*
     ;
 
 // A pure inline function returns one expression, on its header line or as the
@@ -199,12 +216,13 @@ functionBody
     ;
 
 // Derive signatures and bodies are parsed only; Phase 2 checks their semantics.
+// The body returns one expression, on the header line or in its block.
 deriveDefinition
-    : DERIVE identifier LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT deriveBody DEDENT
+    : DERIVE identifier LPAREN parameterList? RPAREN ARROW typeExpression COLON (NEWLINE NEWLINE* INDENT deriveBody DEDENT | RETURN expression NEWLINE)
     ;
 
 deriveBody
-    : NEWLINE* expression NEWLINE NEWLINE*
+    : NEWLINE* RETURN? expression NEWLINE NEWLINE*
     ;
 
 // Phase 1 shapes preserve ordered items; their semantics come later.
@@ -249,21 +267,24 @@ fieldEnsureClause
 // Shape checks are named predicate clauses parsed only in Phase 1.
 checkDefinition
     : CHECK identifier COLON predicateSuite
+    | identifier ASSIGN CHECK LPAREN expression RPAREN NEWLINE
     ;
 
 // Shape unique clauses record names and target fields only in Phase 1.
 uniqueDefinition
     : UNIQUE identifier ON fieldName (COMMA fieldName)* NEWLINE
+    | identifier ASSIGN UNIQUE LPAREN fieldName (COMMA fieldName)* RPAREN NEWLINE
     ;
 
 // Shape index clauses are parse-only physical-design hints in Phase 1.
 indexDefinition
     : INDEX identifier ON fieldName (COMMA fieldName)* (WHEN expression)? NEWLINE
+    | identifier ASSIGN INDEX LPAREN fieldName (COMMA fieldName)* RPAREN (WHEN expression)? NEWLINE
     ;
 
 // Source bindings retain connector expressions without validating or executing them.
 sourceDefinition
-    : SOURCE identifier (COLON identifier)? IS expression NEWLINE
+    : SOURCE identifier (COLON identifier)? (IS | ASSIGN) expression NEWLINE
     ;
 
 // Relations support from, optional where/group by, ordered select, optional
@@ -302,8 +323,27 @@ valuesRow
     : expression (COMMA expression)* NEWLINE
     ;
 
+// After FROM, the lets, WHEREs and JOINs come as one list of steps in source
+// order, so one token decides each step (and `let name = window` a named
+// window) and a WHERE is parsed as itself wherever it stands.  The parser API holds the steps to their order: before a
+// JOIN any lets and WHEREs, after the last JOIN lets and then at most one
+// WHERE, the relation's own; after a `let:` block only that WHERE.  A named
+// window is one of the lets after the last JOIN; its old place after select is
+// parsed only so that modern admission and migration can name it.  The builder
+// admits only conjunctions of any/not-any in a WHERE before a JOIN.
 tableBody
-    : fromClause NEWLINE* (joinClause NEWLINE*)* (letClause NEWLINE*)? (whereClause NEWLINE*)? (groupByClause NEWLINE*)? selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* (satisfyingClause NEWLINE*)? (qualifyClause NEWLINE*)? (orderByClause NEWLINE*)? (limitClause NEWLINE*)?
+    : (queryLetDeclaration NEWLINE*)* fromClause NEWLINE* (relationStep NEWLINE*)* (letClause NEWLINE* (whereClause NEWLINE*)?)? (groupByClause NEWLINE*)? selectClause NEWLINE* (namedWindowDeclaration NEWLINE*)* (satisfyingClause NEWLINE*)? (qualifyClause NEWLINE*)? (orderByClause NEWLINE*)? (limitClause NEWLINE*)?
+    ;
+
+relationStep
+    : queryLetDeclaration
+    | namedWindowDeclaration
+    | whereClause
+    | joinClause
+    ;
+
+queryLetDeclaration
+    : LET fieldName ASSIGN expression NEWLINE
     ;
 
 // A FROM input is a relation name or a table function.
@@ -317,6 +357,7 @@ joinClause
     : joinKind JOIN identifier AS identifier COLON NEWLINE NEWLINE* INDENT joinBody DEDENT
     | joinKind JOIN identifier AS identifier NEWLINE
     | joinKind JOIN identifier AS identifier COLON joinInlineStep
+    | joinKind JOIN identifier (ON expression)? NEWLINE
     ;
 
 joinKind
@@ -343,6 +384,7 @@ joinOnClause
 
 setOperationBody
     : setOperationKind setQuantifier? COLON NEWLINE NEWLINE* INDENT setOperand (setOperand | NEWLINE)* DEDENT
+    | setOperationKind setQuantifier? identifier (COMMA identifier)+ NEWLINE
     ;
 
 setOperationKind
@@ -398,7 +440,7 @@ predicateLine
 
 groupByClause
     : GROUP BY COLON NEWLINE NEWLINE* INDENT groupByBody DEDENT
-    | GROUP BY COLON groupByLine (INDENT groupByBody DEDENT)?
+    | GROUP BY COLON? groupByLine (INDENT groupByBody DEDENT)?
     ;
 
 groupByBody
@@ -416,7 +458,7 @@ groupByItem
 
 selectClause
     : SELECT DISTINCT? COLON NEWLINE NEWLINE* INDENT selectBody DEDENT
-    | SELECT DISTINCT? COLON selectLine (INDENT selectBody DEDENT)?
+    | SELECT DISTINCT? COLON? selectLine (INDENT selectBody DEDENT)?
     ;
 
 selectBody
@@ -460,16 +502,31 @@ windowSpec
     | WINDOW identifier NEWLINE
     | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
     | WINDOW identifier? COLON windowInlineClause
+    | WINDOW identifier? LPAREN compactWindowSpec? RPAREN NEWLINE
     ;
 
 qualifyInlineWindowSpec
     : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
+    | WINDOW LPAREN compactWindowSpec? RPAREN
     ;
 
 namedWindowDeclaration
     : WINDOW identifier (ASSIGN identifier)? NEWLINE
     | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
     | WINDOW identifier (ASSIGN identifier)? COLON windowInlineClause
+    | LET identifier ASSIGN WINDOW identifier? LPAREN compactWindowSpec? RPAREN NEWLINE
+    | LET identifier ASSIGN WINDOW identifier NEWLINE
+    ;
+
+compactWindowSpec
+    : PARTITION BY expression (COMMA expression)* (ORDER BY orderItem (COMMA orderItem)*)? compactWindowFrame?
+    | ORDER BY orderItem (COMMA orderItem)* compactWindowFrame?
+    | compactWindowFrame
+    ;
+
+compactWindowFrame
+    : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound)
+      (EXCLUDE (NO OTHERS | CURRENT ROW | GROUP | TIES))?
     ;
 
 windowInlineClause
@@ -486,7 +543,7 @@ windowSpecBody
 
 partitionByClause
     : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT
-    | PARTITION BY COLON windowPartitionLine (INDENT windowPartitionBody DEDENT)?
+    | PARTITION BY COLON? windowPartitionLine (INDENT windowPartitionBody DEDENT)?
     ;
 
 windowPartitionBody
@@ -513,11 +570,24 @@ frameBound
     ;
 
 satisfyingClause
-    : SATISFYING COLON predicateSuite
+    : (SATISFYING | HAVING) COLON predicateSuite
+    | HAVING expression NEWLINE
     ;
 
+// Like a `where:` block, a `qualify:` block holds one condition per line, which
+// the builder joins with `and`; a line may not start with `and` or `or`.
 qualifyClause
-    : QUALIFY COLON NEWLINE NEWLINE* INDENT qualifyExpression NEWLINE NEWLINE* DEDENT
+    : QUALIFY COLON NEWLINE NEWLINE* INDENT qualifyBody DEDENT
+    | QUALIFY qualifyExpression NEWLINE
+    ;
+
+qualifyBody
+    : NEWLINE* qualifyLine (qualifyLine | NEWLINE)*
+    ;
+
+qualifyLine
+    : qualifyExpression NEWLINE
+    | (AND | OR) qualifyExpression NEWLINE
     ;
 
 qualifyExpression
@@ -543,9 +613,9 @@ qualifyNotExpression
 
 qualifyComparisonExpression
     : qualifyAdditiveExpression (
-        comparisonOperator qualifyAdditiveExpression
+        (comparisonOperator qualifyAdditiveExpression)+
         | BETWEEN qualifyAdditiveExpression AND qualifyAdditiveExpression
-        | IS NOT? NULL
+        | IS NOT? (NULL | NONE)
         | NOT? IN (LPAREN (qualifyExpression (COMMA qualifyExpression)* COMMA?)? RPAREN | identifier)
     )?
     ;
@@ -564,7 +634,8 @@ qualifyUnaryExpression
     ;
 
 qualifyPrimaryExpression
-    : qualifyWindowExpression
+    : anyExpression
+    | qualifyWindowExpression
     | literal
     | CAST LPAREN qualifyExpression AS typeExpression RPAREN
     | dottedName qualifyCallSuffix?
@@ -583,7 +654,7 @@ qualifyCallSuffix
 
 orderByClause
     : ORDER BY COLON NEWLINE NEWLINE* INDENT orderByBody DEDENT
-    | ORDER BY COLON orderByLine (INDENT orderByBody DEDENT)?
+    | ORDER BY COLON? orderByLine (INDENT orderByBody DEDENT)?
     ;
 
 orderByBody
@@ -628,9 +699,9 @@ notExpression
 
 comparisonExpression
     : additiveExpression (
-        comparisonOperator additiveExpression
+        (comparisonOperator additiveExpression)+
         | BETWEEN additiveExpression AND additiveExpression
-        | IS NOT? NULL
+        | IS NOT? (NULL | NONE)
         | NOT? IN (LPAREN (expression (COMMA expression)* COMMA?)? RPAREN | identifier)
     )?
     ;
@@ -660,12 +731,18 @@ unaryExpression
     ;
 
 primaryExpression
-    : literal
+    : anyExpression
+    | literal
     | CAST LPAREN expression AS typeExpression RPAREN
     | dottedName callSuffix?
     | LPAREN expression RPAREN
     | EXISTS identifier
     | SCALAR identifier DOT fieldName
+    ;
+
+// ANY/FOR remain contextual identifiers outside this exact bounded form.
+anyExpression
+    : ANY LPAREN expression FOR fieldName IN identifier RPAREN
     ;
 
 dottedName
@@ -724,6 +801,7 @@ identifier
     | GROUP
     | LET
     | SATISFYING
+    | HAVING
     | QUALIFY
     | RELATIONSHIP
     | ENDPOINT
@@ -735,7 +813,7 @@ identifier
     | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
     | IF | ELSE | IN | CAST
     | VALUES | EXISTS | CAPTURE | SCALAR
-    | DEF | RETURN
+    | DEF | RETURN | ANY | FOR
     ;
 
 callSuffix
@@ -748,6 +826,7 @@ literal
     | TRUE
     | FALSE
     | NULL
+    | NONE
     ;
 
 PIETTO: 'pietto';
@@ -781,6 +860,7 @@ ASC: 'asc';
 DESC: 'desc';
 LIMIT: 'limit';
 SATISFYING: 'satisfying';
+HAVING: 'having';
 QUALIFY: 'qualify';
 RELATIONSHIP: 'relationship';
 ENDPOINT: 'endpoint';
@@ -827,6 +907,7 @@ OR: 'or';
 IS: 'is';
 NOT: 'not';
 NULL: 'null';
+NONE: 'None';
 BETWEEN: 'between';
 LIKE: 'like';
 IF: 'if';
@@ -835,12 +916,14 @@ IN: 'in';
 CAST: 'cast';
 VALUES: 'values';
 EXISTS: 'exists';
+ANY: 'any';
+FOR: 'for';
 CAPTURE: 'capture';
 SCALAR: 'scalar';
 DEF: 'def';
 RETURN: 'return';
-TRUE: 'true';
-FALSE: 'false';
+TRUE: 'true' | 'True';
+FALSE: 'false' | 'False';
 
 EQ: '==';
 NE: '!=';
@@ -855,6 +938,7 @@ MINUS: '-';
 STAR: '*';
 SLASH: '/';
 PERCENT: '%';
+PIPE: '|';
 AT: '@';
 LPAREN: '(';
 RPAREN: ')';
@@ -865,7 +949,7 @@ LBRACE: '{';
 RBRACE: '}';
 
 NUMBER
-    : DIGIT+ ('.' DIGIT+)?
+    : DIGIT ('_'? DIGIT)* ('.' DIGIT ('_'? DIGIT)*)?
     ;
 
 STRING

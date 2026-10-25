@@ -124,7 +124,7 @@ def _events(document):
 # -- closed schema, shared constants and the data-only import boundary ------
 
 
-def test_schema_mirrors_emission_runtime_classes_and_shared_constants():
+def test_schema_shared_emission_constants():
     from pietto._project import project_sql_emission_contract as contract
     from pietto._project import project_sql_emission_joins as joining
     from pietto._project import project_sql_emission_parameters as parameters
@@ -132,25 +132,7 @@ def test_schema_mirrors_emission_runtime_classes_and_shared_constants():
     from pietto._project import project_sql_emission_rows as rows
     from pietto._project import project_sql_emission_sets as setting
     from pietto._project import project_sql_emission_windows as windowing
-    from pietto._project.project_sql_plan import ProjectSQLPlanRefKind
 
-    assert set(portable.KINDS.values()) | {portable.PAIR_KIND} == set(schema.RECORDS)
-    upstream = {"owner", "fixed_value", "origin", "association"}
-    for cls, kind in portable.KINDS.items():
-        names = {name for name, _ in schema.RECORDS[kind]}
-        derived = schema.DERIVED.get(kind, frozenset())
-        assert derived <= names
-        if kind in upstream:
-            assert all(hasattr(cls, n) or n in derived for n in names), kind
-            continue
-        own = {field.name for field in dataclasses.fields(cls)}
-        assert own <= names | schema.CUTOFF.get(kind, frozenset()), kind
-        assert names <= own | derived, kind
-        assert not (schema.CUTOFF.get(kind, frozenset()) & names), kind
-    assert schema.PLAN_KINDS | schema.PLAN_CUTOFF == {
-        kind.value for kind in ProjectSQLPlanRefKind
-    }
-    assert not schema.PLAN_KINDS & schema.PLAN_CUTOFF
     assert schema.FAMILIES == contract.RELEASES
     assert schema.PHYSICAL == parameters.PHYSICAL
     assert schema.ANCHOR_SUFFIX == {
@@ -346,7 +328,7 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
         + """table result:
     from rows
     select:
-        nullable_text = coalesce(null, text)
+        nullable_text = coalesce(None, text)
 """
     )
     null_outcome = emission.build_case(
@@ -368,11 +350,42 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
         null_observed.canonical_bytes, null_artifact, null_artifact.request
     ).corresponds
     kinds.update(ref.kind for ref in null_decoded.view.order)
+    # A scalar `any` value: the existence read of its rows and its references.
+    any_item = emission.fixture(target)
+    any_outcome = emission.build_case(
+        root / "scalar-any",
+        any_item["source"].split("table result:", 1)[0]
+        + """table result:
+    from rows
+    select:
+        found = any(other.id == rows.id for other in rows)
+""",
+        any_item["contract"],
+        any_item["policy"],
+    )[1]
+    assert any_outcome.status == "VERIFIED" and any_outcome.artifact is not None
+    any_artifact = any_outcome.artifact
+    any_observed = portable.export_emission_observation(
+        any_artifact, any_artifact.request
+    )
+    assert any_observed.status is portable.ObservationStatus.OK
+    assert any_observed.canonical_bytes is not None
+    any_decoded = pure.parse_emission_observation(any_observed.canonical_bytes)
+    assert any_decoded.status is OK and any_decoded.view is not None
+    assert portable.verify_emission_observation(
+        any_observed.canonical_bytes, any_artifact, any_artifact.request
+    ).corresponds
+    kinds.update(ref.kind for ref in any_decoded.view.order)
     assert failures == []
     assert "VERIFIED" in statuses.values()
     # Every record kind the closed schema describes occurs in real output,
-    # except the variants no admitted source of this target produces.
+    # except the variants no admitted source of this target produces. A
+    # relationship equality needs the source-bound relationship that only the
+    # retired spelling declares, so no modern source produces one.
+    legacy_only = {"join_equality"}
     absent = set(schema.RECORDS) - kinds
+    assert legacy_only <= absent, absent
+    absent -= legacy_only
     assert (
         absent <= {"window_frame", "window_definition"}
         if target == "mysql"
@@ -1061,8 +1074,10 @@ def test_set_forms_join_membership_and_result_boundaries(tmp_path_factory):
     semi = json.loads(
         _observed(tmp_path_factory, "postgres", "W_join_shapes", "semi")[1]
     )
-    (join,) = _records(semi, "join_body")
-    assert join["membership"] == "exists" and join["sentinel"] is not None
+    # A tail `any` (a `semi join` before S6) is a correlated block read.
+    assert _records(semi, "join_body") == []
+    (read,) = _records(semi, "sql_any_read")
+    assert read["kind"] == "exists" and read["predicate"] is not None
     outer = json.loads(
         _observed(tmp_path_factory, "postgres", "W_join_values", "left_marker")[1]
     )
@@ -1421,33 +1436,6 @@ def test_variants_outside_the_generation_corpus_have_real_witnesses(
 ):
     from pietto._project.project_sql_emission import emit_project_sql
 
-    # A multi-hop path JOIN stays outside the admitted emission domain, so it has
-    # no artifact and no private document; the exporter refuses its outcome.
-    # Predecessor JOIN inputs come from in-definition JOIN chains (Slice15).
-    item = emission.join_witness(
-        target,
-        "query result:\n    from lhs\n"
-        "    inner join lhs as r:\n        from lhs\n"
-        "        via link: l -> r\n        via link: r -> l\n"
-        "    select:\n        a = lhs.id\n",
-        link=True,
-    )
-    _, chained = emission.build_case(
-        tmp_path_factory.mktemp("slice14-chained"),
-        item["source"],
-        item["contract"],
-        item["policy"],
-    )
-    assert chained.status == "BLOCKED" and chained.artifact is None
-    assert any(
-        b.code == "PIE-B1003"
-        and getattr(getattr(b.subject, "kind", None), "value", None) == "join"
-        for b in chained.blockers
-    )
-    assert portable.export_emission_observation(chained, None).status is (
-        portable.ObservationStatus.INVALID_ROOT
-    )
-
     def observe(checked_outcome):
         artifact = checked_outcome.artifact
         data = portable.export_emission_observation(
@@ -1503,3 +1491,42 @@ def test_variants_outside_the_generation_corpus_have_real_witnesses(
         if any(_record(document, ref)["position"] == position for ref in g["premises"])
     }
     assert bound == {"source_representation", "field_projection"}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_scalar_any_observation_checks_lexical_uses_and_columns(tmp_path, target):
+    fixture = emission.fixture(target)
+    source = f"""shape Row:
+    id: Int
+    flag: Bool | None
+    text: Text
+    money: Decimal(9, 2)
+    ratio: Float
+source rows: Row = {target}.table("opaque.locator.not.sql")
+query result:
+    from rows
+    select:
+        found = any(any(candidate.id == buyer.id for candidate in rows) and buyer.id == rows.id for buyer in rows)
+"""
+    _, outcome = emission.build_case(tmp_path, source, fixture["contract"])
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert pure.parse_emission_observation(observed.canonical_bytes).status is OK
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    document = json.loads(observed.canonical_bytes)
+    reads = _records(document, "sql_any_read")
+    references = _records(document, "sql_any_reference")
+    assert len(reads) == 2 and len(references) >= 3
+    uses = [_record(document, read["target"])["use"] for read in reads]
+    outer_reference = next(ref for ref in references if ref["use"] == uses[0])
+    other_use = uses[1]
+    outer_reference["use"] = other_use
+    assert pure.parse_emission_observation(_encode(document)).status is not OK
+    document = json.loads(observed.canonical_bytes)
+    _records(document, "sql_any_reference")[0]["position"] += 1
+    assert pure.parse_emission_observation(_encode(document)).status is not OK

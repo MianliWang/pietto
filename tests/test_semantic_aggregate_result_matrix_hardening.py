@@ -33,21 +33,21 @@ from pietto.sql.mysql import emit_mysql_sql
 
 MATRIX_SHAPE = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    region: Text not null\n"
-    "    active: Bool not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal not null\n"
-    "    order_date: Date nullable\n"
-    "    created_at: Timestamp not null\n"
-    "    raw: Bytes not null\n"
-    "    payload: Json not null\n"
-    "    customer_id: UUID not null\n"
-    "    anything: Any nullable\n"
+    "    status: Text\n"
+    "    region: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    order_date: Date | None\n"
+    "    created_at: Timestamp\n"
+    "    raw: Bytes\n"
+    "    payload: Json\n"
+    "    customer_id: UUID\n"
+    "    anything: Any | None\n"
 )
 
 NO_GROUP_PROJECTIONS = (
@@ -442,7 +442,7 @@ def test_unsupported_aggregate_expansion_boundaries_fail_closed(
 ) -> None:
     script = _parse(
         MATRIX_SHAPE
-        + 'source orders: Order is postgres.table("orders")\n'
+        + 'source orders: Order = postgres.table("orders")\n'
         + "table aggregate_stats:\n"
         + "    from orders\n"
         + "    select:\n"
@@ -472,14 +472,14 @@ def _matrix_source(connector: str, *, grouped: bool) -> str:
         "    select:\n"
         f"{NO_GROUP_PROJECTIONS}"
     )
-    return MATRIX_SHAPE + f'source orders: Order is {connector}("orders")\n' + relation
+    return MATRIX_SHAPE + f'source orders: Order = {connector}("orders")\n' + relation
 
 
 def _count_field_source(field_type: str, field_name: str, connector: str) -> str:
     return (
         "shape BoundaryOrder:\n"
-        f"    {field_name}: {field_type} not null\n"
-        f'source orders: BoundaryOrder is {connector}("orders")\n'
+        f"    {field_name}: {field_type}\n"
+        f'source orders: BoundaryOrder = {connector}("orders")\n'
         "table counts:\n"
         "    from orders\n"
         "    select:\n"
@@ -493,8 +493,8 @@ def _enum_count_source(connector: str) -> str:
         "    active\n"
         "    paused\n"
         "shape EnumOrder:\n"
-        "    status: Status not null\n"
-        f'source orders: EnumOrder is {connector}("orders")\n'
+        "    status: Status\n"
+        f'source orders: EnumOrder = {connector}("orders")\n'
         "table status_counts:\n"
         "    from orders\n"
         "    select:\n"

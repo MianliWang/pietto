@@ -99,10 +99,10 @@ SQL_NAMES = {
 
 SOURCE_PREFIX = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    category: Text nullable\n"
-    "    amount: Int nullable\n"
-    "    score: Float not null\n"
+    "    id: Int\n"
+    "    category: Text | None\n"
+    "    amount: Int | None\n"
+    "    score: Float\n"
 )
 SPAN = SourceSpan("slice15.pietto", 1, 1, 1, 2)
 INT_TYPE = TypeRefIR(
@@ -131,7 +131,7 @@ def _read(relative: str) -> str:
 
 def _source_connector(dialect: str) -> str:
     connector = "postgres" if dialect == "postgresql" else "mysql"
-    return SOURCE_PREFIX + f'source rows: Row is {connector}.table("rows")\n'
+    return SOURCE_PREFIX + f'source rows: Row = {connector}.table("rows")\n'
 
 
 def _window_call_source(identity: str) -> str:
@@ -149,21 +149,29 @@ def _single_window_source(identity: str, *, dialect: str = "postgresql") -> str:
         _source_connector(dialect) + "query windows:\n"
         "    from rows\n"
         "    select:\n"
-        f"        result = {_window_call_source(identity)} window:\n"
-        "            partition by:\n"
+        f"        result = {_window_call_source(identity)} window(\n"
+        "            partition by\n"
         "                category\n"
-        "            order by:\n"
-        "                id desc\n"
+        "            order by\n"
+        "                id desc)\n"
     )
 
 
 @lru_cache(maxsize=None)
-def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:
+def _compile(
+    source: str, *, warnings: tuple[tuple[str, int, int], ...] = ()
+) -> tuple[Script, SemanticResult, ScriptIR]:
     parsed = parse_source(source, path="slice15.pietto")
     assert parsed.diagnostics == ()
     assert parsed.ast is not None
     semantic = analyze(parsed.ast)
-    assert semantic.diagnostics == ()
+    assert (
+        tuple(
+            (item.code, item.location.line, item.location.column)
+            for item in semantic.diagnostics
+        )
+        == warnings
+    )
     ir_result = build_ir(parsed.ast, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
@@ -301,6 +309,7 @@ def _unchecked_spec(**changes: object) -> WindowSpecIR:
         "partition_by": (),
         "order_by": (_order_item(),),
         "span": SPAN,
+        "frame": None,
     }
     values.update(changes)
     return cast(WindowSpecIR, _unchecked_dataclass(WindowSpecIR, values))
@@ -313,6 +322,11 @@ def _unchecked_window(**changes: object) -> WindowCallIR:
         "identity": _identity(),
         "arguments": (),
         "spec": _spec(),
+        "null_treatment": None,
+        "null_treatment_is_explicit": False,
+        "nth_direction": None,
+        "nth_direction_is_explicit": False,
+        "named_use": None,
     }
     values.update(changes)
     return cast(WindowCallIR, _unchecked_dataclass(WindowCallIR, values))
@@ -394,16 +408,16 @@ def _grouped_source(*, dialect: str, windows_first: bool) -> str:
     group = "        group_name = category\n"
     total = "        total = sum(amount)\n"
     rank = (
-        "        group_rank = rank() window:\n"
-        "            partition by:\n"
+        "        group_rank = rank() window(\n"
+        "            partition by\n"
         "                group_name\n"
-        "            order by:\n"
-        "                total desc\n"
+        "            order by\n"
+        "                total desc)\n"
     )
     lag = (
-        "        previous_total = lag(total, 0, total) window:\n"
-        "            order by:\n"
-        "                total\n"
+        "        previous_total = lag(total, 0, total) window(\n"
+        "            order by\n"
+        "                total)\n"
     )
     select_items = (
         rank + lag + group + total if windows_first else group + total + rank + lag
@@ -726,17 +740,22 @@ def test_partition_and_local_order_multiplicity_preserve_source_order_and_duplic
     )[_case]
     partition_clause = ""
     if partitions:
-        partition_clause = "            partition by:\n" + "".join(
-            f"                {name}\n" for name in partitions
+        partition_clause = (
+            "            partition by\n"
+            + ",\n".join(f"                {name}" for name in partitions)
+            + "\n"
         )
-    order_clause = "            order by:\n" + "".join(
-        f"                {name}\n" for name in orders
+    order_clause = "            order by\n" + ",\n".join(
+        f"                {name}" for name in orders
     )
     source = (
         _source_connector("postgresql") + "query windows:\n"
         "    from rows\n"
         "    select:\n"
-        "        result = row_number() window:\n" + partition_clause + order_clause
+        "        result = row_number() window(\n"
+        + partition_clause
+        + order_clause
+        + ")\n"
     )
     _, _, script_ir = _compile(source)
     expression = _window(_relation(script_ir).projections[0].expression)
@@ -763,18 +782,16 @@ def test_window_order_omitted_asc_desc_direction_facts_are_exact(_case: int) -> 
         ("asc", "desc"),
         ("desc", None),
     )[_case]
-    order_lines = "".join(
-        "                id\n"
-        if direction is None
-        else f"                id {direction}\n"
+    order_lines = ",\n".join(
+        "                id" if direction is None else f"                id {direction}"
         for direction in directions
     )
     source = (
         _source_connector("postgresql") + "query windows:\n"
         "    from rows\n"
         "    select:\n"
-        "        result = rank() window:\n"
-        "            order by:\n" + order_lines
+        "        result = rank() window(\n"
+        "            order by\n" + order_lines + ")\n"
     )
     _, _, script_ir = _compile(source)
     expression = _window(_relation(script_ir).projections[0].expression)
@@ -798,9 +815,9 @@ def test_multiple_window_outputs_lower_in_select_order(_case: int) -> None:
     count = _case + 2
     selected = IDENTITIES[:count]
     items = "".join(
-        f"        output_{index} = {name}() window:\n"
-        "            order by:\n"
-        "                id\n"
+        f"        output_{index} = {name}() window(\n"
+        "            order by\n"
+        "                id)\n"
         for index, name in enumerate(selected)
     )
     source = (
@@ -913,7 +930,8 @@ def test_downstream_window_fields_lower_through_ordinary_row_rules(_case: int) -
         "    from windows\n"
         "    select:\n" + downstream_items[_case]
     )
-    _, _, script_ir = _compile(source)
+    # The query reads a query of its own file.
+    _, _, script_ir = _compile(source, warnings=(("PIE-S2382", 16, 5),))
     downstream = _relation(script_ir, "downstream")
     expression = downstream.projections[0].expression
     if _case < 3:
@@ -1063,6 +1081,35 @@ def test_mysql_malformed_window_ir_becomes_pie_b1000(_case: int) -> None:
         assert diagnostic.code == "PIE-B1000"
         assert diagnostic.location.path == "slice15.pietto"
         assert "MySQL SQL emission is not implemented" in diagnostic.message
+
+
+@pytest.mark.parametrize("dialect", ("postgresql", "mysql"))
+@pytest.mark.parametrize(
+    ("carrier", "field"),
+    ((WindowCallIR, "null_treatment"), (WindowSpecIR, "frame")),
+)
+def test_missing_window_ir_slot_becomes_pie_b1000(
+    dialect: str, carrier: type[WindowCallIR] | type[WindowSpecIR], field: str
+) -> None:
+    _, _, script_ir = _compile(_single_window_source("row_number", dialect=dialect))
+    valid = _window(_relation(script_ir, "windows").projections[0].expression)
+    broken = dataclasses.replace(valid, spec=dataclasses.replace(valid.spec))
+    node = broken if carrier is WindowCallIR else broken.spec
+    object.__delattr__(node, field)
+    damaged = _replace_only_window(script_ir, broken)
+    result = (
+        emit_postgres_sql(damaged)
+        if dialect == "postgresql"
+        else emit_mysql_sql(damaged)
+    )
+    assert result.artifacts == ()
+    assert len(result.diagnostics) == 1
+    diagnostic = result.diagnostics[0]
+    assert diagnostic.code == "PIE-B1000"
+    assert diagnostic.location.path == "slice15.pietto"
+    assert diagnostic.message.endswith(
+        f"Incomplete IR node {carrier.__name__}: missing {field}"
+    )
 
 
 @pytest.mark.parametrize("_case", (1, 2, 3))

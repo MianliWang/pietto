@@ -55,7 +55,7 @@ SPEC_HEADINGS = (
 def _project_files() -> dict[str, str]:
     return {
         "a.pietto": (
-            'import "b.pietto":\n    table Public as Input\n'
+            'from "b.pietto" import table Public as Input\n'
             "query final:\n"
             "    from consumer\n"
             "    select:\n"
@@ -83,25 +83,18 @@ def _project_files() -> dict[str, str]:
             "    from Input\n"
             "    select:\n"
             "        id\n"
-            "        ranking = row_number() window:\n"
-            "            order by:\n"
-            "                id\n"
+            "        ranking = row_number() window(order by id)\n"
             "query full:\n"
             "    from Input\n"
-            "    let:\n"
-            "        adjusted = amount + id\n"
+            "    let adjusted = amount + id\n"
             "    where id > 0\n"
             "    group by:\n"
             "        category\n"
             "    select:\n"
             "        category\n"
             "        total = sum(adjusted)\n"
-            "        ranking = row_number() window:\n"
-            "            partition by:\n"
-            "                category\n"
-            "            order by:\n"
-            "                total desc\n"
-            "    satisfying:\n"
+            "        ranking = row_number() window(partition by category order by total desc)\n"
+            "    having:\n"
             "        sum(adjusted) > 0\n"
             "query broken:\n"
             "    from Input\n"
@@ -109,29 +102,26 @@ def _project_files() -> dict[str, str]:
             "        missing\n"
         ),
         "b.pietto": (
-            'import "c.pietto":\n    table projected as Public\n'
-            "export:\n"
-            "    table Public\n"
+            'from "c.pietto" import table projected as Public\nexport table Public\n'
         ),
         "c.pietto": (
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    amount: Int nullable\n"
-            "    category: Text nullable\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            "    amount: Int | None\n"
+            "    category: Text | None\n"
+            'source rows: Row = postgres.table("rows")\n'
             "table projected:\n"
             "    from rows\n"
             "    select:\n"
             "        id\n"
             "        amount\n"
             "        category\n"
-            "export:\n"
-            "    table projected\n"
+            "export table projected\n"
         ),
         "d.pietto": (
             "shape Other:\n"
-            "    key: Int not null\n"
-            'source other: Other is postgres.table("other")\n'
+            "    key: Int\n"
+            'source other: Other = postgres.table("other")\n'
             "query other_result:\n"
             "    from other\n"
             "    select:\n"

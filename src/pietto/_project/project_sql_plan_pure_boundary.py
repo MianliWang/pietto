@@ -320,8 +320,10 @@ def _provided_ordering_relationships(
         provided = fields[ref]
         owner = fields[provided["evidence"]]["owner"]
         require(output_owner(provided["output"]) == owner_key(owner))
+        owner_kind = declared[fields[owner]["definition"]].kind
         require(
-            declared[fields[owner]["definition"]].kind in ("table_def", "query_def")
+            schema.PREDICATE_VARIANT_BASES.get(owner_kind, owner_kind)
+            in ("table_def", "query_def")
         )
         matches = orders.get(owner, ())
         require(len(matches) == 1)
@@ -449,6 +451,1121 @@ def _provided_ordering_relationships(
     require(linked == carriers)
 
 
+def _existence_claims(fields, kinds, declared, require):
+    """Validate the authored-to-generated ANY bridge and replay checked LET captures."""
+    plans = (
+        *kinds.get("project_sql_plan_with_any", ()),
+        *kinds.get("project_sql_plan_with_scalar_any", ()),
+    )
+    if not plans:
+        require(not kinds.get("any_use_info", ()))
+        return {}, {}
+    require(len(plans) == 1)
+    plan = fields[plans[0]]
+    uses = plan["existence_generators"]
+    require(len(set(uses)) == len(uses))
+    require(set(uses) == set(kinds.get("any_use_info", ())))
+    variants = schema.PREDICATE_VARIANT_BASES
+    syntax_kinds = {
+        "query_def",
+        "table_def",
+        "from_clause",
+        "join_clause",
+        "join_on_clause",
+        "join_filter_clause",
+        "where_clause",
+        "let_clause",
+        "let_binding",
+        "select_item",
+        "query_let_declaration",
+        "any_expr",
+        "literal_expr",
+        "name_expr",
+        "dotted_name_expr",
+        "call_expr",
+        "unary_expr",
+        "binary_expr",
+        "comparison_expr",
+        "conditional_expr",
+        "membership_expr",
+        "cast_expr",
+        "between_expr",
+        "is_null_expr",
+        "type_expr",
+        "type_argument",
+        "relationship_template",
+        "relationship_parameter",
+        "shape_def",
+        "field_def",
+    }
+
+    def nodes(root):
+        pending, seen, result = [root], set(), []
+        while pending:
+            item = pending.pop()
+            if not isinstance(item, schema.Ref) or item in seen:
+                continue
+            seen.add(item)
+            if (
+                variants.get(declared[item].kind, declared[item].kind)
+                not in syntax_kinds
+            ):
+                continue
+            result.append(item)
+            for name, value in reversed(tuple(fields[item].items())):
+                if name in {
+                    "span",
+                    "binding_span",
+                    "target_binding_span",
+                    "relation_span",
+                    "name_span",
+                }:
+                    continue
+                pending.extend(reversed(value) if type(value) is tuple else (value,))
+        return tuple(result)
+
+    def conjuncts(root):
+        pending, seen, result = [root], set(), []
+        while pending:
+            item = pending.pop()
+            require(item not in seen)
+            seen.add(item)
+            value = fields[item]
+            if declared[item].kind == "binary_expr" and value["operator"] == "and":
+                pending.extend((value["right"], value["left"]))
+            else:
+                result.append(item)
+        return tuple(result)
+
+    def generator(root):
+        if declared[root].kind == "any_expr":
+            return root, "semi"
+        value = fields[root]
+        if (
+            declared[root].kind == "unary_expr"
+            and value["operator"] == "not"
+            and declared[value["operand"]].kind == "any_expr"
+        ):
+            return value["operand"], "anti"
+        return None
+
+    condition_by_clause = {}
+    for join_ref in plan["joins"]:
+        join = fields[join_ref]
+        condition_ref = fields[join["source"]]["condition"]
+        condition = fields[condition_ref]
+        clause = fields[condition["use"]]["clause"]
+        condition_by_clause.setdefault(clause, []).append((join, condition_ref))
+    authored = set()
+    synthetic = {fields[use]["clause"] for use in uses}
+    for use_ref in uses:
+        use = fields[use_ref]
+        authored.update(nodes(use["authored_owner"]))
+        authored.update(
+            node
+            for clause in use["normalized_joins"]
+            if clause not in synthetic
+            for node in nodes(clause)
+        )
+    authored.update(
+        node
+        for template in kinds.get("relationship_template", ())
+        for node in nodes(template)
+    )
+    routes, generated = {}, {}
+    by_owner = {}
+    for use_ref in uses:
+        use = fields[use_ref]
+        by_owner.setdefault(use["owner"], []).append(use_ref)
+    for local in by_owner.values():
+        first = fields[local[0]]
+        owner = fields[first["authored_owner"]]
+        require(
+            all(
+                fields[ref]["authored_owner"] == first["authored_owner"]
+                and fields[ref]["normalized_joins"] == first["normalized_joins"]
+                for ref in local
+            )
+        )
+        expected = []
+        for prefix in range(len(owner["join_clauses"]) + 1):
+            for context in owner["join_filters"]:
+                if int(fields[context]["preceding_join_count"]) == prefix:
+                    for item in conjuncts(fields[context]["expression"]):
+                        found = generator(item)
+                        if found is None:
+                            raise _Reject(Status.INVALID_RELATION)
+                        expected.append((found[0], context, prefix, found[1]))
+        require(len(expected) == len(local))
+        for position, (use_ref, (expression, context, prefix, kind)) in enumerate(
+            zip(local, expected, strict=True)
+        ):
+            use = fields[use_ref]
+            ordinal = int(use["input_ordinal"])
+            require(use["expression"] == expression and use["context"] == context)
+            require(
+                int(use["preceding_join_count"]) == prefix
+                and ordinal == prefix + position + 1
+            )
+            require(
+                0 < ordinal <= len(use["normalized_joins"])
+                and use["normalized_joins"][ordinal - 1] == use["clause"]
+            )
+            require(fields[use["clause"]]["kind"] == kind)
+    for use_ref in uses:
+        use = fields[use_ref]
+        matches = condition_by_clause.get(use["clause"], ())
+        require(len(matches) == 1)
+        join, condition_ref = matches[0]
+        condition = fields[condition_ref]
+        require(int(join["position"]) + 1 == int(use["input_ordinal"]))
+        owner = fields[condition["use"]]["owner"]
+        require(fields[owner]["definition"] == use["owner"])
+        require(declared[use["context"]].kind == "join_filter_clause")
+        for node in (*nodes(use["clause"]), *nodes(condition["expression"])):
+            if node in authored:
+                continue
+            require(generated.setdefault(node, use_ref) == use_ref)
+            routes.setdefault(node, []).append(
+                ("existence_generator_expansion", use["expression"], use_ref)
+            )
+    return routes, generated
+
+
+def _predicate_claims(fields, kinds, declared, require):
+    """Check formal call binding, normalization and proof claims independently."""
+    syntax = {
+        "any_expr",
+        "literal_expr",
+        "name_expr",
+        "dotted_name_expr",
+        "call_expr",
+        "unary_expr",
+        "binary_expr",
+        "comparison_expr",
+        "conditional_expr",
+        "membership_expr",
+        "cast_expr",
+        "between_expr",
+        "is_null_expr",
+        "type_expr",
+        "type_argument",
+    }
+    provenance = {}
+    owned_calls = []
+    contexts = set()
+    owner_ordinals = {}
+
+    def conjuncts(root):
+        result, pending, seen = [], [root], set()
+        while pending:
+            node = pending.pop()
+            require(node not in seen)
+            seen.add(node)
+            value = fields[node]
+            if declared[node].kind == "binary_expr" and value["operator"] == "and":
+                pending.extend((value["right"], value["left"]))
+            else:
+                result.append(node)
+        return tuple(result)
+
+    def equalities(root):
+        return tuple(
+            node
+            for node in conjuncts(root)
+            if declared[node].kind == "comparison_expr"
+            and fields[node]["operator"] == "=="
+            and declared[fields[node]["left"]].kind == "dotted_name_expr"
+            and declared[fields[node]["right"]].kind == "dotted_name_expr"
+        )
+
+    for reference in kinds.get("project_relationship_predicate_expression", ()):
+        value = fields[reference]
+        owner, context = value["owner"], value["context"]
+        parent = value["parent"]
+        if parent is None:
+            context_key = (owner, context)
+            require(context_key not in contexts)
+            contexts.add(context_key)
+            require(value["authored"] == fields[context]["expression"])
+        else:
+            original = fields[parent]
+            require(
+                original["parent"] is None
+                and original["owner"] == owner
+                and original["context"] == context
+            )
+            children = [original["authored"]]
+            subtree = set()
+            while children:
+                node = children.pop()
+                if node in subtree:
+                    continue
+                subtree.add(node)
+                for name, child in fields[node].items():
+                    if name == "span":
+                        continue
+                    values = child if type(child) is tuple else (child,)
+                    children.extend(
+                        item
+                        for item in values
+                        if isinstance(item, schema.Ref)
+                        and declared[item].kind in syntax
+                    )
+            require(value["authored"] in subtree)
+            selected = [value["authored"]]
+            selected_nodes = set()
+            while selected:
+                node = selected.pop()
+                if node in selected_nodes:
+                    continue
+                selected_nodes.add(node)
+                for name, child in fields[node].items():
+                    if name != "span":
+                        values = child if type(child) is tuple else (child,)
+                        selected.extend(
+                            item
+                            for item in values
+                            if isinstance(item, schema.Ref)
+                            and declared[item].kind in syntax
+                        )
+            expected_calls = tuple(
+                call
+                for call in original["calls"]
+                if fields[call]["call"] in selected_nodes
+            )
+            require(expected_calls == value["calls"])
+            require(
+                value["argument_bindings"]
+                == tuple(
+                    bindings
+                    for call, bindings in zip(
+                        original["calls"], original["argument_bindings"], strict=True
+                    )
+                    if call in expected_calls
+                )
+            )
+        images = value.get("any_expressions", ())
+        bindings = value.get("any_bindings", ())
+        require(len(bindings) == len(images))
+        authored_any, observed_any = [], []
+        pending_any = [(value["authored"], False)]
+        seen_any = set()
+        while pending_any:
+            node, finished = pending_any.pop()
+            if finished:
+                if declared[node].kind == "any_expr":
+                    observed_any.append(node)
+                continue
+            require(node not in seen_any)
+            seen_any.add(node)
+            if declared[node].kind == "any_expr":
+                authored_any.append(node)
+            pending_any.append((node, True))
+            children = tuple(
+                item
+                for key, child in fields[node].items()
+                if key not in {"span", "binding_span", "relation_span", "callee"}
+                for item in (child if type(child) is tuple else (child,))
+                if isinstance(item, schema.Ref) and declared[item].kind in syntax
+            )
+            pending_any.extend((child, False) for child in reversed(children))
+        require(tuple(pair[0] for pair in images) == tuple(observed_any))
+        require(
+            tuple(
+                fields[fields[fields[binding]["resolution"]]["read"]]["expression"]
+                for binding in bindings
+            )
+            == tuple(authored_any)
+        )
+        require(all(fields[binding]["owner"] == owner for binding in bindings))
+        require(all(len(pair) == 2 for pair in images))
+        require(
+            len({pair[0] for pair in images})
+            == len(images)
+            == len({pair[1] for pair in images})
+        )
+        require(len(value["calls"]) == len(value["argument_bindings"]))
+        if not value["calls"]:
+            require(value["authored"] == value["expression"])
+            continue
+        call_roots = {}
+        for call_ref, bindings in zip(
+            value["calls"], value["argument_bindings"], strict=True
+        ):
+            call = fields[call_ref]
+            if parent is None:
+                require(call_ref not in owned_calls)
+                owned_calls.append(call_ref)
+            require(
+                call["owner"] == fields[owner]["definition"]
+                and call["context"] == context
+            )
+            require(call["call"] not in call_roots)
+            call_roots[call["call"]] = call_ref
+            if parent is None:
+                owner_ordinals.setdefault(owner, []).append(int(call["ordinal"]))
+            template = fields[call["template"]]
+            parameters = fields[template["declaration"]]["parameters"]
+            shapes = template["parameter_shapes"]
+            actuals = fields[call["call"]]["arguments"]
+            require(
+                len(call["arguments"])
+                == len(parameters)
+                == len(shapes)
+                == len(actuals)
+                == len(bindings)
+            )
+            for argument_ref, parameter, shape, actual, binding_ref in zip(
+                call["arguments"], parameters, shapes, actuals, bindings, strict=True
+            ):
+                argument, binding = fields[argument_ref], fields[binding_ref]
+                require(
+                    argument["parameter"] == parameter
+                    and argument["shape"] == shape
+                    and argument["argument"] == actual
+                )
+                require(declared[actual].kind == "name_expr")
+                if declared[binding_ref].kind == "project_relation_binding_occurrence":
+                    require(
+                        binding["owner"] == owner
+                        and argument["occurrence"] == binding["site"]
+                    )
+                    require(fields[actual]["name"] == binding["name"])
+                    target = binding["target"]
+                elif declared[binding_ref].kind == "project_any_row_binding":
+                    resolution = fields[binding["resolution"]]
+                    source = fields[resolution["read"]]
+                    require(
+                        source["owner"] == owner
+                        and argument["occurrence"] == source["expression"]
+                    )
+                    require(
+                        fields[actual]["name"]
+                        == fields[source["expression"]]["binding_name"]
+                    )
+                    target = resolution["target_symbol"]
+                else:
+                    source = fields[binding["reference"]]
+                    require(
+                        source["owner"] == owner
+                        and argument["occurrence"] == source["from_clause"]
+                    )
+                    source_clause = fields[source["from_clause"]]
+                    require(
+                        fields[actual]["name"]
+                        == source_clause.get(
+                            "binding_name", source_clause["source_name"]
+                        )
+                    )
+                    target = binding["target_symbol"]
+                require(target is not None)
+                require(
+                    argument["relation"]
+                    == fields[fields[target]["target_occurrence"]]["definition"]
+                )
+        mandatory = (
+            set(
+                conjuncts(
+                    fields[parent]["authored"]
+                    if parent is not None
+                    else value["authored"]
+                )
+            )
+            if declared[context].kind in {"join_on_clause", "where_clause"}
+            else set()
+        )
+        for call_ref in value["calls"]:
+            call = fields[call_ref]
+            require(
+                call["mandatory_equalities"]
+                == (equalities(call["expanded"]) if call["call"] in mandatory else ())
+            )
+
+        observed_calls = []
+        visited = set()
+        pending = [(value["authored"], value["expression"], None)]
+        while pending:
+            authored, normalized, expansion = pending.pop()
+            if isinstance(authored, schema.Ref):
+                require(isinstance(normalized, schema.Ref))
+                identity = (authored, normalized, expansion)
+                require(identity not in visited)
+                visited.add(identity)
+                if expansion is None and authored in call_roots:
+                    call_ref = call_roots[authored]
+                    call = fields[call_ref]
+                    require(normalized == call["expanded"])
+                    observed_calls.append(call_ref)
+                    template = fields[fields[call["template"]]["declaration"]]
+                    pending.append((template["body"], normalized, call_ref))
+                    continue
+                require(declared[authored].kind == declared[normalized].kind)
+                require(declared[authored].kind in syntax)
+                before, after = fields[authored], fields[normalized]
+                if declared[authored].kind == "any_expr":
+                    require((authored, normalized) in images)
+                if expansion is not None:
+                    call = fields[expansion]
+                    require(
+                        fields[after["span"]] == fields[fields[call["call"]]["span"]]
+                    )
+                    if parent is None:
+                        provenance.setdefault(normalized, []).extend(
+                            (
+                                (
+                                    "relationship_predicate_call",
+                                    call["call"],
+                                    expansion,
+                                ),
+                                ("relationship_predicate_body", authored, expansion),
+                            )
+                        )
+                elif authored != normalized:
+                    require(before["span"] == after["span"])
+                    if parent is None:
+                        provenance.setdefault(normalized, []).append(
+                            ("normalized_expression", authored, reference)
+                        )
+                for key in reversed(tuple(before)):
+                    if key == "span":
+                        continue
+                    if key in {"binding_span", "relation_span"}:
+                        require(before[key] == after[key])
+                        continue
+                    if key == "callee" and declared[authored].kind == "call_expr":
+                        require(before[key] == after[key])
+                        continue
+                    if key == "parts" and expansion is not None:
+                        arguments = tuple(
+                            fields[a] for a in fields[expansion]["arguments"]
+                        )
+                        replacements = tuple(
+                            a
+                            for a in arguments
+                            if fields[a["parameter"]]["name"] == before[key][0]
+                        )
+                        if replacements:
+                            require(len(replacements) == 1)
+                            argument = replacements[0]
+                            require(
+                                after[key]
+                                == (
+                                    fields[argument["argument"]]["name"],
+                                    *before[key][1:],
+                                )
+                            )
+                            argument_ref = next(
+                                a
+                                for a in fields[expansion]["arguments"]
+                                if fields[a] is argument
+                            )
+                            if parent is None:
+                                provenance[normalized].append(
+                                    (
+                                        "relationship_predicate_argument",
+                                        argument["argument"],
+                                        argument_ref,
+                                    )
+                                )
+                            continue
+                    pending.append((before[key], after[key], expansion))
+            elif type(authored) is tuple:
+                require(type(normalized) is tuple and len(authored) == len(normalized))
+                pending.extend(
+                    (a, b, expansion)
+                    for a, b in reversed(tuple(zip(authored, normalized, strict=True)))
+                )
+            else:
+                require(authored == normalized)
+        require(tuple(observed_calls) == value["calls"])
+    require(set(owned_calls) == set(kinds.get("relationship_call_info", ())))
+    for ordinals in owner_ordinals.values():
+        require(sorted(ordinals) == list(range(len(ordinals))))
+
+    predicate_conditions = (
+        *kinds.get("project_predicate_join_condition", ()),
+        *(
+            ref
+            for ref in kinds.get("project_any_join_condition", ())
+            if fields[ref]["predicate_expression"] is not None
+            and fields[fields[ref]["predicate_expression"]]["calls"]
+        ),
+    )
+    for condition_ref in predicate_conditions:
+        condition = fields[condition_ref]
+        predicate = fields[condition["predicate_expression"]]
+        require(bool(predicate["calls"]))
+        source_expression = condition["expression"]
+        require(source_expression == predicate["expression"])
+        use = fields[condition["use"]]
+        require(
+            predicate["owner"] == use["owner"]
+            and predicate["context"] == fields[use["clause"]]["on_clause"]
+        )
+        required = tuple(
+            e
+            for e in conjuncts(condition["expression"])
+            if any(e in fields[c]["mandatory_equalities"] for c in predicate["calls"])
+        )
+        proofs = tuple(fields[p] for p in condition["mandatory_equalities"])
+        require(tuple(p["comparison"] for p in proofs) == required)
+        resolved = {
+            fields[r]["expression"]: fields[r]["target"]
+            for r in condition["references"]
+        }
+        for proof in proofs:
+            comparison = proof["comparison"]
+            require(proof["condition"] == condition_ref)
+            position = int(proof["conjunct_position"])
+            require(0 <= position < len(conjuncts(condition["expression"])))
+            require(conjuncts(condition["expression"])[position] == comparison)
+            require(
+                proof["left"] == resolved[fields[comparison]["left"]]
+                and proof["right"] == resolved[fields[comparison]["right"]]
+            )
+            require(
+                proof["calls"]
+                == tuple(
+                    c
+                    for c in predicate["calls"]
+                    if comparison in fields[c]["mandatory_equalities"]
+                )
+            )
+        inputs = condition["match_inputs"]
+        require(all(len(pair) == 2 for pair in inputs))
+        binding_positions = tuple(
+            int(fields[fields[binding]["identity"]]["binding_position"])
+            for binding, _ in inputs
+        )
+        require(binding_positions == tuple(sorted(set(binding_positions))))
+        expected_matches = []
+        target = use["target_binding"]
+        for binding, properties_ref in inputs:
+            require(fields[binding]["owner"] == use["owner"])
+            properties = fields[properties_ref]
+            pairs = tuple(
+                (p, side)
+                for p in condition["mandatory_equalities"]
+                for side, other in (("left", "right"), ("right", "left"))
+                if fields[fields[p][side]]["binding"] == binding
+                and (
+                    (
+                        binding == target
+                        and fields[fields[p][other]]["binding"] != target
+                    )
+                    or (
+                        binding != target
+                        and fields[fields[p][other]]["binding"] == target
+                    )
+                )
+            )
+            matched = {fields[fields[p][side]]["input_field"] for p, side in pairs}
+            expected_matches.extend(
+                (binding, properties_ref, key)
+                for key in properties["keys"]
+                if all(
+                    any(member in matched for member in fields[group]["members"])
+                    for group in fields[key]["determinants"]
+                )
+            )
+        require(
+            tuple(
+                (
+                    fields[match]["binding"],
+                    fields[match]["properties"],
+                    fields[match]["key"],
+                )
+                for match in condition["key_matches"]
+            )
+            == tuple(expected_matches)
+        )
+        for match_ref in condition["key_matches"]:
+            match = fields[match_ref]
+            require(
+                match["condition"] == condition_ref
+                and match["minimum"] == "zero_allowed"
+                and match["maximum"] == "at_most_one"
+            )
+            properties, key = fields[match["properties"]], fields[match["key"]]
+            require(
+                match["key"] in properties["keys"]
+                and key["output"] == properties["output"]
+            )
+            target = use["target_binding"]
+            pairs = tuple(
+                (p, side)
+                for p in condition["mandatory_equalities"]
+                for side, other in (("left", "right"), ("right", "left"))
+                if fields[fields[p][side]]["binding"] == match["binding"]
+                and (
+                    (
+                        match["binding"] == target
+                        and fields[fields[p][other]]["binding"] != target
+                    )
+                    or (
+                        match["binding"] != target
+                        and fields[fields[p][other]]["binding"] == target
+                    )
+                )
+            )
+            require(match["equalities"] == tuple(p for p, _ in pairs))
+            matched = {fields[fields[p][side]]["input_field"] for p, side in pairs}
+            require(
+                all(
+                    any(member in matched for member in fields[group]["members"])
+                    for group in key["determinants"]
+                )
+            )
+    for kind in (
+        "project_predicate_joined_namespace_expression",
+        "project_predicate_no_join_scalar_expression",
+    ):
+        for ref in kinds.get(kind, ()):
+            value = fields[ref]
+            predicate = fields[value["predicate_expression"]]
+            require(
+                bool(predicate["calls"])
+                and value["expression"] == predicate["authored"]
+                and value["normalized_expression"] == predicate["expression"]
+            )
+    for ref in kinds.get("project_predicate_aggregate_expression_analysis", ()):
+        value = fields[ref]
+        predicate = fields[value["predicate_expression"]]
+        require(predicate["parent"] is not None and bool(predicate["calls"]))
+        require(
+            value["effective_argument"] == predicate["expression"]
+            and predicate["context"] == value["item"]
+        )
+    for ref in kinds.get("project_predicate_no_join_replay", ()):
+        value = fields[ref]
+        require(any(fields[p]["calls"] for p in value["predicate_expressions"]))
+        require(
+            all(
+                fields[p]["owner"] == value["owner"]
+                for p in value["predicate_expressions"]
+            )
+        )
+    for ref in kinds.get("project_single_match_proof", ()):
+        value = fields[ref]
+        if value["kind"] != "matched_key":
+            continue
+        roots = value["roots"]
+        require(
+            len(roots) >= 4
+            and declared[roots[0]].kind
+            in {
+                "project_predicate_join_condition",
+                "project_any_join_condition",
+            }
+            and declared[roots[1]].kind == "project_join_condition_key_match"
+        )
+        condition, match = fields[roots[0]], fields[roots[1]]
+        require(
+            match["condition"] == roots[0]
+            and roots[1] in condition["key_matches"]
+            and match["key"] == roots[2]
+            and match["equalities"] == roots[3:]
+        )
+        require(match["binding"] == fields[condition["use"]]["target_binding"])
+    return provenance
+
+
+def _scalar_any_claims(fields, kinds, declared, require):
+    """Verify actual ANY operations, lexical references and complete origin facts."""
+    plans = kinds.get("project_sql_plan_with_scalar_any", ())
+    if not plans:
+        require(
+            not kinds.get("project_sql_any", ()) and not kinds.get("any_value_info", ())
+        )
+        return {}, {}
+    require(len(plans) == 1)
+    plan = fields[plans[0]]
+    traces = plan["scalar_existence_generators"]
+    require(
+        len(set(traces)) == len(traces)
+        and set(traces) == set(kinds.get("any_value_info", ()))
+    )
+    operations = tuple(
+        ref for ref in plan["expressions"] if declared[ref].kind == "project_sql_any"
+    )
+    references = tuple(
+        ref
+        for ref in plan["expressions"]
+        if declared[ref].kind == "project_sql_any_reference"
+    )
+    require(set(operations) == set(kinds.get("project_sql_any", ())))
+    require(set(references) == set(kinds.get("project_sql_any_reference", ())))
+    uses = {fields[ref]["ref"]: fields[ref] for ref in plan["expression_block_uses"]}
+    expressions = {fields[ref]["ref"]: ref for ref in plan["expressions"]}
+    ports = {
+        fields[ref]["ref"]: fields[ref]
+        for ref in (*plan["stage_ports"], *plan["join_ports"])
+    }
+    definitions = {
+        fields[ref]["ref"]: fields[ref]
+        for ref in fields[plan["bindings"]]["definitions"]
+    }
+    value_by_expression = {}
+    trace_operations = {}
+
+    def syntax_nodes(root):
+        result, pending, seen = [], [root], set()
+        while pending:
+            node = pending.pop()
+            if not isinstance(node, schema.Ref) or node in seen:
+                continue
+            seen.add(node)
+            kind = schema.PREDICATE_VARIANT_BASES.get(
+                declared[node].kind, declared[node].kind
+            )
+            if not (kind.endswith("_expr") or kind in {"type_expr", "type_argument"}):
+                continue
+            result.append(node)
+            for name, child in reversed(tuple(fields[node].items())):
+                if name not in {"span", "binding_span", "relation_span"}:
+                    pending.extend(
+                        reversed(child) if type(child) is tuple else (child,)
+                    )
+        return tuple(result)
+
+    for operation in operations:
+        value = fields[operation]
+        evidence = fields[value["evidence"]]
+        input_value = fields[evidence["input"]]
+        binding = fields[input_value["binding"]]
+        trace_ref = binding["origin"]
+        require(trace_ref in traces and not evidence["diagnostics"])
+        trace = fields[trace_ref]
+        resolution = fields[binding["resolution"]]
+        read = fields[resolution["read"]]
+        use = uses[value["use"]]
+        edge = fields[use["edge"]]
+        core_use = fields[edge["use"]]
+        site = fields[value["site"]]
+        require(
+            read["expression"] == trace["expression"]
+            and read["owner"] == binding["owner"] == site["owner"]
+        )
+        require(fields[binding["owner"]]["definition"] == trace["owner"])
+        require(
+            core_use["evidence"] == binding["resolution"]
+            and core_use["consumer"] == site["owner"]
+        )
+        require(fields[definitions[use["consumer"]]["entry"]]["owner"] == site["owner"])
+        require(
+            resolution["target_symbol"] is not None
+            and fields[resolution["target_symbol"]]["target_occurrence"]
+            == core_use["target"]
+        )
+        require(
+            value["expression"] == evidence["expression"]
+            and value["value_type"] == evidence["value_type"]
+        )
+        value_type = fields[value["value_type"]]
+        resolved = fields[value_type["resolved_type"]]
+        require(
+            value_type["kind"] == "known"
+            and value_type["nullability"] == "non_null"
+            and resolved["kind"] == "builtin"
+            and resolved["name"] == "Bool"
+            and resolved["definition"] is None
+        )
+        require(
+            dict(evidence["value_types"]).get(evidence["expression"])
+            == value["value_type"]
+        )
+        require(
+            fields[expressions[value["predicate"]]]["expression"]
+            == fields[evidence["expression"]]["predicate"]
+        )
+        require(evidence["expression"] not in value_by_expression)
+        value_by_expression[evidence["expression"]] = operation
+        trace_operations.setdefault(trace_ref, []).append(operation)
+        producer = definitions[use["producer"]]
+        output_fields = tuple(fields[port]["field"] for port in producer["exports"])
+        require(
+            all(
+                fields[field]["output"] == edge["output"]
+                and int(fields[field]["field_position"]) == position
+                for position, field in enumerate(output_fields)
+            )
+        )
+        require(
+            tuple(field for _, field in fields[input_value["schema"]]["fields"])
+            == tuple(fields[field]["evidence"] for field in output_fields)
+        )
+        require(
+            all(
+                fields[field]["binding"] == input_value["binding"]
+                for field in evidence["fields"]
+            )
+        )
+        require(
+            tuple(fields[field]["source_field"] for field in evidence["fields"])
+            == tuple(value for _, value in fields[input_value["schema"]]["fields"])
+        )
+    require(set(trace_operations) == set(traces))
+    require(
+        set(fields[op]["evidence"] for op in operations)
+        == set(kinds.get("project_any_value", ()))
+    )
+    expected_refs = []
+    for operation in operations:
+        value = fields[operation]
+        evidence = fields[value["evidence"]]
+        direct_nodes = []
+        nested = []
+        pending = [fields[evidence["expression"]]["predicate"]]
+        while pending:
+            node = pending.pop()
+            if declared[node].kind == "any_expr":
+                require(node in value_by_expression)
+                nested.append(fields[value_by_expression[node]]["evidence"])
+                continue
+            if declared[node].kind in {"name_expr", "dotted_name_expr"}:
+                direct_nodes.append(node)
+            for name, child in reversed(tuple(fields[node].items())):
+                if name in {"span", "callee"}:
+                    continue
+                children = child if type(child) is tuple else (child,)
+                pending.extend(
+                    item
+                    for item in reversed(children)
+                    if isinstance(item, schema.Ref)
+                    and (
+                        declared[item].kind.endswith("_expr")
+                        or declared[item].kind == "any_expr"
+                    )
+                )
+        require(tuple(nested) == evidence["nested"])
+        require(
+            tuple(fields[ref]["expression"] for ref in evidence["references"])
+            == tuple(direct_nodes)
+        )
+        expected_refs.extend(evidence["references"])
+    require(len(expected_refs) == len(references))
+    actual_refs = [fields[ref]["reference"] for ref in references]
+    require(
+        set(actual_refs) == set(expected_refs)
+        and len(set(actual_refs)) == len(actual_refs)
+    )
+    parent_by_expression = {}
+    for operation in operations:
+        evidence = fields[fields[operation]["evidence"]]
+        for nested in evidence["nested"]:
+            expression = fields[nested]["expression"]
+            require(expression not in parent_by_expression)
+            parent_by_expression[expression] = evidence["expression"]
+    _acyclic({key: (value,) for key, value in parent_by_expression.items()})
+    for ref in references:
+        value = fields[ref]
+        checked = fields[value["reference"]]
+        require(
+            len(checked["candidates"]) == 1
+            and checked["target"] == checked["candidates"][0]
+            and checked["expression"] == value["expression"]
+        )
+        scopes = tuple(
+            op
+            for op in operations
+            if value["reference"] in fields[fields[op]["evidence"]]["references"]
+        )
+        require(len(scopes) == 1 and fields[scopes[0]]["site"] == value["site"])
+        scope_evidence = fields[fields[scopes[0]]["evidence"]]
+        require(
+            dict(scope_evidence["value_types"]).get(value["expression"])
+            == value["value_type"]
+        )
+        current = fields[scopes[0]]["expression"]
+        lexical = []
+        while current is not None:
+            lexical.append(value_by_expression[current])
+            current = parent_by_expression.get(current)
+        target = fields[checked["target"]]
+        if (
+            declared[checked["target"]].kind == "project_any_field"
+            and declared[target["binding"]].kind == "project_any_row_binding"
+        ):
+            matching = tuple(
+                op
+                for op in lexical
+                if fields[fields[fields[op]["evidence"]]["input"]]["binding"]
+                == target["binding"]
+            )
+            require(
+                len(matching) == 1
+                and value["use"] == fields[matching[0]]["use"]
+                and value["port"] is None
+            )
+            expression = fields[value["expression"]]
+            binder = fields[fields[matching[0]]["expression"]]["binding_name"]
+            require(
+                declared[value["expression"]].kind == "dotted_name_expr"
+                and expression["parts"]
+                == (binder, fields[target["source_field"]]["name"])
+            )
+            nearest = tuple(
+                op
+                for op in lexical
+                if fields[fields[op]["expression"]]["binding_name"] == binder
+            )
+            require(bool(nearest) and nearest[0] == matching[0])
+            schema_ref = fields[fields[fields[matching[0]]["evidence"]]["input"]][
+                "schema"
+            ]
+            ordered = tuple(field for _, field in fields[schema_ref]["fields"])
+            position = int(value["position"])
+            require(
+                0 <= position < len(ordered)
+                and ordered[position] == target["source_field"]
+            )
+        else:
+            require(
+                value["use"] is None
+                and value["position"] is None
+                and value["port"] in ports
+            )
+            port = ports[value["port"]]
+            if declared[checked["target"]].kind == "project_any_field":
+                key = target["source_field"]
+                source = fields[key]
+                binding = fields[target["binding"]]
+                if declared[key].kind == "project_join_condition_field":
+                    require(source["binding"] == target["binding"])
+                    field = fields[fields[source["input_field"]]["evidence"]]
+                elif declared[key].kind == "project_scalar_environment_field":
+                    require(
+                        declared[target["binding"]].kind
+                        == "project_relation_binding_occurrence"
+                    )
+                    field = fields[source["evidence"]]
+                    joined = fields[source["source_field"]]
+                    require("introduction_use" in joined)
+                    inputs = tuple(
+                        fields[item]
+                        for item in plan["join_inputs"]
+                        if fields[fields[item]["source"]]["source"]
+                        == joined["introduction_use"]
+                        or fields[fields[item]["source"]]["use"]
+                        == joined["introduction_use"]
+                    )
+                    require(len(inputs) == 1)
+                    introductions = tuple(
+                        fields[item]
+                        for item in plan["joins"]
+                        if fields[item]["ref"] == inputs[0]["join"]
+                    )
+                    require(len(introductions) == 1)
+                    use_ref = fields[fields[introductions[0]["source"]]["condition"]][
+                        "use"
+                    ]
+                    introduced = fields[use_ref]
+                    require(binding["owner"] == introduced["owner"])
+                    if int(inputs[0]["ordinal"]) == 1:
+                        require(target["binding"] == introduced["target_binding"])
+                    else:
+                        require(
+                            introductions[0]["position"] == 0
+                            and int(fields[binding["identity"]]["binding_position"])
+                            == 0
+                        )
+                else:
+                    require(
+                        declared[key].kind == "project_row_field"
+                        and declared[target["binding"]].kind
+                        == "project_resolved_module_relation_reference"
+                    )
+                    field = source
+                    consumer = fields[scopes[0]]["site"]
+                    owner = fields[consumer]["owner"]
+                    require(fields[binding["reference"]]["owner"] == owner)
+                    inputs = tuple(
+                        fields[item]
+                        for item in plan["input_uses"]
+                        if fields[item]["binding"] == binding["target_symbol"]
+                        and fields[fields[item]["dependency"]]["evidence"]
+                        == target["binding"]
+                    )
+                    require(
+                        len(inputs) == 1
+                        and any(
+                            fields[fields[item]["field"]]["evidence"] == key
+                            for item in inputs[0]["ports"]
+                        )
+                    )
+                binder = (
+                    binding["name"]
+                    if declared[target["binding"]].kind
+                    == "project_relation_binding_occurrence"
+                    else fields[fields[binding["reference"]]["from_clause"]].get(
+                        "binding_name",
+                        fields[fields[binding["reference"]]["from_clause"]][
+                            "source_name"
+                        ],
+                    )
+                )
+                expression = fields[value["expression"]]
+                if declared[value["expression"]].kind == "dotted_name_expr":
+                    require(expression["parts"] == (binder, field["name"]))
+                else:
+                    require(expression["name"] == field["name"])
+                require(
+                    all(
+                        fields[fields[op]["expression"]]["binding_name"] != binder
+                        for op in lexical
+                    )
+                )
+            else:
+                authority = fields[target["authority"]]
+                key = (
+                    authority["occurrence"]
+                    if "occurrence" in authority
+                    else target["binding"]
+                )
+                expression = fields[value["expression"]]
+                require(
+                    declared[value["expression"]].kind == "name_expr"
+                    and expression["name"] == fields[target["binding"]]["name"]
+                )
+                require(
+                    target["value_type"] == value["value_type"]
+                    and all(
+                        fields[fields[op]["expression"]]["binding_name"]
+                        != expression["name"]
+                        for op in lexical
+                    )
+                )
+            require(
+                port["key"] == key
+                and port.get("block", port.get("join"))
+                == fields[value["site"]]["block"]
+            )
+    members = {
+        fields[ref]["occurrence"] for ref in kinds.get("project_sql_source_site", ())
+    }
+    routes, generated = {}, {}
+    for trace_ref in traces:
+        trace = fields[trace_ref]
+        require(trace["authored_expression"] in members)
+        for operation in trace_operations[trace_ref]:
+            for node in (
+                *syntax_nodes(trace["expression"]),
+                *syntax_nodes(fields[operation]["expression"]),
+            ):
+                if node in members:
+                    continue
+                generated[node] = trace_ref
+                routes.setdefault(node, []).append(
+                    (
+                        "existence_value_expansion",
+                        trace["authored_expression"],
+                        trace_ref,
+                    )
+                )
+    return routes, generated
+
+
 def _relationships(document, declared):
     """Check document claims, without compiler construction or source authority."""
     fields = {
@@ -458,9 +1575,51 @@ def _relationships(document, declared):
     kinds = {}
     for record in document.records:
         kinds.setdefault(record.kind, []).append(record.ref)
+        base_kind = schema.PREDICATE_VARIANT_BASES.get(record.kind)
+        if base_kind is not None:
+            kinds.setdefault(base_kind, []).append(record.ref)
 
     def require(condition):
         _require(condition, Status.INVALID_RELATION)
+
+    for ref in kinds.get("named_join_clause", ()):
+        require(
+            fields[ref]["uses_named_input"] is True
+            and fields[ref]["source_binding_name"] is None
+        )
+    existence_sources, generated_any = _existence_claims(
+        fields, kinds, declared, require
+    )
+    scalar_sources, generated_scalar = _scalar_any_claims(
+        fields, kinds, declared, require
+    )
+    generated_any.update(generated_scalar)
+    predicate_sources = _predicate_claims(fields, kinds, declared, require)
+    combined_sources = {ref: list(values) for ref, values in existence_sources.items()}
+    for ref, values in scalar_sources.items():
+        combined_sources.setdefault(ref, []).extend(values)
+    for ref, routes in predicate_sources.items():
+        for kind, node, evidence in routes:
+            use = generated_any.get(node)
+            if use is not None:
+                node = fields[use].get("authored_expression", fields[use]["expression"])
+                if kind == "relationship_predicate_call":
+                    kind = "relationship_predicate_generated_call"
+                elif kind == "relationship_predicate_argument":
+                    kind = "relationship_predicate_generated_argument"
+                else:
+                    kind, evidence = (
+                        (
+                            "existence_value_expansion"
+                            if declared[use].kind == "any_value_info"
+                            else "existence_generator_expansion"
+                        ),
+                        use,
+                    )
+            combined_sources.setdefault(ref, []).append((kind, node, evidence))
+    predicate_sources = {
+        ref: tuple(dict.fromkeys(routes)) for ref, routes in combined_sources.items()
+    }
 
     def one(kind):
         values = kinds.get(kind, ())
@@ -668,6 +1827,7 @@ def _relationships(document, declared):
         "project_sql_conditional": ("when_true", "condition", "when_false"),
         "project_sql_cast": ("value",),
         "project_sql_relation_membership": ("value",),
+        "project_sql_any": ("predicate",),
     }
     expression_edges = {}
     for ref in p["expressions"]:
@@ -719,8 +1879,9 @@ def _relationships(document, declared):
 
     require(bool(bindings["definitions"]) and bool(p["exports"]))
     selected_owner = fields[p["scope"]]["selected_owner"]
+    selected_kind = declared[fields[selected_owner]["definition"]].kind
     require(
-        declared[fields[selected_owner]["definition"]].kind
+        schema.PREDICATE_VARIANT_BASES.get(selected_kind, selected_kind)
         in ("table_def", "query_def", "set_relation_def")
     )
     selected_definitions = tuple(
@@ -739,6 +1900,7 @@ def _relationships(document, declared):
         definition = fields[ref]
         owner = fields[fields[definition["entry"]]["owner"]]
         kind = declared[owner["definition"]].kind
+        kind = schema.PREDICATE_VARIANT_BASES.get(kind, kind)
         blocks = blocks_by_definition.get(definition["ref"], ())
         bodies = sets_by_definition.get(definition["ref"], ())
         sources = sources_by_definition.get(definition["ref"], ())
@@ -994,6 +2156,14 @@ def _relationships(document, declared):
             demand = fields[ref]
             key = (fields[demand["site"]]["ref"], demand["expression"])
             context_demands.setdefault(key, []).append(ref)
+    predicate_roots = {}
+    for ref in kinds.get("project_relationship_predicate_expression", ()):
+        predicate = fields[ref]
+        if predicate["parent"] is not None:
+            continue
+        key = (predicate["owner"], predicate["context"])
+        require(key not in predicate_roots)
+        predicate_roots[key] = ref
     literal_contexts = {}
     for ref in literal_demands:
         demand = fields[ref]
@@ -1045,7 +2215,49 @@ def _relationships(document, declared):
             and bound_expression["use"] == demand["use"]
             and bound_expression["value_type"] == position["value_type"]
         )
-        current = fields[site["occurrence"]]["expression"]
+        # Positions follow each checked carrier's root. Predicate expansion
+        # may rebuild ancestors while sharing untouched authored subtrees.
+        authored = fields[site["occurrence"]]["expression"]
+        predicate_ref = predicate_roots.get((site["owner"], site["occurrence"]))
+        predicate = None if predicate_ref is None else fields[predicate_ref]
+        evidence = fields[site["evidence"]]
+        evidence_kind = declared[site["evidence"]].kind
+        evidence_kind = schema.PREDICATE_VARIANT_BASES.get(evidence_kind, evidence_kind)
+        current = authored
+        if declared[context].kind == "project_sql_match_site":
+            join_use = fields[evidence["use"]]
+            require(
+                join_use["owner"] == site["owner"]
+                and fields[join_use["clause"]]["on_clause"] == site["occurrence"]
+            )
+            current = evidence["expression"]
+        elif evidence_kind in {
+            "project_no_join_scalar_expression",
+            "project_concrete_joined_namespace_expression",
+        }:
+            require(evidence["expression"] == authored)
+            current = evidence.get("normalized_expression", authored)
+        elif evidence_kind == "project_joined_let_value":
+            occurrence = fields[evidence["occurrence"]]
+            require(
+                occurrence["owner"] == site["owner"]
+                and occurrence["binding"] == site["occurrence"]
+                and occurrence["expression"] == authored
+            )
+            current = authored if predicate is None else predicate["expression"]
+            if "normalized_expression" in evidence:
+                require(evidence["normalized_expression"] == current)
+        elif evidence_kind == "project_module_let_binding_fact":
+            require(
+                evidence["owner"] == site["owner"]
+                and evidence["binding"] == site["occurrence"]
+                and site["occurrence"] in fields[evidence["scope_facts"]]["bindings"]
+            )
+            current = authored if predicate is None else predicate["expression"]
+        if predicate is not None:
+            require(
+                predicate["authored"] == authored and predicate["expression"] == current
+            )
         contexts = []
         # Follow only this recorded scalar path, never stage-port references or
         # transitive producer uses. The context root also rejects shortened paths.
@@ -1567,7 +2779,9 @@ def _relationships(document, declared):
         require(location["original"] == fields[item["occurrence"]]["span"])
         require(location["path"] == fields[fields[item["source"]]["module"]]["path"])
         require(
-            declared[item["container"]].kind
+            schema.PREDICATE_VARIANT_BASES.get(
+                declared[item["container"]].kind, declared[item["container"]].kind
+            )
             in (
                 "source_def",
                 "query_def",
@@ -1583,6 +2797,9 @@ def _relationships(document, declared):
                 "import_statement",
                 "export_statement",
                 "relationship_metadata",
+                "relationship_template",
+                "function_def",
+                "any_expr",
             )
         )
         container = fields[fields[item["container"]]["span"]]
@@ -1643,7 +2860,38 @@ def _relationships(document, declared):
             for r in source_associations.get(entry, ())
             if fields[r]["kind"] == "authored_cause"
         )
-        require(bool(causes))
+        expanded = tuple(
+            fields[r]
+            for r in source_associations.get(entry, ())
+            if fields[r]["kind"]
+            in {
+                "relationship_predicate_call",
+                "relationship_predicate_body",
+                "relationship_predicate_argument",
+                "normalized_expression",
+                "existence_generator_expansion",
+                "existence_value_expansion",
+                "relationship_predicate_generated_call",
+                "relationship_predicate_generated_argument",
+            }
+        )
+        expected_expanded = tuple(predicate_sources.get(original["cause"], ()))
+        require(
+            tuple(
+                (a["kind"], fields[a["site"]]["occurrence"], a["evidence"])
+                for a in expanded
+            )
+            == expected_expanded
+        )
+        require(
+            all(
+                a["observed"] == original["cause"]
+                and a["path"] is None
+                and a["hop"] is None
+                for a in expanded
+            )
+        )
+        require(bool(causes) != bool(expected_expanded))
         for cause in causes:
             require(
                 cause["observed"]

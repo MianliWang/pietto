@@ -207,7 +207,9 @@ def _completed_row_references(
         definition = root.owner.definition
         assert isinstance(definition, (TableDef, QueryDef))
 
-        qualifier = definition.from_clause.source_name
+        qualifier = (
+            definition.from_clause.binding_name or definition.from_clause.source_name
+        )
 
         def references(expression, role, ordinal):
             return facts._expression_reference_facts(
@@ -223,6 +225,28 @@ def _completed_row_references(
                 selected_items=(),
             )
 
+        def selected_expression(item, output):
+            if output.item is not item:
+                raise ValueError(
+                    "Completed row references require exact selected occurrences."
+                )
+            source = output.source
+            if isinstance(source, project_final_outputs.ProjectNoJoinScalarExpression):
+                return source.normalized_expression
+            if isinstance(source, project_final_outputs.ProjectNoJoinGroupedOutput):
+                analyses = tuple(
+                    analysis
+                    for analysis in source.readiness.finalization.analyses
+                    if analysis.item is item
+                )
+                if len(analyses) > 1:
+                    raise ValueError(
+                        "Aggregate references require one exact argument analysis."
+                    )
+                if analyses and analyses[0].predicate_expression is not None:
+                    return analyses[0].predicate_expression.expression
+            return item.expression
+
         result.append(
             ProjectCompletedRowReferenceFacts(
                 entry=entry,
@@ -235,11 +259,13 @@ def _completed_row_references(
                 ),
                 selections=tuple(
                     references(
-                        item.expression,
+                        selected_expression(item, output),
                         facts.ProjectModuleFactOccurrenceRole.SELECT_VALUE,
                         i,
                     )
-                    for i, item in enumerate(definition.select_items)
+                    for i, (item, output) in enumerate(
+                        zip(definition.select_items, entry.fields, strict=True)
+                    )
                 ),
                 groups=tuple(
                     references(
@@ -252,9 +278,9 @@ def _completed_row_references(
                     )
                 ),
                 where=()
-                if definition.where_clause is None
+                if root.where.expression_analysis is None
                 else references(
-                    definition.where_clause.expression,
+                    root.where.expression_analysis.normalized_expression,
                     facts.ProjectModuleWhereReferenceRole.WHERE_VALUE,
                     0,
                 ),
@@ -459,6 +485,7 @@ class _ProjectCompletedSemanticRoots:
                     relationships=(
                         verification.root.join_regions.uses.index.guarantees.conditions.diagnostics
                     ),
+                    orders=self.order_facts,
                 ),
                 *source_diagnostics,
                 *query_parameter_semantic_diagnostics(
@@ -514,7 +541,12 @@ class ProjectConcreteCompletedSemanticResult:
         verification = self.roots.verification
         completion = self.roots.completion
         effective_outputs = self.roots.effective_outputs
-        diagnostics = self.roots.diagnostics
+        # Producers may restate one diagnostic for the same source occurrence
+        # (an unknown direct field, a JOIN condition error that its relation
+        # also reports, or a read in a comparison chain's inner operand, for
+        # one); the public result reports each value once, in first-occurrence
+        # order.
+        diagnostics = tuple(dict.fromkeys(self.roots.diagnostics))
         single_matches = ProjectSingleMatchSet(
             root=effective_outputs, requests=self.single_match_requests
         )
@@ -901,7 +933,7 @@ def _deferred_row_features(
         for present, text in (
             (definition.let_clause is not None, "let bindings"),
             (definition.group_by_clause is not None, "GROUP BY"),
-            (definition.satisfying_clause is not None, "a satisfying clause"),
+            (definition.satisfying_clause is not None, "a having clause"),
             (computed == 1, "a computed SELECT output"),
             (computed > 1, "computed SELECT outputs"),
         )
@@ -922,15 +954,68 @@ def _infers(clause: JoinClause) -> bool:
 
 def _join_causes(
     entry: ProjectEffectiveOutputCompletionEntry,
-    uses: project_relationship_uses.ProjectRelationshipUseSet | None,
+    conditions: ProjectJoinConditionSet | ProjectJoinConditionCompletion | None,
 ) -> tuple[tuple[JoinClause, str], ...]:
-    """Each JOIN of the relation whose relationship lookup says why it fails."""
+    """Explain actual legacy inference failures after binding current JOIN scope."""
+    if conditions is None:
+        return ()
+    uses = conditions.uses
     found: list[tuple[JoinClause, str]] = []
-    for ledger in () if uses is None else uses.ledgers:
-        if uses is None or ledger.owner is not entry.owner:
+    for ledger in uses.ledgers:
+        if ledger.owner is not entry.owner:
             continue
         for use in ledger.uses:
+            if (
+                use.clause.uses_named_input
+                and project_relationship_uses.project_join_mode(use.clause)
+                in {"M3", "M5"}
+            ):
+                matching = tuple(
+                    condition
+                    for condition in conditions.entries
+                    if condition.use is use
+                )
+                if len(matching) != 1:
+                    raise ValueError(
+                        "Named JOIN diagnostics require one exact operative condition."
+                    )
+                condition = matching[0]
+                environment = condition.environment
+                if (
+                    condition.ledger is not ledger
+                    or len(environment.source_candidates) != 1
+                    or environment.source_candidates[0] is not ledger.bindings[0]
+                    or not environment.bindings
+                    or environment.bindings[-1] is not use.target_binding
+                ):
+                    raise ValueError(
+                        "Named JOIN diagnostics lost their explicit input scope."
+                    )
+                # These inputs are named by the current condition; its historical
+                # relationship lookup is not an additional inference requirement.
+                # Terminal/resolution/condition errors remain in _final_diagnostics,
+                # including its fallback for an unavailable input with no own error.
+                continue
             cause = _join_cause(use, ledger, uses)
+            if cause is not None and use.clause.uses_named_input:
+                # A modern JOIN without `on` infers no relationship: only an
+                # `on` matches its rows, so the historical lookup is not named.
+                names = tuple(
+                    binding.name
+                    for binding in project_relationship_uses.project_join_visible_bindings(
+                        ledger, use
+                    )
+                )
+                matched = (
+                    f" that matches {_or_list(names)} to "
+                    f"{use.clause.target_relation_name}"
+                    if names
+                    else ""
+                )
+                cause = (
+                    f"JOIN {use.clause.target_binding_name}: write `on` with the "
+                    f"condition{matched}"
+                )
             if cause is not None:
                 found.append((use.clause, cause))
     return tuple(found)
@@ -1413,6 +1498,8 @@ def _fanout_clause(
     a source. A remedy that cannot be derived this way is left out.
     """
 
+    from pietto._project.existence_values import ProjectAnyField
+
     region = risky[0].multifact_region
     index = region.grain_index
     joins = region.region.joins
@@ -1471,18 +1558,48 @@ def _fanout_clause(
             return None
         return target.target_occurrence.identity.declared_name
 
-    def source_binding(join):
-        # An ON or CROSS JOIN reads its source binding through its condition.
-        if join.use.source_binding is not None:
-            return join.use.source_binding
-        if type(join) is project_multifact.ProjectCurrentBinaryJoin:
-            candidates = join.condition.environment.source_candidates
-            return candidates[0] if len(candidates) == 1 else None
-        return None
+    def source_bindings(join):
+        if type(join) is not project_multifact.ProjectCurrentBinaryJoin:
+            return () if join.use.source_binding is None else (join.use.source_binding,)
+        condition = join.condition
+        read = {
+            id(reference.target.binding)
+            for reference in condition.references
+            if reference.target is not None
+            and reference.target.binding is not condition.use.target_binding
+        }
+        read.update(
+            id(field.binding)
+            for equality in condition.mandatory_equalities
+            for field in (equality.left, equality.right)
+            if field.binding is not condition.use.target_binding
+        )
+        # ANY is opaque to scalar references; its checked captures own outer reads.
+        pending = list(reversed(condition.environment.existence_values))
+        while pending:
+            value = pending.pop()
+            read.update(
+                id(target.binding)
+                for capture in value.captures
+                if type(target := capture.target) is ProjectAnyField
+                and target.binding is not condition.use.target_binding
+            )
+            pending.extend(reversed(value.nested))
+        # Repeated reads share one binding edge; every distinct prior input remains.
+        return tuple(
+            binding
+            for binding in condition.environment.bindings[:-1]
+            if any(binding is prior for prior, _field in join.left_fields)
+            and id(binding) in read
+        )
 
     # Each named row input (the FROM binding and every JOIN binding), its
     # binding and its factors; an intermediate multi-hop input has no name.
-    from_binding = source_binding(joins[0])
+    from_binding = (
+        joins[0].condition.ledger.bindings[0]
+        if type(joins[0]) is project_multifact.ProjectCurrentBinaryJoin
+        else joins[0].use.source_binding
+    )
     inputs: dict[
         str, tuple[project_relationship_uses.ProjectRelationBindingOccurrence, _Factors]
     ] = {}
@@ -1497,19 +1614,33 @@ def _fanout_clause(
         hops[join.use.identity] = hops.get(join.use.identity, 0) + 1
     previous: dict[object, _Factors] = {}
     edges = []
+    disconnected = set()
     for join in joins:
         target = localized(join.right_input, join.input_uses[1])
-        source_input = source_binding(join)
-        source = previous.get(
-            join.use.identity,
-            inputs[source_input.name][1]
-            if source_input is not None and source_input.name in inputs
-            else frozenset(),
+        source_inputs = source_bindings(join)
+        if (
+            not source_inputs
+            and type(join) is project_multifact.ProjectCurrentBinaryJoin
+        ):
+            disconnected.add(join)
+            source_inputs = tuple(
+                binding
+                for binding in join.condition.environment.bindings[:-1]
+                if any(binding is prior for prior, _field in join.left_fields)
+            )
+        sources = (
+            (previous[join.use.identity],)
+            if join.use.identity in previous
+            else tuple(
+                inputs[binding.name][1]
+                for binding in source_inputs
+                if binding.name in inputs and inputs[binding.name][0] is binding
+            )
         )
         previous[join.use.identity] = target
         if last_hop[join.use.identity] is join:
             inputs[join.use.target_binding.name] = (join.use.target_binding, target)
-        edges.append((join, source, target))
+        edges.extend((join, source, target) for source in sources)
 
     # Declarable keys, each with every dependency it would add, in JOIN order.
     keys: dict[object, tuple[str, list[_Dependency], dict[str, None]]] = {}
@@ -1536,7 +1667,7 @@ def _fanout_clause(
         if clause.kind == "inner":
             sides.append(
                 (
-                    source_binding(join),
+                    join.use.source_binding,
                     list(dict.fromkeys(p.left.evidence.name for p in join.matches)),
                     (target, source),
                 )
@@ -1609,12 +1740,24 @@ def _fanout_clause(
 
     repeated = tuple(
         f"JOIN {join.use.target_binding.name}"
-        for join, source, target in edges
-        if source
-        and target
-        and any(
-            (source <= (reached := closure(seed, own))) != (target <= reached)
-            for seed, own in seeds
+        for join in joins
+        if (
+            any(
+                exposure.join is join
+                for linkage in risky
+                for exposure in linkage.multiplicity_exposures
+            )
+            if join in disconnected
+            else any(
+                source
+                and target
+                and any(
+                    (source <= (reached := closure(seed, own))) != (target <= reached)
+                    for seed, own in seeds
+                )
+                for edge, source, target in edges
+                if edge is join
+            )
         )
     )
     remedies = []
@@ -1631,9 +1774,13 @@ def _fanout_clause(
             )
         )
     if picked:
+        # Grouping by such a key would pass too, but would change the result's
+        # grain, so the remedies keep the authored GROUP BY.
         noun = "a unique key" if len(picked) == 1 else "unique keys"
         remedies.append(
-            f"group by {noun} of {_and_list(picked)} whose fields are all not null"
+            f"match {noun} of {_and_list(picked)} whose fields are never None in "
+            "`on` with a relationship call, use `any(...)` for an input that only "
+            "filters rows, or aggregate in a separate query first"
         )
     if not repeated and not remedies:
         return ""
@@ -1691,8 +1838,18 @@ def _final_diagnostics(
     retired: tuple[Diagnostic, ...] = (),
     shapes: tuple[Diagnostic, ...] = (),
     relationships: tuple[Diagnostic, ...] = (),
+    orders: tuple[ProjectCompletedOrderFacts, ...] = (),
 ) -> tuple[Diagnostic, ...]:
     retired_ids = {id(diagnostic) for diagnostic in retired}
+    # A check reports no other ORDER result of an existing entry.
+    ambiguous_orders = {
+        id(facts.entry): facts.ordering.diagnostics
+        for facts in orders
+        if type(facts.ordering)
+        is project_final_outputs.ProjectNonConcreteRelationOrdering
+        and facts.ordering.reason
+        is project_final_outputs.ProjectRelationOrderingNonConcreteReason.OUTPUT_NAME_AMBIGUOUS
+    }
     conditions = effective_outputs.operative_conditions
     uses = None if conditions is None else conditions.uses
     retained = [
@@ -1715,7 +1872,10 @@ def _final_diagnostics(
     semantic_facts = semantic_result.module_semantic_facts
     for entry in effective_outputs.entries:
         if type(entry) is ProjectExistingEffectiveOutput:
-            for diagnostic in _ordinary_row_diagnostics(entry.fragment.semantic_facts):
+            for diagnostic in (
+                *_ordinary_row_diagnostics(entry.fragment.semantic_facts),
+                *ambiguous_orders.get(id(entry), ()),
+            ):
                 if id(diagnostic) not in retained_ids:
                     retained.append(diagnostic)
                     retained_ids.add(id(diagnostic))
@@ -1751,10 +1911,9 @@ def _final_diagnostics(
             )
             if id(diagnostic) not in retired_ids
         )
-        # A JOIN that omits `from` or VIA roles names its own failed lookup,
-        # whatever else the relation reports; a written JOIN keeps the one
-        # relation-level fallback, which names its ambiguous directions.
-        causes = () if completed else _join_causes(entry, uses)
+        # Actual legacy inference failures name their lookup. Modern direct
+        # inputs retain their own diagnostics, not a historical lookup failure.
+        causes = () if completed else _join_causes(entry, conditions)
         errors = (
             *errors,
             *(
@@ -1768,7 +1927,24 @@ def _final_diagnostics(
             and entry.fragment.semantic_facts.base_row_fact.state.reason
             is ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED
         )
-        if not errors and not completed and not (unresolved and resolution_reported):
+        named_input_error = conditions is not None and any(
+            condition.ledger.owner is entry.owner
+            and condition.use.clause.uses_named_input
+            and project_relationship_uses.project_join_mode(condition.use.clause)
+            in {"M3", "M5"}
+            and any(
+                diagnostic.severity is Severity.ERROR
+                and id(diagnostic) not in retired_ids
+                for diagnostic in condition.diagnostics
+            )
+            for condition in conditions.entries
+        )
+        if (
+            not errors
+            and not completed
+            and not named_input_error
+            and not (unresolved and resolution_reported)
+        ):
             errors = (
                 _fallback_diagnostic(
                     entry,
@@ -1785,11 +1961,7 @@ def _final_diagnostics(
     # The JOIN condition diagnostics follow the relations' own.
     if conditions is not None:
         retained.extend(conditions.diagnostics)
-    # Producers may restate one diagnostic for the same source occurrence (an
-    # unknown direct field, or a JOIN condition error that its relation also
-    # reports, for one); the public result reports each value once, in
-    # first-occurrence order.
-    return tuple(dict.fromkeys(retained))
+    return tuple(retained)
 
 
 def _build_phase62_verification(
@@ -2222,7 +2394,14 @@ def derive_compiled_semantics(root, values, parameters=None):
                 for parent, position in null_parents.get(ref, ()):
                     role, token = parent.get("operator")
                     parent_operands = parent.get("operands")
-                    if role == "conditional" and position == 1:
+                    if (
+                        role == "exists"
+                        and token == "exists"
+                        and position == 0
+                        and len(parent_operands) == 1
+                    ):
+                        candidates.append("Bool")
+                    elif role == "conditional" and position == 1:
                         candidates.append("Bool")
                     elif role == "conditional" and position in (0, 2):
                         sibling = parent_operands[2 if position == 0 else 0]
@@ -2598,7 +2777,15 @@ def derive_compiled_semantics(root, values, parameters=None):
                             ),
                         ),
                     )
-                elif role == "exists" and token == "exists" and not arguments:
+                elif (
+                    role == "exists"
+                    and token == "exists"
+                    and (
+                        not arguments
+                        or len(arguments) == 1
+                        and arguments[0].resolved_type.name == "Bool"
+                    )
+                ):
                     # An existence read of one whole producer block is never NULL.
                     typed = ValueType(
                         ResolvedType("Bool", TypeKind.BUILTIN),
@@ -3275,7 +3462,14 @@ def verify_compiled_semantics(value):
                 for parent, position in null_parents.get(current, ()):
                     role, token = parent.get("operator")
                     parent_operands = parent.get("operands")
-                    if role == "conditional" and position == 1:
+                    if (
+                        role == "exists"
+                        and token == "exists"
+                        and position == 0
+                        and len(parent_operands) == 1
+                    ):
+                        candidates.append("Bool")
+                    elif role == "conditional" and position == 1:
                         candidates.append("Bool")
                     elif role == "conditional" and position in (0, 2):
                         sibling = parent_operands[2 if position == 0 else 0]
@@ -3634,7 +3828,15 @@ def verify_compiled_semantics(value):
                             ),
                         ),
                     )
-                elif role == "exists" and token == "exists" and not inputs:
+                elif (
+                    role == "exists"
+                    and token == "exists"
+                    and (
+                        not inputs
+                        or len(inputs) == 1
+                        and inputs[0].value_type.resolved_type.name == "Bool"
+                    )
+                ):
                     problem = None
                     typed = ValueType(
                         ResolvedType("Bool", TypeKind.BUILTIN),

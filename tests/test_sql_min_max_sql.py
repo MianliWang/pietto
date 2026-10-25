@@ -590,9 +590,9 @@ def _literal(value: StaticValue, value_type: TypeRefIR) -> LiteralIR:
 def _invalid_min_max_source(connector: str, select_body: str) -> str:
     return (
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    amount: Int not null\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    status: Text\n"
+        "    amount: Int\n"
+        f'source orders: Order = {connector}("orders")\n'
         "table order_extremes:\n"
         "    from orders\n"
         "    select:\n"

@@ -8,7 +8,7 @@ from pietto.sql import emit_postgres_sql
 
 
 def test_count_star_and_count_field_semantics_are_documented() -> None:
-    script = _parse(_source("value: Int nullable"))
+    script = _parse(_source("value: Int | None"))
     semantic = analyze(script)
     assert semantic.diagnostics == ()
     relation = next(
@@ -32,7 +32,7 @@ def test_count_star_and_count_field_semantics_are_documented() -> None:
 
 
 def test_sql_null_and_json_null_distinction_is_documented() -> None:
-    semantic = analyze(_parse(_source("value: Json nullable")))
+    semantic = analyze(_parse(_source("value: Json | None")))
     assert semantic.diagnostics == ()
 
 
@@ -40,7 +40,7 @@ def _source(field: str) -> str:
     return (
         "shape Row:\n"
         f"    {field}\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "table totals:\n"
         "    from rows\n"
         "    select:\n"

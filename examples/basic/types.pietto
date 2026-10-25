@@ -1,7 +1,7 @@
-type UserId = UUID not null
-type Percent = Float not null ensure self between 0 and 1
+type UserId = UUID
+type Percent = Float ensure 0 <= self <= 1
 
-type Username = Text(max = 32, encoding = utf8) not null:
+type Username = Text(max = 32, encoding = utf8):
     ensure len(self) >= 3
     ensure matches(self, "^[a-zA-Z0-9_]+$")
 

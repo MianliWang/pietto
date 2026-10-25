@@ -1,5 +1,25 @@
 # Date / Timestamp Formalization Contract v1
 
+## Reading this contract with current source
+
+Current examples of temporal predicates use `None`, scalar `let`, `having`
+and inclusive chains rather than retired source keywords. These spelling
+changes add no conversion, timezone or backend guarantee. The temporal
+physical-source meaning introduced after this Phase 30 record is documented in
+[Timestamp and UUID source meaning](../language.md#timestamp-and-uuid-source-meaning);
+its exact source qualification and target limits remain required. Builtin names
+alone do not supply those physical facts.
+
+The phase status, pinned baselines, decisions, delivery gates and later-slice
+handoffs below are retained historical records. They do not select a source
+syntax or a new release version. Current source defaults to the
+[modern language](../language.md); `pietto NUMBER` remains metadata. Retired
+spelling is read only for diagnostics/migration, and
+[`pietto migrate`](../language.md#migrating-old-source) writes a complete result
+or a manual-refusal diagnostic without editing the input. Exact diagnostic,
+SQL, JSON and internal enum/opcode spellings remain unchanged.
+
+
 ## Status
 
 Phase 30 Slice 5 is complete as Date / Timestamp formalization contract,
@@ -102,19 +122,19 @@ Current comparison handling is not Date/Timestamp-specific.
 
 The comparison family check in `operator-comparison-matrix-contract-v1.md`
 places `Date` and `Timestamp` in one temporal family. Known temporal operands
-compared with each other, or with a `Text` literal or a `let:` name bound to
+compared with each other, or with a `Text` literal or a `let` name bound to
 one, return `Bool UNKNOWN`; known temporal operands compared with numeric,
 `Bool`, `UUID`, `Bytes` or `Json` operands, an enum or a shape, or with any
 other `Text` operand, such as a field
 or a call (since a later defect fix), report `PIE-S2105` and produce unknown
-value type. Current `between` handling applies the same
+value type. Current inclusive-chain handling applies the same
 check to each bound and returns `Bool UNKNOWN` when all child value types are
 known and accepted.
 
 `Bool UNKNOWN` is Pietto `EffectiveNullability.UNKNOWN`: the value type is
 known to be `Bool`, but compile-time nullability is not proven. It is not SQL
 three-valued logic `UNKNOWN`. A `def` body check proves a comparison or
-`between` of `NON_NULL` operands `Bool NON_NULL`, as the operator and
+an inclusive chain of `NON_NULL` operands `Bool NON_NULL`, as the operator and
 comparison matrix states.
 
 Slice 5 does not define a Date/Timestamp-specific comparison compatibility
@@ -125,7 +145,7 @@ guarantees. Slice 7 owns the final operator and comparison matrix.
 ## Predicate Boundary
 
 Date/Timestamp values interact with row-level `where`, shape `check`, index
-`when`, and result-level `satisfying:` only through existing expression typing
+`when`, and result-level `having` only through existing expression typing
 that produces known Bool predicates under current rules.
 
 Known Bool predicate acceptance remains a compile-time type-level fact. It
@@ -133,7 +153,7 @@ does not prove non-nullness, does not evaluate runtime truth, and does not
 collapse SQL three-valued logic.
 
 Slice 5 does not change predicate validation, predicate diagnostics,
-`satisfying:` result-predicate support, SQL predicate rendering, or SQL
+`having` result-predicate support, SQL predicate rendering, or SQL
 three-valued logic lowering.
 
 ## SQL Portability Boundary

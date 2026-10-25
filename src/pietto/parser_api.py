@@ -6,19 +6,22 @@ import bisect
 import unicodedata
 from _thread import allocate_lock, start_new_thread
 from threading import Event
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from antlr4 import CommonTokenStream, InputStream
+from antlr4 import CommonTokenStream, InputStream, ParserRuleContext, TokenStream
 from antlr4.atn.LexerATNSimulator import LexerATNSimulator
+from antlr4.atn.ParserATNSimulator import ParserATNSimulator
+from antlr4.error.Errors import NoViableAltException
 from antlr4.IntervalSet import IntervalSet
 from antlr4.ListTokenSource import ListTokenSource
 from antlr4.PredictionContext import PredictionContextCache
 from antlr4.Token import Token
 
 from pietto.ast_builder import AstBuilder
+from pietto._syntax_admission import modern_spelling_diagnostics
 from pietto.ast_nodes import Script
 from pietto.errors import (
     AstBuildError,
@@ -75,17 +78,42 @@ class ParseResult:
     diagnostics: tuple[Diagnostic, ...]
 
 
-def parse_source(
-    source: str,
-    *,
-    path: str | Path | None = None,
-) -> ParseResult:
-    """Parse source text into a Pietto AST without exposing ANTLR objects.
+def parse_source(source: str, *, path: str | Path | None = None) -> ParseResult:
+    """Parse modern source with bounded, cancellation-contained diagnostics."""
 
-    Source errors, budget failures, and parser recursion exhaustion produce
-    structured diagnostics.
+    return _parse_contained(source, path=path, modern=True)
+
+
+def _parse_legacy_source(source: str, *, path: str | Path | None = None) -> ParseResult:
+    """Read old spelling only for migration and precise refusal diagnostics."""
+
+    return _parse_contained(source, path=path, modern=False)
+
+
+def _parse_migration_source(
+    source: str, *, path: str | Path | None = None, modern: bool = False
+) -> tuple[ParseResult, ParserRuleContext | None]:
+    """Retain the successful legacy tree and its original token offsets.
+
+    With ``modern``, read modern tokens instead and admit every spelling the
+    grammar parses, so that a modern source's retired spellings can migrate.
     """
 
+    trees: list[ParserRuleContext] = []
+    result = _parse_contained(
+        source, path=path, modern=modern, trees=trees, admit=False
+    )
+    return result, trees[0] if trees and result.ast is not None else None
+
+
+def _parse_contained(
+    source: str,
+    *,
+    path: str | Path | None,
+    modern: bool,
+    trees: list[ParserRuleContext] | None = None,
+    admit: bool = True,
+) -> ParseResult:
     if _source_exceeds_utf8_budget(source):
         return _budget_failure(
             code="PIE-P1006",
@@ -118,7 +146,14 @@ def parse_source(
         result: ParseResult | BaseException
         try:
             try:
-                result = _parse_source(source, path=path, cancel=cancel)
+                result = _parse_source(
+                    source,
+                    path=path,
+                    cancel=cancel,
+                    modern=modern,
+                    trees=trees,
+                    admit=admit,
+                )
             except RecursionError:
                 result = ParseResult(
                     ast=None, diagnostics=(_recursion_diagnostic(path, None, ()),)
@@ -141,7 +176,14 @@ def parse_source(
         if not started:
             if isinstance(error, RuntimeError):
                 # No thread is available: parse on the caller's own stack.
-                return _contained_parse(source, path=path, cancel=cancel)
+                return _contained_parse(
+                    source,
+                    path=path,
+                    cancel=cancel,
+                    modern=modern,
+                    trees=trees,
+                    admit=admit,
+                )
             raise
         cancel.set()
         # The wait above can have taken ``finished`` just before the exception,
@@ -158,12 +200,20 @@ def parse_source(
 
 
 def _contained_parse(
-    source: str, *, path: str | Path | None, cancel: Event
+    source: str,
+    *,
+    path: str | Path | None,
+    cancel: Event,
+    modern: bool = True,
+    trees: list[ParserRuleContext] | None = None,
+    admit: bool = True,
 ) -> ParseResult:
     """Parse inside the recursion containment boundary."""
 
     try:
-        return _parse_source(source, path=path, cancel=cancel)
+        return _parse_source(
+            source, path=path, cancel=cancel, modern=modern, trees=trees, admit=admit
+        )
     except RecursionError:
         return ParseResult(
             ast=None, diagnostics=(_recursion_diagnostic(path, None, ()),)
@@ -175,6 +225,9 @@ def _parse_source(
     *,
     path: str | Path | None,
     cancel: Event,
+    modern: bool = True,
+    trees: list[ParserRuleContext] | None = None,
+    admit: bool = True,
 ) -> ParseResult:
     """Implement parsing inside the public recursion containment boundary."""
 
@@ -185,6 +238,11 @@ def _parse_source(
     raw_tokens, token_budget_diagnostic = _read_tokens(lexer, path=path)
     if token_budget_diagnostic is not None:
         return ParseResult(ast=None, diagnostics=(token_budget_diagnostic,))
+
+    if not modern:
+        for token in raw_tokens:
+            if token.text in {"None", "True", "False", "having", "any", "for"}:
+                token.type = PiettoLexer.IDENTIFIER
 
     diagnostics = list(lexer_listener.diagnostics)
     diagnostics.extend(find_leading_tab_diagnostics(source, path=path))
@@ -252,24 +310,38 @@ def _parse_source(
     tokens = list(indentation.tokens)
     starts = _declaration_starts(tokens)
     # Parsed inline rather than in a helper: every frame here is one less for
-    # the nesting the parser accepts.
-    parser = _PiettoParser(
-        _CancellableTokenStream(ListTokenSource(tokens, source_path(path)), cancel)
-    )
-    parser.removeErrorListeners()
-    reporter = SyntaxErrorReporter(path, tokens)
-    parser._errHandler = reporter
-    try:
-        tree = parser.script()
-    except RecursionError:
-        return ParseResult(
-            ast=None,
-            diagnostics=(
-                _recursion_diagnostic(
-                    path, parser.getCurrentToken(), [tokens[index] for index in starts]
-                ),
-            ),
+    # the nesting the parser accepts.  A parse that guessed a decision (see
+    # _PiettoSimulator) and is not clean is parsed again with ANTLR deciding.
+    guess = True
+    while True:
+        parser = _PiettoParser(
+            _CancellableTokenStream(ListTokenSource(tokens, source_path(path)), cancel),
+            tokens if guess else None,
         )
+        parser.removeErrorListeners()
+        reporter = SyntaxErrorReporter(path, tokens)
+        parser._errHandler = reporter
+        try:
+            tree = parser.script()
+        except RecursionError:
+            if parser.simulator.guessed:
+                guess = False
+                continue
+            return ParseResult(
+                ast=None,
+                diagnostics=(
+                    _recursion_diagnostic(
+                        path,
+                        parser.getCurrentToken(),
+                        [tokens[index] for index in starts],
+                    ),
+                ),
+            )
+        if not (reporter.errors and parser.simulator.guessed):
+            break
+        guess = False
+    for token in _misplaced_steps(tree):
+        reporter.report_out_of_order(token)
     if reporter.errors:
         diagnostics.extend(
             _first_error_per_declaration(tokens, starts, reporter, causes)
@@ -279,7 +351,14 @@ def _parse_source(
     if any(item.severity is Severity.ERROR for item in ordered_diagnostics):
         return ParseResult(ast=None, diagnostics=ordered_diagnostics)
 
-    builder = AstBuilder(path, cancel=cancel)
+    if modern and admit:
+        spelling_diagnostics = modern_spelling_diagnostics(
+            tree, path=path, cancel=cancel
+        )
+        if spelling_diagnostics:
+            return ParseResult(ast=None, diagnostics=spelling_diagnostics)
+
+    builder = AstBuilder(path, cancel=cancel, legacy=not modern)
     try:
         ast = builder.visit(tree)
     except RecursionError:
@@ -307,6 +386,8 @@ def _parse_source(
             diagnostics=_source_ordered((*ordered_diagnostics, build_diagnostic)),
         )
 
+    if trees is not None:
+        trees.append(tree)
     return ParseResult(ast=ast, diagnostics=ordered_diagnostics)
 
 
@@ -315,13 +396,207 @@ class _PiettoParser(PiettoParser):
 
     For most states ANTLR returns the set its ATN caches for every parse in
     the process, and its Python error recovery adds to the set in place, so a
-    message would otherwise depend on what the process parsed before.
+    message would otherwise depend on what the process parsed before.  Given
+    the source's tokens, it guesses the decisions of ``_GUESSES``.
     """
+
+    def __init__(self, input: TokenStream, tokens: Sequence[Token] | None = None):
+        super().__init__(input)
+        self.simulator = _PiettoSimulator(
+            self, self.atn, self.decisionsToDFA, self.sharedContextCache
+        )
+        self.simulator.tokens = tokens
+        self._interp = self.simulator
 
     def getExpectedTokens(self) -> IntervalSet:
         expected = IntervalSet()
         expected.addSet(super().getExpectedTokens())
         return expected
+
+
+# A shape item that starts with a name is a field unless `=` follows the name
+# (`key = unique(id)`).  So that `id Int` still reports the field's missing ':'
+# rather than an item no alternative fits, a name followed by neither ':' nor
+# '=' is predicted to be a field.
+_SHAPE_ITEM_DECISION: int = (
+    PiettoParser.atn.ruleToStartState[PiettoParser.RULE_shapeItem]
+    .transitions[0]
+    .target.decision
+)
+_NAME_FIRST: frozenset[int] = frozenset(
+    PiettoParser.atn.nextTokens(
+        PiettoParser.atn.ruleToStartState[PiettoParser.RULE_identifier]
+    )
+)
+
+
+def _first_alternative(decision: int, token: int) -> int:
+    """The first alternative of a decision that can start with ``token``."""
+
+    state = PiettoParser.atn.decisionToState[decision]
+    return next(
+        alternative
+        for alternative, transition in enumerate(state.transitions, start=1)
+        if token in PiettoParser.atn.nextTokens(transition.target)
+    )
+
+
+# ANTLR settles two kinds of decision only by reading a whole expression
+# ahead, and its closure at the expression's end nests three to five frames
+# for each of the expression's levels, more than parsing and building it
+# take: a block body's optional `return`, which is also a name, and in a
+# qualify condition a call that a window follows, told from a plain call only
+# after its `)`.  Given the tokens, the parser instead takes the first
+# alternative that can start with the next token: for a body's `return`
+# always, for a qualify call when a window's direction, null treatment or
+# window follows its `)`.  No earlier alternative can start with that token,
+# so a clean parse is the parse ANTLR's own decisions give; one that is not
+# clean is parsed again with ANTLR deciding (see _parse_source).
+_RETURN_DECISIONS: frozenset[int] = frozenset(
+    state.decision
+    for state in PiettoParser.atn.decisionToState
+    if state.ruleIndex
+    in {PiettoParser.RULE_constraintBody, PiettoParser.RULE_deriveBody}
+    and set(PiettoParser.atn.nextTokens(state.transitions[0].target))
+    == {PiettoParser.RETURN}
+)
+_QUALIFY_PRIMARY_DECISION: int = (
+    PiettoParser.atn.ruleToStartState[PiettoParser.RULE_qualifyPrimaryExpression]
+    .transitions[0]
+    .target.decision
+)
+_GUESSES: dict[tuple[int, int], int] = {
+    **{
+        (decision, PiettoParser.RETURN): _first_alternative(
+            decision, PiettoParser.RETURN
+        )
+        for decision in _RETURN_DECISIONS
+    },
+    (_QUALIFY_PRIMARY_DECISION, PiettoParser.IDENTIFIER): _first_alternative(
+        _QUALIFY_PRIMARY_DECISION, PiettoParser.IDENTIFIER
+    ),
+}
+# What may follow a window call's `)`: its direction, null treatment or window.
+_WINDOW_TAIL: frozenset[int] = frozenset(
+    token
+    for rule in (
+        PiettoParser.RULE_nthValueDirection,
+        PiettoParser.RULE_nullTreatment,
+        PiettoParser.RULE_qualifyInlineWindowSpec,
+    )
+    for token in PiettoParser.atn.nextTokens(PiettoParser.atn.ruleToStartState[rule])
+)
+
+
+class _PiettoSimulator(ParserATNSimulator):
+    """ANTLR's prediction, except that a shape item never fails on its name
+    and, given the tokens, the decisions of ``_GUESSES`` are guessed."""
+
+    tokens: Sequence[Token] | None = None
+    guessed = False
+
+    def adaptivePredict(
+        self, input: TokenStream, decision: int, outerContext: ParserRuleContext
+    ) -> int:
+        if self.tokens is not None:
+            start: Token = cast(Any, input).LT(1)
+            guess = _GUESSES.get((decision, start.type))
+            if guess is not None and (
+                decision != _QUALIFY_PRIMARY_DECISION
+                or self._window_follows_call(cast(int, start.tokenIndex))
+            ):
+                self.guessed = True
+                return guess
+        try:
+            return super().adaptivePredict(input, decision, outerContext)
+        except NoViableAltException as error:
+            if (
+                decision == _SHAPE_ITEM_DECISION
+                and error.startToken.type in _NAME_FIRST
+                and error.offendingToken.tokenIndex == error.startToken.tokenIndex + 1
+            ):
+                return 1  # fieldDefinition
+            raise
+
+    def _window_follows_call(self, name: int) -> bool:
+        """Whether the name at ``name`` opens a call that a window follows."""
+
+        tokens = cast(Sequence[Token], self.tokens)
+        if name + 1 >= len(tokens) or tokens[name + 1].type != PiettoParser.LPAREN:
+            return False
+        depth = 0
+        for index in range(name + 1, len(tokens) - 1):
+            kind = tokens[index].type
+            depth += (kind == PiettoParser.LPAREN) - (kind == PiettoParser.RPAREN)
+            if depth == 0:
+                return tokens[index + 1].type in _WINDOW_TAIL
+        return False
+
+
+def _misplaced_steps(tree: ParserRuleContext) -> Iterator[Token]:
+    """The first step of each relation body that stands out of its order.
+
+    Any lets and WHEREs may precede a JOIN.  After the last JOIN, or in a body
+    without one, come lets and named windows and then at most one WHERE; a
+    `let:` block may follow those lets but not a WHERE.  A JOIN after a named
+    window is the step out of order.  A body whose steps reach no clause after
+    them is left to its syntax error, and a step that error recovery parsed
+    again from the same token counts once.
+    """
+
+    pending = [tree]
+    while pending:
+        context = pending.pop()
+        if isinstance(context, PiettoParser.TableBodyContext):
+            body: Any = context  # its generated rule accessors
+            if (
+                body.letClause() or body.groupByClause() or body.selectClause()
+            ) is None:
+                continue
+            steps: list[Any] = []
+            for step in body.relationStep():
+                if not steps or step.start.tokenIndex > steps[-1].start.tokenIndex:
+                    steps.append(step)
+            joined = [
+                index
+                for index, step in enumerate(steps)
+                if step.joinClause() is not None
+            ]
+            window = next(
+                (
+                    index
+                    for index, step in enumerate(steps)
+                    if step.namedWindowDeclaration() is not None
+                ),
+                len(steps),
+            )
+            if joined and window < joined[-1]:
+                yield next(steps[index].start for index in joined if index > window)
+                continue
+            where = False
+            for step in steps[joined[-1] + 1 if joined else 0 :]:
+                if where:
+                    yield step.start
+                    break
+                where = step.whereClause() is not None
+            else:
+                if where and body.letClause() is not None:
+                    yield body.letClause().start
+        elif isinstance(context, _RELATION_OWNERS):
+            pending.extend(
+                child
+                for child in context.getChildren()
+                if isinstance(child, ParserRuleContext)
+            )
+
+
+_RELATION_OWNERS = (
+    PiettoParser.ScriptContext,
+    PiettoParser.DefinitionContext,
+    PiettoParser.TableDefinitionContext,
+    PiettoParser.QueryDefinitionContext,
+    PiettoParser.LetRelationDefinitionContext,
+)
 
 
 class _CancellableInputStream(InputStream):

@@ -18,9 +18,9 @@ from pietto.sql import SqlArtifact, SqlArtifactKind, SqlResult
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    'source users: User = postgres.table("users")\n'
 )
 RELATION = (
     SOURCE + "table user_emails:\n"
@@ -49,7 +49,7 @@ def test_phase_6_check_json_schema_and_document_contract(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "warning.pietto", "shape User:\n    email: Text\n")
+    path = _write(tmp_path, "warning.pietto", 'source raw = postgres.table("raw")\n')
 
     assert cli.main(["check", str(path), "--format=json"]) == 0
     result = _read_json_document(capsys, command="check")
@@ -110,15 +110,15 @@ def test_phase_6_cli_error_schema_is_stable(
         ("valid.pietto", "", 0, True, None),
         (
             "warning.pietto",
-            "shape User:\n    email: Text\n",
+            'source raw = postgres.table("raw")\n',
             0,
             True,
-            "PIE-S2005",
+            "PIE-S2303",
         ),
         ("parser.pietto", "shape User {\n", 1, False, "PIE-P1005"),
         (
             "semantic.pietto",
-            "shape User:\n    email: MissingType not null\n",
+            "shape User:\n    email: MissingType\n",
             1,
             False,
             "PIE-S2002",
@@ -157,7 +157,7 @@ def test_phase_6_check_json_exit_matrix(
         ("parser.pietto", "shape User {\n", 1, False, "PIE-P1005"),
         (
             "semantic.pietto",
-            "shape User:\n    email: MissingType not null\n",
+            "shape User:\n    email: MissingType\n",
             1,
             False,
             "PIE-S2002",
@@ -333,7 +333,7 @@ def test_phase_6_emit_json_semantic_error_stops_ir_and_sql(
     path = _write(
         tmp_path,
         "semantic-error.pietto",
-        "shape User:\n    email: MissingType not null\n",
+        "shape User:\n    email: MissingType\n",
     )
 
     def unexpected_late_stage(*args: object, **kwargs: object) -> object:
@@ -355,12 +355,12 @@ def test_phase_6_emit_json_semantic_error_stops_ir_and_sql(
     [
         (
             "huge-integer.pietto",
-            "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
+            "type Huge = Int(max = " + "9" * 5000 + ")\n",
             "PIE-P1000",
         ),
         (
             "deep-parser.pietto",
-            "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
+            "derive deep() -> Int:\n    return " + "+" * 1500 + "1\n",
             "PIE-P1000",
         ),
         (
@@ -368,10 +368,10 @@ def test_phase_6_emit_json_semantic_error_stops_ir_and_sql(
             "".join(
                 [
                     *(
-                        f"type Alias{index} = Alias{index + 1} not null\n"
+                        f"type Alias{index} = Alias{index + 1}\n"
                         for index in range(1399)
                     ),
-                    "type Alias1399 = Int not null\n",
+                    "type Alias1399 = Int\n",
                 ]
             ),
             "PIE-S2006",

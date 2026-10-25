@@ -54,10 +54,10 @@ SPEC_HEADINGS = (
 
 def _source() -> str:
     return """shape Row:
-    id: Int not null
-    amount: Int nullable
-    category: Text nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    amount: Int | None
+    category: Text | None
+source rows: Row = postgres.table("rows")
 query simple:
     from rows
     select:
@@ -87,15 +87,13 @@ query satisfying:
     select:
         category
         total = sum(amount)
-    satisfying:
+    having:
         total > 0
 query windowed:
     from rows
     select:
         id
-        ranking = row_number() window:
-            order by:
-                id
+        ranking = row_number() window(order by id)
 query ordered:
     from rows
     select:
@@ -111,8 +109,9 @@ query limited:
     limit 3
 query full:
     from rows
-    let:
-        floor = 0
+    let floor = 0
+    let child = window base
+    let base = window(partition by category order by total desc)
     where id > floor
     group by:
         category
@@ -120,13 +119,7 @@ query full:
         category
         total = sum(amount)
         ranking = row_number() window child
-    window child = base
-    window base:
-        partition by:
-            category
-        order by:
-            total desc
-    satisfying:
+    having:
         total > 0
     order by:
         ranking

@@ -46,7 +46,7 @@ def test_distinct_order_proof_cannot_be_erased_from_portable_document(
     tmp_path: Path,
 ) -> None:
     source = (
-        _source("true").replace("select:", "select distinct:")
+        _source("True").replace("select:", "select distinct:")
         + "    order by:\n        lhs.id\n"
     )
     document = _document(tmp_path, source)
@@ -217,7 +217,7 @@ def test_new_portable_evidence_is_closed_and_linked(
     from pietto._project.project_single_match import ProjectSingleMatchRequest
 
     completed = _completed(
-        tmp_path, SOURCE.replace("on true", "on combined.id == r.id")
+        tmp_path, SOURCE.replace("on True", "on combined.id == r.id")
     )
     condition = completed.roots.join_conditions.entries[0]
     completed = with_project_single_match_requests(
@@ -338,10 +338,10 @@ def test_capability_locator_and_canonical_final_roles_are_bound(
 def _order_source(mode: str) -> str:
     if mode == "composed_fd":
         return (
-            _source("true")
+            _source("True")
             .replace(
-                "allow_any: Bool nullable",
-                "allow_any: Bool nullable\n    unique by_id on id",
+                "allow_any: Bool | None",
+                "allow_any: Bool | None\n    by_id = unique(id)",
             )
             .replace("select:", "select distinct:")
             + "        right_id = r.id\n    order by:\n        r.key\n"
@@ -349,13 +349,13 @@ def _order_source(mode: str) -> str:
     if mode == "strict_fd":
         return (
             distinct_source().replace(
-                "value: Int nullable",
-                "value: Int not null\n    unique by_value on value",
+                "value: Int | None",
+                "value: Int\n    by_value = unique(value)",
             )
             + "    order by:\n        hidden\n"
         )
     return (
-        distinct_source().replace("hidden: Float nullable", "hidden: Int nullable")
+        distinct_source().replace("hidden: Float | None", "hidden: Int | None")
         + "        hidden\n    order by:\n        value\n        hidden\n"
     )
 
@@ -562,9 +562,9 @@ def test_convergence_rereview_order_source_uses_its_actual_module(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "rows.pietto").write_text(
-        'shape Row:\n    value: Int nullable\nsource rows: Row is postgres.table("rows")\nexport:\n    source rows\n'
+        'shape Row:\n    value: Int | None\nsource rows: Row = postgres.table("rows")\nexport source rows\n'
     )
-    source = 'import "rows.pietto":\n    source rows\nquery result:\n    from rows\n    select distinct:\n        value\n    order by:\n        value\n'
+    source = 'from "rows.pietto" import source rows\nquery result:\n    from rows\n    select distinct:\n        value\n    order by:\n        value\n'
     document = _document(tmp_path, source)
     record = next(
         r
@@ -578,8 +578,8 @@ def test_convergence_rereview_fd_property_must_be_an_actual_input(
     tmp_path: Path,
 ) -> None:
     source = _order_source("strict_fd").replace(
-        'source rows: Row is postgres.table("rows")',
-        'source rows: Row is postgres.table("rows")\nsource other: Row is postgres.table("other")',
+        'source rows: Row = postgres.table("rows")',
+        'source rows: Row = postgres.table("rows")\nsource other: Row = postgres.table("other")',
     )
     document = _document(tmp_path, source)
     declared = {
@@ -733,9 +733,9 @@ def test_set_canonical_output_cannot_take_a_source_field_role(tmp_path: Path) ->
 def _join_producer_source(form: str) -> str:
     source = _source("lhs.id == r.id")
     if form == "historical":
-        return _source(None).replace("select:", "select distinct:")
+        return _source("Link(lhs, r)").replace("select:", "select distinct:")
     if form == "self":
-        return source.replace("join rhs as r:", "join lhs as r:")
+        return source.replace("let r = rhs", "let r = lhs")
     if form == "completed":
         from _pietto_ir_sources import vertical_source as _vertical_source
 
@@ -745,9 +745,8 @@ def _join_producer_source(form: str) -> str:
             set_source()
             + """query joined:
     from combined
-    semi join combined as r:
-        from combined
-        on combined.id == r.id
+    let r = combined
+    inner join r on combined.id == r.id
     select:
         id = combined.id
 """
@@ -755,12 +754,10 @@ def _join_producer_source(form: str) -> str:
     if form == "accumulated":
         return source.replace(
             "    select:\n",
-            """    left join rhs as s:
-        from lhs
-        on r.id == s.id
-    full join rhs as t:
-        from lhs
-        on s.id == t.id
+            """    let s = rhs
+    left join s on r.id == s.id
+    let t = rhs
+    full join t on s.id == t.id
     select:
 """,
         )

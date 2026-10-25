@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import re
 
@@ -18,7 +18,13 @@ from pietto._project.module_semantic_fact_preservation import (
 from pietto._project.project_ir_construction import (
     ProjectIRConcreteSingleRelationFragment,
 )
-from pietto._project.project_ir_joins import ProjectIRConcreteJoinRegion
+from pietto._project.project_current_joins import (
+    ProjectCurrentJoinRegion,
+    ProjectCurrentBinaryJoin,
+)
+from pietto._project.project_completed_semantics import (
+    ProjectConcreteCompletedSemanticResult,
+)
 from pietto._project.project_ir_properties import ProjectIRJoinedRowField
 from pietto.ast_nodes import (
     BinaryExpr,
@@ -34,19 +40,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION = REPO_ROOT / "src/pietto/_project/project_scalar_bindings.py"
 PROFILE_SOURCE = """
 shape ProfileRow:
-    id: Int not null
-    label: Text not null
-    unique profile_key on id
-source profiles: ProfileRow is postgres.table("profiles")
-relationship customer_profiles:
-    endpoint customer: customers
-    endpoint profile: profiles
-    on customer.id == profile.id
+    id: Int
+    label: Text
+    profile_key = unique(id)
+source profiles: ProfileRow = postgres.table("profiles")
+relationship customer_profiles(customer: CustomerRow, profile: ProfileRow):
+    customer.id == profile.id
 query profile_join:
     from customers
-    inner join profiles as profile:
-        from customers
-        via customer_profiles: customer -> profile
+    let profile = profiles
+    inner join profile on customer_profiles(customers, profile)
     select:
         id
 """
@@ -59,6 +62,7 @@ class _Built:
     repeated: scalar_bindings.ProjectJoinedScalarBindingEnvironment
     profile: scalar_bindings.ProjectJoinedScalarBindingEnvironment
     ordinary: scalar_references.ProjectConcreteScalarEnvironment
+    foreign_profile: scalar_bindings.ProjectJoinedScalarBindingEnvironment
 
 
 def _span(column: int) -> Span:
@@ -72,44 +76,34 @@ def _span(column: int) -> Span:
 
 
 def _joined_environment(
-    analysis,
-    verification,
+    completed: ProjectConcreteCompletedSemanticResult,
     name: str,
 ) -> scalar_bindings.ProjectJoinedScalarBindingEnvironment:
     matches = tuple(
-        region
-        for region in analysis.join_regions.regions
-        if type(region) is ProjectIRConcreteJoinRegion
-        and region.ledger.owner.definition.name == name
+        readiness.namespaces.binding_environment
+        for readiness in completed.effective_outputs.current_readiness
+        if readiness.namespaces.binding_environment.ledger.owner.definition.name == name
     )
     assert len(matches) == 1
-    region = matches[0]
-    query_block = query_blocks.build_project_query_block_from_join_region(
-        compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
-        owner=region.ledger.owner,
-        verification=verification,
-        region=region,
+    environment = matches[0]
+    assert isinstance(environment.region, ProjectCurrentJoinRegion)
+    assert any(
+        environment.region is region
+        for region in completed.effective_outputs.current_regions
     )
-    assert type(query_block) is query_blocks.ProjectConcreteQueryBlock
-    scalar_environment = scalar_references.build_project_scalar_environment(query_block)
-    assert (
-        type(scalar_environment) is scalar_references.ProjectConcreteScalarEnvironment
-    )
-    return scalar_bindings.build_project_joined_scalar_binding_environment(
-        scalar_environment
-    )
+    return environment
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
-    _, analysis, bundle, _ = _build(
-        tmp_path_factory.mktemp("p63s4") / "project",
+    _, completed, _, _ = _build(
+        tmp_path_factory.mktemp("joined-bindings") / "project",
         PRIMARY_MAIN_SOURCE + PROFILE_SOURCE,
         reverse_creation=False,
     )
     fragments = tuple(
         fragment
-        for fragment in analysis.evaluation.project_plan.fragments
+        for fragment in completed.completion.plan.fragments
         if type(fragment) is ProjectIRConcreteSingleRelationFragment
         and fragment.semantic_facts.owner.definition.name == "orders_by_customer"
     )
@@ -122,28 +116,18 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
     assert type(ordinary_query_block) is query_blocks.ProjectConcreteQueryBlock
     ordinary = scalar_references.build_project_scalar_environment(ordinary_query_block)
     assert type(ordinary) is scalar_references.ProjectConcreteScalarEnvironment
+    _, foreign, _, _ = _build(
+        tmp_path_factory.mktemp("foreign-joined-bindings") / "project",
+        PRIMARY_MAIN_SOURCE.split("query orders_by_customer:", 1)[0] + PROFILE_SOURCE,
+        reverse_creation=False,
+    )
     return _Built(
-        direct=_joined_environment(
-            analysis,
-            bundle.verification,
-            "unique_target_left",
-        ),
-        multihop=_joined_environment(
-            analysis,
-            bundle.verification,
-            "multihop_join",
-        ),
-        repeated=_joined_environment(
-            analysis,
-            bundle.verification,
-            "reused_join",
-        ),
-        profile=_joined_environment(
-            analysis,
-            bundle.verification,
-            "profile_join",
-        ),
+        direct=_joined_environment(completed, "unique_target_left"),
+        multihop=_joined_environment(completed, "multihop_join"),
+        repeated=_joined_environment(completed, "reused_join"),
+        profile=_joined_environment(completed, "profile_join"),
         ordinary=ordinary,
+        foreign_profile=_joined_environment(foreign, "profile_join"),
     )
 
 
@@ -171,7 +155,7 @@ def _binding(
     return matches[0]
 
 
-def test_exact_phase62_bindings_and_introduction_uses_are_reused(
+def test_exact_current_bindings_and_introduction_uses_are_reused(
     built: _Built,
 ) -> None:
     environment = built.direct
@@ -280,51 +264,64 @@ def test_unqualified_lookup_is_complete_ordered_and_winner_free(built: _Built) -
     assert ambiguous.target is None
 
 
-def test_multihop_intermediate_fields_remain_hidden_structural_occurrences(
+def test_explicit_intermediate_binding_keeps_all_fields_and_exact_uses(
     built: _Built,
 ) -> None:
     environment = built.multihop
-    assert isinstance(environment.region, ProjectIRConcreteJoinRegion)
+    assert isinstance(environment.region, ProjectCurrentJoinRegion)
     assert tuple(binding.binding.name for binding in environment.bindings) == (
         "customers",
-        "returns",
+        "coarse_orders",
+        "coarse_returns",
     )
-    assert tuple(item.position for item in environment.visible_fields) == (0, 4, 5)
-    assert tuple(item.position for item in environment.hidden_fields) == (1, 2, 3)
-    assert tuple(item.evidence.name for item in environment.hidden_fields) == (
+    assert tuple(item.position for item in environment.visible_fields) == (
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+    )
+    assert environment.hidden_fields == ()
+    middle = _binding(environment, "coarse_orders")
+    assert tuple(item.evidence.name for item in middle.fields) == (
         "customer_id",
         "total",
         "order_count",
     )
-    nonterminal = environment.region.joins[0].input_uses[1]
-    assert environment.region.joins[0].identity.path_step_position == 0
-    assert len(environment.region.joins[0].use.path.steps) == 2
+    first, second = environment.region.joins
+    assert isinstance(first, ProjectCurrentBinaryJoin) and isinstance(
+        second, ProjectCurrentBinaryJoin
+    )
+    assert middle.introduction_use is first.input_uses[1]
+    assert second.left_input is first.properties.relational
+    assert first.use is not second.use
+    assert first.condition.use is first.use and second.condition.use is second.use
+    assert first.condition.use.path is second.condition.use.path is None
     assert all(
         type(item.source_field) is ProjectIRJoinedRowField
-        and item.source_field.introduction_use is nonterminal
-        for item in environment.hidden_fields
+        and item.source_field.introduction_use is middle.introduction_use
+        for item in middle.fields
     )
-    assert all(
-        any(item is retained for retained in environment.scalar_environment.fields)
-        for item in environment.hidden_fields
-    )
-    hidden_name = _reference(
+    bare = _reference(environment, NameExpr(span=_span(20), name="order_count"))
+    qualified = _reference(
         environment,
-        NameExpr(span=_span(20), name="order_count"),
+        DottedNameExpr(span=_span(21), parts=("coarse_orders", "order_count")),
     )
-    hidden_qualifier = _reference(
+    wrong_qualifier = _reference(
         environment,
-        DottedNameExpr(
-            span=_span(21),
-            parts=("orders_by_customer", "order_count"),
-        ),
+        DottedNameExpr(span=_span(22), parts=("orders_by_customer", "order_count")),
     )
     target = _reference(
         environment,
-        DottedNameExpr(span=_span(22), parts=("returns", "customer_id")),
+        DottedNameExpr(span=_span(23), parts=("coarse_returns", "customer_id")),
     )
-    assert hidden_name.status is ProjectModuleCandidateBucketStatus.ABSENT
-    assert hidden_qualifier.status is ProjectModuleCandidateBucketStatus.ABSENT
+    assert (
+        bare.status is qualified.status is ProjectModuleCandidateBucketStatus.CONCRETE
+    )
+    assert bare.target is qualified.target is middle.fields[2]
+    assert wrong_qualifier.status is ProjectModuleCandidateBucketStatus.ABSENT
+    assert wrong_qualifier.candidates == () and wrong_qualifier.target is None
     assert target.status is ProjectModuleCandidateBucketStatus.CONCRETE
     assert target.target is environment.scalar_environment.fields[4]
 
@@ -424,9 +421,24 @@ def test_slice4_resolutions_feed_unchanged_slice3_type_kernel(built: _Built) -> 
     assert [diagnostic.code for diagnostic in invalid.diagnostics] == ["PIE-S2103"]
 
 
-def test_joined_binding_scope_rejects_ordinary_environment(built: _Built) -> None:
+def test_joined_binding_scope_rejects_ordinary_and_foreign_roots(built: _Built) -> None:
     with pytest.raises(TypeError, match="verified joined row source"):
         scalar_bindings.build_project_joined_scalar_binding_environment(built.ordinary)
+    local, foreign = built.profile, built.foreign_profile
+    assert local.region is not foreign.region
+    expression = DottedNameExpr(span=_span(60), parts=("profile", "label"))
+    reference = scalar_references.ProjectScalarReferenceOccurrence(
+        environment=foreign.scalar_environment, expression=expression
+    )
+    with pytest.raises(ValueError, match="same-root"):
+        scalar_bindings.resolve_project_joined_scalar_reference(local, reference)
+    with pytest.raises(ValueError, match="exact base and condition roots"):
+        replace(local.row_source, region=foreign.region)
+    with pytest.raises(ValueError, match="JOIN provenance"):
+        replace(
+            _binding(local, "profile"),
+            introduction_use=_binding(foreign, "profile").introduction_use,
+        )
 
 
 def test_slice4_scope_dependency_and_contract_are_exact() -> None:

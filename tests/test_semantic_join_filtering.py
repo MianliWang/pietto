@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import dataclass, replace
-from pathlib import Path
 from typing import cast
 
 import pytest
 
 import _pietto_project_completion_ledger as slice7
 from pietto._project import project_completion as completion
+from pietto._project import project_completed_semantics as completed_semantics
 from pietto._project import project_joined_row_filter as row_filter
 from pietto._project import project_scalar_namespaces as namespaces
 from pietto._project import project_scalar_references as references
@@ -32,217 +31,197 @@ from pietto.semantic import analyze
 from pietto.semantic.model import EffectiveNullability, ValueTypeKind
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION = REPO_ROOT / "src/pietto/_project/project_joined_row_filter.py"
-NAMESPACE_PRODUCTION = REPO_ROOT / "src/pietto/_project/project_scalar_namespaces.py"
-FILTER_SOURCE = """
-shape ReturnRow:
-    id: Int not null
-    order_id: Int not null
-    amount: Int nullable
-    unique return_key on id
-source returns: ReturnRow is postgres.table("returns")
-relationship order_returns:
-    endpoint orders: orders
-    endpoint returns: returns
-    on orders.id == returns.order_id
-query where_base_qualified:
+FILTER_SOURCE = """query where_base_qualified:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where customers.id > 0
     select:
         id
 query where_target_unqualified:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where amount > 0
     select:
         id
 query where_binding_qualified:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where purchase.amount > 0
     select:
         id
 query where_let_chain:
     from customers
-    left join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
-    let:
-        floor = 1
-        adjusted = purchase.amount + floor
+    let purchase = orders
+    left join purchase on customer_orders(customers, purchase)
+    let floor = 1
+    let adjusted = purchase.amount + floor
     where adjusted > floor
     select:
         id
 query where_nullable_comparison:
     from customers
-    left join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    left join purchase on customer_orders(customers, purchase)
     where purchase.amount > 0
     select:
         id
 query where_is_null:
     from customers
-    left join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
-    where purchase.id is null
+    let purchase = orders
+    left join purchase on customer_orders(customers, purchase)
+    where purchase.id is None
     select:
         id
 query where_is_not_null:
     from customers
-    left join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
-    where purchase.id is not null
+    let purchase = orders
+    left join purchase on customer_orders(customers, purchase)
+    where purchase.id is not None
     select:
         id
 query where_builtin_call:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where len("x") > 0
     select:
         id
 query where_ambiguous:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where id > 0
     select:
         id
 query where_unknown_field:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where missing > 0
-    select:
-        id
-query where_hidden_intermediate:
-    from customers
-    inner join returns as returned:
-        from customers
-        via customer_orders: customer -> orders
-        via order_returns: orders -> returns
-    where orders.product_id > 0
     select:
         id
 query where_projection_alias:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where projected > 0
     select:
         projected = purchase.amount
 query where_relation_name_fallback:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where orders.amount > 0
     select:
         id
 query where_known_int:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where purchase.customer_id
     select:
         id
 query where_known_text:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where "text"
     select:
         id
 query where_invalid_operator:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where "text" + 1
     select:
         id
 query where_unknown_function:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where not_a_builtin(purchase.amount) > 0
     select:
         id
 query where_invalid_window_call:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where row_number() > 0
     select:
         id
 query where_aggregate:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where sum(purchase.amount) > 0
     select:
         id
 query where_equality_no_refinement:
     from customers
-    inner join orders as purchase:
-        from customers
-        via customer_orders: customer -> orders
+    let purchase = orders
+    inner join purchase on customer_orders(customers, purchase)
     where customers.id == purchase.customer_id
     select:
         id
 """
 
 SINGLE_INPUT_PREFIX = """shape Row:
-    id: Int not null
-    amount: Int nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    amount: Int | None
+source rows: Row = postgres.table("rows")
 """
 
 
 @dataclass(frozen=True, slots=True)
 class _Built:
     completion: completion.ProjectCompletion
-    filters: row_filter.ProjectJoinedRowFilterSet
+    filters: tuple[row_filter.ProjectJoinedRowFilterSet, ...]
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
     files = slice7._project_files()
-    files["c.pietto"] = files["c.pietto"].replace(
-        "export:\n",
-        FILTER_SOURCE + "export:\n",
-        1,
-    )
+    files["c.pietto"] += FILTER_SOURCE
     semantic = slice7._semantic_project(
         tmp_path_factory.mktemp("p63s8") / "project",
         files,
         reverse_creation=False,
     )
-    completed = completion.build_project_completion(slice7._phase62(semantic))
-    return _Built(
-        completion=completed,
-        filters=row_filter.build_project_joined_row_filters(completed),
+    completed = completed_semantics.build_project_completed_semantic_result(semantic)
+    assert type(completed) is completed_semantics.ProjectConcreteCompletedSemanticResult
+    filters = tuple(
+        tail.window_set.aggregation_set.filter_set
+        for tail in completed.effective_outputs.current_tails
     )
+    assert filters
+    built = _Built(completion=completed.completion, filters=filters)
+    for name in (
+        "joined_a",
+        "where_base_qualified",
+        "where_target_unqualified",
+        "where_binding_qualified",
+        "where_let_chain",
+        "where_nullable_comparison",
+        "where_is_null",
+        "where_is_not_null",
+        "where_builtin_call",
+        "where_ambiguous",
+        "where_unknown_field",
+        "where_projection_alias",
+        "where_relation_name_fallback",
+        "where_known_int",
+        "where_known_text",
+        "where_invalid_operator",
+        "where_unknown_function",
+        "where_invalid_window_call",
+        "where_aggregate",
+        "where_equality_no_refinement",
+    ):
+        _result(built, name)
+    return built
 
 
 def _result(
@@ -251,7 +230,8 @@ def _result(
 ) -> row_filter.ProjectJoinedRowFilterResult:
     matches = tuple(
         result
-        for result in built.filters.results
+        for filters in built.filters
+        for result in filters.results
         if result.entry.owner.identity.declared_name == name
     )
     assert len(matches) == 1
@@ -338,7 +318,6 @@ def test_generic_adapter_retains_exact_post_let_fields_lets_and_function_identit
     (
         ("where_ambiguous", ProjectModuleCandidateBucketStatus.AMBIGUOUS),
         ("where_unknown_field", ProjectModuleCandidateBucketStatus.ABSENT),
-        ("where_hidden_intermediate", ProjectModuleCandidateBucketStatus.ABSENT),
         ("where_projection_alias", ProjectModuleCandidateBucketStatus.ABSENT),
         ("where_relation_name_fallback", ProjectModuleCandidateBucketStatus.ABSENT),
     ),
@@ -524,27 +503,38 @@ def test_completion_admission_is_exact_canonical_and_ledger_preserving(
     built: _Built,
 ) -> None:
     entries_before = built.completion.entries
-    expected = tuple(
-        entry
-        for entry in entries_before
-        if type(entry) is completion.ProjectEffectiveOutputTerminal
-        and entry.reason
-        is completion.ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
-    )
-    assert tuple(result.entry for result in built.filters.results) == expected
-    assert built.filters.completion is built.completion
+    for filters in built.filters:
+        assert filters.completion is built.completion
+        current = filters.current_semantics
+        assert current is not None
+        owner = current.namespaces.binding_environment.ledger.owner
+        expected = tuple(
+            entry
+            for entry in entries_before
+            if type(entry) is completion.ProjectEffectiveOutputTerminal
+            and entry.owner is owner
+        )
+        assert expected
+        assert tuple(result.entry for result in filters.results) == expected
+        assert all(
+            result.current_semantics is current and result.joined_semantics is current
+            for result in filters.results
+        )
+        ignored = tuple(
+            entry
+            for entry in entries_before
+            if not any(entry is item for item in expected)
+        )
+        assert ignored
+        assert not any(
+            result.entry is entry for result in filters.results for entry in ignored
+        )
+        eligible = cast(completion.ProjectEffectiveOutputTerminal, expected[0])
+        with pytest.raises(ValueError, match="exact ledger membership"):
+            row_filter.build_project_joined_row_filter(
+                built.completion, replace(eligible), current_semantics=current
+            )
     assert built.completion.entries is entries_before
-    assert all(
-        result.entry.joined_completion is result.joined_semantics
-        for result in built.filters.results
-    )
-    ignored = tuple(
-        entry for entry in entries_before if not any(entry is item for item in expected)
-    )
-    assert ignored
-    assert not any(
-        result.entry is entry for result in built.filters.results for entry in ignored
-    )
 
     absent = _result(built, "joined_a")
     assert type(absent) is row_filter.ProjectConcreteJoinedRowFilter
@@ -554,13 +544,6 @@ def test_completion_admission_is_exact_canonical_and_ledger_preserving(
     assert absent.preservation.input_property_bridge is (
         absent.joined_semantics.property_bridge
     )
-
-    eligible = cast(completion.ProjectEffectiveOutputTerminal, expected[0])
-    with pytest.raises(ValueError, match="exact ledger membership"):
-        row_filter.build_project_joined_row_filter(
-            built.completion,
-            replace(eligible),
-        )
 
 
 def _single_input_decision(body: str) -> tuple[bool, tuple[str, ...]]:
@@ -600,9 +583,8 @@ def _single_input_decision(body: str) -> tuple[bool, tuple[str, ...]]:
         (
             "where_let_chain",
             "    from rows\n"
-            "    let:\n"
-            "        floor = 1\n"
-            "        adjusted = amount + floor\n"
+            "    let floor = 1\n"
+            "    let adjusted = amount + floor\n"
             "    where adjusted > floor\n"
             "    select:\n"
             "        id\n",
@@ -640,33 +622,3 @@ def test_equivalent_single_input_where_decisions_remain_compatible(
     else:
         assert expected_code in public_errors
         assert _error_codes(joined) == (expected_code,)
-
-
-def test_scope_dependency_spec_and_inventory_are_exact() -> None:
-    source = PRODUCTION.read_text(encoding="utf-8")
-    namespace_source = NAMESPACE_PRODUCTION.read_text(encoding="utf-8")
-    imports = tuple(
-        alias.name
-        for node in ast.walk(ast.parse(source))
-        if type(node) is ast.Import
-        for alias in node.names
-    ) + tuple(
-        node.module or ""
-        for node in ast.walk(ast.parse(source))
-        if type(node) is ast.ImportFrom
-    )
-    assert not any(
-        name.startswith(("pietto.sql", "pietto.cli", "pyarrow")) for name in imports
-    )
-    for forbidden in (
-        "ProjectIRSnapshotScope(",
-        "ProjectIROutputRelationalProperties(",
-        "build_project_completion(",
-        "build_project_joined_row_semantics(",
-        "GROUP_AGGREGATE",
-        "WINDOW_EVALUATION",
-        "FINAL_PROJECTION",
-    ):
-        assert forbidden not in source
-    assert "infer_row_expression(" not in source
-    assert namespace_source.count("infer_row_expression(") == 2

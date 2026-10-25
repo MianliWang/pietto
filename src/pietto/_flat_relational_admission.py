@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pietto import ast_nodes as ast
+from pietto._syntax_admission import source_order
 from pietto.ast_nodes import (
+    AnyExpr,
     AuthoredJoinKind,
     Definition,
     JoinClause,
@@ -55,6 +57,47 @@ def availability_diagnostic(span: Span, message: str) -> Diagnostic:
             end_column=span.end_column,
         ),
     )
+
+
+def legacy_flat_refused(script: ast.Script) -> tuple[JoinClause | AnyExpr, ...]:
+    """Each JOIN and each any(...) of a LEGACY_FLAT project's script, which
+    has neither in the current syntax: in any definition or relationship
+    predicate, nested or not."""
+
+    from pietto.semantic.inline_functions import _tree_nodes
+
+    return tuple(
+        node for node in _tree_nodes(script) if isinstance(node, (JoinClause, AnyExpr))
+    )
+
+
+def legacy_flat_refusals(script: ast.Script) -> tuple[Diagnostic, ...]:
+    """PIE-S2334 of each JOIN and each any(...) of a LEGACY_FLAT project's
+    script, once each in source order: a JOIN of any kind and target at its
+    `on`, or at the JOIN without one, and an any(...) at the any(...). The
+    tree holds a repeated comparison-chain operand once per comparison, so
+    exact duplicates are dropped."""
+
+    found = []
+    for node in legacy_flat_refused(script):
+        if type(node) is JoinClause:
+            found.append(
+                availability_diagnostic(
+                    node.span if node.on_clause is None else node.on_clause.span,
+                    f"JOIN {node.target_binding_name}: a schema_version = 1 "
+                    "project has no JOIN in the current syntax; set "
+                    "schema_version = 2 to check it.",
+                )
+            )
+        else:
+            found.append(
+                availability_diagnostic(
+                    node.span,
+                    "any(...): a schema_version = 1 project has no any(...) in "
+                    "the current syntax; set schema_version = 2 to check it.",
+                )
+            )
+    return tuple(sorted(dict.fromkeys(found), key=source_order))
 
 
 def syntax_diagnostics(

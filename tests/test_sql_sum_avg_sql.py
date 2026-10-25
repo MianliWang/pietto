@@ -307,10 +307,10 @@ def test_invalid_sum_avg_shapes_stop_before_sql_without_artifacts(
     path = tmp_path / "invalid-sum-avg.pietto"
     path.write_text(
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    amount: Int not null\n"
-        "    price: Decimal not null\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    status: Text\n"
+        "    amount: Int\n"
+        "    price: Decimal\n"
+        'source orders: Order = postgres.table("orders")\n'
         "table paid_order_stats:\n"
         "    from orders\n"
         "    select:\n"

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import dataclasses
 import re
-import textwrap
 from typing import Any, cast
 
 
@@ -43,34 +42,20 @@ IDENTITY_CASES = (
     ("vendor.Unrelated", ("vendor",), "Unrelated"),
 )
 CANONICAL_CASES = (
-    ("order_only", "order by:\n    observed_at", 0, (None,)),
-    ("partition_only", "partition by:\n    account_id", 1, ()),
-    (
-        "combined",
-        "partition by:\n    account_id\norder by:\n    observed_at desc",
-        1,
-        ("desc",),
-    ),
-    (
-        "multiple_partition",
-        "partition by:\n    account_id\n    region",
-        2,
-        (),
-    ),
-    (
-        "multiple_order",
-        "order by:\n    observed_at\n    sequence_id asc",
-        0,
-        (None, "asc"),
-    ),
+    ("empty_window", "", 0, ()),
+    ("order_only", "order by observed_at", 0, (None,)),
+    ("partition_only", "partition by account_id", 1, ()),
+    ("combined", "partition by account_id order by observed_at desc", 1, ("desc",)),
+    ("multiple_partition", "partition by account_id, region", 2, ()),
+    ("multiple_order", "order by observed_at, sequence_id asc", 0, (None, "asc")),
     (
         "blank_lines",
-        "\npartition by:\n\n    account_id\n\norder by:\n\n    observed_at\n",
+        "\n\n    partition by account_id\n\n    order by observed_at\n",
         1,
         (None,),
     ),
-    ("ascending", "order by:\n    observed_at asc", 0, ("asc",)),
-    ("descending", "order by:\n    observed_at desc", 0, ("desc",)),
+    ("ascending", "order by observed_at asc", 0, ("asc",)),
+    ("descending", "order by observed_at desc", 0, ("desc",)),
 )
 CALL_ARGUMENT_CASES = (
     ("row_number()", ()),
@@ -95,58 +80,41 @@ QUALIFIED_IDENTITY_CASES = (
 SPAN_CASES = (
     (
         "order_only",
-        "order by:\n    observed_at",
-        (4, 14, 6, 28),
+        "order by observed_at",
+        (4, 14, 4, 55),
         (4, 14, 4, 26),
-        (4, 27, 6, 28),
+        (4, 27, 4, 55),
     ),
     (
         "partition_only",
-        "partition by:\n    region",
-        (4, 14, 6, 23),
+        "partition by region",
+        (4, 14, 4, 54),
         (4, 14, 4, 26),
-        (4, 27, 6, 23),
+        (4, 27, 4, 54),
     ),
     (
         "combined",
-        "partition by:\n    account_id\norder by:\n    observed_at desc",
-        (4, 14, 8, 33),
+        "partition by account_id order by observed_at desc",
+        (4, 14, 4, 84),
         (4, 14, 4, 26),
-        (4, 27, 8, 33),
+        (4, 27, 4, 84),
     ),
 )
 DIRECTION_CASES = (
-    ("observed_at", None, (6, 17, 6, 28)),
-    ("observed_at asc", "asc", (6, 17, 6, 32)),
-    ("observed_at desc", "desc", (6, 17, 6, 33)),
+    ("observed_at", None, (4, 43, 4, 54)),
+    ("observed_at asc", "asc", (4, 43, 4, 58)),
+    ("observed_at desc", "desc", (4, 43, 4, 59)),
 )
 MALFORMED_CASES = (
-    ("missing_colon", "order by:\n    observed_at", " window:\n", " window\n"),
-    ("empty_window", "", None, None),
-    ("empty_partition", "partition by:\n", None, None),
-    ("empty_order", "order by:\n", None, None),
-    (
-        "duplicate_partition",
-        "partition by:\n    account_id\npartition by:\n    region",
-        None,
-        None,
-    ),
-    (
-        "duplicate_order",
-        "order by:\n    observed_at\norder by:\n    sequence_id",
-        None,
-        None,
-    ),
-    (
-        "reversed",
-        "order by:\n    observed_at\npartition by:\n    account_id",
-        None,
-        None,
-    ),
-    ("unknown_clause", "cluster by:\n    account_id", None, None),
-    ("nulls_first", "order by:\n    observed_at nulls first", None, None),
-    ("malformed_order", "order by:\n    observed_at +", None, None),
-    ("malformed_partition", "partition by:\n    account_id +", None, None),
+    ("empty_partition", "partition by", None, None),
+    ("empty_order", "order by", None, None),
+    ("duplicate_partition", "partition by account_id partition by region", None, None),
+    ("duplicate_order", "order by observed_at order by sequence_id", None, None),
+    ("reversed", "order by observed_at partition by account_id", None, None),
+    ("unknown_clause", "cluster by account_id", None, None),
+    ("nulls_first", "order by observed_at nulls first", None, None),
+    ("malformed_order", "order by observed_at +", None, None),
+    ("malformed_partition", "partition by account_id +", None, None),
 )
 SEMANTIC_IDENTITY_CASES = (
     ("rank", "Unknown function: rank"),
@@ -162,14 +130,12 @@ def _window_query(
     before: tuple[str, ...] = (),
     after: tuple[str, ...] = (),
 ) -> str:
-    body_text = textwrap.dedent(body).strip("\n") + "\n"
     return (
         "query ranked:\n"
         "    from rows\n"
         "    select:\n"
         + "".join(f"        {item}\n" for item in before)
-        + f"        {projection} window:\n"
-        + textwrap.indent(body_text, "            ")
+        + f"        {projection} window({body})\n"
         + "".join(f"        {item}\n" for item in after)
     )
 
@@ -177,10 +143,10 @@ def _window_query(
 def _semantic_window_source(call: str) -> str:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    observed_at: Timestamp not null\n"
-        'source rows: Row is postgres.table("rows")\n'
-        + _window_query("order by:\n    observed_at", projection=f"rn = {call}")
+        "    id: Int\n"
+        "    observed_at: Timestamp\n"
+        'source rows: Row = postgres.table("rows")\n'
+        + _window_query("order by observed_at", projection=f"rn = {call}")
     )
 
 
@@ -240,7 +206,7 @@ def test_window_identity_namespace_name_case_and_hash_are_preserved(
     name: str,
 ) -> None:
     expression = _window_expression(
-        _window_query("order by:\n    observed_at", projection=f"rn = {call}()")
+        _window_query("order by observed_at", projection=f"rn = {call}()")
     )
     expected = _window_identity.WindowFunctionIdentity(
         namespace,
@@ -286,6 +252,77 @@ def test_window_spec_constructor_invariants_and_hash_are_exact() -> None:
             )
 
 
+def test_empty_window_constructor_shapes_keep_identity_and_base_guards() -> None:
+    span = Span(path="empty-window.pietto", line=1, column=1, end_line=1, end_column=2)
+    callee = NameExpr(span=span, name="row_number")
+    call = ast_nodes.CallExpr(span=span, callee=callee, arguments=())
+    spec = WindowSpec(span=span, partition_by=(), order_by=())
+    identity = _window_identity.WindowFunctionIdentity(
+        (), "row_number", _window_identity.WindowFunctionRole.WINDOW_FUNCTION
+    )
+    base = ast_nodes.NamedWindowReference(span=span, name="root")
+    inline = WindowExpr(span=span, call=call, spec=spec, identity=identity)
+    direct = dataclasses.replace(
+        inline, use_kind=ast_nodes.WindowUseKind.NAMED_DIRECT, base=base
+    )
+    extended = dataclasses.replace(
+        direct, use_kind=ast_nodes.WindowUseKind.NAMED_EXTENDED
+    )
+    for expression in (inline, direct, extended):
+        assert expression.call is call
+        assert expression.spec is spec
+        assert expression.identity is identity
+        assert not expression.spec.has_components
+    assert inline.use_kind is ast_nodes.WindowUseKind.INLINE
+    assert inline.base is None
+    assert direct.use_kind is ast_nodes.WindowUseKind.NAMED_DIRECT
+    assert extended.use_kind is ast_nodes.WindowUseKind.NAMED_EXTENDED
+    assert direct.base is extended.base is base
+    nonempty = dataclasses.replace(spec, partition_by=(callee,))
+    invalid = (
+        (inline, {"base": base}, "inline window uses require only local components"),
+        (direct, {"base": None}, "named window uses require one exact base reference"),
+        (
+            extended,
+            {"base": None},
+            "named window uses require one exact base reference",
+        ),
+        (
+            direct,
+            {"spec": nonempty},
+            "direct named-window uses forbid local components",
+        ),
+    )
+    for expression, changes, message in invalid:
+        with pytest.raises(ValueError, match=message):
+            dataclasses.replace(expression, **cast(Any, changes))
+    with pytest.raises(TypeError, match="spec must be a WindowSpec"):
+        dataclasses.replace(inline, spec=cast(Any, None))
+    with pytest.raises(
+        TypeError, match="window frame must be an exact AuthoredWindowFrame"
+    ):
+        dataclasses.replace(spec, frame=cast(Any, object()))
+
+
+def test_empty_named_window_constructor_preserves_present_and_absent_specs() -> None:
+    span = Span(path="empty-window.pietto", line=1, column=1, end_line=1, end_column=2)
+    spec = WindowSpec(span=span, partition_by=(), order_by=())
+    base = ast_nodes.NamedWindowReference(span=span, name="root")
+    for reference in (None, base):
+        declaration = ast_nodes.NamedWindowDeclaration(
+            span=span, name="named", base=reference, spec=spec
+        )
+        absent = dataclasses.replace(declaration, spec=None)
+        assert declaration.base is absent.base is reference
+        assert declaration.spec is spec
+        assert absent.spec is None
+        assert declaration != absent
+        with pytest.raises(
+            TypeError, match="named-window declaration spec must be exact"
+        ):
+            dataclasses.replace(declaration, spec=cast(Any, object()))
+
+
 @pytest.mark.parametrize(
     ("name", "body", "partition_count", "directions"),
     CANONICAL_CASES,
@@ -299,6 +336,8 @@ def test_parser_preserves_canonical_window_shapes(
 ) -> None:
     expression = _window_expression(_window_query(body))
     assert len(expression.spec.partition_by) == partition_count, name
+    if name == "empty_window":
+        assert not expression.spec.has_components
     assert tuple(item.direction for item in expression.spec.order_by) == directions
     assert expression.identity.name == "row_number"
     assert expression.identity.namespace == ()
@@ -310,7 +349,7 @@ def test_parser_preserves_call_arguments_and_trailing_comma(
     expected: tuple[str | int, ...],
 ) -> None:
     expression = _window_expression(
-        _window_query("order by:\n    observed_at", projection=f"value = {call}")
+        _window_query("order by observed_at", projection=f"value = {call}")
     )
     assert tuple(
         _literal_argument_value(item) for item in expression.call.arguments
@@ -321,7 +360,7 @@ def test_parser_preserves_call_arguments_and_trailing_comma(
 def test_parser_preserves_function_candidate_identity(function_name: str) -> None:
     expression = _window_expression(
         _window_query(
-            "order by:\n    observed_at",
+            "order by observed_at",
             projection=f"value = {function_name}()",
         )
     )
@@ -335,7 +374,7 @@ def test_parser_preserves_function_candidate_identity(function_name: str) -> Non
 def test_value_modifier_authorship_is_source_located_and_use_local() -> None:
     expression = _window_expression(
         _window_query(
-            "order by:\n    observed_at",
+            "order by observed_at",
             projection=("value = nth_value(value, 2) from last ignore nulls"),
         )
     )
@@ -354,7 +393,7 @@ def test_parser_preserves_qualified_identity_namespace_and_case(
     name: str,
 ) -> None:
     expression = _window_expression(
-        _window_query("partition by:\n    id", projection=f"value = {call}()")
+        _window_query("partition by id", projection=f"value = {call}()")
     )
     assert expression.identity.namespace == namespace
     assert expression.identity.name == name
@@ -370,13 +409,9 @@ def test_multiple_window_and_ordinary_select_items_preserve_order_aliases_and_in
         "    from rows\n"
         "    select:\n"
         "        id\n"
-        "        rn = row_number() window:\n"
-        "            order by:\n"
-        "                observed_at\n"
+        "        rn = row_number() window(order by observed_at)\n"
         "        value\n"
-        "        previous = lag(value, 1) window:\n"
-        "            partition by:\n"
-        "                account_id\n"
+        "        previous = lag(value, 1) window(partition by account_id)\n"
     )
     result = parse_source(source)
     assert result.diagnostics == ()
@@ -429,15 +464,15 @@ def test_window_order_direction_and_spans_are_exact(
     direction: str | None,
     item_span: tuple[int, int, int, int],
 ) -> None:
-    expression = _window_expression(_window_query(f"order by:\n    {item_source}"))
+    expression = _window_expression(_window_query(f"order by {item_source}"))
     item = expression.spec.order_by[0]
     assert item.direction == direction
     assert _span_tuple(item.span) == item_span
-    assert _span_tuple(item.expression.span) == (6, 17, 6, 28)
+    assert _span_tuple(item.expression.span) == (4, 43, 4, 54)
 
 
 def test_window_order_integer_literal_bypasses_final_order_ordinal_rejection() -> None:
-    expression = _window_expression(_window_query("order by:\n    1"))
+    expression = _window_expression(_window_query("order by 1"))
     item = expression.spec.order_by[0]
     assert isinstance(item.expression, LiteralExpr)
     assert item.expression.value == 1
@@ -532,7 +567,7 @@ def test_window_expression_publishes_no_semantic_value_type_fact() -> None:
 def test_project_parse_only_path_remains_deferred_without_window_result_dependency_or_lineage() -> (
     None
 ):
-    expression = _window_expression(_window_query("order by:\n    observed_at"))
+    expression = _window_expression(_window_query("order by observed_at"))
     adapted = adapt_project_row_expression_schema(
         expression=expression,
         output_name="rn",
@@ -550,3 +585,92 @@ def test_project_parse_only_path_remains_deferred_without_window_result_dependen
 
 
 # Phase 53 Slice 13 reader migration.
+
+
+def test_modern_parenthesized_windows_keep_inline_and_named_identities() -> None:
+    from pietto.ast_nodes import AuthoredWindowFrameKind, WindowUseKind
+
+    result = parse_source(
+        "query q:\n"
+        "    from rows\n"
+        "    let base = window(partition by group_id)\n"
+        "    select:\n"
+        "        ranked = row_number() window(partition by group_id order by id desc rows between 2 preceding and current row exclude ties)\n"
+        "        named = row_number() window base\n"
+        "        extended = row_number() window base(order by id)\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    query = result.ast.definitions[0]
+    assert isinstance(query, QueryDef)
+    inline, named, extended = [item.expression for item in query.select_items]
+    assert isinstance(inline, WindowExpr) and inline.use_kind is WindowUseKind.INLINE
+    assert inline.spec.frame.kind is AuthoredWindowFrameKind.BETWEEN
+    assert (
+        isinstance(named, WindowExpr) and named.use_kind is WindowUseKind.NAMED_DIRECT
+    )
+    assert (
+        isinstance(extended, WindowExpr)
+        and extended.use_kind is WindowUseKind.NAMED_EXTENDED
+    )
+    assert query.named_windows[0].name == "base"
+
+
+def test_modern_single_line_window_select_is_admitted() -> None:
+    result = parse_source(
+        "query q:\n    from rows\n    select ranked = row_number() window(order by id)\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+
+
+def test_parenthesized_empty_windows_preserve_authored_use_and_declaration_identity() -> (
+    None
+):
+    source = """query q:
+    from rows
+    let root = window()
+    let alias = window root
+    let extended_alias = window root()
+    select:
+        inline = row_number() window()
+        direct = row_number() window root
+        extended = row_number() window root()
+"""
+    result = parse_source(source, path="empty-window.pietto")
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    query = result.ast.definitions[0]
+    assert isinstance(query, QueryDef)
+    inline, direct, extended = [item.expression for item in query.select_items]
+    assert isinstance(inline, WindowExpr)
+    assert isinstance(direct, WindowExpr)
+    assert isinstance(extended, WindowExpr)
+    assert inline.use_kind is ast_nodes.WindowUseKind.INLINE and inline.base is None
+    assert direct.use_kind is ast_nodes.WindowUseKind.NAMED_DIRECT
+    assert extended.use_kind is ast_nodes.WindowUseKind.NAMED_EXTENDED
+    assert direct.base is not None and extended.base is not None
+    assert direct.base.name == extended.base.name == "root"
+    assert direct.base is not extended.base
+    assert inline.spec is not direct.spec and direct.spec is not extended.spec
+    for expression, spelling in zip(
+        (inline, direct, extended),
+        ("window()", "window root", "window root()"),
+        strict=True,
+    ):
+        assert not expression.spec.has_components
+        span = expression.spec.span
+        assert span.path == "empty-window.pietto" and span.line == span.end_line
+        assert (
+            source.splitlines()[span.line - 1][span.column - 1 : span.end_column - 1]
+            == spelling
+        )
+    root, alias, extended_alias = query.named_windows
+    assert root.base is None and root.spec is not None
+    assert not root.spec.has_components
+    assert root.spec.span == root.span
+    assert alias.base is not None and alias.base.name == "root" and alias.spec is None
+    assert extended_alias.base is not None and extended_alias.base.name == "root"
+    assert extended_alias.spec is not None and not extended_alias.spec.has_components
+    assert extended_alias.spec.span == extended_alias.span
+    assert root.spec is not extended_alias.spec

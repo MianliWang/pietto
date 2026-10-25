@@ -56,6 +56,7 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
 )
+from pietto.semantic.modern_inputs import normalize_query_names
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_clause_facts.py"
@@ -441,7 +442,7 @@ def test_duplicate_output_duplicate_group_key_and_pure_grouping_skip_clauses(
             "    select:\n"
             "        duplicate = status\n"
             "        duplicate = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        duplicate > 0\n",
             ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME,
         ),
@@ -499,10 +500,9 @@ def test_group_key_forms_source_order_exact_retained_facts_and_no_ancestry(
         tmp_path,
         f"{relation_kind} candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        direct = created_at\n"
-        "        middle = amount\n"
-        "        chained = middle\n"
+        "    let direct = created_at\n"
+        "    let middle = amount\n"
+        "    let chained = middle\n"
         "    group by:\n"
         "        status\n"
         "        users.region\n"
@@ -567,7 +567,7 @@ def test_each_direct_group_key_family_is_ready(
     group_key: str,
 ) -> None:
     let_block = (
-        "    let:\n        key = status\n        chained = key\n"
+        "    let key = status\n    let chained = key\n"
         if group_key in {"key", "chained"}
         else ""
     )
@@ -626,7 +626,7 @@ def test_satisfying_output_dependencies_are_left_to_right_exact_and_atomic(
         "    select:\n"
         "        label = status\n"
         "        total = count()\n"
-        "    satisfying:\n"
+        "    having:\n"
         '        (total > 0) and (label == "open")\n',
     )
     result = _readiness(definition, input_schema, upstream_symbol)
@@ -675,7 +675,7 @@ def test_satisfying_alias_group_key_and_aggregate_target_matrix(
         "    select:\n"
         f"        {projection}\n"
         "        total = count()\n"
-        "    satisfying:\n"
+        "    having:\n"
         f"        {predicate}\n",
     )
     result = _readiness(definition, input_schema, upstream_symbol)
@@ -692,7 +692,7 @@ def test_satisfying_alias_group_key_and_aggregate_target_matrix(
 def test_satisfying_bool_literal_has_no_dependency_fact(tmp_path: Path) -> None:
     _, _, definition, input_schema, upstream_symbol = _candidate_inputs(
         tmp_path,
-        _grouped_body(satisfying="true"),
+        _grouped_body(satisfying="True"),
     )
     result = _readiness(definition, input_schema, upstream_symbol)
     assert result.status is ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
@@ -757,14 +757,13 @@ def test_satisfying_aggregate_wrapped_row_let_matches_selected_output(
         tmp_path,
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    group by:\n"
         "        status\n"
         "    select:\n"
         "        status\n"
         "        total = sum(gross)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        sum(gross) > 0\n",
     )
     result = _readiness(definition, input_schema, upstream_symbol)
@@ -825,13 +824,13 @@ def test_satisfying_aggregate_wrapped_row_let_matches_selected_output(
         (
             ("status",),
             "status",
-            "total between 0 and 10",
+            "0 <= total <= 10",
             ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_EXPRESSION,
         ),
         (
             ("status",),
             "status",
-            "null",
+            "None",
             ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_EXPRESSION,
         ),
     ),
@@ -851,7 +850,7 @@ def test_satisfying_failure_classification_has_no_partial_facts(
         + "    select:\n"
         f"        {projection}\n"
         "        total = count()\n"
-        "    satisfying:\n"
+        "    having:\n"
         f"        {predicate}\n"
     )
     _, _, definition, input_schema, upstream_symbol = _candidate_inputs(tmp_path, body)
@@ -868,9 +867,8 @@ def test_grouped_order_outputs_row_lets_direction_identity_and_first_dedupe(
         tmp_path,
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        region_key = users.region\n"
-        "        bucket = region_key\n"
+        "    let region_key = users.region\n"
+        "    let bucket = region_key\n"
         "    group by:\n"
         "        bucket\n"
         "    select:\n"
@@ -918,9 +916,8 @@ def test_grouped_order_row_let_uses_first_selected_identity_in_source_order(
         tmp_path,
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        region_key = users.region\n"
-        "        bucket = region_key\n"
+        "    let region_key = users.region\n"
+        "    let bucket = region_key\n"
         "    group by:\n"
         "        bucket\n"
         "    select:\n"
@@ -1074,7 +1071,7 @@ def test_limit_policy_c_accepts_absent_zero_positive_and_maximum(
 
 @pytest.mark.parametrize(
     "limit",
-    ("-1", "true", "1.5", '"1"', "amount", "count()", "1 + 1"),
+    ("-1", "True", "1.5", '"1"', "amount", "count()", "1 + 1"),
 )
 def test_limit_policy_c_rejects_all_non_exact_range_literals_atomically(
     tmp_path: Path,
@@ -1499,6 +1496,16 @@ def _project_semantic_result(
 ) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
     parse_result = check_project_parse_only(root)
     assert parse_result.ok
+    # A legacy-flat project's semantic check analyzes its sources with each
+    # `let name = value` resolved to the relation's row let; project parsing
+    # resolves them only for explicit modules, so the scaffold reads the
+    # sources as that analysis does.
+    normalized = []
+    for parsed_input in parse_result.parsed_inputs:
+        script, diagnostics = normalize_query_names(parsed_input.script)
+        assert diagnostics == ()
+        normalized.append(replace(parsed_input, script=script))
+    parse_result = replace(parse_result, parsed_inputs=tuple(normalized))
     return parse_result, build_empty_project_semantic_result(parse_result)
 
 
@@ -1510,17 +1517,17 @@ def _project(root: Path, relations: str) -> Path:
     )
     (root / "models.pietto").write_text(
         "shape User:\n"
-        "    active: Bool not null\n"
-        "    amount: Int not null\n"
-        "    tax: Int nullable\n"
-        "    score: Float not null\n"
-        "    weight: Float nullable\n"
-        "    price: Decimal(12, 2) not null\n"
-        "    fee: Decimal nullable\n"
-        "    status: Text not null\n"
-        "    region: Text nullable\n"
-        "    created_at: Timestamp not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    active: Bool\n"
+        "    amount: Int\n"
+        "    tax: Int | None\n"
+        "    score: Float\n"
+        "    weight: Float | None\n"
+        "    price: Decimal(12, 2)\n"
+        "    fee: Decimal | None\n"
+        "    status: Text\n"
+        "    region: Text | None\n"
+        "    created_at: Timestamp\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )
@@ -1545,7 +1552,7 @@ def _grouped_body(
     limit: str | None = None,
 ) -> str:
     satisfying_block = (
-        "" if satisfying is None else f"    satisfying:\n        {satisfying}\n"
+        "" if satisfying is None else f"    having:\n        {satisfying}\n"
     )
     order_block = (
         ""

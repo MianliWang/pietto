@@ -31,19 +31,19 @@ from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import CheckMode, SemanticModel, analyze
 
 PIPELINE_SOURCE = (
-    "type Email = Text not null\n"
-    "constraint valid_flag(x: Bool not null) -> Bool not null:\n"
-    "    x\n"
+    "type Email = Text\n"
+    "constraint valid_flag(x: Bool) -> Bool:\n"
+    "    return x\n"
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text nullable\n"
-    "    deleted_at: Timestamp nullable\n"
-    "derive copy_email(x: Text not null) -> Text not null:\n"
-    "    x\n"
-    'source users: User is postgres.table("public.users")\n'
+    "    id: UUID\n"
+    "    email: Text | None\n"
+    "    deleted_at: Timestamp | None\n"
+    "derive copy_email(x: Text) -> Text:\n"
+    "    return x\n"
+    'source users: User = postgres.table("public.users")\n'
     "table active_users:\n"
     "    from users\n"
-    "    where deleted_at is null\n"
+    "    where deleted_at is None\n"
     "    select:\n"
     "        email\n"
     "        email_norm = lower(trim(email))\n"
@@ -130,7 +130,7 @@ def test_relation_filter_and_public_graph_are_frontend_independent_and_frozen() 
 
 def test_unknown_relation_schema_propagates_without_ir_failure() -> None:
     result, _, _ = _compile(
-        'source raw is postgres.table("raw")\n'
+        'source raw = postgres.table("raw")\n'
         "table projected:\n"
         "    from raw\n"
         "    select:\n"

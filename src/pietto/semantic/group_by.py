@@ -378,7 +378,9 @@ def _resolve_input_field(
         return bare_field(input_schema, expression.name)
     if isinstance(expression, DottedNameExpr):
         return qualified_field(
-            input_schema, expression.parts, definition.from_clause.source_name
+            input_schema,
+            expression.parts,
+            (definition.from_clause.binding_name or definition.from_clause.source_name),
         )
     return None
 
@@ -1353,7 +1355,11 @@ def open_input_schema(definition: DerivedRelation) -> RowSchema:
             name = (
                 node.parts[1]
                 if len(node.parts) == 2
-                and node.parts[0] == definition.from_clause.source_name
+                and node.parts[0]
+                == (
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                )
                 else None
             )
         else:

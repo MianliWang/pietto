@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pietto.ir.model import (
     AggregateCallIR,
+    AnyFieldIR,
+    ExistsIR,
     BetweenIR,
     BinaryIR,
     CastIR,
@@ -145,6 +147,27 @@ def render_mysql_expression(expression: ExpressionIR) -> str:
 
 
 def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
+    if isinstance(expression, AnyFieldIR):
+        return quote_qualified_identifier((expression.binding, expression.name))
+    if isinstance(expression, ExistsIR):
+        if expression.connector is None:
+            parts = (expression.target.name,)
+        else:
+            connector = expression.connector
+            if (
+                connector.name != "mysql.table"
+                or len(connector.arguments) != 1
+                or not isinstance(connector.arguments[0], str)
+                or not connector.arguments[0]
+            ):
+                raise MySqlRenderError("Scalar ANY requires mysql.table(Text)")
+            parts = tuple(connector.arguments[0].split("."))
+            if len(parts) > 2 or not all(parts):
+                raise MySqlRenderError(
+                    "Scalar ANY table name must be <table> or <schema>.<table>"
+                )
+        predicate = _render_mysql_expression(expression.predicate, nested=False)
+        return f"EXISTS (SELECT 1 FROM {quote_qualified_identifier(parts)} AS {quote_identifier(expression.binding, context='relation identifier')} WHERE {predicate})"
     if isinstance(expression, LiteralIR):
         return render_literal(expression.value)
     if isinstance(expression, FieldRefIR):

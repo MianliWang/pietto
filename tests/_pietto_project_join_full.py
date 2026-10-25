@@ -3,10 +3,10 @@
 from _pietto_project_join import _source
 
 
-def _unique_source(kind: str, predicate: str | None, *, via: str = "") -> str:
-    return _source(predicate, kind=kind, via=via).replace(
-        "    allow_any: Bool nullable\n",
-        "    allow_any: Bool nullable\n    unique row_key on id\n",
+def _unique_source(kind: str, predicate: str | None) -> str:
+    return _source(predicate, kind=kind).replace(
+        "    allow_any: Bool | None\n",
+        "    allow_any: Bool | None\n    row_key = unique(id)\n",
     )
 
 
@@ -16,23 +16,20 @@ def _two_current_globals_full(result_select: str) -> str:
         source
         + f"""query left_global:
     from lhs
-    inner join rhs as left_input:
-        from lhs
-        on true
+    let left_input = rhs
+    inner join left_input on True
     select:
         total = count()
 query right_global:
     from rhs
-    inner join lhs as right_input:
-        from rhs
-        on true
+    let right_input = lhs
+    inner join right_input on True
     select:
         total = count()
 query result:
     from left_global
-    full join right_global as r:
-        from left_global
-        on false
+    let r = right_global
+    full join r on False
     select:
 {result_select}"""
     )

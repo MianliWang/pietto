@@ -1,5 +1,24 @@
 # ORDER BY / LIMIT Contract Version 1
 
+## Reading this contract with current source
+
+Current ORDER BY keeps source item order and uses `order by created_at desc,
+id` on one line, or the colon-plus-indentation block shown below. Current
+integer literal spelling permits digit separators, so `limit 1_000` has the
+same bounded static value as `limit 1000`; signs, non-integer values and
+computed expressions remain outside the static LIMIT rule. These source
+updates do not change the retained integer range, diagnostics or SQL format.
+
+The phase status, pinned baselines, decisions, delivery gates and later-slice
+handoffs below are retained historical records. They do not select a source
+syntax or a new release version. Current source defaults to the
+[modern language](../language.md); `pietto NUMBER` remains metadata. Retired
+spelling is read only for diagnostics/migration, and
+[`pietto migrate`](../language.md#migrating-old-source) writes a complete result
+or a manual-refusal diagnostic without editing the input. Exact diagnostic,
+SQL, JSON and internal enum/opcode spellings remain unchanged.
+
+
 ## Status
 
 Status: Phase 12 is complete. Slice 3 static `LIMIT`, Slice 4 input-scope
@@ -30,7 +49,8 @@ PostgreSQL and MySQL must be delivered together within each production slice.
 
 ### Clause Order
 
-A table or query relation uses this fixed clause order:
+The minimal no-GROUP relation subset recorded here orders its clauses as
+follows. Later approved clauses retain the fuller order in the language guide:
 
 ```text
 from
@@ -45,12 +65,12 @@ Each clause may appear at most once. A duplicate clause or a clause in the
 wrong position is a syntax error reported through the existing `PIE-P1000`
 parser diagnostic.
 
-The accepted source shape will be:
+The corresponding current source shape is:
 
 ```pietto
 query recent_users:
     from users
-    where active == true
+    where active == True
     select:
         id
         normalized = lower(email)
@@ -60,7 +80,8 @@ query recent_users:
     limit 100
 ```
 
-This example is accepted by the completed Slice 3 and Slice 4 implementation.
+This is the modern spelling of the completed Slice 3/Slice 4 example; its
+ordering and limit meanings are unchanged.
 
 ### LIMIT
 
@@ -71,10 +92,13 @@ block:
 limit 100
 ```
 
-The operand must be one static ASCII decimal integer literal matching
-`[0-9]+`. A leading sign, decimal point, exponent, digit separator, quoted
-text, identifier, call, field reference, arithmetic expression, Boolean, or
-null is not a static integer limit.
+The operand must be an integer literal accepted by the current numeric grammar,
+with a non-Boolean integer value in the range below. An unsigned digit sequence
+may contain separators between digits, as in `1_000`. A leading sign, decimal
+point, exponent, quoted text, identifier, call, field reference, arithmetic
+expression, Boolean or `None` is not a static integer limit. The Phase 12
+`[0-9]+` spelling was the historical pre-migration form, not the current lexer
+restriction.
 
 The accepted inclusive value range is:
 
@@ -101,7 +125,8 @@ clauses, and invalid clause placement remain parser errors.
 
 ### ORDER BY
 
-`order by` uses Pietto's colon and indentation block syntax:
+`order by created_at desc, id` is the single-line form. The equivalent
+multiline form uses a colon and indentation:
 
 ```pietto
 order by:
@@ -111,7 +136,8 @@ order by:
 
 The block must contain at least one sorting item. Blank lines may follow the
 existing relation-block whitespace policy but do not count as sorting items.
-Each sorting item occupies one source line and consists of:
+Each sorting item consists of the following; block lines may contain one item
+or a comma-separated list:
 
 ```text
 expression [asc | desc]
@@ -126,10 +152,9 @@ optimizer-style normalization are prohibited.
 
 An empty block, a trailing comma, an unknown direction keyword, a duplicate
 `order by` clause, or invalid clause placement is a syntax error reported
-through `PIE-P1000`. Superseded in part: several sorting items may now share a
-line, as a comma list after `order by:` or on a block line (see the Layout
-section of docs/language.md); a trailing comma outside parentheses is still an
-error.
+through `PIE-P1000`. Several sorting items may share a line: use
+`order by created_at desc, id` on the header line, or comma lists inside the
+indented block. A trailing comma outside parentheses remains an error.
 
 ## Semantic Contract
 
@@ -139,8 +164,9 @@ Every syntactically captured limit operand must be checked without evaluating
 it and without running general expression name or function resolution.
 
 An operand is valid only when its AST node is a non-Boolean integer
-`LiteralExpr` whose source spelling is an unsigned ASCII decimal literal and
-whose value is in the inclusive approved range.
+`LiteralExpr` whose value is in the inclusive approved range. Current numeric
+lexing decodes admitted digit separators before this value check; the checker
+does not evaluate a general expression or turn LIMIT into a runtime binding.
 
 Every invalid captured operand produces exactly one diagnostic:
 
@@ -167,12 +193,12 @@ analysis and remain `PIE-P1000`.
 
 Sorting expressions reuse the existing expression grammar and expression
 typing rules. Their field and name environment is the relation input row
-schema, exactly like current `where` and projection expression input
-resolution.
+schema and its `let` bindings, exactly like current `where` and projection
+expression input resolution, and a key written as one name alone may also
+name a SELECT output, which it then reads (see the name rule after `select`
+in [Sources and relations](../language.md#sources-and-relations)).
 
-Projection aliases are not members of the `ORDER BY` name-resolution scope.
-This remains true even when a projection alias has the same spelling as an
-input field:
+The Phase 12 MVP kept projection aliases out of this scope, so in
 
 ```pietto
 select:
@@ -181,13 +207,14 @@ order by:
     created_at
 ```
 
-The sorting name `created_at` resolves to the input field named
-`created_at`; it does not resolve to the projection alias. If no input field
-has that name, the existing unknown-field semantic diagnostic applies even
-when a projection alias has that name.
+the sorting name `created_at` read the input field named `created_at`. It now
+names both an input field and a SELECT output of another value and is
+ambiguous (PIE-S2102), with no winner: write the input field with its input
+name, such as `events.created_at`, or give the output another name. A key that
+names only a SELECT output reads that output, which emission restates as it
+inlines a `let` value.
 
-The MVP does not add output-schema lookup, alias fallback, ordinal lookup,
-implicit expression rewriting, or backend-specific name resolution.
+The MVP adds no ordinal lookup or backend-specific name resolution.
 
 ## AST And IR Contract
 

@@ -118,7 +118,11 @@ def outer_row_bindings(block: BlockRelationDef) -> tuple[tuple[str, int], ...]:
         return ()
     source = body.from_clause
     return (
-        *(((source.source_name, 0),) if type(source) is FromClause else ()),
+        *(
+            ((source.binding_name or source.source_name, 0),)
+            if type(source) is FromClause
+            else ()
+        ),
         *(
             (join.target_binding_name, position + 1)
             for position, join in enumerate(body.join_clauses)
@@ -206,7 +210,7 @@ def _inner_bindings(let: LetRelationDef) -> frozenset[str]:
         return frozenset()
     source = body.from_clause
     names = {
-        source.source_name
+        source.binding_name or source.source_name
         if type(source) is FromClause
         else cast(TableFunctionFromClause, source).binding_name
     }

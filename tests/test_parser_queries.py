@@ -54,7 +54,7 @@ def test_query_with_where_parses() -> None:
     result = parse_source(
         "query active_user_emails:\n"
         "    from active_users\n"
-        "    where email is not null\n"
+        "    where email is not None\n"
         "    select:\n"
         "        email\n"
         "        email_norm\n"
@@ -107,7 +107,7 @@ def test_query_is_parse_only_without_target_field_or_type_checks() -> None:
 
 def test_query_preserves_source_table_and_query_top_level_order() -> None:
     result = parse_source(
-        'source users is postgres.table("public.users")\n'
+        'source users = postgres.table("public.users")\n'
         "table active_users:\n"
         "    from users\n"
         "    select:\n"
@@ -161,7 +161,7 @@ def test_query_allows_blank_lines_comments_and_eof() -> None:
         "    from active_users\n"
         "\n"
         "    # Filter incomplete rows.\n"
-        "    where email is not null\n"
+        "    where email is not None\n"
         "\n"
         "    select:\n"
         "\n"
@@ -203,7 +203,7 @@ def test_query_spans_are_one_based_half_open() -> None:
     result = parse_source(
         "query active_user_emails:\n"
         "    from active_users\n"
-        "    where email is not null\n"
+        "    where email is not None\n"
         "    select:\n"
         "        email\n"
         "        email_norm = lower(trim(email))\n",
@@ -271,7 +271,7 @@ def test_query_ast_does_not_expose_antlr_nodes() -> None:
     result = parse_source(
         "query active_user_emails:\n"
         "    from active_users\n"
-        "    where email is not null\n"
+        "    where email is not None\n"
         "    select:\n"
         "        email\n"
         "        email_norm = lower(trim(email))\n"
@@ -300,7 +300,7 @@ def test_query_ast_does_not_expose_antlr_nodes() -> None:
         ),
         (
             "query active_user_emails:\n"
-            "    where email is not null\n"
+            "    where email is not None\n"
             "    from active_users\n"
             "    select:\n"
             "        email\n"
@@ -323,7 +323,7 @@ def test_malformed_queries_return_syntax_diagnostic(source: str) -> None:
 def test_entry_query_header_parameters_are_located_nodes() -> None:
     path = "examples/queries/parameters.pietto"
     result = parse_source(
-        "query orders_since(cutoff: Int not null, label: Text nullable,):\n"
+        "query orders_since(cutoff: Int, label: Text | None,):\n"
         "    from orders\n"
         "    where order_day >= cutoff\n"
         "    select:\n"
@@ -346,10 +346,10 @@ def test_entry_query_header_parameters_are_located_nodes() -> None:
         ("label", "Text", Nullability.NULLABLE),
     ]
     assert definition.parameters[0].span == Span(
-        path=path, line=1, column=20, end_line=1, end_column=40
+        path=path, line=1, column=20, end_line=1, end_column=31
     )
     assert definition.parameters[1].span == Span(
-        path=path, line=1, column=42, end_line=1, end_column=62
+        path=path, line=1, column=33, end_line=1, end_column=51
     )
     assert type(definition.from_clause) is FromClause
     assert definition.from_clause.source_name == "orders"
@@ -372,10 +372,10 @@ def test_entry_query_header_parameters_are_located_nodes() -> None:
 
 def test_header_names_become_parameter_reads_only_as_bare_values() -> None:
     result = parse_source(
-        "query q(k: Int not null, lower: Text nullable, k: Bool not null):\n"
+        "query q(k: Int, lower: Text | None, k: Bool):\n"
         "    from rows\n"
-        "    let:\n"
-        "        s = k + rows.k\n"
+        "\n"
+        "    let s = k + rows.k\n"
         "    where lower(lower) == lower\n"
         "    group by:\n"
         "        k\n"
@@ -388,8 +388,8 @@ def test_header_names_become_parameter_reads_only_as_bare_values() -> None:
     assert result.diagnostics == () and result.ast is not None
     (definition,) = result.ast.definitions
     assert type(definition) is QueryDef
-    assert definition.let_clause is not None
-    (binding,) = definition.let_clause.bindings
+    assert definition.let_clause is None
+    (binding,) = definition.naming_declarations
     assert type(binding.expression) is BinaryExpr
     read, qualified = binding.expression.left, binding.expression.right
     # A repeated header name reads its first declaration.
@@ -420,7 +420,7 @@ def test_header_names_become_parameter_reads_only_as_bare_values() -> None:
         "query q:\n    from rows\n    where k > 1\n    select:\n        k\n",
         "table t:\n    from rows\n    where k > 1\n    select:\n        k\n",
         (
-            "query a(k: Int not null):\n    from rows\n    select:\n"
+            "query a(k: Int):\n    from rows\n    select:\n"
             "        v = k\n"
             "query b:\n    from rows\n    where k > 1\n    select:\n        k\n"
         ),
@@ -441,7 +441,7 @@ def test_names_outside_a_header_stay_names(source: str) -> None:
 
 def test_headers_of_other_bodies_keep_the_block_form() -> None:
     result = parse_source(
-        "query q(k: Int not null):\n"
+        "query q(k: Int):\n"
         "    let inner:\n"
         "        from rows\n"
         "        where id > k\n"

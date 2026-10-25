@@ -382,12 +382,13 @@ def two_source(target, body, *, second_text=None, extra_environment=()):
 
 
 JOIN_LABELS = (
-    "query result:\n    from sa\n    inner join sb as r:\n        from sa\n"
-    "        on sa.key == r.key\n    select:\n        a = sa.label\n        b = r.label\n"
+    "query result:\n    from sa\n    let r = sb\n"
+    "    inner join r on sa.key == r.key\n"
+    "    select:\n        a = sa.label\n        b = r.label\n"
 )
 JOIN_TEXT = (
-    "query result:\n    from sa\n    inner join sb as r:\n        from sa\n"
-    "        on sa.label == r.label\n    select:\n        a = sa.key\n"
+    "query result:\n    from sa\n    let r = sb\n"
+    "    inner join r on sa.label == r.label\n    select:\n        a = sa.key\n"
 )
 
 
@@ -504,11 +505,12 @@ def single_match_build(item):
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_membership_enforcement_and_ordinary_risk_keep_their_meanings(built, target):
-    # EXCEPT-right membership: the complete right terminal is an obligation.
+    # EXCEPT-right membership (`any`, a semi JOIN before S6): its read of the
+    # complete SET terminal is an obligation.
     _, _, outcome = built[target, "S_set_membership"]
     artifact = artifact_of(outcome)
     generated = artifact.generated_requirements
-    right = [g for g in generated if g.kind == "complete_right_terminal"]
+    right = [g for g in generated if g.kind == "exists"]
     assert len(right) == 1 and right[0].rule == "R11"
     assert [g.kind for g in generated if g.kind == "set_row_equivalence"] == [
         "set_row_equivalence"
@@ -529,10 +531,11 @@ def test_membership_enforcement_and_ordinary_risk_keep_their_meanings(built, tar
         replace(artifact, original_requirements=artifact.original_requirements[:-1]),
         artifact.request,
     )
-    # LEGAL_UNPROVED enforcement blocks usable SQL while its warning is retained.
+    # LEGAL_UNPROVED enforcement blocks usable SQL while its warning is retained
+    # (the request needs a JOIN condition: a left JOIN, a semi JOIN before S6).
     body = (
-        "query result:\n    from lhs\n    semi join rhs as r:\n        from lhs\n"
-        "        on true\n    select:\n        a = lhs.id\n"
+        "query result:\n    from lhs\n    let r = rhs\n"
+        "    left join r on True\n    select:\n        a = lhs.id\n"
     )
     unproved = single_match_build(probe.join_witness(target, body))
     assert unproved.status == "BLOCKED" and unproved.artifact is None

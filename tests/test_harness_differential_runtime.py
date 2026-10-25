@@ -256,8 +256,8 @@ def test_process_reduction_preserves_variants_cli_calls_and_graph_builds() -> No
     assert "subprocess.run(" not in phase61_source
     assert phase61_source.count("build_project_ir_pipeline(") == 2
     assert "subprocess.run(" not in phase62_source
-    assert phase62_source.count("build_project_multifact_analysis(") == 1
-    assert phase62_source.count("build_project_phase62_inspection(") == 1
+    assert phase62_source.count("build_project_query_block_ir(") == 1
+    assert phase62_source.count("build_project_query_block_ir_inspection(") == 2
     assert "subprocess.run(" not in phase63_source
     assert phase63_source.count("build_project_query_block_ir_inspection(") == 2
     assert phase63_source.count("build_project_phase62_inspection(") == 1

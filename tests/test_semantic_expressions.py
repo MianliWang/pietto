@@ -22,6 +22,7 @@ from pietto.ast_nodes import (
     LiteralExpr,
     MembershipExpr,
     NameExpr,
+    QueryDef,
     Script,
     SourceDef,
     TableDef,
@@ -51,16 +52,16 @@ from pietto.semantic.row_lookup import (
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text nullable\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text | None\n"
+    'source users: User = postgres.table("users")\n'
 )
 Q1_SOURCE = (
     "shape User:\n"
-    "    count: Int not null\n"
-    "    name: Text nullable\n"
-    "    active: Bool nullable\n"
-    'source users: User is postgres.table("users")\n'
+    "    count: Int\n"
+    "    name: Text | None\n"
+    "    active: Bool | None\n"
+    'source users: User = postgres.table("users")\n'
 )
 
 
@@ -70,7 +71,7 @@ Q1_SOURCE = (
         ('"hello"', str, "Text"),
         ("42", int, "Int"),
         ("1.5", float, "Float"),
-        ("true", bool, "Bool"),
+        ("True", bool, "Bool"),
     ],
 )
 def test_literal_expression_maps_to_builtin_type(
@@ -134,7 +135,7 @@ def test_unknown_bare_field_reports_pie_s2102_and_records_unknown() -> None:
 def test_unknown_input_schema_suppresses_unknown_field_diagnostic() -> None:
     result = analyze(
         _parse(
-            'source raw is postgres.table("raw")\n'
+            'source raw = postgres.table("raw")\n'
             "table projected:\n"
             "    from raw\n"
             "    select:\n"
@@ -148,7 +149,7 @@ def test_unknown_input_schema_suppresses_unknown_field_diagnostic() -> None:
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
 
 
-@pytest.mark.parametrize("operator", ["is null", "is not null"])
+@pytest.mark.parametrize("operator", ["is None", "is not None"])
 def test_is_null_expression_maps_to_non_null_bool(operator: str) -> None:
     result = analyze(
         _parse(
@@ -201,8 +202,8 @@ def test_q1_conditional_membership_and_explicit_cast_have_closed_types() -> None
             "    from users\n"
             "    where count in ()\n"
             "    select:\n"
-            '        label = "present" if name is not null else "missing"\n'
-            "        converted = cast(count as Float)\n"
+            '        label = "present" if name is not None else "missing"\n'
+            "        converted = Float(count)\n"
         )
     )
     table = _table(result)
@@ -233,7 +234,7 @@ def test_q1_not_and_like_preserve_sql_nullability() -> None:
         _parse(
             Q1_SOURCE + "table projected:\n"
             "    from users\n"
-            "    where not (name is null)\n"
+            "    where not (name is None)\n"
             "    select:\n"
             '        matching = name like "A%"\n'
         )
@@ -259,11 +260,11 @@ def test_q1_local_null_contexts_record_typed_children_and_three_valued_membershi
         _parse(
             Q1_SOURCE + "table projected:\n"
             "    from users\n"
-            "    where count not in (1, null)\n"
+            "    where count not in (1, None)\n"
             "    select:\n"
-            "        filled = coalesce(null, count)\n"
-            "        absent = nullif(count, null)\n"
-            '        label = "present" if null else name\n'
+            "        filled = coalesce(None, count)\n"
+            "        absent = nullif(count, None)\n"
+            '        label = "present" if None else name\n'
         )
     )
     table = _table(result)
@@ -316,7 +317,7 @@ def test_q1_all_null_and_unknown_names_do_not_gain_contextual_types() -> None:
             Q1_SOURCE + "table projected:\n"
             "    from users\n"
             "    select:\n"
-            "        all_null = coalesce(null, null)\n"
+            "        all_null = coalesce(None, None)\n"
             "        unknown = coalesce(missing, count)\n"
         )
     )
@@ -345,18 +346,18 @@ def test_a_case_coalesce_or_nullif_of_only_nulls_takes_the_type_beside_it() -> N
             "    from users\n"
             "    select:\n"
             "        count\n"
-            "        v = name if active else (null if active else null)\n"
+            "        v = name if active else (None if active else None)\n"
             "query reader:\n"
             "    from projected\n"
-            "    let:\n"
-            "        k = null if count > 1 else null\n"
+            "\n"
+            "    let k = None if count > 1 else None\n"
             "    select:\n"
             "        r = v + 1\n"
-            "        s = (v if count > 1 else (null if count > 1 else null)) + 1\n"
-            "        x = coalesce(v, coalesce(null, null)) == 1\n"
+            "        s = (v if count > 1 else (None if count > 1 else None)) + 1\n"
+            "        x = coalesce(v, coalesce(None, None)) == 1\n"
             "        y = nullif(v, k) + 1\n"
-            '        z = count in (1, "x", nullif(null, null))\n'
-            "        a = nullif(count, coalesce(null, null), 1)\n"
+            '        z = count in (1, "x", nullif(None, None))\n'
+            "        a = nullif(count, coalesce(None, None), 1)\n"
         )
     )
     numeric = (
@@ -367,6 +368,14 @@ def test_a_case_coalesce_or_nullif_of_only_nulls_takes_the_type_beside_it() -> N
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics
     ] == [
+        (
+            "PIE-S2382",
+            "`projected` is a table of this file; single-file SQL reads it by name, "
+            "so the SQL runs only where the database already has a relation named "
+            "projected (an EXPLICIT_MODULES project emits it as a CTE)",
+            12,
+            5,
+        ),
         ("PIE-S2105", numeric, 16, 13),
         ("PIE-S2105", numeric, 17, 13),
         (
@@ -407,16 +416,19 @@ def test_null_value_reads_bound_shared_dags_by_identity(
     depth = 18
     script = _parse(
         Q1_SOURCE
-        + "table projected:\n    from users\n    let:\n        a0 = null\n"
+        + "table projected:\n    from users\n\n    let a0 = None\n"
         + "".join(
-            f"        a{i} = coalesce(a{i - 1}, a{i - 1})\n"
+            f"    let a{i} = coalesce(a{i - 1}, a{i - 1})\n"
             for i in range(1, depth + 1)
         )
         + "    select:\n        count\n"
     )
     table = script.definitions[-1]
-    assert isinstance(table, TableDef) and table.let_clause is not None
-    bindings = {item.name: item.expression for item in table.let_clause.bindings}
+    assert isinstance(table, TableDef) and table.naming_declarations
+    assert tuple(item.name for item in table.naming_declarations) == tuple(
+        f"a{index}" for index in range(depth + 1)
+    )
+    bindings = {item.name: item.expression for item in table.naming_declarations}
     types = dict.fromkeys(bindings, expressions._UNKNOWN_VALUE_TYPE)
     visited: set[int] = set()
     original = expressions._callee_name
@@ -446,15 +458,20 @@ def test_null_value_reads_terminate_composite_self_references(
     from pietto.semantic.model import RowSchema
 
     script = _parse(
-        "shape Row:\n    id: Int not null\n"
-        'source items: Row is postgres.table("items")\n'
-        "table projected:\n    from items\n    let:\n"
-        "        a = coalesce(a, a)\n"
-        "    select:\n        v = coalesce(a, 0)\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        'source items: Row = postgres.table("items")\n'
+        "table projected:\n"
+        "    from items\n"
+        "\n"
+        "    let a = coalesce(a, a)\n"
+        "    select:\n"
+        "        v = coalesce(a, 0)\n"
     )
     table = script.definitions[-1]
-    assert isinstance(table, TableDef) and table.let_clause is not None
-    binding = table.let_clause.bindings[0].expression
+    assert isinstance(table, TableDef) and table.naming_declarations
+    assert tuple(item.name for item in table.naming_declarations) == ("a",)
+    binding = table.naming_declarations[0].expression
     original = expressions._callee_name
     visits = 0
 
@@ -487,12 +504,18 @@ def test_null_value_reads_keep_alias_visibility_and_binding_scope() -> None:
     from pietto.semantic.model import RowField, RowSchema
 
     script = _parse(
-        Q1_SOURCE + "table projected:\n    from users\n"
-        "    let:\n        a = null\n        b = a\n    select:\n        v = b\n"
+        Q1_SOURCE + "table projected:\n"
+        "    from users\n"
+        "\n"
+        "    let a = None\n"
+        "    let b = a\n"
+        "    select:\n"
+        "        v = b\n"
     )
     table = script.definitions[-1]
-    assert isinstance(table, TableDef) and table.let_clause is not None
-    bindings = {item.name: item.expression for item in table.let_clause.bindings}
+    assert isinstance(table, TableDef) and table.naming_declarations
+    assert tuple(item.name for item in table.naming_declarations) == ("a", "b")
+    bindings = {item.name: item.expression for item in table.naming_declarations}
     value = table.select_items[0].expression
     unknown = expressions._UNKNOWN_VALUE_TYPE
     field = RowField(
@@ -521,7 +544,7 @@ def test_null_value_reads_keep_alias_visibility_and_binding_scope() -> None:
     [
         "coalesce({value}, 1)",
         "nullif({value}, 1)",
-        "{value} if true else 1",
+        "{value} if True else 1",
         "1 in ({value}, 1)",
         "coalesce({value}, amount / 2)",
         "coalesce({value}, {value}, 1)",
@@ -537,13 +560,16 @@ def test_null_value_reads_keep_alias_visibility_and_binding_scope() -> None:
 )
 def test_null_context_preserves_error_suppression(bound: bool, context: str) -> None:
     source = (
-        "shape Row:\n    id: Int not null\n    amount: Decimal(10, 2) not null\n"
-        'source items: Row is postgres.table("items")\n'
-        "table projected:\n    from items\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        "    amount: Decimal(10, 2)\n"
+        'source items: Row = postgres.table("items")\n'
+        "table projected:\n"
+        "    from items\n"
     )
-    erroneous = "null if missing else null"
+    erroneous = "None if missing else None"
     if bound:
-        source += f"    let:\n        k = {erroneous}\n"
+        source += f"\n    let k = {erroneous}\n"
     value = "k" if bound else f"({erroneous})"
     source += (
         "    select:\n"
@@ -573,15 +599,18 @@ def test_null_context_preserves_error_suppression(bound: bool, context: str) -> 
 def test_null_context_preserves_known_types_beside_child_errors() -> None:
     result = analyze(
         _parse(
-            "shape Row:\n    id: Int not null\n"
-            'source items: Row is postgres.table("items")\n'
-            "table projected:\n    from items\n    select:\n"
-            "        conditional = lower(1 if (missing is null) else 2)\n"
-            "        membership = lower((absent is null) in (true, false))\n"
-            "        branch_mismatch = true if (nosuch is null) else 1\n"
-            "        sibling = lower(coalesce(null, unknown_sibling is null))\n"
-            "        nullable_branch = lower(null if (other is null) else 1)\n"
-            "        erroneous_null = lower(coalesce(null if (bad is null) else null, 1))\n"
+            "shape Row:\n"
+            "    id: Int\n"
+            'source items: Row = postgres.table("items")\n'
+            "table projected:\n"
+            "    from items\n"
+            "    select:\n"
+            "        conditional = lower(1 if (missing is None) else 2)\n"
+            "        membership = lower((absent is None) in (True, False))\n"
+            "        branch_mismatch = True if (nosuch is None) else 1\n"
+            "        sibling = lower(coalesce(None, unknown_sibling is None))\n"
+            "        nullable_branch = lower(None if (other is None) else 1)\n"
+            "        erroneous_null = lower(coalesce(None if (bad is None) else None, 1))\n"
         )
     )
     wrong_type = (
@@ -634,13 +663,18 @@ def test_null_binding_name_suppression_is_not_error_evidence(erroneous: bool) ->
     from pietto.semantic.model import RowSchema
 
     script = _parse(
-        Q1_SOURCE + "table projected:\n    from users\n"
-        "    let:\n        k = null\n    select:\n        v = coalesce(k, 1)\n"
+        Q1_SOURCE + "table projected:\n"
+        "    from users\n"
+        "\n"
+        "    let k = None\n"
+        "    select:\n"
+        "        v = coalesce(k, 1)\n"
     )
     table = script.definitions[-1]
-    assert isinstance(table, TableDef) and table.let_clause is not None
+    assert isinstance(table, TableDef) and table.naming_declarations
+    assert tuple(item.name for item in table.naming_declarations) == ("k",)
     bindings = expressions.LetValues(
-        {"k": table.let_clause.bindings[0].expression},
+        {"k": table.naming_declarations[0].expression},
         erroneous={"k"} if erroneous else set(),
     )
     diagnostics: list[Diagnostic] = []
@@ -673,16 +707,16 @@ def test_q1_new_type_checks_expand_source_aliases_without_changing_child_identit
             "type Moment = Timestamp\n"
             "type Money = Decimal(9, 2)\n"
             "shape Event:\n"
-            "    age: Age not null\n"
-            "    flag: Flag not null\n"
-            "    happened: Moment not null\n"
-            "    amount: Money not null\n"
-            'source events: Event is postgres.table("events")\n'
+            "    age: Age\n"
+            "    flag: Flag\n"
+            "    happened: Moment\n"
+            "    amount: Money\n"
+            'source events: Event = postgres.table("events")\n'
             "table projected:\n"
             "    from events\n"
             "    where not flag\n"
             "    select:\n"
-            "        converted = cast(age as Float)\n"
+            "        converted = Float(age)\n"
             "        choice = 1 if flag else 2\n"
             "        direction = sign(age)\n"
             "        calendar = year(happened)\n"
@@ -722,8 +756,8 @@ def test_q1_nominal_enum_is_not_a_bool_alias() -> None:
             "enum Flag:\n"
             "    yes\n"
             "shape Event:\n"
-            "    flag: Flag not null\n"
-            'source events: Event is postgres.table("events")\n'
+            "    flag: Flag\n"
+            'source events: Event = postgres.table("events")\n'
             "table projected:\n"
             "    from events\n"
             "    where not flag\n"
@@ -750,7 +784,6 @@ def test_q1_nominal_enum_is_not_a_bool_alias() -> None:
             "PIE-S2105",
             "does not end in the escape character !",
         ),
-        ("cast(count as Text)", "PIE-S2105", "expected cast(Int as Float)"),
         ('substr("abc", 0, 2)', "PIE-S2104", "start must be a positive Int literal"),
     ],
 )
@@ -798,11 +831,11 @@ def test_like_patterns_with_paired_or_inner_escapes_are_accepted() -> None:
         ("    where name not like (alias)\n    select:\n        name\n", 11, 11),
         ("    select:\n        name\n        m = name like pattern\n", 13, 13),
         (
-            "        m = name like alias\n    where m\n    select:\n        name\n",
+            "    let m = name like alias\n    where m\n    select:\n        name\n",
             11,
             13,
         ),
-        ("        m = name like pattern\n    select:\n        name\n", 11, 13),
+        ("    let m = name like pattern\n    select:\n        name\n", 11, 13),
     ],
     ids=("where", "parenthesized-chain", "select", "let-read", "let-unread"),
 )
@@ -815,9 +848,9 @@ def test_let_bound_like_pattern_ending_in_the_escape_is_refused(
         _parse(
             Q1_SOURCE + "table projected:\n"
             "    from users\n"
-            "    let:\n"
-            '        pattern = "abc!"\n'
-            "        alias = pattern\n" + body
+            "\n"
+            '    let pattern = "abc!"\n'
+            "    let alias = pattern\n" + body
         )
     )
 
@@ -830,25 +863,22 @@ def test_let_bound_like_pattern_ending_in_the_escape_is_refused(
     ] == [("PIE-S2105", line, column)]
 
 
-@pytest.mark.parametrize("target", ["Float", "Int"])
 @pytest.mark.parametrize(
     "body",
     [
-        "    select:\n        count\n        value = cast(nothing as {target})\n",
-        "        value = cast(nothing as {target})\n"
+        "    select:\n        count\n        value = Float(nothing)\n",
+        "    let value = Float(nothing)\n"
         "    select:\n        count\n        copy = value\n",
     ],
     ids=("select", "let"),
 )
-def test_let_bound_null_cast_is_refused_like_the_null_literal(
-    target: str, body: str
-) -> None:
+def test_let_bound_null_cast_is_refused_like_the_null_literal(body: str) -> None:
     result = analyze(
         _parse(
             Q1_SOURCE + "table projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        nothing = null\n" + body.format(target=target)
+            "\n"
+            "    let nothing = None\n" + body
         )
     )
 
@@ -859,8 +889,8 @@ def test_let_bound_null_cast_is_refused_like_the_null_literal(
     ] == [
         (
             "PIE-S2105",
-            f"Invalid cast: cast(null as {target}) is not supported; expected "
-            "cast(Int as Float), the only supported cast",
+            "Invalid cast from null to Float: "
+            "only Int-to-Float conversion is supported; write Float(expression)",
         )
     ]
 
@@ -868,17 +898,8 @@ def test_let_bound_null_cast_is_refused_like_the_null_literal(
 @pytest.mark.parametrize(
     ("expression", "attempted"),
     [
-        ("cast(count as Text)", "cast(Int as Text)"),
-        ("cast(count as Int)", "cast(Int as Int)"),
-        ("cast(ratio as Int)", "cast(Float as Int)"),
-        ("cast(name as Text)", "cast(Text as Text)"),
-        ("cast(1.5 as Float)", "cast(Float as Float)"),
-        ("cast(count as Float not null)", "cast(Int as Float not null)"),
-        ("cast(count as Float nullable)", "cast(Int as Float nullable)"),
-        ("cast(count as Decimal(10, 2))", "cast(Int as Decimal(10, 2))"),
-        ("cast(age as Text)", "cast(Int as Text)"),
-        ("cast(count as Age)", "cast(Int as Age)"),
-        ("cast(null as Float)", "cast(null as Float)"),
+        ("Float(1.5)", "Float to Float"),
+        ("Float(None)", "null to Float"),
     ],
 )
 def test_invalid_cast_echoes_the_attempted_pair(
@@ -887,17 +908,19 @@ def test_invalid_cast_echoes_the_attempted_pair(
 ) -> None:
     result = analyze(
         _parse(
-            "type Age = Int not null\n"
-            "shape Person:\n"
-            "    count: Int not null\n"
-            "    ratio: Float not null\n"
-            "    name: Text not null\n"
-            "    age: Age not null\n"
-            'source people: Person is postgres.table("people")\n'
-            "table projected:\n"
-            "    from people\n"
-            "    select:\n"
-            f"        value = {expression}\n"
+            (
+                "type Age = Int\n"
+                "shape Person:\n"
+                "    count: Int\n"
+                "    ratio: Float\n"
+                "    name: Text\n"
+                "    age: Age\n"
+                'source people: Person = postgres.table("people")\n'
+                "table projected:\n"
+                "    from people\n"
+                "    select:\n"
+                f"        value = {expression}\n"
+            )
         )
     )
 
@@ -908,15 +931,15 @@ def test_invalid_cast_echoes_the_attempted_pair(
     ] == [
         (
             "PIE-S2105",
-            f"Invalid cast: {attempted} is not supported; expected "
-            "cast(Int as Float), the only supported cast",
+            f"Invalid cast from {attempted}: "
+            "only Int-to-Float conversion is supported; write Float(expression)",
             17,
         )
     ]
 
 
-_WINDOW_HINT = "in a SELECT item, with an indented `order by:`)"
-_CAST_HINT = "is not supported; expected cast(Int as Float), the only supported cast"
+_WINDOW_HINT = "in a SELECT item)"
+_CAST_HINT = "only Int-to-Float conversion is supported; write Float(expression)"
 _SUBSTR_BOUNDS_MESSAGE = (
     "Invalid arguments for function substr: start must be a positive Int literal "
     "and count must be a non-negative Int literal"
@@ -926,7 +949,7 @@ _SUBSTR_BOUNDS_MESSAGE = (
 @pytest.mark.parametrize(
     ("expression", "code", "message"),
     [
-        ("frob(null)", "PIE-S2103", "Unknown function: frob"),
+        ("frob(None)", "PIE-S2103", "Unknown function: frob"),
         ("frob(price / 2)", "PIE-S2103", "Unknown function: frob"),
         (
             "month(price / 2, price / 2)",
@@ -934,43 +957,33 @@ _SUBSTR_BOUNDS_MESSAGE = (
             "Invalid arguments for function month: expected 1, got 2",
         ),
         (
-            "cast(null as Int)",
+            "Float(None)",
             "PIE-S2105",
-            f"Invalid cast: cast(null as Int) {_CAST_HINT}",
-        ),
-        (
-            "cast(null as Float)",
-            "PIE-S2105",
-            f"Invalid cast: cast(null as Float) {_CAST_HINT}",
-        ),
-        (
-            "cast(price / 2 as Text)",
-            "PIE-S2105",
-            f"Invalid cast: cast(unknown as Text) {_CAST_HINT}",
+            f"Invalid cast from null to Float: {_CAST_HINT}",
         ),
         (
             "row_number()",
             "PIE-S2103",
             "Window function needs a `window` specification: row_number (write "
-            f"`row_number() window:` {_WINDOW_HINT}",
+            f"`row_number() window(order by ...)` {_WINDOW_HINT}",
         ),
         (
             "lag(count)",
             "PIE-S2103",
             "Window function needs a `window` specification: lag (write "
-            f"`lag(...) window:` {_WINDOW_HINT}",
+            f"`lag(...) window(order by ...)` {_WINDOW_HINT}",
         ),
         (
             "first_value(price / 2)",
             "PIE-S2103",
             "Window function needs a `window` specification: first_value (write "
-            f"`first_value(...) window:` {_WINDOW_HINT}",
+            f"`first_value(...) window(order by ...)` {_WINDOW_HINT}",
         ),
         ("substr(price / 2, 0, 2)", "PIE-S2104", _SUBSTR_BOUNDS_MESSAGE),
-        ("cast(price / 2 as Float)", None, None),
-        ("lower(null)", None, None),
+        ("Float(price / 2)", None, None),
+        ("lower(None)", None, None),
         # A quotient fits no `Text` parameter, whatever number it is.
-        ("substr(coalesce(null, null), 1, 2)", None, None),
+        ("substr(coalesce(None, None), 1, 2)", None, None),
     ],
 )
 def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
@@ -978,14 +991,16 @@ def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
 ) -> None:
     result = analyze(
         _parse(
-            "shape Person:\n"
-            "    count: Int not null\n"
-            "    price: Decimal not null\n"
-            'source people: Person is postgres.table("people")\n'
-            "table projected:\n"
-            "    from people\n"
-            "    select:\n"
-            f"        value = {expression}\n"
+            (
+                "shape Person:\n"
+                "    count: Int\n"
+                "    price: Decimal\n"
+                'source people: Person = postgres.table("people")\n'
+                "table projected:\n"
+                "    from people\n"
+                "    select:\n"
+                f"        value = {expression}\n"
+            )
         )
     )
 
@@ -1003,32 +1018,23 @@ def test_type_independent_call_and_cast_checks_ignore_unknown_operands(
     (
         # The operand reported its own error: no PIE-S2105 beside it.
         (
-            "shape Person:\n    count: Int not null\n"
-            'source people: Person is postgres.table("people")\n'
-            "table projected:\n    from people\n    select:\n"
-            "        value = cast(missing as Text)\n",
+            "shape Person:\n"
+            "    count: Int\n"
+            'source people: Person = postgres.table("people")\n'
+            "table projected:\n"
+            "    from people\n"
+            "    select:\n"
+            "        value = Float(missing)\n",
             [("PIE-S2102", "Unknown field: missing")],
         ),
         # An unknown input row explains no cast but the Float one, which alone
         # reads the operand's type.
         (
-            "table projected:\n    from nowhere\n    select:\n"
-            "        value = cast(x as Text)\n",
-            [
-                ("PIE-S2301", "Unknown relation: nowhere"),
-                ("PIE-S2105", f"Invalid cast: cast(unknown as Text) {_CAST_HINT}"),
-            ],
-        ),
-        (
-            'source people is postgres.table("people")\n'
-            "table projected:\n    from people\n    select:\n"
-            "        value = cast(x as Text)\n",
-            [("PIE-S2105", f"Invalid cast: cast(unknown as Text) {_CAST_HINT}")],
-        ),
-        (
-            'source people is postgres.table("people")\n'
-            "table projected:\n    from people\n    select:\n"
-            "        value = cast(x as Float)\n",
+            'source people = postgres.table("people")\n'
+            "table projected:\n"
+            "    from people\n"
+            "    select:\n"
+            "        value = Float(x)\n",
             [],
         ),
     ),
@@ -1054,7 +1060,7 @@ def test_only_an_operand_error_explains_an_unknown_cast_operand(
                 (
                     "PIE-S2103",
                     "Window function needs a `window` specification: lag (write "
-                    f"`lag(...) window:` {_WINDOW_HINT}",
+                    f"`lag(...) window(order by ...)` {_WINDOW_HINT}",
                     5,
                     17,
                 )
@@ -1067,7 +1073,7 @@ def test_only_an_operand_error_explains_an_unknown_cast_operand(
                 (
                     "PIE-S2103",
                     "Window function needs a `window` specification: row_number "
-                    f"(write `row_number(...) window:` {_WINDOW_HINT}",
+                    f"(write `row_number(...) window(order by ...)` {_WINDOW_HINT}",
                     5,
                     17,
                 )
@@ -1117,18 +1123,13 @@ def test_only_an_operand_error_explains_an_unknown_cast_operand(
             "substr(amount, start, 2)",
             [("PIE-S2104", _SUBSTR_BOUNDS_MESSAGE, 5, 17)],
         ),
-        (
-            "people",
-            "cast(amount as Text)",
-            [("PIE-S2105", f"Invalid cast: cast(unknown as Text) {_CAST_HINT}", 5, 17)],
-        ),
         # Checks that read an argument's type stay gradual.
         ("people", "upper(amount)", []),
         ("people", "sign(amount)", []),
         ("people", "year(amount)", []),
         ("people", "substr(amount, 1, 2)", []),
         ("people", "lower(trim(amount))", []),
-        ("people", "cast(amount as Float)", []),
+        ("people", "Float(amount)", []),
     ],
 )
 def test_unknown_input_row_hides_no_type_independent_call_check(
@@ -1136,11 +1137,13 @@ def test_unknown_input_row_hides_no_type_independent_call_check(
 ) -> None:
     result = analyze(
         _parse(
-            'source people is postgres.table("people")\n'
-            "table projected:\n"
-            f"    from {relation}\n"
-            "    select:\n"
-            f"        value = {expression}\n"
+            (
+                'source people = postgres.table("people")\n'
+                "table projected:\n"
+                f"    from {relation}\n"
+                "    select:\n"
+                f"        value = {expression}\n"
+            )
         ),
         mode_override=CheckMode.LOOSE,
     )
@@ -1160,14 +1163,14 @@ def test_unused_let_over_an_unknown_input_row_keeps_its_call_errors() -> None:
     # As over a shaped source, an unused binding is still checked.
     result = analyze(
         _parse(
-            'source people is postgres.table("people")\n'
+            'source people = postgres.table("people")\n'
             "table projected:\n"
             "    from people\n"
-            "    let:\n"
-            "        x = foo(amount)\n"
-            "        y = lag(amount)\n"
-            "        z = sign(amount, amount)\n"
-            "        s = substr(amount, 0, 2)\n"
+            "\n"
+            "    let x = foo(amount)\n"
+            "    let y = lag(amount)\n"
+            "    let z = sign(amount, amount)\n"
+            "    let s = substr(amount, 0, 2)\n"
             "    select:\n"
             "        id\n"
         ),
@@ -1187,7 +1190,7 @@ def test_unused_let_over_an_unknown_input_row_keeps_its_call_errors() -> None:
         (
             "PIE-S2103",
             "Window function needs a `window` specification: lag (write "
-            f"`lag(...) window:` {_WINDOW_HINT}",
+            f"`lag(...) window(order by ...)` {_WINDOW_HINT}",
             6,
             13,
         ),
@@ -1206,11 +1209,11 @@ def test_a_conditional_condition_known_not_to_be_bool_is_refused_beside_unknowns
     accepted, and a branch with an error of its own still explains it."""
     unknown_row = analyze(
         _parse(
-            'source people is postgres.table("people")\n'
+            'source people = postgres.table("people")\n'
             "table projected:\n"
             "    from people\n"
-            "    let:\n"
-            "        c = len(name)\n"
+            "\n"
+            "    let c = len(name)\n"
             "    select:\n"
             "        a = 1 if len(name) else 2\n"
             "        b = name if 5 else 2\n"
@@ -1223,9 +1226,12 @@ def test_a_conditional_condition_known_not_to_be_bool_is_refused_beside_unknowns
     )
     known_row = analyze(
         _parse(
-            "shape Person:\n    count: Int not null\n"
-            'source people: Person is postgres.table("people")\n'
-            "table projected:\n    from people\n    select:\n"
+            "shape Person:\n"
+            "    count: Int\n"
+            'source people: Person = postgres.table("people")\n'
+            "table projected:\n"
+            "    from people\n"
+            "    select:\n"
             "        a = missing if 5 else 2\n"
             "        b = 1 if count else missing\n"
         )
@@ -1243,34 +1249,34 @@ def test_a_conditional_condition_known_not_to_be_bool_is_refused_beside_unknowns
 
 
 COMPARISON_SOURCE = (
-    "type Age = Int not null\n"
+    "type Age = Int\n"
     "enum Status:\n"
     "    active\n"
     "enum Phase:\n"
     "    active\n"
     "    done\n"
-    "type Stage = Status not null\n"
+    "type Stage = Status\n"
     "shape Point:\n"
-    "    x: Int not null\n"
+    "    x: Int\n"
     "shape Item:\n"
-    "    count: Int not null\n"
-    "    ratio: Float not null\n"
-    "    amount: Decimal not null\n"
-    "    name: Text not null\n"
-    "    email: Text nullable\n"
-    "    active: Bool not null\n"
-    "    born: Date not null\n"
-    "    created_at: Timestamp not null\n"
-    "    token: UUID not null\n"
-    "    payload: Json nullable\n"
-    "    blob: Bytes nullable\n"
-    "    anything: Any nullable\n"
-    "    home: Point nullable\n"
-    "    status: Status not null\n"
-    "    phase: Phase not null\n"
-    "    stage: Stage not null\n"
-    "    age: Age not null\n"
-    'source items: Item is postgres.table("items")\n'
+    "    count: Int\n"
+    "    ratio: Float\n"
+    "    amount: Decimal\n"
+    "    name: Text\n"
+    "    email: Text | None\n"
+    "    active: Bool\n"
+    "    born: Date\n"
+    "    created_at: Timestamp\n"
+    "    token: UUID\n"
+    "    payload: Json | None\n"
+    "    blob: Bytes | None\n"
+    "    anything: Any | None\n"
+    "    home: Point | None\n"
+    "    status: Status\n"
+    "    phase: Phase\n"
+    "    stage: Stage\n"
+    "    age: Age\n"
+    'source items: Item = postgres.table("items")\n'
     "table projected:\n"
     "    from items\n"
 )
@@ -1289,11 +1295,11 @@ COMPARISON_WHERE_LINE = COMPARISON_SOURCE.count("\n") + 1
         ("ratio > active", ">", 11),
         ("amount <= created_at", "<=", 11),
         ("token >= born", ">=", 11),
-        ('email is null or count == "x"', "==", 28),
-        ('count between 1 and "z"', "between", 11),
+        ('email is None or count == "x"', "==", 28),
+        ('1 <= count <= "z"', "between", 11),
         # One null bound leaves the other to check (before: not checked).
-        ('count between null and "z"', "between", 11),
-        ('count between "z" and null', "between", 11),
+        ('None <= count <= "z"', "between", 11),
+        ('"z" <= count <= None', "between", 11),
         # Before: an enum, a shape, `Bytes` or `Json` operand was not
         # checked, and PostgreSQL rejected `"status" = 1` (operator does not
         # exist: status = integer). An enum compares with its own enum and
@@ -1304,7 +1310,7 @@ COMPARISON_WHERE_LINE = COMPARISON_SOURCE.count("\n") + 1
         ("status == phase", "==", 11),
         ('status == "done"', "==", 11),
         ("status == name", "==", 11),
-        ('status between "active" and 1', "between", 11),
+        ('"active" <= status <= 1', "between", 11),
         ("home == 1", "==", 11),
         ('home == "x"', "==", 11),
         ("blob == 1", "==", 11),
@@ -1352,33 +1358,33 @@ def test_comparison_operands_of_different_families_report_s2105(
 
 
 NULL_LET_SOURCE = (
-    COMPARISON_SOURCE + "    let:\n        nothing = null\n        alias = nothing\n"
+    COMPARISON_SOURCE + "\n    let nothing = None\n    let alias = nothing\n"
 )
 
 
 @pytest.mark.parametrize(
     ("predicate", "operator", "remedy", "column"),
     [
-        ("email == null", "==", "is null", 11),
-        ("null == email", "==", "is null", 11),
-        ("email != null", "!=", "is not null", 11),
-        ("count < null", "<", None, 11),
-        ("count <= null", "<=", None, 11),
-        ("null > count", ">", None, 11),
-        ("count >= null", ">=", None, 11),
-        ("email == nothing", "==", "is null", 11),
-        ("email != alias", "!=", "is not null", 11),
+        ("email == None", "==", "is None", 11),
+        ("None == email", "==", "is None", 11),
+        ("email != None", "!=", "is not None", 11),
+        ("count < None", "<", None, 11),
+        ("count <= None", "<=", None, 11),
+        ("None > count", ">", None, 11),
+        ("count >= None", ">=", None, 11),
+        ("email == nothing", "==", "is None", 11),
+        ("email != alias", "!=", "is not None", 11),
         # Before: null against null also suggested `is null`/`is not null`,
         # although `null is null` is TRUE.
-        ("null == null", "==", None, 11),
+        ("None == None", "==", None, 11),
         ("nothing != alias", "!=", None, 11),
-        ("alias == null", "==", None, 11),
-        ('name == "x" and not (email == null)', "==", "is null", 32),
-        ("null between 1 and count", "between", None, 11),
-        ("count between nothing and alias", "between", None, 11),
-        ("count in (null, nothing)", "in", "is null", 11),
-        ("count not in (null)", "not in", "is not null", 11),
-        ("null in (1, count)", "in", None, 11),
+        ("alias == None", "==", None, 11),
+        ('name == "x" and not (email == None)', "==", "is None", 32),
+        ("1 <= None <= count", "between", None, 11),
+        ("nothing <= count <= alias", "between", None, 11),
+        ("count in (None, nothing)", "in", "is None", 11),
+        ("count not in (None)", "not in", "is not None", 11),
+        ("None in (1, count)", "in", None, 11),
         ("nothing not in (1)", "not in", None, 11),
     ],
 )
@@ -1416,11 +1422,11 @@ def test_comparison_with_null_is_refused_as_never_true(
 @pytest.mark.parametrize(
     "predicate",
     [
-        "count between null and 10",
-        "count between 1 and nothing",
-        "count in (1, null)",
+        "None <= count <= 10",
+        "1 <= count <= nothing",
+        "count in (1, None)",
         "count not in (1, nothing)",
-        "null in ()",
+        "None in ()",
     ],
 )
 def test_null_operands_that_can_be_false_or_match_are_not_refused(
@@ -1443,7 +1449,7 @@ def test_null_operands_that_can_be_false_or_match_are_not_refused(
         "amount >= count",
         'name == "x"',
         "name < email",
-        "active == false",
+        "active == False",
         "born <= created_at",
         'created_at >= "2024-01-01"',
         'token == "00000000-0000-0000-0000-000000000000"',
@@ -1458,14 +1464,14 @@ def test_null_operands_that_can_be_false_or_match_are_not_refused(
         'status == "active"',
         "status == stage",
         'stage != "active"',
-        'status between "active" and "active"',
+        '"active" <= status <= "active"',
         "age > 18",
         "email == name",
-        'coalesce(email, null) == "x"',
-        'email is null or email == "x"',
-        "count between 1 and 10",
-        "count between null and 10",
-        "count between 1 and null",
+        'coalesce(email, None) == "x"',
+        'email is None or email == "x"',
+        "1 <= count <= 10",
+        "None <= count <= 10",
+        "1 <= count <= None",
     ],
 )
 def test_comparable_or_unchecked_operands_keep_bool(predicate: str) -> None:
@@ -1483,8 +1489,8 @@ def test_comparable_or_unchecked_operands_keep_bool(predicate: str) -> None:
 @pytest.mark.parametrize(
     "predicate",
     [
-        "count if active else count between null and 1",
-        "count if active else count between 0 and null",
+        "count if active else None <= count <= 1",
+        "count if active else 0 <= count <= None",
     ],
 )
 def test_a_between_with_one_null_bound_is_a_bool_where_it_is_used(
@@ -1511,7 +1517,7 @@ def test_a_between_with_one_null_bound_is_a_bool_where_it_is_used(
 
 @pytest.mark.parametrize(
     "predicate",
-    ["email is null", "token is not null", "created_at is null", "payload is not null"],
+    ["email is None", "token is not None", "created_at is None", "payload is not None"],
 )
 def test_null_tests_have_no_operand_pair_to_check(predicate: str) -> None:
     result = analyze(
@@ -1527,16 +1533,15 @@ def test_null_tests_have_no_operand_pair_to_check(predicate: str) -> None:
 
 # Single-file row fields keep alias names; `years` is a two-step alias chain.
 ALIAS_COMPARISON_SOURCE = (
-    "type Age = Int not null\n"
-    "type Years = Age not null\n"
-    "type Tag = Text not null\n"
+    "type Age = Int\n"
+    "type Years = Age\n"
+    "type Tag = Text\n"
     "shape Person:\n"
-    "    id: Int not null\n"
-    "    age: Age not null\n"
-    "    years: Years not null\n"
-    "    tag: Tag not null\n"
-    "{check}"
-    'source people: Person is postgres.table("people")\n'
+    "    id: Int\n"
+    "    age: Age\n"
+    "    years: Years\n"
+    "    tag: Tag\n"
+    '{check}source people: Person = postgres.table("people")\n'
     "table projected:\n"
     "    from people\n"
     "{clauses}"
@@ -1550,13 +1555,13 @@ ALIAS_COMPARISON_SOURCE = (
         ("", '    select:\n        id\n        flag = age == "x"\n', "==", 14, 16),
         (
             "",
-            "    let:\n        bad = tag > 5\n    where bad\n    select:\n        id\n",
+            "\n    let bad = tag > 5\n    where bad\n    select:\n        id\n",
             ">",
             13,
             15,
         ),
         (
-            '    check named:\n        age == "x"\n',
+            '    named = check(\n        age == "x")\n',
             "    select:\n        id\n",
             "==",
             10,
@@ -1571,7 +1576,7 @@ ALIAS_COMPARISON_SOURCE = (
         ),
         (
             "",
-            '    where years between "a" and "b"\n    select:\n        id\n',
+            '    where "a" <= years <= "b"\n    select:\n        id\n',
             "between",
             12,
             11,
@@ -1619,11 +1624,11 @@ def test_alias_operands_are_compared_as_their_expansion(
         ("", "    select:\n        id\n        flag = years == 18\n"),
         (
             "",
-            '    let:\n        ok = tag < "m"\n    where ok\n    select:\n        id\n',
+            '\n    let ok = tag < "m"\n    where ok\n    select:\n        id\n',
         ),
-        ("    check named:\n        age >= 18\n", "    select:\n        id\n"),
+        ("    named = check(\n        age >= 18)\n", "    select:\n        id\n"),
         ("", "    select:\n        id\n    order by:\n        years >= 18\n"),
-        ("", "    where years between age and 10\n    select:\n        id\n"),
+        ("", "    where age <= years <= 10\n    select:\n        id\n"),
     ],
 )
 def test_alias_operands_of_one_family_keep_bool(check: str, clauses: str) -> None:
@@ -1646,7 +1651,7 @@ ALIAS_SATISFYING_CLAUSES = (
     "    select:\n"
     "        age\n"
     "        n = count()\n"
-    "    satisfying:\n"
+    "    having:\n"
     "        {predicate}\n"
 )
 
@@ -1736,7 +1741,7 @@ def test_deep_binary_expression_returns_semantic_recursion_diagnostic(
     # The whole file: line 1 from its first character other than a space, or
     # from just after its last one when it holds only spaces and a comment.
     expression = " + ".join(["1"] * 1200)
-    script = _parse(f"{line_one}derive total() -> Int not null:\n    {expression}\n")
+    script = _parse(f"{line_one}derive total() -> Int:\n    return {expression}\n")
 
     result = analyze(script)
 
@@ -1754,14 +1759,14 @@ def test_deep_binary_expression_returns_semantic_recursion_diagnostic(
         location.column,
         location.end_line,
         location.end_column,
-    ) == (1, column, 2 + line_one.count("\n"), 4802)
+    ) == (1, column, 2 + line_one.count("\n"), 4809)
 
 
 _NESTING_SOURCES = (
     "shape A:\n"
-    "    id: Int not null\n"
-    'source xs: A is postgres.table("xs")\n'
-    'source ys: A is postgres.table("ys")\n'
+    "    id: Int\n"
+    'source xs: A = postgres.table("xs")\n'
+    'source ys: A = postgres.table("ys")\n'
 )
 _S2006_MESSAGE = "Semantic analysis recursion limit exceeded while processing source."
 
@@ -1780,21 +1785,21 @@ def _nested_source(position: str, levels: int) -> str:
         return f"{_NESTING_SOURCES}table q:\n    from xs\n    select:\n        x = {terms}\n"
     if position == "relationship":
         conjuncts = " and ".join(["a.id == b.id"] * (levels - 1))
-        return (
-            f"{_NESTING_SOURCES}relationship r:\n    endpoint a: xs\n"
-            f"    endpoint b: ys\n    on {conjuncts}\n"
-        )
+        return f"{_NESTING_SOURCES}relationship r(a: A, b: A):\n    {conjuncts}\n"
     if position == "frame":
         # The window use is one level and its frame offset the rest.
         offset = " + ".join(["1"] * (levels - 1))
         return (
-            f"{_NESTING_SOURCES}query q:\n    from xs\n    select:\n"
-            "        r = last_value(id) window:\n"
-            "            order by:\n                id\n"
-            f"            range between {offset} preceding and current row\n"
+            f"{_NESTING_SOURCES}query q:\n"
+            "    from xs\n"
+            "    select:\n"
+            "        r = last_value(id) window(\n"
+            "            order by\n"
+            "                id\n"
+            f"            range between {offset} preceding and current row)\n"
         )
     conjuncts = " and ".join(["self > 0"] * (levels - 1))
-    return f"type Positive = Int not null:\n    ensure {conjuncts}\n"
+    return f"type Positive = Int:\n    ensure {conjuncts}\n"
 
 
 @pytest.mark.parametrize(
@@ -1918,7 +1923,7 @@ def test_expression_typing_does_not_mutate_input_ast() -> None:
     script = _parse(
         SOURCE + "table projected:\n"
         "    from users\n"
-        "    where email is not null\n"
+        "    where email is not None\n"
         "    select:\n"
         "        email\n"
     )
@@ -1934,7 +1939,7 @@ def test_expression_semantic_results_do_not_expose_antlr_nodes() -> None:
         _parse(
             SOURCE + "table projected:\n"
             "    from users\n"
-            "    where email is null\n"
+            "    where email is None\n"
             "    select:\n"
             "        email\n"
         )
@@ -2089,18 +2094,16 @@ def test_join_tail_expressions_use_unique_fields_and_outer_nullability(
     result = analyze(
         _parse(
             Q1_SOURCE + "shape Tag:\n"
-            "    rank: Int not null\n"
-            "    label: Text not null\n"
-            'source tags: Tag is postgres.table("tags")\n'
-            "def echo(x: Text nullable) -> Text nullable: return x\n"
+            "    rank: Int\n"
+            "    label: Text\n"
+            'source tags: Tag = postgres.table("tags")\n'
+            "def echo(x: Text | None) -> Text | None: return x\n"
             "table projected:\n"
             "    from users\n"
-            "    left join tags as tag:\n"
-            "        from users\n"
-            "        on users.count == tag.rank\n"
-            "    let:\n"
-            "        copied = tag.label\n"
-            "    where label is null\n"
+            "    let tag = tags\n"
+            "    left join tag on users.count == tag.rank\n"
+            "    let copied = tag.label\n"
+            "    where label is None\n"
             "    select:\n"
             "        user_count = users.count\n"
             "        tag_rank = tag.rank\n"
@@ -2168,7 +2171,31 @@ def test_relation_expression_typing_uses_the_supplied_joined_input_row() -> None
         joined_inputs={table: joined},
     )
 
-    assert diagnostics == []
+    # The bare ORDER BY key finds the joined row's peer.extra beside the
+    # SELECT output `extra`, so it names neither (S2); it is typed as the field.
+    assert [
+        (
+            item.code,
+            item.severity,
+            item.message,
+            item.location.line,
+            item.location.column,
+            item.location.end_line,
+            item.location.end_column,
+        )
+        for item in diagnostics
+    ] == [
+        (
+            "PIE-S2102",
+            Severity.ERROR,
+            "Ambiguous field: extra is both the input field peer.extra and a "
+            "SELECT output; write peer.extra, or give the output another name",
+            14,
+            9,
+            14,
+            14,
+        )
+    ]
     assert windows == named_windows == {}
     assert [
         (
@@ -2184,3 +2211,109 @@ def test_relation_expression_typing_uses_the_supplied_joined_input_row() -> None
     assert table.order_by_clause is not None
     order_type = value_types[table.order_by_clause.items[0].expression]
     assert order_type.nullability is EffectiveNullability.NULLABLE
+
+
+@pytest.mark.parametrize(
+    ("declared", "nullability"),
+    [
+        ("Int", EffectiveNullability.NON_NULL),
+        ("Int | None", EffectiveNullability.NULLABLE),
+        ("Count", EffectiveNullability.NON_NULL),
+    ],
+)
+def test_float_constructor_uses_existing_cast_type_and_argument_identity(
+    declared: str, nullability: EffectiveNullability
+) -> None:
+    parsed = _parse(
+        "type Count = Int\n"
+        f"shape Row:\n    count: {declared}\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query projected:\n    from rows\n    select:\n"
+        "        value = Float(count)\n"
+    )
+    authored_relation = parsed.definitions[-1]
+    assert type(authored_relation) is QueryDef
+    authored = authored_relation.select_items[0].expression
+    assert type(authored) is CallExpr
+    result = analyze(parsed)
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.location.line)
+        for diagnostic in result.diagnostics
+    ] == []
+    assert result.script is not None
+    converted_relation = result.script.definitions[-1]
+    assert type(converted_relation) is QueryDef
+    converted = converted_relation.select_items[0].expression
+    assert type(converted) is CastExpr
+    assert converted.span == authored.span
+    assert converted.value is authored.arguments[0]
+    assert converted.target.span == authored.callee.span
+    assert converted.target in result.model.type_resolutions
+    value_type = result.model.expression_value_types[converted]
+    assert value_type.resolved_type.kind is TypeKind.BUILTIN
+    assert value_type.resolved_type.name == "Float"
+    assert value_type.nullability is nullability
+
+
+@pytest.mark.parametrize("operand", ['"text"', "True", "1.5", "None", "Float(1)"])
+def test_float_constructor_retains_existing_conversion_boundary(operand: str) -> None:
+    result = analyze(
+        _parse(
+            "shape Row:\n    id: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
+            "query projected:\n    from rows\n    select:\n"
+            f"        value = Float({operand})\n"
+        )
+    )
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2105"]
+    assert "write Float(expression)" in result.diagnostics[0].message
+    assert result.diagnostics[0].location.column == 17
+
+
+def test_float_constructor_unknown_row_and_erroneous_argument_keep_cast_rules() -> None:
+    unknown = analyze(
+        _parse(
+            'source rows = postgres.table("rows")\n'
+            "query projected:\n    from rows\n    select:\n"
+            "        value = Float(count)\n"
+        )
+    )
+    assert [
+        (diagnostic.code, diagnostic.severity) for diagnostic in unknown.diagnostics
+    ] == [("PIE-S2303", Severity.WARNING)]
+    assert unknown.script is not None
+    relation = unknown.script.definitions[-1]
+    assert type(relation) is QueryDef
+    expression = relation.select_items[0].expression
+    assert type(expression) is CastExpr
+    assert (
+        unknown.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
+    )
+    erroneous = analyze(
+        _parse(
+            "shape Row:\n    count: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
+            "query projected:\n    from rows\n    select:\n"
+            "        value = Float(missing)\n"
+        )
+    )
+    assert [diagnostic.code for diagnostic in erroneous.diagnostics] == ["PIE-S2102"]
+
+
+def test_float_constructor_arity_errors_are_known_and_source_ordered() -> None:
+    result = analyze(
+        _parse(
+            'source rows = postgres.table("rows")\n'
+            "query projected:\n    from rows\n    select:\n"
+            "        first = Float()\n"
+            "        second = Float(Float(), 2)\n"
+        )
+    )
+    assert [
+        (diagnostic.code, diagnostic.message, diagnostic.location.line)
+        for diagnostic in result.diagnostics
+    ] == [
+        ("PIE-S2104", "Invalid arguments for constructor Float: expected 1, got 0", 5),
+        ("PIE-S2104", "Invalid arguments for constructor Float: expected 1, got 2", 6),
+        ("PIE-S2104", "Invalid arguments for constructor Float: expected 1, got 0", 6),
+    ]

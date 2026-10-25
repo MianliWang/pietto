@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pietto._metadata.builder import _field_leaves
 from pietto.ir import (
+    AnyFieldIR,
+    BinaryIR,
+    ComparisonIR,
+    ExistsIR,
     CastIR,
     ConditionalIR,
     ExpressionIR,
@@ -77,3 +81,63 @@ def test_metadata_reader_retains_new_expression_children_in_source_order() -> No
     assert _leaf_names(conditional) == ["when_true", "condition", "when_false"]
     assert _leaf_names(membership) == ["value", "first", "second"]
     assert _leaf_names(cast) == ["cast_value"]
+
+
+def test_metadata_reader_retains_nested_any_field_order_and_repetition() -> None:
+    bool_type, int_type = _type("Bool"), _type("Int")
+    local = AnyFieldIR(
+        span=_SPAN,
+        value_type=int_type,
+        binding="internal",
+        source_binding="buyer",
+        name="id",
+        relation=_OWNER,
+    )
+    outer = _field("order_id", int_type)
+    comparison = ComparisonIR(
+        span=_SPAN, value_type=bool_type, left=local, operator="==", right=outer
+    )
+    inner = ExistsIR(
+        span=_SPAN,
+        value_type=bool_type,
+        target=_OWNER,
+        binding="internal",
+        connector=None,
+        authored_span=_SPAN,
+        authored_occurrence=0,
+        current_occurrence=0,
+        authored_context_span=_SPAN,
+        context_span=_SPAN,
+        owner=_OWNER,
+        authored_join_count=0,
+        join_prefix_count=0,
+        predicate=comparison,
+        captures=(outer,),
+    )
+    expression = BinaryIR(
+        span=_SPAN, value_type=bool_type, left=inner, operator="or", right=inner
+    )
+    nested = ExistsIR(
+        span=_SPAN,
+        value_type=bool_type,
+        target=_OWNER,
+        binding="outer_internal",
+        connector=None,
+        authored_span=_SPAN,
+        authored_occurrence=0,
+        current_occurrence=0,
+        authored_context_span=_SPAN,
+        context_span=_SPAN,
+        owner=_OWNER,
+        authored_join_count=0,
+        join_prefix_count=0,
+        predicate=expression,
+        captures=(outer, outer),
+    )
+    leaves = _field_leaves(nested)
+    assert [(leaf.relation, leaf.field, leaf.qualifier) for leaf in leaves] == [
+        ("records", "id", ("buyer",)),
+        ("records", "order_id", ()),
+        ("records", "id", ("buyer",)),
+        ("records", "order_id", ()),
+    ]

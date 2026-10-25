@@ -418,7 +418,7 @@ def test_input_and_representation_boundary_matrix(built, change, expected):
 
 def test_unused_descriptions_bind_but_do_not_require_target_applicability(tmp_path):
     item = probe.fixture("postgres")
-    source = item["source"] + '\nsource unused: Row is mysql.table("unrelated")\n'
+    source = item["source"] + '\nsource unused: Row = mysql.table("unrelated")\n'
     document = json.loads(item["contract"])
     unused = deepcopy(document["sources"][0])
     unused["selector"]["name"] = "unused"
@@ -569,16 +569,16 @@ def test_resource_hard_limits_cannot_be_raised(built):
 def test_a_let_chain_past_the_structure_limit_is_refused_before_realization(
     tmp_path,
 ):
-    """Each `let:` binding is a stage that carries every earlier column, so a
-    long chain grows the plan quadratically; preparation refuses a plan whose
-    stage columns already pass the generated-node limit (two nodes each) with
-    PIE-B1007 `generated_structure_limit`, the limit realization applies,
+    """Each scalar `let` binding is a stage that carries every earlier column,
+    so a long chain grows the plan quadratically; preparation refuses a plan
+    whose stage columns already pass the generated-node limit (two nodes each)
+    with PIE-B1007 `generated_structure_limit`, the limit realization applies,
     before the plan is assessed and realized. Before, it was refused only
     after both, at a cost growing with the square of the chain."""
-    lets = "".join(f"        l{i} = coalesce(l{i - 1}, 1)\n" for i in range(1, 45))
+    lets = "".join(f"    let l{i} = coalesce(l{i - 1}, 1)\n" for i in range(1, 45))
     item = probe.join_witness(
         "postgres",
-        "query result:\n    from lhs\n    let:\n        l0 = id\n"
+        "query result:\n    from lhs\n    let l0 = id\n"
         f"{lets}    select:\n        id\n        w = l44\n",
     )
     document = json.loads(item["contract"])
@@ -597,10 +597,10 @@ def test_a_let_chain_past_the_structure_limit_is_refused_before_realization(
     assert [(b["code"], b["subject"]["detail"]) for b in public["blockers"]] == [
         ("PIE-B1007", "generated_structure_limit")
     ]
-    lets = "".join(f"        l{i} = coalesce(l{i - 1}, 1)\n" for i in range(1, 30))
+    lets = "".join(f"    let l{i} = coalesce(l{i - 1}, 1)\n" for i in range(1, 30))
     item = probe.join_witness(
         "postgres",
-        "query result:\n    from lhs\n    let:\n        l0 = id\n"
+        "query result:\n    from lhs\n    let l0 = id\n"
         f"{lets}    select:\n        id\n        w = l29\n",
     )
     _, shorter = probe.build_case(
@@ -615,7 +615,7 @@ def test_a_let_chain_past_the_structure_limit_is_refused_before_realization(
 @pytest.mark.parametrize("mode", ("cross_source", "unused_conflict"))
 def test_all_premise_scopes_are_bound_and_coherent(tmp_path, mode):
     item = probe.fixture("postgres")
-    source = item["source"] + '\nsource unused: Row is mysql.table("unrelated")\n'
+    source = item["source"] + '\nsource unused: Row = mysql.table("unrelated")\n'
     document = json.loads(item["contract"])
     unused = deepcopy(document["sources"][0])
     unused["selector"]["name"] = "unused"
@@ -823,8 +823,8 @@ def test_multiple_admitted_between_projections_remain_distinct(tmp_path):
     source = item["source"].replace(
         "        ratio\n",
         "        ratio\n"
-        "        first = id between 0 and 10\n"
-        "        second = id between 1 and 20\n",
+        "        first = 0 <= id <= 10\n"
+        "        second = 1 <= id <= 20\n",
     )
     checked, result = probe.build_case(tmp_path, source, item["contract"])
     assert checked.verified and result.status == "VERIFIED"

@@ -29,7 +29,7 @@ def test_minimal_table_parses_from_where_and_ordered_select_items() -> None:
     result = parse_source(
         "table active_users:\n"
         "    from users\n"
-        "    where deleted_at is null\n"
+        "    where deleted_at is None\n"
         "    select:\n"
         "        id\n"
         "        email\n"
@@ -100,7 +100,7 @@ def test_table_allows_blank_lines_comments_and_eof() -> None:
         "    from users\n"
         "\n"
         "    # Optional row filter.\n"
-        "    where deleted_at is null\n"
+        "    where deleted_at is None\n"
         "\n"
         "    select:\n"
         "\n"
@@ -122,7 +122,7 @@ def test_table_allows_blank_lines_comments_and_eof() -> None:
 def test_table_preserves_top_level_definition_order() -> None:
     result = parse_source(
         "type UserId = UUID\n"
-        'source users is postgres.table("public.users")\n'
+        'source users = postgres.table("public.users")\n'
         "table active_users:\n"
         "    from users\n"
         "    select:\n"
@@ -145,7 +145,7 @@ def test_table_keywords_remain_available_in_dotted_expressions() -> None:
     result = parse_source(
         "table keyword_calls:\n"
         "    from users\n"
-        "    where row.where is not null\n"
+        "    where row.where is not None\n"
         "    select:\n"
         "        catalog.table(row.from)\n"
         "        selected = row.select\n"
@@ -171,7 +171,7 @@ def test_table_spans_are_one_based_half_open() -> None:
     result = parse_source(
         "table active_users:\n"
         "    from users\n"
-        "    where deleted_at is null\n"
+        "    where deleted_at is None\n"
         "    select:\n"
         "        id\n"
         "        email_norm = lower(trim(email))\n",
@@ -256,7 +256,7 @@ def test_table_ast_does_not_expose_antlr_nodes() -> None:
     result = parse_source(
         "table active_users:\n"
         "    from users\n"
-        "    where deleted_at is null\n"
+        "    where deleted_at is None\n"
         "    select:\n"
         "        id\n"
         "        email_norm = lower(trim(email))\n"
@@ -279,7 +279,7 @@ def test_table_ast_does_not_expose_antlr_nodes() -> None:
         "table active_users:\n    from users\n    where\n    select:\n        id\n",
         (
             "table active_users:\n"
-            "    where deleted_at is null\n"
+            "    where deleted_at is None\n"
             "    from users\n"
             "    select:\n"
             "        id\n"
@@ -289,7 +289,7 @@ def test_table_ast_does_not_expose_antlr_nodes() -> None:
             "    from users\n"
             "    select:\n"
             "        id\n"
-            "    where deleted_at is null\n"
+            "    where deleted_at is None\n"
         ),
         ("table active_users:\n    from users\n    select:\n        alias =\n"),
     ],

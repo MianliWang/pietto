@@ -8,11 +8,13 @@ owners; project checks live with the project owners.
 from __future__ import annotations
 
 import functools
+import json
 import sys
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import fields, is_dataclass
+from dataclasses import fields, is_dataclass, replace
+from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
@@ -40,16 +42,16 @@ from pietto.semantic.inline_functions import inline_functions
 
 SHAPES = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    n: Int nullable\n"
-    "    text: Text not null\n"
-    "    note: Text nullable\n"
-    "    amount: Decimal(9, 2) not null\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    n: Int | None\n"
+    "    text: Text\n"
+    "    note: Text | None\n"
+    "    amount: Decimal(9, 2)\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 DEFS = (
-    "def pos(x: Int not null) -> Bool nullable: return x > 0\n"
-    "def up(t: Text not null) -> Text not null: return upper(t)\n"
+    "def pos(x: Int) -> Bool | None: return x > 0\n"
+    "def up(t: Text) -> Text: return upper(t)\n"
 )
 # The first line of a relation written after SHAPES and DEFS.
 BODY_LINE = 10
@@ -74,22 +76,21 @@ def _errors(source: str) -> list[tuple[str, int, int, str]]:
 
 DEFINITION_ERRORS = {
     "direct_recursion": (
-        "def f(x: Int not null) -> Int nullable: return f(x) + 1\n",
+        "def f(x: Int) -> Int | None: return f(x) + 1\n",
         [("PIE-S2396", 1, 1, "Recursive def calls are not available: f -> f")],
     ),
     "mutual_recursion_one_error_per_group": (
-        "def f(x: Int not null) -> Int nullable: return g(x)\n"
-        "def g(x: Int not null) -> Int nullable: return h(x) + f(x)\n"
-        "def h(x: Int not null) -> Int nullable: return x\n"
-        "def c(x: Int not null) -> Int nullable: return c(x)\n",
+        "def f(x: Int) -> Int | None: return g(x)\n"
+        "def g(x: Int) -> Int | None: return h(x) + f(x)\n"
+        "def h(x: Int) -> Int | None: return x\n"
+        "def c(x: Int) -> Int | None: return c(x)\n",
         [
             ("PIE-S2396", 1, 1, "Recursive def calls are not available: f -> g -> f"),
             ("PIE-S2396", 4, 1, "Recursive def calls are not available: c -> c"),
         ],
     ),
     "row_typed_parameter": (
-        "shape Row:\n    id: Int not null\n"
-        "def f(r: Row not null, x: Int not null) -> Int not null: return x\n",
+        "shape Row:\n    id: Int\ndef f(r: Row, x: Int) -> Int: return x\n",
         [
             (
                 "PIE-S2397",
@@ -108,86 +109,84 @@ DEFINITION_ERRORS = {
         ],
     ),
     "row_typed_result": (
-        "shape Row:\n    id: Int not null\n"
-        "def f(x: Int not null) -> Row not null: return x\n",
+        "shape Row:\n    id: Int\ndef f(x: Int) -> Row: return x\n",
         [
             (
                 "PIE-S2397",
                 3,
-                27,
+                18,
                 "Def f result has row type Row; row-typed def "
                 "parameters and results are not available yet",
             )
         ],
     ),
     "enum_any_and_type_arguments": (
-        "type Percent = Int not null\nenum Status: a, b\n"
-        "def f(p: Percent not null, s: Status not null, a: Any not null, "
-        "d: Decimal(9, 2) not null) -> Bool not null: "
-        "return p is null and s is null and a is null and d is null\n",
+        "type Percent = Int\n"
+        "enum Status: a, b\n"
+        "def f(p: Percent, s: Status, a: Any, d: Decimal(9, 2)) -> Bool: return p is None and s is None and a is None and d is None\n",
         [
             (
                 "PIE-S2397",
                 3,
-                31,
+                22,
                 f"Def f parameter s has type Status; a def "
                 f"parameter or result type is exactly {SCALARS}",
             ),
             (
                 "PIE-S2397",
                 3,
-                51,
+                33,
                 f"Def f parameter a has type Any; a def "
                 f"parameter or result type is exactly {SCALARS}",
             ),
             (
                 "PIE-S2397",
                 3,
-                68,
+                41,
                 f"Def f parameter d has type Decimal(...); a def "
                 f"parameter or result type is exactly {SCALARS}",
             ),
         ],
     ),
     "unused_parameter": (
-        "def f(a: Int not null, b: Int not null) -> Int not null: return a\n",
+        "def f(a: Int, b: Int) -> Int: return a\n",
         [
             (
                 "PIE-S2397",
                 1,
-                24,
+                15,
                 "Def f parameter b is not used in its body; "
                 "every parameter must be used",
             )
         ],
     ),
     "aggregate_and_qualified_name": (
-        "def f(a: Int not null) -> Int nullable: return sum(a) + rows.id\n",
+        "def f(a: Int) -> Int | None: return sum(a) + rows.id\n",
         [
             (
                 "PIE-S2397",
                 1,
-                48,
+                37,
                 "Def f body uses the aggregate sum; a def body "
                 "reads only its parameters and calls scalar functions",
             ),
             (
                 "PIE-S2397",
                 1,
-                57,
+                46,
                 "Def f body uses the qualified name rows.id; a "
                 "def body reads only its parameters and calls scalar functions",
             ),
         ],
     ),
     "free_name": (
-        "def f(a: Int not null) -> Bool nullable: return id > a\n",
-        [("PIE-S2102", 1, 49, "Unknown field: id")],
+        "def f(a: Int) -> Bool | None: return id > a\n",
+        [("PIE-S2102", 1, 38, "Unknown field: id")],
     ),
     "builtin_aggregate_and_window_names": (
-        "def lower(a: Text not null) -> Text not null: return a\n"
-        "def count(a: Int not null) -> Int not null: return a\n"
-        "def rank(a: Int not null) -> Int not null: return a\n",
+        "def lower(a: Text) -> Text: return a\n"
+        "def count(a: Int) -> Int: return a\n"
+        "def rank(a: Int) -> Int: return a\n",
         [
             (
                 "PIE-S2398",
@@ -200,36 +199,37 @@ DEFINITION_ERRORS = {
         ],
     ),
     "callable_namespace_duplicates": (
-        "derive d(a: Int not null) -> Int not null:\n    a\n"
-        "def d(a: Int not null) -> Int not null: return a\n"
-        "def f(a: Int not null, a: Int not null) -> Int nullable: return a + a\n"
-        "def f(a: Int not null) -> Int not null: return a\n",
+        "derive d(a: Int) -> Int:\n"
+        "    return a\n"
+        "def d(a: Int) -> Int: return a\n"
+        "def f(a: Int, a: Int) -> Int | None: return a + a\n"
+        "def f(a: Int) -> Int: return a\n",
         [
             ("PIE-S2001", 3, 1, "Duplicate symbol name in callable namespace: d"),
-            ("PIE-S2001", 4, 24, "Duplicate parameter name in def f: a"),
+            ("PIE-S2001", 4, 15, "Duplicate parameter name in def f: a"),
             ("PIE-S2001", 5, 1, "Duplicate symbol name in callable namespace: f"),
         ],
     ),
     "result_type": (
-        "def f(a: Int not null) -> Text not null: return a\n",
+        "def f(a: Int) -> Text: return a\n",
         [
             (
                 "PIE-S2402",
                 1,
-                49,
+                31,
                 "Def f body type Int does not match declared return type Text",
             )
         ],
     ),
     "result_nullability_is_proven": (
-        "def f(a: Text nullable) -> Text not null: return lower(a)\n"
-        "def g(a: Int not null) -> Bool not null: return a > 1\n"
-        'def h(a: Text nullable) -> Text not null: return coalesce(a, "")\n',
+        "def f(a: Text | None) -> Text: return lower(a)\n"
+        "def g(a: Int) -> Bool: return a > 1\n"
+        'def h(a: Text | None) -> Text: return coalesce(a, "")\n',
         [
             (
                 "PIE-S2402",
                 1,
-                50,
+                39,
                 "Def f body may be null, but its declared return type is not null"
                 + NOT_PROVEN,
             )
@@ -238,40 +238,41 @@ DEFINITION_ERRORS = {
     # A body of unknown nullability, such as an `or`, is not proven non-null;
     # a call of a def is read as its expansion (`g(a)` is `a > 1`).
     "result_nullability_unknown_is_not_proven": (
-        "def f(a: Bool not null, b: Bool not null) -> Bool not null: return a or b\n"
-        "def g(a: Int not null) -> Bool nullable: return a > 1\n"
-        "def h(a: Int not null) -> Bool not null: return g(a)\n",
+        "def f(a: Bool, b: Bool) -> Bool: return a or b\n"
+        "def g(a: Int) -> Bool | None: return a > 1\n"
+        "def h(a: Int) -> Bool: return g(a)\n",
         [
             (
                 "PIE-S2402",
                 1,
-                68,
+                41,
                 "Def f body is not proven non-null, but its declared return type "
-                "is not null; declare the result `nullable`" + NOT_PROVEN,
+                "is not null; add `| None` to the result type" + NOT_PROVEN,
             ),
         ],
     ),
     "calls_inside_a_body": (
-        "def g(t: Text not null) -> Text not null: return upper(t)\n"
-        "def f(a: Text nullable) -> Text nullable: return g(a)\n"
-        "def h(a: Text not null) -> Text not null: return g(a, a)\n"
-        "def k(a: Text not null) -> Text not null: return frob(a)\n"
-        "derive d(a: Int not null) -> Int not null:\n    a\n"
-        "def m(a: Int not null) -> Int not null: return d(a)\n",
+        "def g(t: Text) -> Text: return upper(t)\n"
+        "def f(a: Text | None) -> Text | None: return g(a)\n"
+        "def h(a: Text) -> Text: return g(a, a)\n"
+        "def k(a: Text) -> Text: return frob(a)\n"
+        "derive d(a: Int) -> Int:\n"
+        "    return a\n"
+        "def m(a: Int) -> Int: return d(a)\n",
         [
             (
                 "PIE-S2395",
                 2,
-                50,
+                46,
                 "Invalid argument for def g at position 1 (t): "
-                "expected Text not null, got Text nullable",
+                "expected Text, got Text | None",
             ),
-            ("PIE-S2395", 3, 50, "Invalid arguments for def g: expected 1, got 2"),
-            ("PIE-S2103", 4, 50, "Unknown function: frob"),
+            ("PIE-S2395", 3, 32, "Invalid arguments for def g: expected 1, got 2"),
+            ("PIE-S2103", 4, 32, "Unknown function: frob"),
             (
                 "PIE-S2103",
                 7,
-                48,
+                30,
                 "Unknown function: d; d is a derive, which cannot be called; "
                 "write a `def` instead",
             ),
@@ -280,61 +281,30 @@ DEFINITION_ERRORS = {
     # A body is checked at the def, where an error in a call's argument is
     # reported at each use that the expansion makes.
     "an_error_in_a_call_inside_a_body": (
-        "def twice(b: Bool nullable) -> Bool nullable: return b or b\n"
-        "def h(y: Int nullable) -> Bool nullable: return twice(y == null)\n",
+        "def twice(b: Bool | None) -> Bool | None: return b or b\n"
+        "def h(y: Int | None) -> Bool | None: return twice(y == None)\n",
         [
             (
                 "PIE-S2105",
                 2,
-                55,
+                51,
                 "Invalid operands for operator ==: comparison with null is "
-                "never true; write `is null` instead",
+                "never true; write `is None` instead",
             )
         ]
         * 2,
     ),
-    "type_argument_call_before_its_def": (
-        "def f(x: Int not null) -> Float not null: return cast(x as Float(g(1)))\n"
-        "def g(x: Int not null) -> Int not null: return x\n",
-        [("PIE-S2397", 1, 66, "A def call is not available in a type argument: g")],
-    ),
-    "type_argument_call_after_its_def": (
-        "def g(x: Int not null) -> Int not null: return x\n"
-        "def f(x: Int not null) -> Float not null: return cast(x as Float(g(1)))\n",
-        [("PIE-S2397", 2, 66, "A def call is not available in a type argument: g")],
-    ),
-    "recursion_through_a_type_argument": (
-        "def f(x: Int not null) -> Float not null: return cast(x as Float(f(1)))\n",
-        [
-            ("PIE-S2396", 1, 1, "Recursive def calls are not available: f -> f"),
-            ("PIE-S2397", 1, 66, "A def call is not available in a type argument: f"),
-        ],
-    ),
-    "parameter_in_a_type_argument": (
-        "def f(x: Int not null, p: Int not null) -> Decimal not null: "
-        "return cast(x as Decimal(p, 2))\n",
-        [
-            (
-                "PIE-S2105",
-                1,
-                69,
-                "Invalid cast: cast(Int as Decimal(..., 2)) is not supported; "
-                "expected cast(Int as Float), the only supported cast",
-            )
-        ],
-    ),
     "expansion_size": (
-        "def f0(x: Int not null) -> Int nullable: return x + x\n"
+        "def f0(x: Int) -> Int | None: return x + x\n"
         + "".join(
-            f"def f{i}(x: Int not null) -> Int nullable: return "
-            f"f{i - 1}(x) + f{i - 1}(x)\n"
+            (f"def f{i}(x: Int) -> Int | None: return f{i - 1}(x) + f{i - 1}(x)\n")
             for i in range(1, 10)
         ),
         [
             (
                 "PIE-S2399",
                 9,
-                49,
+                38,
                 "The expansion of def f8 has 1023 expression nodes "
                 "nested 10 deep; an expansion, with its arguments, has at most 1000 "
                 "nodes nested at most 64 deep",
@@ -342,16 +312,16 @@ DEFINITION_ERRORS = {
         ],
     ),
     "expansion_depth": (
-        "def f0(x: Int not null) -> Int nullable: return x + 1\n"
+        "def f0(x: Int) -> Int | None: return x + 1\n"
         + "".join(
-            f"def f{i}(x: Int not null) -> Int nullable: return f{i - 1}(x) + 1\n"
+            (f"def f{i}(x: Int) -> Int | None: return f{i - 1}(x) + 1\n")
             for i in range(1, 64)
         ),
         [
             (
                 "PIE-S2399",
                 64,
-                50,
+                39,
                 "The expansion of def f63 has 129 expression nodes "
                 "nested 65 deep; an expansion, with its arguments, has at most 1000 "
                 "nodes nested at most 64 deep",
@@ -376,19 +346,18 @@ def test_a_body_comparison_or_arithmetic_of_non_null_operands_is_non_null() -> N
     `%`, `and` and `or` are not, and an argument fits a call as it does
     outside a body."""
     source = (
-        "def lt(a: Int not null, b: Int not null) -> Bool not null: return a < b\n"
-        "def in_2026(t: Timestamp not null) -> Bool not null:\n"
-        '    return t between "2026-01-01 00:00:00" and "2026-12-31 23:59:59"\n'
-        "def grow(x: Float not null) -> Float not null: return (x + 1.0) * 2.0 - x\n"
-        "def flip(x: Int not null) -> Bool not null: return not lt(x, 1)\n"
-        "def dist(a: Int not null, b: Int not null) -> Int not null: "
-        "return abs(a - b)\n"
-        "def pick(x: Int not null) -> Int not null: return 1 if x > 1 else -(x * 2)\n"
-        "def half(x: Int not null) -> Int not null: return x / 2\n"
-        "def rest(x: Int not null) -> Int not null: return x % 2\n"
-        "def both(x: Int not null) -> Bool not null: return x > 0 and x < 9\n"
-        "def maybe(x: Int nullable) -> Bool not null: return x > 1\n"
-        "def fit(y: Int not null) -> Bool not null: return lt(y + 1, 2)\n"
+        "def lt(a: Int, b: Int) -> Bool: return a < b\n"
+        "def in_2026(t: Timestamp) -> Bool:\n"
+        '    return "2026-01-01 00:00:00" <= t <= "2026-12-31 23:59:59"\n'
+        "def grow(x: Float) -> Float: return (x + 1.0) * 2.0 - x\n"
+        "def flip(x: Int) -> Bool: return not lt(x, 1)\n"
+        "def dist(a: Int, b: Int) -> Int: return abs(a - b)\n"
+        "def pick(x: Int) -> Int: return 1 if x > 1 else -(x * 2)\n"
+        "def half(x: Int) -> Int: return x / 2\n"
+        "def rest(x: Int) -> Int: return x % 2\n"
+        "def both(x: Int) -> Bool: return x > 0 and x < 9\n"
+        "def maybe(x: Int | None) -> Bool: return x > 1\n"
+        "def fit(y: Int) -> Bool: return lt(y + 1, 2)\n"
     )
     assert _errors(source) == [
         (
@@ -396,21 +365,21 @@ def test_a_body_comparison_or_arithmetic_of_non_null_operands_is_non_null() -> N
             line,
             column,
             f"Def {name} body is not proven non-null, but its declared return type "
-            "is not null; declare the result `nullable`" + NOT_PROVEN,
+            "is not null; add `| None` to the result type" + NOT_PROVEN,
         )
         for line, column, name in (
-            (8, 51, "half"),
-            (9, 51, "rest"),
-            (10, 52, "both"),
-            (11, 53, "maybe"),
+            (8, 33, "half"),
+            (9, 33, "rest"),
+            (10, 34, "both"),
+            (11, 42, "maybe"),
         )
     ] + [
         (
             "PIE-S2395",
             12,
-            51,
+            33,
             "Invalid argument for def lt at position 1 (a): "
-            "expected Int not null, got Int of unknown nullability",
+            "expected Int, got Int of unknown nullability",
         )
     ]
 
@@ -418,23 +387,18 @@ def test_a_body_comparison_or_arithmetic_of_non_null_operands_is_non_null() -> N
 def test_a_body_argument_fits_its_parameter_as_it_does_outside_a_body() -> None:
     """Every part of an argument is typed as it is outside a body, also under
     `-`, `not`, `abs` or `nullif`, with each call's own mismatch; an argument
-    that fits counts for a `not null` result as any other value read."""
+    that fits counts for a non-null result as any other value read."""
     source = (
-        "def lt(a: Int not null, b: Int not null) -> Bool not null: return a < b\n"
-        "def g(x: Int not null) -> Int not null: return x\n"
-        "def gb(x: Bool not null) -> Bool not null: return x\n"
-        "def idn(x: Int nullable) -> Int nullable: return x\n"
-        "def neg(a: Int not null, b: Int not null) -> Int not null: "
-        "return g(-(a + b))\n"
-        "def nope(a: Int not null, b: Int not null) -> Bool not null: "
-        "return gb(not (a < b))\n"
-        "def zero(a: Int not null, b: Int not null) -> Int not null: "
-        "return g(nullif(a + b, 0))\n"
-        "def two(a: Int not null, b: Int not null) -> Int not null: "
-        "return g(-(a + b)) + g(a + b)\n"
-        "def near(y: Int not null) -> Bool not null: return lt(abs(y + 1), 2)\n"
-        "def same(a: Int not null, b: Int not null) -> Int not null: "
-        "return idn(-(a + b))\n"
+        "def lt(a: Int, b: Int) -> Bool: return a < b\n"
+        "def g(x: Int) -> Int: return x\n"
+        "def gb(x: Bool) -> Bool: return x\n"
+        "def idn(x: Int | None) -> Int | None: return x\n"
+        "def neg(a: Int, b: Int) -> Int: return g(-(a + b))\n"
+        "def nope(a: Int, b: Int) -> Bool: return gb(not (a < b))\n"
+        "def zero(a: Int, b: Int) -> Int: return g(nullif(a + b, 0))\n"
+        "def two(a: Int, b: Int) -> Int: return g(-(a + b)) + g(a + b)\n"
+        "def near(y: Int) -> Bool: return lt(abs(y + 1), 2)\n"
+        "def same(a: Int, b: Int) -> Int: return idn(-(a + b))\n"
     )
     unknown = "of unknown nullability"
     assert _errors(source) == [
@@ -443,15 +407,15 @@ def test_a_body_argument_fits_its_parameter_as_it_does_outside_a_body() -> None:
             line,
             column,
             f"Invalid argument for def {name} at position 1 ({parameter}): "
-            f"expected {expected} not null, got {expected} {unknown}",
+            f"expected {expected}, got {expected} {unknown}",
         )
         for line, column, name, parameter, expected in (
-            (5, 67, "g", "x", "Int"),
-            (6, 69, "gb", "x", "Bool"),
-            (7, 68, "g", "x", "Int"),
-            (8, 67, "g", "x", "Int"),
-            (8, 81, "g", "x", "Int"),
-            (9, 52, "lt", "a", "Int"),
+            (5, 40, "g", "x", "Int"),
+            (6, 42, "gb", "x", "Bool"),
+            (7, 41, "g", "x", "Int"),
+            (8, 40, "g", "x", "Int"),
+            (8, 54, "g", "x", "Int"),
+            (9, 34, "lt", "a", "Int"),
         )
     ]
 
@@ -465,7 +429,7 @@ CALL_ERRORS = {
                 BODY_LINE + 2,
                 11,
                 "Invalid argument for def pos at "
-                "position 1 (x): expected Int not null, got Int nullable",
+                "position 1 (x): expected Int, got Int | None",
             )
         ],
     ),
@@ -478,75 +442,93 @@ CALL_ERRORS = {
                 BODY_LINE + 2,
                 11,
                 "Invalid argument for def pos at "
-                "position 1 (x): expected Int not null, got Decimal not null",
+                "position 1 (x): expected Int, got Decimal",
             ),
             (
                 "PIE-S2395",
                 BODY_LINE + 2,
                 27,
                 "Invalid argument for def pos at "
-                "position 1 (x): expected Int not null, got Text not null",
+                "position 1 (x): expected Int, got Text",
             ),
         ],
     ),
     "select_and_order_by": (
-        "table t:\n    from rows\n    select:\n        id\n        u = up(id)\n"
-        "    order by: up(note) asc\n",
+        "table t:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        u = up(id)\n"
+        "    order by up(note) asc\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 4,
                 13,
-                "Invalid argument for def up at "
-                "position 1 (t): expected Text not null, got Int not null",
+                "Invalid argument for def up at position 1 (t): expected Text, got Int",
             ),
             (
                 "PIE-S2395",
                 BODY_LINE + 5,
-                15,
+                14,
                 "Invalid argument for def up at "
-                "position 1 (t): expected Text not null, got Text nullable",
+                "position 1 (t): expected Text, got Text | None",
             ),
         ],
     ),
     "row_let": (
-        "table t:\n    from rows\n    let: v = up(note)\n    select:\n"
-        "        id\n        w = v\n",
+        "table t:\n"
+        "    from rows\n"
+        "    let v = up(note)\n"
+        "    select:\n"
+        "        id\n"
+        "        w = v\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 2,
-                14,
+                13,
                 "Invalid argument for def up at "
-                "position 1 (t): expected Text not null, got Text nullable",
+                "position 1 (t): expected Text, got Text | None",
             )
         ],
     ),
     "satisfying": (
-        "table t:\n    from rows\n    group by: text\n    select:\n        text\n"
-        "        m = max(n)\n    satisfying: pos(m)\n",
+        "table t:\n"
+        "    from rows\n"
+        "    group by text\n"
+        "    select:\n"
+        "        text\n"
+        "        m = max(n)\n"
+        "    having pos(m)\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 6,
-                17,
+                12,
                 "Invalid argument for def pos at "
-                "position 1 (x): expected Int not null, got Int nullable",
+                "position 1 (x): expected Int, got Int | None",
             )
         ],
     ),
     "satisfying_aggregate_let": (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "table t:\n    from rows\n    let:\n        f = n\n    group by: text\n"
-        "    select:\n        text\n        c = count(f)\n"
-        "    satisfying: count(nn(f)) > 0\n",
+        "def nn(x: Int) -> Int: return x\n"
+        "table t:\n"
+        "    from rows\n"
+        "\n"
+        "    let f = n\n"
+        "    group by text\n"
+        "    select:\n"
+        "        text\n"
+        "        c = count(f)\n"
+        "    having count(nn(f)) > 0\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 9,
-                23,
+                18,
                 "Invalid argument for def nn at "
-                "position 1 (x): expected Int not null, got Int nullable",
+                "position 1 (x): expected Int, got Int | None",
             )
         ],
     ),
@@ -554,20 +536,32 @@ CALL_ERRORS = {
     # aggregate argument, as the field written in its place is; it is no
     # expression argument (PIE-S2315), as one that fits shows.
     "unfit_aggregate_let": (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def ni(x: Int nullable) -> Int nullable: return x\n"
-        "table g:\n    from rows\n    let:\n        w = n\n    group by: id\n"
-        "    select:\n        id\n        c = count(nn(w))\n        d = count(nn(n))\n"
+        "def nn(x: Int) -> Int: return x\n"
+        "def ni(x: Int | None) -> Int | None: return x\n"
+        "table g:\n"
+        "    from rows\n"
+        "\n"
+        "    let w = n\n"
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        c = count(nn(w))\n"
+        "        d = count(nn(n))\n"
         "        e = count(ni(w))\n"
-        "table s:\n    from rows\n    let:\n        w = n\n    select:\n"
-        "        t = sum(nn(w))\n        u = sum(nn(n))\n",
+        "table s:\n"
+        "    from rows\n"
+        "\n"
+        "    let w = n\n"
+        "    select:\n"
+        "        t = sum(nn(w))\n"
+        "        u = sum(nn(n))\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + line,
                 column,
                 "Invalid argument for def nn at "
-                "position 1 (x): expected Int not null, got Int nullable",
+                "position 1 (x): expected Int, got Int | None",
             )
             for line, column in ((9, 19), (10, 19), (17, 17), (18, 17))
         ],
@@ -575,19 +569,31 @@ CALL_ERRORS = {
     # So is one whose binding reads another `let:` name, checked with the type
     # its binding has (before: also PIE-S2315).
     "unfit_aggregate_chained_let": (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "table g:\n    from rows\n    let:\n        j = n\n        w = j + 1\n"
-        "    group by: id\n    select:\n        id\n        c = count(nn(w))\n"
+        "def nn(x: Int) -> Int: return x\n"
+        "table g:\n"
+        "    from rows\n"
+        "\n"
+        "    let j = n\n"
+        "    let w = j + 1\n"
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        c = count(nn(w))\n"
         "        s = sum(nn(w))\n"
-        "table a:\n    from rows\n    let:\n        j = n\n        w = j + 1\n"
-        "    select:\n        c = count(nn(w))\n",
+        "table a:\n"
+        "    from rows\n"
+        "\n"
+        "    let j = n\n"
+        "    let w = j + 1\n"
+        "    select:\n"
+        "        c = count(nn(w))\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + line,
                 column,
                 "Invalid argument for def nn at position 1 (x): "
-                "expected Int not null, got Int of unknown nullability",
+                "expected Int, got Int of unknown nullability",
             )
             for line, column in ((9, 19), (10, 17), (17, 19))
         ],
@@ -599,19 +605,27 @@ CALL_ERRORS = {
     # An aggregate argument that passes no def keeps PIE-S2315 alone
     # (`count(lower(n))`).
     "unfit_aggregate_expression": (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def ni(x: Int nullable) -> Int nullable: return x\n"
-        "table g:\n    from rows\n    group by: id\n    select:\n        id\n"
-        "        c = count(nn(n + 1))\n        d = count(ni(coalesce(note, 'z')))\n"
+        "def nn(x: Int) -> Int: return x\n"
+        "def ni(x: Int | None) -> Int | None: return x\n"
+        "table g:\n"
+        "    from rows\n"
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        c = count(nn(n + 1))\n"
+        "        d = count(ni(coalesce(note, 'z')))\n"
         "        e = count(lower(n))\n"
-        "table a:\n    from rows\n    select:\n        s = sum(nn(n + 1))\n",
+        "table a:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        s = sum(nn(n + 1))\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 7,
                 19,
                 "Invalid argument for def nn at position 1 (x): "
-                "expected Int not null, got Int of unknown nullability",
+                "expected Int, got Int of unknown nullability",
             ),
             (
                 "PIE-S2315",
@@ -625,7 +639,7 @@ CALL_ERRORS = {
                 BODY_LINE + 8,
                 19,
                 "Invalid argument for def ni at position 1 (x): "
-                "expected Int nullable, got Text not null",
+                "expected Int | None, got Text",
             ),
             (
                 "PIE-S2315",
@@ -639,7 +653,7 @@ CALL_ERRORS = {
                 BODY_LINE + 13,
                 17,
                 "Invalid argument for def nn at position 1 (x): "
-                "expected Int not null, got Int of unknown nullability",
+                "expected Int, got Int of unknown nullability",
             ),
         ],
     ),
@@ -647,21 +661,33 @@ CALL_ERRORS = {
     # a constant included, grouped or not, as the value written in its place
     # is (before: PIE-S2395 alone).
     "unfit_aggregate_form": (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "table g:\n    from rows\n    let:\n        w = upper(text)\n        v = 1.5\n"
-        "    group by: id\n    select:\n        id\n        c = count(nn(w))\n"
-        "        d = count(nn(upper(text)))\n        s = sum(nn(v))\n"
+        "def nn(x: Int) -> Int: return x\n"
+        "table g:\n"
+        "    from rows\n"
+        "\n"
+        "    let w = upper(text)\n"
+        "    let v = 1.5\n"
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        c = count(nn(w))\n"
+        "        d = count(nn(upper(text)))\n"
+        "        s = sum(nn(v))\n"
         "        e = count_distinct(nn(n + 1))\n"
-        "table a:\n    from rows\n    let:\n        w = upper(text)\n    select:\n"
+        "table a:\n"
+        "    from rows\n"
+        "\n"
+        "    let w = upper(text)\n"
+        "    select:\n"
         "        c = count(nn(w))\n",
         [
             item
             for function, line, column, actual in (
-                ("count", 9, 19, "Text not null"),
-                ("count", 10, 19, "Text not null"),
-                ("sum", 11, 17, "Float not null"),
+                ("count", 9, 19, "Text"),
+                ("count", 10, 19, "Text"),
+                ("sum", 11, 17, "Float"),
                 ("count_distinct", 12, 28, "Int of unknown nullability"),
-                ("count", 18, 19, "Text not null"),
+                ("count", 18, 19, "Text"),
             )
             for item in (
                 (
@@ -676,7 +702,7 @@ CALL_ERRORS = {
                     BODY_LINE + line,
                     column,
                     "Invalid argument for def nn at position 1 (x): "
-                    f"expected Int not null, got {actual}",
+                    f"expected Int, got {actual}",
                 ),
             )
         ],
@@ -688,14 +714,24 @@ CALL_ERRORS = {
     # argument type, as `min(n + 1)` and `count_distinct(n + 1)` (before:
     # `min(nn(n) + 1)` was PIE-S2395 alone and `count(w)` PIE-S2315 too).
     "unfit_aggregate_part": (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def inc(x: Int not null) -> Int nullable: return x + 1\n"
-        "table g:\n    from rows\n    let:\n        w = nn(n + 1)\n"
-        "    group by: id\n    select:\n        id\n"
-        "        c = count(nn(n + 1) + 1)\n        m = min(nn(n) + 1)\n"
-        "        v = count(w)\n        i = count(inc(n))\n"
+        "def nn(x: Int) -> Int: return x\n"
+        "def inc(x: Int) -> Int | None: return x + 1\n"
+        "table g:\n"
+        "    from rows\n"
+        "\n"
+        "    let w = nn(n + 1)\n"
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        c = count(nn(n + 1) + 1)\n"
+        "        m = min(nn(n) + 1)\n"
+        "        v = count(w)\n"
+        "        i = count(inc(n))\n"
         "        d = count_distinct(inc(n))\n"
-        "table a:\n    from rows\n    select:\n        c = count(nn(n + 1) + 1)\n",
+        "table a:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        c = count(nn(n + 1) + 1)\n",
         [
             (
                 code,
@@ -705,37 +741,40 @@ CALL_ERRORS = {
                 "expression arguments are not supported yet"
                 if code == "PIE-S2315"
                 else f"Invalid argument for def {name} at position 1 (x): "
-                f"expected Int not null, got {actual}",
+                f"expected Int, got {actual}",
             )
             for code, line, column, name, actual in (
                 ("PIE-S2395", 5, 13, "nn", "Int of unknown nullability"),
                 ("PIE-S2395", 9, 19, "nn", "Int of unknown nullability"),
                 ("PIE-S2315", 10, 13, "min", ""),
-                ("PIE-S2395", 10, 17, "nn", "Int nullable"),
-                ("PIE-S2395", 12, 19, "inc", "Int nullable"),
+                ("PIE-S2395", 10, 17, "nn", "Int | None"),
+                ("PIE-S2395", 12, 19, "inc", "Int | None"),
                 ("PIE-S2315", 13, 13, "count_distinct", ""),
-                ("PIE-S2395", 13, 28, "inc", "Int nullable"),
+                ("PIE-S2395", 13, 28, "inc", "Int | None"),
                 ("PIE-S2395", 17, 19, "nn", "Int of unknown nullability"),
             )
         ],
     ),
     "shape_check_and_field_derive": (
-        "shape S:\n    a: Int nullable\n    b: Text nullable\n"
-        "    c: Text not null derive up(b)\n    check k: pos(a)\n",
+        "shape S:\n"
+        "    a: Int | None\n"
+        "    b: Text | None\n"
+        "    c: Text derive up(b)\n"
+        "    k = check(pos(a))\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 3,
-                29,
+                20,
                 "Invalid argument for def up at "
-                "position 1 (t): expected Text not null, got Text nullable",
+                "position 1 (t): expected Text, got Text | None",
             ),
             (
                 "PIE-S2395",
                 BODY_LINE + 4,
-                14,
+                15,
                 "Invalid argument for def pos at "
-                "position 1 (x): expected Int not null, got Int nullable",
+                "position 1 (x): expected Int, got Int | None",
             ),
         ],
     ),
@@ -748,7 +787,7 @@ CALL_ERRORS = {
                 BODY_LINE + 2,
                 19,
                 "Invalid argument for def up at "
-                "position 1 (t): expected Text not null, got Text nullable",
+                "position 1 (t): expected Text, got Text | None",
             )
         ],
     ),
@@ -764,10 +803,16 @@ CALL_ERRORS = {
         ],
     ),
     "oversized_window_argument": (
-        "def t2(x: Int nullable) -> Int nullable: return x + x\n"
-        "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
-        "        t2(lag(coalesce(" + ", ".join(["n"] * 500) + ")) window:\n"
-        "            order by:\n                id\n        ) > 0\n",
+        "def t2(x: Int | None) -> Int | None: return x + x\n"
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "    qualify:\n"
+        "        t2(lag(coalesce(" + ", ".join(["n"] * 500) + ")) window(\n"
+        "            order by\n"
+        "                id)\n"
+        "        ) > 0\n",
         [
             (
                 "PIE-S2399",
@@ -780,8 +825,11 @@ CALL_ERRORS = {
         ],
     ),
     "oversized_call_reports_once": (
-        "def f(x: Int nullable) -> Int nullable: return x + x + x + x\n"
-        "table t:\n    from rows\n    select:\n        id\n"
+        "def f(x: Int | None) -> Int | None: return x + x + x + x\n"
+        "table t:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
         "        v = f(f(f(f(f(f(id))))))\n",
         [
             (
@@ -808,19 +856,29 @@ def test_each_call_is_checked_where_its_expansion_is_typed(
 
 def test_an_alias_argument_matches_its_canonical_type() -> None:
     source = (
-        "type Percent = Int not null\nshape P:\n    pct: Percent not null\n"
-        'source ps: P is postgres.table("ps")\n'
-        "def pos(x: Int not null) -> Bool nullable: return x > 0\n"
-        "table t:\n    from ps\n    where pos(pct)\n    select:\n        pct\n"
+        "type Percent = Int\n"
+        "shape P:\n"
+        "    pct: Percent\n"
+        'source ps: P = postgres.table("ps")\n'
+        "def pos(x: Int) -> Bool | None: return x > 0\n"
+        "table t:\n"
+        "    from ps\n"
+        "    where pos(pct)\n"
+        "    select:\n"
+        "        pct\n"
     )
     assert _errors(source) == []
 
 
 ALIASES = (
-    "type Percent = Int not null\ntype Share = Percent nullable\n"
-    "type Positive = Int not null:\n    ensure self > 0\n"
-    "type Code = Text(max = 3) not null\ntype Tag = Code not null\n"
-    "enum Status: a, b\ntype State = Status not null\n"
+    "type Percent = Int\n"
+    "type Share = Percent\n"
+    "type Positive = Int:\n"
+    "    ensure self > 0\n"
+    "type Code = Text(max = 3)\n"
+    "type Tag = Code\n"
+    "enum Status: a, b\n"
+    "type State = Status\n"
 )
 
 
@@ -828,11 +886,13 @@ def test_a_def_reads_an_alias_of_its_file_as_the_type_it_expands_to() -> None:
     """A signature alias is its base type, as an operator reads one: the
     body and every argument are checked against that type."""
     source = (
-        ALIASES
-        + SHAPES
-        + "def bump(p: Share nullable) -> Percent nullable: return p + 1\n"
-        "table t:\n    from rows\n    select:\n        id\n"
-        "        b = bump(bump(n))\n        c = bump(text)\n"
+        ALIASES + SHAPES + "def bump(p: Share | None) -> Percent | None: return p + 1\n"
+        "table t:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        b = bump(bump(n))\n"
+        "        c = bump(text)\n"
     )
     assert _errors(source) == [
         (
@@ -840,15 +900,14 @@ def test_a_def_reads_an_alias_of_its_file_as_the_type_it_expands_to() -> None:
             22,
             13,
             "Invalid argument for def bump at position 1 (p): "
-            "expected Int nullable, got Text not null",
+            "expected Int | None, got Text",
         )
     ]
 
 
 def test_a_def_refuses_an_alias_with_ensure_or_type_arguments_or_of_an_enum() -> None:
     source = ALIASES + (
-        "def f(a: Positive not null, b: Tag not null) -> State nullable: "
-        "return a > 0 and b == ''\n"
+        "def f(a: Positive, b: Tag) -> State | None: return a > 0 and b == ''\n"
     )
     assert _errors(source) == [
         (
@@ -860,16 +919,20 @@ def test_a_def_refuses_an_alias_with_ensure_or_type_arguments_or_of_an_enum() ->
         )
         for column, role, name in (
             (10, "parameter a", "Positive"),
-            (32, "parameter b", "Tag"),
-            (49, "result", "State"),
+            (23, "parameter b", "Tag"),
+            (31, "result", "State"),
         )
     ]
 
 
 def test_keywords_name_a_def_and_its_parameter() -> None:
     source = (
-        SHAPES + "def def(return: Int not null) -> Int nullable: return return + 1\n"
-        "table t:\n    from rows\n    select:\n        id\n        v = def(id)\n"
+        SHAPES + "def def(return: Int) -> Int | None: return return + 1\n"
+        "table t:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        v = def(id)\n"
     )
     assert _errors(source) == []
 
@@ -905,9 +968,12 @@ def _location(span: Span) -> tuple[int, int, int, int]:
 
 def test_a_call_becomes_its_body_with_each_argument_in_place() -> None:
     called = parse_source(
-        SHAPES + "def small(v: Int not null) -> Bool nullable: return v > 0 and v < 9\n"
-        "table t:\n    from rows\n    where small(id) and small(id + 1)\n"
-        "    select:\n        id\n",
+        SHAPES + "def small(v: Int) -> Bool | None: return v > 0 and v < 9\n"
+        "table t:\n"
+        "    from rows\n"
+        "    where small(id) and small(id + 1)\n"
+        "    select:\n"
+        "        id\n",
         path="m.pietto",
     ).ast
     written = parse_source(
@@ -957,15 +1023,39 @@ def test_a_call_becomes_its_body_with_each_argument_in_place() -> None:
     assert len(set(nodes)) == len(nodes)
 
 
+def test_a_call_in_a_chain_operand_inlines_into_occurrences_of_its_own() -> None:
+    """The chain builds its inner operand ``dbl(id)`` again as occurrence 1 for
+    its second comparison. Inlining numbers its own copies after every
+    occurrence the script already holds, so the copy of ``id`` that the first
+    call's body makes is not equal to the ``id`` of the second call."""
+    inlined = _inlined(
+        SHAPES + REPEATING_DEFS + "table t:\n    from rows\n    select:\n"
+        "        id\n        v = 0 < dbl(id) < 10\n"
+    )
+    expression = cast(TableDef, inlined.definitions[-1]).select_items[1].expression
+    nodes = _expression_nodes(expression)
+    assert [
+        node.span.occurrence
+        for node in nodes
+        if type(node) is NameExpr and node.name == "id"
+    ] == [3, 1, 2, 0]
+    assert len(set(nodes)) == len(nodes) == 11
+
+
 def test_a_parameter_named_like_a_function_never_replaces_the_call() -> None:
     shapes = (
-        "shape T:\n    id: Int not null\n    lower: Text not null\n"
-        "    note: Text nullable\n"
-        'source t: T is postgres.table("t")\n'
+        "shape T:\n"
+        "    id: Int\n"
+        "    lower: Text\n"
+        "    note: Text | None\n"
+        'source t: T = postgres.table("t")\n'
     )
     called = _inlined(
-        shapes + "def f(upper: Text nullable) -> Text nullable: return upper(upper)\n"
-        "table r:\n    from t\n    select:\n        a = f(lower)\n"
+        shapes + "def f(upper: Text | None) -> Text | None: return upper(upper)\n"
+        "table r:\n"
+        "    from t\n"
+        "    select:\n"
+        "        a = f(lower)\n"
         "        b = f(trim(note))\n"
     )
     written = _inlined(
@@ -975,9 +1065,11 @@ def test_a_parameter_named_like_a_function_never_replaces_the_call() -> None:
     assert _shape(called) == _shape(written)
     assert (
         _errors(
-            shapes
-            + "def f(upper: Text nullable) -> Text nullable: return upper(upper)\n"
-            "table r:\n    from t\n    select:\n        a = f(note)\n"
+            shapes + "def f(upper: Text | None) -> Text | None: return upper(upper)\n"
+            "table r:\n"
+            "    from t\n"
+            "    select:\n"
+            "        a = f(note)\n"
             "        b = f(trim(note))\n"
         )
         == []
@@ -986,54 +1078,79 @@ def test_a_parameter_named_like_a_function_never_replaces_the_call() -> None:
 
 REFUSED = {
     "window_call": (
-        "query q:\n    from rows\n    select:\n        id\n"
-        "        r = pos(id) window:\n            order by: id\n",
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        r = pos(id) window(\n"
+        "            order by id)\n",
         (BODY_LINE + 4, 13, "a window computation", "pos"),
     ),
     "window_argument": (
-        "query q:\n    from rows\n    select:\n        id\n"
-        "        r = lag(up(text)) window:\n            order by: id\n",
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        r = lag(up(text)) window(\n"
+        "            order by id)\n",
         (BODY_LINE + 4, 17, "a window computation", "up"),
     ),
     "partition_key": (
-        "query q:\n    from rows\n    select:\n        id\n"
-        "        r = row_number() window:\n            partition by: up(text)\n"
-        "            order by: id\n",
-        (BODY_LINE + 5, 27, "a window computation", "up"),
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        r = row_number() window(\n"
+        "            partition by up(text)\n"
+        "            order by id)\n",
+        (BODY_LINE + 5, 26, "a window computation", "up"),
     ),
     "named_window": (
-        "query q:\n    from rows\n    select:\n        id\n"
-        "        r = row_number() window w\n    window w:\n        order by: up(text)\n",
-        (BODY_LINE + 6, 19, "a window computation", "up"),
+        "query q:\n"
+        "    from rows\n"
+        "    let w = window(\n"
+        "        order by up(text))\n"
+        "    select:\n"
+        "        id\n"
+        "        r = row_number() window w\n",
+        (BODY_LINE + 3, 18, "a window computation", "up"),
     ),
     "limit": (
-        "table t:\n    from rows\n    select:\n        id\n    order by: id\n"
+        "table t:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "    order by id\n"
         "    limit up(3)\n",
         (BODY_LINE + 5, 11, "LIMIT", "up"),
     ),
     "grouped_order": (
-        "table t:\n    from rows\n    group by: text\n    select:\n        text\n"
-        "        c = count()\n    order by: up(text)\n",
-        (BODY_LINE + 6, 15, "the ORDER BY of a grouped relation", "up"),
+        "table t:\n"
+        "    from rows\n"
+        "    group by text\n"
+        "    select:\n"
+        "        text\n"
+        "        c = count()\n"
+        "    order by up(text)\n",
+        (BODY_LINE + 6, 14, "the ORDER BY of a grouped relation", "up"),
     ),
     "type_argument": (
-        "shape S:\n    a: Decimal(abs(pos(9)), 2) not null\n",
+        "shape S:\n    a: Decimal(abs(pos(9)), 2)\n",
         (BODY_LINE + 1, 20, "a type argument", "pos"),
     ),
-    "type_argument_inside_limit": (
-        "table t:\n    from rows\n    select:\n        id\n    order by: id\n"
-        "    limit cast(3 as Decimal(pos(9), 0))\n",
-        (BODY_LINE + 5, 29, "a type argument", "pos"),
-    ),
     "window_frame": (
-        "query q:\n    from rows\n    select:\n        id\n"
-        "        r = sum(id) window:\n            order by: id\n"
-        "            rows between up(1) preceding and current row\n",
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        r = sum(id) window(\n"
+        "            order by id\n"
+        "            rows between up(1) preceding and current row)\n",
         (BODY_LINE + 6, 26, "a window computation", "up"),
     ),
     "source_connector": (
-        'source s: Row is postgres.table(up("x"))\n',
-        (BODY_LINE, 33, "a source connector", "up"),
+        'source s: Row = postgres.table(up("x"))\n',
+        (BODY_LINE, 32, "a source connector", "up"),
     ),
 }
 
@@ -1057,66 +1174,102 @@ def test_a_def_call_is_refused_where_the_written_form_has_its_own_rule(
 # characters long, as `null` is, keeps every column when the literal is
 # written in its place.
 NULL_LET_ARGUMENTS = (
-    "def bb(p: Bool not null) -> Bool not null: return p is null\n"
-    "table t:\n    from rows\n    let:\n        nill = null\n"
-    "    where pos(coalesce(ARG, n))\n    select:\n        id\n"
-    "        a = up(lower(ARG))\n        b = pos(ARG if id > 0 else 1)\n"
-    "        c = bb(id in (ARG, 2))\n        d = pos(len(up(ARG)))\n"
+    "def bb(p: Bool) -> Bool: return p is None\n"
+    "table t:\n"
+    "    from rows\n"
+    "\n"
+    "    let nill = None\n"
+    "    where pos(coalesce(ARG, n))\n"
+    "    select:\n"
+    "        id\n"
+    "        a = up(lower(ARG))\n"
+    "        b = pos(ARG if id > 0 else 1)\n"
+    "        c = bb(id in (ARG, 2))\n"
+    "        d = pos(len(up(ARG)))\n"
 )
 # Def arguments that read `let:` names whose values read one bound to null;
 # each placeholder is the name, or its value written in its place.
 WRITTEN_LETS = (
-    "def bb(p: Bool not null) -> Bool not null: return p is null\n"
-    "def same(x: Int nullable) -> Int nullable: return x\n"
-    "table t:\n    from rows\n    let:\n        nill = null\n"
-    "        j1 = coalesce(nill, n)\n        j2 = j1 + 1\n"
-    "        j3 = nill if id > 0 else 1\n        j4 = lower(nill)\n"
-    "        j5 = id in (nill, 2)\n        j6 = same(nill)\n"
-    "    where pos({J1})\n    select:\n        id\n        a = pos({J2})\n"
-    "        b = pos({J3})\n        c = up({J4})\n        d = bb({J5})\n"
+    "def bb(p: Bool) -> Bool: return p is None\n"
+    "def same(x: Int | None) -> Int | None: return x\n"
+    "table t:\n"
+    "    from rows\n"
+    "\n"
+    "    let nill = None\n"
+    "    let j1 = coalesce(nill, n)\n"
+    "    let j2 = j1 + 1\n"
+    "    let j3 = nill if id > 0 else 1\n"
+    "    let j4 = lower(nill)\n"
+    "    let j5 = id in (nill, 2)\n"
+    "    let j6 = same(nill)\n"
+    "    where pos({J1})\n"
+    "    select:\n"
+    "        id\n"
+    "        a = pos({J2})\n"
+    "        b = pos({J3})\n"
+    "        c = up({J4})\n"
+    "        d = bb({J5})\n"
     "        e = pos({J6})\n"
 )
 WRITTEN = {
-    "J1": "coalesce(null, n)",
-    "J2": "coalesce(null, n) + 1",
-    "J3": "null if id > 0 else 1",
-    "J4": "lower(null)",
-    "J5": "id in (null, 2)",
-    "J6": "same(null)",
+    "J1": "coalesce(None, n)",
+    "J2": "coalesce(None, n) + 1",
+    "J3": "None if id > 0 else 1",
+    "J4": "lower(None)",
+    "J5": "id in (None, 2)",
+    "J6": "same(None)",
 }
 # Def arguments that read `let:` names whose values are ill-typed once the
 # null they read takes its type; each placeholder is the name, or its value
 # written in its place, which starts where the name does. `m` reads one
 # outside a def argument.
 ILL_TYPED_LETS = (
-    "def nt(x: Text not null) -> Text not null: return x\n"
-    "def bb(p: Bool not null) -> Bool not null: return p is null\n"
-    "def tw(x: Text not null) -> Bool nullable: return x == x\n"
-    "table t:\n    from rows\n    let:\n        nill = null\n"
-    "        i1 = coalesce(nill, 1)\n        i2 = upper(nill) + 1\n"
-    "        i3 = lower(nill) * 2\n        i4 = not lower(nill)\n"
-    "        i5 = coalesce(nill, text, 1)\n        i6 = text if nill else 1\n"
-    "        i7 = len(nill) + text\n        i8 = lower(i1), i9 = lower(i1) is null\n"
-    "    where pos({I2})\n    select:\n        id\n"
-    "        a = nt(lower({I1}))\n        b = pos({I3})\n        c = bb({I4})\n"
-    "        d = pos({I5})\n        e = pos({I6})\n        f = pos({I7})\n"
-    "        g = nt({I8})\n        h = tw(lower({I1}))\n"
-    "        k = nt(nt(lower({I1})))\n        m = i2\n"
-    "        n = bb(lower({I1}) is null)\n        o = bb({I9})\n"
-    "        p = bb(coalesce(lower({I1}) == 'a', false))\n"
+    "def nt(x: Text) -> Text: return x\n"
+    "def bb(p: Bool) -> Bool: return p is None\n"
+    "def tw(x: Text) -> Bool | None: return x == x\n"
+    "table t:\n"
+    "    from rows\n"
+    "\n"
+    "    let nill = None\n"
+    "    let i1 = coalesce(nill, 1)\n"
+    "    let i2 = upper(nill) + 1\n"
+    "    let i3 = lower(nill) * 2\n"
+    "    let i4 = not lower(nill)\n"
+    "    let i5 = coalesce(nill, text, 1)\n"
+    "    let i6 = text if nill else 1\n"
+    "    let i7 = len(nill) + text\n"
+    "    let i8 = lower(i1)\n"
+    "    let i9 = lower(i1) is None\n"
+    "    where pos({I2})\n"
+    "    select:\n"
+    "        id\n"
+    "        a = nt(lower({I1}))\n"
+    "        b = pos({I3})\n"
+    "        c = bb({I4})\n"
+    "        d = pos({I5})\n"
+    "        e = pos({I6})\n"
+    "        f = pos({I7})\n"
+    "        g = nt({I8})\n"
+    "        h = tw(lower({I1}))\n"
+    "        k = nt(nt(lower({I1})))\n"
+    "        m = i2\n"
+    "        n = bb(lower({I1}) is None)\n"
+    "        o = bb({I9})\n"
+    "        p = bb(coalesce(lower({I1}) == 'a', False))\n"
     "        q = nt(text if lower({I1}) == 'a' else 'b')\n"
-    "        r = bb(lower({I1}) == 'a')\n        s = nt(substr(lower({I1}), 1))\n"
+    "        r = bb(lower({I1}) == 'a')\n"
+    "        s = nt(substr(lower({I1}), 1))\n"
 )
 ILL_TYPED = {
-    "I1": "coalesce(null, 1)",
-    "I2": "upper(null) + 1",
-    "I3": "lower(null) * 2",
-    "I4": "not lower(null)",
-    "I5": "coalesce(null, text, 1)",
-    "I6": "text if null else 1",
-    "I7": "len(null) + text",
-    "I8": "lower(coalesce(null, 1))",
-    "I9": "lower(coalesce(null, 1)) is null",
+    "I1": "coalesce(None, 1)",
+    "I2": "upper(None) + 1",
+    "I3": "lower(None) * 2",
+    "I4": "not lower(None)",
+    "I5": "coalesce(None, text, 1)",
+    "I6": "text if None else 1",
+    "I7": "len(None) + text",
+    "I8": "lower(coalesce(None, 1))",
+    "I9": "lower(coalesce(None, 1)) is None",
 }
 NOT_NUMERIC = "Invalid operands for operator {}: expected numeric operands"
 # `+` with a Text operand also says that Text does not concatenate.
@@ -1149,138 +1302,155 @@ ILL_TYPED_BINDING_ERRORS = [
     ),
     ("PIE-S2105", BODY_LINE + 13, 14, TEXT_PLUS),
     ("PIE-S2104", BODY_LINE + 14, 14, LOWER_OF_INT),
-    ("PIE-S2104", BODY_LINE + 14, 30, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 15, 14, LOWER_OF_INT),
 ]
 # The errors of the values written by hand where ILL_TYPED_LETS reads them.
 ILL_TYPED_ERRORS = [
-    ("PIE-S2105", BODY_LINE + 15, 15, TEXT_PLUS),
-    ("PIE-S2104", BODY_LINE + 18, 16, LOWER_OF_INT),
-    ("PIE-S2105", BODY_LINE + 19, 17, NOT_NUMERIC.format("*")),
+    ("PIE-S2105", BODY_LINE + 16, 15, TEXT_PLUS),
+    ("PIE-S2104", BODY_LINE + 19, 16, LOWER_OF_INT),
+    ("PIE-S2105", BODY_LINE + 20, 17, NOT_NUMERIC.format("*")),
     (
         "PIE-S2105",
-        BODY_LINE + 20,
+        BODY_LINE + 21,
         16,
         "Invalid operands for operator not: expected Bool operand",
     ),
     (
         "PIE-S2104",
-        BODY_LINE + 21,
+        BODY_LINE + 22,
         17,
         "Invalid argument types for function coalesce: expected same canonical type",
     ),
     (
         "PIE-S2105",
-        BODY_LINE + 22,
+        BODY_LINE + 23,
         17,
         "Invalid operands for operator conditional: "
         "expected same canonical branch types",
     ),
-    ("PIE-S2105", BODY_LINE + 23, 17, TEXT_PLUS),
-    ("PIE-S2104", BODY_LINE + 24, 16, LOWER_OF_INT),
+    ("PIE-S2105", BODY_LINE + 24, 17, TEXT_PLUS),
     ("PIE-S2104", BODY_LINE + 25, 16, LOWER_OF_INT),
-    ("PIE-S2104", BODY_LINE + 26, 19, LOWER_OF_INT),
-    ("PIE-S2104", BODY_LINE + 28, 16, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 26, 16, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 27, 19, LOWER_OF_INT),
     ("PIE-S2104", BODY_LINE + 29, 16, LOWER_OF_INT),
-    ("PIE-S2104", BODY_LINE + 30, 25, LOWER_OF_INT),
-    ("PIE-S2104", BODY_LINE + 31, 24, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 30, 16, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 31, 25, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 32, 24, LOWER_OF_INT),
     (
         "PIE-S2395",
-        BODY_LINE + 32,
+        BODY_LINE + 33,
         13,
         "Invalid argument for def bb at position 1 (p): "
-        "expected Bool not null, got Bool of unknown nullability",
+        "expected Bool, got Bool of unknown nullability",
     ),
-    ("PIE-S2104", BODY_LINE + 32, 16, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 33, 16, LOWER_OF_INT),
     (
         "PIE-S2104",
-        BODY_LINE + 33,
+        BODY_LINE + 34,
         16,
         "Invalid arguments for function substr: expected 3, got 2",
     ),
-    ("PIE-S2104", BODY_LINE + 33, 23, LOWER_OF_INT),
+    ("PIE-S2104", BODY_LINE + 34, 23, LOWER_OF_INT),
 ]
 NULLS = {
     "null_argument": (
-        'table t:\n    from rows\n    where pos(null) and up(null) == "A"\n'
-        "    select:\n        id\n",
+        "table t:\n"
+        "    from rows\n"
+        '    where pos(None) and up(None) == "A"\n'
+        "    select:\n"
+        "        id\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 2,
                 11,
                 "Invalid argument for def pos at "
-                "position 1 (x): expected Int not null, got null",
+                "position 1 (x): expected Int, got null",
             ),
             (
                 "PIE-S2395",
                 BODY_LINE + 2,
                 25,
                 "Invalid argument for def up at "
-                "position 1 (t): expected Text not null, got null",
+                "position 1 (t): expected Text, got null",
             ),
         ],
     ),
     "null_only_argument": (
-        "table t:\n    from rows\n    where pos(coalesce(null, null))\n"
-        "    select:\n        id\n",
+        "table t:\n"
+        "    from rows\n"
+        "    where pos(coalesce(None, None))\n"
+        "    select:\n"
+        "        id\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 2,
                 11,
                 "Invalid argument for def pos at "
-                "position 1 (x): expected Int not null, got null",
+                "position 1 (x): expected Int, got null",
             )
         ],
     ),
     "null_into_nullable": (
-        "def opt(x: Int nullable) -> Int nullable: return coalesce(x, 0)\n"
-        "table t:\n    from rows\n    where opt(null) > 0\n    select:\n        id\n",
+        "def opt(x: Int | None) -> Int | None: return coalesce(x, 0)\n"
+        "table t:\n"
+        "    from rows\n"
+        "    where opt(None) > 0\n"
+        "    select:\n"
+        "        id\n",
         [],
     ),
     "null_body": (
-        "def f(x: Int not null) -> Text not null: return null if x > 0 else null\n"
-        "def g(x: Int not null) -> Text nullable: return null if x > 0 else null\n",
+        "def f(x: Int) -> Text: return None if x > 0 else None\n"
+        "def g(x: Int) -> Text | None: return None if x > 0 else None\n",
         [
             (
                 "PIE-S2402",
                 BODY_LINE,
-                49,
+                31,
                 "Def f body is always null, but its declared return type is not null",
             )
         ],
     ),
     "null_operand_argument": (
-        "table t:\n    from rows\n    where pos(id + null) and pos(-null)\n"
-        "    select:\n        id\n",
+        "table t:\n"
+        "    from rows\n"
+        "    where pos(id + None) and pos(-None)\n"
+        "    select:\n"
+        "        id\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 2,
                 column,
                 "Invalid argument for def pos at "
-                "position 1 (x): expected Int not null, got null",
+                "position 1 (x): expected Int, got null",
             )
             for column in (11, 30)
         ],
     ),
     "null_comparison_argument": (
-        "def same(x: Text nullable) -> Text nullable: return x\n"
-        "def flag(b: Bool nullable) -> Bool nullable: return b\n"
-        "table t:\n    from rows\n    where flag(id == (id + null))\n    select:\n"
-        "        id\n        v = same(id == (id + null))\n"
-        "        w = up(id == (id + null))\n",
+        "def same(x: Text | None) -> Text | None: return x\n"
+        "def flag(b: Bool | None) -> Bool | None: return b\n"
+        "table t:\n"
+        "    from rows\n"
+        "    where flag(id == (id + None))\n"
+        "    select:\n"
+        "        id\n"
+        "        v = same(id == (id + None))\n"
+        "        w = up(id == (id + None))\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + line,
                 13,
                 f"Invalid argument for def {name} at position 1 ({parameter}): "
-                f"expected Text {nullability}, got Bool of unknown nullability",
+                f"expected Text{nullability}, got Bool of unknown nullability",
             )
             for line, name, parameter, nullability in (
-                (7, "same", "x", "nullable"),
-                (8, "up", "t", "not null"),
+                (7, "same", "x", " | None"),
+                (8, "up", "t", ""),
             )
         ],
     ),
@@ -1290,31 +1460,39 @@ NULLS = {
     # argument is then not checked against the parameter, so no PIE-S2395
     # restates it.
     "null_literal_comparison_argument": (
-        "def flag(b: Bool not null) -> Bool nullable: return b or b\n"
-        "table t:\n    from rows\n    where flag(id == null)\n    select:\n"
-        "        id\n        w = up(text != null)\n",
+        "def flag(b: Bool) -> Bool | None: return b or b\n"
+        "table t:\n"
+        "    from rows\n"
+        "    where flag(id == None)\n"
+        "    select:\n"
+        "        id\n"
+        "        w = up(text != None)\n",
         [
             (
                 "PIE-S2105",
                 BODY_LINE + 3,
                 16,
                 "Invalid operands for operator ==: comparison with null is "
-                "never true; write `is null` instead",
+                "never true; write `is None` instead",
             ),
             (
                 "PIE-S2105",
                 BODY_LINE + 6,
                 16,
                 "Invalid operands for operator !=: comparison with null is "
-                "never true; write `is not null` instead",
+                "never true; write `is not None` instead",
             ),
         ],
     ),
     # A null argument makes a comparison of the body never true; it is
     # reported where the expansion is typed, at the call.
     "null_argument_in_a_body_comparison": (
-        "def low(x: Int nullable) -> Bool nullable: return x < 3\n"
-        "table t:\n    from rows\n    where low(null)\n    select:\n        id\n",
+        "def low(x: Int | None) -> Bool | None: return x < 3\n"
+        "table t:\n"
+        "    from rows\n"
+        "    where low(None)\n"
+        "    select:\n"
+        "        id\n",
         [
             (
                 "PIE-S2105",
@@ -1325,42 +1503,53 @@ NULLS = {
         ],
     ),
     # A null argument for a nullable parameter makes a cast of the body a cast
-    # of null; one that does not fit its `not null` parameter is PIE-S2395 alone.
+    # of null; one that does not fit its non-null parameter is PIE-S2395 alone.
     "null_argument_in_a_body_cast": (
-        "def fl(x: Int not null) -> Float nullable: return cast(x as Float)\n"
-        "def fn(x: Int nullable) -> Float nullable: return cast(x as Float)\n"
-        "table t:\n    from rows\n    select:\n        id\n"
-        "        a = fl(null)\n        b = fn(null)\n",
+        "def fl(x: Int) -> Float | None: return Float(x)\n"
+        "def fn(x: Int | None) -> Float | None: return Float(x)\n"
+        "table t:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        a = fl(None)\n"
+        "        b = fn(None)\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + 6,
                 13,
-                "Invalid argument for def fl at position 1 (x): "
-                "expected Int not null, got null",
+                "Invalid argument for def fl at position 1 (x): expected Int, got null",
             ),
             (
                 "PIE-S2105",
                 BODY_LINE + 7,
                 13,
-                "Invalid cast: cast(null as Float) is not supported; "
-                "expected cast(Int as Float), the only supported cast",
+                "Invalid cast from null to Float: "
+                "only Int-to-Float conversion is supported; write Float(expression)",
             ),
         ],
     ),
     # A `let:` name bound to null, also through other lets, is the null
     # literal wherever the expansion reads it, as emission inlines it.
     "null_let_argument": (
-        "table t:\n    from rows\n    let:\n        k = null\n        k2 = k\n"
-        "        k3 = k2\n    where pos(k) and pos(k3)\n    select:\n        id\n"
-        "        a = up(k2)\n        b = pos(k + 1)\n",
+        "table t:\n"
+        "    from rows\n"
+        "\n"
+        "    let k = None\n"
+        "    let k2 = k\n"
+        "    let k3 = k2\n"
+        "    where pos(k) and pos(k3)\n"
+        "    select:\n"
+        "        id\n"
+        "        a = up(k2)\n"
+        "        b = pos(k + 1)\n",
         [
             (
                 "PIE-S2395",
                 BODY_LINE + line,
                 column,
                 f"Invalid argument for def {name} at position 1 ({parameter}): "
-                f"expected {expected} not null, got null",
+                f"expected {expected}, got null",
             )
             for line, column, name, parameter, expected in (
                 (6, 11, "pos", "x", "Int"),
@@ -1370,14 +1559,21 @@ NULLS = {
             )
         ],
     ),
-    # Such a let that does not fit its `not null` parameter is PIE-S2395
+    # Such a let that does not fit its non-null parameter is PIE-S2395
     # alone, also where the body compares or casts it; for a nullable
     # parameter the cast is a cast of null, as with the literal.
     "null_let_argument_in_a_body_cast_or_comparison": (
-        "def fl(x: Int not null) -> Float nullable: return cast(x as Float)\n"
-        "def fn(x: Int nullable) -> Float nullable: return cast(x as Float)\n"
-        "table t:\n    from rows\n    let:\n        k = null\n        k2 = k\n"
-        "    where pos(k2)\n    select:\n        id\n        a = fl(k)\n"
+        "def fl(x: Int) -> Float | None: return Float(x)\n"
+        "def fn(x: Int | None) -> Float | None: return Float(x)\n"
+        "table t:\n"
+        "    from rows\n"
+        "\n"
+        "    let k = None\n"
+        "    let k2 = k\n"
+        "    where pos(k2)\n"
+        "    select:\n"
+        "        id\n"
+        "        a = fl(k)\n"
         "        b = fn(k2)\n",
         [
             (
@@ -1385,21 +1581,20 @@ NULLS = {
                 BODY_LINE + 7,
                 11,
                 "Invalid argument for def pos at position 1 (x): "
-                "expected Int not null, got null",
+                "expected Int, got null",
             ),
             (
                 "PIE-S2395",
                 BODY_LINE + 10,
                 13,
-                "Invalid argument for def fl at position 1 (x): "
-                "expected Int not null, got null",
+                "Invalid argument for def fl at position 1 (x): expected Int, got null",
             ),
             (
                 "PIE-S2105",
                 BODY_LINE + 11,
                 13,
-                "Invalid cast: cast(null as Float) is not supported; "
-                "expected cast(Int as Float), the only supported cast",
+                "Invalid cast from null to Float: "
+                "only Int-to-Float conversion is supported; write Float(expression)",
             ),
         ],
     ),
@@ -1414,13 +1609,13 @@ NULLS = {
                 BODY_LINE + line,
                 column,
                 f"Invalid argument for def {name} at position 1 ({parameter}): "
-                f"expected {expected} not null, got {actual}",
+                f"expected {expected}, got {actual}",
             )
             for line, column, name, parameter, expected, actual in (
-                (5, 11, "pos", "x", "Int", "Int nullable"),
-                (8, 13, "up", "t", "Text", "Text nullable"),
-                (9, 13, "pos", "x", "Int", "Int nullable"),
-                (10, 13, "bb", "p", "Bool", "Bool nullable"),
+                (5, 11, "pos", "x", "Int", "Int | None"),
+                (8, 13, "up", "t", "Text", "Text | None"),
+                (9, 13, "pos", "x", "Int", "Int | None"),
+                (10, 13, "bb", "p", "Bool", "Bool | None"),
                 (11, 21, "up", "t", "Text", "null"),
             )
         ],
@@ -1429,30 +1624,44 @@ NULLS = {
     # has an error of its own, also through an alias, is not checked, as an
     # argument with an error of its own is not.
     "always_null_let_argument": (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def plusn(x: Int nullable) -> Int nullable: return x + 1\n"
-        "table t:\n    from rows\n    let:\n"
-        "        m = id + null\n        m2 = -null\n        m3 = coalesce(null, null)\n"
-        "        m4 = plusn(null)\n        m5 = m + 1\n"
-        "        e = id == null\n        f = nn(null)\n        g = f\n"
-        "        h = zz + null\n    select:\n        id\n"
-        "        a = pos(m)\n        b = pos(m2)\n        c = pos(m3)\n"
-        "        d = pos(m4)\n        q = pos(m5)\n        w = pos(e)\n"
-        "        x = pos(f)\n        y = pos(g)\n        z = pos(h)\n",
+        "def nn(x: Int) -> Int: return x\n"
+        "def plusn(x: Int | None) -> Int | None: return x + 1\n"
+        "table t:\n"
+        "    from rows\n"
+        "\n"
+        "    let m = id + None\n"
+        "    let m2 = -None\n"
+        "    let m3 = coalesce(None, None)\n"
+        "    let m4 = plusn(None)\n"
+        "    let m5 = m + 1\n"
+        "    let e = id == None\n"
+        "    let f = nn(None)\n"
+        "    let g = f\n"
+        "    let h = zz + None\n"
+        "    select:\n"
+        "        id\n"
+        "        a = pos(m)\n"
+        "        b = pos(m2)\n"
+        "        c = pos(m3)\n"
+        "        d = pos(m4)\n"
+        "        q = pos(m5)\n"
+        "        w = pos(e)\n"
+        "        x = pos(f)\n"
+        "        y = pos(g)\n"
+        "        z = pos(h)\n",
         [
             (
                 "PIE-S2105",
                 BODY_LINE + 10,
                 13,
                 "Invalid operands for operator ==: comparison with null is "
-                "never true; write `is null` instead",
+                "never true; write `is None` instead",
             ),
             (
                 "PIE-S2395",
                 BODY_LINE + 11,
                 13,
-                "Invalid argument for def nn at position 1 (x): "
-                "expected Int not null, got null",
+                "Invalid argument for def nn at position 1 (x): expected Int, got null",
             ),
             ("PIE-S2102", BODY_LINE + 13, 13, "Unknown field: zz"),
             *(
@@ -1461,7 +1670,7 @@ NULLS = {
                     BODY_LINE + line,
                     13,
                     "Invalid argument for def pos at position 1 (x): "
-                    "expected Int not null, got null",
+                    "expected Int, got null",
                 )
                 for line in range(16, 21)
             ),
@@ -1473,10 +1682,17 @@ NULLS = {
     # file's `min` and `max` read no `let:` name: it is checked the same way,
     # and the aggregate is PIE-S2315 (before: an unknown field, PIE-S2102).
     "null_let_in_an_aggregate_argument": (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "table t:\n    from rows\n    let:\n        nill = null\n"
-        "    where pos(nill)\n    group by: id\n    select:\n        id\n"
-        "        c = sum(nn(nill))\n        m = max(nn(nill))\n"
+        "def nn(x: Int) -> Int: return x\n"
+        "table t:\n"
+        "    from rows\n"
+        "\n"
+        "    let nill = None\n"
+        "    where pos(nill)\n"
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        c = sum(nn(nill))\n"
+        "        m = max(nn(nill))\n"
         "        l = min(nill)\n",
         [
             (
@@ -1484,7 +1700,7 @@ NULLS = {
                 BODY_LINE + 5,
                 11,
                 "Invalid argument for def pos at position 1 (x): "
-                "expected Int not null, got null",
+                "expected Int, got null",
             ),
             (
                 "PIE-S2315",
@@ -1497,8 +1713,7 @@ NULLS = {
                 "PIE-S2395",
                 BODY_LINE + 9,
                 17,
-                "Invalid argument for def nn at position 1 (x): "
-                "expected Int not null, got null",
+                "Invalid argument for def nn at position 1 (x): expected Int, got null",
             ),
             (
                 "PIE-S2315",
@@ -1511,8 +1726,7 @@ NULLS = {
                 "PIE-S2395",
                 BODY_LINE + 10,
                 17,
-                "Invalid argument for def nn at position 1 (x): "
-                "expected Int not null, got null",
+                "Invalid argument for def nn at position 1 (x): expected Int, got null",
             ),
             (
                 "PIE-S2315",
@@ -1533,49 +1747,49 @@ NULLS = {
                 BODY_LINE + line,
                 column,
                 f"Invalid argument for def {name} at position 1 ({parameter}): "
-                f"expected {expected} not null, got {actual}",
+                f"expected {expected}, got {actual}",
             )
             for line, column, name, parameter, expected, actual in (
-                (12, 11, "pos", "x", "Int", "Int nullable"),
+                (12, 11, "pos", "x", "Int", "Int | None"),
                 (15, 13, "pos", "x", "Int", "Int of unknown nullability"),
-                (16, 13, "pos", "x", "Int", "Int nullable"),
-                (17, 13, "up", "t", "Text", "Text nullable"),
-                (18, 13, "bb", "p", "Bool", "Bool nullable"),
+                (16, 13, "pos", "x", "Int", "Int | None"),
+                (17, 13, "up", "t", "Text", "Text | None"),
+                (18, 13, "bb", "p", "Bool", "Bool | None"),
                 (19, 13, "pos", "x", "Int", "null"),
             )
         ],
     ),
     "null_comparison_body": (
-        "def f(x: Int nullable) -> Bool nullable: return x == null\n",
+        "def f(x: Int | None) -> Bool | None: return x == None\n",
         [
             (
                 "PIE-S2105",
                 BODY_LINE,
-                49,
+                45,
                 "Invalid operands for operator ==: comparison with null is "
-                "never true; write `is null` instead",
+                "never true; write `is None` instead",
             )
         ],
     ),
     "null_operand_body": (
-        "def f(x: Int not null) -> Int nullable: return x + null\n"
-        "def g(x: Int not null) -> Int not null: return x + null\n",
+        "def f(x: Int) -> Int | None: return x + None\n"
+        "def g(x: Int) -> Int: return x + None\n",
         [
             (
                 "PIE-S2402",
                 BODY_LINE + 1,
-                48,
+                30,
                 "Def g body is always null, but its declared return type is not null",
             )
         ],
     ),
     "unknown_body": (
-        "def f(x: Int not null) -> Int nullable: return -null if x > 0 else x\n",
+        "def f(x: Int) -> Int | None: return -None if x > 0 else x\n",
         [
             (
                 "PIE-S2402",
                 BODY_LINE,
-                48,
+                37,
                 "Def f body type is not known, so it "
                 "cannot match declared return type Int",
             )
@@ -1584,8 +1798,7 @@ NULLS = {
     # Before: PIE-S2402 as an unknown body. A coalesce of only nulls takes the
     # type of the branch beside it, as `null if x > 0 else x` does.
     "null_coalesce_branch_body": (
-        "def f(x: Int not null) -> Int nullable: "
-        "return coalesce(null, null) if x > 0 else x\n",
+        "def f(x: Int) -> Int | None: return coalesce(None, None) if x > 0 else x\n",
         [],
     ),
 }
@@ -1603,7 +1816,7 @@ def test_an_argument_reads_a_null_let_as_the_literal_written_in_its_place() -> N
     errors: one at the innermost call it does not fit, after which it is
     Unknown to every call around it."""
     assert (
-        _errors(SHAPES + DEFS + NULL_LET_ARGUMENTS.replace("ARG", "null"))
+        _errors(SHAPES + DEFS + NULL_LET_ARGUMENTS.replace("ARG", "None"))
         == NULLS["null_let_inside_an_argument"][1]
     )
 
@@ -1627,7 +1840,7 @@ def test_an_argument_reads_each_let_as_its_value_written_in_its_place() -> None:
                 error
                 for error in ILL_TYPED_ERRORS
                 # Reads of a name whose binding has those errors.
-                if error[1] - BODY_LINE not in {15, 19, 20, 21, 22, 23, 24, 29}
+                if error[1] - BODY_LINE not in {16, 20, 21, 22, 23, 24, 25, 30}
             ],
         ),
         (ILL_TYPED, ILL_TYPED_BINDING_ERRORS + ILL_TYPED_ERRORS),
@@ -1657,20 +1870,30 @@ def test_a_let_value_ill_typed_once_the_null_it_reads_has_a_type_is_an_error(
 # an error of their own (`zz`, `lower(1)`); each placeholder is the name, or
 # its value written in its place, which starts where the name does.
 KEPT_TYPE_LETS = (
-    "def nn(x: Int not null) -> Int not null: return x\n"
-    "def bb(p: Bool not null) -> Bool not null: return p is null\n"
-    "table t:\n    from rows\n    let:\n        nill = null\n"
-    "        j = coalesce(nill, 1)\n        e = lower(j)\n        w = e is null\n"
-    "        c = e == 'a'\n"
-    "    select:\n        id\n        a = nn({W})\n        b = bb({C})\n"
-    "        d = bb(len({C}) > 0)\n        f = bb(substr({J}, 0, 1) is null)\n"
-    "        g = nn({NILL} + zz)\n        h = nn({NILL} + lower(1))\n"
+    "def nn(x: Int) -> Int: return x\n"
+    "def bb(p: Bool) -> Bool: return p is None\n"
+    "table t:\n"
+    "    from rows\n"
+    "\n"
+    "    let nill = None\n"
+    "    let j = coalesce(nill, 1)\n"
+    "    let e = lower(j)\n"
+    "    let w = e is None\n"
+    "    let c = e == 'a'\n"
+    "    select:\n"
+    "        id\n"
+    "        a = nn({W})\n"
+    "        b = bb({C})\n"
+    "        d = bb(len({C}) > 0)\n"
+    "        f = bb(substr({J}, 0, 1) is None)\n"
+    "        g = nn({NILL} + zz)\n"
+    "        h = nn({NILL} + lower(1))\n"
 )
 KEPT_TYPE = {
-    "W": "lower(coalesce(null, 1)) is null",
-    "C": "lower(coalesce(null, 1)) == 'a'",
-    "J": "coalesce(null, 1)",
-    "NILL": "null",
+    "W": "lower(coalesce(None, 1)) is None",
+    "C": "lower(coalesce(None, 1)) == 'a'",
+    "J": "coalesce(None, 1)",
+    "NILL": "None",
 }
 
 
@@ -1694,7 +1917,7 @@ def test_an_argument_is_checked_with_the_type_its_let_value_still_has(
     )
     unknown_nullability = (
         "Invalid argument for def bb at position 1 (p): "
-        "expected Bool not null, got Bool of unknown nullability"
+        "expected Bool, got Bool of unknown nullability"
     )
     written = [lower_of_int] if written_in else []
     assert _errors(SHAPES + KEPT_TYPE_LETS.format(**spelling)) == [
@@ -1703,8 +1926,7 @@ def test_an_argument_is_checked_with_the_type_its_let_value_still_has(
             "PIE-S2395",
             BODY_LINE + 10,
             13,
-            "Invalid argument for def nn at position 1 (x): "
-            "expected Int not null, got Bool not null",
+            "Invalid argument for def nn at position 1 (x): expected Int, got Bool",
         ),
         *(("PIE-S2104", BODY_LINE + 10, 16, message) for message in written),
         ("PIE-S2395", BODY_LINE + 11, 13, unknown_nullability),
@@ -1734,10 +1956,15 @@ def test_a_deep_let_value_read_deep_in_an_expression_is_written_in() -> None:
     """A `let:` value is written in where typing starts, not where the
     argument stands deep in its expression, so its depth adds to none."""
     chain = " + 1" * 300
-    source = (
-        SHAPES + "def nn(x: Int not null) -> Int not null: return x\n"
-        "table t:\n    from rows\n    let:\n        nill = null\n"
-        f"        jj = coalesce(nill, n){chain}\n    select:\n        id\n"
+    source = SHAPES + (
+        "def nn(x: Int) -> Int: return x\n"
+        "table t:\n"
+        "    from rows\n"
+        "\n"
+        "    let nill = None\n"
+        f"    let jj = coalesce(nill, n){chain}\n"
+        "    select:\n"
+        "        id\n"
         f"        a = nn(jj){chain}\n"
     )
     assert _errors(source) == [
@@ -1746,7 +1973,7 @@ def test_a_deep_let_value_read_deep_in_an_expression_is_written_in() -> None:
             16,
             13,
             "Invalid argument for def nn at position 1 (x): "
-            "expected Int not null, got Int of unknown nullability",
+            "expected Int, got Int of unknown nullability",
         )
     ]
 
@@ -1755,7 +1982,7 @@ def test_an_unknown_type_without_an_error_stays_unchecked() -> None:
     """Gradual typing: nothing is known about a field of a shapeless source,
     so its argument is not checked, as the same expression by hand is not."""
     source = (
-        'source raw is postgres.table("raw")\n'
+        'source raw = postgres.table("raw")\n'
         + DEFS
         + "table t:\n    from raw\n    where pos(zz)\n    select:\n        zz\n"
     )
@@ -1767,10 +1994,14 @@ def test_a_let_bound_to_null_is_null_over_an_unknown_row() -> None:
     inlines it: one bound to null is null, and one bound to a field of
     unknown type stays unchecked."""
     source = (
-        'source raw is postgres.table("raw")\n'
-        + DEFS
-        + "table t:\n    from raw\n    let:\n        k = null\n        z = zz\n"
-        "    where pos(z) and pos(k)\n    select:\n        zz\n"
+        'source raw = postgres.table("raw")\n' + DEFS + "table t:\n"
+        "    from raw\n"
+        "\n"
+        "    let k = None\n"
+        "    let z = zz\n"
+        "    where pos(z) and pos(k)\n"
+        "    select:\n"
+        "        zz\n"
     )
     assert _errors(source) == [
         ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
@@ -1778,8 +2009,7 @@ def test_a_let_bound_to_null_is_null_over_an_unknown_row() -> None:
             "PIE-S2395",
             9,
             22,
-            "Invalid argument for def pos at position 1 (x): "
-            "expected Int not null, got null",
+            "Invalid argument for def pos at position 1 (x): expected Int, got null",
         ),
     ]
 
@@ -1789,10 +2019,18 @@ def test_a_let_name_that_is_an_unknown_field_where_it_is_read_stays_one() -> Non
     an unknown field, also in a def argument: it is not written in as its
     value, and the argument adds nothing to that error."""
     source = (
-        SHAPES + "def nn(x: Int not null) -> Int not null: return x\n"
-        "table t:\n    from rows\n    let:\n        k = null\n    group by:\n"
-        "        id\n    select:\n        id\n        a = nn(k)\n"
-        "        b = nn(k + 1)\n        c = count(n)\n"
+        SHAPES + "def nn(x: Int) -> Int: return x\n"
+        "table t:\n"
+        "    from rows\n"
+        "\n"
+        "    let k = None\n"
+        "    group by:\n"
+        "        id\n"
+        "    select:\n"
+        "        id\n"
+        "        a = nn(k)\n"
+        "        b = nn(k + 1)\n"
+        "        c = count(n)\n"
     )
     assert _errors(source) == [
         ("PIE-S2102", BODY_LINE + 7, 16, "Unknown field: k"),
@@ -1818,20 +2056,36 @@ def test_a_call_typed_beside_an_unknown_argument_is_checked_for_its_type_alone()
     `let:` name, and beside a field of unknown type that an upstream error
     explains; a comparison stays a `Bool` of unknown nullability, as before."""
     source = (
-        SHAPES + 'source raw is postgres.table("raw")\n'
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def tn(x: Text not null) -> Text not null: return x\n"
-        "def tx(x: Text nullable) -> Text nullable: return x\n"
-        "def bn(x: Bool not null) -> Bool not null: return x\n"
-        "table t:\n    from raw\n    let:\n        k = lower(t)\n"
-        "        m = len(t) + 1\n    select:\n        id\n"
-        "        a = tn(lower(t))\n        b = nn(m)\n        c = tn(k)\n"
-        "        d = nn(year(null))\n"
+        SHAPES + 'source raw = postgres.table("raw")\n'
+        "def nn(x: Int) -> Int: return x\n"
+        "def tn(x: Text) -> Text: return x\n"
+        "def tx(x: Text | None) -> Text | None: return x\n"
+        "def bn(x: Bool) -> Bool: return x\n"
+        "table t:\n"
+        "    from raw\n"
+        "\n"
+        "    let k = lower(t)\n"
+        "    let m = len(t) + 1\n"
+        "    select:\n"
+        "        id\n"
+        "        a = tn(lower(t))\n"
+        "        b = nn(m)\n"
+        "        c = tn(k)\n"
+        "        d = nn(year(None))\n"
         '        e = bn(contains(t, "x"))\n'
         "        f = nn(len(t) if len(u) > 0 else 0)\n"
-        "        g = tx(len(t))\n        h = nn(abs(t))\n        i = bn(t == 1)\n"
-        "table bad:\n    from rows\n    select:\n        id\n        x = text + 1\n"
-        "query reads:\n    from bad\n    select:\n        y = tn(lower(x))\n"
+        "        g = tx(len(t))\n"
+        "        h = nn(abs(t))\n"
+        "        i = bn(t == 1)\n"
+        "table bad:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        x = text + 1\n"
+        "query reads:\n"
+        "    from bad\n"
+        "    select:\n"
+        "        y = tn(lower(x))\n"
     )
     assert _errors(source) == [
         ("PIE-S2303", 8, 1, "Source raw has no bound shape; row schema is unknown"),
@@ -1844,8 +2098,8 @@ def test_a_call_typed_beside_an_unknown_argument_is_checked_for_its_type_alone()
                 f"expected {expected}, got {actual} of unknown nullability",
             )
             for line, name, expected, actual in (
-                (26, "tx", "Text nullable", "Int"),
-                (28, "bn", "Bool not null", "Bool"),
+                (26, "tx", "Text | None", "Int"),
+                (28, "bn", "Bool", "Bool"),
             )
         ),
         (
@@ -1854,6 +2108,14 @@ def test_a_call_typed_beside_an_unknown_argument_is_checked_for_its_type_alone()
             13,
             "Invalid operands for operator +: expected numeric operands; "
             "string concatenation is not supported yet",
+        ),
+        (
+            "PIE-S2382",
+            35,
+            5,
+            "`bad` is a table of this file; single-file SQL reads it by name, so "
+            "the SQL runs only where the database already has a relation named "
+            "bad (an EXPLICIT_MODULES project emits it as a CTE)",
         ),
     ]
 
@@ -1864,13 +2126,23 @@ def test_a_let_value_that_reads_no_field_is_known_over_an_unknown_row() -> None:
     a def argument or not (`len(u3)`), as the value written by hand has; one
     derived from a field of unknown type stays unchecked."""
     source = (
-        'source raw is postgres.table("raw")\n'
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def tn(x: Text not null) -> Text not null: return x\n"
-        "table t:\n    from raw\n    let:\n        u3 = a is null\n"
-        "        u8 = coalesce(a, 1)\n        u9 = 1 > 2\n        u0 = true\n"
-        "    select:\n        id\n        x = nn(u0)\n        y = tn(u9)\n"
-        "        z = nn(u3)\n        w = nn(u8)\n        m = len(u3)\n"
+        'source raw = postgres.table("raw")\n'
+        "def nn(x: Int) -> Int: return x\n"
+        "def tn(x: Text) -> Text: return x\n"
+        "table t:\n"
+        "    from raw\n"
+        "\n"
+        "    let u3 = a is None\n"
+        "    let u8 = coalesce(a, 1)\n"
+        "    let u9 = 1 > 2\n"
+        "    let u0 = True\n"
+        "    select:\n"
+        "        id\n"
+        "        x = nn(u0)\n"
+        "        y = tn(u9)\n"
+        "        z = nn(u3)\n"
+        "        w = nn(u8)\n"
+        "        m = len(u3)\n"
     )
     assert _errors(source) == [
         ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
@@ -1880,12 +2152,12 @@ def test_a_let_value_that_reads_no_field_is_known_over_an_unknown_row() -> None:
                 line,
                 13,
                 f"Invalid argument for def {name} at position 1 (x): "
-                f"expected {expected} not null, got {actual}",
+                f"expected {expected}, got {actual}",
             )
             for line, name, expected, actual in (
-                (13, "nn", "Int", "Bool not null"),
+                (13, "nn", "Int", "Bool"),
                 (14, "tn", "Text", "Bool of unknown nullability"),
-                (15, "nn", "Int", "Bool not null"),
+                (15, "nn", "Int", "Bool"),
             )
         ),
         (
@@ -1903,10 +2175,16 @@ def test_an_aggregate_reads_a_let_value_with_its_type_over_an_unknown_row() -> N
     value has the binding's type, so a def it is passed to checks it, as
     `count(wrapn(n is not null))` is (before: unchecked)."""
     source = (
-        'source raw is postgres.table("raw")\n'
-        "def wrapn(x: Int not null) -> Int not null: return x\n"
-        "table g:\n    from raw\n    let:\n        w = n is not null\n"
-        "    group by: id\n    select:\n        id\n        o = count(wrapn(w))\n"
+        'source raw = postgres.table("raw")\n'
+        "def wrapn(x: Int) -> Int: return x\n"
+        "table g:\n"
+        "    from raw\n"
+        "\n"
+        "    let w = n is not None\n"
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        o = count(wrapn(w))\n"
     )
     assert _errors(source) == [
         ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
@@ -1914,8 +2192,7 @@ def test_an_aggregate_reads_a_let_value_with_its_type_over_an_unknown_row() -> N
             "PIE-S2395",
             10,
             19,
-            "Invalid argument for def wrapn at position 1 (x): "
-            "expected Int not null, got Bool not null",
+            "Invalid argument for def wrapn at position 1 (x): expected Int, got Bool",
         ),
     ]
 
@@ -1927,12 +2204,20 @@ def test_a_global_aggregate_over_an_unknown_row_checks_its_let_argument() -> Non
     (PIE-S2315), as once the argument fits: `count(tt(w))` is PIE-S2315
     (before: PIE-S2395 alone)."""
     source = (
-        'source raw is postgres.table("raw")\n'
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def tt(x: Text not null) -> Text not null: return x\n"
-        "table g:\n    from raw\n    let:\n        w = 'x'\n    select:\n"
+        'source raw = postgres.table("raw")\n'
+        "def nn(x: Int) -> Int: return x\n"
+        "def tt(x: Text) -> Text: return x\n"
+        "table g:\n"
+        "    from raw\n"
+        "\n"
+        "    let w = 'x'\n"
+        "    select:\n"
         "        c = count(nn(w))\n"
-        "table f:\n    from raw\n    let:\n        w = 'x'\n    select:\n"
+        "table f:\n"
+        "    from raw\n"
+        "\n"
+        "    let w = 'x'\n"
+        "    select:\n"
         "        c = count(tt(w))\n"
     )
     expression_argument = (
@@ -1946,8 +2231,7 @@ def test_a_global_aggregate_over_an_unknown_row_checks_its_let_argument() -> Non
             "PIE-S2395",
             9,
             19,
-            "Invalid argument for def nn at position 1 (x): "
-            "expected Int not null, got Text not null",
+            "Invalid argument for def nn at position 1 (x): expected Int, got Text",
         ),
         ("PIE-S2315", 15, 13, expression_argument),
     ]
@@ -1963,21 +2247,46 @@ def test_a_null_aggregate_argument_reports_its_def_mismatch() -> None:
     nor is one that reads a binding with one, as outside an aggregate, and
     one that fits its nullable parameter is no mismatch."""
     source = SHAPES + (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def ni(x: Int nullable) -> Int nullable: return x\n"
-        "table g:\n    from rows\n    let:\n        nill = null\n        w = n + null\n"
-        "        bad = lower(n)\n        v = bad + null\n    group by: id\n"
-        "    select:\n        id\n"
-        "        a = sum(nn(null))\n        b = count(nn(n + null))\n"
-        "        c = count(nn(coalesce(null, null)))\n        d = max(nn(null))\n"
-        "        e = sum(nn(nill))\n        f = count(nn(w))\n        g = sum(nn(w))\n"
-        "        h = count(nn(lower(n) + null))\n        i = count(nn(v))\n"
-        "        j = sum(ni(null))\n"
-        "table a:\n    from rows\n    select:\n        s = sum(nn(null))\n"
-        "table o:\n    from rows\n    let:\n        nill = null\n        w = n + null\n"
-        "        bad = lower(n)\n        v = bad + null\n    select:\n        id\n"
-        "        p = nn(null)\n        q = nn(w)\n        r = nn(nill)\n"
-        "        s = nn(v)\n        u = nn(lower(n) + null)\n"
+        "def nn(x: Int) -> Int: return x\n"
+        "def ni(x: Int | None) -> Int | None: return x\n"
+        "table g:\n"
+        "    from rows\n"
+        "\n"
+        "    let nill = None\n"
+        "    let w = n + None\n"
+        "    let bad = lower(n)\n"
+        "    let v = bad + None\n"
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        a = sum(nn(None))\n"
+        "        b = count(nn(n + None))\n"
+        "        c = count(nn(coalesce(None, None)))\n"
+        "        d = max(nn(None))\n"
+        "        e = sum(nn(nill))\n"
+        "        f = count(nn(w))\n"
+        "        g = sum(nn(w))\n"
+        "        h = count(nn(lower(n) + None))\n"
+        "        i = count(nn(v))\n"
+        "        j = sum(ni(None))\n"
+        "table a:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        s = sum(nn(None))\n"
+        "table o:\n"
+        "    from rows\n"
+        "\n"
+        "    let nill = None\n"
+        "    let w = n + None\n"
+        "    let bad = lower(n)\n"
+        "    let v = bad + None\n"
+        "    select:\n"
+        "        id\n"
+        "        p = nn(None)\n"
+        "        q = nn(w)\n"
+        "        r = nn(nill)\n"
+        "        s = nn(v)\n"
+        "        u = nn(lower(n) + None)\n"
     )
 
     def expression_argument(function: str, line: int) -> tuple[str, int, int, str]:
@@ -1994,8 +2303,7 @@ def test_a_null_aggregate_argument_reports_its_def_mismatch() -> None:
             "PIE-S2395",
             line,
             column,
-            "Invalid argument for def nn at position 1 (x): "
-            "expected Int not null, got null",
+            "Invalid argument for def nn at position 1 (x): expected Int, got null",
         )
 
     assert _errors(source) == [
@@ -2033,17 +2341,39 @@ def test_a_selected_field_passed_to_a_def_it_does_not_fit_has_no_type() -> None:
     reads it is not checked against the field's type (before: PIE-S2104 at
     each `lower`). One that fits keeps the field's type."""
     source = SHAPES + (
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "def ni(x: Int nullable) -> Int nullable: return x\n"
-        "table g:\n    from rows\n    group by: n\n    select:\n        k = nn(n)\n"
+        "def nn(x: Int) -> Int: return x\n"
+        "def ni(x: Int | None) -> Int | None: return x\n"
+        "table g:\n"
+        "    from rows\n"
+        "    group by n\n"
+        "    select:\n"
+        "        k = nn(n)\n"
         "        c = count()\n"
-        "table q:\n    from rows\n    select:\n        id\n        nn(n)\n"
+        "table q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        nn(n)\n"
         "        m = nn(rows.n)\n"
-        "table fit:\n    from rows\n    group by: n\n    select:\n        k = ni(n)\n"
+        "table fit:\n"
+        "    from rows\n"
+        "    group by n\n"
+        "    select:\n"
+        "        k = ni(n)\n"
         "        c = count()\n"
-        "table r:\n    from g\n    select:\n        a = lower(k)\n"
-        "table s:\n    from q\n    select:\n        a = lower(n)\n        b = lower(m)\n"
-        "table t:\n    from fit\n    select:\n        a = lower(k)\n"
+        "table r:\n"
+        "    from g\n"
+        "    select:\n"
+        "        a = lower(k)\n"
+        "table s:\n"
+        "    from q\n"
+        "    select:\n"
+        "        a = lower(n)\n"
+        "        b = lower(m)\n"
+        "table t:\n"
+        "    from fit\n"
+        "    select:\n"
+        "        a = lower(k)\n"
     )
     assert _errors(source) == [
         *(
@@ -2052,9 +2382,21 @@ def test_a_selected_field_passed_to_a_def_it_does_not_fit_has_no_type() -> None:
                 line,
                 column,
                 "Invalid argument for def nn at position 1 (x): "
-                "expected Int not null, got Int nullable",
+                "expected Int, got Int | None",
             )
             for line, column in ((14, 13), (20, 9), (21, 13))
+        ),
+        *(
+            (
+                "PIE-S2382",
+                line,
+                5,
+                f"`{name}` is a table of this file; single-file SQL reads it by "
+                "name, so the SQL runs only where the database already has a "
+                f"relation named {name} (an EXPLICIT_MODULES project emits it as a "
+                "CTE)",
+            )
+            for line, name in ((29, "g"), (33, "q"), (38, "fit"))
         ),
         ("PIE-S2104", 40, 13, LOWER_OF_INT),
     ]
@@ -2066,10 +2408,15 @@ def test_a_def_argument_that_reads_a_null_let_has_its_written_type_around_it() -
     `lower(ident(j))` is PIE-S2104 at `lower`, as the value written by hand
     is (before: unchecked, and emission wrote `lower(COALESCE(NULL, 1))`)."""
     source = (
-        SHAPES + "def ident(x: Int not null) -> Int not null: return x\n"
-        "table q:\n    from rows\n    let:\n        k = null\n"
-        "        j = coalesce(k, 1)\n    select:\n        v = lower(ident(j))\n"
-        "        w = lower(ident(coalesce(null, 1)))\n"
+        SHAPES + "def ident(x: Int) -> Int: return x\n"
+        "table q:\n"
+        "    from rows\n"
+        "\n"
+        "    let k = None\n"
+        "    let j = coalesce(k, 1)\n"
+        "    select:\n"
+        "        v = lower(ident(j))\n"
+        "        w = lower(ident(coalesce(None, 1)))\n"
     )
     assert _errors(source) == [
         ("PIE-S2104", line, 13, LOWER_OF_INT) for line in (15, 16)
@@ -2083,10 +2430,16 @@ def test_each_error_of_a_let_value_is_reported_in_its_binding() -> None:
     another read of it adds nothing (before: one PIE-S2104 at the start of
     the argument `d`, and none for `z = d`)."""
     source = (
-        SHAPES + "def nn(x: Int not null) -> Int not null: return x\n"
-        "table q:\n    from rows\n    let:\n        k = null\n"
-        "        j = coalesce(k, 1)\n        d = len(j) + len(j)\n"
-        "    select:\n        y = nn(d)\n        z = d\n"
+        SHAPES + "def nn(x: Int) -> Int: return x\n"
+        "table q:\n"
+        "    from rows\n"
+        "\n"
+        "    let k = None\n"
+        "    let j = coalesce(k, 1)\n"
+        "    let d = len(j) + len(j)\n"
+        "    select:\n"
+        "        y = nn(d)\n"
+        "        z = d\n"
     )
     len_of_int = (
         "Invalid argument type for function len at position 1: expected Text, got Int"
@@ -2099,11 +2452,16 @@ def test_each_error_of_a_let_value_is_reported_in_its_binding() -> None:
 
 def test_a_satisfying_argument_matches_its_alias_canonical_type() -> None:
     source = (
-        "type Percent = Int not null\nshape P:\n    pct: Percent not null\n"
-        'source ps: P is postgres.table("ps")\n'
-        + DEFS
-        + "table t:\n    from ps\n    group by: pct\n    select:\n        pct\n"
-        "        c = count()\n    satisfying: pos(pct)\n"
+        "type Percent = Int\n"
+        "shape P:\n"
+        "    pct: Percent\n"
+        'source ps: P = postgres.table("ps")\n' + DEFS + "table t:\n"
+        "    from ps\n"
+        "    group by pct\n"
+        "    select:\n"
+        "        pct\n"
+        "        c = count()\n"
+        "    having pos(pct)\n"
     )
     assert _errors(source) == []
 
@@ -2111,7 +2469,7 @@ def test_a_satisfying_argument_matches_its_alias_canonical_type() -> None:
 def test_each_use_of_an_argument_reports_at_the_argument_once() -> None:
     source = (
         SHAPES
-        + "def twice(x: Int nullable) -> Int nullable: return x + x\n"
+        + "def twice(x: Int | None) -> Int | None: return x + x\n"
         + "table t:\n    from rows\n    select:\n        id\n"
         + "        d = twice(nope + 1)\n"
     )
@@ -2119,37 +2477,37 @@ def test_each_use_of_an_argument_reports_at_the_argument_once() -> None:
 
 
 REPEATING_DEFS = (
-    "def twice(b: Bool nullable) -> Bool nullable: return b or b\n"
-    "def thrice(b: Bool nullable) -> Bool nullable: return b and b or not b\n"
-    "def either(a: Bool nullable, b: Bool nullable) -> Bool nullable: return a or b or a\n"
-    "def dbl(x: Int nullable) -> Int nullable: return x + x\n"
-    "def sum2(x: Int not null) -> Int nullable: return x + x\n"
-    "def low(x: Int nullable) -> Bool nullable: return x < 3 or x < 4\n"
-    "def one(b: Bool nullable) -> Bool nullable: return b\n"
-    "def listed(x: Int nullable) -> Bool nullable: return x in (1, 2) or x in (7)\n"
+    "def twice(b: Bool | None) -> Bool | None: return b or b\n"
+    "def thrice(b: Bool | None) -> Bool | None: return b and b or not b\n"
+    "def either(a: Bool | None, b: Bool | None) -> Bool | None: return a or b or a\n"
+    "def dbl(x: Int | None) -> Int | None: return x + x\n"
+    "def sum2(x: Int) -> Int | None: return x + x\n"
+    "def low(x: Int | None) -> Bool | None: return x < 3 or x < 4\n"
+    "def one(b: Bool | None) -> Bool | None: return b\n"
+    "def listed(x: Int | None) -> Bool | None: return x in (1, 2) or x in (7)\n"
 )
 NULL_TEST = "comparison with null is never true"
-IS_NULL = f"Invalid operands for operator ==: {NULL_TEST}; write `is null` instead"
+IS_NULL = f"Invalid operands for operator ==: {NULL_TEST}; write `is None` instead"
 ONCE = {
     "where": (
-        "    where twice(id == null)\n    select:\n        id\n",
+        "    where twice(id == None)\n    select:\n        id\n",
         [("PIE-S2105", 2, 17, IS_NULL)],
     ),
     "three_uses": (
-        "    select:\n        id\n        a = thrice(n != null)\n",
+        "    select:\n        id\n        a = thrice(n != None)\n",
         [
             (
                 "PIE-S2105",
                 4,
                 20,
                 f"Invalid operands for operator !=: {NULL_TEST}; "
-                "write `is not null` instead",
+                "write `is not None` instead",
             )
         ],
     ),
     "let": (
-        "    let: k = twice(nope == 1)\n    select:\n        id\n        a = k\n",
-        [("PIE-S2102", 2, 20, "Unknown field: nope")],
+        "    let k = twice(nope == 1)\n    select:\n        id\n        a = k\n",
+        [("PIE-S2102", 2, 19, "Unknown field: nope")],
     ),
     "order_by": (
         "    select:\n        id\n    order by:\n        dbl(len(substr(text, 0, 2)))\n",
@@ -2164,7 +2522,7 @@ ONCE = {
         ],
     ),
     "grouped_select": (
-        "    group by: id\n    select:\n        id\n        a = twice(id == null)\n",
+        "    group by id\n    select:\n        id\n        a = twice(id == None)\n",
         [
             (
                 "PIE-S2319",
@@ -2176,7 +2534,7 @@ ONCE = {
         ],
     ),
     "aggregate_argument": (
-        "    group by: id\n    select:\n        id\n        s = dbl(sum(nope))\n",
+        "    group by id\n    select:\n        id\n        s = dbl(sum(nope))\n",
         [
             (
                 "PIE-S2310",
@@ -2204,49 +2562,54 @@ ONCE = {
         ],
     ),
     "nested_call": (
-        "    select:\n        id\n        a = twice(twice(id == null))\n",
+        "    select:\n        id\n        a = twice(twice(id == None))\n",
         [("PIE-S2105", 4, 25, IS_NULL)],
     ),
     # Every copy's error still keeps the always-null argument of sum2 from
     # being checked against its not-null parameter: no PIE-S2395.
     "nested_always_null": (
-        "    select:\n        id\n        a = sum2(dbl(nope + null))\n",
+        "    select:\n        id\n        a = sum2(dbl(nope + None))\n",
         [("PIE-S2102", 4, 22, "Unknown field: nope")],
     ),
     "same_text_in_two_arguments": (
-        "    select:\n        id\n        a = either(id == null, id == null)\n",
+        "    select:\n        id\n        a = either(id == None, id == None)\n",
         [("PIE-S2105", 4, 20, IS_NULL), ("PIE-S2105", 4, 32, IS_NULL)],
     ),
     "same_text_in_two_calls": (
-        "    select:\n        id\n        a = twice(id == null)\n"
-        "        c = twice(id == null)\n",
+        "    select:\n"
+        "        id\n"
+        "        a = twice(id == None)\n"
+        "        c = twice(id == None)\n",
         [("PIE-S2105", 4, 19, IS_NULL), ("PIE-S2105", 5, 19, IS_NULL)],
     ),
     # Two body comparisons that a null argument makes never true are both at
     # the call, and reported once there, also for a call inside an argument.
     "body_at_the_call": (
-        "    where low(null) and twice(id == null)\n    select:\n        id\n",
+        "    where low(None) and twice(id == None)\n    select:\n        id\n",
         [
             ("PIE-S2105", 2, 11, f"Invalid operands for operator <: {NULL_TEST}"),
             ("PIE-S2105", 2, 31, IS_NULL),
         ],
     ),
     "body_at_a_call_in_an_argument": (
-        "    where one(low(null)) and low(null)\n    select:\n        id\n",
+        "    where one(low(None)) and low(None)\n    select:\n        id\n",
         [
             ("PIE-S2105", 2, 15, f"Invalid operands for operator <: {NULL_TEST}"),
             ("PIE-S2105", 2, 30, f"Invalid operands for operator <: {NULL_TEST}"),
         ],
     ),
     "body_at_the_call_in_satisfying": (
-        "    group by: id\n    select:\n        id\n        c = count()\n"
-        "    satisfying: listed(c)\n",
+        "    group by id\n"
+        "    select:\n"
+        "        id\n"
+        "        c = count()\n"
+        "    having listed(c)\n",
         [
             (
                 "PIE-S2327",
                 6,
-                17,
-                "Unsupported satisfying expression form: `in` list",
+                12,
+                "Unsupported having expression form: `in` list",
             )
         ],
     ),
@@ -2274,9 +2637,10 @@ def test_an_equal_error_outside_a_def_call_is_still_repeated() -> None:
     names an unknown field twice reports it twice, as without a def, and the
     call in its predicate reports its error once."""
     source = (
-        "shape S:\n    a: Int nullable\n"
-        "    index i on missing, missing when twice(a == null)\n"
-        "def twice(b: Bool nullable) -> Bool nullable: return b or b\n"
+        "shape S:\n"
+        "    a: Int | None\n"
+        "    i = index(missing, missing) when twice(a == None)\n"
+        "def twice(b: Bool | None) -> Bool | None: return b or b\n"
     )
     unknown = ("PIE-S2502", 3, 5, "Unknown target field in shape S: missing")
     assert _errors(source) == [
@@ -2287,11 +2651,199 @@ def test_an_equal_error_outside_a_def_call_is_still_repeated() -> None:
     ]
 
 
+_SELECT = "table t:\n    from rows\n    select:\n        id\n"
+_BAD_DEF = "def bad(x: Int) -> {}: return {}\n" + _SELECT + "        a = bad(id)\n"
+CHAIN_ONCE = {
+    "analysis": (
+        _SELECT + "        a = 0 < id < nope < 10\n",
+        [("PIE-S2102", 4, 22, "Unknown field: nope")],
+    ),
+    "argument_of_a_call": (
+        _SELECT + "        a = 0 < dbl(nope + 1) < 10\n",
+        [("PIE-S2102", 4, 21, "Unknown field: nope")],
+    ),
+    "def_call_check": (
+        _SELECT + "        a = 0 < dbl(1, 2) < 10\n",
+        [("PIE-S2395", 4, 17, "Invalid arguments for def dbl: expected 1, got 2")],
+    ),
+    "constructor_check": (
+        _SELECT + "        a = 0 < Float(1, 2) < 10\n",
+        [
+            (
+                "PIE-S2104",
+                4,
+                17,
+                "Invalid arguments for constructor Float: expected 1, got 2",
+            )
+        ],
+    ),
+    "any_check": (
+        _SELECT
+        + "    qualify:\n        False == any(r.id > 0 for r in rows) == True\n",
+        [("PIE-S2334", 5, 18, "ANY is not supported in this context")],
+    ),
+    "admission_check": (
+        _SELECT + "        a = False == (id in rows) == True\n",
+        [
+            (
+                "PIE-S2350",
+                4,
+                23,
+                "IN relation reads are available only inside a FROM-based relation "
+                "body in EXPLICIT_MODULES projects (schema version 2).",
+            )
+        ],
+    ),
+    "having": (
+        "table t:\n    from rows\n    group by id\n    select:\n        id\n"
+        "        c = count()\n    having 0 < count() < 3\n",
+        [
+            (
+                "PIE-S2308",
+                6,
+                16,
+                "Aggregate count() is not allowed in having clause; use it only as "
+                "a direct aliased select projection",
+            )
+        ],
+    ),
+    "def_body": (
+        _BAD_DEF.format("Bool | None", "0 < x + nope < 10"),
+        [("PIE-S2102", 0, 48, "Unknown field: nope")],
+    ),
+    "def_body_call": (
+        _BAD_DEF.format("Bool | None", "0 < dbl(x, 1) < 10"),
+        [("PIE-S2395", 0, 44, "Invalid arguments for def dbl: expected 1, got 2")],
+    ),
+    # Outside a chain the def check reports such an error at each use of the
+    # argument of dbl (an_error_in_a_call_inside_a_body); inside it, once.
+    "def_body_call_argument": (
+        _BAD_DEF.format("Bool | None", "0 < dbl(x + nope) < 10"),
+        [("PIE-S2102", 0, 52, "Unknown field: nope")],
+    ),
+}
+
+
+@pytest.mark.parametrize(("tail", "expected"), CHAIN_ONCE.values(), ids=CHAIN_ONCE)
+def test_an_error_in_a_chain_operand_is_reported_once(
+    tail: str, expected: list[tuple[str, int, int, str]]
+) -> None:
+    """A comparison chain ``a < b < c`` builds its inner operand ``b`` again
+    for its second comparison, a copy of a new occurrence that every check
+    reads on its own. ``b`` is written once, so each error in it is reported
+    once, by analysis and by each check that refuses a script before it, as
+    for text that a def call's expansion repeats."""
+    first = BODY_LINE + REPEATING_DEFS.count("\n")
+    source = SHAPES + DEFS + REPEATING_DEFS + tail
+    assert _errors(source) == [
+        (code, first + line, column, message)
+        for code, line, column, message in expected
+    ]
+
+
+_ROW = 'shape Row:\n    id: Int\nsource rows: Row = postgres.table("rows")\n'
+_BIG = "def big(v: Int) -> Bool: return v > 1\n"
+_ARITY = "Invalid arguments for constructor Float: expected 1, got 2"
+_MISSING = "Unknown relationship parameter field: row.missing"
+CHAIN_ONCE_IN_TEXT_ORDER = {
+    "relationship_before_a_chain": (
+        _ROW
+        + "relationship Broken(row: Row):\n    0 < Float(1, 2) < 10\n"
+        + "query q:\n    from rows\n    select ok = 0 < id < 10\n",
+        [("PIE-S2104", 5, 9, _ARITY)],
+    ),
+    "query_before_a_relationship_chain": (
+        "relationship First(row: Row):\n    row.id > 0\n"
+        + _ROW
+        + "query q:\n    from rows\n    select ok = 0 < Float(1, 2) < 10\n"
+        + "relationship Later(row: Row):\n    0 < row.id < 10\n",
+        [("PIE-S2104", 8, 21, _ARITY)],
+    ),
+    "relationship_before_a_def_call": (
+        _ROW
+        + _BIG
+        + "relationship Broken(row: Row):\n    0 < row.missing < 10\n"
+        + "query q:\n    from rows\n    select ok = big(id)\n",
+        [("PIE-S2604", 6, 9, _MISSING)],
+    ),
+    "relationship_before_a_def_and_its_call": (
+        _ROW
+        + "relationship Broken(row: Row):\n    0 < row.missing < 10\n"
+        + _BIG
+        + "query q:\n    from rows\n    where big(id)\n    select id\n",
+        [("PIE-S2604", 5, 9, _MISSING)],
+    ),
+    "type_error_before_a_def_call": (
+        _ROW
+        + _BIG
+        + 'relationship Broken(row: Row):\n    0 < row.id + "a" < 10\n'
+        + "query q:\n    from rows\n    select ok = big(id)\n",
+        [
+            (
+                "PIE-S2105",
+                6,
+                9,
+                "Invalid operands for operator +: expected numeric operands; "
+                "string concatenation is not supported yet",
+            )
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    CHAIN_ONCE_IN_TEXT_ORDER.values(),
+    ids=CHAIN_ONCE_IN_TEXT_ORDER,
+)
+def test_an_error_in_a_chain_operand_is_reported_once_whatever_follows_it(
+    source: str, expected: list[tuple[str, int, int, str]]
+) -> None:
+    """A script keeps its relationships apart from its other declarations,
+    which interleave with them in the text. The repeated text of a chain
+    operand or a def call is placed in text order across them, so an error
+    in a chain operand is reported once also when a later declaration of the
+    other kind holds a chain or a def call."""
+    assert _errors(source) == expected
+
+
+_AMBIGUOUS_CHAIN_OPERAND = (
+    _ROW
+    + 'source b: Row = postgres.table("b1")\n'
+    + 'source b: Row = postgres.table("b2")\n'
+    + "query q:\n    from rows\n"
+    + "    let flag = False == any(True for x in b) == True\n"
+    + "{lets}    select id\n"
+)
+_AMBIGUOUS_B = ("PIE-S2604", 8, 25, "Ambiguous ANY input: b")
+CHAIN_ONCE_IN_ANY_ORDER = {
+    "after_a_later_error": (
+        "    let z = 1\n    let z = 2\n",
+        [("PIE-S2604", 10, 5, "Duplicate query local name: z"), _AMBIGUOUS_B],
+    ),
+    "alone": ("", [_AMBIGUOUS_B]),
+}
+
+
+@pytest.mark.parametrize(
+    ("lets", "expected"), CHAIN_ONCE_IN_ANY_ORDER.values(), ids=CHAIN_ONCE_IN_ANY_ORDER
+)
+def test_an_error_in_a_chain_operand_is_reported_once_after_a_later_error(
+    lets: str, expected: list[tuple[str, int, int, str]]
+) -> None:
+    """Analysis reports a later duplicate local name before the ANY input
+    error of an earlier chain operand; that error is still reported once."""
+    assert _errors(_AMBIGUOUS_CHAIN_OPERAND.format(lets=lets)) == expected
+
+
 UNKNOWN_ROW = (
-    'source u is postgres.table("u")\n'
-    "def twice(a: Int nullable) -> Int nullable: return a + a\n"
-    "def same(a: Text nullable) -> Bool nullable: return a == a\n"
-    "table t:\n    from u\n    select:\n        v = {call}\n"
+    'source u = postgres.table("u")\n'
+    "def twice(a: Int | None) -> Int | None: return a + a\n"
+    "def same(a: Text | None) -> Bool | None: return a == a\n"
+    "table t:\n"
+    "    from u\n"
+    "    select:\n"
+    "        v = {call}\n"
 )
 NO_SHAPE = ("PIE-S2303", 1, 1, "Source u has no bound shape; row schema is unknown")
 UNKNOWN_ROW_ONCE = {
@@ -2300,7 +2852,7 @@ UNKNOWN_ROW_ONCE = {
         "twice(lag(x))",
         "PIE-S2103",
         "Window function needs a `window` specification: lag (write `lag(...) "
-        "window:` in a SELECT item, with an indented `order by:`)",
+        "window(order by ...)` in a SELECT item)",
     ),
     "arity": (
         "twice(sign(x, x))",
@@ -2312,12 +2864,6 @@ UNKNOWN_ROW_ONCE = {
         "PIE-S2104",
         "Invalid arguments for function substr: start must be a positive Int "
         "literal and count must be a non-negative Int literal",
-    ),
-    "cast_target": (
-        "same(cast(x as Text))",
-        "PIE-S2105",
-        "Invalid cast: cast(unknown as Text) is not supported; expected "
-        "cast(Int as Float), the only supported cast",
     ),
 }
 
@@ -2343,7 +2889,7 @@ def _plus(levels: int, first: str) -> str:
     return " + ".join([first, *["1"] * (levels - 1)])
 
 
-DEEP_DEF = "def deep(x: Int nullable) -> Int nullable: return " + _plus(60, "x") + "\n"
+DEEP_DEF = "def deep(x: Int | None) -> Int | None: return " + _plus(60, "x") + "\n"
 UNUSED = "Def bad parameter x is not used in its body; every parameter must be used"
 RECURSION_LIMIT = "Semantic analysis recursion limit exceeded while processing source."
 
@@ -2355,7 +2901,7 @@ RECURSION_LIMIT = "Semantic analysis recursion limit exceeded while processing s
         (392, "", [("PIE-S2006", 1, 1, RECURSION_LIMIT)]),
         (
             392,
-            "def bad(x: Int nullable) -> Int nullable: return 1\n",
+            "def bad(x: Int | None) -> Int | None: return 1\n",
             [("PIE-S2397", 2, 9, UNUSED)],
         ),
     ],
@@ -2381,7 +2927,7 @@ def test_the_expression_bound_counts_a_call_as_its_expansion(
 def test_inlined_spans_are_real_locations() -> None:
     inlined = _inlined(
         SHAPES
-        + "def twice(x: Int nullable) -> Int nullable: return x + x\n"
+        + "def twice(x: Int | None) -> Int | None: return x + x\n"
         + "table t:\n    from rows\n    select:\n        id\n"
         + "        d = twice(n)\n"
     )
@@ -2400,14 +2946,23 @@ CASCADES = {
         [(BODY_LINE + 2, 11)],
     ),
     "three_uses_in_a_let": (
-        "table t:\n    from rows\n    let: v = g(note)\n    select:\n        id\n"
+        "table t:\n"
+        "    from rows\n"
+        "    let v = g(note)\n"
+        "    select:\n"
+        "        id\n"
         "        w = v\n",
-        [(BODY_LINE + 2, 14)],
+        [(BODY_LINE + 2, 13)],
     ),
     "satisfying_first_use_unsupported": (
-        "table t:\n    from rows\n    group by: note\n    select:\n        note\n"
-        "        c = count()\n    satisfying: f(note)\n",
-        [(BODY_LINE + 6, 17)],
+        "table t:\n"
+        "    from rows\n"
+        "    group by note\n"
+        "    select:\n"
+        "        note\n"
+        "        c = count()\n"
+        "    having f(note)\n",
+        [(BODY_LINE + 6, 12)],
     ),
 }
 
@@ -2420,8 +2975,8 @@ def test_a_mismatched_repeated_argument_is_reported_once(
     expansion reports no operator error the user never wrote."""
     source = (
         SHAPES
-        + "def f(x: Int nullable) -> Bool nullable: return x is null or x > 0\n"
-        + "def g(x: Int nullable) -> Int nullable: return x + x * x\n"
+        + "def f(x: Int | None) -> Bool | None: return x is None or x > 0\n"
+        + "def g(x: Int | None) -> Int | None: return x + x * x\n"
         + relation
     )
     errors = [error for error in _errors(source) if error[0] != "PIE-S2327"]
@@ -2431,7 +2986,7 @@ def test_a_mismatched_repeated_argument_is_reported_once(
             line,
             column,
             f"Invalid argument for def {'g' if 'let' in relation else 'f'} at "
-            "position 1 (x): expected Int nullable, got Text nullable",
+            "position 1 (x): expected Int | None, got Text | None",
         )
         for line, column in calls
     ]
@@ -2441,15 +2996,15 @@ NESTED = {
     "operator": (
         "table t:\n    from rows\n    where twice(pos(note))\n    select:\n"
         "        id\n",
-        ("pos", "x", 5, "Int not null", "Text nullable"),
+        ("pos", "x", 5, "Int", "Text | None"),
     ),
     "builtin": (
         "table t:\n    from rows\n    select:\n        id\n        a = dbl(up(n))\n",
-        ("up", "t", 7, "Text not null", "Int nullable"),
+        ("up", "t", 7, "Text", "Int | None"),
     ),
     "identity": (
         "table t:\n    from rows\n    select:\n        id\n        a = dbl(idt(n))\n",
-        ("idt", "s", 7, "Text not null", "Int nullable"),
+        ("idt", "s", 7, "Text", "Int | None"),
     ),
 }
 
@@ -2465,9 +3020,9 @@ def test_a_mismatched_inner_call_in_a_repeated_argument_is_reported_once(
     source = (
         SHAPES
         + DEFS
-        + "def twice(b: Bool nullable) -> Bool nullable: return b and b\n"
-        + "def dbl(t: Text nullable) -> Text nullable: return coalesce(t, t)\n"
-        + "def idt(s: Text not null) -> Text not null: return s\n"
+        + "def twice(b: Bool | None) -> Bool | None: return b and b\n"
+        + "def dbl(t: Text | None) -> Text | None: return coalesce(t, t)\n"
+        + "def idt(s: Text) -> Text: return s\n"
         + relation
     )
     assert _errors(source) == [
@@ -2486,10 +3041,10 @@ def test_a_window_call_may_be_a_repeated_qualify_argument() -> None:
     every use of the parameter; nothing raises."""
     source = (
         SHAPES
-        + "def twice(x: Int not null) -> Bool nullable: return x <= 2 and x <= 3\n"
+        + "def twice(x: Int) -> Bool | None: return x <= 2 and x <= 3\n"
         + "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
-        + "        twice(row_number() window:\n            order by:\n"
-        + "                id\n            rows between 1 preceding and current row\n"
+        + "        twice(row_number() window(\n            order by\n"
+        + "                id\n            rows between 1 preceding and current row)\n"
         + "        )\n"
     )
     inlined = _inlined(source)
@@ -2505,21 +3060,20 @@ def test_a_window_call_may_be_a_repeated_qualify_argument() -> None:
 def _def_chain(count: int) -> str:
     """Each def calls the one before it; none is called."""
 
-    return "def f0(x: Int not null) -> Int not null: return x\n" + "".join(
-        f"def f{i}(x: Int not null) -> Int not null: return f{i - 1}(x)\n"
-        for i in range(1, count)
+    return "def f0(x: Int) -> Int: return x\n" + "".join(
+        f"def f{i}(x: Int) -> Int: return f{i - 1}(x)\n" for i in range(1, count)
     )
 
 
 def _wide_calls(count: int) -> str:
     """Twenty calls to a def with ``count`` parameters."""
 
-    parameters = ", ".join(f"a{i}: Int not null" for i in range(count))
+    parameters = ", ".join(f"a{i}: Int" for i in range(count))
     body = ", ".join(f"a{i}" for i in range(count))
     call = ", ".join(["id"] * count)
     return (
         SHAPES
-        + f"def g({parameters}) -> Int not null: return coalesce({body})\n"
+        + f"def g({parameters}) -> Int: return coalesce({body})\n"
         + "table t:\n    from rows\n    select:\n        id\n"
         + "".join(f"        v{i} = g({call})\n" for i in range(20))
     )
@@ -2600,7 +3154,7 @@ def _repeated_errors(count: int) -> str:
 
     return (
         SHAPES
-        + "def many(x: Int nullable) -> Int nullable: return "
+        + "def many(x: Int | None) -> Int | None: return "
         + " + ".join(["x"] * 32)
         + "\ntable t:\n    from rows\n    select:\n        id\n"
         + "".join(f"        v{i} = many(nope{i})\n" for i in range(count))
@@ -2610,9 +3164,9 @@ def _repeated_errors(count: int) -> str:
 def test_dropping_repeated_call_errors_grows_linearly(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Analysis returns its diagnostics in source order, so one pass over the
-    calls in source order places them all: each further call adds the same
-    work, however many calls come before it."""
+    """A binary search over the calls in source order places each repeat:
+    each further call adds about the same work, however many calls come
+    before it."""
     analyzed: list[tuple[Script, tuple[Diagnostic, ...]]] = []
     monkeypatch.setattr(
         analyzer_module,
@@ -2641,9 +3195,9 @@ def _typing_lines(depth: int, lets: str, value: str) -> int:
 
     source = (
         SHAPES
-        + "def nl1(x: Int nullable) -> Int nullable: return x + 0\n"
+        + "def nl1(x: Int | None) -> Int | None: return x + 0\n"
         + "table t:\n    from rows\n"
-        + (f"    let:\n{lets}" if lets else "")
+        + ("\n" + lets if lets else "")
         + "    select:\n        id\n        v = "
         + "nl1(" * depth
         + value
@@ -2662,8 +3216,8 @@ def _typing_lines(depth: int, lets: str, value: str) -> int:
     ("lets", "value", "factor"),
     [
         ("", "n", 1),
-        ("        j = n\n", "j", 3 / 2),
-        ("        k = null\n        j = coalesce(k, n)\n", "j", 4),
+        ("    let j = n\n", "j", 3 / 2),
+        ("    let k = None\n    let j = coalesce(k, n)\n", "j", 4),
     ],
     ids=["field", "let_of_known_type", "let_reading_null"],
 )
@@ -2682,14 +3236,14 @@ def test_checking_nested_arguments_grows_linearly(
 def _null_chain(length: int) -> tuple[int, list[tuple[str, int, int, str]]]:
     """Typing work and errors for `k0 = null`, each further `let:` name the
     one before passed through a nullable def, and the last read by a call
-    whose parameter is `not null`."""
+    whose parameter is non-null."""
 
     source = (
         SHAPES
         + DEFS
-        + "def same(x: Int nullable) -> Int nullable: return x\n"
-        + "table t:\n    from rows\n    let:\n        k0 = null\n"
-        + "".join(f"        k{i} = same(k{i - 1})\n" for i in range(1, length))
+        + "def same(x: Int | None) -> Int | None: return x\n"
+        + "table t:\n    from rows\n\n    let k0 = None\n"
+        + "".join(f"    let k{i} = same(k{i - 1})\n" for i in range(1, length))
         + f"    select:\n        id\n        v = pos(same(k{length - 1}))\n"
     )
     parsed = parse_source(source, path="m.pietto")
@@ -2702,7 +3256,7 @@ def _null_chain(length: int) -> tuple[int, list[tuple[str, int, int, str]]]:
 
 def test_writing_a_chain_of_null_lets_grows_linearly() -> None:
     """Null fits every nullable parameter on its way, so the literal written
-    for each name carries at most its first `not null` one, not every
+    for each name carries at most its first non-null one, not every
     parameter before it: twice the chain costs at most about twice the
     typing work, and the error is still at the first call it does not fit."""
     work, errors = _null_chain(100)
@@ -2715,7 +3269,7 @@ def test_writing_a_chain_of_null_lets_grows_linearly() -> None:
                 BODY_LINE + 6 + length,
                 13,
                 "Invalid argument for def pos at position 1 (x): "
-                "expected Int not null, got null",
+                "expected Int, got null",
             )
         ]
         for length in (100, 200)
@@ -2729,11 +3283,11 @@ def _doubling(depth: int) -> int:
 
     source = (
         SHAPES
-        + "def same(x: Int nullable) -> Int nullable: return x\n"
-        + "table t:\n    from rows\n    let:\n        k = null\n"
-        + "        s0 = upper(k) + 1\n"
-        + "".join(f"        s{i} = s{i - 1} + s{i - 1}\n" for i in range(1, depth + 1))
-        + "".join(f"        t{j} = s{depth} + {j}\n" for j in range(20))
+        + "def same(x: Int | None) -> Int | None: return x\n"
+        + "table t:\n    from rows\n\n    let k = None\n"
+        + "    let s0 = upper(k) + 1\n"
+        + "".join(f"    let s{i} = s{i - 1} + s{i - 1}\n" for i in range(1, depth + 1))
+        + "".join(f"    let t{j} = s{depth} + {j}\n" for j in range(20))
         + "    select:\n        id\n        v = same(k)\n"
     )
     parsed = parse_source(source, path="m.pietto")
@@ -2757,20 +3311,20 @@ def test_writing_lets_keeps_one_copy_of_each_error_they_read() -> None:
     ("head", "item", "code", "column"),
     [
         (
-            "def tw(x: Int nullable) -> Int nullable: return x + x\n",
+            "def tw(x: Int | None) -> Int | None: return x + x\n",
             "tw(upper(k) + 1)",
             "PIE-S2105",
             16,
         ),
         (
-            "def nn(x: Int not null) -> Int not null: return x\n",
+            "def nn(x: Int) -> Int: return x\n",
             "nn(k)",
             "PIE-S2395",
             13,
         ),
         (
-            "def nn(x: Int not null) -> Int not null: return x\n",
-            "nn(null)",
+            "def nn(x: Int) -> Int: return x\n",
+            "nn(None)",
             "PIE-S2395",
             13,
         ),
@@ -2793,7 +3347,7 @@ def test_each_item_reports_its_argument_errors_without_comparing_earlier_ones(
         source = (
             SHAPES
             + head
-            + "table t:\n    from rows\n    let:\n        k = null\n"
+            + "table t:\n    from rows\n\n    let k = None\n"
             + "    select:\n        id\n"
             + "".join(f"        v{number} = {item}\n" for number in range(items))
         )
@@ -2827,9 +3381,7 @@ def test_concurrent_analyses_check_only_their_own_arguments() -> None:
     two threads, each report only the parameters of their own def."""
     relation = "table t:\n    from rows\n    where f(n)\n    select:\n        id\n"
     programs = {
-        name: SHAPES
-        + f"def f(x: {name} not null) -> Bool not null: return x is null\n"
-        + relation
+        name: SHAPES + (f"def f(x: {name}) -> Bool: return x is None\n") + relation
         for name in ("Int", "Text")
     }
     expected = {
@@ -2838,8 +3390,8 @@ def test_concurrent_analyses_check_only_their_own_arguments() -> None:
                 "PIE-S2395",
                 BODY_LINE + 1,
                 11,
-                f"Invalid argument for def f at position 1 (x): expected {name} "
-                "not null, got Int nullable",
+                f"Invalid argument for def f at position 1 (x): expected {name}, "
+                "got Int | None",
             )
         ]
         for name in programs
@@ -2863,9 +3415,12 @@ def test_no_volatile_function_reaches_a_repeated_argument(function: str) -> None
     """A parameter used twice writes its argument twice in SQL, which keeps
     its meaning because Pietto has no volatile function to pass."""
     source = SHAPES + (
-        "def twice(v: Int nullable) -> Bool nullable: return v > 0 and v < 9\n"
-        f"table t:\n    from rows\n    where twice({function}())\n"
-        "    select:\n        id\n"
+        "def twice(v: Int | None) -> Bool | None: return v > 0 and v < 9\n"
+        "table t:\n"
+        "    from rows\n"
+        f"    where twice({function}())\n"
+        "    select:\n"
+        "        id\n"
     )
     assert _errors(source) == [
         ("PIE-S2103", BODY_LINE + 1, 17, f"Unknown function: {function}")
@@ -2890,3 +3445,455 @@ def _expression_nodes(expression: Any) -> list[Any]:
             if is_dataclass(child) and hasattr(child, "span")
         )
     return found
+
+
+def test_scalar_def_does_not_consume_same_named_row_predicate() -> None:
+    from pietto import ast_nodes as ast
+
+    span = Span(path="callables.pietto", line=1, column=1, end_line=1, end_column=30)
+    integer = ast.TypeExpr(
+        span=span, name="Int", arguments=(), nullability=ast.Nullability.NOT_NULL
+    )
+    boolean = ast.TypeExpr(
+        span=span, name="Bool", arguments=(), nullability=ast.Nullability.NULLABLE
+    )
+    scalar = FunctionDef(
+        span=span,
+        name="Positive",
+        parameters=(ast.Parameter(span=span, name="x", type=integer),),
+        return_type=boolean,
+        body=ast.ComparisonExpr(
+            span=span,
+            operator=">",
+            left=NameExpr(span=span, name="x"),
+            right=ast.LiteralExpr(span=span, value=0),
+        ),
+    )
+    template = ast.RelationshipTemplate(
+        span=span,
+        name="Positive",
+        parameters=(
+            ast.RelationshipParameter(span=span, name="row", shape_name="Row"),
+        ),
+        body=ast.ComparisonExpr(
+            span=span,
+            operator=">",
+            left=ast.DottedNameExpr(span=span, parts=("row", "id")),
+            right=ast.LiteralExpr(span=span, value=0),
+        ),
+    )
+    row_call = CallExpr(
+        span=span,
+        callee=NameExpr(span=span, name="Positive"),
+        arguments=(NameExpr(span=span, name="rows"),),
+    )
+    scalar_call = CallExpr(
+        span=replace(span, line=2, end_line=2),
+        callee=NameExpr(span=span, name="Positive"),
+        arguments=(ast.LiteralExpr(span=span, value=1),),
+    )
+    query = ast.QueryDef(
+        span=span,
+        name="q",
+        from_clause=ast.FromClause(span=span, source_name="rows"),
+        where_clause=None,
+        group_by_clause=None,
+        select_items=(
+            SelectItem(span=span, alias="row_ok", expression=row_call),
+            SelectItem(span=span, alias="scalar_ok", expression=scalar_call),
+        ),
+    )
+    script = Script(
+        span=span,
+        header=None,
+        definitions=(scalar, query),
+        relationship_templates=(template,),
+    )
+    result, diagnostics = inline_functions(script)
+    assert diagnostics == ()
+    output = result.definitions[0]
+    assert isinstance(output, ast.QueryDef)
+    assert output.select_items[0].expression is row_call
+    assert isinstance(output.select_items[1].expression, ast.ComparisonExpr)
+    assert result.relationship_templates[0] is template
+
+
+@pytest.mark.parametrize("kind", ("semi", "anti"))
+def test_hidden_join_binding_does_not_defer_same_named_scalar_function(
+    kind: str,
+) -> None:
+    from pietto import ast_nodes as ast
+    from pietto.ir import build_ir
+
+    negation = "not " if kind == "anti" else ""
+    parsed = parse_source(
+        f"""shape Row:
+    id: Int
+    hidden: Int
+source rows: Row = postgres.table("rows")
+source others: Row = postgres.table("others")
+def Match(x: Int) -> Bool | None: return x > 0
+relationship Match(row: Row):
+    row.id > 0
+query q:
+    from rows
+    let hidden = others
+    where {negation}any(rows.id == hidden.id for hidden in hidden)
+    select:
+        ok = Match(hidden)
+""",
+        path="hidden-row.pietto",
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    result = analyze(parsed.ast)
+    assert result.diagnostics == () and result.script is not None
+    query = result.model.relation_symbols["q"]
+    assert isinstance(query, ast.QueryDef)
+    assert isinstance(query.select_items[0].expression, ast.ComparisonExpr)
+    assert result.model.relationship_calls == ()
+    lowered = build_ir(result.script, result.model)
+    assert lowered.diagnostics == () and lowered.ir is not None
+
+
+def test_order_by_scalar_call_is_not_deferred_as_a_row_predicate() -> None:
+    from pietto import ast_nodes as ast
+    from pietto.ir import build_ir
+
+    parsed = parse_source(
+        """shape Row:
+    rows: Int
+source rows: Row = postgres.table("rows")
+def Key(x: Int) -> Int: return x
+relationship Key(row: Row):
+    row.rows > 0
+query q:
+    from rows
+    select:
+        rows
+    order by:
+        Key(rows)
+""",
+        path="scalar-order.pietto",
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    result = analyze(parsed.ast)
+    assert result.diagnostics == () and result.script is not None
+    query = result.model.relation_symbols["q"]
+    assert isinstance(query, ast.QueryDef) and query.order_by_clause is not None
+    assert isinstance(query.order_by_clause.items[0].expression, ast.NameExpr)
+    assert result.model.relationship_calls == ()
+    lowered = build_ir(result.script, result.model)
+    assert lowered.diagnostics == () and lowered.ir is not None
+
+
+@pytest.mark.parametrize("after", [False, True], ids=["before-call", "after-call"])
+@pytest.mark.parametrize(
+    ("declaration", "call"),
+    [
+        ("def Float(x: Int) -> Int: return x\n", "Float(1)"),
+        ("def Float() -> Int: return 7\n", "Float()"),
+    ],
+)
+def test_authored_float_function_wins_regardless_of_order_or_arity(
+    after: bool, declaration: str, call: str
+) -> None:
+    from pietto import ast_nodes as ast
+
+    query = (
+        "shape Row:\n    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query q:\n    from rows\n    select:\n"
+        f"        value = {call}\n"
+    )
+    parsed = parse_source(query + declaration if after else declaration + query)
+    assert parsed.diagnostics == () and parsed.ast is not None
+    result = analyze(parsed.ast)
+    assert result.diagnostics == ()
+    relation = result.model.relation_symbols["q"]
+    assert type(relation) is ast.QueryDef
+    expression = relation.select_items[0].expression
+    assert type(expression) is ast.LiteralExpr
+    assert result.model.expression_value_types[expression].resolved_type.name == "Int"
+
+
+def test_shadowed_float_wrong_arity_is_a_user_function_error() -> None:
+    source = (
+        "def Float(x: Int) -> Int: return x\n"
+        'source rows = postgres.table("rows")\n'
+        "query q:\n    from rows\n    select:\n"
+        "        value = Float(1, 2)\n"
+    )
+    errors = _errors(source)
+    assert [(code, message) for code, _, _, message in errors] == [
+        ("PIE-S2395", "Invalid arguments for def Float: expected 1, got 2")
+    ]
+
+
+def test_float_constructor_expansion_preserves_each_argument_obligation_and_target() -> (
+    None
+):
+    from pietto import ast_nodes as ast
+
+    parsed = parse_source(
+        "def twice(x: Float | None) -> Float | None: return x + x\n"
+        "shape Row:\n    count: Int | None\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query q:\n    from rows\n    select:\n"
+        "        value = twice(Float(count))\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    result = analyze(parsed.ast)
+    assert result.diagnostics == ()
+    relation = result.model.relation_symbols["q"]
+    assert type(relation) is ast.QueryDef
+    expression = relation.select_items[0].expression
+    assert type(expression) is ast.BinaryExpr
+    assert type(expression.left) is ast.CastExpr
+    assert type(expression.right) is ast.CastExpr
+    assert expression.left is not expression.right
+    assert expression.left.target is not expression.right.target
+    assert expression.left.span.occurrence != expression.right.span.occurrence
+    for converted in (expression.left, expression.right):
+        assert converted.target in result.model.type_resolutions
+        assert converted.target in result.model.type_expansions
+        assert [slot.function for slot in ast.inlined_arguments(converted)] == ["twice"]
+
+
+@pytest.mark.parametrize("kind", ["constraint", "derive"])
+def test_float_constructor_does_not_take_an_existing_callable_name(kind: str) -> None:
+    parsed = parse_source(
+        f"{kind} Float(x: Int) -> Int:\n    return x\n"
+        'source rows = postgres.table("rows")\n'
+        "query q:\n    from rows\n    select:\n"
+        "        value = Float(1)\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    normalized, diagnostics = inline_functions(parsed.ast)
+    assert diagnostics == () and normalized is parsed.ast
+
+
+def test_float_constructor_keeps_relationship_and_qualified_calls() -> None:
+    from pietto import ast_nodes as ast
+
+    source = (
+        "shape Row:\n    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "relationship Float(row: Row):\n    row.id > 0\n"
+        "query q:\n    from rows\n    select:\n"
+        "        value = Float(rows)\n"
+    )
+    parsed = parse_source(source)
+    assert parsed.diagnostics == () and parsed.ast is not None
+    normalized, diagnostics = inline_functions(parsed.ast)
+    assert diagnostics == () and normalized is parsed.ast
+    checked = analyze(parsed.ast)
+    assert checked.diagnostics == ()
+    assert len(checked.model.relationship_calls) == 1
+    qualified = parse_source(
+        'source rows = postgres.table("rows")\n'
+        "query q:\n    from rows\n    select:\n"
+        "        value = other.Float(1)\n"
+    )
+    assert qualified.diagnostics == () and qualified.ast is not None
+    normalized, diagnostics = inline_functions(qualified.ast)
+    assert diagnostics == () and normalized is qualified.ast
+    relation = normalized.definitions[-1]
+    assert type(relation) is ast.QueryDef
+    assert type(relation.select_items[0].expression) is ast.CallExpr
+
+
+def test_float_constructor_leaves_a_window_or_table_function_call() -> None:
+    from pietto import ast_nodes as ast
+
+    parsed = parse_source(
+        "shape Row:\n    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query q:\n    from rows\n    select:\n"
+        "        w = Float(Float(id)) window(order by id)\n"
+        "        v = Float(id)\n"
+        "query t:\n    from Float(1) as n\n    select n\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    normalized, diagnostics = inline_functions(parsed.ast)
+    assert diagnostics == ()
+    query, table_function = normalized.definitions[-2:]
+    assert type(query) is ast.QueryDef
+    window, value = (item.expression for item in query.select_items)
+    assert type(window) is ast.WindowExpr and type(window.call) is ast.CallExpr
+    assert type(window.call.arguments[0]) is ast.CastExpr
+    assert type(value) is ast.CastExpr
+    # The table-function relation is unchanged, its call included.
+    assert table_function is parsed.ast.definitions[-1]
+    assert type(table_function) is ast.BlockRelationDef
+    assert type(table_function.body) is ast.SelectBody
+    from_clause = table_function.body.from_clause
+    assert type(from_clause) is ast.TableFunctionFromClause
+    assert type(from_clause.call) is ast.CallExpr
+
+
+_ROWS = 'shape Row:\n    id: Int\nsource rows: Row = postgres.table("rows")\n'
+_ANY = "any(True for x in rows)"
+_ANY_V1 = (
+    "any(...): a schema_version = 1 project has no any(...) in the current "
+    "syntax; set schema_version = 2 to check it."
+)
+_LOWER_QUALIFY = (
+    "Single-file explain and emit-sql cannot lower QUALIFY; it is lowered only "
+    "in EXPLICIT_MODULES projects (schema version 2)"
+)
+_MODES = ("single", "emit-sql", "v1", "v2")
+# Each source names the window's or table function's own call `{f}`; per
+# mode, the diagnostics as (code, line, column, end line, end column,
+# message), where `{f}` in a message is that name.
+_Found = list[tuple[str, int, int, int, int, str]]
+_OWN_CALLS: dict[str, tuple[str, dict[str, _Found]]] = {
+    "select": (
+        "    select:\n        id\n        w = {f}(id) window(order by id)\n",
+        dict.fromkeys(_MODES, [("PIE-S2103", 8, 13, 8, 22, "Unknown function: {f}")]),
+    ),
+    "select_two_arguments": (
+        "    select:\n        id\n        w = {f}(id, id) window(order by id)\n",
+        dict.fromkeys(_MODES, [("PIE-S2103", 8, 13, 8, 26, "Unknown function: {f}")]),
+    ),
+    "select_named_window": (
+        "    let ordered = window(order by id)\n"
+        "    select:\n        id\n        w = {f}(id) window ordered(partition by id)\n",
+        dict.fromkeys(_MODES, [("PIE-S2103", 9, 13, 9, 22, "Unknown function: {f}")]),
+    ),
+    "select_float_argument": (
+        "    select:\n        id\n        w = {f}(Float(id)) window(order by id)\n",
+        dict.fromkeys(_MODES, [("PIE-S2103", 8, 13, 8, 29, "Unknown function: {f}")]),
+    ),
+    "select_any_argument": (
+        f"    select:\n        id\n        w = {{f}}({_ANY}) window(order by id)\n",
+        {
+            **dict.fromkeys(
+                _MODES, [("PIE-S2103", 8, 13, 8, 43, "Unknown function: {f}")]
+            ),
+            "v1": [
+                ("PIE-S2334", 8, 19, 8, 42, _ANY_V1),
+                ("PIE-S2103", 8, 13, 8, 43, "Unknown function: {f}"),
+            ],
+        },
+    ),
+    # Single-file `check` accepts any authored QUALIFY, its windows included.
+    "qualify": (
+        "    select id\n    qualify {f}(id) window(order by id) > 0\n",
+        {
+            "single": [],
+            "emit-sql": [("PIE-I1000", 7, 5, 7, 46, _LOWER_QUALIFY)],
+            "v1": [],
+            "v2": [("PIE-S2103", 7, 13, 7, 22, "Unknown function: {f}")],
+        },
+    ),
+    "qualify_comparison_chain": (
+        "    select id\n    qualify 0 < {f}(id) window(order by id) < 10\n",
+        {
+            "single": [],
+            "emit-sql": [("PIE-I1000", 7, 5, 7, 51, _LOWER_QUALIFY)],
+            "v1": [],
+            "v2": [("PIE-S2103", 7, 17, 7, 26, "Unknown function: {f}")],
+        },
+    ),
+    "qualify_any_argument": (
+        f"    select id\n    qualify {{f}}({_ANY}) window(order by id) > 0\n",
+        {
+            **dict.fromkeys(
+                _MODES,
+                [("PIE-S2334", 7, 19, 7, 42, "ANY is not supported in this context")],
+            ),
+            "v1": [("PIE-S2334", 7, 19, 7, 42, _ANY_V1)],
+        },
+    ),
+    "table_function": (
+        "",
+        {
+            **dict.fromkeys(
+                _MODES,
+                [
+                    (
+                        "PIE-S2352",
+                        5,
+                        5,
+                        5,
+                        23,
+                        "Table-function FROM inputs are available only in "
+                        "EXPLICIT_MODULES projects (schema version 2).",
+                    )
+                ],
+            ),
+            "v2": [
+                (
+                    "PIE-S2373",
+                    5,
+                    10,
+                    5,
+                    15,
+                    "Only generate_series(Int, Int, Int) is an admitted table function.",
+                ),
+                (
+                    "PIE-S2333",
+                    4,
+                    1,
+                    6,
+                    13,
+                    "Project relation semantic completion is unavailable: q",
+                ),
+            ],
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("name", ["Float", "other"])
+@pytest.mark.parametrize("mode", _MODES)
+@pytest.mark.parametrize("case", list(_OWN_CALLS))
+def test_float_as_a_window_or_table_function_is_an_unknown_function(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    case: str,
+    mode: str,
+    name: str,
+) -> None:
+    """``Float`` as a window's or a table function's own call reports what
+    an unknown name of its length (``other``) does, in each mode."""
+
+    import pietto.cli as cli
+
+    body, expected = _OWN_CALLS[case]
+    source = _ROWS + (
+        "query q:\n    from rows\n" + body
+        if body
+        else "query q:\n    from {f}(1) as n\n    select n\n"
+    )
+    source = source.replace("{f}", name)
+    if mode in ("single", "emit-sql"):
+        path = tmp_path / "m.pietto"
+        path.write_text(source, encoding="utf-8")
+        command = ["check", "--format", "json", str(path)]
+        if mode == "emit-sql":
+            command[:1] = ["emit-sql", "--dialect", "postgres"]
+    else:
+        (tmp_path / "pietto.toml").write_text(
+            f'schema_version = {mode[1]}\n\n[sources]\ninclude = ["*.pietto"]\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
+        command = ["check", "--project", str(tmp_path), "--format", "json"]
+    found = [
+        (code, line, column, end_line, end_column, message.replace("{f}", name))
+        for code, line, column, end_line, end_column, message in expected[mode]
+    ]
+    assert cli.main(command) == (1 if found else 0)
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert [
+        (
+            item["code"],
+            item["location"]["line"],
+            item["location"]["column"],
+            item["location"]["end_line"],
+            item["location"]["end_column"],
+            item["message"],
+        )
+        for item in diagnostics
+    ] == found

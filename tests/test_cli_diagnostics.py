@@ -114,13 +114,17 @@ def test_warning_only_check_writes_diagnostic_to_stderr_and_succeeds(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "warning.pietto", "shape User:\n    email: Text\n")
+    path = _write(
+        tmp_path,
+        "warning.pietto",
+        'shape User:\n    email: Text\nsource raw = postgres.table("raw")\n',
+    )
 
     assert cli.main(["check", str(path)]) == 0
 
     captured = capsys.readouterr()
     assert captured.out == f"OK: {path}\n"
-    assert captured.err.startswith(f"{path}:2:12 PIE-S2005 warning:")
+    assert captured.err.startswith(f"{path}:3:1 PIE-S2303 warning:")
 
 
 def test_multiple_check_diagnostics_remain_ordered_and_off_stdout(
@@ -130,9 +134,7 @@ def test_multiple_check_diagnostics_remain_ordered_and_off_stdout(
     path = _write(
         tmp_path,
         "multiple.pietto",
-        "shape User:\n"
-        "    first: MissingOne not null\n"
-        "    second: MissingTwo not null\n",
+        "shape User:\n    first: MissingOne\n    second: MissingTwo\n",
     )
 
     assert cli.main(["check", str(path)]) == 1
@@ -145,6 +147,33 @@ def test_multiple_check_diagnostics_remain_ordered_and_off_stdout(
     assert "Unknown type: MissingTwo" in lines[1]
 
 
+def test_check_text_states_the_fix_of_a_retired_spelling_on_one_line(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(
+        tmp_path,
+        "retired.pietto",
+        "shape Flags:\n"
+        "    id: Int\n"
+        "    email: Text | None\n"
+        'source flags: Flags = postgres.table("flags")\n'
+        "query no_email:\n"
+        "    from flags\n"
+        "    where email is null\n"
+        "    select id\n",
+    )
+
+    assert cli.main(["check", str(path)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"{path}:7:20 PIE-P1000 error: This spelling is not accepted by the modern "
+        "syntax. Write 'is None' or 'is not None'.\n"
+    )
+
+
 def test_valid_check_keeps_stderr_empty(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -152,7 +181,7 @@ def test_valid_check_keeps_stderr_empty(
     path = _write(
         tmp_path,
         "valid.pietto",
-        "shape User:\n    email: Text not null\n",
+        "shape User:\n    email: Text\n",
     )
 
     assert cli.main(["check", str(path)]) == 0

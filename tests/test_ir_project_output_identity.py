@@ -47,10 +47,10 @@ SPEC_HEADINGS = (
 
 def _source() -> str:
     return """shape Row:
-    id: Int not null
-    amount: Int nullable
-    category: Text nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    amount: Int | None
+    category: Text | None
+source rows: Row = postgres.table("rows")
 query direct:
     from rows
     select:
@@ -76,9 +76,7 @@ query windowed:
     from rows
     select:
         id
-        ranking = row_number() window:
-            order by:
-                id
+        ranking = row_number() window(order by id)
 query mixed:
     from rows
     group by:
@@ -86,9 +84,7 @@ query mixed:
     select:
         category
         total = sum(amount)
-        ranking = row_number() window:
-            order by:
-                total desc
+        ranking = row_number() window(order by total desc)
 query same_a:
     from rows
     select:

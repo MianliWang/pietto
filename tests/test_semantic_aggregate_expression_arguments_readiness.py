@@ -5,10 +5,10 @@ from pietto.semantic import analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    amount: Decimal not null\n"
-    "    score: Float not null\n"
-    "    customer_id: UUID not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    amount: Decimal\n"
+    "    score: Float\n"
+    "    customer_id: UUID\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 

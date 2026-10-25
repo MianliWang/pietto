@@ -28,193 +28,132 @@ WINDOW_SOURCE = (
     + """
 query window_joined_ok:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        direct = event.id
-        chain = direct
-        computed = event.metric + 1
+    let event = events
+    inner join event on account_events(accounts, event)
+    let direct = event.id
+    let chain = direct
+    let computed = event.metric + 1
     select:
         ordinary = accounts.label
-        ranked = row_number() window:
-            partition by:
-                chain
-            order by:
-                event.id
-        navigated = lag(event.metric, 1, accounts.metric) ignore nulls window:
-            order by:
-                direct desc
-        framed = first_value(event.metric) ignore nulls window:
-            order by:
-                event.id
-            rows between unbounded preceding and current row exclude ties
+        ranked = row_number() window(partition by chain order by event.id)
+        navigated = lag(event.metric, 1, accounts.metric) ignore nulls window(order by direct desc)
+        framed = first_value(event.metric) ignore nulls window(order by event.id rows between unbounded preceding and current row exclude ties)
 query window_ambiguous:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                id
+        ranked = rank() window(order by id)
 query window_computed_let:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        computed = event.metric + 1
+    let event = events
+    inner join event on account_events(accounts, event)
+    let computed = event.metric + 1
     select:
-        ranked = rank() window:
-            order by:
-                computed
+        ranked = rank() window(order by computed)
 query window_relation_fallback:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                events.id
+        ranked = rank() window(order by events.id)
 query window_sequential:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = row_number() window:
-            order by:
-                event.id
-        later = rank() window:
-            order by:
-                ranked
+        ranked = row_number() window(order by event.id)
+        later = rank() window(order by ranked)
 query window_projection_alias:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         ordinary = event.id
-        ranked = rank() window:
-            order by:
-                ordinary
+        ranked = rank() window(order by ordinary)
 query window_grouped_ok:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        key = event.id
-        key_chain = key
+    let event = events
+    inner join event on account_events(accounts, event)
+    let key = event.id
+    let key_chain = key
     group by:
         key
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            partition by:
-                key_chain
-            order by:
-                total
-        navigated = lead(total, 0, total) window:
-            order by:
-                event_id
+        ranked = rank() window(partition by key_chain order by total)
+        navigated = lead(total, 0, total) window(order by event_id)
 query window_grouped_raw_input:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            order by:
-                accounts.metric
+        ranked = rank() window(order by accounts.metric)
 query window_grouped_qualified_input:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            order by:
-                event.id
+        ranked = rank() window(order by event.id)
 query window_global:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         total = sum(event.metric)
-        ranked = row_number() window:
-            order by:
-                total
+        ranked = row_number() window(order by total)
 query window_named_ok:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
+    let framed = window ordered(rows between unbounded preceding and current row exclude current row)
+    let alias = window ordered
+    let ordered = window(order by event.id desc)
+    let later = window ordered
     select:
         ranked = rank() window alias
-        extended = dense_rank() window ordered:
-            partition by:
-                accounts.id
+        extended = dense_rank() window ordered(partition by accounts.id)
         framed = nth_value(event.metric, 2) from last ignore nulls window framed
-    window framed = ordered:
-        rows between unbounded preceding and current row exclude current row
-    window alias = ordered
-    window ordered:
-        order by:
-            event.id desc
-    window later = ordered
 query window_named_conflict:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
+    let base = window(order by event.id)
+    let repeated = window base(order by accounts.id)
     select:
         ranked = rank() window repeated
-    window base:
-        order by:
-            event.id
-    window repeated = base:
-        order by:
-            accounts.id
 query window_named_dangling:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
+    let dangling = window missing
     select:
         ranked = rank() window dangling
-    window dangling = missing
 query window_named_cycle:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
+    let first = window second
+    let second = window first
     select:
         ranked = rank() window first
-    window first = second
-    window second = first
 query window_hidden_multihop:
     from accounts
-    inner join signals as signal:
-        from accounts
-        via account_dimension: account -> dimension
-        via dimension_signals: dimension -> signal
+    let dimension = dimensions
+    inner join dimension on account_dimension(accounts, dimension)
+    let signal = signals
+    inner join signal on dimension_signals(dimension, signal)
     select:
-        ranked = rank() window:
-            order by:
-                dimensions.id
+        ranked = rank() window(order by dimensions.id)
 """
 )
 

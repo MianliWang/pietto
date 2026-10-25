@@ -64,7 +64,7 @@ def test_relation_dependency_graph_nodes_are_table_query_only_and_ordered(
     _write(
         root,
         "models/b_source.pietto",
-        'source rows: Row is postgres.table("rows")\n',
+        'source rows: Row = postgres.table("rows")\n',
     )
     _write(
         root,
@@ -148,7 +148,7 @@ def test_project_json_v2_does_not_expose_relation_dependency_graph(
         "good.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"

@@ -28,9 +28,9 @@ from pietto.semantic import (
 
 SOURCE = (
     "shape User:\n"
-    "    email: Text nullable\n"
-    "    count: Int not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    email: Text | None\n"
+    "    count: Int\n"
+    'source users: User = postgres.table("users")\n'
 )
 
 
@@ -269,11 +269,11 @@ def test_q1_closed_builtin_catalog_has_typed_nullable_results() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    name: Text nullable\n"
-            "    amount: Decimal nullable\n"
-            "    count: Int nullable\n"
-            "    happened_at: Timestamp nullable\n"
-            'source users: User is postgres.table("users")\n'
+            "    name: Text | None\n"
+            "    amount: Decimal | None\n"
+            "    count: Int | None\n"
+            "    happened_at: Timestamp | None\n"
+            'source users: User = postgres.table("users")\n'
             "table projected:\n"
             "    from users\n"
             "    select:\n"
@@ -311,14 +311,14 @@ def test_abs_keeps_its_argument_type_and_nullability() -> None:
     # A null argument is read as a Decimal.
     result = analyze(
         _parse(
-            "type Age = Int not null\n"
+            "type Age = Int\n"
             "shape User:\n"
-            "    count: Int not null\n"
-            "    score: Float nullable\n"
-            "    age: Age not null\n"
-            "    amount: Decimal nullable\n"
-            "    name: Text not null\n"
-            'source users: User is postgres.table("users")\n'
+            "    count: Int\n"
+            "    score: Float | None\n"
+            "    age: Age\n"
+            "    amount: Decimal | None\n"
+            "    name: Text\n"
+            'source users: User = postgres.table("users")\n'
             "table projected:\n"
             "    from users\n"
             "    where abs(count)\n"
@@ -328,7 +328,7 @@ def test_abs_keeps_its_argument_type_and_nullability() -> None:
             "        c = abs(age)\n"
             "        d = abs(-1.5)\n"
             "        e = abs(amount)\n"
-            "        f = abs(null)\n"
+            "        f = abs(None)\n"
             "        g = abs(name)\n"
         )
     )
@@ -365,7 +365,7 @@ def test_abs_keeps_its_argument_type_and_nullability() -> None:
     # a field of a source without a shape; as a condition it is a number.
     result = analyze(
         _parse(
-            'source items is postgres.table("items")\n'
+            'source items = postgres.table("items")\n'
             "table projected:\n"
             "    from items\n"
             "    where abs(t)\n"

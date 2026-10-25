@@ -21,8 +21,8 @@ from pietto.sql.render import quote_identifier, render_literal
 
 SOURCE = (
     "shape User:\n"
-    "    email: Text not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    email: Text\n"
+    'source users: User = postgres.table("users")\n'
     "table user_emails:\n"
     "    from users\n"
     "    select:\n"
@@ -34,7 +34,7 @@ def test_psec_001_long_numeric_literal_is_diagnosed_without_cli_traceback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    source = "type Huge = Int(max = " + "9" * 5000 + ") not null\n"
+    source = "type Huge = Int(max = " + "9" * 5000 + ")\n"
 
     result = parse_source(source, path="huge-integer.pietto")
 
@@ -56,7 +56,7 @@ def test_psec_002_deep_parser_input_is_diagnosed_without_cli_traceback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    source = "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n"
+    source = "derive deep() -> Int:\n    return " + "+" * 1500 + "1\n"
 
     result = parse_source(source, path="deep-parser.pietto")
 
@@ -80,7 +80,7 @@ def test_psec_002_semantic_recursion_stops_emit_sql_before_ir_and_backend(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     expression = " + ".join(["1"] * 1200)
-    source = f"derive total() -> Int not null:\n    {expression}\n"
+    source = f"derive total() -> Int:\n    return {expression}\n"
     parse_result = parse_source(source, path="deep-semantic.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None

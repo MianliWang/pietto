@@ -27,41 +27,34 @@ SLICE14_SOURCE = (
     + """
 query filtered:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     where event.id > 0
     select:
         event_id = event.id
 query satisfying:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(event.metric)
-    satisfying:
+    having:
         event_id > 0 and total > 0
 query hidden_qualify:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        row_number() window:
-            order by:
-                event.id
-        <= 3
+        row_number() window(order by event.id) <= 3
 query ordered_limited:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     order by:
@@ -69,34 +62,29 @@ query ordered_limited:
     limit 1
 query computed:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
         doubled = event.metric * 2
 query key_drop:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         metric = event.metric
 query mixed:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     where event.id > 0
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(event.metric)
-        ranked = rank() window:
-            order by:
-                total
-    satisfying:
+        ranked = rank() window(order by total)
+    having:
         event_id > 0 and total > 0
     qualify:
         ranked <= 3
@@ -108,9 +96,7 @@ query replay_selected:
     from accounts
     select:
         id
-        ranked = row_number() window:
-            order by:
-                id
+        ranked = row_number() window(order by id)
     qualify:
         ranked <= 3
 query replay_full:
@@ -118,9 +104,7 @@ query replay_full:
     where id > 0
     select:
         id
-        ranked = row_number() window:
-            order by:
-                id
+        ranked = row_number() window(order by id)
     qualify:
         ranked <= 3
     order by:
@@ -142,19 +126,11 @@ query qualified_events:
         account_id
         metric
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
-relationship account_qualified_events:
-    endpoint account: accounts
-    endpoint event: qualified_events
-    on account.id == event.account_id
+        row_number() window(order by id) <= 3
 query stale_join:
     from accounts
-    inner join qualified_events as event:
-        from accounts
-        via account_qualified_events: account -> event
+    let event = qualified_events
+    inner join event on accounts.id == event.account_id
     select:
         event_id = event.id
 query downstream_stale:
@@ -162,41 +138,31 @@ query downstream_stale:
     select:
         event_id
 shape DetailRow:
-    id: Int not null
-    event_id: Int not null
-    unique detail_key on id
-source details: DetailRow is postgres.table("details")
-relationship event_details:
-    endpoint event: events
-    endpoint detail: details
-    on event.id == detail.event_id
+    id: Int
+    event_id: Int
+    detail_key = unique(id)
+source details: DetailRow = postgres.table("details")
+relationship event_details(event: EventRow, detail: DetailRow):
+    event.id == detail.event_id
 query multi_join:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    left join details as detail:
-        from event
-        via event_details: event -> detail
+    let event = events
+    inner join event on account_events(accounts, event)
+    let detail = details
+    left join detail on event_details(event, detail)
     select:
         account_id = accounts.id
         event_id = event.id
         detail_id = detail.id
 query left_selected_hidden:
     from accounts
-    left join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    left join event on account_events(accounts, event)
     select:
         event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
     qualify:
-        ranked <= 3 and row_number() window:
-            order by:
-                event.id
-        <= 3
+        ranked <= 3 and row_number() window(order by event.id) <= 3
 query semantic_bad:
     from missing
     select:

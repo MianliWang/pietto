@@ -6,15 +6,15 @@ import json
 
 import pytest
 
-from _pietto_project_join import BASE, _completed, _source
+from _pietto_project_join import BASE, _completed, _parsed, _source
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
 )
 from pietto._project.project_relationship_uses import (
-    ProjectConcreteJoinUse,
     ProjectNonConcreteJoinUse,
+    ProjectRelationBindingOccurrence,
 )
 from pietto._project.project_completion import (
     ProjectExistingEffectiveOutput,
@@ -24,15 +24,13 @@ from pietto._project import project_join_conditions as conditions
 from pietto._project import project_relationship_match_guarantees as guarantees
 from pietto._project.project_relationship_paths import ProjectRelationshipJoinShapeIndex
 from pietto._project.model import ProjectRowFieldNullability
-from pietto.ast_nodes import AuthoredJoinKind
+from pietto.ast_nodes import AuthoredJoinKind, FromClause, NameExpr, QueryDef
 from pietto.parser_api import parse_source
 from pietto.semantic.analyzer import analyze_project_namespace
 from pietto.semantic import analyze
 from pietto.ir import build_ir
 from pietto.semantic.model import EffectiveNullability, CheckMode
 from pietto import cli
-from pietto.ast_nodes import QueryDef
-from pietto.semantic import joins
 from pietto.semantic.model import (
     ResolvedType,
     RowField,
@@ -40,12 +38,7 @@ from pietto.semantic.model import (
     TypeKind,
     ValueType,
 )
-from _pietto_semantic_joins import (
-    JOIN_PREFIX,
-    located,
-    resolve_by_declaration,
-    run_joins,
-)
+from _pietto_semantic_joins import JOIN_PREFIX, located, run_joins
 
 
 @pytest.mark.parametrize(
@@ -70,20 +63,23 @@ def test_generic_bool_readiness_is_separate_from_completion(
     assert not any(d.code == "PIE-S2334" for d in completed.diagnostics)
 
 
-def test_refinement_keeps_base_and_conjunct_occurrences(tmp_path: Path) -> None:
+def test_predicate_filter_keeps_call_and_conjunct_occurrences(tmp_path: Path) -> None:
     completed = _completed(
-        tmp_path,
-        _source("r.key > 0 and r.key > 0", via="        via link: l -> r\n"),
+        tmp_path, _source("Link(lhs, r) and r.key > 0 and r.key > 0")
     )
     fact = completed.roots.join_conditions.entries[0]
-    assert fact.ready and fact.mode == "M4"
-    assert fact.scope is not None and fact.refinement_guarantee is not None
-    assert fact.scope.value == "join_local_on_refinement"
-    assert len(fact.base_conditions) == 1
-    assert len(fact.conjuncts) == 2
-    assert fact.conjuncts[0] is not fact.conjuncts[1]
-    assert fact.base_conditions[0].clause.expression is not fact.expression
-    assert fact.refinement_guarantee.base is fact.base_guarantee
+    assert fact.ready and fact.mode == "M3"
+    assert fact.scope is not None and fact.scope.value == "generic_join_match"
+    assert (
+        fact.base_conditions == ()
+        and fact.base_guarantee is fact.refinement_guarantee is None
+    )
+    assert len(fact.conjuncts) == 3
+    assert fact.conjuncts[1] is not fact.conjuncts[2]
+    predicate = fact.environment.predicate_expression
+    assert predicate is not None and len(predicate.calls) == 1
+    assert len(fact.mandatory_equalities) == 1
+    assert fact.mandatory_equalities[0].calls == predicate.calls
 
 
 def test_c04_disjunction_has_no_unconditional_key_proof(tmp_path: Path) -> None:
@@ -128,115 +124,39 @@ def test_generic_never_calls_relationship_discovery(
     assert result.roots.join_conditions.entries[0].ready
 
 
-@pytest.mark.parametrize("kind", tuple(AuthoredJoinKind))
-@pytest.mark.parametrize("via", ("", "        via link: l -> r\n"))
-@pytest.mark.parametrize("on", (None, "lhs.id == r.id"))
-def test_mode_kind_dispatch_preserves_later_kind_admission_boundaries(
-    tmp_path: Path, kind, via, on
-) -> None:
-    completed = _completed(tmp_path, _source(on, kind=kind.value, via=via))
-    fact = completed.roots.join_conditions.entries[0]
-    bad_cross = kind is AuthoredJoinKind.CROSS and bool(via or on)
-    assert fact.ready is not bad_cross
-    assert fact.use.clause.kind is kind
-    assert any(d.code == "PIE-S2336" for d in fact.diagnostics) is bad_cross
-    old = kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT} and on is None
-    supported = (
+# SEMI and ANTI have no JOIN spelling: only an `any` filter before a later JOIN
+# makes one.
+@pytest.mark.parametrize(
+    "kind",
+    tuple(
         kind
-        in {
-            AuthoredJoinKind.INNER,
-            AuthoredJoinKind.LEFT,
-            AuthoredJoinKind.CROSS,
-            AuthoredJoinKind.RIGHT,
-            AuthoredJoinKind.FULL,
-            AuthoredJoinKind.SEMI,
-            AuthoredJoinKind.ANTI,
-        }
-        and not bad_cross
-    )
-    assert completed.ok is supported
-    if old and kind is AuthoredJoinKind.INNER:
-        uses = completed.verification.root.join_regions.uses
-        assert all(isinstance(use, ProjectConcreteJoinUse) for use in uses.uses)
-    if not old:
-        assert not isinstance(fact.use, ProjectConcreteJoinUse)
-        assert not completed.verification.root.join_regions.structural.nodes
-    if kind is AuthoredJoinKind.CROSS:
-        assert fact.mode == "M5" and not fact.base_conditions
-
-
-@pytest.mark.parametrize("kind", tuple(AuthoredJoinKind))
-@pytest.mark.parametrize("on", (None, "lhs.id == r.id"))
-def test_multi_hop_combination_rules(tmp_path: Path, kind, on) -> None:
-    # A real contiguous round trip; only old INNER/LEFT without ON may admit it.
-    source = _source(
-        on, kind=kind.value, via="        via link: l -> r\n        via link: r -> l\n"
-    )
-    source = source.replace(
-        f"{kind.value} join rhs as r:", f"{kind.value} join lhs as r:"
-    )
-    completed = _completed(tmp_path, source)
+        for kind in AuthoredJoinKind
+        if kind not in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
+    ),
+)
+@pytest.mark.parametrize(
+    "predicate", (None, "Link(lhs, r)", "Link(lhs, r) and r.key > 0")
+)
+def test_explicit_condition_kind_dispatch(tmp_path: Path, kind, predicate) -> None:
+    completed = _completed(tmp_path, _source(predicate, kind=kind.value))
     fact = completed.roots.join_conditions.entries[0]
-    allowed = kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT} and on is None
-    assert fact.ready is allowed
-    assert any(d.code == "PIE-S2336" for d in fact.diagnostics) is not allowed
-
-
-@pytest.mark.parametrize("kind", ("right", "full", "semi", "anti"))
-def test_a_join_without_from_keeps_every_source_candidate(
-    tmp_path: Path, kind: str
-) -> None:
-    """A new JOIN kind reads its source from the same complete lookup."""
-    source = (
-        "shape Row:\n    id: Int not null\n    unique row_key on id\n"
-        'source lhs: Row is postgres.table("lhs")\n'
-        'source rhs: Row is postgres.table("rhs")\n'
-        "relationship link: lhs.id == rhs.id\n"
-        f"query one:\n    from lhs\n    {kind} join rhs as r\n"
-        "    select:\n        id = lhs.id\n"
-        "query two:\n    from lhs\n    inner join lhs as again:\n        from lhs\n"
-        "        on again.id == lhs.id\n"
-        f"    {kind} join rhs as r: via link\n    select:\n        id = lhs.id\n"
-    )
-    one, again, two = _completed(tmp_path, source).roots.join_conditions.entries
-    assert one.ready and again.ready and not two.ready
-    assert one.environment.source_candidates == (one.ledger.bindings[0],)
-    assert two.environment.source_candidates == two.ledger.bindings[:2]
-    assert ("PIE-S2335", "JOIN source binding is ambiguous.") in {
-        (item.code, item.message) for item in two.diagnostics
-    }
-
-
-@pytest.mark.parametrize("kind", ("right", "full", "semi", "anti"))
-def test_a_blocked_join_lookup_is_an_unavailable_input_not_an_unknown_source(
-    tmp_path: Path, kind: str
-) -> None:
-    """A VIA step without roles over a relation joined to itself blocks the
-    lookup of a JOIN without `from`; its source binding is not unknown."""
-    source = (
-        "shape Row:\n    id: Int not null\n    parent: Int nullable\n"
-        "    unique row_key on id\n"
-        'source lhs: Row is postgres.table("lhs")\n'
-        "relationship parent_of:\n    endpoint child: lhs\n    endpoint parent: lhs\n"
-        "    on child.parent == parent.id\n"
-        f"query q:\n    from lhs\n    {kind} join lhs as up: via parent_of\n"
-        "    select:\n        id = lhs.id\n"
-    )
-    (fact,) = _completed(tmp_path, source).roots.join_conditions.entries
-    assert not fact.ready and fact.environment.source_candidates == ()
-    assert [(item.code, item.message) for item in fact.diagnostics] == [
-        (
-            "PIE-S2335",
-            "JOIN pre-match input or relationship authority is unavailable.",
-        )
-    ]
+    valid = (predicate is None) is (kind is AuthoredJoinKind.CROSS)
+    assert fact.ready is valid and completed.ok is valid
+    assert fact.use.clause.kind is kind
+    assert isinstance(fact.use, ProjectNonConcreteJoinUse)
+    assert fact.base_conditions == () and fact.base_guarantee is None
+    assert not completed.verification.root.join_regions.structural.nodes
+    if kind is AuthoredJoinKind.CROSS:
+        assert fact.mode == "M5"
+    elif valid:
+        assert fact.mode == "M3" and len(fact.mandatory_equalities) == 1
 
 
 @pytest.mark.parametrize(
     "predicate, proofs",
     (
-        ("r.key is null", 0),
-        ("r.key is not null", 1),
+        ("r.key is None", 0),
+        ("r.key is not None", 1),
         ("r.key > 0", 1),
         ("lhs.id == r.id and lhs.id == r.id", 4),
         ("lhs.allow_any", 1),
@@ -280,17 +200,16 @@ def test_nullable_bool_and_current_outer_join_inputs(tmp_path: Path) -> None:
 def test_previous_join_nullability_is_retained_without_prefix_ir(
     tmp_path: Path, kind: str
 ) -> None:
-    source = _source("r.id == last.id", kind="left")
-    source = source.replace(
-        "    left join rhs as r:",
-        f"    {kind} join rhs as r:\n        from lhs\n        via link: l -> r\n    left join rhs as last:",
+    source = _source("Link(lhs, r)", kind=kind).replace(
+        "    select:\n",
+        "    let last = rhs\n    left join last on r.id == last.id\n    select:\n",
     )
     completed = _completed(tmp_path, source)
     first, current = completed.roots.join_conditions.entries
     assert first.ready and current.ready
     left, right = (reference.target for reference in current.references)
     assert left is not None and right is not None
-    assert isinstance(first.use, ProjectConcreteJoinUse)
+    assert isinstance(first.use, ProjectNonConcreteJoinUse)
     assert left.binding is first.use.target_binding
     expected = (
         ProjectRowFieldNullability.NULLABLE
@@ -300,43 +219,27 @@ def test_previous_join_nullability_is_retained_without_prefix_ir(
     assert left.nullability is expected
     assert bool(left.null_extensions) is (kind == "left")
     if kind == "left":
-        assert left.null_extensions[0] is first.use.path.steps[0]
+        assert left.null_extensions[0] is first.use.identity
     assert right.nullability is ProjectRowFieldNullability.NON_NULL
     assert not completed.verification.root.join_regions.structural.nodes
 
 
-def test_c03_exact_upper_bound_survives_but_coverage_does_not(tmp_path: Path) -> None:
-    source = _source("r.key > 0", kind="left", via="        via link: l -> r\n")
-    source = source.replace(
-        "    allow_any: Bool nullable\n",
-        "    allow_any: Bool nullable\n    unique id_key on id\n",
-    )
-    fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
-    base, refined = fact.base_guarantee, fact.refinement_guarantee
-    assert base is not None and refined is not None
-    assert refined.base is base
-    assert base.maximum is guarantees.ProjectRelationshipMaximumBound.AT_MOST_ONE
-    assert refined.maximum_evidence is base.maximum_evidence
-    condition = fact.base_conditions[0]
-    correspondence = condition.correspondences[0]
-    coverage = guarantees.ProjectReferentialCoverageEvidence(
-        direction=base.direction,
-        correspondences=condition.correspondences,
-        source_scope=correspondence.endpoint_zero.constraint_scope,
-        target_scope=correspondence.endpoint_one.constraint_scope,
-        policy=guarantees.ProjectReferentialMatchPolicy.MATCH_SIMPLE,
-        origin=guarantees.ProjectReferentialCoverageOrigin.EXPLICIT_RULE_BOUNDARY,
-        trust=guarantees.ProjectReferentialCoverageTrust.TRUSTED,
-        authority=guarantees.ProjectExplicitCoverageAuthority(),
-    )
-    proven = guarantees.derive_directional_match_guarantee(
-        base.direction, condition, base.source_output, base.target_output, coverage
-    )
-    narrowed = guarantees.ProjectRefinedMatchBounds(base=proven)
-    assert proven.minimum is guarantees.ProjectRelationshipMinimumBound.AT_LEAST_ONE
-    assert narrowed.minimum is guarantees.ProjectRelationshipMinimumBound.ZERO_ALLOWED
-    assert narrowed.maximum_evidence is proven.maximum_evidence
-    assert proven.coverage is coverage
+def test_extra_filter_preserves_matched_key_upper_bound_without_coverage(
+    tmp_path: Path,
+) -> None:
+    from _pietto_project_join_full import _unique_source
+
+    fact = _completed(
+        tmp_path, _unique_source("left", "Link(lhs, r) and r.key > 0")
+    ).roots.join_conditions.entries[0]
+    assert fact.base_guarantee is fact.refinement_guarantee is None
+    matches = tuple(m for m in fact.key_matches if m.binding is fact.use.target_binding)
+    assert len(matches) == 1
+    match = matches[0]
+    assert match.maximum is guarantees.ProjectRelationshipMaximumBound.AT_MOST_ONE
+    assert match.minimum is guarantees.ProjectRelationshipMinimumBound.ZERO_ALLOWED
+    assert match.condition is fact and match.equalities == fact.mandatory_equalities
+    assert any(key is match.key for key in match.properties.keys)
 
 
 @pytest.mark.parametrize(
@@ -359,7 +262,7 @@ def test_reference_buckets_never_choose_winners(
 
 def test_self_use_keeps_exact_input_field_and_distinct_bindings(tmp_path: Path) -> None:
     source = _source("lhs.id == r.id").replace(
-        "inner join rhs as r", "inner join lhs as r"
+        "let r = rhs\n    inner join r", "let r = lhs\n    inner join r"
     )
     fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
     left, right = (reference.target for reference in fact.references)
@@ -370,19 +273,33 @@ def test_self_use_keeps_exact_input_field_and_distinct_bindings(tmp_path: Path) 
 
 
 def test_duplicate_alias_is_not_resolved_by_field_or_type(tmp_path: Path) -> None:
-    source = _source("lhs.id == lhs.id").replace("as r:", "as lhs:")
-    fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
-    assert not fact.ready
-    assert all(
-        ref.state.value == "ambiguous" and len(ref.binding_candidates) == 2
-        for ref in fact.references
+    source = (
+        _source("lhs.id == lhs.id")
+        .replace("let r = rhs", "let lhs = rhs")
+        .replace("join r on", "join lhs on")
     )
+    authored = parse_source(source, path="main.pietto")
+    assert authored.ast is not None and authored.diagnostics == ()
+    query = authored.ast.definitions[-1]
+    assert isinstance(query, QueryDef) and isinstance(query.from_clause, FromClause)
+    assert query.from_clause.source_name == "lhs"
+    (binding,) = query.naming_declarations
+    assert isinstance(binding.expression, NameExpr)
+    assert binding.name == "lhs" and binding.expression.name == "rhs"
+    (join,) = query.join_clauses
+    assert join.target_relation_name == "lhs"
+    parsed = _parsed(tmp_path, source)
+    assert not parsed.ok and not parsed.errors
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in parsed.diagnostics
+    ] == [("PIE-S2604", "Ambiguous JOIN input: lhs", join.span.line, join.span.column)]
 
 
 def test_later_binding_reference_is_forward(tmp_path: Path) -> None:
     source = _source("later.id == r.id").replace(
         "    select:\n",
-        "    inner join rhs as later:\n        from lhs\n        on lhs.id == later.id\n    select:\n",
+        "    let later = rhs\n    inner join later on lhs.id == later.id\n    select:\n",
     )
     facts = _completed(tmp_path, source).roots.join_conditions.entries
     reference = facts[0].references[0]
@@ -397,7 +314,7 @@ def test_current_block_later_stage_values_do_not_leak(
 ) -> None:
     source = _source(predicate).replace(
         "    select:\n",
-        "    let:\n        local = lhs.id\n    select:\n        projected = lhs.id\n",
+        "    let local = lhs.id\n    select:\n        projected = lhs.id\n",
     )
     fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
     assert not fact.ready and fact.diagnostics
@@ -411,7 +328,7 @@ def test_available_exported_projection_is_an_input(tmp_path: Path) -> None:
     )
     source = source.replace(
         "query result:\n    from lhs", "query result:\n    from view"
-    ).replace("        from lhs\n        on", "        from view\n        on")
+    )
     fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
     assert fact.ready
     assert fact.references[0].target is not None
@@ -458,40 +375,55 @@ def test_field_reference_and_proof_constructors_enforce_membership(
 
 
 @pytest.mark.parametrize("mode", tuple(CheckMode))
-def test_single_file_check_accepts_on_and_direct_legacy_ir_remains_negative(
-    mode: CheckMode,
-) -> None:
+def test_single_file_condition_keeps_its_exact_join_in_ir(mode: CheckMode) -> None:
     parsed = parse_source(_source("lhs.id == r.id"))
     assert parsed.ast is not None and not parsed.diagnostics
     semantic = analyze(parsed.ast, mode_override=mode)
     assert semantic.diagnostics == ()
-    assert len(semantic.model.relation_joins) == 1
+    query = semantic.model.relation_symbols["result"]
+    assert isinstance(query, QueryDef)
+    info = semantic.model.relation_joins[query]
+    assert len(info.inputs) == 2 and len(info.joins) == 1
+    assert info.joins[0].clause is query.join_clauses[0]
+    assert semantic.script is not None
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and lowered.diagnostics == ()
     legacy = analyze_project_namespace(parsed.ast)
     assert legacy.model.relation_joins == {}
-    lowered = build_ir(parsed.ast, legacy.model)
-    assert lowered.ir is None
-    assert any(d.code == "PIE-I1000" for d in lowered.diagnostics)
+    legacy_lowered = build_ir(parsed.ast, legacy.model)
+    assert legacy_lowered.ir is None
+    assert any(d.code == "PIE-I1000" for d in legacy_lowered.diagnostics)
 
 
-def test_duplicate_alias_retains_all_available_field_candidates(tmp_path: Path) -> None:
-    source = _source("lhs.id == lhs.id").replace("as r:", "as lhs:")
-    fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
-    for reference in fact.references:
-        assert reference.state.value == "ambiguous"
-        assert len(reference.candidates) == 2
-        assert (
-            tuple(item.binding for item in reference.candidates)
-            == fact.environment.bindings
-        )
-
-
-def test_old_noncontiguous_path_does_not_gain_condition_readiness(
+def test_duplicate_alias_reports_every_ambiguous_join_occurrence(
     tmp_path: Path,
 ) -> None:
-    source = _source(None, via="        via link: l -> r\n        via link: l -> r\n")
-    fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
-    assert not fact.ready
-    assert not fact.diagnostics
+    source = (
+        _source("lhs.id == lhs.id")
+        .replace("let r = rhs", "let lhs = rhs")
+        .replace("join r on", "join lhs on")
+    )
+    source += "query repeated:" + source.split("query result:", 1)[1]
+    authored = parse_source(source, path="main.pietto")
+    assert authored.ast is not None and authored.diagnostics == ()
+    first, second = authored.ast.definitions[-2:]
+    assert isinstance(first, QueryDef) and isinstance(second, QueryDef)
+    assert first.join_clauses[0] is not second.join_clauses[0]
+    parsed = _parsed(tmp_path, source)
+    assert not parsed.ok and not parsed.errors
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in parsed.diagnostics
+    ] == [
+        (
+            "PIE-S2604",
+            "Ambiguous JOIN input: lhs",
+            query.join_clauses[0].span.line,
+            query.join_clauses[0].span.column,
+        )
+        for query in (first, second)
+    ]
+    assert parsed.diagnostics[0] is not parsed.diagnostics[1]
 
 
 @pytest.mark.parametrize("predicate", ("row_number() window ordered", "rn < 2"))
@@ -499,8 +431,10 @@ def test_window_and_current_window_alias_are_unavailable(
     tmp_path: Path, predicate: str
 ) -> None:
     source = (
-        _source(predicate)
-        + "        rn = row_number() window ordered\n    window ordered:\n        order by:\n            lhs.id\n"
+        _source(predicate).replace(
+            "    select:\n", "    let ordered = window(order by lhs.id)\n    select:\n"
+        )
+        + "        rn = row_number() window ordered\n"
     )
     if predicate == "row_number() window ordered":
         parsed = parse_source(source)
@@ -512,9 +446,9 @@ def test_window_and_current_window_alias_are_unavailable(
 
 
 def test_unknown_project_field_type_is_unavailable(tmp_path: Path) -> None:
-    source = "shape Identifier:\n    code: Text not null\n" + _source(
+    source = "shape Identifier:\n    code: Text\n" + _source(
         "lhs.key == r.key"
-    ).replace("key: Int nullable", "key: Identifier nullable")
+    ).replace("key: Int | None", "key: Identifier | None")
     fact = _completed(tmp_path, source).roots.join_conditions.entries[0]
     assert not fact.ready
     assert all(ref.state.value == "unavailable" for ref in fact.references)
@@ -529,7 +463,7 @@ def test_an_enum_project_field_type_is_available(tmp_path: Path) -> None:
     unknown type and the condition unavailable."""
     source = "enum Identifier:\n    first\n    second\n" + _source(
         "lhs.key == r.key"
-    ).replace("key: Int nullable", "key: Identifier nullable")
+    ).replace("key: Int | None", "key: Identifier | None")
     result = _completed(tmp_path, source)
     fact = result.roots.join_conditions.entries[0]
     assert fact.ready
@@ -544,8 +478,8 @@ def test_set_input_and_independent_valid_branches_survive(tmp_path: Path) -> Non
     source = _source("lhs.id == r.id")
     source = source.replace(
         "query result:\n",
-        "table combined:\n    union all:\n        from lhs\n        from rhs\nquery result:\n",
-    ).replace("inner join rhs as r:", "inner join combined as r:")
+        "table combined:\n    union all lhs, rhs\nquery result:\n",
+    ).replace("let r = rhs\n    inner join r", "let r = combined\n    inner join r")
     source += "query valid:\n    from lhs\n    select:\n        id\n"
     result = _completed(tmp_path, source)
     fact = result.roots.join_conditions.entries[0]
@@ -574,7 +508,7 @@ def test_set_input_and_independent_valid_branches_survive(tmp_path: Path) -> Non
 
 def test_join_effective_input_uses_current_slice4_authority(tmp_path: Path) -> None:
     source = _source("lhs.id == r.id").replace("query result:", "table joined:")
-    source += "query downstream:\n    from joined\n    inner join rhs as last:\n        from joined\n        on joined.id == last.id\n    select:\n        id = joined.id\n"
+    source += "query downstream:\n    from joined\n    let last = rhs\n    inner join last on joined.id == last.id\n    select:\n        id = joined.id\n"
     facts = _completed(tmp_path, source).roots.join_conditions.entries
     assert facts[0].ready and facts[1].ready
     assert facts[1].references[0].state.value == "resolved"
@@ -582,37 +516,40 @@ def test_join_effective_input_uses_current_slice4_authority(tmp_path: Path) -> N
 
 
 @pytest.mark.parametrize("kind", ("inner", "left"))
-def test_relationship_only_via_keeps_its_route_over_a_distinct_endpoint(
+def test_distinct_producer_uses_current_condition_authority(
     tmp_path: Path, kind: str
 ) -> None:
-    """A current attempt that completes nothing leaves no condition or scope."""
     source = (
         BASE
         + f"""query d:
     from lhs
     select distinct:
         id
-relationship near:
-    endpoint l: d
-    endpoint r: rhs
-    on l.id == r.id
 query result:
     from d
-    {kind} join rhs as r:
-        from d
-        via near: l -> r
+    let r = rhs
+    {kind} join r on d.id == r.id
     select:
         id = d.id
 """
     )
     completed = _completed(tmp_path, source)
-    outputs = completed.effective_outputs
     assert completed.ok and completed.diagnostics == ()
-    assert outputs.operative_conditions is outputs.condition_authority
-    assert [fact.state.value for fact in completed.roots.join_conditions.entries] == [
-        "ready"
-    ]
-    assert outputs.input_scopes == () and outputs.allocation_events == ()
+    outputs = completed.effective_outputs
+    operative = outputs.operative_conditions
+    assert isinstance(operative, conditions.ProjectJoinConditionCompletion)
+    assert operative.historical is outputs.condition_authority
+    assert operative is completed.roots.join_conditions
+    (fact,) = operative.entries
+    (historical,) = operative.historical.entries
+    assert fact is not historical
+    assert fact.use is historical.use and fact.ledger is historical.ledger
+    assert fact.ready and fact.inputs is not None
+    assert outputs.current_regions[0].joins[0].condition is fact
+    assert fact.inputs.scope is outputs.input_scopes[0]
+    assert outputs.input_scopes and outputs.allocation_events
+    assert fact.references[0].target is not None
+    assert fact.references[0].target.binding.name == "d"
 
 
 @pytest.mark.parametrize("mode", tuple(CheckMode))
@@ -637,29 +574,42 @@ def test_project_check_modes_admit_only_completed_explicit_module_conditions(
 
 @pytest.mark.parametrize("dialect", ("postgres", "mysql"))
 @pytest.mark.parametrize("mode", tuple(CheckMode))
-def test_public_join_check_and_postgres_sql_admission(
-    tmp_path: Path, capsys, dialect: str, mode: CheckMode
+@pytest.mark.parametrize("valid", (False, True))
+def test_public_sql_condition_admission_and_no_partial_artifact(
+    tmp_path: Path, capsys, dialect: str, mode: CheckMode, valid: bool
 ) -> None:
     path = tmp_path / "main.pietto"
     path.write_text(
         f"mode {mode.value}\n"
-        + _source("lhs.id == r.id").replace("postgres.table", f"{dialect}.table")
+        + _source("lhs.id == r.id" if valid else "1").replace(
+            "postgres.table", f"{dialect}.table"
+        )
     )
-    assert cli.main(["check", str(path), "--format", "json"]) == 0
-    captured = capsys.readouterr()
-    assert not captured.err
-    assert json.loads(captured.out)["ok"]
-    assert cli.main(
-        ["emit-sql", str(path), "--dialect", dialect, "--format", "json"]
-    ) == (0 if dialect == "postgres" else 1)
-    captured = capsys.readouterr()
-    assert not captured.err
-    document = json.loads(captured.out)
-    if dialect == "postgres":
-        assert document["ok"]
-    else:
-        assert not document["ok"] and not document.get("artifacts", [])
-        assert any(d["code"] == "PIE-B1000" for d in document["diagnostics"])
+    for command in (
+        ["check", str(path), "--format", "json"],
+        ["emit-sql", str(path), "--dialect", dialect, "--format", "json"],
+    ):
+        mysql_join = valid and command[0] == "emit-sql" and dialect == "mysql"
+        succeeds = valid and not mysql_join
+        assert cli.main(command) == (0 if succeeds else 1)
+        captured = capsys.readouterr()
+        assert not captured.err
+        document = json.loads(captured.out)
+        assert document["ok"] is succeeds
+        if succeeds:
+            assert document["diagnostics"] == []
+            if command[0] == "emit-sql":
+                assert document["artifacts"]
+        else:
+            assert not document.get("artifacts", [])
+            assert [d["code"] for d in document["diagnostics"]] == [
+                "PIE-B1000" if mysql_join else "PIE-S2202"
+            ]
+            if mysql_join:
+                assert (
+                    "MySQL JOIN emission is not available yet"
+                    in document["diagnostics"][0]["message"]
+                )
 
 
 def test_package_root_boundary_precedes_condition_analysis(tmp_path: Path) -> None:
@@ -677,15 +627,16 @@ def test_package_root_boundary_precedes_condition_analysis(tmp_path: Path) -> No
     )
 
 
-# The `on` of JOIN c is at line 25, column 12: a hidden SEMI binding, a later
-# binding, a `let:` name and an unused def around it.
+# The `on` of JOIN c is at line 23, column 21: the binder of an `any` before a
+# later JOIN (a hidden SEMI JOIN), a later binding, a `let` name and an unused
+# def around it.
 _ON_TEMPLATE = (
-    JOIN_PREFIX + "query q:\n    from orders\n    semi join regions as gone:\n"
-    "        from orders\n        on gone.id == orders.amount\n"
-    "    inner join customers as c:\n        from orders\n        on {}\n"
-    "    cross join regions as later: from orders\n"
-    "    let:\n        big = 1\n    select:\n        x = orders.id\n"
-    "def inc(x: Int not null) -> Int nullable: return x + 1\n"
+    JOIN_PREFIX + "query q:\n    from orders\n    let gone = regions\n"
+    "    where any(gone.id == orders.amount for gone in gone)\n"
+    "    let c = customers\n    inner join c on {}\n"
+    "    let later = regions\n    cross join later\n"
+    "    let big = 1\n    select:\n        x = orders.id\n"
+    "def inc(x: Int) -> Int | None: return x + 1\n"
 )
 
 
@@ -708,7 +659,7 @@ def test_single_file_join_on_references_resolve_against_the_on_row(
     run = run_joins(_ON_TEMPLATE.format(condition))
     checks, _ = run.checks()
     assert run.diagnostics == []
-    assert located(checks.reads) == [("PIE-S2335", expected, 25, 12)]
+    assert located(checks.reads) == [("PIE-S2335", expected, 23, 21)]
     # The failed reference explains the condition's unknown type.
     assert (checks.diagnostics, checks.facts) == ((), {})
 
@@ -717,7 +668,7 @@ def test_single_file_join_on_reads_are_typed_from_their_own_row() -> None:
     run = run_joins(_ON_TEMPLATE.format("c.id == orders.customer_id and later.id == 1"))
     checks, _ = run.checks()
     assert located(checks.reads) == [
-        ("PIE-S2335", "JOIN ON reference is forward: later.id", 25, 43)
+        ("PIE-S2335", "JOIN ON reference is forward: later.id", 23, 52)
     ]
     run = run_joins(_ON_TEMPLATE.format("c.id == orders.customer_id"))
     checks, value_types = run.checks()
@@ -741,16 +692,16 @@ def test_single_file_join_on_reads_are_typed_from_their_own_row() -> None:
         (leaf.span.line, leaf.span.column, read.input, read.field)
         for leaf, read in info.field_reads.items()
     ) == [
-        (22, 12, 1, "id"),
-        (22, 23, 0, "amount"),
-        (25, 12, 2, "id"),
-        (25, 20, 0, "customer_id"),
-        (30, 13, 0, "id"),
+        (21, 15, 1, "id"),
+        (21, 26, 0, "amount"),
+        (23, 21, 2, "id"),
+        (23, 29, 0, "customer_id"),
+        (28, 13, 0, "id"),
     ]
     assert value_types[condition] == ValueType(
         ResolvedType("Bool", TypeKind.BUILTIN), EffectiveNullability.UNKNOWN
     )
-    assert all(read in value_types for read in info.field_reads if read.span.line < 30)
+    assert all(read in value_types for read in info.field_reads if read.span.line < 28)
 
 
 @pytest.mark.parametrize(
@@ -778,8 +729,8 @@ def test_single_file_join_on_reads_are_typed_from_their_own_row() -> None:
             "inc(orders.customer_id) == c.id",
             (
                 "PIE-S2395",
-                "Invalid argument for def inc at position 1 (x): expected Int "
-                "not null, got Int nullable",
+                "Invalid argument for def inc at position 1 (x): expected Int, "
+                "got Int | None",
             ),
             id="def_argument_reads_the_on_row",
         ),
@@ -790,7 +741,7 @@ def test_single_file_join_on_typing_reports_each_error_once(
 ) -> None:
     run = run_joins(_ON_TEMPLATE.format(condition))
     checks, _ = run.checks()
-    assert located(checks.diagnostics) == [(*expected, 25, 12)]
+    assert located(checks.diagnostics) == [(*expected, 23, 21)]
     assert (checks.reads, checks.facts) == ((), {})
     clean = run_joins(_ON_TEMPLATE.format("inc(c.id) == orders.id")).checks()[0]
     assert (clean.diagnostics, clean.reads) == ((), ())
@@ -800,8 +751,8 @@ def test_single_file_join_on_typing_reports_each_error_once(
 _UNAVAILABLE = (
     "PIE-S2202",
     "JOIN ON expression type is unavailable; the fields it reads need known types.",
-    22,
-    12,
+    21,
+    21,
 )
 
 
@@ -810,11 +761,11 @@ _UNAVAILABLE = (
     (
         pytest.param("o.v", [_UNAVAILABLE], id="unknown_condition"),
         pytest.param("o.v == orders.id", [_UNAVAILABLE], id="comparison"),
-        pytest.param("o.v is not null", [_UNAVAILABLE], id="null_test"),
+        pytest.param("o.v is not None", [_UNAVAILABLE], id="null_test"),
         pytest.param("inc(o.v) == orders.id", [_UNAVAILABLE], id="def_argument"),
         pytest.param(
             "upper(o.v)",
-            [("PIE-S2202", "Expected Bool expression in JOIN ON", 22, 12)],
+            [("PIE-S2202", "Expected Bool expression in JOIN ON", 21, 21)],
             id="known_not_bool",
         ),
         pytest.param(
@@ -823,8 +774,8 @@ _UNAVAILABLE = (
                 (
                     "PIE-S2105",
                     "Invalid operands for operator ==: expected comparable operands",
-                    22,
-                    33,
+                    21,
+                    42,
                 )
             ],
             id="operand_error",
@@ -836,12 +787,12 @@ def test_single_file_join_on_that_reads_a_field_of_unknown_type_is_refused(
     condition: str, expected: list[tuple[str, str, int, int]]
 ) -> None:
     run = run_joins(
-        JOIN_PREFIX + "query q:\n    from orders\n    inner join odd as o:\n"
-        f"        from orders\n        on {condition}\n"
+        JOIN_PREFIX + "query q:\n    from orders\n    let o = odd\n"
+        f"    inner join o on {condition}\n"
         "    select:\n        x = orders.id\n"
         "table odd:\n    from orders\n    select:\n        v = orders.id\n"
         "        w = orders.id\n"
-        "def inc(x: Int not null) -> Int nullable: return x + 1\n"
+        "def inc(x: Int) -> Int | None: return x + 1\n"
     )
     odd = run.relation("odd")
     unknown = ResolvedType("<unknown>", TypeKind.UNKNOWN)
@@ -872,42 +823,39 @@ _NN = EffectiveNullability.NON_NULL.value
     ("join", "proven"),
     (
         pytest.param(
-            "        from orders\n"
-            "        on orders.customer_id == c.id and c.region_id is not null "
-            "and c.active\n",
+            "orders.customer_id == c.id and c.region_id is not None and c.active",
             {"orders.customer_id", "c.region_id", "c.active"},
             id="comparison_null_test_and_bool_field",
         ),
         pytest.param(
-            "        from orders\n        on orders.customer_id == c.id or c.active\n",
+            "orders.customer_id == c.id or c.active",
             set(),
             id="disjunction",
         ),
         pytest.param(
-            "        from orders\n        on orders.customer_id > 0\n",
+            "orders.customer_id > 0",
             {"orders.customer_id"},
             id="earlier_input_against_a_literal",
         ),
         pytest.param(
-            "        from orders\n        on c.region_id is null\n",
+            "c.region_id is None",
             set(),
             id="null_test",
         ),
         pytest.param(
-            "        from orders\n        via order_customer\n        on c.region_id > 0\n",
+            "order_customer(orders, c) and c.region_id > 0",
             {"orders.customer_id", "c.region_id"},
             id="relationship_and_on",
         ),
     ),
 )
 def test_single_file_inner_join_proofs_make_fields_non_null(
-    monkeypatch: pytest.MonkeyPatch, join: str, proven: set[str]
+    join: str, proven: set[str]
 ) -> None:
-    monkeypatch.setattr(joins, "resolve_join_relationship", resolve_by_declaration)
     run = run_joins(
         JOIN_PREFIX
-        + "query q:\n    from orders\n    inner join customers as c:\n"
-        + join
+        + "query q:\n    from orders\n    let c = customers\n"
+        + f"    inner join c on {join}\n"
         + "    select:\n        x = orders.id\n"
     )
     rows = run.rows("q")
@@ -926,8 +874,9 @@ def test_single_file_inner_join_proofs_make_fields_non_null(
 def test_single_file_join_proof_needs_one_binding_for_its_field() -> None:
     run = run_joins(
         JOIN_PREFIX + "query q:\n    from customers\n"
-        "    inner join customers as peer:\n        from customers\n"
-        "        on region_id is not null\n    select:\n        x = customers.id\n"
+        "    let peer = customers\n"
+        "    inner join peer on region_id is not None\n"
+        "    select:\n        x = customers.id\n"
     )
     rows = run.rows("q")
     assert rows is not None
@@ -935,3 +884,222 @@ def test_single_file_join_proof_needs_one_binding_for_its_field() -> None:
         rows.tail.fields["customers.region_id"].nullability.value,
         rows.tail.fields["peer.region_id"].nullability.value,
     ) == (_N, _N)
+
+
+def test_project_predicate_adapter_keeps_every_call_and_its_exact_row_occurrences(
+    tmp_path: Path,
+) -> None:
+    from pietto.ast_nodes import ComparisonExpr, JoinOnClause, SelectItem, WhereClause
+
+    completed = _completed(
+        tmp_path,
+        "shape Row:\n"
+        "    id: Int\n"
+        'source lhs: Row = postgres.table("lhs")\n'
+        'source rhs: Row = postgres.table("rhs")\n'
+        "relationship Same(a: Row, b: Row):\n"
+        "    a.id == b.id\n"
+        "query result:\n"
+        "    from lhs\n"
+        "    inner join rhs on Same(lhs, rhs) and Same(lhs, rhs)\n"
+        "    where Same(lhs, rhs) or not Same(lhs, rhs)\n"
+        "    select matched = Same(lhs, rhs), id = lhs.id\n",
+    )
+    root = completed.roots.join_conditions
+    records = root.predicate_expressions
+    assert [type(item.context) for item in records] == [
+        JoinOnClause,
+        WhereClause,
+        SelectItem,
+        SelectItem,
+    ]
+    assert [len(item.calls) for item in records] == [2, 2, 1, 0]
+    assert [call.ordinal for item in records for call in item.calls] == list(range(5))
+    condition = root.entries[0]
+    assert condition.ready
+    assert condition.expression is records[0].expression
+    assert condition.expression is not records[0].authored
+    assert len(condition.references) == 4
+    for record in records:
+        for call, bindings in zip(record.calls, record.argument_bindings, strict=True):
+            assert bindings == condition.ledger.bindings
+            assert all(
+                isinstance(binding, ProjectRelationBindingOccurrence)
+                and argument.occurrence is binding.site
+                for argument, binding in zip(call.arguments, bindings, strict=True)
+            )
+            if type(record.context) is JoinOnClause:
+                assert len(call.mandatory_equalities) == 1
+                assert isinstance(call.mandatory_equalities[0], ComparisonExpr)
+            else:
+                assert call.mandatory_equalities == ()
+    assert condition.base_guarantee is None
+    assert condition.base_conditions == ()
+
+
+def test_project_predicate_uses_current_outer_join_nullability(tmp_path: Path) -> None:
+    completed = _completed(
+        tmp_path,
+        "shape Row:\n"
+        "    id: Int\n"
+        "    active: Bool\n"
+        'source lhs: Row = postgres.table("lhs")\n'
+        'source rhs: Row = postgres.table("rhs")\n'
+        'source last: Row = postgres.table("last")\n'
+        "relationship Active(row: Row):\n"
+        "    row.active\n"
+        "query result:\n"
+        "    from lhs\n"
+        "    left join rhs on lhs.id == rhs.id\n"
+        "    inner join last on Active(rhs)\n"
+        "    select id = lhs.id\n",
+    )
+    fact = completed.roots.join_conditions.entries[1]
+    assert fact.ready
+    assert fact.value_type is not None
+    assert fact.value_type.nullability is EffectiveNullability.NULLABLE
+    (reference,) = fact.references
+    assert reference.target is not None
+    assert reference.target.binding is fact.ledger.bindings[1]
+    assert reference.target.value_type.nullability is EffectiveNullability.NULLABLE
+    record = fact.environment.predicate_expression
+    assert record is not None
+    assert record.argument_bindings == ((fact.ledger.bindings[1],),)
+
+
+def test_project_tail_any_captures_checked_let_before_inner_field_shadowing(
+    tmp_path: Path,
+) -> None:
+    from pietto.ast_nodes import DottedNameExpr
+    from pietto._project.existence_values import ProjectAnyLetValue
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedEffectiveOutput,
+        ProjectConcreteNoJoinReplay,
+    )
+
+    completed = _completed(
+        tmp_path,
+        "shape Order:\n    id: Int\n    threshold: Int | None\n"
+        "shape Customer:\n    id: Int\n    customers: Int\n"
+        'source orders: Order = postgres.table("orders")\n'
+        'source customers: Customer = postgres.table("customers")\n'
+        "query result:\n    from orders\n"
+        "    let customers = orders.threshold\n"
+        "    where any(buyer.id > customers for buyer in customers)\n"
+        "    select id = orders.id\n",
+    )
+    assert completed.ok, completed.diagnostics
+    assert completed.roots.join_conditions.entries == ()
+    entry = next(
+        item
+        for item in completed.effective_outputs.entries
+        if item.owner.definition.name == "result"
+    )
+    assert isinstance(entry, ProjectCompletedEffectiveOutput)
+    assert isinstance(entry.root, ProjectConcreteNoJoinReplay)
+    analysis = entry.root.where.expression_analysis
+    assert analysis is not None
+    (value,) = analysis.existence_values
+    (capture,) = value.captures
+    target = capture.target
+    assert isinstance(target, ProjectAnyLetValue)
+    assert target.binding is analysis.let_scope.bindings[0]
+    assert isinstance(capture.expression, NameExpr)
+    assert target.binding.name == capture.expression.name == "customers"
+    assert target.value_type.nullability is EffectiveNullability.NULLABLE
+    assert isinstance(target.expression, DottedNameExpr)
+    assert target.expression.parts == ("orders", "threshold")
+    assert value.input.binding.name == "buyer"
+
+
+def test_project_any_in_join_on_retains_nullable_prefix_capture(tmp_path: Path) -> None:
+    from pietto._project.existence_values import ProjectAnyField
+
+    completed = _completed(
+        tmp_path,
+        "shape Row:\n    id: Int\n"
+        'source lhs: Row = postgres.table("lhs")\n'
+        'source rhs: Row = postgres.table("rhs")\n'
+        'source last: Row = postgres.table("last")\n'
+        'source candidates: Row = postgres.table("candidates")\n'
+        "relationship Same(a: Row, b: Row):\n    a.id == b.id\n"
+        "query result:\n    from lhs\n"
+        "    left join rhs on lhs.id == rhs.id\n"
+        "    inner join last on any(Same(rhs, candidate) for candidate in candidates) or last.id == lhs.id\n"
+        "    select id = lhs.id\n",
+    )
+    assert completed.ok, completed.diagnostics
+    condition = completed.roots.join_conditions.entries[1]
+    assert condition.ready
+    (value,) = condition.environment.existence_values
+    assert value.predicate is not value.authored_expression.predicate
+    (capture,) = value.captures
+    target = capture.target
+    assert isinstance(target, ProjectAnyField)
+    source_field = target.source_field
+    assert source_field is next(
+        field
+        for field in condition.environment.fields
+        if field.binding is condition.ledger.bindings[1]
+        and field.input_field.evidence.name == "id"
+    )
+    assert target.binding is condition.ledger.bindings[1]
+    assert target.value_type.nullability is EffectiveNullability.NULLABLE
+    assert value.value_type.nullability is EffectiveNullability.NON_NULL
+    assert value.input.binding.name == "candidate"
+    assert all(field.binding is value.input.binding for field in value.fields)
+
+
+def test_project_any_in_where_or_and_select_keeps_binder_occurrences_local(
+    tmp_path: Path,
+) -> None:
+    from pietto._project.existence_values import ProjectAnyField
+    from pietto._project.project_final_outputs import ProjectCompletedEffectiveOutput
+    from pietto._project.project_scalar_namespaces import (
+        ProjectConcreteJoinedNamespaceExpression,
+    )
+
+    completed = _completed(
+        tmp_path,
+        "shape Row:\n    id: Int\n"
+        'source lhs: Row = postgres.table("lhs")\n'
+        'source rhs: Row = postgres.table("rhs")\n'
+        'source candidates: Row = postgres.table("candidates")\n'
+        "query result:\n    from lhs\n"
+        "    left join rhs on lhs.id == rhs.id\n"
+        "    where any(candidate.id == rhs.id for candidate in candidates) or lhs.id > 0\n"
+        "    select matched = any(candidate.id == rhs.id for candidate in candidates) or any(candidate.id == lhs.id for candidate in candidates)\n",
+    )
+    assert completed.ok, completed.diagnostics
+    output = next(
+        entry
+        for entry in completed.effective_outputs.entries
+        if entry.owner.definition.name == "result"
+    )
+    assert isinstance(output, ProjectCompletedEffectiveOutput)
+    source = output.fields[0].source
+    assert isinstance(source, ProjectConcreteJoinedNamespaceExpression)
+    first, second = source.existence_values
+    assert first.input.binding is not second.input.binding
+    assert first.input.binding.name == second.input.binding.name == "candidate"
+    assert first.input.binding.target is second.input.binding.target
+    assert first.expression is not second.expression
+    (first_capture,) = first.captures
+    (second_capture,) = second.captures
+    first_target, second_target = first_capture.target, second_capture.target
+    assert isinstance(first_target, ProjectAnyField)
+    assert isinstance(second_target, ProjectAnyField)
+    assert first_target.binding is not second_target.binding
+    assert isinstance(first_target.binding, ProjectRelationBindingOccurrence)
+    assert isinstance(second_target.binding, ProjectRelationBindingOccurrence)
+    assert first_target.binding.name == "rhs"
+    assert second_target.binding.name == "lhs"
+    assert first_target.value_type.nullability is EffectiveNullability.NULLABLE
+    assert second_target.value_type.nullability is EffectiveNullability.NON_NULL
+    assert first_target.source_field is next(
+        field
+        for binding in source.namespace.bindings
+        if binding.binding is first_target.binding
+        for field in binding.fields
+        if field.evidence.name == "id"
+    )

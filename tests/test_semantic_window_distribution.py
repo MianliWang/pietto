@@ -86,10 +86,10 @@ def _program(
 ) -> str:
     prefix = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    observed_at: Timestamp not null\n"
+        "    id: Int\n"
+        "    observed_at: Timestamp\n"
         "    label: Text\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
     )
     input_name = "rows"
     if upstream:
@@ -107,14 +107,21 @@ def _program(
         lines.append("    where id > 0")
     lines.append("    select:")
     lines.extend(f"        {value}" for value in before)
-    lines.append(f"        ranking_value = {call} window:")
+    lines.append(f"        ranking_value = {call} window(")
     if partition:
-        lines.append("            partition by:")
-        lines.extend(f"                {value}" for value in partition)
+        lines.append("            partition by")
+        lines.extend(
+            ",\n".join(f"                {value}" for value in partition).splitlines()
+        )
     if order:
-        lines.append("            order by:")
+        lines.append("            order by")
         suffix = f" {direction}" if direction is not None else ""
-        lines.extend(f"                {value}{suffix}" for value in order)
+        lines.extend(
+            ",\n".join(
+                f"                {value}{suffix}" for value in order
+            ).splitlines()
+        )
+    lines[-1] += ")"
     lines.extend(f"        {value}" for value in after)
     if final_order:
         lines.extend(("    order by:", "        observed_at"))
@@ -727,9 +734,9 @@ def test_invalid_ntile_argument_uses_pie_s2104(case: int) -> None:
         "-9",
         "1.0",
         '"4"',
-        "true",
-        "false",
-        "null",
+        "True",
+        "False",
+        "None",
         "id",
         "rows.id",
         "id + 1",

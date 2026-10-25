@@ -359,16 +359,12 @@ def test_a_parameterized_root_travels_as_a_v2_payload(tmp_path, target):
         prepare_compiled_template(root)
 
 
-WINDOW_COUNTS = """query result(k: Int not null, b: Int not null):
+WINDOW_COUNTS = """query result(k: Int, b: Int):
     from rows
     select:
         id
-        a = lag(id, k) window:
-            order by:
-                id
-        n = ntile(b) window:
-            order by:
-                id
+        a = lag(id, k) window(order by id)
+        n = ntile(b) window(order by id)
 """
 
 
@@ -696,7 +692,7 @@ def test_a_let_read_only_by_relation_reads_binds_its_header_reads(tmp_path, targ
     )
 
     body = (
-        "query result(low: Int not null, high: Int not null):\n"
+        "query result(low: Int, high: Int):\n"
         "    let a:\n        from rows\n        where id > low\n"
         "        select:\n            id\n"
         "    let b:\n        from rows\n        where exists a and id < high + low\n"
@@ -731,7 +727,7 @@ def test_a_let_read_only_by_relation_reads_binds_its_header_reads(tmp_path, targ
 
 
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
-HEADER_IN_CAPTURES = """query result(cut: Int not null, hi: Int nullable):
+HEADER_IN_CAPTURES = """query result(cut: Int, hi: Int | None):
     let later:
         capture lhs
         from rhs
@@ -748,9 +744,8 @@ HEADER_IN_CAPTURES = """query result(cut: Int not null, hi: Int nullable):
         select:
             id
     from lhs
-    left join later as l:
-        from lhs
-        on l.later_id > cut
+    let l = later
+    left join l on l.later_id > cut
     where exists matched and lhs.id < hi
     select:
         id = lhs.id
@@ -848,7 +843,7 @@ def test_header_reads_inside_capturing_lets_round_trip_and_bind_in_order(
 
 # Phase70 S11 x S10/S14: binding obligations inside lets with capture lines
 # (an Int sum or difference, a Text call) are checked for each binding.
-OBLIGATIONS_IN_CAPTURES = """query result(cut: Int not null, tag: Text nullable):
+OBLIGATIONS_IN_CAPTURES = """query result(cut: Int, tag: Text | None):
     let early:
         capture lhs
         from rhs
@@ -952,7 +947,7 @@ def test_obligations_inside_capturing_lets_are_checked_for_each_binding(
 
 # Phase70 S16: header reads in capture-free lets that a JOIN reads and that
 # `exists`, `in` and `scalar` read, beside a read in the entry WHERE.
-HEADER_LETS_READS_JOIN = """query result(low: Int not null, hi: Int nullable):
+HEADER_LETS_READS_JOIN = """query result(low: Int, hi: Int | None):
     let near:
         from rhs
         where id > low
@@ -970,9 +965,8 @@ HEADER_LETS_READS_JOIN = """query result(low: Int not null, hi: Int nullable):
         select:
             n = count()
     from lhs
-    inner join near as r:
-        from lhs
-        on lhs.id == r.id
+    let r = near
+    inner join r on lhs.id == r.id
     where exists keys and lhs.key in keys and lhs.id <= scalar top.n and lhs.id < hi
     select:
         id = lhs.id
@@ -1028,3 +1022,579 @@ def test_header_reads_in_joined_and_read_lets_round_trip_and_bind(tmp_path, targ
         assert bound.artifact.rendered.sql == sql
         # `near`, `keys`, `top`, then the entry WHERE.
         assert bound.arguments == (values if target == "postgres" else values * 2)
+
+
+@pytest.fixture(scope="module", params=("postgres", "mysql"))
+def modern_predicate_bundle(tmp_path_factory, request):
+    """One immutable source/compiled acquisition per target for call-boundary checks."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+
+    target = request.param
+    item = probe.join_witness(target, "")
+    source = f"""shape Row:
+    id: Int
+    key: Int | None
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
+relationship Active(l: Row, r: Row):
+    l.id == r.id and r.id > 0
+relationship Either(l: Row, r: Row):
+    l.id == r.id or l.key == r.key
+query result:
+    from lhs
+    inner join rhs on Active(lhs, rhs) and (Either(lhs, rhs) or not Active(lhs, rhs))
+    where Active(lhs, rhs)
+    select:
+        id = lhs.id
+        flag = Active(lhs, rhs)
+"""
+    _, outcome = probe.build_case(
+        tmp_path_factory.mktemp("modern-compiled-" + target),
+        source,
+        item["contract"],
+        item["policy"],
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    return build_compiled(outcome.artifact), outcome.artifact
+
+
+def test_compiled_modern_calls_keep_context_and_occurrence(modern_predicate_bundle):
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    built, original = modern_predicate_bundle
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    records = loaded.records
+    calls = tuple(r for r in records.values() if r.address.kind == "predicate_call")
+    assert [call.get("role") for call in calls] == ["on", "on", "on", "where", "select"]
+    assert [len(call.get("equalities")) for call in calls] == [1, 0, 0, 1, 0]
+    assert wire.predicate_equalities(records, records[calls[3].get("owner")]) == ()
+    join = records[calls[0].get("owner")]
+    assert join.get("equalities") == ()
+    assert tuple(
+        item.address for item in wire.predicate_equalities(records, join)
+    ) == calls[0].get("equalities")
+    left, right = (records[a] for a in calls[0].get("arguments"))
+    assert left.get("use") != right.get("use")
+    assert (left.get("binding"), right.get("binding")) == (0, 1)
+    template = prepare_compiled_template(loaded)
+    assert template.artifact.rendered.sql == original.rendered.sql
+
+
+@pytest.mark.parametrize(
+    "mutation", ("drop_equality", "or_equality", "argument_ports", "argument_ordinal")
+)
+def test_compiled_modern_call_forgery_is_refused(modern_predicate_bundle, mutation):
+    built, _ = modern_predicate_bundle
+    description = built.root.description
+    records = built.root.records
+    calls = tuple(r for r in records.values() if r.address.kind == "predicate_call")
+    original = calls[0]
+    field, replacement = "equalities", ()
+    category = "PREDICATE_EQUALITIES"
+    if mutation == "or_equality":
+        original = calls[1]
+        replacement = calls[0].get("equalities")
+    elif mutation in ("argument_ports", "argument_ordinal"):
+        original = records[calls[0].get("arguments")[0]]
+        if mutation == "argument_ports":
+            field = "ports"
+            replacement = records[calls[0].get("arguments")[1]].get("ports")
+            category = "PREDICATE_BINDING"
+        else:
+            field, replacement, category = "binding", 1, "PREDICATE_BINDING"
+    forged = wire.Description(
+        description.compatibility,
+        description.producer,
+        description.query,
+        tuple(
+            (
+                name,
+                tuple(
+                    _set(record, field, replacement) if record is original else record
+                    for record in members
+                ),
+            )
+            for name, members in description.members
+        ),
+    )
+    with pytest.raises(wire.CompiledError, match="^COMPILED_" + category + "$"):
+        verify_description(forged)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "body,expanded,concrete",
+    (
+        ("r.flag and r.flag", "lhs.flag and lhs.flag", True),
+        ("r.id == r.id", "lhs.id == lhs.id", False),
+    ),
+    ids=("bool_and_execution_boundary", "comparison_semantic_boundary"),
+)
+def test_predicate_count_keeps_the_expanded_aggregate_execution_boundary(
+    tmp_path, target, body, expanded, concrete
+):
+    import _pietto_sql_emission as probe
+    from pietto._project.aggregate_grouped_schema import (
+        ProjectAggregateExpressionAnalysis,
+    )
+    from pietto._project.project_sql_plan import ProjectSQLPlan, predicate_expression
+
+    item = probe.join_witness(target, "")
+    contract = json.loads(item["contract"])
+    contract["sources"] = contract["sources"][:1]
+    flag = next(
+        field
+        for field in json.loads(probe.fixture(target)["contract"])["sources"][0][
+            "fields"
+        ]
+        if field["name"] == "flag"
+    )
+    flag["ordinal"] = 2
+    contract["sources"][0]["fields"].append(flag)
+    header = f"""shape Row:
+    id: Int
+    key: Int | None
+    flag: Bool | None
+source lhs: Row = {target}.table("lhs")
+relationship Positive(r: Row):
+    {body}
+query result:
+    from lhs
+    select:
+        total = count(ARGUMENT)
+"""
+    outcomes = []
+    for name, argument in (("call", "Positive(lhs)"), ("expanded", expanded)):
+        checked, outcome = probe.build_case(
+            tmp_path / name,
+            header.replace("ARGUMENT", argument),
+            json.dumps(contract),
+            item["policy"],
+        )
+        assert checked.verified is concrete
+        assert outcome.artifact is None
+        assert outcome.status == "BLOCKED"
+        outcomes.append(tuple((b.code, b.detail) for b in outcome.blockers))
+        if not concrete:
+            continue
+        assert isinstance(checked.plan, ProjectSQLPlan)
+        calls = tuple(
+            (site, record)
+            for site in checked.plan.expression_sites
+            if (record := predicate_expression(site)) is not None
+        )
+        if name == "call":
+            assert len(calls) == 1
+            site, record = calls[0]
+            assert site.role.value == "aggregate_argument"
+            assert record.parent is not None
+            assert len(record.calls) == 1
+            assert record.calls[0] is record.parent.calls[0]
+            assert record.argument_bindings[0] is record.parent.argument_bindings[0]
+            assert isinstance(site.evidence, ProjectAggregateExpressionAnalysis)
+            assert record.expression is site.evidence.effective_argument
+        else:
+            assert calls == ()
+    assert outcomes[0] == outcomes[1]
+    if concrete:
+        assert (
+            "PIE-B1003",
+            "aggregate_argument_not_a_direct_established_field",
+        ) in outcomes[0]
+
+
+@pytest.fixture(scope="module", params=("postgres", "mysql"))
+def any_retained_bundle(tmp_path_factory, request):
+    """Share the immutable selected/retained acquisition; mutations stay local."""
+    body = """    from lhs
+    where any(Same(lhs, candidate) for candidate in rhs)
+    let candidate = rhs
+    inner join candidate on Same(lhs, candidate)
+    let bounded = ranked
+    inner join bounded on candidate.id == bounded.id
+    where not any(Same(candidate, candidate) for candidate in rhs)
+    select:
+        id = lhs.id
+        matched = candidate.id
+"""
+    return _retained_any_bundle(
+        tmp_path_factory.mktemp("any-retained-" + request.param), request.param, body
+    )
+
+
+@pytest.fixture(scope="module", params=("postgres", "mysql"))
+def any_value_retained_bundle(tmp_path_factory, request):
+    body = """    from lhs
+    let candidate = rhs
+    inner join candidate on Same(lhs, candidate) and any(Same(lhs, local_row) and local_row.id == candidate.id for local_row in rhs)
+    let bounded = ranked
+    inner join bounded on candidate.id == bounded.id
+    let found = any(Same(candidate, local_row) for local_row in rhs)
+    where lhs.key is None or any(Same(lhs, local_row) for local_row in rhs) or found
+    select:
+        id = lhs.id
+        found
+        again = not found
+        nested = any(any(Same(parent_row, child_row) and child_row.id == lhs.id for child_row in rhs) for parent_row in rhs)
+        nullable_flag = any(local_row.key == lhs.key for local_row in ranked)
+        null_flag = any(None for local_row in ranked)
+"""
+    return _retained_any_bundle(
+        tmp_path_factory.mktemp("any-value-retained-" + request.param),
+        request.param,
+        body,
+    )
+
+
+def _retained_any_bundle(directory, target, body):
+    from dataclasses import replace
+    import _pietto_sql_emission as probe
+    from pietto.ast_nodes import AuthoredJoinKind
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_completed_semantics import (
+        with_project_single_match_requests,
+    )
+    from pietto._project.project_single_match import (
+        ProjectSingleMatchRequest,
+        ProjectSingleMatchAssessment,
+    )
+    from pietto._project.project_query_block_ir import build_project_query_block_ir
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+        build_project_query_block_ir_analysis_bundle,
+    )
+    from pietto._project.project_sql_plan import build_project_sql_plan
+    from pietto._project.project_sql_plan_verification import verify_project_sql_plan
+    from pietto._project.project_sql_emission import emit_project_sql
+
+    item = probe.join_witness(target, "")
+    header = f"""shape Row:
+    id: Int
+    key: Int | None
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
+relationship Same(left: Row, right: Row):
+    left.id == right.id
+table ranked:
+    from rhs
+    where any(Same(local_row, local_row) for local_row in rhs)
+    select:
+        id = rhs.id
+        key = rhs.key
+    limit 1
+"""
+    source = header + "".join(
+        f"query {name}:\n" + body for name in ("result", "unused_a", "unused_b")
+    )
+    checked, _ = probe.build_case(
+        directory,
+        source,
+        item["contract"],
+        item["policy"],
+    )
+    completed = checked.completed
+    requests = []
+    for condition in completed.roots.join_conditions.entries:
+        if (
+            condition.use.clause.kind is not AuthoredJoinKind.INNER
+            or condition.use.target_binding.name != "bounded"
+        ):
+            continue
+        request = ProjectSingleMatchRequest(
+            owner=condition.use.owner, use=condition.use, condition=condition
+        )
+        assessment = ProjectSingleMatchAssessment(
+            root=completed.effective_outputs, request=request
+        )
+        requests.append(replace(request, input_pairs=assessment.input_pairs))
+    assert len(requests) == 3
+    completed = with_project_single_match_requests(completed, tuple(requests))
+    ir = build_project_query_block_ir(completed)
+    bundle = build_project_query_block_ir_analysis_bundle(
+        verify_project_query_block_ir(ir)
+    )
+    (selected,) = tuple(o for o in ir.owners if o.definition.name == "result")
+    plan = build_project_sql_plan(
+        completed, bundle, selected, literal_policy=checked.literal_policy
+    )
+    verified = verify_project_sql_plan(
+        plan, completed, bundle, selected, literal_policy=checked.literal_policy
+    )
+    emitted = emit_project_sql(verified, item["contract"].encode())
+    assert emitted.status == "VERIFIED", {
+        "plan_issues": verified.issues,
+        "cli_errors": emitted.cli_errors,
+        "diagnostics": emitted.diagnostics,
+        "blockers": emitted.blockers,
+    }
+    assert emitted.artifact is not None
+    return build_compiled(emitted.artifact), emitted.artifact
+
+
+def test_compiled_any_retains_siblings_calls_and_hidden_binding_gaps(
+    any_retained_bundle,
+):
+    from pietto._project.project_execution_template import prepare_compiled_template
+    from pietto._project.project_sql_emission import CompiledEmissionArtifact
+
+    built, original = any_retained_bundle
+    records = built.root.records
+    entry = records[built.root.description.query]
+    assert len(entry.get("retained")) == 2
+    assert len(entry.get("requests")) == 3
+    filters = tuple(r for r in records.values() if r.address.kind == "any_filter")
+    by_owner = {}
+    for record in filters:
+        join = records[record.get("join")]
+        owner = records[join.get("owner")].get("label")
+        by_owner.setdefault(owner, []).append(record)
+    assert tuple(by_owner) == ("result", "unused_a", "unused_b")
+    for owner_filters in by_owner.values():
+        (record,) = owner_filters
+        assert record.get("prefix") == 0
+        assert record.get("context") == "join_filter"
+        join = records[record.get("join")]
+        assert join.get("kind") == "semi"
+        (call,) = wire.predicate_calls(records, join)
+        arguments = tuple(records[a] for a in call.get("arguments"))
+        assert arguments[-1].get("binding") == 1
+        assert len(call.get("equalities")) == 1
+        assert join.get("equalities") == ()
+    values = tuple(r for r in records.values() if r.address.kind == "any_value")
+    (ranked,) = tuple(
+        r.address
+        for r in records.values()
+        if r.address.kind == "declaration" and r.get("label") == "ranked"
+    )
+    (shared,) = tuple(
+        r
+        for r in values
+        if records[records[r.get("read")].get("consumer")].get("owner") == ranked
+    )
+    assert shared.get("context") == "where" and shared.get("prefix") == 0
+    assert len(values) == 4
+    inner = tuple(
+        r
+        for r in records.values()
+        if r.address.kind == "join"
+        and r.get("kind") == "inner"
+        and wire.predicate_calls(records, r)
+    )
+    assert len(inner) == 3
+    for join in inner:
+        (call,) = wire.predicate_calls(records, join)
+        assert tuple(records[a].get("binding") for a in call.get("arguments")) == (0, 2)
+        owner_filters = by_owner[records[join.get("owner")].get("label")]
+        (tail,) = tuple(
+            records[r.get("read")]
+            for r in values
+            if records[records[r.get("read")].get("consumer")].get("owner")
+            == join.get("owner")
+        )
+        (tail_call,) = wire.predicate_calls(records, records[tail.get("consumer")])
+        arguments = tuple(records[a] for a in tail_call.get("arguments"))
+        assert tuple(argument.get("binding") for argument in arguments) == (0, 0)
+        assert arguments[0].get("use") == arguments[1].get("use") == tail.address
+        assert arguments[0].get("ports") == arguments[1].get("ports")
+        assert tail_call.get("equalities") == ()
+        right_uses = (
+            *tuple(
+                records[stage.get("inputs")[1]]
+                for stage in (
+                    records[owner_filters[0].get("join")],
+                    join,
+                )
+            ),
+            tail,
+        )
+        assert len({use.address for use in right_uses}) == 3
+        assert len({use.get("producer") for use in right_uses}) == 1
+    assert len({r.get("location") for r in filters}) == 3
+    assert len({r.get("location") for r in values if r is not shared}) == 3
+    loaded = prepare_compiled_template(built.root)
+    assert isinstance(loaded.artifact, CompiledEmissionArtifact)
+    assert loaded.artifact.rendered.sql == original.rendered.sql
+    assert len(loaded.artifact.request.plan.all_single_matches) == 3
+    assert len(loaded.artifact.request.plan.single_matches) == 1
+
+
+@pytest.mark.parametrize(
+    "mutation", ("stage", "prefix", "context", "location", "sibling")
+)
+def test_compiled_any_mapping_forgery_is_refused(any_retained_bundle, mutation):
+    from dataclasses import replace
+
+    built, _ = any_retained_bundle
+    records = built.root.records
+    filters = tuple(r for r in records.values() if r.address.kind == "any_filter")
+    original = filters[0]
+    field, replacement, category = "prefix", 1, "ANY_PREFIX"
+    if mutation == "stage":
+        field, category = "join", "ANY_STAGE"
+        replacement = next(
+            r.address
+            for r in records.values()
+            if r.address.kind == "join" and r.get("kind") == "inner"
+        )
+    elif mutation == "context":
+        field, replacement, category = "context", "where", "ANY_CONTEXT"
+    elif mutation == "location":
+        field, replacement, category = (
+            "location",
+            filters[-1].get("location"),
+            "ANY_LOCATION",
+        )
+    elif mutation == "sibling":
+        field, replacement, category = "join", filters[2].get("join"), "ANY_STAGE"
+    forged = replace(
+        built.root.description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    _set(record, field, replacement) if record is original else record
+                    for record in members
+                ),
+            )
+            for name, members in built.root.description.members
+        ),
+    )
+    with pytest.raises(wire.CompiledError, match="^COMPILED_" + category + "$"):
+        verify_description(forged)
+
+
+def test_compiled_any_export_refuses_omitted_authored_inventory(any_retained_bundle):
+    from pietto._project.project_compiled_verification import verify_any_export
+
+    built, original = any_retained_bundle
+    omitted = {
+        address: record
+        for address, record in built.root.records.items()
+        if address.kind != "any_filter"
+    }
+    with pytest.raises(wire.CompiledError, match="^COMPILED_EXPORT_ANY_INVENTORY$"):
+        verify_any_export(omitted, original.request.plan)
+
+
+def test_compiled_any_values_preserve_selected_and_retained_lexical_occurrences(
+    any_value_retained_bundle,
+):
+    from pietto._project.project_execution_template import prepare_compiled_template
+    from pietto._project.project_sql_emission import CompiledEmissionArtifact
+    from pietto._project.project_sql_plan_expressions import ProjectSQLAny
+
+    built, original = any_value_retained_bundle
+    records = built.root.records
+    values = tuple(r for r in records.values() if r.address.kind == "any_value")
+    per_owner = {}
+    for value in values:
+        read = records[value.get("read")]
+        consumer = records[read.get("consumer")]
+        owner = records[consumer.get("owner")].get("label")
+        per_owner.setdefault(owner, []).append(value)
+        operation = records[read.get("operation")]
+        assert operation.get("operator") == ("exists", "exists")
+        assert len(operation.get("operands")) == 1
+        assert operation.get("logical") == ("Bool", "non_null")
+    assert tuple(per_owner) == ("ranked", "result", "unused_a", "unused_b")
+    (shared,) = per_owner.pop("ranked")
+    assert shared.get("context") == "where" and shared.get("prefix") == 0
+    selected = tuple(
+        e for e in original.request.plan.expressions if type(e) is ProjectSQLAny
+    )
+    assert len(per_owner["result"]) + 1 == len(selected)
+    for items in per_owner.values():
+        assert {value.get("context") for value in items} == {
+            "on",
+            "let",
+            "where",
+            "select",
+            "any",
+        }
+        assert len({value.get("read") for value in items}) == len(items)
+        assert len({value.get("location") for value in items}) == len(items)
+        assert all(
+            value.get("prefix") == (1 if value.get("context") == "on" else 2)
+            for value in items
+        )
+    for join in (r for r in records.values() if r.address.kind == "join"):
+        calls = wire.predicate_calls(records, join)
+        if not calls:
+            assert wire.predicate_equalities(records, join) == ()
+            continue
+        assert len(calls) == 2
+        assert tuple(len(call.get("equalities")) for call in calls) == (1, 0)
+        assert len(wire.predicate_equalities(records, join)) == 1
+    template = prepare_compiled_template(built.root)
+    assert isinstance(template.artifact, CompiledEmissionArtifact)
+    assert template.artifact.rendered.sql == original.rendered.sql
+    assert len(template.artifact.request.plan.all_single_matches) == 3
+    assert len(template.artifact.request.plan.single_matches) == 1
+
+
+@pytest.mark.parametrize(
+    "mutation", ("sibling_input", "missing_values", "lost_predicate")
+)
+def test_compiled_any_value_scope_forgery_is_refused(
+    any_value_retained_bundle, mutation
+):
+    from dataclasses import replace
+
+    built, _ = any_value_retained_bundle
+    records = built.root.records
+    changed = None
+    category = "ANY_SCOPE"
+    if mutation == "sibling_input":
+        original = next(
+            r
+            for r in records.values()
+            if r.address.kind == "read" and r.get("role") == "any"
+        )
+        use = records[original.get("use")]
+        consumer_owner = records[use.get("consumer")].get("owner")
+        sibling = next(
+            r
+            for r in records.values()
+            if r.address.kind == "expression_block_use"
+            and r.get("producer") == use.get("producer")
+            and records[r.get("consumer")].get("owner") != consumer_owner
+        )
+        changed = _set(original, "use", sibling.address)
+    elif mutation == "lost_predicate":
+        original = next(
+            r
+            for r in records.values()
+            if r.address.kind == "operation"
+            and r.get("operator") == ("exists", "exists")
+            and r.get("operands")
+        )
+        changed = _set(original, "operands", ())
+        category = "ANY_READ_INVENTORY"
+    else:
+        category = "ANY_VALUE_INVENTORY"
+    forged = replace(
+        built.root.description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    changed
+                    if changed is not None and r.address == changed.address
+                    else r
+                    for r in members
+                    if mutation != "missing_values" or r.address.kind != "any_value"
+                ),
+            )
+            for name, members in built.root.description.members
+        ),
+    )
+    with pytest.raises(wire.CompiledError, match="^COMPILED_" + category + "$"):
+        verify_description(forged)

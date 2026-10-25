@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from pietto.semantic.existence_generators import AnyUseInfo, AnyValueInfo
     from pietto._project.project_query_block_ir import (
         CompiledQueryBlockIR,
         CompiledIRReference,
@@ -36,6 +37,13 @@ from typing import Never, cast
 from collections.abc import Mapping
 from types import MappingProxyType
 from pietto._project import project_sql_plan_expressions as row
+from pietto._project.existence_values import (
+    ProjectAnyField,
+    ProjectAnyLetValue,
+    ProjectAnyRowBinding,
+    ProjectAnyValue,
+)
+from pietto.ast_nodes import AnyExpr
 from pietto._project.project_scalar_namespaces import ProjectScalarNamespaceStage
 from pietto._project.project_scalar_references import ProjectScalarReferenceResolution
 from pietto._project.project_join_conditions import (
@@ -604,10 +612,19 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
         if not isinstance(f.item.expression, WindowExpr)
     )
     blockers = []
-    if block_reads - _site_block_reads(
+    if (
+        block_reads
+        - frozenset(
+            id(value.expression)
+            for condition in completed.roots.join_conditions.entries
+            if condition.use.owner is entry.owner
+            for value in existence_values(condition)
+        )
+    ) - _site_block_reads(
         site
         for site, _evidence, _references in sites
         if not isinstance(site, LetBinding)
+        or any(isinstance(n, AnyExpr) for n in row.scalar_nodes(site.expression))
     ):
         # A block read outside a WHERE or ungrouped SELECT value is not lowered.
         blockers.append((K.EXPRESSION_EVIDENCE, None))
@@ -630,12 +647,22 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
         CallExpr,
     }
     for site, evidence, references in sites:
-        nodes = row.scalar_nodes(site.expression)
+        nodes = row.scalar_nodes(
+            _normalized_scalar_expression(site.expression, evidence)
+        )
+        admitted_reads = block_reads | frozenset(
+            id(value.expression)
+            for value in existence_values(evidence)
+            if id(value.input.binding.expression) in block_reads
+        )
         if any(isinstance(n, CallExpr) and _callable_symbol(n) is None for n in nodes):
             blockers.append((K.CALL_AUTHORITY, site))
         elif any(
             type(n) in _BLOCK_READS
-            and (isinstance(site, LetBinding) or id(n) not in block_reads)
+            and (
+                (isinstance(site, LetBinding) and type(n) is not AnyExpr)
+                or id(n) not in admitted_reads
+            )
             for n in nodes
         ) or any(
             type(n) is CapturedFieldExpr
@@ -668,7 +695,11 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
                 )
                 prefix = authority.let_scope.bindings
             leaves = tuple(
-                n for n in nodes if isinstance(n, (NameExpr, DottedNameExpr))
+                n
+                for n in outer_scalar_nodes(
+                    _normalized_scalar_expression(site.expression, evidence)
+                )
+                if isinstance(n, (NameExpr, DottedNameExpr))
             )
             references_valid = len(leaves) == len(references) and all(
                 r.owner is entry.owner
@@ -698,7 +729,7 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
                     and evidence.input_schema is authority.input_schema
                     and evidence.let_scope is authority.let_scope
                 )
-            values = {id(n): (n, v) for n, v in row.evidence_types(evidence).items()}
+            values = {id(n): (n, v) for n, v in expression_types(evidence).items()}
             if isinstance(evidence, ProjectModuleLetBindingFact):
                 contextual = contextual and (
                     evidence.binding_ordinal == ordinal
@@ -713,7 +744,10 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
                 or any(
                     id(n) not in values
                     or values[id(n)][0] is not n
-                    or values[id(n)][1].kind is not ValueTypeKind.KNOWN
+                    or (
+                        values[id(n)][1].kind is not ValueTypeKind.KNOWN
+                        and not _any_null_predicate(n, evidence)
+                    )
                     for n in nodes
                 )
                 or any(
@@ -791,10 +825,20 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
         if not isinstance(fact.item.expression, WindowExpr)
     )
     result = []
-    if block_reads - _site_block_reads(
+    if (
+        block_reads
+        - frozenset(
+            id(node)
+            for use in authority.binding_environment.ledger.uses
+            if use.clause.on_clause is not None
+            for node in row.scalar_nodes(use.clause.on_clause.expression)
+            if isinstance(node, AnyExpr)
+        )
+    ) - _site_block_reads(
         site
         for site, _evidence, _references in sites
         if not isinstance(site, LetBinding)
+        or any(isinstance(n, AnyExpr) for n in row.scalar_nodes(site.expression))
     ):
         result.append((K.EXPRESSION_EVIDENCE, None))
     for site, evidence, references in sites:
@@ -813,7 +857,9 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
             continue
         leaves = tuple(
             node
-            for node in row.scalar_nodes(site.expression)
+            for node in outer_scalar_nodes(
+                _normalized_scalar_expression(site.expression, evidence)
+            )
             if isinstance(node, (NameExpr, DottedNameExpr))
         )
         if (
@@ -855,9 +901,12 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
             result.append((K.EXPRESSION_EVIDENCE, site))
             continue
         kind = _scalar_blocker(
-            site.expression,
+            _normalized_scalar_expression(site.expression, evidence),
             evidence,
-            block_reads=frozenset()
+            block_reads=frozenset(
+                id(value.input.binding.expression)
+                for value in existence_values(evidence)
+            )
             if isinstance(evidence, row.ProjectJoinedLetValue)
             else block_reads,
         )
@@ -868,8 +917,160 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
 
 # Expression nodes that read a whole block through an expression block use.
 _BLOCK_READS = frozenset(
-    {RelationExistsExpr, RelationScalarExpr, RelationMembershipExpr}
+    {RelationExistsExpr, RelationScalarExpr, RelationMembershipExpr, AnyExpr}
 )
+
+
+def existence_values(evidence) -> tuple[ProjectAnyValue, ...]:
+    """Read checked ANY scopes from the actual site's existing semantic authority."""
+    if isinstance(evidence, row.ProjectJoinCondition):
+        roots = evidence.environment.existence_values
+    elif isinstance(
+        evidence,
+        (
+            ProjectNoJoinScalarExpression,
+            row.ProjectConcreteJoinedNamespaceExpression,
+            row.ProjectJoinedLetValue,
+        ),
+    ):
+        roots = evidence.existence_values
+    elif isinstance(evidence, ProjectModuleLetBindingFact):
+        roots = tuple(
+            value
+            for value in evidence.scope_facts.existence_values
+            if value.context is evidence.binding
+        )
+    else:
+        return ()
+    values = []
+    pending = list(reversed(roots))
+    while pending:
+        value = pending.pop()
+        values.append(value)
+        pending.extend(reversed(value.nested))
+    return tuple(values)
+
+
+def outer_scalar_nodes(expression):
+    """The outer row's scalar occurrences, keeping each local ANY scope atomic."""
+    values = row.scalar_nodes(expression)
+    return row.scalar_nodes(
+        expression, tuple(n for n in values if isinstance(n, AnyExpr))
+    )
+
+
+def _any_null_predicate(node, evidence):
+    return (
+        type(node) is LiteralExpr
+        and node.value is None
+        and any(value.predicate is node for value in existence_values(evidence))
+    )
+
+
+def expression_types(evidence):
+    values = dict(row.evidence_types(evidence))
+    for scope in existence_values(evidence):
+        values.update(scope.value_types)
+    return values
+
+
+def predicate_expression(site):
+    """The canonical predicate-use record of one actual SQL expression site."""
+    if isinstance(site, row.ProjectSQLMatchSite):
+        return site.evidence.environment.predicate_expression
+    if isinstance(site.evidence, aggregation.ProjectAggregateExpressionAnalysis):
+        return site.evidence.predicate_expression
+    if isinstance(site.evidence, ProjectModuleLetBindingFact):
+        from pietto._project.project_query_block_ir_inspection import (
+            _predicate_expressions,
+        )
+
+        matches = tuple(
+            record
+            for record in _predicate_expressions(site.ref.scope.analysis_bundle.root)
+            if record.owner is site.owner and record.context is site.occurrence
+        )
+        if len(matches) > 1:
+            raise ValueError("LET predicate reads require one exact canonical context.")
+        return None if not matches else matches[0]
+    if isinstance(
+        site.evidence,
+        (
+            ProjectNoJoinScalarExpression,
+            row.ProjectConcreteJoinedNamespaceExpression,
+            row.ProjectJoinedLetValue,
+        ),
+    ):
+        return site.evidence.predicate_expression
+    return None
+
+
+def predicate_bindings(site):
+    """Exact visible row bindings in input order, without hidden target compression."""
+    from pietto._project.project_relationship_uses import project_join_binding_visible
+
+    if isinstance(site, row.ProjectSQLMatchSite):
+        environment = site.evidence.environment
+        return tuple(
+            binding
+            for binding in environment.bindings
+            if project_join_binding_visible(
+                binding,
+                environment.ledger.uses[: environment.use.identity.join_position],
+            )
+        )
+    if isinstance(
+        site.evidence,
+        (row.ProjectConcreteJoinedNamespaceExpression, row.ProjectJoinedLetValue),
+    ):
+        ledger = site.evidence.namespace.binding_environment.ledger
+        return tuple(
+            binding
+            for binding in ledger.bindings
+            if project_join_binding_visible(binding, ledger.uses)
+        )
+    record = predicate_expression(site)
+    if record is None:
+        return ()
+    bindings = tuple(
+        binding
+        for arguments in record.argument_bindings
+        for binding in arguments
+        if not isinstance(binding, ProjectAnyRowBinding)
+    )
+    if not bindings:
+        return ()
+    if any(binding is not bindings[0] for binding in bindings):
+        raise ValueError(
+            "Single-input predicate arguments require the same exact FROM occurrence."
+        )
+    return (bindings[0],)
+
+
+def _normalized_scalar_expression(
+    expression: Expression, evidence: object
+) -> Expression:
+    """Read the checked row expression while keeping its authored site separate."""
+    if isinstance(evidence, ProjectModuleLetBindingFact):
+        return evidence.scope_facts.binding_expressions[evidence.binding.name]
+    if isinstance(evidence, row.ProjectJoinedLetValue):
+        return evidence.normalized_expression
+    if (
+        isinstance(evidence, aggregation.ProjectAggregateExpressionAnalysis)
+        and evidence.predicate_expression is not None
+    ):
+        normalized = evidence.effective_argument
+        if normalized is None:
+            raise ValueError(
+                "Predicate aggregate evidence requires its normalized argument."
+            )
+        return normalized
+    if isinstance(
+        evidence,
+        (ProjectNoJoinScalarExpression, row.ProjectConcreteJoinedNamespaceExpression),
+    ):
+        return evidence.normalized_expression
+    return expression
 
 
 def _site_block_reads(sites) -> frozenset[int]:
@@ -936,12 +1137,19 @@ def _aggregate_blockers(entry, rows, aggregate):
             evidence = aggregation.argument_evidence(source)
             if (
                 evidence is None
-                or _scalar_blocker(call.arguments[0], evidence, source) is not None
+                or _scalar_blocker(
+                    _normalized_scalar_expression(call.arguments[0], evidence),
+                    evidence,
+                    source,
+                )
+                is not None
             ):
                 return ((K.EXPRESSION_EVIDENCE, source.item),)
             leaves = tuple(
                 n
-                for n in row.scalar_nodes(call.arguments[0])
+                for n in row.scalar_nodes(
+                    _normalized_scalar_expression(call.arguments[0], evidence)
+                )
                 if isinstance(n, (NameExpr, DottedNameExpr))
             )
             if len(leaves) != len(references) or any(
@@ -981,7 +1189,7 @@ def _aggregate_blockers(entry, rows, aggregate):
 def _match_blocker(condition):
     leaves = tuple(
         node
-        for node in row.scalar_nodes(condition.expression)
+        for node in outer_scalar_nodes(condition.expression)
         if isinstance(node, (NameExpr, DottedNameExpr))
     )
     if (
@@ -1011,10 +1219,21 @@ def _match_blocker(condition):
         )
     ):
         return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
-    return _scalar_blocker(condition.expression, condition)
+    return _scalar_blocker(
+        condition.expression,
+        condition,
+        block_reads=frozenset(
+            id(value.input.binding.expression) for value in existence_values(condition)
+        ),
+    )
 
 
 def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset()):
+    block_reads = block_reads | frozenset(
+        id(value.expression)
+        for value in existence_values(evidence)
+        if id(value.input.binding.expression) in block_reads
+    )
     nodes = row.scalar_nodes(expression)
     if aggregate is None and any(
         isinstance(node, CallExpr) and _callable_symbol(node) is None for node in nodes
@@ -1023,7 +1242,8 @@ def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset(
     if aggregate is not None and (
         aggregation.argument_evidence(aggregate) is not evidence
         or not aggregation.arguments(aggregate)
-        or aggregation.arguments(aggregate)[0] is not expression
+        or _normalized_scalar_expression(aggregation.arguments(aggregate)[0], evidence)
+        is not expression
     ):
         return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
     supported = {
@@ -1042,7 +1262,7 @@ def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset(
         CallExpr,
     }
     values = {
-        id(node): (node, value) for node, value in row.evidence_types(evidence).items()
+        id(node): (node, value) for node, value in expression_types(evidence).items()
     }
     if any(
         (
@@ -1051,7 +1271,10 @@ def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset(
         )
         or id(node) not in values
         or values[id(node)][0] is not node
-        or values[id(node)][1].kind is not ValueTypeKind.KNOWN
+        or (
+            values[id(node)][1].kind is not ValueTypeKind.KNOWN
+            and not _any_null_predicate(node, evidence)
+        )
         for node in nodes
     ):
         return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
@@ -1566,7 +1789,8 @@ class ProjectSQLBindings:
         raise TypeError("SQL bindings are closed; use build_project_sql_bindings.")
 
 
-@dataclass(frozen=True, slots=True, kw_only=True, eq=False, init=False)
+# repr=False: a generated repr expands the shared plan graph as a tree.
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False, init=False, repr=False)
 class ProjectSQLPlan:
     literal_policy: literals.ProjectSQLLiteralPolicy
     parameters: tuple[row.ProjectSQLQueryParameter, ...]
@@ -1637,6 +1861,34 @@ class ProjectSQLPlan:
     @property
     def diagnostics(self) -> tuple[Diagnostic, ...]:
         return self.scope.completed.diagnostics
+
+    @property
+    def existence_generators(self) -> tuple[AnyUseInfo, ...]:
+        """The exact authored ANY uses of this plan's retained owner definitions."""
+        from pietto._project.project_query_block_ir_inspection import _existence_uses
+
+        owners = tuple(value.entry.owner for value in self.bindings.definitions)
+        return tuple(
+            use
+            for use in _existence_uses(self.scope.analysis_bundle.root)
+            if any(owner.definition is use.owner for owner in owners)
+        )
+
+    @property
+    def scalar_existence_generators(self) -> tuple[AnyValueInfo, ...]:
+        """Every retained scalar ANY clone with its explicit original occurrence."""
+        owners = tuple(value.entry.owner for value in self.bindings.definitions)
+        return tuple(
+            use
+            for module in self.scope.analysis_bundle.root.completed.semantic_result.modules
+            if module.parsed_input is not None
+            for use in module.parsed_input.existence_values
+            if any(
+                owner.identity.module_path == module.path
+                and owner.definition is use.owner
+                for owner in owners
+            )
+        )
 
 
 def _owner_key(owner: ProjectDeclarationOccurrence) -> tuple[int, int, int, int]:
@@ -2517,8 +2769,14 @@ def build_project_sql_plan(
         source_expression = (
             site.expression
             if isinstance(site, aggregation.ProjectSQLAggregateSite)
-            else site.occurrence.expression
+            else site.evidence.expression
+            if isinstance(site, row.ProjectSQLMatchSite)
+            else _normalized_scalar_expression(
+                site.occurrence.expression, site.evidence
+            )
         )
+        if source_expression is None:
+            raise ValueError("SQL expression site requires its checked expression.")
         result_site = (
             isinstance(site, aggregation.ProjectSQLAggregateSite)
             and site.role is row.ProjectSQLExpressionRole.SATISFYING
@@ -2536,8 +2794,18 @@ def build_project_sql_plan(
             raise ValueError(
                 "One authored expression site must retain distinct tree occurrences."
             )
-        types = {id(n): (n, v) for n, v in row.evidence_types(site.evidence).items()}
+        types = {id(n): (n, v) for n, v in expression_types(site.evidence).items()}
         references = {id(row.reference_expression(r)): r for r in site.references}
+        any_values = {
+            id(value.expression): value for value in existence_values(site.evidence)
+        }
+        any_references = {
+            id(reference.expression): reference
+            for value in any_values.values()
+            for reference in value.references
+        }
+        any_bindings = {id(value.input.binding): value for value in any_values.values()}
+
         for node in nodes:
             children = tuple(
                 node_refs[id(child)]
@@ -2568,6 +2836,81 @@ def build_project_sql_plan(
                     value_type=value_type,
                     parameter=parameter,
                 )
+            elif isinstance(node, AnyExpr):
+                checked = any_values.get(id(node))
+                if (
+                    checked is None
+                    or checked.expression is not node
+                    or checked.diagnostics
+                ):
+                    raise ValueError("ANY requires its exact checked value.")
+                use = block_uses_by_expression.get(id(checked.input.binding.expression))
+                if (
+                    use is None
+                    or use.use.target is not checked.input.binding.target
+                    or use.consumer is not definitions_by_owner[id(site.owner)].ref
+                ):
+                    raise ValueError("ANY requires its exact scheduled producer edge.")
+                value = row.ProjectSQLAny(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    use=use.ref,
+                    predicate=children[0],
+                    evidence=checked,
+                )
+            elif (
+                isinstance(node, (NameExpr, DottedNameExpr))
+                and id(node) in any_references
+            ):
+                checked = any_references[id(node)]
+                target = checked.target
+                local_use = None
+                position = None
+                outer_port = None
+                if isinstance(target, ProjectAnyField) and isinstance(
+                    target.binding, ProjectAnyRowBinding
+                ):
+                    scope = any_bindings.get(id(target.binding))
+                    use = block_uses_by_expression.get(id(target.binding.expression))
+                    if scope is None or use is None or scope.input.schema is None:
+                        raise ValueError("ANY field lost its lexical input occurrence.")
+                    candidates = tuple(
+                        i
+                        for i, field in enumerate(scope.input.schema.fields.values())
+                        if field is target.evidence
+                    )
+                    if len(candidates) != 1:
+                        raise ValueError("ANY field requires one exact producer field.")
+                    local_use, position = use.ref, candidates[0]
+                else:
+                    key = (
+                        target.source_field
+                        if isinstance(target, ProjectAnyField)
+                        else target.authority.occurrence
+                        if isinstance(target, ProjectAnyLetValue)
+                        and isinstance(target.authority, row.ProjectJoinedLetValue)
+                        else target.binding
+                        if isinstance(target, ProjectAnyLetValue)
+                        else None
+                    )
+                    port = local_ports.get(id(key))
+                    if key is None or port is None or port.key is not key:
+                        raise ValueError(
+                            "ANY capture requires its exact current row port."
+                        )
+                    outer_port = port.ref
+                value = row.ProjectSQLAnyReference(
+                    ref=node_ref,
+                    site=site,
+                    expression=node,
+                    value_type=value_type,
+                    reference=checked,
+                    use=local_use,
+                    position=position,
+                    port=outer_port,
+                )
             elif (
                 isinstance(node, (NameExpr, DottedNameExpr)) or id(node) in terminal_ids
             ):
@@ -2587,6 +2930,17 @@ def build_project_sql_plan(
                     )
                 elif result_site:
                     assert isinstance(site, aggregation.ProjectSQLAggregateSite)
+                    if not isinstance(
+                        reference,
+                        (
+                            aggregation.ProjectJoinedSatisfyingAggregateReference,
+                            aggregation.ProjectJoinedSatisfyingOutputReference,
+                            aggregation.ProjectRelationClauseDependencyFact,
+                        ),
+                    ):
+                        raise ValueError(
+                            "Satisfying site requires a retained result reference."
+                        )
                     key = aggregation.result_key(site, reference)
                 else:
                     key = row.reference_key(reference)
@@ -3309,7 +3663,9 @@ def build_project_sql_plan(
                             role=row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT,
                             ordinal=index,
                             occurrence=source.item,
-                            expression=call.arguments[0],
+                            expression=_normalized_scalar_expression(
+                                call.arguments[0], evidence
+                            ),
                             aggregation=aggregate_ref,
                             authority=aggregate,
                             evidence=evidence,
@@ -3917,7 +4273,11 @@ def build_project_sql_plan(
         )
     for value in expressions:
         dependencies = (
-            (value.port,)
+            (value.use,)
+            if isinstance(value, row.ProjectSQLAnyReference) and value.use is not None
+            else (value.port,)
+            if isinstance(value, row.ProjectSQLAnyReference) and value.port is not None
+            else (value.port,)
             if isinstance(
                 value,
                 (
@@ -3932,6 +4292,7 @@ def build_project_sql_plan(
             if isinstance(
                 value,
                 (
+                    row.ProjectSQLAny,
                     row.ProjectSQLRelationExists,
                     row.ProjectSQLRelationScalar,
                     row.ProjectSQLRelationMembership,

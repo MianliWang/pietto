@@ -78,7 +78,20 @@ def test_an_aggregate_join_producer_uses_the_current_route(
     tmp_path, target, case, variant, mode
 ):
     """Only a successful, fully verified aggregate result is admitted."""
-    checked, outcome = emit(tmp_path, target, case, variant)
+    item = probe.fixture(target, case, variant)
+    source = item["source"]
+    if case == "Z_aggregate_membership":
+        # A tail `any` reads `g` as a block, through no JOIN, so `g` keeps its
+        # established route; the completion route is that of a JOIN's producer.
+        checked, _ = emit(tmp_path / "any", target, case, variant)
+        assert type(entry(checked, "g")) is ProjectExistingEffectiveOutput
+        port = "total" if variant.endswith("global") else "k"
+        tail = f"    where any(keys.key == r.{port} for r in r)\n"
+        assert source.count(tail) == 1
+        source = source.replace(tail, f"    inner join r on keys.key == r.{port}\n")
+    checked, outcome = probe.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
     producer = entry(checked, "g" if case == "Z_aggregate_membership" else "grouped")
     assert type(producer) is ProjectCompletedEffectiveOutput
     root = producer.root
@@ -237,9 +250,9 @@ def test_an_unmatched_grouped_count_is_nulled_and_never_rebuilt(tmp_path, target
     ("variant", "wrapper"),
     (
         ("semi_global", " WHERE EXISTS ("),
-        ("anti_global", " WHERE NOT EXISTS ("),
+        ("anti_global", " WHERE (NOT EXISTS ("),
         ("semi_grouped", " WHERE EXISTS ("),
-        ("anti_grouped", " WHERE NOT EXISTS ("),
+        ("anti_grouped", " WHERE (NOT EXISTS ("),
         ("satisfying_right", " WHERE EXISTS ("),
     ),
 )
@@ -325,9 +338,8 @@ def test_a_joined_field_aggregate_without_grain_evidence_stays_unavailable(
     item = probe.aggregate_fixture(target, "Z_aggregate_joined", "inner_fanout")
     body = """query result:
     from agg
-    inner join agg as r:
-        from agg
-        on agg.key == r.key
+    let r = agg
+    inner join r on agg.key == r.key
     group by:
         agg.key
     select:
@@ -348,8 +360,7 @@ def test_a_computed_group_key_needs_its_let_site_range_proof(tmp_path, target):
     item = probe.aggregate_fixture(target, "X_aggregate_grouped", "hidden")
     body = """query result:
     from agg
-    let:
-        shifted = key + 1
+    let shifted = key + 1
     group by:
         shifted
     select:

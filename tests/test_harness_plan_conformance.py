@@ -25,8 +25,8 @@ from pietto._project import project_sql_plan_requirements as reports
 
 
 LITERAL_ANCESTRY_SOURCE = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
@@ -359,12 +359,11 @@ def test_zero_ancestry_shared_producers_and_empty_bound_inventories(
     tmp_path, case, expected_contexts
 ):
     shared = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+source rows: Row = postgres.table("rows")
 table shared:
     from rows
-    let:
-        one = 1
+    let one = 1
     select:
         one
 query result:
@@ -421,9 +420,10 @@ def test_pure_literal_repair_never_calls_runtime_helpers_or_encoding(
     )
 
 
-def test_literal_link_positions_include_original_root_and_child_proof_links(tmp_path):
+def test_literal_link_positions_include_both_direct_root_proof_links(tmp_path):
     from _pietto_plan_joins import _roots, _path_source, _path_requests
     from pietto._project.project_sql_plan import build_project_sql_plan
+    from pietto._project.project_sql_plan_joins import ProjectSQLJoinDemand
     from pietto._project.project_sql_plan_verification import verify_project_sql_plan
 
     source = _path_source(all_unique=True)
@@ -437,11 +437,31 @@ def test_literal_link_positions_include_original_root_and_child_proof_links(tmp_
     product = portable.build_project_sql_plan_portable(verified)
     report = product.context.report.report
     kinds = tuple(link.kind.value for link in report.links)
-    assert set(kinds) == {
-        "literal_ancestor_context",
-        "single_match_root_proof",
-        "single_match_child_proof",
-    }
+    assert set(kinds) == {"literal_ancestor_context", "single_match_root_proof"}
+    root_links = tuple(
+        link for link in report.links if link.kind.value == "single_match_root_proof"
+    )
+    assert len(root_links) == len(plan.single_matches) == 2
+    assert all(
+        isinstance(link.source.demand, ProjectSQLJoinDemand) for link in root_links
+    )
+    for obligation in plan.single_matches:
+        (proof,) = tuple(
+            proof
+            for proof in plan.single_match_proofs
+            if proof.obligation is obligation.ref
+        )
+        assert proof.parent is None and proof.children == ()
+        assert proof.source.source is obligation.assessment.proofs[0]
+        assert proof.source.source.kind.value == "matched_key"
+        (root_link,) = tuple(
+            link
+            for link in root_links
+            if isinstance(link.source.demand, ProjectSQLJoinDemand)
+            and link.source.demand.witness is obligation
+        )
+        assert isinstance(root_link.target.demand, ProjectSQLJoinDemand)
+        assert root_link.target.demand.witness is proof
     (link,) = tuple(
         link for link in report.links if link.kind.value == "literal_ancestor_context"
     )
@@ -458,6 +478,51 @@ def test_literal_link_positions_include_original_root_and_child_proof_links(tmp_
     )
 
 
+@pytest.mark.parametrize(
+    ("kind", "policy"),
+    (
+        ("semi", literals.ProjectSQLLiteralPolicy.BIND_SAFE_LITERALS),
+        ("anti", literals.ProjectSQLLiteralPolicy.PRESERVE_LITERALS),
+    ),
+)
+def test_a_prefix_any_join_document_keeps_its_right_membership_and_rows(
+    tmp_path, kind, policy
+):
+    """A JOIN-prefix `[not] any` plans one hidden SEMI/ANTI JOIN (the corpus's
+    `semi`/`anti` JOIN before S6): a document whose right input lost its match
+    ports, or whose JOIN keeps the other kind's rows, is refused."""
+    from _pietto_plan_differential import join_source
+
+    negation = "not " if kind == "anti" else ""
+    source = join_source("inner").replace(
+        "    inner join r on True\n",
+        f"    where {negation}any(True for r in r)\n"
+        "    let later = rhs\n    inner join later on True\n",
+    )
+    verified = construction(tmp_path / "project", source, policy, requests="direct")
+    plan = verified.plan
+    assert isinstance(plan, ProjectSQLPlan)
+    assert [join.kind.value for join in plan.joins] == [kind, "inner"]
+    join = plan.joins[0]
+    (right,) = tuple(
+        i for i in plan.join_inputs if i.join is join.ref and i.ordinal == 1
+    )
+    assert len(right.ports) == len(join.outputs) == 3
+    rows = {"semi": "left_exists", "anti": "left_not_exists"}
+    other = rows["anti" if kind == "semi" else "semi"]
+    assert join.rows.value == rows[kind]
+    product = portable.build_project_sql_plan_portable(verified)
+    assert portable.verify_project_sql_plan_portable(product, verified).verified
+    for record, field, value in (
+        (right, "ports", schema.Value(schema.Tag.SEQUENCE, ())),
+        (join, "rows", schema.Value(schema.Tag.ENUM, other)),
+    ):
+        changed = _change(product.document, _record(product, record), field, value)
+        outcome = pure.evaluate_project_sql_plan_document(changed)
+        assert outcome.status is pure.Status.INVALID_RELATION, field
+        assert outcome.canonical_bytes is None
+
+
 def test_right_global_fixture_requires_the_existing_joined_producer(tmp_path):
     from _pietto_plan_differential import CORPUS, REQUEST_MODES
 
@@ -472,7 +537,7 @@ def test_right_global_fixture_requires_the_existing_joined_producer(tmp_path):
     )
     plan = verified.plan
     assert isinstance(plan, ProjectSQLPlan)
-    assert [join.kind.value for join in plan.joins] == ["inner", "semi"]
+    assert [join.kind.value for join in plan.joins] == ["inner", "inner"]
     (obligation,) = plan.single_matches
     assert obligation.assessment.state.value == "proved"
     assert obligation.request.owner is verified.selected_owner
@@ -565,9 +630,9 @@ query result:
 
 
 ORDERING_PAIR = """shape Row:
-    id: Int not null
-    other: Int nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    other: Int | None
+source rows: Row = postgres.table("rows")
 table first:
     from rows
     select:
@@ -588,8 +653,8 @@ table second:
     limit 1
 query result:
     from first
-    cross join second as r:
-        from first
+    let r = second
+    cross join r
     select:
         first_id = first.id
         second_id = r.id
@@ -993,15 +1058,13 @@ CASE_SHAPES = {
     ),
     "join_cross": ("id", "projection", "cross", "", "", "", 0),
     "join_right": ("id", "projection", "right", "", "", "", 1),
-    "join_semi": ("id", "projection", "semi", "", "", "", 1),
-    "join_anti": ("id", "projection", "anti", "", "", "", 0),
     "join_refinement": ("id", "where projection", "inner", "", "", "", 2),
     "join_accumulated": ("id", "projection", "left full", "", "", "", 0),
     "proof_right_limit": ("id", "projection projection", "inner", "", "", "", 1),
     "proof_right_global": (
         "id",
         "aggregate projection projection",
-        "inner semi",
+        "inner inner",
         "global",
         "",
         "",
@@ -1114,7 +1177,6 @@ BOUND_CASES = {
     "row_shared",
     "imported_reexport",
     "join_right",
-    "join_semi",
     "join_refinement",
     "proof_right_limit",
     "path_partial",
@@ -1147,8 +1209,6 @@ MUTATION_CASES = {
     "row_shared": ("cross_report_literal_target",),
     "imported_reexport": ("same_looking_producer_graft",),
     "join_right": ("join_nulling_rows_changed",),
-    "join_semi": ("right_match_membership_missing",),
-    "join_anti": ("right_match_membership_missing",),
     "global_empty": ("global_empty_row_lost",),
     "group_hidden": ("hidden_group_export_leak",),
     "aggregate_risks": ("retained_aggregate_risks_missing",),
@@ -1158,7 +1218,7 @@ MUTATION_CASES = {
     "hidden_order": ("hidden_order_proof_missing",),
     "proof_right_limit": ("producer_proof_premise_missing",),
     "proof_right_global": ("producer_proof_premise_missing",),
-    "path_complete": ("whole_path_child_missing",),
+    "path_complete": ("matched_key_equality_missing",),
     "sharing_depth12": ("repeated_use_missing",),
     "window_value_named": ("effective_window_marked_authored",),
     "limit_before_filter": ("provided_order_items_missing",),
@@ -1299,7 +1359,7 @@ def test_registered_corpus_has_independent_field_identity_and_role_expectations(
         all_joins.update(joins.split())
         all_windows.update(w.split(":")[0] for w in windows.split())
         all_sets.update(actual_sets)
-    assert all_joins == {"inner", "left", "cross", "right", "full", "semi", "anti"}
+    assert all_joins == {"inner", "left", "cross", "right", "full"}
     assert all_windows == {
         "row_number",
         "rank",
@@ -1327,21 +1387,19 @@ def test_registered_corpus_retains_proofs_risks_targets_and_hidden_visibility(
     cases = {c["case"]: c for c in observed["cases"]}
     for name, states in {
         "join_right": ["legal_unproved"],
-        "join_semi": ["legal_unproved"],
-        "join_anti": ["legal_unproved"],
         "join_refinement": ["proved"],
         "proof_right_limit": ["proved"],
         "proof_right_global": ["proved"],
-        "path_complete": ["proved", "proved", "proved"],
-        "path_partial": ["proved", "legal_unproved", "legal_unproved"],
+        "path_complete": ["proved", "proved"],
+        "path_partial": ["proved", "legal_unproved"],
     }.items():
         matches = cases[name]["summary"]["matches"]
         assert [m[1] for m in matches] == states
         assert [m[2] for m in matches] == [s == "legal_unproved" for s in states]
     for name in ("path_complete", "path_partial"):
         matches = cases[name]["summary"]["matches"]
-        assert [m[0] for m in matches] == ["path_hop", "path_hop", "whole_path"]
-        assert [m[3] for m in matches] == [1, 1, 2]
+        assert [m[0] for m in matches] == ["direct_binary", "direct_binary"]
+        assert [m[3] for m in matches] == [1, 1]
     assert "right_limit" in cases["proof_right_limit"]["summary"]["proofs"]
     assert "right_global" in cases["proof_right_global"]["summary"]["proofs"]
     assert cases["hidden_order"]["summary"]["hidden_order"] == 1
@@ -1637,14 +1695,10 @@ def test_registered_portable_join_group_window_set_and_profile_relationships(
         "cross": "cartesian_pairs",
         "right": "right_preserved",
         "full": "both_preserved",
-        "semi": "left_exists",
-        "anti": "left_not_exists",
     }
     for name in (
         "join_cross",
         "join_right",
-        "join_semi",
-        "join_anti",
         "join_refinement",
         "join_accumulated",
     ):
@@ -1659,15 +1713,8 @@ def test_registered_portable_join_group_window_set_and_profile_relationships(
             assert all(
                 ports[p]["kind"] == "match" for p in (*left["ports"], *right["ports"])
             )
-            assert len(join["outputs"]) == (
-                len(left["ports"])
-                if join["kind"] in ("semi", "anti")
-                else len(left["ports"]) + len(right["ports"])
-            )
+            assert len(join["outputs"]) == len(left["ports"]) + len(right["ports"])
             assert all(ports[p]["kind"] == "output" for p in join["outputs"])
-            if join["kind"] in ("semi", "anti"):
-                assert right["producer"] is not None and len(right["ports"]) == 3
-                assert len(plan["input_uses"]) == 2
         if name == "join_right":
             (join,) = (data[r] for r in plan["joins"])
             assert [len(ports[p]["nulling"]) for p in join["outputs"]] == [
@@ -1705,8 +1752,26 @@ def test_registered_portable_join_group_window_set_and_profile_relationships(
             (join,) = (data[r] for r in plan["joins"])
             (filter_,) = (data[r] for r in plan["filters"])
             assert join["on"] != filter_["predicate"]
-            assert len(plan["relationship_matches"]) == 1
+            assert not plan["relationship_matches"]
+            (proof,) = (data[ref] for ref in plan["single_match_proofs"])
+            assert proof["joins"] == (join["ref"],) and not proof["children"]
+            assert data[data[proof["source"]]["source"]]["kind"] == "matched_key"
             assert data[filter_["site"]]["role"] == "where"
+
+    for name in ("path_complete", "path_partial"):
+        _, data, plan = _document_tables(cases[name])
+        first, second = (data[ref] for ref in plan["joins"])
+        inputs = {data[ref]["ref"]: data[ref] for ref in plan["join_inputs"]}
+        assert len(plan["join_inputs"]) == 4 and len(plan["input_uses"]) == 3
+        middle = inputs[first["inputs"][1]]
+        assert middle["producer"] is not None and middle["binding_use"] is not None
+        accumulated = inputs[second["inputs"][0]]
+        assert accumulated["predecessor"] == first["ref"]
+        assert accumulated["producer"] is None
+        for ref, join in zip(plan["single_matches"], (first, second), strict=True):
+            obligation = data[ref]
+            assert obligation["joins"] == (join["ref"],)
+            assert obligation["input_pairs"] == (join["inputs"],)
 
     for name in ("group_hidden", "group_partial"):
         _, data, plan = _document_tables(cases[name])
@@ -1891,7 +1956,7 @@ def test_unrelated_valid_definitions_do_not_add_selected_uses_or_demands(tmp_pat
     original = construction(tmp_path / "original", CONTROL, policy)
     extra = (
         CONTROL
-        + 'source extras: Row is postgres.table("extras")\nquery unused:\n    from extras\n    select:\n        text = trim("hello")\n'
+        + 'source extras: Row = postgres.table("extras")\nquery unused:\n    from extras\n    select:\n        text = trim("hello")\n'
     )
     extended = construction(tmp_path / "extended", extra, policy)
     first, second = (
@@ -1919,7 +1984,7 @@ def test_unrelated_valid_definitions_do_not_add_selected_uses_or_demands(tmp_pat
     assert mapped.reverse(source, unused.definition) == ()
     negative = source_negative(
         tmp_path / "error",
-        CONTROL + "source broken: Row is postgres.table(1)\n",
+        CONTROL + "source broken: Row = postgres.table(1)\n",
         "PIE-S2306",
     )
     assert negative["boundary"] == "semantic" and negative["blockers"] == [
@@ -2007,7 +2072,7 @@ def test_repeated_use_changes_occurrences_without_copying_defining_literals(tmp_
 def test_set_operand_order_and_nesting_are_authored_structural_differences(tmp_path):
     prefix = (
         CONTROL.split("query result:")[0]
-        + 'source other: Row is postgres.table("other")\nsource third: Row is postgres.table("third")\n'
+        + 'source other: Row = postgres.table("other")\nsource third: Row = postgres.table("third")\n'
     )
     flat = (
         prefix
@@ -2093,11 +2158,11 @@ def test_hidden_and_selected_windows_change_only_the_intended_visible_tuple(tmp_
 
     selected = (
         ORDINARY_PREFIX
-        + "query result:\n    from rows\n    select distinct:\n        id\n        w = row_number() window:\n            order by:\n                id\n    qualify:\n        w <= 3\n"
+        + "query result:\n    from rows\n    select distinct:\n        id\n        w = row_number() window(order by id)\n    qualify:\n        w <= 3\n"
     )
     hidden = (
         ORDINARY_PREFIX
-        + "query result:\n    from rows\n    select distinct:\n        id\n    qualify:\n        row_number() window:\n            order by:\n                id\n        <= 3\n"
+        + "query result:\n    from rows\n    select distinct:\n        id\n    qualify:\n        row_number() window(order by id) <= 3\n"
     )
     for label, source, names in (
         ("selected", selected, ("id", "w")),

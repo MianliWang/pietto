@@ -19,11 +19,10 @@ def test_distinct_shape_item_names_have_no_duplicate_diagnostic() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    check valid_email:\n"
-            "        email is not null\n"
-            "    unique user_email on email\n"
-            "    index email_idx on email when email is not null\n"
+            "    email: Text\n"
+            "    valid_email = check(email is not None)\n"
+            "    user_email = unique(email)\n"
+            "    email_idx = index(email) when email is not None\n"
         )
     )
 
@@ -31,9 +30,7 @@ def test_distinct_shape_item_names_have_no_duplicate_diagnostic() -> None:
 
 
 def test_duplicate_field_name_reports_p2501() -> None:
-    result = analyze(
-        _parse("shape User:\n    email: Text not null\n    email: Text nullable\n")
-    )
+    result = analyze(_parse("shape User:\n    email: Text\n    email: Text | None\n"))
 
     assert _diagnostics(result, "PIE-S2501") == [
         (
@@ -46,17 +43,15 @@ def test_duplicate_field_name_reports_p2501() -> None:
 @pytest.mark.parametrize(
     "conflicting_item",
     [
-        "    check email:\n        true\n",
-        "    unique email on email\n",
-        "    index email on email\n",
+        "    email = check(True)\n",
+        "    email = unique(email)\n",
+        "    email = index(email)\n",
     ],
 )
 def test_field_name_conflicts_with_other_shape_item_kinds(
     conflicting_item: str,
 ) -> None:
-    result = analyze(
-        _parse(f"shape User:\n    email: Text not null\n{conflicting_item}")
-    )
+    result = analyze(_parse(f"shape User:\n    email: Text\n{conflicting_item}"))
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2501"]
     assert result.diagnostics[0].message == (
@@ -67,22 +62,20 @@ def test_field_name_conflicts_with_other_shape_item_kinds(
 @pytest.mark.parametrize(
     "items",
     [
-        ("    check valid:\n        true\n    check valid:\n        false\n"),
-        ("    unique identity on email\n    unique identity on email\n"),
-        ("    index lookup on email\n    index lookup on email\n"),
+        ("    valid = check(True)\n    valid = check(False)\n"),
+        ("    identity = unique(email)\n    identity = unique(email)\n"),
+        ("    lookup = index(email)\n    lookup = index(email)\n"),
     ],
 )
 def test_duplicate_check_unique_and_index_names_report_p2501(items: str) -> None:
-    result = analyze(_parse(f"shape User:\n    email: Text not null\n{items}"))
+    result = analyze(_parse(f"shape User:\n    email: Text\n{items}"))
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2501"]
 
 
 def test_unique_target_existing_field_succeeds() -> None:
     result = analyze(
-        _parse(
-            "shape User:\n    email: Text not null\n    unique user_email on email\n"
-        )
+        _parse("shape User:\n    email: Text\n    user_email = unique(email)\n")
     )
 
     assert result.diagnostics == ()
@@ -90,11 +83,7 @@ def test_unique_target_existing_field_succeeds() -> None:
 
 def test_unique_unknown_target_reports_p2502() -> None:
     result = analyze(
-        _parse(
-            "shape User:\n"
-            "    email: Text not null\n"
-            "    unique user_email on missing_email\n"
-        )
+        _parse("shape User:\n    email: Text\n    user_email = unique(missing_email)\n")
     )
 
     assert _diagnostics(result, "PIE-S2502") == [
@@ -107,9 +96,7 @@ def test_unique_unknown_target_reports_p2502() -> None:
 
 def test_index_target_existing_field_succeeds() -> None:
     result = analyze(
-        _parse(
-            "shape User:\n    email: Text not null\n    index user_email_idx on email\n"
-        )
+        _parse("shape User:\n    email: Text\n    user_email_idx = index(email)\n")
     )
 
     assert result.diagnostics == ()
@@ -118,9 +105,7 @@ def test_index_target_existing_field_succeeds() -> None:
 def test_index_unknown_target_reports_p2502() -> None:
     result = analyze(
         _parse(
-            "shape User:\n"
-            "    email: Text not null\n"
-            "    index user_email_idx on missing_email\n"
+            "shape User:\n    email: Text\n    user_email_idx = index(missing_email)\n"
         )
     )
 
@@ -136,17 +121,17 @@ def test_index_unknown_target_reports_p2502() -> None:
     ("item", "message"),
     [
         (
-            "unique user_email on email, email",
+            "user_email = unique(email, email)",
             "Duplicate target field in unique user_email: email",
         ),
         (
-            "index user_email_idx on email, email",
+            "user_email_idx = index(email, email)",
             "Duplicate target field in index user_email_idx: email",
         ),
     ],
 )
 def test_repeated_target_field_reports_p2503(item: str, message: str) -> None:
-    result = analyze(_parse(f"shape User:\n    email: Text not null\n    {item}\n"))
+    result = analyze(_parse(f"shape User:\n    email: Text\n    {item}\n"))
 
     assert _diagnostics(result, "PIE-S2503") == [(Severity.ERROR, message)]
 
@@ -155,10 +140,10 @@ def test_shape_diagnostics_use_later_or_containing_item_spans() -> None:
     path = Path("examples/semantic/shape-errors.pietto")
     script = _parse(
         "shape User:\n"
-        "    email: Text not null\n"
-        "    email: Text nullable\n"
-        "    unique missing_unique on missing\n"
-        "    index repeated_index on email, email\n",
+        "    email: Text\n"
+        "    email: Text | None\n"
+        "    missing_unique = unique(missing)\n"
+        "    repeated_index = index(email, email)\n",
         path=path,
     )
     shape = script.definitions[0]
@@ -181,11 +166,11 @@ def test_shape_checks_continue_after_diagnostics() -> None:
     result = analyze(
         _parse(
             "shape First:\n"
-            "    id: UUID not null\n"
-            "    unique missing_target on missing\n"
+            "    id: UUID\n"
+            "    missing_target = unique(missing)\n"
             "shape Second:\n"
-            "    id: UUID not null\n"
-            "    index repeated_target on id, id\n"
+            "    id: UUID\n"
+            "    repeated_target = index(id, id)\n"
         )
     )
 
@@ -198,11 +183,10 @@ def test_field_derive_unknown_function_reports_pie_s2103() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    normalized: Text not null derive unknown_call(email)\n"
-            "    check unchecked:\n"
-            "        email is not null\n"
-            "    index partial_idx on email when email is not null\n"
+            "    email: Text\n"
+            "    normalized: Text derive unknown_call(email)\n"
+            "    unchecked = check(email is not None)\n"
+            "    partial_idx = index(email) when email is not None\n"
         )
     )
 
@@ -212,9 +196,7 @@ def test_field_derive_unknown_function_reports_pie_s2103() -> None:
 
 
 def test_shape_structural_checks_do_not_mutate_input_ast() -> None:
-    script = _parse(
-        "shape User:\n    email: Text not null\n    unique user_email on missing\n"
-    )
+    script = _parse("shape User:\n    email: Text\n    user_email = unique(missing)\n")
     original = deepcopy(script)
 
     analyze(script)
@@ -226,9 +208,9 @@ def test_shape_semantic_results_do_not_expose_antlr_nodes() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    unique user_email on missing\n"
-            "    index repeated on email, email\n"
+            "    email: Text\n"
+            "    user_email = unique(missing)\n"
+            "    repeated = index(email, email)\n"
         )
     )
 
@@ -283,19 +265,19 @@ def _assert_no_antlr_nodes(value: object) -> None:
     ("item", "expected"),
     (
         (
-            "unique k on id, id",
+            "k = unique(id, id)",
             ("PIE-S2503", "Duplicate target field in unique k: id", 3),
         ),
         (
-            "index i on id, id",
+            "i = index(id, id)",
             ("PIE-S2503", "Duplicate target field in index i: id", 3),
         ),
         (
-            "unique k on nosuch",
+            "k = unique(nosuch)",
             ("PIE-S2502", "Unknown target field in shape C: nosuch", 3),
         ),
         (
-            "unique k on id\n    unique k on id",
+            "k = unique(id)\n    k = unique(id)",
             ("PIE-S2501", "Duplicate shape item name in shape C: k", 4),
         ),
     ),
@@ -307,8 +289,8 @@ def test_project_check_reports_the_single_file_shape_item_diagnostics(
 
     result = _completed(
         tmp_path,
-        f"shape C:\n    id: Int not null\n    {item}\n"
-        'source cs: C is postgres.table("cs")\n'
+        f"shape C:\n    id: Int\n    {item}\n"
+        'source cs: C = postgres.table("cs")\n'
         "query q:\n    from cs\n    select:\n        id\n",
     )
 
@@ -329,15 +311,14 @@ def test_project_check_orders_shape_item_diagnostics_by_module(tmp_path: Path) -
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
     )
     (tmp_path / "a.pietto").write_text(
-        "shape A:\n    id: Int not null\n    unique k on nosuch\n"
-        'source as_: A is postgres.table("as_")\n'
-        "relationship r:\n    endpoint x: as_\n    endpoint y: nowhere\n"
-        "    on x.id == y.id\n"
+        "shape A:\n    id: Int\n    k = unique(nosuch)\n"
+        'source as_: A = postgres.table("as_")\n'
+        "relationship r(x: A, y: Nowhere): x.id == y.id\n"
         "query qa:\n    from as_\n    select:\n        id\n"
     )
     (tmp_path / "b.pietto").write_text(
-        "shape B:\n    id: Int not null\n    index i on id, id\n"
-        'source bs: B is postgres.table("bs")\n'
+        "shape B:\n    id: Int\n    i = index(id, id)\n"
+        'source bs: B = postgres.table("bs")\n'
         "query qb:\n    from bs\n    select:\n        missing\n"
     )
     parsed = check_project_parse_only(tmp_path)
@@ -354,5 +335,5 @@ def test_project_check_orders_shape_item_diagnostics_by_module(tmp_path: Path) -
         ("b.pietto", 8, "PIE-S2102"),
         ("a.pietto", 3, "PIE-S2502"),
         ("b.pietto", 3, "PIE-S2503"),
-        ("a.pietto", 7, "PIE-S2601"),
+        ("a.pietto", 5, "PIE-S2604"),
     ]

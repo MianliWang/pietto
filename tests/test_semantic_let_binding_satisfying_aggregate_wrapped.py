@@ -25,15 +25,15 @@ from pietto.sql.mysql import emit_mysql_sql
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    discount: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float nullable\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    discount: Int\n"
+    "    score: Float\n"
+    "    weight: Float | None\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
@@ -172,73 +172,67 @@ def test_cli_json_and_explain_shapes_remain_compatible(
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(gross)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 10\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(gross)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        sum(amount + tax) > 10\n",
             "PIE-S2308",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        sum(gross) > 10\n",
             "PIE-S2308",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(gross)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        min(gross) > 10\n",
             "PIE-S2308",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        one = 1\n"
+            "    let one = 1\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(one)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        sum(one) > 10\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -259,10 +253,9 @@ def _grouped_source(*, satisfying: str) -> str:
     return (
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        weighted = score * weight\n"
-        "        normalized = lower(trim(status))\n"
+        "    let gross = amount + tax\n"
+        "    let weighted = score * weight\n"
+        "    let normalized = lower(trim(status))\n"
         "    group by:\n"
         "        status\n"
         "    select:\n"
@@ -271,7 +264,7 @@ def _grouped_source(*, satisfying: str) -> str:
         "        average_weighted = avg(weighted)\n"
         "        known_gross = count(gross)\n"
         "        unique_normalized = count_distinct(normalized)\n"
-        "    satisfying:\n"
+        "    having:\n"
         f"        {satisfying}\n"
     )
 
@@ -296,7 +289,10 @@ def _script_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> ScriptIR:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    # IR lowers the analyzed script, whose `let name = value` lines are
+    # already the relation's row lets, as the CLI lowers it.
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir

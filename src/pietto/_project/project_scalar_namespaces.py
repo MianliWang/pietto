@@ -8,6 +8,15 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
 
+from pietto._project.existence_values import (
+    existence_uses_for_owner,
+    ProjectAnyField,
+    ProjectAnyLetValue,
+    ProjectAnyValue,
+    analyze_any_values,
+    validate_any_values,
+)
+from pietto._project.project_current_joins import ProjectCurrentJoinRegion
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
@@ -38,6 +47,10 @@ from pietto.semantic import let_bindings as semantic_lets
 from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     invalid_context_diagnostic,
+)
+from pietto._project.project_relationship_predicates import (
+    ProjectRelationshipPredicateExpression,
+    select_project_predicate_expression,
 )
 from pietto.semantic.expressions import LetValues, infer_row_expression
 from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
@@ -226,8 +239,25 @@ class ProjectJoinedLetValue:
         repr=False, compare=False, hash=False
     )
     diagnostics: tuple[Diagnostic, ...] = ()
+    existence_values: tuple[ProjectAnyValue, ...] = ()
+    predicate_expression: ProjectRelationshipPredicateExpression | None = None
+
+    @property
+    def normalized_expression(self) -> Expression:
+        record = self.predicate_expression
+        if record is None:
+            return self.occurrence.expression
+        if (
+            record.owner is not self.occurrence.owner
+            or record.authored is not self.occurrence.expression
+        ):
+            raise ValueError("LET predicate normalization requires exact ownership.")
+        return record.expression
 
     def __post_init__(self) -> None:
+        validate_any_values(
+            self.occurrence.owner, self.normalized_expression, self.existence_values
+        )
         if type(self.occurrence) is not ProjectJoinedLetOccurrence or (
             type(self.namespace) is not ProjectJoinedScalarNamespace
             or self.namespace.stage is not ProjectScalarNamespaceStage.LET_BINDING
@@ -243,7 +273,10 @@ class ProjectJoinedLetValue:
         if self.value_types.get(self.occurrence.expression) is not self.value_type:
             raise ValueError("LET value must retain its exact kernel root type.")
         _require_expression_resolution_coverage(
-            self.namespace, self.occurrence.expression, self.resolutions
+            self.namespace,
+            self.normalized_expression,
+            self.resolutions,
+            self.predicate_expression,
         )
         for resolution in self.resolutions:
             target = resolution.target
@@ -358,6 +391,7 @@ def _require_expression_resolution_coverage(
     namespace: ProjectJoinedScalarNamespace,
     expression: Expression,
     resolutions: tuple[ProjectJoinedNamespaceReferenceResolution, ...],
+    predicate_expression: ProjectRelationshipPredicateExpression | None = None,
 ) -> None:
     if type(namespace) is not ProjectJoinedScalarNamespace:
         raise TypeError("Joined expression analysis requires an exact namespace.")
@@ -372,7 +406,18 @@ def _require_expression_resolution_coverage(
         for resolution in resolutions
     ):
         raise TypeError("Joined expression resolutions must be an exact tuple.")
-    leaves = scalar_field_reference_leaves(expression)
+    if (
+        predicate_expression is not None
+        and predicate_expression.expression is not expression
+    ):
+        raise ValueError(
+            "Joined scalar references require their exact normalized expression."
+        )
+    leaves = (
+        scalar_field_reference_leaves(expression)
+        if predicate_expression is None
+        else predicate_expression.scalar_references
+    )
     if len({id(leaf) for leaf in leaves}) != len(leaves):
         raise ValueError("Joined expression leaves must be distinct occurrences.")
     if len(resolutions) != len(leaves) or any(
@@ -412,12 +457,43 @@ class ProjectConcreteJoinedNamespaceExpression:
         hash=False,
     )
     diagnostics: tuple[Diagnostic, ...] = ()
+    existence_values: tuple[ProjectAnyValue, ...] = ()
+    predicate_expression: ProjectRelationshipPredicateExpression | None = field(
+        default=None, repr=False
+    )
+
+    @property
+    def normalized_expression(self) -> Expression:
+        record = self.predicate_expression
+        if record is None:
+            return self.expression
+        region = self.namespace.binding_environment.region
+        anchor = record if record.parent is None else record.parent
+        if (
+            record.owner is not self.namespace.binding_environment.ledger.owner
+            or record.authored is not self.expression
+            or not isinstance(region, ProjectCurrentJoinRegion)
+            or not any(
+                anchor is retained
+                for retained in region.conditions.predicate_expressions
+            )
+        ):
+            raise ValueError(
+                "Joined predicate normalization requires exact authored ownership."
+            )
+        return record.expression
 
     def __post_init__(self) -> None:
+        validate_any_values(
+            self.namespace.binding_environment.ledger.owner,
+            self.normalized_expression,
+            self.existence_values,
+        )
         _require_expression_resolution_coverage(
             self.namespace,
-            self.expression,
+            self.normalized_expression,
             self.resolutions,
+            self.predicate_expression,
         )
         if any(
             type(resolution) is ProjectScalarReferenceResolution
@@ -474,13 +550,45 @@ class ProjectNonConcreteJoinedNamespaceExpression:
         hash=False,
     )
     diagnostics: tuple[Diagnostic, ...] = ()
+    existence_values: tuple[ProjectAnyValue, ...] = ()
+    predicate_expression: ProjectRelationshipPredicateExpression | None = field(
+        default=None, repr=False
+    )
+
+    @property
+    def normalized_expression(self) -> Expression:
+        record = self.predicate_expression
+        if record is None:
+            return self.expression
+        region = self.namespace.binding_environment.region
+        anchor = record if record.parent is None else record.parent
+        if (
+            record.owner is not self.namespace.binding_environment.ledger.owner
+            or record.authored is not self.expression
+            or not isinstance(region, ProjectCurrentJoinRegion)
+            or not any(
+                anchor is retained
+                for retained in region.conditions.predicate_expressions
+            )
+        ):
+            raise ValueError(
+                "Joined predicate normalization requires exact authored ownership."
+            )
+        return record.expression
+
     value_type: None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
+        validate_any_values(
+            self.namespace.binding_environment.ledger.owner,
+            self.normalized_expression,
+            self.existence_values,
+        )
         _require_expression_resolution_coverage(
             self.namespace,
-            self.expression,
+            self.normalized_expression,
             self.resolutions,
+            self.predicate_expression,
         )
         if type(self.reason) is not ProjectScalarTypeNonConcreteReason:
             raise TypeError("Joined expression blocker requires an exact reason.")
@@ -573,7 +681,21 @@ def analyze_project_joined_namespace_expression(
         raise TypeError("Joined expression analysis requires an exact namespace.")
     if not isinstance(expression, Expression):
         raise TypeError("Joined expression analysis requires an expression root.")
-    leaves = scalar_field_reference_leaves(expression)
+    region = namespace.binding_environment.region
+    record = select_project_predicate_expression(
+        region.conditions.predicate_expressions
+        if isinstance(region, ProjectCurrentJoinRegion)
+        else (),
+        namespace.binding_environment.ledger.owner,
+        expression,
+    )
+    normalized = expression if record is None else record.expression
+    any_values = _joined_any_values(namespace, expression, normalized, record)
+    leaves = (
+        scalar_field_reference_leaves(normalized)
+        if record is None
+        else record.scalar_references
+    )
     resolutions = tuple(
         resolve_project_joined_namespace_reference(
             namespace,
@@ -597,6 +719,8 @@ def analyze_project_joined_namespace_expression(
         return ProjectNonConcreteJoinedNamespaceExpression(
             namespace=namespace,
             expression=expression,
+            predicate_expression=record,
+            existence_values=any_values,
             resolutions=resolutions,
             reason=(
                 ProjectScalarTypeNonConcreteReason.REFERENCE_RESOLUTION_NON_CONCRETE
@@ -604,15 +728,20 @@ def analyze_project_joined_namespace_expression(
             blocking_resolutions=blockers,
         )
 
-    value_types = scalar_read_types_within(expression, read_types)
+    value_types = scalar_read_types_within(normalized, read_types)
+    for value in any_values:
+        value_types.update(value.value_types)
     for resolution in resolutions:
         if type(resolution) is ProjectScalarReferenceResolution and (
             resolution.target is not None
         ):
             value_types[resolution.reference.expression] = resolution.target.value_type
-    diagnostics: list[Diagnostic] = []
+    diagnostics: list[Diagnostic] = list(
+        record.diagnostics if record is not None else ()
+    )
+    diagnostics.extend(item for value in any_values for item in value.diagnostics)
     root_value_type = infer_row_expression(
-        expression,
+        normalized,
         RowSchema(),
         value_types,
         diagnostics,
@@ -630,12 +759,16 @@ def analyze_project_joined_namespace_expression(
         # a value through its name (a LIKE pattern) follows it.
         bare_value_expressions=namespace.written_lets,
         relation_columns=read_types,
+        failed_relationship_calls=() if record is None else record.failed_calls,
     )
+    value_types[expression] = root_value_type
     retained_diagnostics = tuple(diagnostics)
     if blockers:
         return ProjectNonConcreteJoinedNamespaceExpression(
             namespace=namespace,
             expression=expression,
+            predicate_expression=record,
+            existence_values=any_values,
             resolutions=resolutions,
             reason=(
                 ProjectScalarTypeNonConcreteReason.REFERENCE_RESOLUTION_NON_CONCRETE
@@ -651,6 +784,8 @@ def analyze_project_joined_namespace_expression(
         return ProjectNonConcreteJoinedNamespaceExpression(
             namespace=namespace,
             expression=expression,
+            predicate_expression=record,
+            existence_values=any_values,
             resolutions=resolutions,
             reason=ProjectScalarTypeNonConcreteReason.TYPE_KERNEL_NON_CONCRETE,
             kernel_value_type=root_value_type,
@@ -660,10 +795,56 @@ def analyze_project_joined_namespace_expression(
     return ProjectConcreteJoinedNamespaceExpression(
         namespace=namespace,
         expression=expression,
+        predicate_expression=record,
+        existence_values=any_values,
         resolutions=resolutions,
         value_type=root_value_type,
         value_types=value_types,
         diagnostics=retained_diagnostics,
+    )
+
+
+def _joined_any_values(
+    namespace: ProjectJoinedScalarNamespace,
+    authored: Expression,
+    expression: Expression,
+    record: ProjectRelationshipPredicateExpression | None = None,
+) -> tuple[ProjectAnyValue, ...]:
+    from pietto._project.project_query_block import ProjectVerifiedJoinedRowSource
+
+    source = namespace.binding_environment.row_source
+    verification = (
+        source.verification
+        if isinstance(source, ProjectVerifiedJoinedRowSource)
+        else source.base_verification
+    )
+    region = namespace.binding_environment.region
+    return analyze_any_values(
+        root=verification.root.join_regions.uses.relationships.semantic_result,
+        owner=namespace.binding_environment.ledger.owner,
+        authored=authored,
+        expression=expression,
+        normalized_any=() if record is None else record.any_expressions,
+        retained_bindings=None if record is None else record.any_bindings,
+        failed_relationship_calls=() if record is None else record.failed_calls,
+        outer_fields=tuple(
+            ProjectAnyField(binding=binding.binding, source_field=field)
+            for binding in namespace.bindings
+            for field in binding.fields
+        ),
+        let_values=tuple(
+            ProjectAnyLetValue(
+                binding=value.occurrence.binding,
+                expression=value.normalized_expression,
+                value_type=value.value_type,
+                authority=value,
+            )
+            for value in namespace.let_values
+        ),
+        available=region.input_scope.available_entries
+        if isinstance(region, ProjectCurrentJoinRegion)
+        and region.input_scope is not None
+        else (),
     )
 
 
@@ -673,9 +854,22 @@ def _name_admissibility(
 ) -> tuple[set[str], tuple[Diagnostic, ...]]:
     definition = _definition(environment)
     visible_field_names = {item.evidence.name for item in environment.visible_fields}
+    region = environment.region
+    generated = {
+        id(use.clause)
+        for use in (
+            existence_uses_for_owner(
+                region.conditions.uses.relationships.semantic_result,
+                environment.ledger.owner,
+            )
+            if isinstance(region, ProjectCurrentJoinRegion)
+            else ()
+        )
+    }
     input_relation_names = {
         name
         for retained in environment.bindings
+        if id(retained.binding.site) not in generated
         for name in (retained.binding.name, retained.binding.relation_name)
     }
     invalid_names: set[str] = set()
@@ -911,7 +1105,18 @@ def build_project_joined_let_namespaces(
             let_values=tuple(values),
         )
         binding_namespaces.append(namespace)
-        local_diagnostics: list[Diagnostic] = []
+        region = binding_environment.region
+        record = select_project_predicate_expression(
+            region.conditions.predicate_expressions
+            if isinstance(region, ProjectCurrentJoinRegion)
+            else (),
+            occurrence.owner,
+            occurrence.expression,
+        )
+        normalized = occurrence.expression if record is None else record.expression
+        local_diagnostics: list[Diagnostic] = list(
+            record.diagnostics if record is not None else ()
+        )
         if contains_semantic_aggregate(occurrence.expression):
             local_diagnostics.append(
                 invalid_context_diagnostic(
@@ -924,8 +1129,18 @@ def build_project_joined_let_namespaces(
             all_name_set=all_names,
             prior_names=set(prior_names),
             diagnostics=local_diagnostics,
+            ignored_expression_ids=frozenset(
+                id(argument)
+                for failure in (() if record is None else record.failed_calls)
+                for argument in failure.call.arguments
+                if type(argument) is NameExpr
+            ),
         )
-        leaves = scalar_field_reference_leaves(occurrence.expression)
+        leaves = (
+            scalar_field_reference_leaves(normalized)
+            if record is None
+            else record.scalar_references
+        )
         if len({id(leaf) for leaf in leaves}) != len(leaves):
             raise ValueError("LET expression references must be exact occurrences.")
         blocked = tuple(
@@ -962,6 +1177,16 @@ def build_project_joined_let_namespaces(
                     field_types[leaf] = resolution.target.value_type
         blocking_resolutions.extend(local_blockers)
 
+        any_values = _joined_any_values(
+            namespace, occurrence.expression, normalized, record
+        )
+        # A typed ANY restates its rejected calls' errors, which the record owns.
+        restated = {id(item) for item in (() if record is None else record.diagnostics)}
+        for value in any_values:
+            value_types.update(value.value_types)
+            local_diagnostics.extend(
+                item for item in value.diagnostics if id(item) not in restated
+            )
         root_type: ValueType | None = None
         # A read that resolves to no field is an unknown field, as in
         # `analyze_project_joined_namespace_expression`; the binding then has
@@ -972,7 +1197,7 @@ def build_project_joined_let_namespaces(
             for resolution in local_blockers
         ):
             root_type = infer_row_expression(
-                occurrence.expression,
+                normalized,
                 RowSchema(),
                 value_types,
                 local_diagnostics,
@@ -987,7 +1212,10 @@ def build_project_joined_let_namespaces(
                     **unadmitted,
                 },
                 bare_value_expressions=let_values,
+                failed_relationship_calls=() if record is None else record.failed_calls,
             )
+        if root_type is not None:
+            value_types[occurrence.expression] = root_type
         diagnostics.extend(local_diagnostics)
         has_error = any(
             diagnostic.severity is Severity.ERROR for diagnostic in local_diagnostics
@@ -1016,9 +1244,11 @@ def build_project_joined_let_namespaces(
                         value_types=value_types,
                         resolutions=tuple(resolutions),
                         diagnostics=tuple(local_diagnostics),
+                        existence_values=any_values,
+                        predicate_expression=record,
                     )
                 )
-            let_values[occurrence.binding.name] = occurrence.expression
+            let_values[occurrence.binding.name] = normalized
         if occurrence.binding.name not in invalid_names:
             prior_names.add(occurrence.binding.name)
 

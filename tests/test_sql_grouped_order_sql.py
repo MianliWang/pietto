@@ -23,12 +23,12 @@ from pietto.sql.mysql import emit_mysql_sql
 
 SOURCE_SHAPE = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
+    "    region: Text\n"
+    "    status: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
 )
 
 
@@ -290,33 +290,26 @@ def test_no_group_sql_order_by_still_uses_input_scope(
     assert _order_by_clause(result.artifacts[0].sql) == expected_order
 
 
-def test_no_group_projection_alias_still_fails_before_sql() -> None:
-    parse_result = parse_source(
-        _source_prefix("postgres.table") + "table sorted_orders:\n"
+def test_no_group_projection_alias_order_restates_the_output_expression() -> None:
+    source = (
+        "table sorted_orders:\n"
         "    from orders\n"
         "    select:\n"
         "        sort_key = lower(status)\n"
         "    order by:\n"
-        "        sort_key\n",
-        path="phase27-grouped-order-sql.pietto",
+        "        sort_key\n"
     )
-    assert parse_result.diagnostics == ()
-    assert parse_result.ast is not None
 
-    result = analyze(parse_result.ast)
+    postgres = emit_postgres_sql(_compile(_source_prefix("postgres.table") + source))
+    mysql = emit_mysql_sql(_compile(_source_prefix("mysql.table") + source))
 
-    assert [
-        (diagnostic.code, diagnostic.message)
-        for diagnostic in result.diagnostics
-        if diagnostic.severity is Severity.ERROR
-    ] == [
-        (
-            "PIE-S2102",
-            "Unknown field: sort_key; outside a grouped query an ORDER BY key "
-            "cannot name a SELECT output (restate its expression or bind it in "
-            "`let:`)",
-        )
-    ]
+    # Before: PIE-S2102 said an ORDER BY key outside a grouped query cannot
+    # name a SELECT output. The key now reads the output, and the SQL
+    # restates its expression instead of naming the alias.
+    assert postgres.diagnostics == ()
+    assert mysql.diagnostics == ()
+    assert _order_by_clause(postgres.artifacts[0].sql) == '    lower("status") ASC'
+    assert _order_by_clause(mysql.artifacts[0].sql) == "    LOWER(`status`) ASC"
 
 
 def test_unsupported_grouped_order_source_fails_semantically_before_sql() -> None:
@@ -445,7 +438,7 @@ def _grouped_source(
     group_block = "".join(f"        {key}\n" for key in group_keys)
     projection_block = "".join(f"        {projection}\n" for projection in projections)
     satisfying_block = (
-        "" if satisfying is None else f"    satisfying:\n        {satisfying}\n"
+        "" if satisfying is None else f"    having:\n        {satisfying}\n"
     )
     order_block = "".join(f"        {item}\n" for item in order_items)
     limit_block = "" if limit is None else f"    limit {limit}\n"
@@ -464,7 +457,7 @@ def _grouped_source(
 
 
 def _source_prefix(connector: str) -> str:
-    return SOURCE_SHAPE + f'source orders: Order is {connector}("orders")\n'
+    return SOURCE_SHAPE + f'source orders: Order = {connector}("orders")\n'
 
 
 def _compile(source: str) -> ScriptIR:

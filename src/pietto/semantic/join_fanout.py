@@ -6,10 +6,12 @@ semantic facts, never project code.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from pietto.ast_nodes import (
     AuthoredJoinKind,
+    BinaryExpr,
     CallExpr,
     Definition,
     DottedNameExpr,
@@ -26,10 +28,13 @@ from pietto.semantic.aggregates import (
     child_expressions,
     semantic_aggregate_call_name,
 )
+from pietto.semantic.relationship_predicates import mandatory_field_equalities
 from pietto.semantic.model import (
     EffectiveNullability,
     JoinFieldRef,
+    JoinInfo,
     RelationJoinsInfo,
+    RelationshipCallInfo,
     RowSchema,
 )
 
@@ -44,6 +49,17 @@ _NOT_FACTORS = (AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI)
 _FORWARD_KINDS = (AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT)
 
 
+@dataclass(frozen=True, slots=True)
+class _KeyDependency:
+    """Each key field needs one reached determinant; alternatives stay complete."""
+
+    determinants: tuple[frozenset[int], ...]
+    target: int
+
+    def ready(self, reached: set[int] | frozenset[int]) -> bool:
+        return all(candidates & reached for candidates in self.determinants)
+
+
 def join_fanout_diagnostics(
     definition: TableDef | QueryDef,
     info: RelationJoinsInfo,
@@ -51,6 +67,7 @@ def join_fanout_diagnostics(
     type_symbols: Mapping[str, Definition],  # shapes of sources (keys)
     source_row_schemas: Mapping[SourceDef, RowSchema],  # NOT NULL of key fields
     let_expressions: Mapping[str, Expression],  # admitted `let:` values
+    relationship_calls: Sequence[RelationshipCallInfo] = (),
 ) -> tuple[Diagnostic, ...]:
     """One PIE-S2381 per refused aggregate call, in select order."""
 
@@ -60,6 +77,9 @@ def join_fanout_diagnostics(
     )
     keys = tuple(_declared_keys(item.relation, type_symbols) for item in info.inputs)
     edges = _edges(info, keys)
+    key_dependencies = _predicate_key_dependencies(
+        definition, info, keys, relationship_calls
+    )
     protected = _group_protection(
         definition, info, keys, factors, source_row_schemas, let_expressions
     )
@@ -73,14 +93,14 @@ def join_fanout_diagnostics(
             # count() counts JOIN rows by definition.
             continue
         seed = _argument_inputs(call, info, let_expressions) | protected
-        if factors <= _closure(seed, edges):
+        if factors <= _closure(seed, edges, key_dependencies=key_dependencies):
             continue
         span = call.span
         diagnostics.append(
             Diagnostic(
                 code="PIE-S2381",
                 severity=Severity.ERROR,
-                message=_message(info, factors, seed, edges),
+                message=_message(info, factors, seed, edges, key_dependencies),
                 location=SourceLocation(
                     path=span.path,
                     line=span.line,
@@ -132,6 +152,113 @@ def _edges(
         ):
             edges.append((join.target_input, join.source_input))
     return tuple(edges)
+
+
+def _predicate_key_dependencies(
+    definition: TableDef | QueryDef,
+    info: RelationJoinsInfo,
+    keys: tuple[tuple[tuple[str, ...], ...], ...],
+    calls: Sequence[RelationshipCallInfo],
+) -> tuple[_KeyDependency, ...]:
+    """Key proofs from actual required calls, kept separate from emitted ON.
+
+    ON proves only dependencies its JOIN preserves; WHERE proves dependencies
+    of the final filtered rows. Neither proves coverage or a matching row exists.
+    """
+
+    occurrences = {
+        id(definition.from_clause if item.ordinal == 0 else item.clause): item.ordinal
+        for item in info.inputs
+    }
+    on_joins: dict[int, JoinInfo] = {
+        id(join.clause.on_clause): join
+        for join in info.joins
+        if join.clause.on_clause is not None
+    }
+    scopes: dict[int, list[tuple[JoinFieldRef, JoinFieldRef]]] = {}
+    present: dict[int, set[int]] = {}
+    for call in calls:
+        if call.owner is not definition or not call.mandatory_equalities:
+            continue
+        context = call.context
+        context_id = id(context)
+        if context is definition.where_clause:
+            assert definition.where_clause is not None
+            expression = definition.where_clause.expression
+        elif context_id in on_joins:
+            clause = on_joins[context_id].clause.on_clause
+            assert clause is not None
+            expression = clause.expression
+        else:
+            continue
+        arguments: set[int] = set()
+        for argument in call.arguments:
+            ordinal = occurrences.get(id(argument.occurrence))
+            if (
+                ordinal is None
+                or argument.relation is not info.inputs[ordinal].relation
+            ):
+                break
+            arguments.add(ordinal)
+        else:
+            if context_id not in present:
+                nodes: set[int] = set()
+                pending = [expression]
+                while pending:
+                    node = pending.pop()
+                    nodes.add(id(node))
+                    if isinstance(node, BinaryExpr) and node.operator == "and":
+                        pending.extend((node.right, node.left))
+                present[context_id] = nodes
+            if id(call.expanded) not in present[context_id]:
+                continue
+            required = {id(item) for item in mandatory_field_equalities(call.expanded)}
+            pairs = scopes.setdefault(context_id, [])
+            for equality in call.mandatory_equalities:
+                left = info.field_reads.get(equality.left)
+                right = info.field_reads.get(equality.right)
+                if (
+                    id(equality) in required
+                    and left is not None
+                    and right is not None
+                    and left.input in arguments
+                    and right.input in arguments
+                    and left.input != right.input
+                ):
+                    pairs.append((left, right))
+    dependencies: list[_KeyDependency] = []
+    for context_id, pairs in scopes.items():
+        if context_id == id(definition.where_clause):
+            targets = tuple(item.ordinal for item in info.inputs if item.visible)
+        else:
+            join = on_joins[context_id]
+            if join.kind is AuthoredJoinKind.INNER:
+                targets = tuple(
+                    item.ordinal
+                    for item in info.inputs
+                    if item.visible and item.ordinal <= join.target_input
+                )
+            elif join.kind is AuthoredJoinKind.LEFT:
+                targets = (join.target_input,)
+            else:
+                continue
+        for target in targets:
+            for key in keys[target]:
+                determinants: list[frozenset[int]] = []
+                for field in key:
+                    candidates = frozenset(
+                        other.input
+                        for left, right in pairs
+                        for own, other in ((left, right), (right, left))
+                        if own.input == target and own.field == field
+                    )
+                    if not candidates:
+                        break
+                    determinants.append(candidates)
+                else:
+                    if determinants:
+                        dependencies.append(_KeyDependency(tuple(determinants), target))
+    return tuple(dependencies)
 
 
 def _group_protection(
@@ -226,6 +353,8 @@ def _closure(
     seed: frozenset[int],
     edges: tuple[_Edge, ...],
     extra: tuple[_Edge, ...] = (),
+    *,
+    key_dependencies: tuple[_KeyDependency, ...] = (),
 ) -> frozenset[int]:
     closed = set(seed)
     grown = True
@@ -235,6 +364,10 @@ def _closure(
             if lhs in closed and rhs not in closed:
                 closed.add(rhs)
                 grown = True
+        for dependency in key_dependencies:
+            if dependency.target not in closed and dependency.ready(closed):
+                closed.add(dependency.target)
+                grown = True
     return frozenset(closed)
 
 
@@ -243,6 +376,7 @@ def _message(
     factors: frozenset[int],
     seed: frozenset[int],
     edges: tuple[_Edge, ...],
+    key_dependencies: tuple[_KeyDependency, ...] = (),
 ) -> str:
     """The JOINs that may repeat the aggregate's rows, then the keys whose
     declaration, or the inputs whose grouping, would close the rule."""
@@ -250,13 +384,17 @@ def _message(
     def binding(position: int) -> str:
         return info.inputs[position].binding
 
-    reached = _closure(seed, edges)
-    repeated = tuple(
-        dict.fromkeys(
-            f"JOIN {binding(join.target_input)}"
-            for join in info.joins
-            if join.kind not in _NOT_FACTORS
-            and (join.source_input in reached) != (join.target_input in reached)
+    reached = _closure(seed, edges, key_dependencies=key_dependencies)
+    repeated = (
+        ()
+        if any(join.clause.uses_named_input for join in info.joins)
+        else tuple(
+            dict.fromkeys(
+                f"JOIN {binding(join.target_input)}"
+                for join in info.joins
+                if join.kind not in _NOT_FACTORS
+                and (join.source_input in reached) != (join.target_input in reached)
+            )
         )
     )
 
@@ -299,9 +437,11 @@ def _message(
 
     chosen: tuple[_KeyIdentity, ...] | None = ()
     while chosen is not None and not factors <= _closure(
-        seed, edges, with_keys(chosen)
+        seed, edges, with_keys(chosen), key_dependencies=key_dependencies
     ):
-        current = _closure(seed, edges, with_keys(chosen))
+        current = _closure(
+            seed, edges, with_keys(chosen), key_dependencies=key_dependencies
+        )
         found = next(
             (
                 key
@@ -317,7 +457,9 @@ def _message(
     if chosen:
         for key in tuple(chosen):
             rest = tuple(other for other in chosen if other != key)
-            if factors <= _closure(seed, edges, with_keys(rest)):
+            if factors <= _closure(
+                seed, edges, with_keys(rest), key_dependencies=key_dependencies
+            ):
                 chosen = rest
     declared = tuple(key for key in keys if key in (chosen or ()))
 
@@ -329,7 +471,9 @@ def _message(
     )
 
     def grouped(inputs: tuple[int, ...]) -> bool:
-        return factors <= _closure(seed | frozenset(inputs), edges)
+        return factors <= _closure(
+            seed | frozenset(inputs), edges, key_dependencies=key_dependencies
+        )
 
     if grouped(picked):
         for position in tuple(picked):
@@ -353,10 +497,14 @@ def _message(
             )
         )
     if picked:
-        noun = "a unique key" if len(picked) == 1 else "unique keys"
+        # Grouping by such a key would pass too, but would change the result's
+        # grain, so the remedies keep the authored GROUP BY.
+        noun = "a declared unique key" if len(picked) == 1 else "declared unique keys"
         remedies.append(
-            f"group by {noun} of {_and_list(tuple(binding(item) for item in picked))} "
-            "whose fields are all not null"
+            f"match {noun} of {_and_list(tuple(binding(item) for item in picked))} "
+            "whose fields are never None in `on` with a relationship call, use "
+            "`any(...)` for an input that only filters rows, or aggregate in a "
+            "separate query first"
         )
     cause = (
         f"An aggregate may read rows repeated by {_and_list(repeated)}"

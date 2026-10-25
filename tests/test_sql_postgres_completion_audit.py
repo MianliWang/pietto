@@ -22,21 +22,21 @@ EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert len(EXAMPLE_PATHS) == 10
 
 PIPELINE_SOURCE = (
-    "type Email = Text not null\n"
+    "type Email = Text\n"
     "enum Status:\n"
     "    active\n"
-    "constraint valid_email(email: Text not null) -> Bool not null:\n"
-    "    email is not null\n"
-    "derive normalize_email(email: Text not null) -> Text not null:\n"
-    "    lower(trim(email))\n"
+    "constraint valid_email(email: Text) -> Bool:\n"
+    "    return email is not None\n"
+    "derive normalize_email(email: Text) -> Text:\n"
+    "    return lower(trim(email))\n"
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
     "table active_users:\n"
     "    from users\n"
-    "    where active == true\n"
+    "    where active == True\n"
     "    select:\n"
     "        id\n"
     "        normalized_email = lower(trim(email))\n"
@@ -136,7 +136,7 @@ def test_current_mvp_pipeline_emits_stable_ordered_relation_sql() -> None:
 
 def test_supported_artifacts_and_ordered_backend_diagnostics_can_coexist() -> None:
     script_ir = _compile_ir(
-        PIPELINE_SOURCE + 'source backup: User is postgres.table("backup")\n'
+        PIPELINE_SOURCE + 'source backup: User = postgres.table("backup")\n'
         "table bad_connector:\n"
         "    from backup\n"
         "    select:\n"

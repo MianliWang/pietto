@@ -12,9 +12,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _VALID_RELATION_SOURCE = (
     "shape User:\n"
-    "    id: Int not null\n"
-    "    email: Text not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: Int\n"
+    "    email: Text\n"
+    'source users: User = postgres.table("users")\n'
     "table active_users:\n"
     "    from users\n"
     "    select:\n"
@@ -39,7 +39,7 @@ _VALID_RELATION_SOURCE = (
         ),
         (
             "bad_shape.pietto",
-            'enum Status:\n    active\nsource rows: Status is postgres.table("rows")\n',
+            'enum Status:\n    active\nsource rows: Status = postgres.table("rows")\n',
             "PIE-S2303",
             "Source shape must refer to a shape: Status",
         ),
@@ -87,7 +87,7 @@ def test_project_text_check_succeeds_for_valid_cross_file_project(
     _write(
         root,
         "models/b_source.pietto",
-        'source rows: Row is postgres.table("rows")\n',
+        'source rows: Row = postgres.table("rows")\n',
     )
     _write(
         root,
@@ -199,9 +199,7 @@ def test_single_file_cli_surfaces_remain_separate(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    check_source = _write(
-        tmp_path, "shape_only.pietto", "shape Row:\n    id: Int not null\n"
-    )
+    check_source = _write(tmp_path, "shape_only.pietto", "shape Row:\n    id: Int\n")
     relation_source = _write(tmp_path, "relation.pietto", _VALID_RELATION_SOURCE)
 
     assert cli.main(["check", str(check_source)]) == 0

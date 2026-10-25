@@ -33,10 +33,10 @@ from pietto.semantic import CheckMode, SemanticModel, analyze
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text nullable\n"
-    "    deleted_at: Timestamp nullable\n"
-    'source users: User is postgres.table("public.users")\n'
+    "    id: UUID\n"
+    "    email: Text | None\n"
+    "    deleted_at: Timestamp | None\n"
+    'source users: User = postgres.table("public.users")\n'
 )
 
 
@@ -82,7 +82,7 @@ def test_where_lowers_to_filter_with_resolved_field_reference() -> None:
     result, _, _ = _build(
         SOURCE + "table active:\n"
         "    from users\n"
-        "    where deleted_at is null\n"
+        "    where deleted_at is None\n"
         "    select:\n"
         "        email\n"
     )
@@ -183,7 +183,7 @@ def test_source_table_query_chain_lowers_in_top_level_order() -> None:
 
 def test_unknown_schema_and_expression_lower_safely() -> None:
     result, _, _ = _build(
-        'source raw is postgres.table("raw")\n'
+        'source raw = postgres.table("raw")\n'
         "table projected:\n"
         "    from raw\n"
         "    select:\n"
@@ -235,7 +235,7 @@ def test_relation_ir_is_frozen_and_frontend_independent() -> None:
     result, _, _ = _build(
         SOURCE + "table active:\n"
         "    from users\n"
-        "    where deleted_at is null\n"
+        "    where deleted_at is None\n"
         "    select:\n"
         "        email\n"
     )
@@ -359,7 +359,7 @@ def test_unknown_definition_has_missing_semantic_fact_failure() -> None:
 
 
 def test_relation_block_definition_fails_closed_in_public_build_ir() -> None:
-    parsed = parse_source("query seed:\n    values(id: Int not null):\n        1\n")
+    parsed = parse_source("query seed:\n    values(id: Int):\n        1\n")
     assert parsed.ast is not None
     semantic = analyze(parsed.ast)
     assert [diagnostic.code for diagnostic in semantic.diagnostics] == ["PIE-S2347"]

@@ -1,9 +1,727 @@
 # Pietto release notes
 
-## Unreleased: fix batch 7 following 0.1.4
+## Modern-syntax public alpha release notes — 0.1.5
 
-This unpublished addendum covers the compiler fixes following 0.1.4. It does not
-assign a new version or replace the published 0.1.4 release notes.
+**Status:** These notes cover the `0.1.5` public-alpha candidate. A release is
+established only when the accepted wheel and sdist are available from both the
+versioned GitHub pre-release and PyPI channels; this document neither creates
+those channels nor substitutes for their byte verification.
+
+`0.1.5` is the first release whose compiler reads the modern source syntax. It
+also contains the single-file JOIN support and the
+[fix batch 7](#fix-batch-7-following-014-included-in-015) changes; the fix
+batch 7 section keeps the 0.1.4 spelling in its examples. The sections from
+0.1.4 down describe published files.
+
+### Highlights
+
+- **Modern source syntax.** `None`, `True` and `False`; `T` for a value that
+  is never None and `T | None` for one that may be; `source name: Shape = ...`;
+  single-line clauses without a colon; one `let` per name; shape-typed
+  relationship predicates; and `any(predicate for row in relation)`.
+- **`pietto migrate`** writes the modern form of a 0.1.4 file to stdout, or
+  names each place that needs a manual decision.
+- **Single-file JOINs.** `check` and PostgreSQL `emit-sql` accept INNER, LEFT,
+  RIGHT, FULL and CROSS JOINs and `any`/`not any` filters over the sources,
+  tables and queries of one file, within the
+  [single-file JOIN limits](language.md#single-file-joins).
+- **Diagnostics teach the modern spelling.** Each retired spelling is
+  PIE-P1000 with its exact rewrite in the message.
+
+### Upgrading a 0.1.4 file
+
+Each spelling that the modern syntax retires is a syntax error (PIE-P1000)
+whose message ends with the rewrite, such as
+`This spelling is not accepted by the modern syntax. Write 'is None' or 'is not None'.`;
+JSON output carries the rewrite as the diagnostic's `suggestion`. A
+`pietto NUMBER` header does not select a syntax, and no flag restores the old
+one. To convert a file, write the result to a new file and check it:
+
+```bash
+pietto migrate old.pietto > migrated.pietto
+pietto check migrated.pietto
+```
+
+`migrate` never edits its input. It writes one complete source to stdout only
+when the result passes the modern parser; otherwise it exits 1, writes nothing
+to stdout and reports PIE-P1011 at every place that needs a decision, in
+source order. It keeps comments, strings, line endings and a leading BOM, and
+it neither checks SQL backend capability nor connects to a database. It
+changes only what it must, so its output keeps the old layout around each
+rewrite (for example an indented empty line where a `let:` header was);
+`check` the result and tidy it by hand. Compiled bundles and saved-job records
+are not source and are not migrated.
+
+For example, this 0.1.4 file:
+
+```text
+shape Order:
+    id: Int not null
+    customer_id: Int not null
+    amount: Int not null
+    note: Text nullable
+
+source orders: Order is postgres.table("orders")
+
+query customer_totals:
+    from orders
+    where: amount between 100 and 500 and note is not null
+    group by: customer_id
+    select:
+        customer_id
+        total = sum(amount)
+        n = count()
+    satisfying: n > 1
+    order by: customer_id
+```
+
+migrates to:
+
+```pietto
+shape Order:
+    id: Int
+    customer_id: Int
+    amount: Int
+    note: Text | None
+
+source orders: Order = postgres.table("orders")
+
+query customer_totals:
+    from orders
+    where 100 <= amount <= 500 and note is not None
+    group by customer_id
+    select:
+        customer_id
+        total = sum(amount)
+        n = count()
+    having n > 1
+    order by customer_id
+```
+
+`migrate` also turns `null`, `true` and `false` into `None`, `True` and
+`False`, a `let:` block into one `let` per name and `cast(x as Float)` into
+`Float(x)`. It needs a manual decision (PIE-P1011) for a 0.1.4 JOIN written
+with `as`, including `semi join` and `anti join`, and for a source-bound
+`relationship` with endpoints: write `let name = relation`, a JOIN with `on`
+or a [relationship predicate](language.md#named-inputs-and-reusable-relationship-predicates)
+instead. A `schema_version = 1` project with such JOINs also needs
+`schema_version = 2` (see
+[legacy-flat projects](#legacy-flat-projects-and-relationship-joins)).
+[Migrating old source](language.md#migrating-old-source) lists every rule.
+
+### Syntax changes
+
+Each example shows 0.1.4 source, then the source this release reads, except
+where it says otherwise.
+
+#### A bare type is never None
+
+0.1.4 had three nullability states: `T not null`, `T nullable` and a bare `T`
+of unknown nullability. Now `T` is never None and `T | None` may be None;
+`not null` and `nullable` are PIE-P1000. `migrate` rewrites `T not null` to `T`
+and both `T nullable` and a bare `T` to `T | None`, so it never adds a claim
+that a value is not None: drop each `| None` it added to a bare type where the
+column is in fact never NULL. A `type` alias names a type that is never None:
+write `Email | None` where a field is declared. A `nullable` alias base needs
+manual migration (PIE-P1011), and so does a bare type in a source that the
+modern syntax also accepts, whose meaning changed, or that mixes 0.1.4
+spelling with modern spelling that `migrate`'s reader of 0.1.4 source cannot
+read, such as `T | None` (that reader also reads some modern spelling, such as
+`source name: Shape = ...`, which does not count): `migrate` cannot tell which
+syntax such a bare type was written for, so it never adds `| None` to it.
+
+```text
+shape User:
+    id: Int not null
+    nickname: Text
+    email: Text nullable
+
+source users: User is postgres.table("users")
+
+table user_contacts:
+    from users
+    select:
+        id
+        nickname
+        email
+```
+
+```pietto
+shape User:
+    id: Int
+    nickname: Text | None
+    email: Text | None
+
+source users: User = postgres.table("users")
+
+table user_contacts:
+    from users
+    select:
+        id
+        nickname
+        email
+```
+
+#### Names after `select`
+
+`select` may list a `let` name directly, and outside a grouped query an
+`order by` key written as one name may name a SELECT output, as grouped
+queries and `having` already could. A key that names both an input field and a
+SELECT output of another value is now ambiguous (PIE-S2102) instead of
+silently reading the input field: `migrate` qualifies such a 0.1.4 key
+(`order by order_lines.quantity`) where the FROM input is a source of the same
+file with that field in its shape, keeps it where that source has no shape or
+its shape lacks the field, and asks for a decision (PIE-P1011) over JOIN
+inputs or any other FROM input.
+A single-file query with GROUP BY still cannot select a `let` name
+(PIE-S2329). Without GROUP BY, project SQL cannot yet order by a SELECT output
+other than a window result (PIE-B1003 at `emit-sql --project`, or PIE-S2102 at
+`check --project` with JOIN inputs).
+
+In 0.1.4 one value needed two names:
+
+```text
+query biggest_lines:
+    from order_lines
+    let:
+        total_cents = price_cents * quantity
+    select:
+        id
+        line_total = total_cents
+    order by:
+        total_cents desc
+```
+
+```pietto
+shape OrderLine:
+    id: Int
+    price_cents: Int
+    quantity: Int
+
+source order_lines: OrderLine = postgres.table("order_lines")
+
+query biggest_lines:
+    from order_lines
+    select id, total_cents = price_cents * quantity
+    order by total_cents desc
+```
+
+`let total_cents = price_cents * quantity` with `select id, total_cents` is
+the same query.
+
+#### `any` and `not any` replace `semi join` and `anti join`
+
+`semi join` and `anti join` are PIE-P1000. Write
+`where any(predicate for row in relation)` or `where not any(...)`: before a
+later JOIN the filter keeps the rows at that point, and after the last JOIN it
+is the relation's WHERE. Both emit the same correlated `EXISTS` or
+`NOT EXISTS`. 0.1.4 wrote every `semi join` and `anti join` with `as`: such a
+JOIN is PIE-P1000 at its `as`, suggesting the `where any(...)` or
+`where not any(...)` rewrite. `migrate` rewrites only `semi join x on p` and
+`anti join x on p` themselves, written without `as`; one without `on`, and
+each one written with `as`, is refused with PIE-P1011 (see
+[migrating old source](language.md#migrating-old-source) for every case). The
+explicit-module whole-relation read `exists name` is unchanged. See the R2
+limitation under [known limitations](#known-limitations).
+
+0.1.4 accepted this query only in an explicit-module project (a single file
+reported PIE-S2334 at the JOIN); its modern form also checks as a single file:
+
+```text
+query customers_without_orders:
+    from customers
+    anti join orders as o:
+        from customers
+        on o.customer_id == customers.id
+    select:
+        id
+        name
+```
+
+```pietto
+shape Customer:
+    id: Int
+    name: Text
+
+shape Order:
+    id: Int
+    customer_id: Int
+
+source customers: Customer = postgres.table("customers")
+source orders: Order = postgres.table("orders")
+
+query customers_without_orders:
+    from customers
+    where not any(o.customer_id == customers.id for o in orders)
+    select id, name
+```
+
+#### Named windows come before `select`
+
+A named window is a `let name = window(...)` among the lets after FROM and
+every JOIN, before `where`, `group by` and `select`; one declared after
+`select` is PIE-P1000 (`Move the window before 'select', ...`). Windows share
+the `let` namespace: a window named like a value `let` or an input alias is
+PIE-S2604, and a window may not take the name of an input relation or input
+field (PIE-S2329). `migrate` moves a window declared after `select`, with its
+comment lines, to the end of the lets, and asks for a decision (PIE-P1011)
+when its name clashes.
+
+```text
+query ranked:
+    from accounts
+    select:
+        id
+        position = row_number() window ordered
+    window ordered:
+        order by:
+            id
+```
+
+```pietto
+shape Account:
+    id: Int
+    account_id: Int
+
+source accounts: Account = postgres.table("accounts")
+
+query ranked:
+    from accounts
+    let ordered = window(order by id)
+    select:
+        id
+        position = row_number() window ordered
+```
+
+#### One-line forms
+
+An `enum` may list its members on its header line after `:`; the indented
+form remains, and an enum header without `:` is PIE-P1000. A `def`,
+relationship predicate, `constraint` or `derive` body may follow its header on
+the same line. A `qualify:` block joins its lines with `and`, as `where:` and
+`having:` do.
+
+```text
+enum Status:
+    active
+    suspended
+```
+
+```pietto
+enum Status: active, suspended
+
+shape Item:
+    id: Int
+    status: Status
+    price: Int
+
+source items: Item = postgres.table("items")
+
+query top_items:
+    from items
+    where status == "active"
+    select id, price
+    qualify:
+        row_number() window(order by price desc) <= 3
+        price > 0
+```
+
+Single-file QUALIFY is checked but not lowered: `explain` and `emit-sql` still
+refuse it with PIE-I1000.
+
+#### Diagnostics teach the modern spelling
+
+Messages name only modern spelling and state the fix within the diagnostic's
+one line of text output. The fan-out remedies of
+PIE-S2381 and PIE-S2333 no longer suggest grouping by a unique key, which
+compiles but changes the result's grain.
+
+0.1.4 for `where email == null`:
+
+```text
+users.pietto:9:11 PIE-S2105 error: Invalid operands for operator ==: comparison with null is never true; write `is null` instead
+```
+
+This release for `where email == None`, then for `where email is null`:
+
+```text
+users.pietto:9:11 PIE-S2105 error: Invalid operands for operator ==: comparison with null is never true; write `is None` instead
+users.pietto:9:20 PIE-P1000 error: This spelling is not accepted by the modern syntax. Write 'is None' or 'is not None'.
+```
+
+```pietto
+shape User:
+    id: Int
+    email: Text | None
+
+source users: User = postgres.table("users")
+
+table missing_email:
+    from users
+    where email is None
+    select id
+```
+
+#### Reading a table or query of the same file warns
+
+Single-file SQL emits each table and query as its own statement, so a `from`,
+a JOIN or an `any(...)` before a later JOIN that reads a table or query of the
+same file reads it by name: that SQL runs only where the database already has
+a relation of that name. Each such read is now a PIE-S2382 warning in every
+check mode; an explicit-module project emits the relation it reads as a CTE.
+Any other `any(...)`, such as one after the last JOIN, defines the relation it
+reads as a CTE of the reader's SQL and has no such warning.
+The text output of `emit-sql` is unchanged in this release (see
+[deferred to the next release](#deferred-to-the-next-release)).
+
+0.1.4 checked such a file, written in its spelling, without a diagnostic.
+This example is in the spelling of this release:
+
+```text
+shape Order:
+    id: Int
+    amount: Int
+
+source orders: Order = postgres.table("orders")
+
+table large_orders:
+    from orders
+    where amount > 100
+    select id, amount
+
+query large_order_ids:
+    from large_orders
+    select id
+```
+
+now reports:
+
+```text
+orders.pietto:13:5 PIE-S2382 warning: `large_orders` is a table of this file; single-file SQL reads it by name, so the SQL runs only where the database already has a relation named large_orders (an EXPLICIT_MODULES project emits it as a CTE)
+```
+
+Reading the source directly needs no such relation:
+
+```pietto
+shape Order:
+    id: Int
+    amount: Int
+
+source orders: Order = postgres.table("orders")
+
+query large_order_ids:
+    from orders
+    where amount > 100
+    select id
+```
+
+### Single-file JOINs
+
+No published release emits a single-file JOIN: 0.1.4 refused JOIN forms in
+single files (PIE-S2334 at `check`, or PIE-I1000 at `explain` and
+`emit-sql`), and the support merged after 0.1.4 spelled JOINs the 0.1.4 way.
+This release offers them in modern spelling. Name each JOIN input with `let` and give every
+JOIN but CROSS an `on`:
+
+```pietto
+shape Customer:
+    id: Int
+    name: Text
+    customer_key = unique(id)
+
+shape Order:
+    id: Int
+    customer_id: Int
+    amount: Int
+
+source customers: Customer = postgres.table("customers")
+source orders: Order = postgres.table("orders")
+
+relationship OrderCustomer(order: Order, customer: Customer): order.customer_id == customer.id
+
+query orders_per_customer:
+    from orders
+    let customer = customers
+    inner join customer on OrderCustomer(orders, customer)
+    group by customer.name
+    select:
+        customer_name = customer.name
+        order_count = count(orders.id)
+```
+
+PostgreSQL `emit-sql` writes one flat SELECT with every input aliased by its
+name; `any` filters become correlated `EXISTS` or `NOT EXISTS`. MySQL
+`emit-sql` refuses each JOIN relation (PIE-B1000) and keeps the file's other
+SQL; `explain` refuses each JOIN relation (PIE-I1000), as its metadata
+format has one input per relation. Windows over JOIN rows and ORDER BY after an
+ungrouped aggregate are PIE-S2334, PostgreSQL FULL JOIN needs Int equalities
+in `on`, and a JOIN of a source without a shape is PIE-S2334.
+
+An aggregate other than `count()` must not read rows that a JOIN may repeat
+(PIE-S2381). The relationship call above proves that each order matches at
+most one customer, because its equality matches the declared key
+`customer_key`. The same equality written by hand in `on` proves nothing yet:
+
+```text
+orders.pietto:23:23 PIE-S2381 error: An aggregate may read rows that a JOIN repeats; match a declared unique key of customer whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first
+```
+
+[Single-file JOINs](language.md#single-file-joins) and
+[Aggregates and grouping](language.md#aggregates-and-grouping) give the
+complete rules.
+
+### Legacy-flat projects and relationship JOINs
+
+0.1.4 checked relationship JOINs in a legacy-flat project
+(`schema_version = 1`): a JOIN such as `inner join customers as customer`
+matched through a declared relationship, a JOIN `via` a relationship, and the
+other forms written with `as`. They are no longer available. This release
+names each JOIN input with `let` and states its condition with `on`, and a
+legacy-flat project checks no JOIN and no `any(...)` of this syntax. Each
+JOIN, of any kind and whatever its target, is one PIE-S2334 at its `on`, a
+relationship call included, or at the JOIN when it has no `on`, with the text
+``JOIN customer: a schema_version = 1 project has no JOIN in the current syntax; set schema_version = 2 to check it.``;
+each `any(...)`, before a JOIN or after it, nested or not, in any clause, is
+one PIE-S2334 at the `any(...)`, with the text
+``any(...): a schema_version = 1 project has no any(...) in the current syntax; set schema_version = 2 to check it.``;
+they come in source order. 0.1.4 refused this spelling of JOIN and `any(...)`
+with PIE-P1000, so this refusal removes nothing that 0.1.4 accepted. A
+legacy-flat project never emitted SQL, so no SQL changes. To check such a
+project again:
+
+1. Rewrite each JOIN and each relationship with endpoints in the current
+   spelling; `migrate` reports each of them with PIE-P1011 and writes no
+   source for the file.
+2. Set `schema_version = 2` in `pietto.toml`.
+3. In a project of several files, make each module import what it reads from
+   another module, which exports it, and declare each relationship in the
+   module whose JOINs call it, as a relationship is not imported (see
+   [project and package](project-package.md#schema-compatibility)).
+
+For example, this file of a 0.1.4 `schema_version = 1` project:
+
+```text
+shape Order:
+    id: Int not null
+    customer_id: Int not null
+
+shape Customer:
+    id: Int not null
+    name: Text not null
+
+source orders: Order is postgres.table("orders")
+source customers: Customer is postgres.table("customers")
+
+relationship order_customer: orders.customer_id == customers.id
+
+query order_names:
+    from orders
+    inner join customers as customer
+    select:
+        order_id = orders.id
+        customer_name = customer.name
+```
+
+is written as follows in a `schema_version = 2` project, where it also checks
+as a single file:
+
+```pietto
+shape Order:
+    id: Int
+    customer_id: Int
+
+shape Customer:
+    id: Int
+    name: Text
+
+source orders: Order = postgres.table("orders")
+source customers: Customer = postgres.table("customers")
+
+relationship OrderCustomer(order: Order, customer: Customer): order.customer_id == customer.id
+
+query order_names:
+    from orders
+    let customer = customers
+    inner join customer on OrderCustomer(orders, customer)
+    select:
+        order_id = orders.id
+        customer_name = customer.name
+```
+
+### Explicit-module JOIN diagnostics
+
+In an explicit-module project, a JOIN whose `on` has an error of its own, such
+as the invalid operand of `on orders.customer_id == -customer.name`
+(PIE-S2105), or whose relationship call fails now reports only that error,
+once. For that example 0.1.4 also reported PIE-S2334 at the `on`
+(`JOIN-local ON is available only when an EXPLICIT_MODULES project (schema
+version 2) completes it.`). A JOIN after one that failed keeps that PIE-S2334.
+
+### Fixes
+
+- **Comparison chains.** `check --project` no longer stops with an internal
+  error on a comparison chain such as `0 < low + 1 <= high < 10`, where it
+  reports what a single-file check reports, or on one over a window in
+  QUALIFY, such as `0 < row_number() window(order by id) < 3`.
+  `emit-sql --project` emits a chain as it emits the same comparisons joined
+  with `and`, and so does single-file `emit-sql` for a chain over an
+  `any(...)`, such as `False == any(z.id > 0 for z in b) == True`. An error in
+  an operand that two comparisons of a chain share is reported once by
+  `check --project` of a `schema_version = 2` project, as the next item
+  states, and, in the cases this release fixes, in a single file and in a
+  `schema_version = 1` project.
+- **Repeated diagnostics in an explicit-module project.** `check --project`
+  of a `schema_version = 2` project reports a diagnostic equal to an earlier
+  one in code, severity, message, location and suggestion once, at its first
+  position, as the
+  [project JSON v2 contract](spec/project-cli-json-v2.md#ordering) states.
+  0.1.4 reported an error in a call written inside another def's body as
+  often as the called def's expansion made it, and a query header parameter
+  passed to a `def` and read in a position that refuses it (PIE-S2355) at
+  each use of the argument. A single file still reports such an error in a
+  def body as often as the expansion makes it.
+- **Aggregates in a project `any`.** An explicit-module project refuses an
+  aggregate in an `any(...)` predicate, such as
+  `any(count() > 0 for o in orders)`, with PIE-S2335
+  `Aggregate expressions are unavailable in ANY predicates.`, as a single file
+  does; it accepted it.
+- **A nested `any` before a later JOIN.** An enclosing binder hides the
+  relations of its name from a nested `any(...)` also when the outer `any`
+  filters before a later JOIN:
+  `where any(any(True for nested_row in candidate) for candidate in rows)`
+  followed by a JOIN was accepted, and its SQL read the table `candidate`; it
+  is now PIE-S2301, as the same filter after the last JOIN is. A binder hides
+  only the name as written, so a nested `any(...)` over a `let` alias of a
+  relation with the binder's name, such as
+  `any(any(True for other in buyers) for customers in orders)` after
+  `let buyers = customers`, is now accepted, also after the last JOIN, where
+  it was refused.
+- **A nested `any` in a project.** An explicit-module project applies the same
+  rule, also before a later JOIN:
+  `any(any(True for nested_row in rows) for rows in rows)`, or the same
+  through a `let` alias of `rows`, is PIE-S2301 and PIE-S2334 where it was
+  accepted; before a later JOIN, that JOIN also reports PIE-S2335.
+- **A CTE that hides a table.** Single-file SQL emission refuses a scalar
+  `any(...)` reader with PIE-B1000 when a CTE that it defines would hide a
+  table that the same SQL reads without a schema (MySQL compares the names
+  case-insensitively); the SQL read the CTE in place of the table. Rename the
+  relation, or read the table with its schema.
+- **Private combined IR verification.** The verifier refuses a document whose
+  scalar `any` read of an outer FROM or JOIN input names another relation, or
+  other field names or another nullability than that input has; it accepted
+  it.
+- **A JOIN without `on` over a table or query.** In a single file, a JOIN
+  without `on` whose FROM input or target is a table or query of the same file
+  reports PIE-S2335 ``JOIN <binding>: write `on` with the condition that
+  matches <input> to <relation>``, as every other JOIN without `on` does; it
+  reported a PIE-S2334 text about relationship JOINs through a table or query.
+- **A failed relationship call beside a window.** When a relationship call in
+  `on` or in `any(...)` passes a table of the same file to a shape parameter
+  and the file selects a window function, `check`, `explain` and `emit-sql`
+  report PIE-S2604 as they do without the window; they stopped with an
+  internal error.
+- **`let` in a legacy-flat project.** A `schema_version = 1` project resolves
+  each `let name = value` as a single file does, so a selected `let` name, a
+  `let` alias read by `from` and an aggregate over a `let` are checked; they
+  were PIE-S2102 `Unknown field`, PIE-S2301 or an empty row schema.
+- **JOINs and `any(...)` in a legacy-flat project.** A `schema_version = 1`
+  project reports one PIE-S2334 per JOIN and one per `any(...)`, in source
+  order, each naming the way out (`set schema_version = 2 to check it`, see
+  [legacy-flat projects](#legacy-flat-projects-and-relationship-joins)). A
+  JOIN `on` said `JOIN-local ON is available only when an EXPLICIT_MODULES
+  project (schema version 2) completes it.`; a CROSS, RIGHT or FULL JOIN
+  reported its JOIN-kind text, such as `CROSS JOIN is available only when an
+  EXPLICIT_MODULES project (schema version 2) completes it.`, and a RIGHT or
+  FULL JOIN with `on` reported both. An INNER or LEFT JOIN without `on`, also
+  one whose target names no relation in a relation that reads a field of its
+  binding, and an `any(...)` in a `where`, `select` or `let` after the last
+  JOIN, which such a project accepted without a diagnostic, are now refused
+  the same way.
+- **Deeply nested expressions.** A long chain of unary operators in a `derive`
+  body and nested conditional expressions in a QUALIFY window argument parse
+  to the depths 0.1.4 parsed; they stopped earlier with PIE-P1000
+  `Parser recursion limit exceeded while processing source.`
+- **Package check.** `scripts/package_smoke.py` writes its project sources in
+  the modern spelling and accepts the approved PIE-S2382 warning of the MySQL
+  ordering fixture; the installed package is unchanged by it.
+
+### Known limitations
+
+- **R2 and a trailing `any`.** A `where any(...)` or `where not any(...)` after
+  the last JOIN, the rewrite of a last `semi join` or `anti join`, is an
+  existence read, so R2's `save_recoverable` and `recover`
+  refuse it with `PIE-R1004` (`REFINEMENT_EXPRESSION_BLOCK_READ`) where they
+  accepted that last JOIN. A filter before a later JOIN, ordinary execution,
+  an ordinary `save` and bundles are unaffected. A later release adds R2
+  support for a trailing correlated `EXISTS`
+  ([execution](execution.md#known-limitations)).
+- **D-11 and D-12.** The conservative fan-out and typed-NULL refusals of
+  [fix batch 7](#fix-batch-7-following-014-included-in-015) remain, including
+  programs whose old SQL ran correctly.
+- **Bundles and saved jobs.** As with every release, the changed code identity
+  refuses bundles and saved-job records made by 0.1.4 or earlier; keep their
+  matching environment.
+- **The rewrite suggested for an old JOIN written with `as`.** The PIE-P1000
+  of a 0.1.4 JOIN written with `as` suggests
+  `let alias = relation` and then `left join alias on predicate` for every
+  kind, also for an INNER, RIGHT, FULL or CROSS JOIN; keep the JOIN's own kind
+  when rewriting it (a CROSS JOIN takes no `on`).
+- **`migrate` and an old `semi join` or `anti join`.** Its PIE-P1011 for one
+  written with `as` says to introduce `let` and `on`; rewrite it as
+  `where any(predicate for o in orders)` or `where not any(...)`, as the
+  PIE-P1000 of `check` suggests.
+- **`migrate` and a parenthesized row argument.** A `semi join` or `anti join`
+  whose relationship call passes the JOIN's own name in parentheses, such as
+  `OrderCustomer((orders), customers)`, needs a manual rewrite (PIE-P1011),
+  although the same call without the parentheses migrates.
+- **A compiler-generated name in a diagnostic.** A bare binder as the
+  predicate of an `any(...)` or `not any(...)` before a later JOIN, such as
+  `where not any(o for o in orders)`, is PIE-S2335
+  `JOIN ON reference is unknown: _pietto_any_1`, naming a binding that the
+  compiler generated; after the last JOIN the same filter is PIE-S2102
+  `Unknown or unavailable field in ANY predicate: o`.
+- **MySQL and relation names that differ only in case.** When MySQL SQL
+  defines two relations as CTEs whose names differ only in letter case, such
+  as `chosen` and `CHOSEN`, a server with `lower_case_table_names` set to 1 or
+  2 refuses the statement for a duplicate name; it returns no wrong rows.
+- **Private combined IR verification.** The verifier does not check the type
+  or the definition of a field that a scalar `any` reads from an outer input,
+  as the document does not record them.
+- **Very deeply nested comparison chains.** Checking a comparison chain nested
+  in other chains many levels deep, such as
+  `True == (True == (...) == True) == True`, is slower than in 0.1.4.
+- **A diagnostic printed twice.** Apart from `check --project` of a
+  `schema_version = 2` project, which reports an equal diagnostic once, an
+  identical diagnostic printed twice at one position is a known issue to
+  report, except for an error in a def body, which a single file reports as
+  often as the def's expansion makes it.
+
+### Deferred to the next release
+
+These decided changes are not in this release:
+
+- A hand-written `on` equality to a declared unique key whose fields are never
+  None earns the same fan-out proof as a relationship call, in single files
+  and projects.
+- Warnings in every check mode for `Int / Int` truncation, `None` inside an
+  `in` list (with the enum `in`-list fix) and `--` in an expression.
+- Two warnings: a test in WHERE that rejects NULL on the NULL-extended side
+  of a LEFT JOIN, and `not in` with a nullable left value.
+- A style page for Python users.
+- Relaxing the conservative fan-out (D-11) and typed-NULL (D-12) refusals of
+  [fix batch 7](#fix-batch-7-following-014-included-in-015), so that the outer-JOIN
+  aggregates and NULL arithmetic that the database runs correctly are accepted
+  again (deferred, not dropped).
+- R2 recovery through a trailing correlated `EXISTS`.
+- Emitting a same-file table or query read as a CTE, and with it naming each
+  statement and ending it with `;` in `emit-sql` text output, so that the SQL
+  text changes once; this release's text output is unchanged.
+- Reporting a swapped argument pair as one diagnostic.
+
+## Fix batch 7 following 0.1.4 (included in 0.1.5)
+
+This addendum covers the compiler fixes following 0.1.4, which `0.1.5` includes.
+It does not replace the published 0.1.4 release notes.
 
 ### Checking and supported results
 
@@ -77,7 +795,7 @@ The detailed compatibility changes follow.
 
 ### Compatibility with 0.1.4: fix batch 7
 
-This is the compatibility text for the unpublished fixes following 0.1.4.
+This is the compatibility text for the fixes following 0.1.4 (included in 0.1.5).
 Examples describe compiler checks, metadata and generated SQL. They do not claim
 new execution against PostgreSQL or MySQL. This batch does not introduce the
 single-file JOIN MVP or new aggregate emission over sources without a shape.
@@ -494,10 +1212,8 @@ golden behavior.
 
 ## Post-Phase70 public alpha release notes — 0.1.4
 
-**Status:** These notes cover the `0.1.4` public-alpha candidate. A release is
-established only when the accepted wheel and sdist are available from both the
-versioned GitHub pre-release and PyPI channels; this document neither creates
-those channels nor substitutes for their byte verification.
+**Status:** These notes describe `0.1.4`, published and byte-verified on the
+versioned GitHub pre-release and PyPI channels.
 
 This release makes Pietto source read more like Python, adds one-line
 relationships, inferred JOIN sources and inline `def` functions, and fixes

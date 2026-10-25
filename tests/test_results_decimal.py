@@ -263,8 +263,8 @@ def test_existing_row_equivalence_uses_exact_high_precision_facts(tmp_path):
     source = (
         _source("Decimal(39, 4)")
         .replace(
-            "    hidden: Float nullable",
-            "    same: Decimal(39, 4) not null\n    wider: Decimal(65, 4) nullable\n    scale: Decimal(39, 5) nullable",
+            "    hidden: Float | None",
+            "    same: Decimal(39, 4)\n    wider: Decimal(65, 4) | None\n    scale: Decimal(39, 5) | None",
         )
         .replace(
             "        value\n",

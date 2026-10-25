@@ -25,13 +25,13 @@ from pietto.parser_api import ParseResult, parse_file, parse_source
 def test_shape_index_parses_fields_and_optional_predicate() -> None:
     result = parse_source(
         "shape User:\n"
-        "    tenant_id: UUID not null\n"
-        "    email: Email not null\n"
-        "    deleted_at: Timestamp nullable\n"
+        "    tenant_id: UUID\n"
+        "    email: Email\n"
+        "    deleted_at: Timestamp | None\n"
         "\n"
-        "    index user_email_idx on email\n"
-        "    index tenant_email_idx on tenant_id, email\n"
-        "    index active_user_email_idx on email when deleted_at is null\n"
+        "    user_email_idx = index(email)\n"
+        "    tenant_email_idx = index(tenant_id, email)\n"
+        "    active_user_email_idx = index(email) when deleted_at is None\n"
     )
 
     assert result.diagnostics == ()
@@ -55,11 +55,11 @@ def test_shape_index_is_parse_only_without_name_field_or_bool_checks() -> None:
     result = parse_source(
         "shape External:\n"
         "    duplicate: Text\n"
-        "    check duplicate:\n"
-        "        1\n"
-        "    unique duplicate on missing\n"
-        "    index duplicate on missing, missing when 1\n"
-        "    index duplicate on missing\n"
+        "    duplicate = check(\n"
+        "        1)\n"
+        "    duplicate = unique(missing)\n"
+        "    duplicate = index(missing, missing) when 1\n"
+        "    duplicate = index(missing)\n"
     )
 
     assert result.diagnostics == ()
@@ -77,10 +77,10 @@ def test_shape_index_is_parse_only_without_name_field_or_bool_checks() -> None:
 def test_shape_index_allows_blank_lines_comments_and_eof() -> None:
     result = parse_source(
         "shape User:\n"
-        "    email: Email not null\n"
+        "    email: Email\n"
         "\n"
         "    # Index active email values.\n"
-        "    index user_email_idx on email"
+        "    user_email_idx = index(email)"
     )
 
     assert result.diagnostics == ()
@@ -95,13 +95,13 @@ def test_shape_index_allows_blank_lines_comments_and_eof() -> None:
 def test_shape_preserves_mixed_field_check_unique_and_index_order() -> None:
     result = parse_source(
         "shape User:\n"
-        "    check has_email:\n"
-        "        email is not null\n"
-        "    tenant_id: UUID not null\n"
-        "    unique tenant_user_email on tenant_id, email\n"
-        "    index tenant_email_idx on tenant_id, email\n"
-        "    email: Email not null\n"
-        "    index active_email_idx on email when deleted_at is null\n"
+        "    has_email = check(\n"
+        "        email is not None)\n"
+        "    tenant_id: UUID\n"
+        "    tenant_user_email = unique(tenant_id, email)\n"
+        "    tenant_email_idx = index(tenant_id, email)\n"
+        "    email: Email\n"
+        "    active_email_idx = index(email) when deleted_at is None\n"
     )
 
     assert result.diagnostics == ()
@@ -137,8 +137,8 @@ def test_shape_index_preserves_top_level_definition_order() -> None:
     result = parse_source(
         "type Email = Text\n"
         "shape User:\n"
-        "    email: Email not null\n"
-        "    index user_email_idx on email\n"
+        "    email: Email\n"
+        "    user_email_idx = index(email)\n"
         "enum Status:\n"
         "    ready\n"
     )
@@ -155,9 +155,9 @@ def test_shape_index_preserves_top_level_definition_order() -> None:
 def test_index_and_when_remain_available_in_dotted_expressions() -> None:
     result = parse_source(
         "shape User:\n"
-        "    email: Email not null\n"
-        "    check keyword_calls:\n"
-        "        catalog.index(email) is not null and row.when is not null\n"
+        "    email: Email\n"
+        "    keyword_calls = check(\n"
+        "        catalog.index(email) is not None and row.when is not None)\n"
     )
 
     assert result.diagnostics == ()
@@ -168,11 +168,11 @@ def test_shape_index_spans_are_one_based_half_open() -> None:
     path = Path("examples/shapes/index_span.pietto")
     result = parse_source(
         "shape User:\n"
-        "    tenant_id: UUID not null\n"
-        "    email: Email not null\n"
-        "    deleted_at: Timestamp nullable\n"
-        "    index active_user_email_idx on email when deleted_at is null\n"
-        "    status: Text nullable\n",
+        "    tenant_id: UUID\n"
+        "    email: Email\n"
+        "    deleted_at: Timestamp | None\n"
+        "    active_user_email_idx = index(email) when deleted_at is None\n"
+        "    status: Text | None\n",
         path=path,
     )
 
@@ -185,7 +185,7 @@ def test_shape_index_spans_are_one_based_half_open() -> None:
         line=1,
         column=1,
         end_line=6,
-        end_column=26,
+        end_column=24,
     )
     index = definition.indexes[0]
     assert index.span == Span(
@@ -227,9 +227,9 @@ def test_shape_index_example_fixture_parses() -> None:
 def test_shape_index_ast_does_not_expose_antlr_nodes() -> None:
     result = parse_source(
         "shape User:\n"
-        "    email: Email not null\n"
-        "    deleted_at: Timestamp nullable\n"
-        "    index active_user_email_idx on email when deleted_at is null\n"
+        "    email: Email\n"
+        "    deleted_at: Timestamp | None\n"
+        "    active_user_email_idx = index(email) when deleted_at is None\n"
     )
 
     assert result.diagnostics == ()
@@ -243,15 +243,15 @@ def test_shape_index_ast_does_not_expose_antlr_nodes() -> None:
         "shape User:\n    index on email\n",
         "shape User:\n    index user_email_idx email\n",
         "shape User:\n    index user_email_idx on\n",
-        "shape User:\n    index user_email_idx on , email\n",
-        "shape User:\n    index user_email_idx on email,\n",
-        "shape User:\n    index user_email_idx on email,, tenant_id\n",
-        "shape User:\n    index user_email_idx on email tenant_id\n",
-        "shape User:\n    index user_email_idx on email when\n",
-        "shape User:\n    index lower_email_idx on lower(email)\n",
-        "shape User:\n    index user_email_idx on email using btree\n",
-        "shape User:\n    index user_email_idx on email include tenant_id\n",
-        "shape User:\n    index user_email_idx on email desc\n",
+        "shape User:\n    user_email_idx = index(, email)\n",
+        "shape User:\n    user_email_idx = index(email,)\n",
+        "shape User:\n    user_email_idx = index(email,, tenant_id)\n",
+        "shape User:\n    user_email_idx = index(email tenant_id)\n",
+        "shape User:\n    user_email_idx = index(email when)\n",
+        "shape User:\n    lower_email_idx = index(lower(email))\n",
+        "shape User:\n    user_email_idx = index(email using btree)\n",
+        "shape User:\n    user_email_idx = index(email include tenant_id)\n",
+        "shape User:\n    user_email_idx = index(email desc)\n",
     ],
 )
 def test_malformed_shape_indexes_return_syntax_diagnostic(source: str) -> None:
@@ -263,7 +263,7 @@ def test_malformed_shape_indexes_return_syntax_diagnostic(source: str) -> None:
 
 def test_shape_index_rejects_old_postfix_nullability() -> None:
     result = parse_source(
-        "shape User:\n    email: Email?\n    index user_email_idx on email\n"
+        "shape User:\n    email: Email?\n    user_email_idx = index(email)\n"
     )
 
     assert result.ast is None
@@ -272,10 +272,7 @@ def test_shape_index_rejects_old_postfix_nullability() -> None:
 
 def test_shape_index_brace_block_reports_unsupported_brace() -> None:
     result = parse_source(
-        "shape User:\n"
-        "    email: Email not null\n"
-        "    index user_email_idx on email {\n"
-        "    }\n"
+        "shape User:\n    email: Email\n    user_email_idx = index(email) {\n    }\n"
     )
 
     assert result.ast is None

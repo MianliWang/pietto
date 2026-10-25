@@ -45,8 +45,8 @@ PROJECT_JSON_KEYS = (
 )
 
 PRECISE_FAILURE_SOURCE = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+source rows: Row = postgres.table("rows")
 query bad:
     from rows
     select:
@@ -63,27 +63,24 @@ query downstream:
         id
 """
 
-SOURCE_FAILURE_SOURCE = """source rows: MissingShape is postgres.table("rows")
+SOURCE_FAILURE_SOURCE = """source rows: MissingShape = postgres.table("rows")
 """
 
 NESTED_WINDOW_FAILURE_SOURCE = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
-        mystery = mystery_window() window:
-            order by:
-                id
+        mystery = mystery_window() window(order by id)
 """
 
 DIAGNOSTIC_MATRIX_SOURCE = (
     POSITIVE_SOURCE
     + """query where_bad:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     where not_a_builtin(event.metric) > 0
     select:
         event_id = event.id
@@ -94,31 +91,24 @@ query downstream_where_bad:
         event_id
 query qualify_bad:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
     qualify:
         missing > 0
 query order_bad:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        id = row_number() window:
-            order by:
-                event.id
+        id = row_number() window(order by event.id)
     order by:
         id
 query order_precise:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
@@ -128,9 +118,8 @@ query order_precise:
         metric
 query limit_bad:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit -1

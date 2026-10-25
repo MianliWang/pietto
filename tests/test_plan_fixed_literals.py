@@ -45,7 +45,7 @@ def _product(path, source, policy=P.BIND_SAFE_LITERALS):
 
 @pytest.fixture(scope="module")
 def products(tmp_path_factory):
-    joined = _join_source('true and 1 == 1 and 1.0 > 0.0 and "x" == "x"').replace(
+    joined = _join_source('True and 1 == 1 and 1.0 > 0.0 and "x" == "x"').replace(
         "    select:\n        id = lhs.id\n", BODY
     )
     return tuple(
@@ -208,14 +208,14 @@ def test_unary_sign_unicode_and_large_int_are_original_values(products):
     "body",
     (
         "    select:\n        x = sum(value * 2 + 1)\n",
-        "    group by:\n        id\n    select:\n        id\n        x = count(value + 1)\n    satisfying:\n        x > 2\n",
+        "    group by:\n        id\n    select:\n        id\n        x = count(value + 1)\n    having:\n        x > 2\n",
         "    select:\n        x = count(len(label) + 1)\n",
     ),
 )
 def test_admitted_aggregate_call_and_satisfying_contexts_are_preserved(tmp_path, body):
     source = _ordinary(body).replace(
-        "    value: Int nullable\n",
-        "    value: Int nullable\n    label: Text nullable\n",
+        "    value: Int | None\n",
+        "    value: Int | None\n    label: Text | None\n",
     )
     _, plan, _, _ = _product(tmp_path, source)
     assert plan.aggregates and not plan.literal_slots
@@ -231,7 +231,7 @@ def test_admitted_aggregate_call_and_satisfying_contexts_are_preserved(tmp_path,
     "call",
     (
         "lag(value, 2, 0)",
-        "lag(value, 1, null)",
+        "lag(value, 1, None)",
         "lag(5, 1, 0)",
         "lead(value)",
         "ntile(3)",
@@ -283,15 +283,11 @@ def test_frame_ast_literals_retain_each_actual_window_context(tmp_path, named):
 
 
 def test_order_limit_zero_and_qualify_do_not_erase_defining_literals(tmp_path):
-    source = _source("""    let:
-        v = id + 1
+    source = _source("""    let v = id + 1
     select:
         constant = 2
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
+        row_number() window(order by id) <= 3
     order by:
         v + 4
     limit 0
@@ -307,15 +303,14 @@ def test_order_limit_zero_and_qualify_do_not_erase_defining_literals(tmp_path):
 
 
 def test_bound_earlier_let_flows_through_aggregate_port(tmp_path):
-    source = _ordinary("""    let:
-        key = id
-        amount = value + 1
-    where false
+    source = _ordinary("""    let key = id
+    let amount = value + 1
+    where False
     group by:
         key
     select:
         total = sum(amount)
-    satisfying:
+    having:
         total > 0 and sum(amount) > 1
 """)
     _, plan, _, view = _product(tmp_path, source)
@@ -338,11 +333,9 @@ def test_depth12_named_definitions_keep_one_defining_slot(tmp_path):
 
 
 @pytest.mark.parametrize("family,kind", (("postgres", "query"), ("mysql", "table")))
-@pytest.mark.parametrize(
-    "join", ("inner", "left", "right", "full", "semi", "anti", "cross")
-)
+@pytest.mark.parametrize("join", ("inner", "left", "right", "full", "cross"))
 def test_bound_transport_keeps_all_seven_join_shapes(tmp_path, family, kind, join):
-    source = _join_source(None if join == "cross" else "lhs.id > 1 and true", kind=join)
+    source = _join_source(None if join == "cross" else "lhs.id > 1 and True", kind=join)
     source = source.replace("postgres.table", family + ".table").replace(
         "query result:", kind + " result:"
     )
@@ -357,11 +350,11 @@ def test_imported_reexported_set_uses_keep_defining_source_and_slots(tmp_path: P
     producer = _source("    select:\n        v = 17\n").replace(
         "query result:", "table first:"
     )
-    (tmp_path / "a.pietto").write_text(producer + "export:\n    table first\n")
+    (tmp_path / "a.pietto").write_text(producer + "export table first\n")
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import table first as Public\nexport table Public\n'
     )
-    source = 'import "b.pietto":\n    table Public as Alias\nquery result:\n    union all:\n        from Alias\n        from Alias\n'
+    source = 'from "b.pietto" import table Public as Alias\nquery result:\n    union all:\n        from Alias\n        from Alias\n'
     _, plan, _, view = _product(tmp_path, source)
     assert len(plan.literal_slots) == 1 and len(plan.set_operands) == 2
     slot = plan.literal_slots[0]
@@ -470,9 +463,9 @@ def test_direct_set_aggregation_boundary_and_explicit_bridge_stay_unchanged(
 
 def test_computed_let_window_prerequisite_remains_negative(tmp_path):
     source = _ordinary(
-        "    let:\n        v = value + 1\n    select:\n        id\n        v\n"
+        "    let v = value + 1\n    select:\n        id\n        v\n"
     ).replace("query result:", "table earlier:")
-    source += "query result:\n    from earlier\n    select:\n        w = lag(v, 1, 0) window:\n            order by:\n                id\n    order by:\n        w\n"
+    source += "query result:\n    from earlier\n    select:\n        w = lag(v, 1, 0) window(order by id)\n    order by:\n        w\n"
     roots = _roots(tmp_path, source)
     assert not roots[0].ok and "PIE-S2104" in [d.code for d in roots[0].diagnostics]
     for policy in P:
@@ -485,7 +478,7 @@ def test_computed_let_window_prerequisite_remains_negative(tmp_path):
 def test_bound_mode_keeps_single_match_warning_through_except_membership(tmp_path):
     from _pietto_plan_joins import _roots as join_roots, _requests
 
-    source = _join_source("true").replace("query result:", "table operand:")
+    source = _join_source("True").replace("query result:", "table operand:")
     source = source.replace("        id = lhs.id\n", "        id = 7\n")
     source += "query result:\n    except all:\n        from lhs\n        from operand\n"
     # Match the original source width without changing its nullable/key evidence.
@@ -796,8 +789,8 @@ def test_unknown_extraction_evidence_preserves_without_forging_plan_evidence(pro
 @pytest.mark.parametrize("alias", (False, True))
 def test_consumed_type_arguments_are_structural_source_positions(tmp_path, alias):
     source = _source("    select:\n        key\n").replace(
-        "key: Int nullable",
-        "key: Money nullable" if alias else "key: Decimal(12, 2) nullable",
+        "key: Int | None",
+        "key: Money | None" if alias else "key: Decimal(12, 2) | None",
     )
     if alias:
         source = "type Money = Decimal(12, 2)\n" + source
@@ -1011,7 +1004,7 @@ def test_verification_and_inspection_never_allocate_classify_or_infer(
 
 @pytest.mark.parametrize(
     "body,code",
-    (("    select:\n        x = null\n", "PIE-S2333"),),
+    (("    select:\n        x = None\n", "PIE-S2333"),),
 )
 def test_unsupported_prerequisites_are_not_preserved_transport_success(
     tmp_path, body, code

@@ -8,12 +8,12 @@ from pietto.semantic import analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
     "    customer_id: Text\n"
-    "    status: Text not null\n"
-    "    region: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    region: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -68,7 +68,7 @@ def test_semantic_context_and_modifier_like_argument_boundaries_are_locked() -> 
         "    from orders\n"
         "    select:\n"
         "        total = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        sum(amount) > 0\n"
     )
     grouped_order_source = (

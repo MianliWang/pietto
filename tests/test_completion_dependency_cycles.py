@@ -45,15 +45,17 @@ from _pietto_project_completion import POSITIVE_SOURCE
 
 
 BASE = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+source rows: Row = postgres.table("rows")
 """
 
 
 def _query(name: str, source: str = "rows", joins: tuple[str, ...] = ()) -> str:
     result = f"query {name}:\n    from {source}\n"
     for position, target in enumerate(joins):
-        result += f"    inner join {target} as b{position}:\n        from {source}\n"
+        result += (
+            f"    let b{position} = {target}\n    inner join b{position} on True\n"
+        )
     return result + "    select:\n        id\n"
 
 

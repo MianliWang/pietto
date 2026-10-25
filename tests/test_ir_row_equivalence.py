@@ -14,6 +14,10 @@ from pietto._project.project_final_outputs import (
     ProjectEffectiveOutputCompletionTerminal,
     ProjectCompletedRowDomainKind,
 )
+from pietto._project.project_completion import (
+    ProjectEffectiveOutputTerminal,
+    ProjectExistingEffectiveOutput,
+)
 from pietto._project.project_grain import (
     ProjectGrainOriginKind,
     ProjectGrainBasisState,
@@ -80,12 +84,11 @@ def test_a_visible_window_value_of_a_shape_is_unsupported(tmp_path: Path) -> Non
     PIE-S2104 `value type must be concrete`."""
     result = _completed(
         tmp_path,
-        "shape Payload:\n    a: Int not null\n"
-        "shape Row:\n    id: Int not null\n    payload: Payload nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Payload:\n    a: Int\n"
+        "shape Row:\n    id: Int\n    payload: Payload | None\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n    from rows\n    select distinct:\n        id\n"
-        "        p = lag(payload) window:\n            order by:\n"
-        "                id\n",
+        "        p = lag(payload) window(order by id)\n",
     )
     assert [
         (d.code, d.message, d.location.line, d.location.column)
@@ -175,7 +178,7 @@ def test_support_domain(tmp_path: Path, mode: CheckMode, type_name: str) -> None
     "type_name",
     ("Float", "Any", "Bytes", "Json", "Decimal", "Decimal(0, 2)", "Decimal(8, 9)"),
 )
-@pytest.mark.parametrize("nullability", ("nullable", "not null"))
+@pytest.mark.parametrize("nullability", ("| None", ""))
 def test_unsupported_domains_never_publish_proofs(
     tmp_path: Path, mode: CheckMode, type_name: str, nullability: str
 ) -> None:
@@ -183,7 +186,7 @@ def test_unsupported_domains_never_publish_proofs(
         tmp_path,
         f"mode {mode.value}\n"
         + _source(type_name).replace(
-            f"{type_name} nullable", f"{type_name} {nullability}"
+            f"{type_name} | None", f"{type_name} {nullability}".rstrip()
         ),
     )
     assert not result.ok
@@ -237,13 +240,11 @@ def test_alias_chain_uses_existing_resolution(tmp_path: Path, type_name: str) ->
     assert [i.declared_name for i in resolution.alias_chain] == ["Alias", "Base"]
 
 
-@pytest.mark.parametrize(
-    "kind", ("inner", "left", "cross", "right", "full", "semi", "anti")
-)
+@pytest.mark.parametrize("kind", ("inner", "left", "cross", "right", "full"))
 def test_join_outputs_compare_only_visible_projection(
     tmp_path: Path, kind: str
 ) -> None:
-    source = _join_source(None if kind == "cross" else "true", kind=kind).replace(
+    source = _join_source(None if kind == "cross" else "True", kind=kind).replace(
         "select:", "select distinct:"
     )
     result = _completed(tmp_path, source)
@@ -258,16 +259,20 @@ def test_join_outputs_compare_only_visible_projection(
 
 
 @pytest.mark.parametrize("kind", ("inner", "left"))
-@pytest.mark.parametrize("predicate", (None, "r.key is not null"))
-def test_historical_and_refined_joins(
+@pytest.mark.parametrize("predicate", (None, "r.key is not None"))
+def test_typed_predicate_and_conjunct_joins_keep_distinct(
     tmp_path: Path, kind: str, predicate: str | None
 ) -> None:
-    source = _join_source(
-        predicate, kind=kind, via="        via link: l -> r\n"
-    ).replace("select:", "select distinct:")
+    on = "Link(lhs, r)" + (" and " + predicate if predicate is not None else "")
+    source = _join_source(on, kind=kind).replace("select:", "select distinct:")
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
-    assert _entry(result).row_domain.distinct is not None
+    condition = result.roots.join_conditions.entries[0]
+    assert condition.base_guarantee is None
+    assert condition.environment.predicate_expression is not None
+    assert len(condition.environment.predicate_expression.calls) == 1
+    distinct = _entry(result).row_domain.distinct
+    assert distinct is not None and distinct.fields is _entry(result).fields
 
 
 @pytest.mark.parametrize("grouped", (False, True))
@@ -303,9 +308,9 @@ def test_grouped_global_postures(tmp_path: Path, grouped: bool, joined: bool) ->
 def test_window_qualify_visible_boundary(tmp_path: Path, selected: bool) -> None:
     source = _source()
     if selected:
-        source += "        rn = row_number() window:\n            order by:\n                value\n    qualify:\n        rn <= 2\n"
+        source += "        rn = row_number() window(order by value)\n    qualify:\n        rn <= 2\n"
     else:
-        source += "    qualify:\n        row_number() window:\n            order by:\n                hidden\n        <= 2\n"
+        source += "    qualify:\n        row_number() window(order by hidden) <= 2\n"
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     entry = _entry(result)
@@ -327,7 +332,7 @@ def test_no_winner_order(tmp_path: Path, order: str) -> None:
 
 def test_hidden_order_with_exact_strict_fd(tmp_path: Path) -> None:
     source = _source().replace(
-        "value: Int nullable", "value: Int not null\n    unique by_value on value"
+        "value: Int | None", "value: Int\n    by_value = unique(value)"
     )
     result = _completed(tmp_path, source + "    order by:\n        hidden\n")
     assert result.ok, result.diagnostics
@@ -348,7 +353,7 @@ def test_distinct_named_input_replay_join_occurrences(
         if side == "right"
         else ("replay", "replay")
     )
-    source += f"query result:\n    from {left}\n    inner join {right} as r:\n        from {left}\n        on true\n    select:\n        v = {left}.value\n        w = r.value\n"
+    source += f"query result:\n    from {left}\n    let r = {right}\n    inner join r on True\n    select:\n        v = {left}.value\n        w = r.value\n"
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     distinct = _entry(result, "dedup").row_domain.distinct
@@ -384,15 +389,12 @@ def test_repeated_distinct_retains_authored_authority(tmp_path: Path) -> None:
 
 
 def test_null_bag_and_hidden_field_oracle(tmp_path: Path) -> None:
-    source = _source().replace(
-        "        value\n", "        value\n        absent = null\n"
-    )
     # Use a typed nullable field, not an untyped NULL projection.
     source = (
         _source()
         .replace(
-            "    hidden: Float nullable",
-            "    absent: Int nullable\n    hidden: Float nullable",
+            "    hidden: Float | None",
+            "    absent: Int | None\n    hidden: Float | None",
         )
         .replace("        value\n", "        value\n        absent\n")
     )
@@ -475,7 +477,7 @@ def test_unknown_upstream_gets_quotient_factor(tmp_path: Path) -> None:
     source = source.replace("query result:", "table dedup:")
     start = source.index("table dedup:")
     source = source[:start] + source[start:].replace("select:", "select distinct:")
-    source += "query result:\n    from dedup\n    inner join lhs as l:\n        from dedup\n        on true\n    select:\n        total = dedup.left_total\n"
+    source += "query result:\n    from dedup\n    let l = lhs\n    inner join l on True\n    select:\n        total = dedup.left_total\n"
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     distinct = _entry(result, "dedup").row_domain.distinct
@@ -498,7 +500,7 @@ def test_distinct_and_limit_keep_single_match_laws(
     source = _source().replace("query result:", "table dedup:")
     if limit_on_right is not None:
         source += f"    limit {limit_on_right}\n"
-    source += "query result:\n    from rows\n    inner join dedup as d:\n        from rows\n        on true\n    select:\n        value = rows.value\n"
+    source += "query result:\n    from rows\n    let d = dedup\n    inner join d on True\n    select:\n        value = rows.value\n"
     if limit_after_join is not None:
         source += f"    limit {limit_after_join}\n"
     result = _completed(tmp_path, source)
@@ -538,8 +540,8 @@ def test_decimal_parameters_are_exact_not_nullable_or_widened(tmp_path: Path) ->
     source = (
         _source("Decimal(10, 2)")
         .replace(
-            "    hidden: Float nullable",
-            "    same: Decimal(10, 2) not null\n    wider: Decimal(12, 2) nullable\n    scale: Decimal(10, 3) nullable",
+            "    hidden: Float | None",
+            "    same: Decimal(10, 2)\n    wider: Decimal(12, 2) | None\n    scale: Decimal(10, 3) | None",
         )
         .replace(
             "        value\n",
@@ -569,12 +571,12 @@ def test_unpropagated_decimal_computation_fails_closed(tmp_path: Path) -> None:
 @pytest.mark.parametrize("type_name", ("Float", "Decimal(9, 2)"))
 def test_imported_alias_resolution(tmp_path: Path, type_name: str) -> None:
     (tmp_path / "types.pietto").write_text(
-        f"type Base = {type_name}\nexport:\n    type Base\n"
+        f"type Base = {type_name}\nexport type Base\n"
     )
     (tmp_path / "facade.pietto").write_text(
-        'import "types.pietto":\n    type Base as Public\nexport:\n    type Public\n'
+        'from "types.pietto" import type Base as Public\nexport type Public\n'
     )
-    source = 'import "facade.pietto":\n    type Public as Alias\n' + _source("Alias")
+    source = 'from "facade.pietto" import type Public as Alias\n' + _source("Alias")
     result = _completed(tmp_path, source)
     if type_name == "Float":
         assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
@@ -596,13 +598,12 @@ def test_imported_alias_resolution(tmp_path: Path, type_name: str) -> None:
 
 def test_distinct_import_reexport_and_downstream_join(tmp_path: Path) -> None:
     (tmp_path / "producer.pietto").write_text(
-        _source().replace("query result:", "table dedup:")
-        + "export:\n    table dedup\n"
+        _source().replace("query result:", "table dedup:") + "export table dedup\n"
     )
     (tmp_path / "facade.pietto").write_text(
-        'import "producer.pietto":\n    table dedup as Public\nexport:\n    table Public\n'
+        'from "producer.pietto" import table dedup as Public\nexport table Public\n'
     )
-    source = 'import "facade.pietto":\n    table Public as Input\nquery result:\n    from Input\n    inner join Input as again:\n        from Input\n        on true\n    select:\n        left_value = Input.value\n        right_value = again.value\n'
+    source = 'from "facade.pietto" import table Public as Input\nquery result:\n    from Input\n    let again = Input\n    inner join again on True\n    select:\n        left_value = Input.value\n        right_value = again.value\n'
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     distinct = _entry(result, "dedup").row_domain.distinct
@@ -621,7 +622,7 @@ def test_distinct_import_reexport_and_downstream_join(tmp_path: Path) -> None:
 def test_float_window_result_is_deferred(tmp_path: Path) -> None:
     source = _source().replace(
         "        value\n",
-        "        fraction = percent_rank() window:\n            order by:\n                value\n",
+        "        fraction = percent_rank() window(order by value)\n",
     )
     result = _completed(tmp_path, source)
     assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
@@ -630,7 +631,7 @@ def test_float_window_result_is_deferred(tmp_path: Path) -> None:
 
 def test_unrelated_branch_and_diagnostics_survive(tmp_path: Path) -> None:
     source = _source("Float").replace("query result:", "query unsupported:")
-    source += "query result:\n    from rows\n    select distinct:\n        yes = true\n"
+    source += "query result:\n    from rows\n    select distinct:\n        yes = True\n"
     result = _completed(tmp_path, source)
     assert not result.ok
     assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
@@ -656,8 +657,8 @@ def test_order_counterexample_and_nullable_key_do_not_choose_winner(
     )
     if nullable_key:
         source = source.replace(
-            "    score: Int nullable",
-            "    score: Int nullable\n    unique customer_key on customer_id",
+            "    score: Int | None",
+            "    score: Int | None\n    customer_key = unique(customer_id)",
         )
     result = _completed(tmp_path, source + "    order by:\n        score\n")
     assert [d.code for d in result.diagnostics] == ["PIE-S2340"]
@@ -667,11 +668,104 @@ def test_order_counterexample_and_nullable_key_do_not_choose_winner(
 
 @pytest.mark.parametrize("kind", ("inner", "left"))
 def test_join_order_selected_vs_hidden(tmp_path: Path, kind: str) -> None:
-    source = _join_source("true", kind=kind).replace("select:", "select distinct:")
+    source = _join_source("True", kind=kind).replace("select:", "select distinct:")
     good = _completed(tmp_path / "good", source + "    order by:\n        lhs.id\n")
     bad = _completed(tmp_path / "bad", source + "    order by:\n        r.key\n")
     assert good.ok, good.diagnostics
-    assert [d.code for d in bad.diagnostics] == ["PIE-S2340"]
+    assert [d.code for d in bad.diagnostics] == ["PIE-S2340"], tuple(
+        (diagnostic.code, diagnostic.message, diagnostic.location)
+        for diagnostic in bad.diagnostics
+    )
+
+
+@pytest.mark.parametrize("failure", ("missing_from", "missing_rhs", "unavailable_rhs"))
+def test_distinct_join_keeps_its_actual_input_diagnostics(
+    tmp_path: Path, failure: str
+) -> None:
+    prefix, query = _join_source("True").split("query result:", 1)
+    if failure == "missing_from":
+        query = query.replace("    from lhs\n", "    from missing\n")
+    elif failure == "missing_rhs":
+        query = query.replace(
+            "    let r = rhs\n    inner join r on True\n",
+            "    inner join missing on True\n",
+        )
+    else:
+        prefix += """table unavailable:
+    from rhs
+    select distinct:
+        id = Float(id)
+"""
+        query = query.replace("    let r = rhs\n", "    let r = unavailable\n")
+    source = prefix + "query result:" + query.replace("select:", "select distinct:")
+    source += "query valid_sibling:\n    from lhs\n    select:\n        id\n"
+    result = _completed(tmp_path, source)
+    assert not result.ok
+    (condition,) = result.roots.join_conditions.entries
+    environment = condition.environment
+    assert condition.use.clause.uses_named_input and not condition.ready
+    assert environment.source_candidates == (condition.ledger.bindings[0],)
+    assert environment.bindings[-1] is condition.use.target_binding
+    entries = {
+        entry.owner.definition.name: entry for entry in result.effective_outputs.entries
+    }
+    failed, sibling = entries["result"], entries["valid_sibling"]
+    assert isinstance(
+        failed,
+        ProjectEffectiveOutputTerminal | ProjectEffectiveOutputCompletionTerminal,
+    )
+    assert failed.output is None
+    assert type(sibling) is ProjectExistingEffectiveOutput
+    assert sibling.output is not None
+    condition_errors = tuple(
+        diagnostic
+        for diagnostic in condition.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    )
+    assert any(diagnostic.code == "PIE-S2335" for diagnostic in condition_errors)
+    upstream_errors = ()
+    if failure == "unavailable_rhs":
+        upstream = entries["unavailable"]
+        assert isinstance(upstream, ProjectEffectiveOutputCompletionTerminal)
+        upstream_errors = tuple(
+            diagnostic
+            for diagnostic in upstream.diagnostics
+            if diagnostic.code == "PIE-S2339"
+        )
+        assert len(upstream_errors) == 1
+    else:
+        missing = (
+            condition.ledger.bindings[0]
+            if failure == "missing_from"
+            else condition.use.target_binding
+        )
+        assert missing.target is None
+    specific = tuple(
+        dict.fromkeys(
+            diagnostic
+            for diagnostic in (
+                *result.semantic_result.diagnostics,
+                *upstream_errors,
+                *condition_errors,
+            )
+            if diagnostic.severity is Severity.ERROR
+        )
+    )
+    errors = tuple(
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    )
+    assert errors
+    assert all(
+        any(actual is diagnostic for actual in errors) for diagnostic in specific
+    )
+    assert all(diagnostic.code != "PIE-S2333" for diagnostic in errors)
+    assert all(
+        "no relationship" not in diagnostic.message
+        and "write `from`" not in diagnostic.message
+        for diagnostic in errors
+    )
 
 
 @pytest.mark.parametrize("producer", ("grouped", "global", "window"))
@@ -688,10 +782,10 @@ def test_tail_distinct_output_is_consumable(
     elif producer == "global":
         source = source.replace("        value\n", "        total = count()\n")
     else:
-        source += "        total = row_number() window:\n            order by:\n                value\n    qualify:\n        total <= 3\n"
+        source += "        total = row_number() window(order by value)\n    qualify:\n        total <= 3\n"
     left, right = ("dedup", "rows") if side == "left" else ("rows", "dedup")
     reference = "dedup.total" if side == "left" else "d.total"
-    source += f"query result:\n    from {left}\n    inner join {right} as d:\n        from {left}\n        on true\n    select:\n        result_value = {reference}\n"
+    source += f"query result:\n    from {left}\n    let d = {right}\n    inner join d on True\n    select:\n        result_value = {reference}\n"
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     distinct = _entry(result, "dedup").row_domain.distinct
@@ -709,7 +803,7 @@ def test_tail_distinct_output_is_consumable(
 def test_decimal_source_type_evidence_cannot_be_substituted(tmp_path: Path) -> None:
     source = (
         _source("Decimal(10, 2)")
-        .replace("    hidden: Float nullable", "    other: Decimal(12, 3) nullable")
+        .replace("    hidden: Float | None", "    other: Decimal(12, 3) | None")
         .replace("        value\n", "        value\n        other\n")
     )
     completed = _completed(tmp_path, source)
@@ -823,7 +917,7 @@ def test_distinct_inputs_and_repeated_set_uses_are_retained(
     tmp_path: Path, operator: str, quantifier: str
 ) -> None:
     source = _source().replace("query result:", "table dedup:")
-    source += f"query unavailable:\n    {operator} {quantifier}:\n        from dedup\n        from dedup\n"
+    source += f"query unavailable:\n    {operator} {quantifier} dedup, dedup\n"
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     assert _entry(result, "dedup").row_domain.distinct is not None
@@ -849,17 +943,23 @@ def test_distinct_inputs_and_repeated_set_uses_are_retained(
     assert entry.uses[0] is not entry.uses[1]
 
 
-def test_hidden_multihop_fields_do_not_enter_equivalence(tmp_path: Path) -> None:
-    source = _join_source(
-        None, via="        via link: l -> r\n        via link: r -> l\n"
-    )
-    source = source.replace("inner join rhs as r:", "inner join lhs as r:").replace(
-        "select:", "select distinct:"
+def test_unselected_explicit_join_fields_do_not_enter_equivalence(
+    tmp_path: Path,
+) -> None:
+    source = (
+        _join_source("Link(lhs, r)")
+        .replace(
+            "    let r = rhs\n    inner join r on Link(lhs, r)\n",
+            "    let mid = rhs\n    inner join mid on Link(lhs, mid)\n"
+            "    let r = lhs\n    inner join r on Link(r, mid)\n",
+        )
+        .replace("select:", "select distinct:")
     )
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     entry = _entry(result)
-    assert entry.row_domain.distinct is not None and len(entry.fields) == 1
+    distinct = entry.row_domain.distinct
+    assert distinct is not None and len(entry.fields) == 1
     root = entry.root
     from pietto._project.project_joined_qualify import ProjectConcreteJoinedQualify
 
@@ -867,8 +967,18 @@ def test_hidden_multihop_fields_do_not_enter_equivalence(tmp_path: Path) -> None
     environment = (
         root.window_stage.input_aggregation.input_filter.namespace.binding_environment
     )
-    assert environment.hidden_fields
-    assert len(entry.row_domain.distinct.equivalence.fields) == 1
+    assert [row.binding.name for row in environment.bindings] == ["lhs", "mid", "r"]
+    assert not environment.hidden_fields
+    left, middle, repeated = environment.bindings
+    assert left.binding.target is not None and repeated.binding.target is not None
+    assert (
+        left.binding.target.target_occurrence
+        is repeated.binding.target.target_occurrence
+    )
+    assert left.introduction_use is not repeated.introduction_use
+    assert middle.fields and repeated.fields
+    assert [field.output_name for field in entry.fields] == ["id"]
+    assert distinct.equivalence.fields is entry.fields
 
 
 def test_nullable_predicate_equality_is_not_strengthened(tmp_path: Path) -> None:

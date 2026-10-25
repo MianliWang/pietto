@@ -14,8 +14,7 @@ from pietto.ast_nodes import (
     CallExpr,
     ComparisonExpr,
     DottedNameExpr,
-    LetBinding,
-    LetClause,
+    QueryLetDeclaration,
     NameExpr,
     QueryDef,
     TableDef,
@@ -27,11 +26,11 @@ from pietto.semantic import analyze
 
 VALID_SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -39,20 +38,20 @@ def test_table_let_after_from_preserves_ast() -> None:
     relation = _parse_relation(
         "table enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        amount\n"
     )
 
     assert isinstance(relation, TableDef)
-    assert isinstance(relation.let_clause, LetClause)
-    assert relation.let_clause.span.line == 3
-    assert relation.let_clause.span.column == 5
-    assert [binding.name for binding in relation.let_clause.bindings] == ["gross"]
+    assert relation.let_clause is None
+    assert relation.naming_declarations[0].span.line == 4
+    assert relation.naming_declarations[0].span.column == 5
+    assert [binding.name for binding in relation.naming_declarations] == ["gross"]
 
-    binding = relation.let_clause.bindings[0]
-    assert isinstance(binding, LetBinding)
+    binding = relation.naming_declarations[0]
+    assert isinstance(binding, QueryLetDeclaration)
     assert binding.span.line == 4
     assert isinstance(binding.expression, BinaryExpr)
     assert binding.expression.operator == "+"
@@ -62,53 +61,53 @@ def test_query_let_after_from_preserves_ast() -> None:
     relation = _parse_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        amount\n"
     )
 
     assert isinstance(relation, QueryDef)
-    assert isinstance(relation.let_clause, LetClause)
-    assert relation.let_clause.bindings[0].name == "gross"
+    assert relation.let_clause is None
+    assert relation.naming_declarations[0].name == "gross"
 
 
 def test_multiple_let_bindings_preserve_source_order() -> None:
     relation = _parse_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        net = amount - tax\n"
-        '        paid = status == "paid"\n'
+        "\n"
+        "    let gross = amount + tax\n"
+        "    let net = amount - tax\n"
+        '    let paid = status == "paid"\n'
         "    select:\n"
         "        amount\n"
     )
 
-    clause = relation.let_clause
-    assert isinstance(clause, LetClause)
-    assert [binding.name for binding in clause.bindings] == [
+    bindings = relation.naming_declarations
+    assert all(isinstance(item, QueryLetDeclaration) for item in bindings)
+    assert [binding.name for binding in bindings] == [
         "gross",
         "net",
         "paid",
     ]
-    assert [binding.span.line for binding in clause.bindings] == [4, 5, 6]
-    assert isinstance(clause.bindings[2].expression, ComparisonExpr)
+    assert [binding.span.line for binding in bindings] == [4, 5, 6]
+    assert isinstance(bindings[2].expression, ComparisonExpr)
 
 
 def test_source_qualified_field_leaves_parse_inside_let_expressions() -> None:
     relation = _parse_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = orders.amount + orders.tax\n"
+        "\n"
+        "    let gross = orders.amount + orders.tax\n"
         "    select:\n"
         "        amount\n"
     )
 
-    clause = relation.let_clause
-    assert isinstance(clause, LetClause)
-    expression = clause.bindings[0].expression
+    bindings = relation.naming_declarations
+    assert all(isinstance(item, QueryLetDeclaration) for item in bindings)
+    expression = bindings[0].expression
     assert isinstance(expression, BinaryExpr)
     assert isinstance(expression.left, DottedNameExpr)
     assert expression.left.parts == ("orders", "amount")
@@ -120,17 +119,17 @@ def test_function_call_unary_and_binary_examples_parse_inside_let() -> None:
     relation = _parse_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        normalized = lower(trim(status))\n"
-        "        negative_amount = -amount\n"
-        "        gross = amount + tax\n"
+        "\n"
+        "    let normalized = lower(trim(status))\n"
+        "    let negative_amount = -amount\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        amount\n"
     )
 
-    clause = relation.let_clause
-    assert isinstance(clause, LetClause)
-    normalized, negative_amount, gross = clause.bindings
+    bindings = relation.naming_declarations
+    assert all(isinstance(item, QueryLetDeclaration) for item in bindings)
+    normalized, negative_amount, gross = bindings
     assert isinstance(normalized.expression, CallExpr)
     assert isinstance(normalized.expression.arguments[0], CallExpr)
     assert isinstance(negative_amount.expression, UnaryExpr)
@@ -141,18 +140,13 @@ def test_function_call_unary_and_binary_examples_parse_inside_let() -> None:
 
 def test_let_remains_usable_as_identifier_and_name_part() -> None:
     relation = _parse_relation(
-        "query let:\n"
-        "    from let\n"
-        "    let:\n"
-        "        let = let.let\n"
-        "    select:\n"
-        "        let\n"
+        "query let:\n    from let\n\n    let let = let.let\n    select:\n        let\n"
     )
 
     assert relation.name == "let"
     assert relation.from_clause.source_name == "let"
-    assert isinstance(relation.let_clause, LetClause)
-    binding = relation.let_clause.bindings[0]
+    assert relation.let_clause is None
+    binding = relation.naming_declarations[0]
     assert binding.name == "let"
     assert isinstance(binding.expression, DottedNameExpr)
     assert binding.expression.parts == ("let", "let")
@@ -167,8 +161,8 @@ def test_let_remains_usable_as_identifier_and_name_part() -> None:
         (
             "    from orders\n"
             "    where amount > 0\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
         ),
@@ -176,8 +170,8 @@ def test_let_remains_usable_as_identifier_and_name_part() -> None:
             "    from orders\n"
             "    group by:\n"
             "        status\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        status\n"
         ),
@@ -185,8 +179,8 @@ def test_let_remains_usable_as_identifier_and_name_part() -> None:
             "    from orders\n"
             "    select:\n"
             "        amount\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "\n"
+            "    let gross = amount + tax\n"
         ),
         (
             "    from orders\n"
@@ -195,10 +189,10 @@ def test_let_remains_usable_as_identifier_and_name_part() -> None:
             "    select:\n"
             "        status\n"
             "        total_amount = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        total_amount > 0\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "\n"
+            "    let gross = amount + tax\n"
         ),
         (
             "    from orders\n"
@@ -206,16 +200,16 @@ def test_let_remains_usable_as_identifier_and_name_part() -> None:
             "        amount\n"
             "    order by:\n"
             "        amount\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "\n"
+            "    let gross = amount + tax\n"
         ),
         (
             "    from orders\n"
             "    select:\n"
             "        amount\n"
             "    limit 10\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "\n"
+            "    let gross = amount + tax\n"
         ),
     ],
 )
@@ -229,48 +223,33 @@ def test_misplaced_let_blocks_are_parser_errors(body: str) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "    let:\n"
-            "        net = amount - tax\n"
-            "    select:\n"
-            "        amount\n"
-        ),
         ("    from orders\n    let:\n    select:\n        amount\n"),
+        ("    from orders\n\n    let amount AS gross\n    select:\n        amount\n"),
         (
             "    from orders\n"
-            "    let:\n"
-            "        amount AS gross\n"
+            "\n"
+            "    let (gross, net) = amount\n"
             "    select:\n"
             "        amount\n"
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        (gross, net) = amount\n"
+            "\n"
+            "    let gross, net = amount\n"
             "    select:\n"
             "        amount\n"
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross, net = amount\n"
+            "\n"
+            "    let gross = net = amount\n"
             "    select:\n"
             "        amount\n"
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = net = amount\n"
-            "    select:\n"
-            "        amount\n"
-        ),
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        gross: Int = amount\n"
+            "\n"
+            "    let gross: Int = amount\n"
             "    select:\n"
             "        amount\n"
         ),
@@ -283,13 +262,25 @@ def test_rejected_let_binding_shapes_are_parser_errors(body: str) -> None:
     assert _has_code(result, "PIE-P1000")
 
 
+def test_consecutive_naming_declarations_preserve_source_order() -> None:
+    relation = _parse_relation(
+        "query q:\n    from orders\n"
+        "    let gross = amount + tax\n"
+        "    let net = amount - tax\n"
+        "    select amount\n"
+    )
+    assert [(item.name, item.span.line) for item in relation.naming_declarations] == [
+        ("gross", 3),
+        ("net", 4),
+    ]
+
+
 def test_parsed_supported_let_has_no_semantic_unsupported_diagnostic() -> None:
     result = parse_source(
         VALID_SOURCE_PREFIX
         + "query enriched_orders:\n"
         + "    from orders\n"
-        + "    let:\n"
-        + "        gross = amount + tax\n"
+        + "    let gross = amount + tax\n"
         + "    select:\n"
         + "        amount\n"
     )
@@ -310,8 +301,7 @@ def test_cli_check_accepts_supported_parsed_let(
         VALID_SOURCE_PREFIX
         + "query enriched_orders:\n"
         + "    from orders\n"
-        + "    let:\n"
-        + "        gross = amount + tax\n"
+        + "    let gross = amount + tax\n"
         + "    select:\n"
         + "        amount\n",
         encoding="utf-8",
@@ -329,8 +319,8 @@ def test_let_ast_does_not_expose_antlr_nodes() -> None:
     relation = _parse_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        amount\n"
     )
@@ -364,3 +354,34 @@ def _assert_no_antlr_nodes(value: object) -> None:
         for key, item in value.items():
             _assert_no_antlr_nodes(key)
             _assert_no_antlr_nodes(item)
+
+
+def test_modern_query_names_preserve_all_positions_without_guessing_roles() -> None:
+    from pietto.ast_nodes import NameExpr, QueryLetDeclaration
+
+    result = parse_source(
+        "query q:\n"
+        "    let base = orders\n"
+        "    from base\n"
+        "    let buyer = customers\n"
+        "    left join buyer on Match(base, buyer)\n"
+        "    let copied = id\n"
+        "    let copied = other\n"
+        "    select copied\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    query = result.ast.definitions[0]
+    assert isinstance(query, QueryDef)
+    assert query.let_clause is None
+    assert all(
+        isinstance(item, QueryLetDeclaration) for item in query.naming_declarations
+    )
+    assert [(item.name, item.span.line) for item in query.naming_declarations] == [
+        ("base", 2),
+        ("buyer", 4),
+        ("copied", 6),
+        ("copied", 7),
+    ]
+    assert isinstance(query.naming_declarations[-1].expression, NameExpr)
+    assert query.naming_declarations[-1].name_span.column == 9

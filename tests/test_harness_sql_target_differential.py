@@ -270,28 +270,6 @@ def _swapped_outputs(body: Any) -> Any:
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_multi_hop_path_join_stays_outside_the_admitted_join_domain(
-    tmp_path_factory: pytest.TempPathFactory, target: str
-) -> None:
-    item = probe.join_witness(
-        target,
-        "query result:\n    from lhs\n"
-        "    inner join lhs as r:\n        from lhs\n"
-        "        via link: l -> r\n        via link: r -> l\n"
-        "    select:\n        a = lhs.id\n",
-        link=True,
-    )
-    checked, outcome = _build(tmp_path_factory.mktemp("slice15-via-" + target), item)
-    assert not joins.admitted_join_shape(checked.plan)
-    assert outcome.status == "BLOCKED" and outcome.artifact is None
-    assert {b.code for b in outcome.blockers} == {"PIE-B1003"}
-    assert any(
-        getattr(getattr(b.subject, "kind", None), "value", None) == "join"
-        for b in outcome.blockers
-    )
-
-
-@pytest.mark.parametrize("target", TARGETS)
 def test_oracle_rows_satisfy_every_metamorphic_law(target: str) -> None:
     cases.check_relations(_oracle_cases(target))
 

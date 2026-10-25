@@ -31,16 +31,16 @@ from pietto.semantic import analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    region: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal not null\n"
-    "    active: Bool not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    region: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    active: Bool\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 

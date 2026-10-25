@@ -24,11 +24,11 @@ IR_SURFACE_PATHS = (
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -37,24 +37,21 @@ SOURCE_PREFIX = (
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        distinct_count = count_distinct(gross)\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        total = sum(orders.gross)\n",
             "PIE-S2102",
@@ -68,8 +65,7 @@ SOURCE_PREFIX = (
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -79,21 +75,19 @@ SOURCE_PREFIX = (
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
@@ -105,8 +99,7 @@ SOURCE_PREFIX = (
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -129,8 +122,7 @@ def test_unsupported_min_max_aggregate_let_never_reaches_successful_ir() -> None
     semantic = _semantic_for(
         "query aggregate_boundary:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        smallest = min(gross)\n"
     )
@@ -143,8 +135,7 @@ def test_grouped_row_level_where_still_inlines_before_aggregate() -> None:
     relation = _relation_ir(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    group by:\n"
         "        status\n"
@@ -163,8 +154,7 @@ def test_no_group_select_and_order_by_still_inline_row_level_let() -> None:
     relation = _relation_ir(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        gross_value = gross\n"
         "    order by:\n"
@@ -185,8 +175,7 @@ def test_unsupported_aggregate_let_emit_sql_json_and_output_fail_closed(
         "aggregate_let.pietto",
         "query aggregate_boundary:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        smallest = min(gross)\n",
     )
@@ -241,8 +230,7 @@ def test_supported_grouped_row_level_where_still_emits_inline_sql() -> None:
     sql = _postgres_sql(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    group by:\n"
         "        status\n"
@@ -275,8 +263,7 @@ def test_supported_row_level_explain_json_still_hides_let_scopes(
         "supported.pietto",
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        gross_value = gross\n",
     )
@@ -299,8 +286,7 @@ def test_unsupported_aggregate_let_explain_json_fails_without_metadata(
         "aggregate_let.pietto",
         "query aggregate_boundary:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        smallest = min(gross)\n",
     )
@@ -329,7 +315,8 @@ def _relation_ir(source: str) -> RelationIR:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     relation = ir_result.ir.definitions[-1]
@@ -343,7 +330,8 @@ def _postgres_sql(source: str) -> str:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     sql_result = emit_postgres_sql(ir_result.ir)

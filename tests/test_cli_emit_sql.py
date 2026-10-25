@@ -11,10 +11,10 @@ from pietto.sql import SqlArtifact, SqlArtifactKind, SqlResult
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
 )
 
 
@@ -27,7 +27,7 @@ def test_emit_sql_valid_file_prints_postgres_sql(
         "active_users.pietto",
         SOURCE + "table active_users:\n"
         "    from users\n"
-        "    where active == true\n"
+        "    where active == True\n"
         "    select:\n"
         "        id\n"
         "        email\n",
@@ -71,7 +71,13 @@ def test_emit_sql_preserves_multiple_artifact_order(
         "\n"
         'SELECT\n    "email" AS "email"\nFROM "active_users"\n'
     )
-    assert captured.err == ""
+    # The query reads a table of its own file (PIE-S2382).
+    assert captured.err == (
+        f"{path}:11:5 PIE-S2382 warning: `active_users` is a table of this file; "
+        "single-file SQL reads it by name, so the SQL runs only where the database "
+        "already has a relation named active_users (an EXPLICIT_MODULES project "
+        "emits it as a CTE)\n"
+    )
 
 
 def test_emit_sql_parser_error_stops_before_later_stages(
@@ -96,7 +102,7 @@ def test_emit_sql_overly_long_integer_returns_parser_error_without_traceback(
     path = _write(
         tmp_path,
         "huge-integer.pietto",
-        "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
+        "type Huge = Int(max = " + "9" * 5000 + ")\n",
     )
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
@@ -117,7 +123,7 @@ def test_emit_sql_semantic_error_stops_before_ir(
     path = _write(
         tmp_path,
         "semantic.pietto",
-        "shape User:\n    email: MissingType not null\n",
+        "shape User:\n    email: MissingType\n",
     )
 
     def unexpected_call(*args: object, **kwargs: object) -> object:
@@ -167,7 +173,7 @@ def test_emit_sql_deep_expression_stops_before_ir_without_traceback(
     path = _write(
         tmp_path,
         "deep-expression.pietto",
-        f"derive total() -> Int not null:\n    {expression}\n",
+        f"derive total() -> Int:\n    return {expression}\n",
     )
 
     def unexpected_call(*args: object, **kwargs: object) -> object:
@@ -271,7 +277,9 @@ def test_emit_sql_warning_does_not_prevent_later_stages(
         "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
+        # A source without a shape is a PIE-S2303 warning in the default mode.
+        'source raw = postgres.table("raw")\n'
         "table user_emails:\n"
         "    from users\n"
         "    select:\n"
@@ -282,7 +290,7 @@ def test_emit_sql_warning_does_not_prevent_later_stages(
 
     captured = capsys.readouterr()
     assert 'SELECT\n    "email" AS "email"\nFROM "users"\n' == captured.out
-    assert "PIE-S2005 warning:" in captured.err
+    assert "PIE-S2303 warning:" in captured.err
 
 
 def test_emit_sql_unsupported_dialect_is_usage_error(

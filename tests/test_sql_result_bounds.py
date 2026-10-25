@@ -36,7 +36,7 @@ IDENTIFIER_CASE = {
     "mysql": "lower_case_table_names=0",
 }
 Q = {"postgres": '"', "mysql": "`"}
-UNIQUE_ID = "shape Row:\n    id: Int not null\n    unique by_id on id\n"
+UNIQUE_ID = "shape Row:\n    id: Int\n    by_id = unique(id)\n"
 RESULT_KINDS = {
     "distinct_quotient",
     "quotient_field_comparison",
@@ -61,7 +61,7 @@ def emit(target, body, *, unique=False):
     base = probe.fixture(target)
     header = base["source"].split("table result:", 1)[0]
     if unique:
-        header = header.replace("shape Row:\n    id: Int not null\n", UNIQUE_ID)
+        header = header.replace("shape Row:\n    id: Int\n", UNIQUE_ID)
     contract = json.loads(base["contract"])
     contract["environment"].append(
         {
@@ -178,10 +178,7 @@ HIDDEN_WINDOW_DISTINCT = """query result:
     select distinct:
         record_id = id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 4
+        row_number() window(order by id) <= 4
 """
 HIDDEN_GROUP_DISTINCT = """query result:
     from rows
@@ -436,8 +433,7 @@ def test_the_three_order_carriers_are_realized_separately(target, variant, carri
 
 CONSTANT_KEY = """query result:
     from rows
-    let:
-        one = 1
+    let one = 1
     select:
         record_id = id
     order by:

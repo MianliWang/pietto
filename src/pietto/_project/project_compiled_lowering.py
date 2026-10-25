@@ -225,11 +225,23 @@ def emit_compiled(root, values, named=None):
             Address(use.original.ref.kind, use.original.ref.position), []
         ).append(use)
     seen_uses = {}
+    any_inputs = {}
 
     def scalar(address, use, producer, alias, join_contexts=None):
         record = records[address]
         fact = facts[address]
         original = plan.expressions[address]
+        if address.kind == "read" and record.get("role") == "any":
+            local = any_inputs.get(record.get("use"))
+            port = records[record.get("port")]
+            if local is None or port.get("owner") != local[0]:
+                raise CompiledError("COMPILED_ANY_SCOPE")
+            column = replace(
+                columns_by_ref[local[0]][port.get("ordinal")], scope=local[1]
+            )
+            return rows.SQLStageReference(
+                original, refs[port.address], column, fact.realization, scope=local[1]
+            )
         if address.kind == "read" and record.get("role") == "capture":
             # A captured field reads the input row of the body that reads the
             # inline let, through that body's own use.
@@ -307,12 +319,12 @@ def emit_compiled(root, values, named=None):
                 leaf,
             )
         role, token = record.get("operator")
+        if (role, token) in BLOCK_READ_OPERATORS:
+            return block_read(address, fact, token, use, producer, alias, join_contexts)
         operands = tuple(
             scalar(a, use, producer, alias, join_contexts)
             for a in record.get("operands")
         )
-        if (role, token) in BLOCK_READ_OPERATORS:
-            return block_read(address, fact, token, operands)
         if role == "unary" and type(operands[0]) in (
             parameters.SQLAnchor,
             parameters.SQLUnary,
@@ -340,13 +352,21 @@ def emit_compiled(root, values, named=None):
         if r.address.kind == "expression_block_use"
     }
 
-    def block_read(address, fact, kind, operands):
+    def block_read(address, fact, kind, use, producer, alias, join_contexts):
         """The executed block read of one already realized producer; a
         membership read keeps its left value operand."""
         described = block_uses.get(address)
         identity = plan.expression_identities.get(address)
         if described is None or identity is None:
             raise CompiledError("COMPILED_BLOCK_READ")
+        children = records[address].get("operands")
+        operands = (
+            tuple(
+                scalar(child, use, producer, alias, join_contexts) for child in children
+            )
+            if kind in ("in", "not_in")
+            else ()
+        )
         producer_address = described.get("producer")
         subject = CompiledSubject(refs[described.address])
         symbol = ast.SQLSymbol(0, subject.ref, f"e{described.address.position}")
@@ -386,8 +406,21 @@ def emit_compiled(root, values, named=None):
             )
         else:
             raise CompiledError("COMPILED_BLOCK_READ_PRODUCER")
+        predicate = None
+        if kind == "exists" and children:
+            any_inputs[described.address] = (producer_address, symbol)
+            try:
+                predicate = scalar(children[0], use, producer, alias, join_contexts)
+            finally:
+                del any_inputs[described.address]
         return rows.SQLBlockRead(
-            identity, target, fact.realization, kind, described.get("column"), operands
+            identity,
+            target,
+            fact.realization,
+            kind,
+            described.get("column"),
+            operands,
+            predicate,
         )
 
     def read_column(address, use, producer, alias):

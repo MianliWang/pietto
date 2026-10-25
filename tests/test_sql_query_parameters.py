@@ -43,11 +43,10 @@ def _document(outcome) -> dict[str, Any]:
     return json.loads(serialize_project_sql_emission(outcome))
 
 
-REUSE = """query result(low: Int not null, flag2: Bool nullable):
+REUSE = """query result(low: Int, flag2: Bool | None):
     from rows
-    let:
-        next = low + 1
-    where id > low and id != 7 and id >= low and flag2 is null
+    let next = low + 1
+    where id > low and id != 7 and id >= low and flag2 is None
     select:
         display_text = text
         again = low
@@ -182,10 +181,10 @@ def test_value_sensitive_checks_wait_for_a_binding(
     domain: tuple[str, str] | None,
 ) -> None:
     body = (
-        "query result(low: Int not null, label: Text not null):\n"
+        "query result(low: Int, label: Text):\n"
         "    from rows\n"
-        f"    let:\n        {let}\n"
-        "    select:\n"
+        + "".join(f"    let {binding}\n" for binding in let.split("\n        "))
+        + "    select:\n"
         "        display_text = text\n"
         "        next\n"
     )
@@ -210,9 +209,9 @@ def test_an_obligation_names_every_parameter_it_depends_on(
     tmp_path: Path, target: str
 ) -> None:
     body = (
-        "query result(low: Int not null, high: Int not null):\n"
+        "query result(low: Int, high: Int):\n"
         "    from rows\n"
-        "    let:\n        a = low\n"
+        "    let a = low\n"
         "    select:\n"
         "        display_text = text\n"
         "        z = a + high\n"
@@ -229,7 +228,7 @@ def test_an_obligation_names_every_parameter_it_depends_on(
 def test_unread_parameters_still_emit_the_v2_template(
     tmp_path: Path, target: str
 ) -> None:
-    body = "query result(low: Int not null):\n    from rows\n    select:\n"
+    body = "query result(low: Int):\n    from rows\n    select:\n"
     body += "        record_id = id\n"
     _, outcome = _case(tmp_path, target, body, "preserve_literals")
     document = _document(outcome)
@@ -249,7 +248,7 @@ def test_an_unread_parameter_keeps_the_template_outside_the_observation(
 
     clauses = "    from rows\n    select:\n        record_id = id\n"
     template = _case(
-        tmp_path / "template", target, "query result(low: Int not null):\n" + clauses
+        tmp_path / "template", target, "query result(low: Int):\n" + clauses
     )[1].artifact
     twin = _case(tmp_path / "twin", target, "query result:\n" + clauses)[1].artifact
     assert template is not None and twin is not None
@@ -278,7 +277,7 @@ def test_text_parameters_compare_and_project_with_unbound_widths(
     tmp_path: Path, target: str
 ) -> None:
     body = (
-        "query result(label: Text nullable):\n"
+        "query result(label: Text | None):\n"
         "    from rows\n"
         '    where text == label and text like label and text in (label, "x")\n'
         "    select:\n"
@@ -313,7 +312,7 @@ def test_a_parameter_needs_the_declared_parameter_protocol(
     ]
 
 
-ROW_LET = "    let:\n        k = 1\n    select:\n        record_id = id\n        k\n"
+ROW_LET = "    let k = 1\n    select:\n        record_id = id\n        k\n"
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -324,7 +323,7 @@ ROW_LET = "    let:\n        k = 1\n    select:\n        record_id = id\n       
         (ROW_LET, "preserve_literals", False),
         (ROW_LET, "bind_safe_literals", True),
         (
-            "    let:\n        n = low + 1\n    select:\n        record_id = id\n",
+            "    let n = low + 1\n    select:\n        record_id = id\n",
             "preserve_literals",
             True,
         ),
@@ -335,7 +334,7 @@ def test_the_protocol_is_needed_exactly_when_a_placeholder_renders(
     tmp_path: Path, target: str, clauses: str, policy: str, placeholders: bool
 ) -> None:
     """An unread header renders no placeholder, so it needs no protocol."""
-    body = "query result(low: Int not null):\n    from rows\n" + clauses
+    body = "query result(low: Int):\n    from rows\n" + clauses
     declared = _document(_case(tmp_path / "declared", target, body, policy)[1])
     assert declared["status"] == "VERIFIED"
     assert bool(declared["parameter_uses"]) is placeholders
@@ -431,7 +430,7 @@ def test_the_public_decoder_reads_a_v2_template_as_data(
             probe.decode_public(_mutated(document, change))
 
 
-UNREAD = """query result(low: Int not null, note: Text nullable):
+UNREAD = """query result(low: Int, note: Text | None):
     from rows
     where id > low
     select:
@@ -558,7 +557,7 @@ def test_a_distinct_order_key_treats_a_read_as_a_constant_leaf(
     tmp_path: Path, target: str
 ) -> None:
     body = (
-        "query result(low: Int not null):\n"
+        "query result(low: Int):\n"
         "    from rows\n"
         "    select distinct:\n"
         "        id\n"
@@ -590,7 +589,7 @@ def test_an_order_key_matches_only_the_same_restated_parameter(
     tmp_path: Path, target: str, key: str, detail: str
 ) -> None:
     body = (
-        "query result(low: Int not null, high: Int not null):\n"
+        "query result(low: Int, high: Int):\n"
         "    from rows\n"
         "    select:\n"
         "        id\n"
@@ -611,7 +610,7 @@ def test_closed_builtin_value_arguments_take_parameters(
     tmp_path: Path, target: str
 ) -> None:
     body = (
-        "query result(low: Int not null, label: Text nullable):\n"
+        "query result(low: Int, label: Text | None):\n"
         "    from rows\n"
         "    where contains(label, text) and starts_with(label, text)"
         " and ends_with(label, text)\n"
@@ -672,23 +671,14 @@ def test_conformance_bindings_cover_every_use_of_the_position_witness(
     assert all(len(row) == len(labels) for row in rows)
 
 
-WINDOWS = """query result(k: Int not null, d: Int not null, v: Int not null):
+WINDOWS = """query result(k: Int, d: Int, v: Int):
     from rows
     select:
         id
-        a = lag(id, k, d) window:
-            order by:
-                id
-        b = ntile(k) window:
-            order by:
-                id
-        c = nth_value(id, k) window:
-            order by:
-                id
-            rows between unbounded preceding and unbounded following
-        e = lag(v) window:
-            order by:
-                id
+        a = lag(id, k, d) window(order by id)
+        b = ntile(k) window(order by id)
+        c = nth_value(id, k) window(order by id rows between unbounded preceding and unbounded following)
+        e = lag(v) window(order by id)
 """
 _CARRIED = {
     "postgres": (
@@ -842,20 +832,14 @@ def test_a_parameter_offset_may_be_null_and_shares_the_where_numbering(
     tmp_path: Path, target: str
 ) -> None:
     body = (
-        "query result(k: Int not null):\n"
+        "query result(k: Int):\n"
         "    from rows\n"
         "    where id > k\n"
         "    select:\n"
         "        id\n"
-        "        z = lag(id, k, 0) window:\n"
-        "            order by:\n"
-        "                id\n"
-        "        o = lag(id, 0) window:\n"
-        "            order by:\n"
-        "                id\n"
-        "        n = lead(id, k) window:\n"
-        "            order by:\n"
-        "                id\n"
+        "        z = lag(id, k, 0) window(order by id)\n"
+        "        o = lag(id, 0) window(order by id)\n"
+        "        n = lead(id, k) window(order by id)\n"
     )
     _, outcome = _case(tmp_path, target, body, "preserve_literals")
     assert outcome.status == "VERIFIED", outcome.blockers
@@ -889,21 +873,21 @@ def test_a_parameter_offset_may_be_null_and_shares_the_where_numbering(
 
 WINDOW_REFUSALS = {
     "text_value": (
-        "label: Text not null",
+        "label: Text",
         "lag(label)",
         ("PIE-B1003", "window_parameter_value_kind_not_realized_yet"),
     ),
     "bool_value": (
-        "flag2: Bool not null",
+        "flag2: Bool",
         "lag(flag2)",
         ("PIE-B1003", "window_parameter_value_kind_not_realized_yet"),
     ),
     "text_default": (
-        "label: Text not null",
+        "label: Text",
         "lag(text, 1, label)",
         ("PIE-B1003", "window_default_literal_kind_not_realized_yet"),
     ),
-    "float_value": ("r: Float not null", "lag(r)", None),
+    "float_value": ("r: Float", "lag(r)", None),
 }
 
 
@@ -923,9 +907,7 @@ def test_unmeasured_window_parameter_kinds_are_refused(
         "    from rows\n"
         "    select:\n"
         "        id\n"
-        f"        w = {call} window:\n"
-        "            order by:\n"
-        "                id\n"
+        f"        w = {call} window(order by id)\n"
     )
     _, outcome = _case(tmp_path, target, body, "preserve_literals")
     if expected is None:
@@ -1003,7 +985,7 @@ def test_verifiers_reject_forged_window_parameters(
         assert refused(leaf, "realization", realization)
     assert verify_project_sql_emission(artifact, artifact.request).verified
 
-    # A lost plan read, and a read naming another `Int not null` parameter.
+    # A lost plan read, and a read naming another non-null `Int` parameter.
     plan = checked.plan
     assert type(plan) is ProjectSQLPlan
     roles = {a.role.value: a for a in plan.window_arguments if a.parameter is not None}
@@ -1024,27 +1006,22 @@ def test_verifiers_reject_forged_window_parameters(
         assert again.issues == (ProjectSQLPlanVerificationIssue.QUERY_PARAMETERS,)
 
 
-JOINED = """query result(k: Int not null):
+JOINED = """query result(k: Int):
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    inner join r on lhs.id == r.id
     select:
         a = lhs.id
-        w = lag(lhs.id, k, k) window:
-            order by:
-                lhs.id
+        w = lag(lhs.id, k, k) window(order by lhs.id)
 """
-NAMED = """query result(k: Int not null):
+NAMED = """query result(k: Int):
     from rows
+    let composed = window base
+    let base = window(order by id desc)
     select:
         id
         w = ntile(k) window composed
         x = lag(id, k) window composed
-    window composed = base
-    window base:
-        order by:
-            id desc
 """
 SHAPES = {
     ("joined", "postgres"): 'LAG("t0"."c0", CAST(CAST($1 AS pg_catalog.int8) AS '
@@ -1177,7 +1154,7 @@ def test_a_let_column_carries_its_parameters_to_a_later_check(
     tmp_path: Path, target: str
 ) -> None:
     body = (
-        "query result(low: Int not null, high: Int not null):\n"
+        "query result(low: Int, high: Int):\n"
         "    let a:\n"
         "        from rows\n"
         "        select:\n"
@@ -1262,7 +1239,7 @@ def test_the_plan_verifier_rederives_a_read_inside_a_let(tmp_path: Path) -> None
     assert not again.verified
 
 
-LET_COLUMN = """query result(low: Int not null):
+LET_COLUMN = """query result(low: Int):
     let a:
         from rows
         select:
@@ -1295,15 +1272,13 @@ def test_a_let_column_computed_from_a_parameter_is_an_ordinary_column(
     ]
 
 
-LET_WINDOW = """query result(low: Int not null, step: Int not null):
+LET_WINDOW = """query result(low: Int, step: Int):
     let a:
         from rows
         where id > low
         select:
             id
-            b = lag(id, step) window:
-                order by:
-                    id
+            b = lag(id, step) window(order by id)
     from a
     select:
         id
@@ -1334,7 +1309,7 @@ def test_a_window_count_inside_a_let_checks_only_its_own_parameter(
     )
 
 
-LET_READS = """query result(low: Int not null, high: Int not null):
+LET_READS = """query result(low: Int, high: Int):
     let a:
         from rows
         where id > low
@@ -1388,30 +1363,24 @@ def test_lets_read_by_exists_scalar_and_in_carry_the_header(
 # grouped output and a QUALIFY, and one parameter read as a LET value, a window
 # count and a QUALIFY operand under an ORDER key through a LET and a LIMIT.
 CROSS = {
-    "grouped_window": """query result(low: Int not null):
+    "grouped_window": """query result(low: Int):
     from rows
-    let:
-        k = id * low
+    let k = id * low
     group by:
         k
     select:
         k
         n = count()
-        r = row_number() window:
-            order by:
-                n desc
+        r = row_number() window(order by n desc)
     qualify:
         r <= low
 """,
-    "window_count_qualify": """query result(step: Int not null, fill: Int nullable):
+    "window_count_qualify": """query result(step: Int, fill: Int | None):
     from rows
-    let:
-        s = id * step
+    let s = id * step
     select:
         id
-        a = lag(id, step, fill) window:
-            order by:
-                id
+        a = lag(id, step, fill) window(order by id)
     qualify:
         a > step
     order by:

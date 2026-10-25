@@ -84,16 +84,16 @@ CURRENT_FUNCTION_CALLS = (
 def _source(frame: str, *, call: str = "row_number()") -> str:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    value: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    value: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query framed:\n"
         "    from rows\n"
         "    select:\n"
-        f"        result = {call} window:\n"
-        "            order by:\n"
+        f"        result = {call} window(\n"
+        "            order by\n"
         "                id\n"
-        f"            {frame}\n"
+        f"            {frame})\n"
     )
 
 
@@ -305,7 +305,7 @@ def test_legal_same_side_rows_empty_is_not_structural_invalidity() -> None:
     assert tuple(interval.positions) == ()
 
 
-@pytest.mark.parametrize("offset", ("-1", "true", "1.5", "id"))
+@pytest.mark.parametrize("offset", ("-1", "True", "1.5", "id"))
 def test_rows_offsets_require_existing_nonnegative_integer_literal_evidence(
     offset: str,
 ) -> None:
@@ -451,13 +451,13 @@ def test_slice9_activates_shared_frame_ir_without_unit_specific_ir() -> None:
 def test_new_frame_words_remain_contextual_identifiers_outside_frame_clause() -> None:
     source = (
         "shape Row:\n"
-        "    rows: Int not null\n"
-        "    current: Int not null\n"
-        "    row: Int not null\n"
-        "    unbounded: Int not null\n"
-        "    preceding: Int not null\n"
-        "    following: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    rows: Int\n"
+        "    current: Int\n"
+        "    row: Int\n"
+        "    unbounded: Int\n"
+        "    preceding: Int\n"
+        "    following: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query current:\n"
         "    from rows\n"
         "    select:\n"

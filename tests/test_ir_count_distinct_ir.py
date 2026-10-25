@@ -30,18 +30,18 @@ from pietto.semantic import SemanticResult, analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    amount: Int not null\n"
-    "    score: Float not null\n"
-    "    price: Decimal not null\n"
-    "    order_date: Date nullable\n"
-    "    created_at: Timestamp not null\n"
-    "    customer_id: UUID not null\n"
-    "    raw: Bytes not null\n"
-    "    payload: Json not null\n"
-    "    anything: Any nullable\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    score: Float\n"
+    "    price: Decimal\n"
+    "    order_date: Date | None\n"
+    "    created_at: Timestamp\n"
+    "    customer_id: UUID\n"
+    "    raw: Bytes\n"
+    "    payload: Json\n"
+    "    anything: Any | None\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 

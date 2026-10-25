@@ -35,29 +35,31 @@ from pietto._project.project_query_block_ir_verification import (
 )
 from _pietto_project_join import (
     _completed,
+    _prefix_existence_source,
     _source,
 )
 from _pietto_project_join_output import _output, _tail_source
 
 
-@pytest.mark.parametrize("via", ("", "        via link: l -> r\n"))
-def test_historical_m1_m2_remain_complete(tmp_path: Path, via: str) -> None:
-    result = _completed(tmp_path, _source(None, via=via))
-    assert result.ok
+def test_explicit_predicate_join_completes(tmp_path: Path) -> None:
+    result = _completed(tmp_path, _source("Link(lhs, r)"))
+    assert result.ok, result.diagnostics
+    assert len(result.effective_outputs.current_regions) == 1
+    assert result.roots.join_conditions.entries[0].mandatory_equalities
 
 
 @pytest.mark.parametrize(
-    "kind,predicate,via",
+    "kind,predicate",
     (
-        ("inner", "lhs.id == r.id", ""),
-        ("left", "lhs.id == r.id", ""),
-        ("left", "r.key is not null", "        via link: l -> r\n"),
+        ("inner", "lhs.id == r.id"),
+        ("left", "lhs.id == r.id"),
+        ("left", "Link(lhs, r) and r.key is not None"),
     ),
 )
 def test_minimal_generic_and_refined_vertical_completion(
-    tmp_path: Path, kind: str, predicate: str, via: str
+    tmp_path: Path, kind: str, predicate: str
 ) -> None:
-    source = _source(predicate, kind=kind, via=via) + "        right_id = r.id\n"
+    source = _source(predicate, kind=kind) + "        right_id = r.id\n"
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     entries = tuple(
@@ -103,7 +105,7 @@ def test_current_join_retains_verified_combined_ir(tmp_path: Path) -> None:
 
 def test_retirement_preserves_unrelated_same_code_errors(tmp_path: Path) -> None:
     source = _source("lhs.id == r.id")
-    unsupported = _source("1", kind="semi").split("query result:", 1)[1]
+    unsupported = _prefix_existence_source("1", "semi").split("query result:", 1)[1]
     completed = _completed(tmp_path, source + "query unsupported:" + unsupported)
     assert not completed.ok
     entries = {
@@ -116,13 +118,21 @@ def test_retirement_preserves_unrelated_same_code_errors(tmp_path: Path) -> None
     unsupported_facts = facts.find_owner(entries["unsupported"].owner)
     assert len(unsupported_facts) == 1
     errors = unsupported_facts[0].helper_diagnostics
-    assert len(errors) == 2 and all(
+    # The hidden SEMI JOIN of the `any`, its ON and the later JOIN's ON.
+    assert len(errors) == 3 and all(
         diagnostic.code == "PIE-S2334" for diagnostic in errors
     )
-    assert all(
-        any(actual is retained for retained in completed.diagnostics)
-        for actual in errors
+    hidden, later = (
+        condition
+        for condition in completed.roots.join_conditions.entries
+        if condition.ledger.owner is entries["unsupported"].owner
     )
+    # Its typed ON error replaces only its own ON gate; its same-code kind
+    # gate, the later JOIN's ON gate and the conditions' errors stay the
+    # published objects.
+    published = (errors[0], errors[2], *hidden.diagnostics, *later.diagnostics)
+    assert len(completed.diagnostics) == len(published)
+    assert all(a is b for a, b in zip(completed.diagnostics, published, strict=True))
     retired = tuple(
         d
         for admission in completed.effective_outputs.join_admissions
@@ -137,7 +147,7 @@ def test_retirement_preserves_unrelated_same_code_errors(tmp_path: Path) -> None
 def test_completed_inputs_replay_and_subsequent_join(
     tmp_path: Path, producer: str, side: str
 ) -> None:
-    parent = _source("lhs.id == r.id" if producer == "joined" else None)
+    parent = _source("lhs.id == r.id" if producer == "joined" else "Link(lhs, r)")
     parent = parent.replace("query result:", "table upstream:")
     if producer == "grouped":
         parent = parent.replace(
@@ -147,9 +157,8 @@ def test_completed_inputs_replay_and_subsequent_join(
     if side == "right":
         child = """query result:
     from lhs
-    left join upstream as u:
-        from lhs
-        on lhs.id == u.id
+    let u = upstream
+    left join u on lhs.id == u.id
     select:
         id = lhs.id
         incoming = u.id
@@ -157,9 +166,8 @@ def test_completed_inputs_replay_and_subsequent_join(
     else:
         child = """query result:
     from upstream
-    left join rhs as r:
-        from upstream
-        on upstream.id == r.id
+    let r = rhs
+    left join r on upstream.id == r.id
     select:
         id = upstream.id
         incoming = r.id
@@ -170,9 +178,8 @@ def test_completed_inputs_replay_and_subsequent_join(
         echoed = incoming
 query chained:
     from replay
-    inner join rhs as r:
-        from replay
-        on replay.echoed == r.id
+    let r = rhs
+    inner join r on replay.echoed == r.id
     select:
         echoed = replay.echoed
 """
@@ -208,36 +215,30 @@ query chained:
 
 
 @pytest.mark.parametrize(
-    "layout", ("relationship_first", "generic_first", "multihop_first")
+    "layout", ("predicate_first", "generic_first", "two_predicates_first")
 )
-def test_mixed_authored_modes_keep_real_paths_and_bindings(
+def test_mixed_conditions_keep_every_authored_binding(
     tmp_path: Path, layout: str
 ) -> None:
-    if layout == "generic_first":
-        source = _source("lhs.id == r.id")
-        extra = (
-            "    inner join lhs as next:\n        from r\n        via link: r -> l\n"
+    source = _source("lhs.id == r.id" if layout == "generic_first" else "Link(lhs, r)")
+    if layout == "two_predicates_first":
+        source = source.replace(
+            "    let r = rhs\n    inner join r on Link(lhs, r)\n",
+            "    let mid = rhs\n    inner join mid on Link(lhs, mid)\n    let r = lhs\n    inner join r on Link(r, mid)\n",
         )
-    else:
-        via = "        via link: l -> r\n"
-        if layout == "multihop_first":
-            via += "        via link: r -> l\n"
-        source = _source(None, via=via)
-        if layout == "multihop_first":
-            source = source.replace("inner join rhs as r:", "inner join lhs as r:")
-        extra = (
-            "    left join rhs as next:\n        from r\n        on r.id == next.id\n"
-        )
-    source = source.replace("    select:\n", extra + "    select:\n")
+    condition = "Link(r, next)" if layout == "generic_first" else "r.id == next.id"
+    source = source.replace(
+        "    select:\n",
+        f"    let next = rhs\n    left join next on {condition}\n    select:\n",
+    )
     source += "        other = next.id\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
-    regions = completed.effective_outputs.current_regions
-    assert len(regions) == 1
-    region = regions[0]
-    assert len(region.joins) == (3 if layout == "multihop_first" else 2)
-    assert len(region.binding_introductions) == 3
-    assert bool(region.hidden_introductions) is (layout == "multihop_first")
+    (region,) = completed.effective_outputs.current_regions
+    assert len(region.joins) == (3 if layout == "two_predicates_first" else 2)
+    assert len(region.binding_introductions) == len(region.joins) + 1
+    assert not region.hidden_introductions
+    assert all(condition.ready for condition in completed.roots.join_conditions.entries)
 
 
 @pytest.mark.parametrize(
@@ -249,9 +250,8 @@ def test_existing_tail_results_are_ordinary_current_join_inputs(
     source, field_name = _tail_source(tail)
     source += f"""query result:
     from lhs
-    left join upstream as u:
-        from lhs
-        on u.{field_name} > 0
+    let u = upstream
+    left join u on u.{field_name} > 0
     select:
         id = lhs.id
         value = u.{field_name}
@@ -288,7 +288,7 @@ def test_current_tail_keeps_existing_scope_restrictions(
     if tail == "row":
         source = source.replace("adjusted_value = adjusted", "adjusted = adjusted")
     else:
-        source += "    satisfying:\n        total > 0\n"
+        source += "    having:\n        total > 0\n"
     completed = _completed(tmp_path, source)
     assert not completed.ok and any(
         diagnostic.code == code for diagnostic in completed.diagnostics
@@ -297,20 +297,18 @@ def test_current_tail_keeps_existing_scope_restrictions(
 
 def test_import_and_reexport_retain_exact_dependency_producer(tmp_path: Path) -> None:
     parent = _source("lhs.id == r.id").replace("query result:", "table upstream:")
-    (tmp_path / "a.pietto").write_text(parent + "export:\n    table upstream\n")
+    (tmp_path / "a.pietto").write_text(parent + "export table upstream\n")
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table upstream as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import table upstream as Public\nexport table Public\n'
     )
-    main = """import "b.pietto":
-    table Public as Imported
+    main = """from "b.pietto" import table Public as Imported
 shape Local:
-    id: Int not null
-source local_rows: Local is postgres.table("local")
+    id: Int
+source local_rows: Local = postgres.table("local")
 query result:
     from local_rows
-    left join Imported as u:
-        from local_rows
-        on local_rows.id == u.id
+    let u = Imported
+    left join u on local_rows.id == u.id
     select:
         id = local_rows.id
         incoming = u.id
@@ -335,7 +333,7 @@ query result:
     assert binding.authority is not None and binding.authority.entry is upstream
 
 
-@pytest.mark.parametrize("value,ok", (("true", True), ("1", False)))
+@pytest.mark.parametrize("value,ok", (("True", True), ("1", False)))
 def test_changed_upstream_type_rebuilds_condition_readiness(
     tmp_path: Path, value: str, ok: bool
 ) -> None:
@@ -344,7 +342,7 @@ def test_changed_upstream_type_rebuilds_condition_readiness(
         .replace("query result:", "table upstream:")
         .replace("id = lhs.id", f"flag = {value}")
     )
-    source += "query result:\n    from lhs\n    inner join upstream as u:\n        from lhs\n        on u.flag\n    select:\n        id = lhs.id\n"
+    source += "query result:\n    from lhs\n    let u = upstream\n    inner join u on u.flag\n    select:\n        id = lhs.id\n"
     completed = _completed(tmp_path, source)
     assert completed.ok is ok
     conditions = completed.roots.join_conditions
@@ -366,7 +364,7 @@ def test_foreign_stale_field_condition_dependency_and_allocation_roots_fail(
     parent = _source("lhs.id == r.id").replace("query result:", "table upstream:")
     source = (
         parent
-        + "query result:\n    from lhs\n    inner join upstream as u:\n        from lhs\n        on lhs.id == u.id\n    select:\n        id = lhs.id\n"
+        + "query result:\n    from lhs\n    let u = upstream\n    inner join u on lhs.id == u.id\n    select:\n        id = lhs.id\n"
     )
     local = _completed(tmp_path / "local", source)
     foreign = _completed(tmp_path / "foreign", source)
@@ -452,12 +450,12 @@ def test_real_project_check_json_success_in_each_mode(
 def test_repeated_effective_self_use_retains_every_input_factor(tmp_path: Path) -> None:
     parent = (
         _source("lhs.id == r.id")
-        .replace("inner join rhs as r", "inner join lhs as r")
+        .replace("let r = rhs\n    inner join r", "let r = lhs\n    inner join r")
         .replace("query result:", "table upstream:")
     )
     source = (
         parent
-        + "query result:\n    from upstream\n    inner join upstream as again:\n        from upstream\n        on true\n    select:\n        id = upstream.id\n        repeated = again.id\n"
+        + "query result:\n    from upstream\n    let again = upstream\n    inner join again on True\n    select:\n        id = upstream.id\n        repeated = again.id\n"
     )
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
@@ -509,22 +507,23 @@ def test_c04_nullable_disjunction_and_independent_bag_witness(tmp_path: Path) ->
     assert matches == ((None, "same"), (None, "same"))
 
 
-def test_c03_false_refinement_preserves_upper_root_and_left_nulling(
+def test_false_filter_preserves_matched_key_root_and_left_nulling(
     tmp_path: Path,
 ) -> None:
-    source = _source("false", kind="left", via="        via link: l -> r\n").replace(
-        "    allow_any: Bool nullable\n",
-        "    allow_any: Bool nullable\n    unique id_key on id\n",
+    from _pietto_project_join_full import _unique_source
+
+    source = (
+        _unique_source("left", "Link(lhs, r) and False") + "        right_id = r.id\n"
     )
-    source += "        right_id = r.id\n"
     completed = _completed(tmp_path, source)
-    assert completed.ok
+    assert completed.ok, completed.diagnostics
     fact = completed.roots.join_conditions.entries[0]
-    refined = fact.refinement_guarantee
-    assert refined is not None and fact.base_guarantee is not None
-    assert refined.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
-    assert refined.maximum_evidence is fact.base_guarantee.maximum_evidence
-    assert refined.minimum is ProjectRelationshipMinimumBound.ZERO_ALLOWED
+    assert fact.base_guarantee is fact.refinement_guarantee is None
+    matches = tuple(m for m in fact.key_matches if m.binding is fact.use.target_binding)
+    assert len(matches) == 1
+    assert matches[0].maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+    assert matches[0].minimum is ProjectRelationshipMinimumBound.ZERO_ALLOWED
+    assert matches[0].equalities == fact.mandatory_equalities
     assert (
         _output(completed, "result").schema.fields["right_id"].nullability
         is ProjectRowFieldNullability.NULLABLE
@@ -555,9 +554,8 @@ def test_cycles_preserve_true_members_dependents_diagnostics_and_independent_suc
     source = _source("lhs.id == r.id").replace("query result:", "query independent:")
     source += """table a:
     from b
-    inner join lhs as extra:
-        from b
-        on b.id == extra.id
+    let extra = lhs
+    inner join extra on b.id == extra.id
     select:
         id = b.id
 table b:
@@ -614,22 +612,20 @@ def test_project_explain_keeps_its_original_schema_boundary(
 
 def test_failed_input_cannot_borrow_another_dependency_blocker(tmp_path: Path) -> None:
     source = (
-        _source("true")
+        _source("True")
         .replace("query result:", "table bad1:")
         .replace("id = lhs.id", "id = missing1")
     )
     source += """table bad2:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on true
+    let r = rhs
+    inner join r on True
     select:
         id = missing2
 query consumer:
     from bad1
-    inner join bad2 as b:
-        from bad1
-        on true
+    let b = bad2
+    inner join b on True
     select:
         id = bad1.id
 """
@@ -649,9 +645,9 @@ query consumer:
 def test_current_region_rejects_equal_looking_alternate_prefix_condition(
     tmp_path: Path,
 ) -> None:
-    source = _source("true").replace(
+    source = _source("True").replace(
         "    select:\n",
-        "    left join lhs as next:\n        from lhs\n        on lhs.id == next.id\n    select:\n",
+        "    let next = lhs\n    left join next on lhs.id == next.id\n    select:\n",
     )
     completed = _completed(tmp_path, source)
     assert completed.ok
@@ -667,16 +663,15 @@ def test_current_region_rejects_equal_looking_alternate_prefix_condition(
 def test_replay_materialization_rejects_equal_looking_property_copy(
     tmp_path: Path,
 ) -> None:
-    source = _source("true").replace("query result:", "table joined:")
+    source = _source("True").replace("query result:", "table joined:")
     source += """table replay:
     from joined
     select:
         id
 query consumer:
     from lhs
-    inner join replay as p:
-        from lhs
-        on lhs.id == p.id
+    let p = replay
+    inner join p on lhs.id == p.id
     select:
         id = lhs.id
 """

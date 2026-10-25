@@ -72,7 +72,16 @@ def test_emit_sql_matches_byte_exact_golden(
     assert cli.main(["emit-sql", example, "--dialect", "postgres"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.err == ""
+    # A query reading a table of its own file warns that SQL reads it by name.
+    read = _SAME_FILE_READS.get(example)
+    assert captured.err == (
+        ""
+        if read is None
+        else f"{example}:{read[0]}:5 PIE-S2382 warning: `{read[1]}` is a table of "
+        "this file; single-file SQL reads it by name, so the SQL runs only where "
+        f"the database already has a relation named {read[1]} (an "
+        "EXPLICIT_MODULES project emits it as a CTE)\n"
+    )
     assert captured.out.encode("utf-8") == (GOLDEN_ROOT / fixture).read_bytes()
 
 
@@ -99,6 +108,15 @@ def test_emit_sql_json_matches_structural_golden(
     captured = capsys.readouterr()
     assert captured.err == ""
     assert json.loads(captured.out) == _load_json("emit_sql_active_users.json")
+
+
+_SAME_FILE_READS = {
+    "examples/queries/active_user_emails.pietto": (18, "active_users"),
+    "tests/fixtures/postgres/compatibility_ordering_metadata.pietto": (
+        33,
+        "FirstRelation",
+    ),
+}
 
 
 def _load_json(name: str) -> object:

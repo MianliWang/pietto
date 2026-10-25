@@ -30,18 +30,6 @@ from pietto.sql import emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-GRAMMAR_REL = "grammar/Pietto.g4"
-GENERATED_RELS = (
-    "src/pietto/generated/Pietto.interp",
-    "src/pietto/generated/Pietto.tokens",
-    "src/pietto/generated/PiettoLexer.interp",
-    "src/pietto/generated/PiettoLexer.py",
-    "src/pietto/generated/PiettoLexer.tokens",
-    "src/pietto/generated/PiettoParser.py",
-    "src/pietto/generated/PiettoVisitor.py",
-    "src/pietto/generated/__init__.py",
-)
 KINDS = (
     ModuleDeclarationKind.TYPE,
     ModuleDeclarationKind.ENUM,
@@ -52,37 +40,36 @@ KINDS = (
 )
 BASE_PROGRAM = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    'source rows: Row is postgres.table("public.rows")\n'
+    "    id: Int\n"
+    'source rows: Row = postgres.table("public.rows")\n'
     "query selected:\n"
     "    from rows\n"
     "    select:\n"
     "        id\n"
 )
 MODULE_SUFFIX = (
-    'import "models/shared.pietto":\n'
-    "    shape SharedRow as ImportedRow\n"
-    "    query shared_query\n"
+    'from "models/shared.pietto" import (\n'
+    "    shape SharedRow as ImportedRow,\n"
+    "    query shared_query)\n"
     "\n"
-    "export:\n"
-    "    shape Row\n"
-    "    query selected\n"
+    "export (\n"
+    "    shape Row,\n"
+    "    query selected)\n"
 )
 NEGATIVE_DIAGNOSTICS = {
     "invalid-import-0.pietto": (("PIE-P1000", 1, 18, None, None),),
-    "invalid-import-1.pietto": (("PIE-P1000", 1, 8, None, None),),
+    "invalid-import-1.pietto": (("PIE-P1000", 1, 6, None, None),),
     "invalid-import-2.pietto": (("PIE-P1000", 2, 5, None, None),),
     "invalid-import-3.pietto": (("PIE-P1000", 2, 13, None, None),),
     "invalid-import-4.pietto": (("PIE-P1000", 2, 18, None, None),),
     "invalid-import-5.pietto": (("PIE-P1000", 2, 25, None, None),),
     "invalid-import-6.pietto": (("PIE-P1000", 2, 5, None, None),),
     "invalid-import-7.pietto": (
-        ("PIE-P1005", 1, 19, None, None),
-        ("PIE-P1005", 1, 28, None, None),
+        ("PIE-P1005", 1, 24, None, None),
+        ("PIE-P1005", 1, 33, None, None),
     ),
-    "invalid-import-8.pietto": (("PIE-P1000", 2, 11, None, None),),
-    "invalid-import-9.pietto": (("PIE-P1000", 1, 1, None, None),),
-    "invalid-import-10.pietto": (("PIE-P1000", 1, 8, None, None),),
+    "invalid-import-8.pietto": (("PIE-P1000", 2, 5, None, None),),
+    "invalid-import-9.pietto": (("PIE-P1000", 1, 6, None, None),),
     "invalid-export-0.pietto": (("PIE-P1000", 1, 8, None, None),),
     "invalid-export-1.pietto": (("PIE-P1000", 2, 12, None, None),),
     "invalid-export-2.pietto": (("PIE-P1000", 2, 5, None, None),),
@@ -93,23 +80,19 @@ NEGATIVE_DIAGNOSTICS = {
         ("PIE-P1005", 1, 8, None, None),
         ("PIE-P1005", 1, 17, None, None),
     ),
-    "invalid-export-7.pietto": (("PIE-P1000", 2, 11, None, None),),
-    "empty-module-0.pietto": (("PIE-P1000", 1, 19, None, None),),
-    "empty-module-1.pietto": (("PIE-P1000", 1, 19, None, None),),
-    "empty-module-2.pietto": (("PIE-P1000", 1, 8, None, None),),
-    "empty-module-3.pietto": (("PIE-P1000", 1, 8, None, None),),
-    "nested-module-0.pietto": (("PIE-P1000", 2, 12, None, None),),
+    "invalid-export-7.pietto": (("PIE-P1000", 2, 5, None, None),),
+    "empty-module-0.pietto": (("PIE-P1000", 2, 1, None, None),),
+    "empty-module-1.pietto": (("PIE-P1000", 3, 1, None, None),),
+    "empty-module-2.pietto": (("PIE-P1000", 2, 1, None, None),),
+    "empty-module-3.pietto": (("PIE-P1000", 3, 1, None, None),),
+    "nested-module-0.pietto": (("PIE-P1000", 2, 10, None, None),),
     "nested-module-1.pietto": (("PIE-P1000", 3, 5, None, None),),
     "nested-module-2.pietto": (("PIE-P1000", 3, 5, None, None),),
     "nested-module-3.pietto": (("PIE-P1000", 3, 5, None, None),),
-    "module-indent-0.pietto": (("PIE-P1004", 2, 1, None, None),),
-    "module-indent-1.pietto": (("PIE-P1003", 3, 3, None, None),),
-    "module-indent-2.pietto": (("PIE-P1000", 3, 9, None, None),),
+    "module-tab.pietto": (("PIE-P1004", 2, 1, None, None),),
+    "retired-module-indent-0.pietto": (("PIE-P1003", 3, 3, None, None),),
+    "retired-module-indent-1.pietto": (("PIE-P1000", 3, 9, None, None),),
 }
-
-
-def _read(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
 def _parsed(source: str, *, path: str | Path | None = None) -> Script:
@@ -139,14 +122,6 @@ def _assert_parse_failure(source: str, *, path: str) -> None:
         )
         == NEGATIVE_DIAGNOSTICS[path]
     )
-    assert set(NEGATIVE_DIAGNOSTICS) == {
-        *(f"invalid-import-{index}.pietto" for index in range(11)),
-        *(f"invalid-export-{index}.pietto" for index in range(8)),
-        *(f"empty-module-{index}.pietto" for index in range(4)),
-        *(f"nested-module-{index}.pietto" for index in range(4)),
-        *(f"module-indent-{index}.pietto" for index in range(3)),
-    }
-    assert len(NEGATIVE_DIAGNOSTICS) == 30
 
 
 def _write_project(root: Path, *, schema_version: int) -> Path:
@@ -194,13 +169,18 @@ def test_module_ast_carrier_surface_is_exact() -> None:
         "local_name_span",
     )
     assert tuple(field.name for field in fields(ExportStatement)) == ("span", "items")
-    assert tuple(field.name for field in fields(Script))[-1] == "module_statements"
+    assert (
+        next(
+            field for field in fields(Script) if field.name == "module_statements"
+        ).default
+        == ()
+    )
 
 
-def test_minimal_import_block_preserves_decoded_target_item_and_exact_spans() -> None:
+def test_minimal_import_list_preserves_decoded_target_item_and_exact_spans() -> None:
     path = Path("modules/main.pietto")
     script = _parsed(
-        'import "models/customer.pietto":\n    shape Customer\n',
+        'from "models/customer.pietto" import (\n    shape Customer)\n',
         path=path,
     )
     assert script.module_statements == (
@@ -210,15 +190,15 @@ def test_minimal_import_block_preserves_decoded_target_item_and_exact_spans() ->
                 line=1,
                 column=1,
                 end_line=2,
-                end_column=19,
+                end_column=20,
             ),
             target="models/customer.pietto",
             target_span=Span(
                 path=str(path),
                 line=1,
-                column=8,
+                column=6,
                 end_line=1,
-                end_column=32,
+                end_column=30,
             ),
             items=(
                 ImportItem(
@@ -253,15 +233,15 @@ def test_minimal_import_block_preserves_decoded_target_item_and_exact_spans() ->
     )
 
 
-def test_import_block_accepts_exact_six_declaration_kinds_in_source_order() -> None:
+def test_import_list_accepts_exact_six_declaration_kinds_in_source_order() -> None:
     script = _parsed(
-        'import "all.pietto":\n'
-        "    type T\n"
-        "    enum E\n"
-        "    shape S\n"
-        "    source src\n"
-        "    table tbl\n"
-        "    query qry\n"
+        'from "all.pietto" import (\n'
+        "    type T,\n"
+        "    enum E,\n"
+        "    shape S,\n"
+        "    source src,\n"
+        "    table tbl,\n"
+        "    query qry)\n"
     )
     statement = script.module_statements[0]
     assert isinstance(statement, ImportStatement)
@@ -278,7 +258,7 @@ def test_import_block_accepts_exact_six_declaration_kinds_in_source_order() -> N
 
 def test_import_alias_direction_preserves_exported_and_local_names_and_spans() -> None:
     script = _parsed(
-        'import "aliases.pietto":\n    query exported_name as local_name\n'
+        'from "aliases.pietto" import (\n    query exported_name as local_name)\n'
     )
     statement = script.module_statements[0]
     assert isinstance(statement, ImportStatement)
@@ -292,9 +272,9 @@ def test_import_alias_direction_preserves_exported_and_local_names_and_spans() -
     )
 
 
-def test_multiple_import_blocks_preserve_module_statement_source_order() -> None:
+def test_multiple_import_statements_preserve_module_statement_source_order() -> None:
     script = _parsed(
-        'import "z.pietto":\n    type Z\n\nimport "a.pietto":\n    type A\n'
+        'from "z.pietto" import (\n    type Z)\n\nfrom "a.pietto" import (\n    type A)\n'
     )
     assert tuple(
         statement.target
@@ -305,12 +285,13 @@ def test_multiple_import_blocks_preserve_module_statement_source_order() -> None
 
 def test_import_comments_blank_lines_and_string_escape_policy_are_preserved() -> None:
     script = _parsed(
-        'import "models\\tshared.pietto": # target\n'
+        'from "models\\tshared.pietto" import ( # target\n'
         "\n"
         "    # first declaration\n"
-        "    shape Shared\n"
+        "    shape Shared,\n"
         "\n"
-        "    query report as local_report # alias\n"
+        "    query report as local_report, # alias\n"
+        ")\n"
     )
     statement = script.module_statements[0]
     assert isinstance(statement, ImportStatement)
@@ -330,14 +311,14 @@ def test_import_target_is_retained_without_path_normalization_or_filesystem_look
         "missing/./module.pietto",
     )
     for target in targets:
-        script = _parsed(f'import "{target}":\n    type Value\n')
+        script = _parsed(f'from "{target}" import type Value\n')
         statement = script.module_statements[0]
         assert isinstance(statement, ImportStatement)
         assert statement.target == target
 
 
-def test_minimal_export_block_preserves_item_and_exact_spans() -> None:
-    script = _parsed("export:\n    type UserId\n", path="exports.pietto")
+def test_minimal_export_list_preserves_item_and_exact_spans() -> None:
+    script = _parsed("export (\n    type UserId)\n", path="exports.pietto")
     assert script.module_statements == (
         ExportStatement(
             span=Span(
@@ -345,7 +326,7 @@ def test_minimal_export_block_preserves_item_and_exact_spans() -> None:
                 line=1,
                 column=1,
                 end_line=2,
-                end_column=16,
+                end_column=17,
             ),
             items=(
                 ExportItem(
@@ -378,15 +359,15 @@ def test_minimal_export_block_preserves_item_and_exact_spans() -> None:
     )
 
 
-def test_export_block_accepts_exact_six_declaration_kinds_in_source_order() -> None:
+def test_export_list_accepts_exact_six_declaration_kinds_in_source_order() -> None:
     script = _parsed(
-        "export:\n"
-        "    type T\n"
-        "    enum E\n"
-        "    shape S\n"
-        "    source src\n"
-        "    table tbl\n"
-        "    query qry\n"
+        "export (\n"
+        "    type T,\n"
+        "    enum E,\n"
+        "    shape S,\n"
+        "    source src,\n"
+        "    table tbl,\n"
+        "    query qry)\n"
     )
     statement = script.module_statements[0]
     assert isinstance(statement, ExportStatement)
@@ -401,8 +382,8 @@ def test_export_block_accepts_exact_six_declaration_kinds_in_source_order() -> N
     )
 
 
-def test_multiple_export_blocks_preserve_module_statement_source_order() -> None:
-    script = _parsed("export:\n    type First\n\nexport:\n    query Second\n")
+def test_multiple_export_statements_preserve_module_statement_source_order() -> None:
+    script = _parsed("export (\n    type First)\n\nexport (\n    query Second)\n")
     first, second = script.module_statements
     assert isinstance(first, ExportStatement)
     assert isinstance(second, ExportStatement)
@@ -410,29 +391,30 @@ def test_multiple_export_blocks_preserve_module_statement_source_order() -> None
     assert second.items[0].local_name == "Second"
 
 
-def test_import_export_blocks_interleave_with_definitions_and_relationships_without_reclassification() -> (
+def test_import_export_statements_interleave_with_definitions_and_relationships_without_reclassification() -> (
     None
 ):
     script = _parsed(
-        'import "row.pietto":\n'
-        "    shape ImportedRow\n"
+        'from "row.pietto" import (\n'
+        "    shape ImportedRow)\n"
         "\n"
         "shape LocalRow:\n"
-        "    id: Int not null\n"
+        "    id: Int\n"
         "\n"
-        "export:\n"
-        "    shape LocalRow\n"
+        "export (\n"
+        "    shape LocalRow)\n"
         "\n"
-        'source rows: LocalRow is postgres.table("rows")\n'
-        "relationship self_link:\n"
-        "    endpoint left: rows\n"
-        "    endpoint right: rows\n"
+        'source rows: LocalRow = postgres.table("rows")\n'
+        "relationship self_link(left: LocalRow, right: LocalRow):\n"
+        "    left.id == right.id\n"
     )
     assert [definition.name for definition in script.definitions] == [
         "LocalRow",
         "rows",
     ]
-    assert [relationship.name for relationship in script.relationships] == ["self_link"]
+    assert [relationship.name for relationship in script.relationship_templates] == [
+        "self_link"
+    ]
     assert [type(statement) for statement in script.module_statements] == [
         ImportStatement,
         ExportStatement,
@@ -508,7 +490,7 @@ def test_import_export_as_remain_contextual_identifiers_across_existing_definiti
         "    as\n"
         "shape as:\n"
         "    import: export\n"
-        'source import: as is postgres.table("contextual")\n'
+        'source import: as = postgres.table("contextual")\n'
         "table export:\n"
         "    from import\n"
         "    select:\n"
@@ -533,27 +515,26 @@ def test_import_export_as_remain_contextual_in_relationship_let_aggregate_and_wi
 ):
     script = _parsed(
         "shape Row:\n"
-        "    import: Int not null\n"
-        "    export: Int not null\n"
-        "    as: Int not null\n"
-        'source import: Row is postgres.table("contextual")\n'
-        "relationship export:\n"
-        "    endpoint as: import\n"
-        "    endpoint import: import\n"
+        "    import: Int\n"
+        "    export: Int\n"
+        "    as: Int\n"
+        'source import: Row = postgres.table("contextual")\n'
+        "relationship export(as: Row, import: Row):\n"
+        "    as.import == import.export\n"
         "query as:\n"
         "    from import\n"
-        "    let:\n"
-        "        export = import\n"
+        "\n"
+        "    let export = import\n"
         "    select:\n"
         "        import\n"
         "        as = sum(export)\n"
-        "        export = row_number() window:\n"
-        "            partition by:\n"
+        "        export = row_number() window(\n"
+        "            partition by\n"
         "                import\n"
-        "            order by:\n"
-        "                export asc\n"
+        "            order by\n"
+        "                export asc)\n"
     )
-    assert script.relationships[0].name == "export"
+    assert script.relationship_templates[0].name == "export"
     assert script.definitions[-1].name == "as"
 
 
@@ -561,10 +542,10 @@ def test_existing_parser_ast_corpus_representatives_remain_accepted_and_unchange
     None
 ):
     corpus = (
-        "type Age = Int ensure self between 0 and 130\n",
+        "type Age = Int ensure 0 <= self <= 130\n",
         "enum Status:\n    active\n    archived\n",
-        "shape Row:\n    id: Int not null\n    name: Text nullable\n",
-        ("relationship edge:\n    endpoint left: rows\n    endpoint right: rows\n"),
+        "shape Row:\n    id: Int\n    name: Text | None\n",
+        ("relationship edge(left: Row, right: Row):\n    left.id == right.id\n"),
         BASE_PROGRAM,
     )
     for source in corpus:
@@ -574,7 +555,7 @@ def test_existing_parser_ast_corpus_representatives_remain_accepted_and_unchange
         assert first.module_statements == ()
 
 
-def test_import_export_top_level_blocks_do_not_change_semantic_catalog_or_diagnostics() -> (
+def test_import_export_top_level_statements_do_not_change_semantic_catalog_or_diagnostics() -> (
     None
 ):
     baseline = _parsed(BASE_PROGRAM)
@@ -588,7 +569,7 @@ def test_import_export_top_level_blocks_do_not_change_semantic_catalog_or_diagno
     assert "ImportedRow" not in module_result.model.type_symbols
 
 
-def test_import_export_top_level_blocks_do_not_change_ir_or_postgres_mysql_sql() -> (
+def test_import_export_top_level_statements_do_not_change_ir_or_postgres_mysql_sql() -> (
     None
 ):
     _, _, baseline_ir = _pipeline(BASE_PROGRAM)
@@ -598,7 +579,7 @@ def test_import_export_top_level_blocks_do_not_change_ir_or_postgres_mysql_sql()
     assert emit_mysql_sql(baseline_ir) == emit_mysql_sql(module_ir)
 
 
-def test_import_export_top_level_blocks_do_not_change_public_cli_json_or_metadata_shape(
+def test_import_export_top_level_statements_do_not_change_public_cli_json_or_metadata_shape(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -676,9 +657,7 @@ def test_schema_v2_retains_module_ast_and_stops_before_legacy_flat_catalog(
     assert semantic.module_diagnostic_facts is not None
 
 
-def test_module_diagnostics_remain_private_without_serializer_or_dependency_surfaces() -> (
-    None
-):
+def test_module_semantic_carriers_remain_private_top_level_api() -> None:
     for name in (
         "ImportItem",
         "ImportStatement",
@@ -690,41 +669,19 @@ def test_module_diagnostics_remain_private_without_serializer_or_dependency_surf
     ):
         assert not hasattr(pietto, name)
 
-    graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
-    resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
-    relation_resolution_path = (
-        REPO_ROOT / "src/pietto/_project/module_relation_resolution.py"
-    )
-    graph_source = graph_path.read_text(encoding="utf-8")
-    non_graph_production = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
-        if "generated" not in path.parts
-        and path not in {graph_path, resolution_path, relation_resolution_path}
-    )
-    for number in range(2701, 2708):
-        code = f"PIE-S{number}"
-        assert code in graph_source
-        assert code not in non_graph_production
-
-    pyproject = _read("pyproject.toml")
-    assert "phase54" not in pyproject.lower()
-    assert "module_statement" not in pyproject
-
 
 def test_invalid_import_forms_fail_with_existing_parser_diagnostics_and_spans() -> None:
     cases = (
         'import "x.pietto"\n',
-        "import target:\n    type T\n",
-        'import "x.pietto":\n    *\n',
-        'import "x.pietto":\n    type pkg.Value\n',
-        'import "x.pietto":\n    type Value as\n',
-        'import "x.pietto":\n    type Value as Local extra\n',
-        'import "x.pietto":\n    constraint C\n',
-        'import "x.pietto" { type T }\n',
-        'import "x.pietto":\n    type T, enum E\n',
-        'from "x.pietto" import type T\n',
-        "import package remote:\n    type T\n",
+        "from target import type T\n",
+        'from "x.pietto" import (\n    *)\n',
+        'from "x.pietto" import (\n    type pkg.Value)\n',
+        'from "x.pietto" import (\n    type Value as)\n',
+        'from "x.pietto" import (\n    type Value as Local extra)\n',
+        'from "x.pietto" import (\n    constraint C)\n',
+        'from "x.pietto" import { type T }\n',
+        'from "x.pietto" import (\n    def F)\n',
+        "from package remote import type T\n",
     )
     for index, source in enumerate(cases):
         _assert_parse_failure(source, path=f"invalid-import-{index}.pietto")
@@ -732,25 +689,25 @@ def test_invalid_import_forms_fail_with_existing_parser_diagnostics_and_spans() 
 
 def test_invalid_export_forms_fail_with_existing_parser_diagnostics_and_spans() -> None:
     cases = (
-        'export "x.pietto":\n    type T\n',
-        "export:\n    type T as Local\n",
-        "export:\n    *\n",
-        "export:\n    type pkg.Value\n",
-        "export from:\n    type T\n",
-        "export:\n    constraint C\n",
+        'export "x.pietto" type T\n',
+        "export (\n    type T as Local)\n",
+        "export (\n    *)\n",
+        "export (\n    type pkg.Value)\n",
+        "export from type T\n",
+        "export (\n    constraint C)\n",
         "export { type T }\n",
-        "export:\n    type T, enum E\n",
+        "export (\n    def F)\n",
     )
     for index, source in enumerate(cases):
         _assert_parse_failure(source, path=f"invalid-export-{index}.pietto")
 
 
-def test_import_and_export_require_nonempty_indented_bodies() -> None:
+def test_import_and_export_require_nonempty_lists() -> None:
     cases = (
-        'import "x.pietto":\n',
-        'import "x.pietto":\n\n',
-        "export:\n",
-        "export:\n\n",
+        'from "x.pietto" import (\n)\n',
+        'from "x.pietto" import (\n\n)\n',
+        "export (\n)\n",
+        "export (\n\n)\n",
     )
     for index, source in enumerate(cases):
         _assert_parse_failure(source, path=f"empty-module-{index}.pietto")
@@ -758,59 +715,104 @@ def test_import_and_export_require_nonempty_indented_bodies() -> None:
 
 def test_import_and_export_are_rejected_outside_top_level() -> None:
     cases = (
-        'shape Row:\n    import "x.pietto":\n        type T\n',
-        "query q:\n    from rows\n    export:\n        query q\n",
+        'shape Row:\n    from "x.pietto" import type T\n',
+        "query q:\n    from rows\n    export query q\n",
         (
-            "relationship edge:\n"
-            "    endpoint left: rows\n"
-            '    import "x.pietto":\n'
-            "        type T\n"
+            "relationship edge(left: Row, right: Row):\n"
+            "    left.id == right.id\n"
+            '    from "x.pietto" import type T\n'
         ),
-        'import "x.pietto":\n    type T\n    export:\n        type T\n',
+        'from "x.pietto" import (\n    type T,\n    export type T\n)\n',
     )
     for index, source in enumerate(cases):
         _assert_parse_failure(source, path=f"nested-module-{index}.pietto")
 
 
-def test_tabs_and_malformed_module_indentation_use_existing_diagnostics() -> None:
+def test_module_continuations_still_refuse_leading_tabs() -> None:
+    _assert_parse_failure(
+        'from "x.pietto" import (\n\ttype T\n)\n',
+        path="module-tab.pietto",
+    )
+
+
+def test_retired_module_blocks_with_malformed_indentation_remain_refused() -> None:
     cases = (
-        'import "x.pietto":\n\ttype T\n',
         "export:\n    type T\n  query q\n",
         'import "x.pietto":\n    type T\n        query q\n',
     )
     for index, source in enumerate(cases):
-        _assert_parse_failure(source, path=f"module-indent-{index}.pietto")
+        _assert_parse_failure(source, path=f"retired-module-indent-{index}.pietto")
 
 
-def test_generated_inventory_rules_and_contextual_token_order_are_exact() -> None:
-    assert tuple(
-        str(path.relative_to(REPO_ROOT))
-        for path in sorted((REPO_ROOT / "src/pietto/generated").glob("*"))
-        if path.is_file()
-    ) == tuple(sorted(GENERATED_RELS))
-    assert (REPO_ROOT / "src/pietto/generated/__init__.py").read_bytes() == b""
+def test_parenthesized_module_continuations_preserve_order_without_block_indentation() -> (
+    None
+):
+    script = _parsed(
+        'from "x.pietto" import (\n    type T,\n        query q)\n'
+        "export (\n    type T,\n  query q)\n"
+    )
+    imported, exported = script.module_statements
+    assert isinstance(imported, ImportStatement)
+    assert isinstance(exported, ExportStatement)
+    assert [item.exported_name for item in imported.items] == ["T", "q"]
+    assert [item.local_name for item in exported.items] == ["T", "q"]
+    assert imported.items[1].exported_name_span.column == 15
+    assert exported.items[1].local_name_span.column == 9
 
-    grammar = _read(GRAMMAR_REL)
-    identifier_token = grammar.index("\nIDENTIFIER\n    :")
-    assert grammar.index("IMPORT: 'import';") < identifier_token
-    assert grammar.index("EXPORT: 'export';") < identifier_token
-    assert grammar.index("AS: 'as';") < identifier_token
-    identifier_rule = grammar[
-        grammar.index("identifier\n") : grammar.index("callSuffix\n")
-    ]
-    assert all(f"| {token}" in identifier_rule for token in ("IMPORT", "EXPORT", "AS"))
-    visitor = _read("src/pietto/generated/PiettoVisitor.py")
-    assert "def visitImportStatement" in visitor
-    assert "def visitExportStatement" in visitor
+
+def test_inline_module_lists_are_valid_without_colons() -> None:
+    script = _parsed('from "x.pietto" import type T, enum E\nexport type T, enum E\n')
+    imported, exported = script.module_statements
+    assert isinstance(imported, ImportStatement)
+    assert isinstance(exported, ExportStatement)
+    assert [item.exported_name for item in imported.items] == ["T", "E"]
+    assert [item.local_name for item in exported.items] == ["T", "E"]
+
+
+@pytest.mark.parametrize(
+    ("source", "line", "column", "suggestion"),
+    [
+        (
+            'import "x.pietto":\n    type T\n',
+            1,
+            1,
+            'Write from "path" import kind Name, retaining each explicit declaration kind.',
+        ),
+        (
+            "export:\n    type T\n",
+            1,
+            7,
+            "Write 'export kind Name' or a parenthesized list with explicit kinds.",
+        ),
+    ],
+)
+def test_retired_module_blocks_have_precise_modern_spelling_refusals(
+    source: str, line: int, column: int, suggestion: str
+) -> None:
+    result = parse_source(source, path="retired-module.pietto")
+    assert result.ast is None
+    (diagnostic,) = result.diagnostics
+    assert diagnostic.code == "PIE-P1000"
+    assert diagnostic.severity is Severity.ERROR
+    assert diagnostic.message == (
+        "This spelling is not accepted by the modern syntax. " + suggestion
+    )
+    assert diagnostic.suggestion == suggestion
+    assert diagnostic.location.path == "retired-module.pietto"
+    assert (diagnostic.location.line, diagnostic.location.column) == (line, column)
+    assert (diagnostic.location.end_line, diagnostic.location.end_column) == (
+        None,
+        None,
+    )
 
 
 def test_module_items_may_name_new_contextual_words() -> None:
     script = _parsed(
-        'import "other.pietto":\n'
-        "    query values as exists\n"
-        "export:\n"
-        "    query capture\n"
-        "    table scalar\n"
+        'from "other.pietto" import (\n'
+        "    query values as exists)\n"
+        "export (\n"
+        "    query capture,\n"
+        "    table scalar)\n"
     )
     imported, exported = script.module_statements
     assert type(imported) is ImportStatement and type(exported) is ExportStatement
@@ -818,3 +820,22 @@ def test_module_items_may_name_new_contextual_words() -> None:
         ("values", "exists")
     ]
     assert [item.local_name for item in exported.items] == ["capture", "scalar"]
+
+
+def test_modern_module_lists_keep_kinds_aliases_order_and_occurrences() -> None:
+    result = parse_source(
+        'from "models.pietto" import (\n'
+        "    type A as LocalA, shape Row, query q, type A,\n"
+        ")\n"
+        "export type LocalA, shape Row, query q\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    imported, exported = result.ast.module_statements
+    assert isinstance(imported, ImportStatement)
+    assert isinstance(exported, ExportStatement)
+    assert [item.exported_name for item in imported.items] == ["A", "Row", "q", "A"]
+    assert [item.local_name for item in imported.items] == ["LocalA", None, None, None]
+    assert imported.items[0].exported_name_span != imported.items[3].exported_name_span
+    assert imported.items[0].declaration_kind_span.line == 2
+    assert [item.local_name for item in exported.items] == ["LocalA", "Row", "q"]

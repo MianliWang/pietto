@@ -16,16 +16,16 @@ from pietto.semantic import analyze
 from pietto.sql import SqlArtifactKind, SqlResult, emit_postgres_sql
 
 METADATA_SOURCE = (
-    "type Email = Text not null\n"
+    "type Email = Text\n"
     "enum Status:\n"
     "    active\n"
-    "constraint valid_email(email: Text not null) -> Bool not null:\n"
-    "    email is not null\n"
-    "derive normalize_email(email: Text not null) -> Text not null:\n"
-    "    trim(email)\n"
+    "constraint valid_email(email: Text) -> Bool:\n"
+    "    return email is not None\n"
+    "derive normalize_email(email: Text) -> Text:\n"
+    "    return trim(email)\n"
     "shape User:\n"
-    "    email: Email not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    email: Email\n"
+    'source users: User = postgres.table("users")\n'
 )
 
 

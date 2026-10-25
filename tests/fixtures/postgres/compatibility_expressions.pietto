@@ -4,17 +4,17 @@ dialect postgres
 encoding utf8
 
 shape MetricRow:
-    email: Text nullable
-    age: Int not null
-    score: Int not null
-    deleted_at: Timestamp nullable
-    active: Bool not null
+    email: Text | None
+    age: Int
+    score: Int
+    deleted_at: Timestamp | None
+    active: Bool
 
-source metrics: MetricRow is postgres.table("analytics.metrics")
+source metrics: MetricRow = postgres.table("analytics.metrics")
 
 table expression_compatibility:
     from metrics
-    where (age >= 18 and deleted_at is null) or matches(email, ".+@.+")
+    where (age >= 18 and deleted_at is None) or matches(email, ".+@.+")
     select:
         normalized = lower(trim(email))
         text_length = len(email)
@@ -24,8 +24,8 @@ table expression_compatibility:
         less_equal = score <= 13
         greater = score > 8
         greater_equal = score >= 7
-        ranged = score between 1 and 100
-        not_null = email is not null
+        ranged = 1 <= score <= 100
+        not_null = email is not None
         positive = +score
         negative = -score
         added = score + 2
@@ -33,7 +33,7 @@ table expression_compatibility:
         multiplied = score * 2
         divided = score / 2
         modulo = score % 2
-        conjunction = active and true
-        disjunction = active or false
+        conjunction = active and True
+        disjunction = active or False
         precedence = score + 2 * 3
         grouped = (score + 2) * 3

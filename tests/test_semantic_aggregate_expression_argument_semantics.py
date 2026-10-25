@@ -26,15 +26,15 @@ PLAN_PATH = (
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float nullable\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal not null\n"
-    "    active: Bool not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float | None\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    active: Bool\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -272,7 +272,7 @@ def test_unknown_field_leaf_suppresses_aggregate_cascade() -> None:
 
 
 _SHAPELESS_PREFIX = (
-    'source items is postgres.table("shop.items")\nquery q:\n    from items\n'
+    'source items = postgres.table("shop.items")\nquery q:\n    from items\n'
 )
 _COUNT_ARGUMENT_ERROR = (
     "PIE-S2315",
@@ -284,14 +284,14 @@ _COUNT_ARGUMENT_ERROR = (
 def test_counts_over_a_source_without_a_shape_keep_unknown_output_schemas() -> None:
     result = analyze(
         _parse(
-            'source items is postgres.table("shop.items")\n'
+            'source items = postgres.table("shop.items")\n'
             "query total:\n    from items\n    select:\n        n = count()\n"
-            "query per_kind:\n    from items\n    group by: kind\n"
+            "query per_kind:\n    from items\n    group by kind\n"
             "    select:\n        kind\n        n = count()\n"
             "query mixed:\n    from items\n    select:\n        n = count()\n"
             "        c = count(x)\n        d = count_distinct(lower(t))\n"
             "        s = sum(x * 2)\n        m = min(x)\n"
-            "query grouped_mixed:\n    from items\n    group by: kind\n"
+            "query grouped_mixed:\n    from items\n    group by kind\n"
             "    select:\n        kind\n        n = count()\n        c = count(x)\n"
         )
     )
@@ -317,8 +317,8 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
     result = analyze(
         _parse(
             _SHAPELESS_PREFIX
-            + "    let:\n        k = x + 1\n"
-            + ("    group by: kind\n" if grouped else "")
+            + "    let k = x + 1\n"
+            + ("    group by kind\n" if grouped else "")
             + "    select:\n"
             + ("        kind\n" if grouped else "")
             + '        a = min("a" == k)\n'
@@ -327,7 +327,7 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             + "        d = max(len(k))\n"
         )
     )
-    line = 9 if grouped else 7
+    line = 8 if grouped else 6
     assert [
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics
@@ -369,12 +369,12 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             ),
         ),
         (
-            "    let:\n        y = x\n    select:\n        a = max(y)\n",
-            ("PIE-S2102", "Unknown field: y", 7, 17),
+            "    let y = x\n    select:\n        a = max(y)\n",
+            ("PIE-S2102", "Unknown field: y", 6, 17),
         ),
         (
-            "    let:\n        y = t\n    select:\n        a = count_distinct(lower(y))\n",
-            ("PIE-S2102", "Unknown field: y", 7, 34),
+            "    let y = t\n    select:\n        a = count_distinct(lower(y))\n",
+            ("PIE-S2102", "Unknown field: y", 6, 34),
         ),
         (
             "    select:\n        kind\n        m = max(x)\n",
@@ -396,11 +396,11 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             ),
         ),
         (
-            "    let:\n        y = x\n    select:\n        m = min(y, 1)\n",
-            ("PIE-S2309", "Aggregate function min expects 1 arguments, got 2", 7, 13),
+            "    let y = x\n    select:\n        m = min(y, 1)\n",
+            ("PIE-S2309", "Aggregate function min expects 1 arguments, got 2", 6, 13),
         ),
         (
-            "    group by: kind\n    select:\n        kind\n"
+            "    group by kind\n    select:\n        kind\n"
             "        d = count_distinct(x, t)\n",
             (
                 "PIE-S2309",
@@ -425,13 +425,13 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             _COUNT_ARGUMENT_ERROR + (5, 13),
         ),
         (
-            "    group by: kind\n    select:\n        kind\n"
-            "        c = count(t + true)\n",
+            "    group by kind\n    select:\n        kind\n"
+            "        c = count(t + True)\n",
             _COUNT_ARGUMENT_ERROR + (7, 13),
         ),
         (
-            '    let:\n        y = x - "a"\n    select:\n        c = count(y)\n',
-            _COUNT_ARGUMENT_ERROR + (7, 13),
+            '    let y = x - "a"\n    select:\n        c = count(y)\n',
+            _COUNT_ARGUMENT_ERROR + (6, 13),
         ),
         (
             "    select:\n        c = count(lower(x + 1))\n",
@@ -453,18 +453,18 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             _COUNT_ARGUMENT_ERROR + (5, 13),
         ),
         (
-            "    group by: kind\n    select:\n        kind\n"
+            "    group by kind\n    select:\n        kind\n"
             "        c = count(len(t) + t)\n",
             _COUNT_ARGUMENT_ERROR + (7, 13),
         ),
         (
-            "    let:\n        y = len(x) + x\n    select:\n        c = count(y)\n",
-            _COUNT_ARGUMENT_ERROR + (7, 13),
+            "    let y = len(x) + x\n    select:\n        c = count(y)\n",
+            _COUNT_ARGUMENT_ERROR + (6, 13),
         ),
         (
-            "    let:\n        z = x\n        y = len(z) * z\n"
+            "    let z = x\n    let y = len(z) * z\n"
             "    select:\n        c = count(y)\n",
-            _COUNT_ARGUMENT_ERROR + (8, 13),
+            _COUNT_ARGUMENT_ERROR + (7, 13),
         ),
     ],
 )
@@ -495,14 +495,14 @@ def test_aggregate_over_a_source_without_a_shape_checks_its_argument_form(
         "-x * 2.5",
         "x % 2",
         "x - y",
-        "x and true",
+        "x and True",
         "len(t) + 1",
         "lower(t)",
         "x * x - items.x",
         "len(t) * len(t) + x",
         # A null has no type and takes the one its operator takes, as the
         # database types it from the other operand.
-        "x + null",
+        "x + None",
     ],
 )
 def test_count_over_a_source_without_a_shape_takes_literals_its_operators_take(
@@ -611,7 +611,7 @@ def test_direct_aggregate_inside_satisfying_still_uses_s2308() -> None:
             "    select:\n"
             "        status\n"
             "        total = sum(amount + tax)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        sum(amount + tax) > 1000\n"
         )
     )
@@ -619,7 +619,7 @@ def test_direct_aggregate_inside_satisfying_still_uses_s2308() -> None:
     assert _errors(result) == [
         (
             "PIE-S2308",
-            "Aggregate sum() is not allowed in satisfying clause; "
+            "Aggregate sum() is not allowed in having clause; "
             "use it only as a direct aliased select projection",
         )
     ]

@@ -6,8 +6,10 @@ from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRel
 from pietto._flat_relational_admission import (
     _EXPLICIT_MODULES,
     availability_diagnostic,
+    legacy_flat_refusals,
     syntax_diagnostics,
 )
+from pietto._syntax_admission import source_order
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -39,6 +41,7 @@ from pietto.ast_nodes import (
     Expression,
     FieldDef,
     FromClause,
+    FunctionDef,
     IndexDef,
     IsNullExpr,
     LiteralExpr,
@@ -46,6 +49,7 @@ from pietto.ast_nodes import (
     NameExpr,
     Nullability,
     QueryDef,
+    AnyExpr,
     RelationExistsExpr,
     RelationScalarExpr,
     RelationMembershipExpr,
@@ -69,6 +73,8 @@ from pietto.semantic.capability_profiles import (
 )
 
 if TYPE_CHECKING:
+    from pietto.semantic.existence_generators import AnyUseInfo, AnyValueInfo
+    from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
     from pietto.semantic.model import ValueType
     from pietto._project.project_compiled_schema import Address, Description, Record
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
@@ -131,6 +137,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         BetweenExpr,
         IsNullExpr,
         WindowExpr,
+        AnyExpr,
         RelationExistsExpr,
         RelationScalarExpr,
         RelationMembershipExpr,
@@ -212,6 +219,44 @@ class ProjectParsedInput:
 
     path: str
     script: Script
+    scalar_callables: tuple[FunctionDef, ...] = ()
+    existence_generators: tuple[AnyUseInfo, ...] = ()
+    existence_values: tuple[AnyValueInfo, ...] = ()
+    # The script as parsed when a LEGACY_FLAT project resolved its query names
+    # into ``script``; that project's semantic checks analyze the parsed one,
+    # and its model refuses each JOIN and any(...) as written there.
+    authored_script: Script | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.scalar_callables) is not tuple or any(
+            type(item) is not FunctionDef for item in self.scalar_callables
+        ):
+            raise TypeError(
+                "Parsed scalar callables require exact ordered declarations."
+            )
+        if type(self.existence_values) is not tuple:
+            raise TypeError("Project ANY values require an exact tuple.")
+        if self.existence_values:
+            from pietto.semantic.existence_generators import AnyValueInfo, AnyValueTrace
+
+            if any(type(value) is not AnyValueInfo for value in self.existence_values):
+                raise TypeError("Project ANY values require exact occurrence facts.")
+            AnyValueTrace(self.script, uses=self.existence_values)
+        if type(self.existence_generators) is not tuple:
+            raise TypeError("Parsed ANY uses require an exact ordered tuple.")
+        if self.existence_generators:
+            from pietto.semantic.existence_generators import AnyUseInfo
+
+            if any(
+                type(use) is not AnyUseInfo
+                or not any(use.owner is owner for owner in self.script.definitions)
+                or not 1 <= use.input_ordinal <= len(use.owner.join_clauses)
+                or use.owner.join_clauses[use.input_ordinal - 1] is not use.clause
+                for use in self.existence_generators
+            ):
+                raise ValueError(
+                    "Parsed ANY uses require exact normalized owner and input occurrences."
+                )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1598,7 +1643,16 @@ def build_empty_project_semantic_result(
                 catalog=catalog,
                 relation_dependency_graph=relation_dependency_graph,
             ),
-            diagnostics=catalog_diagnostics,
+            diagnostics=(
+                *catalog_diagnostics,
+                *(
+                    diagnostic
+                    for parsed in parse_result.parsed_inputs
+                    for diagnostic in legacy_flat_refusals(
+                        parsed.authored_script or parsed.script
+                    )
+                ),
+            ),
             compilation_mode=parse_result.compilation_mode,
             modules=parse_result.modules,
             pinned_root=parse_result.pinned_root,
@@ -1675,8 +1729,9 @@ def build_empty_project_semantic_result(
             *(
                 diagnostic
                 for parsed in parse_result.parsed_inputs
-                for definition in parsed.script.definitions
-                for diagnostic in syntax_diagnostics(definition)
+                for diagnostic in _legacy_flat_syntax_diagnostics(
+                    parsed.authored_script or parsed.script
+                )
             ),
         ),
         compilation_mode=parse_result.compilation_mode,
@@ -1684,6 +1739,23 @@ def build_empty_project_semantic_result(
         pinned_root=parse_result.pinned_root,
         selected_input_index=parse_result.selected_input_index,
         trusted_source_snapshots=parse_result.trusted_source_snapshots,
+    )
+
+
+def _legacy_flat_syntax_diagnostics(script: Script) -> list[Diagnostic]:
+    """The syntax availability diagnostics of a LEGACY_FLAT project's script
+    and its PIE-S2334 of each JOIN and any(...), in source order."""
+
+    return sorted(
+        (
+            *(
+                diagnostic
+                for definition in script.definitions
+                for diagnostic in syntax_diagnostics(definition, allow_joins=True)
+            ),
+            *legacy_flat_refusals(script),
+        ),
+        key=source_order,
     )
 
 
@@ -2716,6 +2788,8 @@ def _project_direct_relation_row_schema(
     captured_value_types: Mapping[CapturedFieldExpr, ValueType | Diagnostic]
     | None = None,
     report_untyped_let_reads: bool = False,
+    pretyped_expressions: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
 ) -> _ProjectRelationRowSchemaResult:
     """Project direct fields and supported computed aliases from one input.
 
@@ -2774,7 +2848,9 @@ def _project_direct_relation_row_schema(
             if item.alias is not None and type(item.expression) is not WindowExpr
         ),
         input_schema=source_schema,
-        relation_qualifier=definition.from_clause.source_name,
+        relation_qualifier=(
+            definition.from_clause.binding_name or definition.from_clause.source_name
+        ),
         bare_value_types=let_value_types,
         bare_value_expressions=(
             None
@@ -2787,6 +2863,54 @@ def _project_direct_relation_row_schema(
         read_types=read_types,
         captured_value_types=captured_value_types,
     )
+    if pretyped_expressions:
+        from pietto._project.project_final_outputs import (
+            ProjectNoJoinScalarExpression,
+            ProjectNoJoinScalarStatus,
+        )
+        from pietto.semantic.model import ValueTypeKind
+
+        expression_value_types = dict(expression_value_types)
+        for expression, analysis in pretyped_expressions.items():
+            if type(analysis) is not ProjectNoJoinScalarExpression:
+                raise TypeError(
+                    "Pretyped projection requires a checked scalar analysis."
+                )
+            record = analysis.predicate_expression
+            predicate_authority = record is not None and (
+                record.owner is analysis.owner
+                and record.authored is expression
+                and not record.diagnostics
+                and bool(record.calls)
+            )
+            any_authority = bool(analysis.existence_values) and all(
+                value.input.binding.owner is analysis.owner
+                and not value.diagnostics
+                and value.value_types.get(value.expression) is value.value_type
+                for value in analysis.existence_values
+            )
+            if (
+                type(analysis) is not ProjectNoJoinScalarExpression
+                or analysis.owner.definition is not definition
+                or analysis.input_schema is not source_schema
+                or analysis.expression is not expression
+                or not (predicate_authority or any_authority)
+                or analysis.status is not ProjectNoJoinScalarStatus.CONCRETE
+                or analysis.value_type is None
+                or analysis.value_type.kind is not ValueTypeKind.KNOWN
+                or analysis.diagnostics
+                or analysis.value_types.get(analysis.normalized_expression)
+                is not analysis.value_type
+                or not any(
+                    item.alias is not None and item.expression is expression
+                    for item in definition.select_items
+                )
+            ):
+                raise ValueError(
+                    "Pretyped projection requires exact checked predicate-expression authority."
+                )
+            expression_value_types[expression] = analysis.value_type
+
     deferred = _ProjectRelationRowSchemaResult(
         schema=None,
         state_reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
@@ -2828,7 +2952,10 @@ def _project_direct_relation_row_schema(
         return reports_unfit_def_argument(
             item.expression,
             row_schema,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             bare_value_types=let_value_types,
             bare_value_expressions=let_values,
             suppressed_unknown_names=suppressed_names,
@@ -2841,7 +2968,10 @@ def _project_direct_relation_row_schema(
             continue
         projection = _project_direct_field_projection(
             item,
-            source_name=definition.from_clause.source_name,
+            source_name=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             fallback_path=fallback_path,
         )
         if projection.status is _ProjectDirectFieldProjectionStatus.DEFERRED:
@@ -2858,7 +2988,10 @@ def _project_direct_relation_row_schema(
                 output_name=item.alias,
                 input_schema=source_schema,
                 upstream_state=None,
-                relation_qualifier=definition.from_clause.source_name,
+                relation_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 expression_value_types=expression_value_types,
                 fallback_path=fallback_path,
             )
@@ -2919,7 +3052,10 @@ def _project_direct_relation_row_schema(
                 output_name=output_name,
                 input_schema=source_schema,
                 upstream_state=upstream_state,
-                relation_qualifier=definition.from_clause.source_name,
+                relation_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 expression_value_types=expression_value_types,
                 let_value_types=let_value_types,
                 fallback_path=fallback_path,
@@ -3176,7 +3312,9 @@ def _iter_project_type_expressions(definition: Definition) -> tuple[TypeExpr, ..
     def add_expression(expression: Expression) -> None:
         if type(expression) not in _KNOWN_EXPRESSIONS:
             raise ValueError(f"Unsupported expression: {type(expression).__name__}")
-        if isinstance(expression, CastExpr):
+        if isinstance(expression, AnyExpr):
+            add_expression(expression.predicate)
+        elif isinstance(expression, CastExpr):
             add_expression(expression.value)
             result.append(expression.target)
         elif isinstance(expression, (BinaryExpr, ComparisonExpr)):

@@ -12,11 +12,9 @@ from antlr4.Token import Token
 from pietto.ast_nodes import QueryDef, Script, SourceDef, TableDef
 from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
-from pietto.semantic import SemanticResult, analyze
+from pietto.semantic import CheckMode, SemanticResult, analyze
 
-SOURCE = (
-    'shape Row:\n    id: UUID not null\nsource rows: Row is postgres.table("rows")\n'
-)
+SOURCE = 'shape Row:\n    id: UUID\nsource rows: Row = postgres.table("rows")\n'
 
 
 def test_table_from_source_resolves_to_source() -> None:
@@ -102,8 +100,8 @@ def test_forward_relation_references_resolve() -> None:
             "    select:\n"
             "        id\n"
             "shape Row:\n"
-            "    id: UUID not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: UUID\n"
+            'source rows: Row = postgres.table("rows")\n'
         )
     )
     query = _relation(result, "output", QueryDef)
@@ -115,7 +113,11 @@ def test_forward_relation_references_resolve() -> None:
         "rows",
         SourceDef,
     )
-    assert result.diagnostics == ()
+    # The query's single-file read of the table `projected` warns, nothing else.
+    assert [
+        (d.code, d.severity, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [("PIE-S2382", Severity.WARNING, 2, 5)]
 
 
 def test_unknown_relation_reports_p2301() -> None:
@@ -230,7 +232,11 @@ def test_relation_cycles_are_resolved_and_diagnosed() -> None:
 
     assert result.model.from_resolutions[first.from_clause] is second
     assert result.model.from_resolutions[second.from_clause] is first
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "PIE-S2382",
+        "PIE-S2302",
+        "PIE-S2382",
+    ]
 
 
 def test_from_resolutions_mapping_is_readonly() -> None:
@@ -366,7 +372,7 @@ def test_unknown_definition_has_one_availability_diagnostic() -> None:
 def test_single_file_select_distinct_names_the_project_that_completes_it() -> None:
     result = analyze(
         _parse(
-            'shape Row:\n    id: Int not null\nsource rows: Row is postgres.table("rows")\n'
+            'shape Row:\n    id: Int\nsource rows: Row = postgres.table("rows")\n'
             "query d:\n    from rows\n    select distinct:\n        id\n"
         )
     )
@@ -384,3 +390,74 @@ def test_single_file_select_distinct_names_the_project_that_completes_it() -> No
             "(schema version 2) completes it.",
         )
     ]
+
+
+_READS = (
+    'shape Row:\n    id: UUID\nsource rows: Row = postgres.table("rows")\n'
+    "table kept:\n    from rows\n    select id\n"
+    "query from_table:\n    from kept\n    select id\n"
+    "query from_query:\n    from from_table\n    select id\n"
+    "query joined:\n    from rows\n    let k = kept\n"
+    "    inner join k on k.id == rows.id\n    select rows.id\n"
+    "query tested:\n    from rows\n"
+    "    where any(k.id == rows.id for k in kept)\n    select id\n"
+    "query filtered:\n    from rows\n"
+    "    where any(k.id == rows.id for k in kept)\n"
+    "    let other = rows\n    left join other on other.id == rows.id\n"
+    "    select rows.id\n"
+)
+
+
+@pytest.mark.parametrize("mode", list(CheckMode))
+def test_each_read_of_a_relation_of_the_file_warns_that_sql_reads_it_by_name(
+    mode: CheckMode,
+) -> None:
+    """Single-file SQL reads a table or query of the file by its name, so a
+    FROM and a JOIN of one warn where PIE-S2301 reports an unknown name, and
+    an ANY before a later JOIN at its relation. Any other ANY does not warn:
+    its reader's SQL defines the relation as a CTE."""
+
+    def message(name: str, kind: str) -> str:
+        return (
+            f"`{name}` is a {kind} of this file; single-file SQL reads it by name, "
+            "so the SQL runs only where the database already has a relation "
+            f"named {name} (an EXPLICIT_MODULES project emits it as a CTE)"
+        )
+
+    result = analyze(_parse(_READS), mode_override=mode)
+
+    assert [
+        (
+            d.code,
+            d.severity,
+            d.message,
+            d.location.line,
+            d.location.column,
+            d.location.end_line,
+            d.location.end_column,
+        )
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2382", Severity.WARNING, message("kept", "table"), 8, 5, 8, 14),
+        ("PIE-S2382", Severity.WARNING, message("from_table", "query"), 11, 5, 11, 20),
+        ("PIE-S2382", Severity.WARNING, message("kept", "table"), 16, 5, 16, 36),
+        ("PIE-S2382", Severity.WARNING, message("kept", "table"), 24, 40, 24, 44),
+    ]
+
+
+def test_reads_of_sources_and_project_reads_do_not_warn() -> None:
+    from pietto.semantic.analyzer import analyze_project_namespace
+
+    sources = analyze(
+        _parse(
+            'shape Row:\n    id: UUID\nsource rows: Row = postgres.table("rows")\n'
+            "query q:\n    from rows\n    let r = rows\n"
+            "    inner join r on r.id == rows.id\n"
+            "    where any(x.id == rows.id for x in rows)\n    select rows.id\n"
+        )
+    )
+    # A LEGACY_FLAT project emits no SQL, so its reads are no SQL premise.
+    project = analyze_project_namespace(_parse(_READS))
+
+    assert sources.diagnostics == ()
+    assert [d.code for d in project.diagnostics if d.code == "PIE-S2382"] == []

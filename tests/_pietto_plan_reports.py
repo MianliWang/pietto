@@ -28,18 +28,16 @@ F = report.ProjectSQLDemandFamily
 def _cases():
     hidden_order = result_source(
         "    select distinct:\n        value\n    order by:\n        hidden\n    limit 0\n"
-    ).replace(
-        "value: Int nullable", "value: Int not null\n    unique by_value on value"
-    )
+    ).replace("value: Int | None", "value: Int\n    by_value = unique(value)")
     right = join_source(
-        "inner", "true", tail="    select:\n        id = lhs.id\n"
+        "inner", "True", tail="    select:\n        id = lhs.id\n"
     ).replace("query result:", "table right_side:")
     right += "table left_side:\n    from lhs\n    select:\n        id\n    limit 0\nquery result:\n    except distinct:\n        from left_side\n        from right_side\n"
     return {
         "minimal": (minimal_source(), None),
         "row": (row_source(ROW_BODY), None),
         "literal_tags": (row_source(BODY), None),
-        "join": (join_source("left", "true"), _requests),
+        "join": (join_source("left", "True"), _requests),
         "path": (_path_source(all_unique=True), _path_requests),
         "partial_path": (_path_source(), _path_requests),
         "aggregate": (_joined_aggregates(), None),
@@ -54,8 +52,8 @@ def _cases():
         "values": (
             minimal_source().split("query result:")[0]
             + "query result:\n    let seed:\n"
-            + "        values(id: Int not null, name: Text nullable):\n"
-            + '            1, "a"\n            2, null\n'
+            + "        values(id: Int, name: Text | None):\n"
+            + '            1, "a"\n            2, None\n'
             + "    union all:\n        from seed\n        from rows\n",
             None,
         ),

@@ -41,9 +41,9 @@ ENUM_SOURCE_HEADER = (
     "    active\n"
     "    paused\n"
     "shape EnumOrder:\n"
-    "    status: Status not null\n"
-    "    optional_status: Status nullable\n"
-    "    amount: Int not null\n"
+    "    status: Status\n"
+    "    optional_status: Status | None\n"
+    "    amount: Int\n"
 )
 
 
@@ -211,7 +211,7 @@ def test_json_metadata_schema_expansion_is_not_authorized() -> None:
 def _source(connector: str, projections: str) -> str:
     return (
         ENUM_SOURCE_HEADER
-        + f'source orders: EnumOrder is {connector}("orders")\n'
+        + f'source orders: EnumOrder = {connector}("orders")\n'
         + "table status_counts:\n"
         + "    from orders\n"
         + "    select:\n"

@@ -23,12 +23,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MAX_LIMIT = 9_223_372_036_854_775_807
 LIMIT_MESSAGE = "Limit must be a static integer from 0 to 9223372036854775807"
 POSTGRES_PREFIX = (
-    'shape User:\n    id: Int not null\nsource users: User is postgres.table("users")\n'
+    'shape User:\n    id: Int\nsource users: User = postgres.table("users")\n'
 )
-MYSQL_PREFIX = (
-    'shape User:\n    id: Int not null\nsource users: User is mysql.table("users")\n'
-)
-PROJECT_INVALID_LIMITS = ("n", "id", "-1", "1.5", '"5"', "1 + 1", "null")
+MYSQL_PREFIX = 'shape User:\n    id: Int\nsource users: User = mysql.table("users")\n'
+PROJECT_INVALID_LIMITS = ("n", "id", "-1", "1.5", '"5"', "1 + 1", "None")
 
 
 @pytest.mark.parametrize(
@@ -119,8 +117,8 @@ def test_semantic_accepts_valid_static_limits(source_value: str) -> None:
         "missing()",
         "row.id",
         "1 + 2",
-        "true",
-        "null",
+        "True",
+        "None",
     ],
 )
 @pytest.mark.parametrize("mode", ["loose", "checked", "strict"])
@@ -362,7 +360,7 @@ def _relation_source(prefix: str, limit: str | None) -> str:
 def _limit_project(root: Path, target: str, operand: str) -> tuple[Path, int]:
     """One explicit-module project over the probe's LIMIT source and contract."""
     fixture = probe.fixture(target, "O_result_limit", "zero")
-    let = "    let:\n        n = 10\n" if operand == "n" else ""
+    let = "    let n = 10\n" if operand == "n" else ""
     source = (
         fixture["source"].split("query result:", 1)[0]
         + f"query result:\n    from rows\n{let}    select:\n        record_id = id\n"

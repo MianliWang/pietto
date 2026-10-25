@@ -353,7 +353,9 @@ def _field_identity(
         return None if field is None else field.name
     if isinstance(expression, DottedNameExpr):
         field = qualified_field(
-            input_schema, expression.parts, definition.from_clause.source_name
+            input_schema,
+            expression.parts,
+            (definition.from_clause.binding_name or definition.from_clause.source_name),
         )
         return None if field is None else field.name
     return None
@@ -551,7 +553,7 @@ def _infer_value(
         diagnostics.append(
             invalid_context_diagnostic(
                 expression,
-                context="satisfying clause",
+                context="having clause",
             )
         )
         value_types[expression] = _UNKNOWN_VALUE_TYPE
@@ -579,7 +581,7 @@ def _aggregate_let_call_value_type(
         diagnostics.append(
             invalid_context_diagnostic(
                 expression,
-                context="satisfying clause",
+                context="having clause",
             )
         )
         return _UNKNOWN_VALUE_TYPE
@@ -712,7 +714,7 @@ def no_group_satisfying_diagnostic(definition: DerivedRelation) -> Diagnostic | 
     if contains_semantic_aggregate(clause.expression):
         return invalid_context_diagnostic(
             clause.expression,
-            context="satisfying clause",
+            context="having clause",
         )
     return _no_group_diagnostic(definition)
 
@@ -722,7 +724,7 @@ def _no_group_diagnostic(definition: DerivedRelation) -> Diagnostic:
     return _diagnostic(
         definition.satisfying_clause,
         code="PIE-S2323",
-        message="`satisfying` requires GROUP BY",
+        message="`having` requires GROUP BY",
     )
 
 
@@ -730,7 +732,7 @@ def _unknown_output_diagnostic(expression: NameExpr) -> Diagnostic:
     return _diagnostic(
         expression,
         code="PIE-S2324",
-        message=f"Unknown select output in satisfying: {expression.name}",
+        message=f"Unknown select output in having: {expression.name}",
     )
 
 
@@ -739,7 +741,7 @@ def _input_field_reference_diagnostic(expression: NameExpr) -> Diagnostic:
         expression,
         code="PIE-S2325",
         message=(
-            "Satisfying reference must use select output name, "
+            "Having reference must use select output name, "
             f"not input field: {expression.name}"
         ),
     )
@@ -750,7 +752,7 @@ def _unsupported_output_diagnostic(expression: NameExpr) -> Diagnostic:
         expression,
         code="PIE-S2326",
         message=(
-            "Satisfying output is not a group-key or direct aggregate "
+            "Having output is not a group-key or direct aggregate "
             f"projection: {expression.name}"
         ),
     )
@@ -765,7 +767,7 @@ def _unsupported_expression_diagnostic(
     return _diagnostic(
         expression,
         code="PIE-S2327",
-        message=f"Unsupported satisfying expression form: {label}",
+        message=f"Unsupported having expression form: {label}",
     )
 
 
@@ -776,7 +778,7 @@ _FORM_NAMES = {
     "ConditionalExpr": "conditional expression",
     "MembershipExpr": "`in` list",
     "RelationMembershipExpr": "`in` relation",
-    "BetweenExpr": "`between` test",
+    "BetweenExpr": "inclusive comparison chain",
     "IsNullExpr": "null test",
     "CastExpr": "cast",
     "LiteralExpr": "literal",
@@ -808,7 +810,7 @@ def _bool_predicate_diagnostic(
     return _diagnostic(
         expression,
         code="PIE-S2202",
-        message="Expected Bool expression in satisfying clause",
+        message="Expected Bool expression in having clause",
     )
 
 

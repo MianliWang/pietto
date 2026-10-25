@@ -163,7 +163,16 @@ def test_every_current_variant_and_meaningful_subkind_has_real_coverage(corpus):
             actual.add(type(entry.demand))
             kinds[entry.family].add(entry.subkind)
     assert actual == current_variants
-    assert kinds == {family: set(values) for family, values in report.SUBKINDS.items()}
+    # RELATIONSHIP_EQUALITY needs a source-bound relationship guarantee, which
+    # only the retired spelling (endpoint relationships, `join X as Y`, `via`)
+    # declares; the modern parser refuses it, so the modern corpus reaches
+    # every other declared subkind and never this one.
+    legacy_only = {F.JOIN: {joins.ProjectSQLJoinDemandKind.RELATIONSHIP_EQUALITY}}
+    assert legacy_only[F.JOIN] < set(report.SUBKINDS[F.JOIN])
+    assert kinds == {
+        family: set(values) - legacy_only.get(family, set())
+        for family, values in report.SUBKINDS.items()
+    }
     for family, enumeration in (
         (F.JOIN, joins.ProjectSQLJoinDemandKind),
         (F.AGGREGATE, aggregation.ProjectSQLAggregateDemandKind),
@@ -293,11 +302,30 @@ def test_original_single_match_scope_proofs_and_posture(corpus, case):
             )
     if case != "join":
         assert [m.original.request.scope for m in value.single_matches] == [
-            ProjectSingleMatchScope.PATH_HOP
-        ] * 2 + [ProjectSingleMatchScope.WHOLE_PATH]
-        assert len(value.single_matches[-1].original.input_pairs) == 2
+            ProjectSingleMatchScope.DIRECT_BINARY
+        ] * 2
+        assert [record.state for record in value.single_matches] == [
+            ProjectSingleMatchState.PROVED,
+            ProjectSingleMatchState.PROVED
+            if case == "path"
+            else ProjectSingleMatchState.LEGAL_UNPROVED,
+        ]
+        assert len(plan.joins) == 2
+        for record, join in zip(value.single_matches, plan.joins, strict=True):
+            assert record.original.joins == (join.ref,)
+            assert record.original.input_pairs == (join.inputs,)
     if case == "path":
-        assert any(
+        roots = tuple(
+            link
+            for link in value.links
+            if link.kind is report.ProjectSQLDemandLinkKind.PROOF_ROOT
+        )
+        assert len(roots) == 2
+        for record in value.single_matches:
+            (proof_entry,) = record.proof_entries
+            (root,) = tuple(link for link in roots if link.source is record.entry)
+            assert root.target is proof_entry
+        assert not any(
             link.kind is report.ProjectSQLDemandLinkKind.PROOF_CHILD
             for link in value.links
         )
@@ -411,9 +439,9 @@ def test_except_membership_and_limit_zero_retain_original_warning(corpus):
 def test_repeated_original_requests_and_unrelated_project_warnings(
     tmp_path, reuse_identity
 ):
-    source = join_source("semi", "true")
+    source = join_source("left", "True")
     source += (
-        "query unused:" + join_source("inner", "true").split("query result:", 1)[1]
+        "query unused:" + join_source("inner", "True").split("query result:", 1)[1]
     )
 
     def requests(completed):
@@ -448,7 +476,7 @@ def test_right_producer_bound_proofs_remain_scoped(tmp_path, proof):
         roots = _roots(tmp_path, _limited_source(right_limit=1), _requests)
     else:
         source, _ = _tail_source("global")
-        source += "query result:\n    from lhs\n    semi join upstream as r:\n        from lhs\n        on true\n    select:\n        id = lhs.id\n"
+        source += "query result:\n    from lhs\n    let r = upstream\n    left join r on True\n    select:\n        id = lhs.id\n"
         roots = _roots(tmp_path, source, lambda completed: (_requests(completed)[-1],))
     _, plan, _, value, _, view = _reported(roots, P.BIND_SAFE_LITERALS)
     assert value.single_matches[0].state is ProjectSingleMatchState.PROVED
@@ -487,12 +515,12 @@ def test_depth12_sharing_and_overlapping_use_facets_are_not_transitive_copies(tm
 
 def test_imported_authored_owners_and_consuming_scopes_remain_distinct(tmp_path):
     (tmp_path / "a.pietto").write_text(
-        'type Money = Decimal(12, 2)\nshape Row:\n    id: Int not null\n    amount: Money nullable\nsource rows: Row is mysql.table("rows")\ntable first:\n    from rows\n    select:\n        id\n        amount\nexport:\n    table first\n'
+        'type Money = Decimal(12, 2)\nshape Row:\n    id: Int\n    amount: Money | None\nsource rows: Row = mysql.table("rows")\ntable first:\n    from rows\n    select:\n        id\n        amount\nexport table first\n'
     )
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import (table first as Public)\nexport table Public\n'
     )
-    source = 'import "b.pietto":\n    table Public as Alias\nquery result:\n    from Alias\n    select:\n        id\n        amount\n'
+    source = 'from "b.pietto" import (table Public as Alias)\nquery result:\n    from Alias\n    select:\n        id\n        amount\n'
     roots, plan, _, value, _, view = _reported(
         _roots(tmp_path, source), P.BIND_SAFE_LITERALS
     )
@@ -1004,9 +1032,9 @@ def test_report_errors_do_not_dump_source_payloads(corpus, monkeypatch, failure)
 
 
 def test_mixed_source_descriptors_remain_unassessed(tmp_path):
-    text = join_source("inner", "true").replace(
-        'source rhs: Row is postgres.table("rhs")',
-        'source rhs: Row is mysql.table("rhs")',
+    text = join_source("inner", "True").replace(
+        'source rhs: Row = postgres.table("rhs")',
+        'source rhs: Row = mysql.table("rhs")',
     )
     _, plan, _, value, _, view = _reported(_roots(tmp_path, text), P.PRESERVE_LITERALS)
     demands = view.for_family(F.SOURCE)

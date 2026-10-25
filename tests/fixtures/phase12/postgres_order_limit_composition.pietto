@@ -4,16 +4,16 @@ dialect postgres
 encoding utf8
 
 shape User:
-    id: Int not null
-    created_at: Int not null
-    email: Text not null
-    active: Bool not null
+    id: Int
+    created_at: Int
+    email: Text
+    active: Bool
 
-source users: User is postgres.table("users")
+source users: User = postgres.table("users")
 
 query recent_active_users:
     from users
-    where active == true
+    where active == True
     select:
         id
         normalized = lower(email)

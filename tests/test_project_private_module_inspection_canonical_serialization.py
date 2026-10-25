@@ -73,10 +73,10 @@ _TOKEN_TAGS = ("b:", "e:", "i:", "n:", "s:")
 
 _SHAPE_PREFIX = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    category: Text nullable\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    category: Text | None\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 
 
@@ -192,21 +192,22 @@ def _query_module(body: str) -> str:
 def _cycle_sources() -> dict[str, str]:
     return {
         "a.pietto": (
-            'import "b.pietto":\n    shape S\nexport:\n    shape T\nshape T:\n'
-            "    id: Int\n"
+            'from "b.pietto" import shape S\nexport shape T\nshape T:\n    id: Int\n'
         ),
         "b.pietto": (
-            'import "a.pietto":\n    shape T\nexport:\n    shape S\nshape S:\n'
-            "    id: Int\n"
+            'from "a.pietto" import shape T\nexport shape S\nshape S:\n    id: Int\n'
         ),
     }
 
 
 def _facade_sources() -> dict[str, str]:
     return {
-        "base.pietto": (_SHAPE_PREFIX + "export:\n    shape Row\n    source rows\n"),
+        "base.pietto": (_SHAPE_PREFIX + "export shape Row, source rows\n"),
         "main.pietto": (
-            'import "base.pietto":\n    shape Row\n    source rows as r\n'
+            'from "base.pietto" import (\n'
+            "    shape Row,\n"
+            "    source rows as r,\n"
+            ")\n"
             "query result:\n    from r\n    select:\n        id\n        amount\n"
         ),
     }
@@ -760,7 +761,7 @@ def test_import_section_keeps_local_aliases_separate_from_nominal_ownership(
 
     unresolved = _semantic_project(
         tmp_path / "unresolved",
-        {"main.pietto": 'import "missing.pietto":\n    shape Row\n'},
+        {"main.pietto": 'from "missing.pietto" import shape Row\n'},
     )
     request = _record(unresolved, "main.pietto").imports[0]
     assert request.resolved_target is None
@@ -776,7 +777,7 @@ def test_unresolvable_upstream_text_is_inspected_verbatim_without_revalidation(
     # text verbatim rather than re-validate its content.
     semantic = _semantic_project(
         tmp_path,
-        {"main.pietto": 'import "":\n    shape Row\n'},
+        {"main.pietto": 'from "" import shape Row\n'},
     )
     record = _record(semantic, "main.pietto")
     assert len(record.imports) == 1
@@ -812,7 +813,7 @@ def test_export_section_records_requests_entries_origins_and_issue_buckets(
 
     unresolved = _semantic_project(
         tmp_path / "unresolved",
-        {"main.pietto": "export:\n    shape Missing\n"},
+        {"main.pietto": "export shape Missing\n"},
     )
     request = _record(unresolved, "main.pietto").exports[0]
     assert request.exposed_name is None
@@ -893,7 +894,7 @@ def test_relation_declaration_states_concrete_unknown_deferred_and_blocked(
         (
             "deferred",
             _SHAPE_PREFIX + "query pending:\n    from rows\n    select:\n"
-            "        unset = null\n"
+            "        unset = None\n"
             "query result:\n    from pending\n    select:\n        unset\n",
             ProjectRelationRowSchemaStatus.DEFERRED,
         ),
@@ -1280,8 +1281,8 @@ def test_canonical_bytes_change_with_a_replaced_digest_or_readiness_fact(
         _semantic_project(
             tmp_path / "acyclic",
             {
-                "a.pietto": "export:\n    shape T\nshape T:\n    id: Int\n",
-                "b.pietto": 'import "a.pietto":\n    shape T\n',
+                "a.pietto": "export shape T\nshape T:\n    id: Int\n",
+                "b.pietto": 'from "a.pietto" import shape T\n',
             },
         )
     ).canonical_bytes

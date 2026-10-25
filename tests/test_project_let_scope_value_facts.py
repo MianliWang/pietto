@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from pietto._project.check import check_project_parse_only
@@ -11,6 +12,7 @@ from pietto._project.let_scope_facts import (
 )
 from pietto._project.model import (
     ProjectParseCheckResult,
+    ProjectParsedInput,
     ProjectRowField,
     ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
@@ -19,6 +21,7 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.semantic.model import EffectiveNullability, ValueTypeKind
+from pietto.semantic.modern_inputs import normalize_query_names
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -47,9 +50,8 @@ def test_legal_let_bindings_produce_private_value_facts(
             tmp_path,
             "query enriched:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
-            "        is_positive = total > 0\n"
+            "    let total = score + bonus\n"
+            "    let is_positive = total > 0\n"
             "    select:\n"
             "        id\n",
         )
@@ -113,8 +115,7 @@ def test_selected_let_output_uses_concrete_private_let_facts(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + 1\n"
+            "    let total = score + 1\n"
             "    select:\n"
             "        total\n",
         )
@@ -150,24 +151,21 @@ def test_upstream_non_concrete_states_short_circuit_let_facts(
             "        missing\n"
             "query from_unknown:\n"
             "    from unknown_seed\n"
-            "    let:\n"
-            "        total = id + 1\n"
+            "    let total = id + 1\n"
             "    select:\n"
             "        id\n"
             "query deferred_seed:\n"
             "    from users\n"
             "    select:\n"
-            "        ratio = null\n"
+            "        ratio = None\n"
             "query from_deferred:\n"
             "    from deferred_seed\n"
-            "    let:\n"
-            "        total = ratio + 1\n"
+            "    let total = ratio + 1\n"
             "    select:\n"
             "        ratio\n"
             "query unresolved:\n"
             "    from missing_relation\n"
-            "    let:\n"
-            "        total = id + 1\n"
+            "    let total = id + 1\n"
             "    select:\n"
             "        id\n",
         )
@@ -268,8 +266,7 @@ def test_project_json_v2_keeps_let_scope_facts_private(tmp_path: Path) -> None:
             tmp_path,
             "query enriched:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        id\n",
         )
@@ -341,9 +338,29 @@ def _assert_direct_field_preserves_source_field_def(
 def _project_semantic_result(
     root: Path,
 ) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
-    parse_result = check_project_parse_only(root)
+    parse_result = _normalized_parse_result(check_project_parse_only(root))
     assert parse_result.ok
     return parse_result, build_empty_project_semantic_result(parse_result)
+
+
+def _normalized_parse_result(
+    parse_result: ProjectParseCheckResult,
+) -> ProjectParseCheckResult:
+    """Bind modern `let name = expression` names as the analyzer does.
+
+    The private LEGACY_FLAT scaffold reads its scalar let bindings from
+    `LetClause`, while modern spelling retains each `let name = expression`
+    as a query naming declaration until `normalize_query_names` runs before
+    semantics. Normalizing here keeps these private facts about the same
+    authored bindings under the modern spelling.
+    """
+
+    normalized_inputs: list[ProjectParsedInput] = []
+    for parsed_input in parse_result.parsed_inputs:
+        script, diagnostics = normalize_query_names(parsed_input.script)
+        assert diagnostics == ()
+        normalized_inputs.append(replace(parsed_input, script=script))
+    return replace(parse_result, parsed_inputs=tuple(normalized_inputs))
 
 
 def _project(tmp_path: Path, relation_source: str) -> Path:
@@ -352,11 +369,11 @@ def _project(tmp_path: Path, relation_source: str) -> Path:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text not null\n"
-        "    score: Int not null\n"
-        "    bonus: Int not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        "    email: Text\n"
+        "    score: Int\n"
+        "    bonus: Int\n"
+        'source users: User = postgres.table("users")\n'
         f"{relation_source}",
     )
     return root

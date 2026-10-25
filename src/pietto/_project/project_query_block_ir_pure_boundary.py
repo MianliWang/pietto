@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 import json
 from heapq import heappop, heappush
-from typing import cast
+from typing import Any, cast
 
 __all__: tuple[str, ...] = ()
 
@@ -40,6 +40,18 @@ class ProjectQueryBlockIRPortableRefDomain(StrEnum):
     REQUIREMENT = "requirement"
     PROOF = "proof"
     DIAGNOSTIC = "diagnostic"
+    PREDICATE_EXPRESSION = "predicate_expression"
+    PREDICATE_CALL = "predicate_call"
+    PREDICATE_EQUALITY = "predicate_equality"
+    PREDICATE_INPUT_KEY = "predicate_input_key"
+    PREDICATE_KEY_MATCH = "predicate_key_match"
+    EXISTENCE_USE = "existence_use"
+    SCALAR_ANY_USE = "scalar_any_use"
+    SCALAR_ANY_VALUE = "scalar_any_value"
+    SCALAR_ANY_FIELD = "scalar_any_field"
+    SCALAR_ANY_REFERENCE = "scalar_any_reference"
+    SCALAR_ANY_CANDIDATE = "scalar_any_candidate"
+    PREDICATE_ANY_SCOPE = "predicate_any_scope"
 
 
 class ProjectQueryBlockIRPureTag(StrEnum):
@@ -78,6 +90,20 @@ class ProjectQueryBlockIRRecordKind(StrEnum):
     ALGEBRA = "algebra"
     CONDITION = "condition"
     INPUT_CORRESPONDENCE = "input_correspondence"
+    PREDICATE_EXPRESSION = "predicate_expression"
+    PREDICATE_CALL = "predicate_call"
+    PREDICATE_ARGUMENT = "predicate_argument"
+    PREDICATE_JOIN = "predicate_join"
+    PREDICATE_EQUALITY = "predicate_equality"
+    PREDICATE_INPUT_KEY = "predicate_input_key"
+    PREDICATE_KEY_MATCH = "predicate_key_match"
+    EXISTENCE_USE = "existence_use"
+    SCALAR_ANY_USE = "scalar_any_use"
+    SCALAR_ANY_VALUE = "scalar_any_value"
+    SCALAR_ANY_FIELD = "scalar_any_field"
+    SCALAR_ANY_REFERENCE = "scalar_any_reference"
+    SCALAR_ANY_CANDIDATE = "scalar_any_candidate"
+    PREDICATE_ANY_SCOPE = "predicate_any_scope"
     DISTINCT = "distinct"
     SET = "set"
     SET_OPERAND = "set_operand"
@@ -510,6 +536,160 @@ _SCHEMAS: dict[ProjectQueryBlockIRRecordKind, tuple[_FieldSpec, ...]] = {
         _spec("producer", _R, _D.OWNER_ENTRY, optional=True),
         _spec("output", _R, _D.OUTPUT_VALUE),
     ),
+    _K.SCALAR_ANY_USE: (
+        _spec("ref", _R, _D.SCALAR_ANY_USE),
+        _spec("owner", _R, _D.OWNER_ENTRY),
+        _spec("authored", _T),
+        _spec("authored_owner", _T),
+        _spec("authored_context", _T),
+        _spec("current", _T),
+        _spec("context", _T),
+        _spec("owner_definition", _T),
+        _spec("authored_prefix", _I),
+        _spec("current_prefix", _I),
+        _spec("values", _RS, _D.SCALAR_ANY_VALUE, optional=True),
+    ),
+    _K.SCALAR_ANY_VALUE: (
+        _spec("ref", _R, _D.SCALAR_ANY_VALUE),
+        _spec("use", _R, _D.SCALAR_ANY_USE),
+        _spec("parent", _R, _D.SCALAR_ANY_VALUE, optional=True),
+        _spec("target", _R, _D.OWNER_ENTRY, optional=True),
+        _spec("context", _T),
+        _spec("expression", _T),
+        _spec("type", _T),
+        _spec("nullability", _E),
+        _spec("field_count", _I),
+        _spec("input_names", ProjectQueryBlockIRPureTag.TEXTS, optional=True),
+        _spec("fields", _RS, _D.SCALAR_ANY_FIELD, optional=True),
+        _spec("reference_count", _I),
+        _spec("references", _RS, _D.SCALAR_ANY_REFERENCE, optional=True),
+        _spec("nested", _RS, _D.SCALAR_ANY_VALUE, optional=True),
+    ),
+    _K.SCALAR_ANY_FIELD: (
+        _spec("ref", _R, _D.SCALAR_ANY_FIELD),
+        _spec("value", _R, _D.SCALAR_ANY_VALUE),
+        _spec("ordinal", _I),
+        _spec("name", _T),
+        _spec("type", _T),
+        _spec("nullability", _E),
+        _spec("definition", _T),
+    ),
+    _K.SCALAR_ANY_REFERENCE: (
+        _spec("ref", _R, _D.SCALAR_ANY_REFERENCE),
+        _spec("value", _R, _D.SCALAR_ANY_VALUE),
+        _spec("ordinal", _I),
+        _spec("expression", _T),
+        _spec("candidate_count", _I),
+        _spec("candidates", _RS, _D.SCALAR_ANY_CANDIDATE, optional=True),
+    ),
+    _K.SCALAR_ANY_CANDIDATE: (
+        _spec("ref", _R, _D.SCALAR_ANY_CANDIDATE),
+        _spec("reference", _R, _D.SCALAR_ANY_REFERENCE),
+        _spec("ordinal", _I),
+        _spec("kind", _E),
+        _spec("binding", _T),
+        _spec("name", _T),
+        _spec("field_name", _T),
+        _spec("type", _T),
+        _spec("nullability", _E),
+        _spec("field", _T),
+        _spec("local", _R, _D.SCALAR_ANY_USE, optional=True),
+        _spec("target", _R, _D.OWNER_ENTRY, optional=True),
+        _spec("position", _I, optional=True),
+        _spec("field_position", _I, optional=True),
+        _spec("input_names", ProjectQueryBlockIRPureTag.TEXTS, optional=True),
+        _spec("let_expression", _T, optional=True),
+    ),
+    _K.PREDICATE_ANY_SCOPE: (
+        _spec("expression", _R, _D.PREDICATE_EXPRESSION),
+        _spec("ordinal", _I),
+        _spec("use", _R, _D.SCALAR_ANY_USE),
+        _spec("target", _R, _D.OWNER_ENTRY, optional=True),
+        _spec("relation", _T, optional=True),
+        _spec("position", _E),
+        _spec("container_ordinal", _I),
+        _spec("read_ordinal", _I),
+        _spec("before", _T),
+        _spec("after", _T),
+    ),
+    _K.EXISTENCE_USE: (
+        _spec("ref", _R, _D.EXISTENCE_USE),
+        _spec("owner", _R, _D.OWNER_ENTRY),
+        _spec("authored_owner", _T),
+        _spec("context", _T),
+        _spec("any", _T),
+        _spec("clause", _T),
+        _spec("input_ordinal", _I),
+        _spec("preceding_join_count", _I),
+        _spec("node", _R, _D.PLAN_NODE, optional=True),
+    ),
+    _K.PREDICATE_EXPRESSION: (
+        _spec("ref", _R, _D.PREDICATE_EXPRESSION),
+        _spec("owner", _R, _D.OWNER_ENTRY),
+        _spec("role", _E),
+        _spec("context", _T),
+        _spec("authored", _T),
+        _spec("normalized", _T),
+        _spec("calls", _RS, _D.PREDICATE_CALL, optional=True),
+    ),
+    _K.PREDICATE_CALL: (
+        _spec("ref", _R, _D.PREDICATE_CALL),
+        _spec("expression", _R, _D.PREDICATE_EXPRESSION),
+        _spec("ordinal", _I),
+        _spec("call", _T),
+        _spec("template", _T),
+        _spec("shapes", ProjectQueryBlockIRPureTag.TEXTS, optional=True),
+        _spec("expanded", _T),
+        _spec("mandatory", ProjectQueryBlockIRPureTag.TEXTS, optional=True),
+    ),
+    _K.PREDICATE_ARGUMENT: (
+        _spec("call", _R, _D.PREDICATE_CALL),
+        _spec("ordinal", _I),
+        _spec("binding", _I),
+        _spec("target", _R, _D.OWNER_ENTRY),
+        _spec("parameter", _T),
+        _spec("argument", _T),
+        _spec("occurrence", _T),
+        _spec("relation", _T),
+        _spec("shape", _T),
+    ),
+    _K.PREDICATE_JOIN: (
+        _spec("node", _R, _D.PLAN_NODE),
+        _spec("expression", _R, _D.PREDICATE_EXPRESSION),
+        _spec("equalities", _RS, _D.PREDICATE_EQUALITY, optional=True),
+        _spec("bindings", ProjectQueryBlockIRPureTag.INTEGERS),
+        _spec("key_counts", ProjectQueryBlockIRPureTag.INTEGERS),
+        _spec("keys", _RS, _D.PREDICATE_INPUT_KEY, optional=True),
+        _spec("matches", _RS, _D.PREDICATE_KEY_MATCH, optional=True),
+    ),
+    _K.PREDICATE_EQUALITY: (
+        _spec("ref", _R, _D.PREDICATE_EQUALITY),
+        _spec("node", _R, _D.PLAN_NODE),
+        _spec("position", _I),
+        _spec("comparison", _T),
+        _spec("left_binding", _I),
+        _spec("left_field", _I),
+        _spec("right_binding", _I),
+        _spec("right_field", _I),
+        _spec("calls", _RS, _D.PREDICATE_CALL),
+    ),
+    _K.PREDICATE_INPUT_KEY: (
+        _spec("ref", _R, _D.PREDICATE_INPUT_KEY),
+        _spec("node", _R, _D.PLAN_NODE),
+        _spec("binding", _I),
+        _spec("ordinal", _I),
+        _spec("strength", _E),
+        _spec("class_sizes", ProjectQueryBlockIRPureTag.INTEGERS),
+        _spec("fields", ProjectQueryBlockIRPureTag.INTEGERS),
+    ),
+    _K.PREDICATE_KEY_MATCH: (
+        _spec("ref", _R, _D.PREDICATE_KEY_MATCH),
+        _spec("node", _R, _D.PLAN_NODE),
+        _spec("key", _R, _D.PREDICATE_INPUT_KEY),
+        _spec("equalities", _RS, _D.PREDICATE_EQUALITY),
+        _spec("minimum", _E),
+        _spec("maximum", _E),
+    ),
     _K.HEADER: (
         _spec("format", _T),
         _spec("verification", _E),
@@ -705,6 +885,17 @@ _DEFINITION_DOMAINS: dict[
     ProjectQueryBlockIRRecordKind, ProjectQueryBlockIRPortableRefDomain
 ] = {
     _K.OWNER_ENTRY: _D.OWNER_ENTRY,
+    _K.SCALAR_ANY_USE: _D.SCALAR_ANY_USE,
+    _K.SCALAR_ANY_VALUE: _D.SCALAR_ANY_VALUE,
+    _K.SCALAR_ANY_FIELD: _D.SCALAR_ANY_FIELD,
+    _K.SCALAR_ANY_REFERENCE: _D.SCALAR_ANY_REFERENCE,
+    _K.SCALAR_ANY_CANDIDATE: _D.SCALAR_ANY_CANDIDATE,
+    _K.EXISTENCE_USE: _D.EXISTENCE_USE,
+    _K.PREDICATE_EXPRESSION: _D.PREDICATE_EXPRESSION,
+    _K.PREDICATE_CALL: _D.PREDICATE_CALL,
+    _K.PREDICATE_EQUALITY: _D.PREDICATE_EQUALITY,
+    _K.PREDICATE_INPUT_KEY: _D.PREDICATE_INPUT_KEY,
+    _K.PREDICATE_KEY_MATCH: _D.PREDICATE_KEY_MATCH,
     _K.NODE: _D.PLAN_NODE,
     _K.OUTPUT: _D.OUTPUT_VALUE,
     _K.INPUT_SLOT: _D.INPUT_SLOT,
@@ -1985,6 +2176,10 @@ def evaluate_project_query_block_ir_document(
             _validate_grain,
             _validate_windows,
             _validate_algebra,
+            _validate_predicates,
+            _validate_existence,
+            _validate_scalar_any,
+            _validate_predicate_any_scopes,
             _validate_distincts,
             _validate_sets,
             _validate_requirements,
@@ -2012,6 +2207,8 @@ def evaluate_project_query_block_ir_document(
 def _authored_field_leaves(value: object) -> tuple[object, ...]:
     """Read ordered portable syntax occurrences, excluding function callees."""
     if type(value) is dict:
+        if value.get("node") == "AnyExpr":
+            return ()
         if value.get("node") in {"NameExpr", "DottedNameExpr"}:
             return (value,)
         return tuple(
@@ -2913,6 +3110,9 @@ def _proof_root_valid(data, proof, requirement, declared) -> bool:
             "target_matched",
         },
         "ProjectJoinCondition": {"mode", "clause"},
+        "ProjectJoinConditionKeyMatch": {"key_match"},
+        "ProjectJoinConditionEquality": {"equality"},
+        "ProjectIROutputCandidateKey": {"key_matches"},
         "ProjectRelationLimit": {"owner", "bound", "clause"},
         "ProjectIRBinaryJoinOccurrence": {"nodes"},
         "ProjectCurrentBinaryJoin": {"nodes"},
@@ -2926,6 +3126,35 @@ def _proof_root_valid(data, proof, requirement, declared) -> bool:
     kind = data["kind"]
     if kind not in schemas or set(data) != {"kind", *schemas[kind]}:
         return False
+    for name, domain in (
+        ("key_match", _D.PREDICATE_KEY_MATCH),
+        ("equality", _D.PREDICATE_EQUALITY),
+    ):
+        if name in data:
+            position = data[name]
+            if type(position) is not int or position < 0:
+                return False
+            ref = ProjectQueryBlockIRPortableRef(domain=domain, position=position)
+            if ref not in declared or _ref(declared[ref], "node") not in _refs(
+                proof, "joins"
+            ):
+                return False
+    if "key_matches" in data:
+        values = data["key_matches"]
+        if (
+            type(values) is not list
+            or not values
+            or any(type(value) is not int or value < 0 for value in values)
+        ):
+            return False
+        for position in values:
+            ref = ProjectQueryBlockIRPortableRef(
+                domain=_D.PREDICATE_KEY_MATCH, position=position
+            )
+            if ref not in declared or _ref(declared[ref], "node") not in _refs(
+                proof, "joins"
+            ):
+                return False
     if "owner" in data:
         owner = data["owner"]
         allowed = (*_refs(proof, "producers"), _ref(requirement, "owner"))
@@ -3074,6 +3303,7 @@ def _validate_requirements(
         if kind not in {
             "relationship",
             "refinement",
+            "matched_key",
             "whole_path",
             "right_limit",
             "right_global",
@@ -3122,6 +3352,31 @@ def _validate_requirements(
         ):
             return _reject(ProjectQueryBlockIRPureStatus.INVALID_TOPOLOGY)
         root_data = [json.loads(encoded) for encoded in _field(proof, "roots").texts]
+        if kind == "matched_key":
+            if len(root_data) < 4 or [item.get("kind") for item in root_data[:3]] != [
+                "ProjectJoinCondition",
+                "ProjectJoinConditionKeyMatch",
+                "ProjectIROutputCandidateKey",
+            ]:
+                return _reject(ProjectQueryBlockIRPureStatus.INVALID_VALUE)
+            position = root_data[1].get("key_match")
+            if type(position) is not int or position < 0:
+                return _reject(ProjectQueryBlockIRPureStatus.INVALID_VALUE)
+            match_ref = ProjectQueryBlockIRPortableRef(
+                domain=_D.PREDICATE_KEY_MATCH, position=position
+            )
+            match = declared.get(match_ref)
+            if (
+                match is None
+                or root_data[2].get("key_matches") != [position]
+                or tuple(item.get("equality") for item in root_data[3:])
+                != tuple(ref.position for ref in _refs(match, "equalities"))
+                or any(
+                    item.get("kind") != "ProjectJoinConditionEquality"
+                    for item in root_data[3:]
+                )
+            ):
+                return _reject(ProjectQueryBlockIRPureStatus.INVALID_VALUE)
         if not root_data or any(
             not _proof_root_valid(item, proof, requirement, declared)
             for item in root_data
@@ -3172,4 +3427,1023 @@ def _validate_requirements(
             observed_failures.extend(local)
     if tuple(observed_failures) != failures:
         return _reject(ProjectQueryBlockIRPureStatus.INVALID_TERMINAL)
+    return None
+
+
+def _validate_predicates(document, declared):
+    expressions = _records(document, _K.PREDICATE_EXPRESSION)
+    calls = _records(document, _K.PREDICATE_CALL)
+    arguments = _records(document, _K.PREDICATE_ARGUMENT)
+    joins = _records(document, _K.PREDICATE_JOIN)
+    equalities = _records(document, _K.PREDICATE_EQUALITY)
+    keys = _records(document, _K.PREDICATE_INPUT_KEY)
+    matches = _records(document, _K.PREDICATE_KEY_MATCH)
+    if not any((expressions, calls, arguments, joins, equalities, keys, matches)):
+        return None
+
+    def need(condition):
+        if not condition:
+            raise ValueError("Predicate observation lost complete ordered authority.")
+
+    def syntax(record, field):
+        value = json.loads(_text(record, field))
+        need(type(value) is dict)
+        return value
+
+    def conjuncts(value):
+        if value.get("node") == "BinaryExpr" and value.get("operator") == "and":
+            return (*conjuncts(value["left"]), *conjuncts(value["right"]))
+        return (value,)
+
+    def mandatory(value):
+        return tuple(
+            item
+            for item in conjuncts(value)
+            if item.get("node") == "ComparisonExpr"
+            and item.get("operator") == "=="
+            and item["left"].get("node")
+            == item["right"].get("node")
+            == "DottedNameExpr"
+        )
+
+    def strip(value, spans=False):
+        if type(value) is list:
+            return [strip(item, spans) for item in value]
+        if type(value) is dict:
+            return {
+                key: strip(item, spans)
+                for key, item in value.items()
+                if key != "occurrence" and not (spans and key == "span")
+            }
+        return value
+
+    def substituted(value, names):
+        if type(value) is list:
+            return [substituted(item, names) for item in value]
+        if type(value) is not dict:
+            return value
+        result = {
+            key: substituted(item, names)
+            for key, item in value.items()
+            if key != "span"
+        }
+        if result.get("node") == "DottedNameExpr" and result["parts"][0] in names:
+            result["parts"] = [names[result["parts"][0]], *result["parts"][1:]]
+        return result
+
+    retained = []
+    ordinals = {}
+    argument_cursor = 0
+    for expression in expressions:
+        owner = _ref(expression, "owner")
+        authored, normalized, context = (
+            syntax(expression, field) for field in ("authored", "normalized", "context")
+        )
+        role = _enumeration(expression, "role")
+        need(
+            context.get("node")
+            == {
+                "on": "JoinOnClause",
+                "where": "WhereClause",
+                "select": "SelectItem",
+                "let": "LetBinding",
+            }.get(role)
+        )
+        need(context["expression"] == authored)
+        local = tuple(declared[ref] for ref in _refs(expression, "calls"))
+        retained.extend(local)
+        call_data = []
+        for call in local:
+            need(_ref(call, "expression") == _ref(expression, "ref"))
+            ordinal = _integer(call, "ordinal")
+            ordinals.setdefault(owner, []).append(ordinal)
+            original, template, expanded = (
+                syntax(call, field) for field in ("call", "template", "expanded")
+            )
+            need(
+                original.get("node") == "CallExpr"
+                and template.get("node") == "RelationshipTemplate"
+            )
+            shapes = tuple(json.loads(value) for value in _field(call, "shapes").texts)
+            parameters = template["parameters"]
+            need(len(parameters) == len(shapes) == len(original["arguments"]))
+            names = {}
+            for i, (parameter, shape, actual) in enumerate(
+                zip(parameters, shapes, original["arguments"], strict=True)
+            ):
+                argument = arguments[argument_cursor]
+                argument_cursor += 1
+                need(
+                    _ref(argument, "call") == _ref(call, "ref")
+                    and _integer(argument, "ordinal") == i
+                )
+                need(
+                    syntax(argument, "parameter") == parameter
+                    and syntax(argument, "shape") == shape
+                    and syntax(argument, "argument") == actual
+                )
+                occurrence = syntax(argument, "occurrence")
+                relation = syntax(argument, "relation")
+                binding = _integer(argument, "binding")
+                need(binding >= 0 and actual.get("node") == "NameExpr")
+                if occurrence.get("node") == "FromClause":
+                    need(
+                        binding == 0
+                        and actual["name"]
+                        == (occurrence.get("binding_name") or occurrence["source_name"])
+                    )
+                elif occurrence.get("node") == "AnyExpr":
+                    need(binding == 0 and actual["name"] == occurrence["binding_name"])
+                else:
+                    need(
+                        occurrence.get("node") == "JoinClause"
+                        and binding > 0
+                        and actual["name"] == occurrence["target_binding_name"]
+                    )
+                target = declared[_ref(argument, "target")]
+                need(relation["name"] == _text(target, "declared_name"))
+                need(relation["span"]["path"] == _text(target, "module_path"))
+                names[parameter["name"]] = actual["name"]
+            need(substituted(template["body"], names) == strip(expanded, spans=True))
+            required = tuple(
+                json.loads(value) for value in _field(call, "mandatory").texts
+            )
+            need(
+                required
+                == (
+                    mandatory(expanded)
+                    if role in {"on", "where"} and original in conjuncts(authored)
+                    else ()
+                )
+            )
+            call_data.append((original, expanded))
+        cursor = 0
+
+        def normalized_copy(before, after):
+            nonlocal cursor
+            if cursor < len(call_data) and before == call_data[cursor][0]:
+                need(after == call_data[cursor][1])
+                cursor += 1
+                return
+            need(type(before) is type(after))
+            if type(before) is dict:
+                need(tuple(before) == tuple(after))
+                for key in before:
+                    normalized_copy(before[key], after[key])
+            elif type(before) is list:
+                need(len(before) == len(after))
+                for left, right in zip(before, after, strict=True):
+                    normalized_copy(left, right)
+            else:
+                need(before == after)
+
+        normalized_copy(authored, normalized)
+        need(cursor == len(call_data))
+    need(tuple(retained) == calls and argument_cursor == len(arguments))
+    need(all(values == list(range(len(values))) for values in ordinals.values()))
+    represented_on = tuple(
+        _ref(expression, "ref")
+        for expression in expressions
+        if _enumeration(expression, "role") == "on"
+        and _enumeration(declared[_ref(expression, "owner")], "variant") != "terminal"
+    )
+    observed_on = tuple(_ref(join, "expression") for join in joins)
+    need(
+        len(observed_on) == len(represented_on)
+        and set(observed_on) == set(represented_on)
+    )
+    positions = tuple(_ref(join, "node").position for join in joins)
+    need(positions == tuple(sorted(set(positions))))
+    equality_cursor = key_cursor = match_cursor = 0
+    conditions = {
+        _ref(value, "node"): value for value in _records(document, _K.CONDITION)
+    }
+    algebra = {_ref(value, "node"): value for value in _records(document, _K.ALGEBRA)}
+    for join in joins:
+        node = _ref(join, "node")
+        expression = declared[_ref(join, "expression")]
+        need(
+            node in algebra
+            and _ref(expression, "owner") == _ref(algebra[node], "owner")
+        )
+        need(_enumeration(expression, "role") == "on" and node in conditions)
+        normalized = syntax(expression, "normalized")
+        need(strip(normalized) == syntax(conditions[node], "expression"))
+        local_calls = tuple(declared[ref] for ref in _refs(expression, "calls"))
+        required = tuple(
+            (i, value)
+            for i, value in enumerate(conjuncts(normalized))
+            if any(
+                value in tuple(json.loads(e) for e in _field(call, "mandatory").texts)
+                for call in local_calls
+            )
+        )
+        local_equalities = equalities[equality_cursor : equality_cursor + len(required)]
+        equality_cursor += len(required)
+        need(
+            _refs(join, "equalities") == tuple(_ref(e, "ref") for e in local_equalities)
+        )
+        for equality, (position, value) in zip(local_equalities, required, strict=True):
+            need(
+                _ref(equality, "node") == node
+                and _integer(equality, "position") == position
+                and syntax(equality, "comparison") == value
+            )
+            need(
+                _refs(equality, "calls")
+                == tuple(
+                    _ref(call, "ref")
+                    for call in local_calls
+                    if value
+                    in tuple(json.loads(e) for e in _field(call, "mandatory").texts)
+                )
+            )
+            references = tuple(
+                json.loads(value)
+                for value in _field(conditions[node], "references").texts
+            )
+            leaves = _authored_field_leaves(normalized)
+            for side in ("left", "right"):
+                positions = tuple(
+                    i for i, leaf in enumerate(leaves) if leaf == value[side]
+                )
+                need(len(positions) == 1 and positions[0] < len(references))
+                resolved = references[positions[0]]
+                need(
+                    resolved["expression"] == strip(value[side])
+                    and len(resolved["candidates"]) == 1
+                )
+                field = resolved["candidates"][0]
+                need(
+                    _integer(equality, side + "_binding") == field["binding"]
+                    and _integer(equality, side + "_field") == field["field_position"]
+                )
+        bindings, counts = (
+            _field(join, "bindings").integers,
+            _field(join, "key_counts").integers,
+        )
+        need(
+            len(bindings) == len(counts)
+            and bindings == tuple(sorted(set(bindings)))
+            and all(count >= 0 for count in counts)
+        )
+        local_keys = keys[key_cursor : key_cursor + sum(counts)]
+        key_cursor += sum(counts)
+        need(_refs(join, "keys") == tuple(_ref(key, "ref") for key in local_keys))
+        cursor = 0
+        expected_matches = []
+        target = max(bindings)
+        for binding, count in zip(bindings, counts, strict=True):
+            supporting = tuple(
+                equality
+                for equality in local_equalities
+                if any(
+                    _integer(equality, side + "_binding") == binding
+                    and (
+                        (_integer(equality, other + "_binding") != target)
+                        if binding == target
+                        else (_integer(equality, other + "_binding") == target)
+                    )
+                    for side, other in (("left", "right"), ("right", "left"))
+                )
+            )
+            matched = {
+                _integer(equality, side + "_field")
+                for equality in supporting
+                for side in ("left", "right")
+                if _integer(equality, side + "_binding") == binding
+            }
+            for ordinal in range(count):
+                key = local_keys[cursor]
+                cursor += 1
+                sizes, key_fields = (
+                    _field(key, "class_sizes").integers,
+                    _field(key, "fields").integers,
+                )
+                need(
+                    _ref(key, "node") == node
+                    and _integer(key, "binding") == binding
+                    and _integer(key, "ordinal") == ordinal
+                )
+                need(_enumeration(key, "strength") in {"strict", "lax"})
+                need(
+                    bool(sizes)
+                    and all(size > 0 for size in sizes)
+                    and sum(sizes) == len(key_fields)
+                )
+                offset = 0
+                covered = True
+                for size in sizes:
+                    covered = covered and bool(
+                        matched.intersection(key_fields[offset : offset + size])
+                    )
+                    offset += size
+                if covered:
+                    expected_matches.append((key, supporting))
+        local_matches = matches[match_cursor : match_cursor + len(expected_matches)]
+        match_cursor += len(expected_matches)
+        need(
+            _refs(join, "matches")
+            == tuple(_ref(match, "ref") for match in local_matches)
+        )
+        for match, (key, supporting) in zip(
+            local_matches, expected_matches, strict=True
+        ):
+            need(
+                _ref(match, "node") == node
+                and _ref(match, "key") == _ref(key, "ref")
+                and _refs(match, "equalities")
+                == tuple(_ref(e, "ref") for e in supporting)
+            )
+            need(
+                _enumeration(match, "minimum") == "zero_allowed"
+                and _enumeration(match, "maximum") == "at_most_one"
+            )
+    need(
+        (equality_cursor, key_cursor, match_cursor)
+        == (len(equalities), len(keys), len(matches))
+    )
+    return None
+
+
+def _validate_existence(document, declared):
+    """Check ordered inter-JOIN filters without claiming generated JOIN authorship."""
+    uses = _records(document, _K.EXISTENCE_USE)
+    if not uses:
+        return None
+
+    def need(condition):
+        if not condition:
+            raise ValueError("Inter-JOIN ANY observation lost ordered authority.")
+
+    def syntax(record, name):
+        return json.loads(_text(record, name))
+
+    def conjuncts(value):
+        if value.get("node") == "BinaryExpr" and value.get("operator") == "and":
+            return (*conjuncts(value["left"]), *conjuncts(value["right"]))
+        return (value,)
+
+    algebra = {_ref(item, "node"): item for item in _records(document, _K.ALGEBRA)}
+    owner_counts = {}
+    nodes = set()
+    for use in uses:
+        owner, context, expression, clause = (
+            syntax(use, key) for key in ("authored_owner", "context", "any", "clause")
+        )
+        need(
+            owner.get("node") in {"TableDef", "QueryDef"}
+            and context.get("node") == "JoinFilterClause"
+        )
+        need(
+            context in owner["join_filters"]
+            and expression.get("node") == "AnyExpr"
+            and clause.get("node") == "JoinClause"
+        )
+        parts = conjuncts(context["expression"])
+        positive = [part for part in parts if part == expression]
+        negative = [
+            part
+            for part in parts
+            if part.get("node") == "UnaryExpr"
+            and part.get("operator") == "not"
+            and part.get("operand") == expression
+        ]
+        need(
+            len(positive) + len(negative) == 1
+            and clause["kind"] == ("anti" if negative else "semi")
+        )
+        prefix, ordinal = (
+            _integer(use, "preceding_join_count"),
+            _integer(use, "input_ordinal"),
+        )
+        owner_ref = _ref(use, "owner")
+        owner_counts[owner_ref] = owner_counts.get(owner_ref, 0) + 1
+        need(
+            context["preceding_join_count"] == prefix
+            and ordinal == prefix + owner_counts[owner_ref]
+            and prefix < len(owner["join_clauses"])
+        )
+        if _field(use, "node").tag is ProjectQueryBlockIRPureTag.ABSENT:
+            need(_enumeration(declared[owner_ref], "variant") == "terminal")
+        else:
+            node = _ref(use, "node")
+            need(
+                node in algebra
+                and node not in nodes
+                and _ref(algebra[node], "owner") == owner_ref
+                and _enumeration(algebra[node], "kind") == clause["kind"]
+            )
+            nodes.add(node)
+    for owner_ref in owner_counts:
+        owned = tuple(use for use in uses if _ref(use, "owner") == owner_ref)
+        authored = syntax(owned[0], "authored_owner")
+        need(all(syntax(use, "authored_owner") == authored for use in owned))
+        expected = []
+        for context in authored["join_filters"]:
+            for term in conjuncts(context["expression"]):
+                expression = (
+                    term["operand"]
+                    if term.get("node") == "UnaryExpr" and term.get("operator") == "not"
+                    else term
+                )
+                need(expression.get("node") == "AnyExpr")
+                expected.append((context, expression))
+        need(
+            tuple((syntax(use, "context"), syntax(use, "any")) for use in owned)
+            == tuple(expected)
+        )
+    return None
+
+
+def _validate_scalar_any(document, declared):
+    """Validate ordered scalar scopes and their actual field/LET candidates."""
+    uses = _records(document, _K.SCALAR_ANY_USE)
+    values = _records(document, _K.SCALAR_ANY_VALUE)
+    fields = _records(document, _K.SCALAR_ANY_FIELD)
+    references = _records(document, _K.SCALAR_ANY_REFERENCE)
+    candidates = _records(document, _K.SCALAR_ANY_CANDIDATE)
+    if not any((uses, values, fields, references, candidates)):
+        return None
+    dependencies = _records(document, _K.DEPENDENCY)
+    algebra = _records(document, _K.ALGEBRA)
+    images = _records(document, _K.INPUT_CORRESPONDENCE)
+    properties = _records(document, _K.RELATIONAL_PROPERTY)
+
+    def need(value):
+        if not value:
+            raise ValueError("Scalar ANY observation lost its ordered scope authority.")
+
+    def syntax(record, key):
+        return json.loads(_text(record, key))
+
+    def absent(record, key):
+        return _field(record, key).tag is ProjectQueryBlockIRPureTag.ABSENT
+
+    def bound(use, position, context):
+        """The verified producer of one FROM/JOIN binding and its row in scope."""
+        owner = _ref(use, "owner")
+        joins = tuple(join for join in algebra if _ref(join, "owner") == owner)
+        need(len(joins) == len(syntax(use, "owner_definition")["join_clauses"]))
+        if not joins:
+            producer = _field(declared[owner], "relation_input_owner").ref
+            need(producer is not None)
+            output, use_ref = _ref(declared[producer], "active_output"), None
+        else:
+            pairs = tuple(
+                tuple(
+                    item for item in images if _ref(item, "node") == _ref(join, "node")
+                )
+                for join in joins
+            )
+            image = (pairs[0][0], *(pair[1] for pair in pairs))[position]
+            producer, use_ref = _field(image, "producer").ref, _ref(image, "use")
+            prefix = _integer(use, "current_prefix")
+            output = (
+                _ref(pairs[prefix - 1][int(position == prefix)], "output")
+                if context.get("node") == "JoinOnClause"
+                else _ref(joins[-1], "output")
+            )
+        (row,) = (item for item in properties if _ref(item, "output") == output)
+        row_fields = tuple(declared[ref] for ref in _refs(row, "fields"))
+        if _ref(row, "owner") == owner:
+            row_fields = tuple(
+                item
+                for item in row_fields
+                if _field(item, "introduction_use").ref == use_ref
+            )
+        return producer, row_fields
+
+    def children(node):
+        kind = node.get("node")
+        names = {
+            "CallExpr": ("arguments",),
+            "UnaryExpr": ("operand",),
+            "ConditionalExpr": ("when_true", "condition", "when_false"),
+            "MembershipExpr": ("value", "options"),
+            "RelationMembershipExpr": ("value",),
+            "CastExpr": ("value",),
+            "BinaryExpr": ("left", "right"),
+            "ComparisonExpr": ("left", "right"),
+            "BetweenExpr": ("value", "lower", "upper"),
+            "IsNullExpr": ("value",),
+        }.get(kind, ())
+        return tuple(
+            child
+            for name in names
+            for child in (node[name] if type(node[name]) is list else [node[name]])
+        )
+
+    def direct(predicate):
+        found, nested = [], []
+        pending = [predicate]
+        while pending:
+            node = pending.pop()
+            need(type(node) is dict and "node" in node)
+            if node["node"] == "AnyExpr":
+                nested.append(node)
+            elif node["node"] in {"NameExpr", "DottedNameExpr"}:
+                found.append(node)
+            else:
+                pending.extend(reversed(children(node)))
+        return tuple(found), tuple(nested)
+
+    def contains(root, target):
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            if node == target:
+                return True
+            if type(node) is dict:
+                pending.extend(node.values())
+            elif type(node) is list:
+                pending.extend(node)
+        return False
+
+    def root_context(use):
+        context = syntax(use, "context")
+        owner = _ref(use, "owner")
+        prefix = _integer(use, "current_prefix")
+        seen = set()
+        while context.get("node") == "AnyExpr":
+            matches = tuple(
+                parent
+                for parent in uses
+                if _ref(parent, "owner") == owner
+                and syntax(parent, "current") == context
+            )
+            need(len(matches) == 1)
+            parent = matches[0]
+            need(
+                _ref(parent, "ref") not in seen
+                and _integer(parent, "current_prefix") == prefix
+            )
+            seen.add(_ref(parent, "ref"))
+            context = syntax(parent, "context")
+        return context
+
+    retained = []
+    for use in uses:
+        authored, current = syntax(use, "authored"), syntax(use, "current")
+        need(authored.get("node") == current.get("node") == "AnyExpr")
+        need(
+            type(syntax(use, "authored_context")) is dict
+            and type(syntax(use, "context")) is dict
+        )
+        owner, context = syntax(use, "owner_definition"), syntax(use, "context")
+        authored_owner = syntax(use, "authored_owner")
+        need(owner.get("node") in {"TableDef", "QueryDef"})
+        need(
+            authored_owner.get("node") in {"TableDef", "QueryDef"}
+            and authored_owner["name"] == owner["name"]
+        )
+        need(owner["name"] == _text(declared[_ref(use, "owner")], "declared_name"))
+        need(contains(context, current) and contains(owner, context))
+        joins = owner["join_clauses"]
+        context = root_context(use)
+        if context.get("node") == "JoinOnClause":
+            matches = tuple(
+                i for i, join in enumerate(joins, 1) if join["on_clause"] == context
+            )
+            need(len(matches) == 1 and _integer(use, "current_prefix") == matches[0])
+        else:
+            need(_integer(use, "current_prefix") == len(joins))
+        need(_integer(use, "current_prefix") <= len(owner["join_clauses"]))
+        local = tuple(declared[ref] for ref in _refs(use, "values"))
+        need(all(_ref(item, "use") == _ref(use, "ref") for item in local))
+        retained.extend(local)
+    need(tuple(retained) == values)
+
+    all_fields, all_references, all_candidates = [], [], []
+    for value in values:
+        use = declared[_ref(value, "use")]
+        expression = syntax(value, "expression")
+        current = syntax(use, "current")
+        need(expression.get("node") == "AnyExpr")
+        need(
+            expression["binding_name"] == current["binding_name"]
+            and expression["relation_name"] == current["relation_name"]
+        )
+        normalized = tuple(
+            item
+            for item in _records(document, _K.PREDICATE_EXPRESSION)
+            if _ref(item, "owner") == _ref(use, "owner")
+            and syntax(item, "context") == root_context(use)
+        )
+        need(len(normalized) <= 1)
+        need(
+            expression == current
+            or any(
+                contains(syntax(record, "normalized"), expression)
+                for record in normalized
+            )
+        )
+        need(
+            _text(value, "type") == "Bool"
+            and _enumeration(value, "nullability") == "non_null"
+            and not absent(value, "target")
+        )
+        local_fields = tuple(declared[ref] for ref in _refs(value, "fields"))
+        local_refs = tuple(declared[ref] for ref in _refs(value, "references"))
+        nested = tuple(declared[ref] for ref in _refs(value, "nested"))
+        need(
+            len(local_fields) == _integer(value, "field_count")
+            and len(local_refs) == _integer(value, "reference_count")
+        )
+        need(
+            all(
+                _ref(item, "value") == _ref(value, "ref")
+                and _integer(item, "ordinal") == i
+                for i, item in enumerate(local_fields)
+            )
+        )
+        need(
+            all(
+                _ref(item, "value") == _ref(value, "ref")
+                and _integer(item, "ordinal") == i
+                for i, item in enumerate(local_refs)
+            )
+        )
+        need(
+            tuple(_text(item, "name") for item in local_fields)
+            == _field(value, "input_names").texts
+        )
+        need(len({_text(item, "name") for item in local_fields}) == len(local_fields))
+        leaves, nested_syntax = direct(expression["predicate"])
+        need(tuple(syntax(item, "expression") for item in local_refs) == leaves)
+        need(tuple(syntax(item, "expression") for item in nested) == nested_syntax)
+        need(
+            all(
+                not absent(item, "parent")
+                and _ref(item, "parent") == _ref(value, "ref")
+                for item in nested
+            )
+        )
+        need(all(syntax(item, "context") == expression for item in nested))
+        if not absent(value, "parent"):
+            parent = declared[_ref(value, "parent")]
+            need(_ref(value, "ref") in _refs(parent, "nested"))
+        all_fields.extend(local_fields)
+        all_references.extend(local_refs)
+        for reference in local_refs:
+            leaf = syntax(reference, "expression")
+            options = tuple(declared[ref] for ref in _refs(reference, "candidates"))
+            need(len(options) == _integer(reference, "candidate_count") == 1)
+            all_candidates.extend(options)
+            for ordinal, candidate in enumerate(options):
+                need(
+                    _ref(candidate, "reference") == _ref(reference, "ref")
+                    and _integer(candidate, "ordinal") == ordinal
+                )
+                binding = syntax(candidate, "binding")
+                name, field_name = (
+                    _text(candidate, "name"),
+                    _text(candidate, "field_name"),
+                )
+                kind = _enumeration(candidate, "kind")
+                need(kind in {"let", "field"})
+                if kind == "let":
+                    need(
+                        binding.get("node") == "LetBinding"
+                        and binding["name"] == name == field_name
+                    )
+                    definition = syntax(use, "owner_definition")
+                    clause = definition["let_clause"]
+                    context = root_context(use)
+                    if clause is None:
+                        raise ValueError("ANY LET capture requires its exact scope.")
+                    need(binding in clause["bindings"])
+                    if context.get("node") == "LetBinding":
+                        need(
+                            context in clause["bindings"]
+                            and clause["bindings"].index(binding)
+                            < clause["bindings"].index(context)
+                        )
+                    else:
+                        need(context.get("node") in {"WhereClause", "SelectItem"})
+                    need(leaf.get("node") == "NameExpr" and leaf["name"] == name)
+                    scope = value
+                    seen = set()
+                    while True:
+                        need(
+                            _ref(scope, "ref") not in seen
+                            and syntax(scope, "expression")["binding_name"] != name
+                        )
+                        seen.add(_ref(scope, "ref"))
+                        if absent(scope, "parent"):
+                            break
+                        scope = declared[_ref(scope, "parent")]
+                    need(
+                        absent(candidate, "local")
+                        and absent(candidate, "target")
+                        and absent(candidate, "position")
+                        and absent(candidate, "field_position")
+                        and not _field(candidate, "input_names").texts
+                        and not absent(candidate, "let_expression")
+                    )
+                    continue
+                need(
+                    absent(candidate, "let_expression")
+                    and not absent(candidate, "target")
+                    and not absent(candidate, "field_position")
+                )
+                input_names = _field(candidate, "input_names").texts
+                field_position = _integer(candidate, "field_position")
+                need(
+                    field_position < len(input_names)
+                    and input_names[field_position] == field_name
+                )
+                if leaf.get("node") == "DottedNameExpr":
+                    need(leaf["parts"] == [name, field_name])
+                else:
+                    need(leaf.get("node") == "NameExpr" and leaf["name"] == field_name)
+                if not absent(candidate, "local"):
+                    local_use = _ref(candidate, "local")
+                    scope = value
+                    seen = set()
+                    while _ref(scope, "use") != local_use:
+                        need(
+                            _ref(scope, "ref") not in seen
+                            and not absent(scope, "parent")
+                            and syntax(scope, "expression")["binding_name"] != name
+                        )
+                        seen.add(_ref(scope, "ref"))
+                        scope = declared[_ref(scope, "parent")]
+                    local_current = syntax(declared[local_use], "current")
+                    need(
+                        binding == local_current
+                        and name == local_current["binding_name"]
+                    )
+                    need(
+                        not absent(candidate, "position")
+                        and not absent(candidate, "target")
+                        and not absent(scope, "target")
+                    )
+                    need(_ref(candidate, "target") == _ref(scope, "target"))
+                    position = _integer(candidate, "position")
+                    need(
+                        not absent(candidate, "field_position")
+                        and _integer(candidate, "field_position") == position
+                    )
+                    scoped_fields = _refs(scope, "fields")
+                    need(
+                        position < len(scoped_fields)
+                        and input_names == _field(scope, "input_names").texts
+                    )
+                    source = declared[scoped_fields[position]]
+                    need(
+                        _text(source, "name") == field_name
+                        and _text(source, "type") == _text(candidate, "type")
+                        and _enumeration(source, "nullability")
+                        == _enumeration(candidate, "nullability")
+                        and syntax(source, "definition") == syntax(candidate, "field")
+                    )
+                else:
+                    need(
+                        binding.get("node") in {"FromClause", "JoinClause"}
+                        and not absent(candidate, "position")
+                    )
+                    need(
+                        name
+                        == (
+                            binding.get("target_binding_name")
+                            if binding["node"] == "JoinClause"
+                            else binding.get("binding_name") or binding["source_name"]
+                        )
+                    )
+                    definition = syntax(use, "owner_definition")
+                    position = _integer(candidate, "position")
+                    need(
+                        tuple(
+                            _ref(edge, "target")
+                            for edge in dependencies
+                            if _ref(edge, "consumer") == _ref(use, "owner")
+                            and _integer(edge, "ordinal") == position
+                        )
+                        == (_ref(candidate, "target"),)
+                    )
+                    if binding["node"] == "FromClause":
+                        need(position == 0 and binding == definition["from_clause"])
+                    else:
+                        joins = definition["join_clauses"]
+                        need(
+                            0 < position <= _integer(use, "current_prefix")
+                            and position <= len(joins)
+                            and binding == joins[position - 1]
+                        )
+                        if binding["kind"] in {"semi", "anti"}:
+                            need(binding["on_clause"] == root_context(use))
+                    producer, row = bound(use, position, root_context(use))
+                    need(
+                        producer == _ref(candidate, "target")
+                        and tuple(_text(item, "name") for item in row) == input_names
+                        and _enumeration(row[field_position], "nullability")
+                        == _enumeration(candidate, "nullability")
+                    )
+                    scope = value
+                    seen = set()
+                    while True:
+                        need(_ref(scope, "ref") not in seen)
+                        seen.add(_ref(scope, "ref"))
+                        need(syntax(scope, "expression")["binding_name"] != name)
+                        if absent(scope, "parent"):
+                            break
+                        scope = declared[_ref(scope, "parent")]
+    need(
+        tuple(all_fields) == fields
+        and tuple(all_references) == references
+        and tuple(all_candidates) == candidates
+    )
+    return None
+
+
+def _validate_predicate_any_scopes(document, declared):
+    """Replay each actual predicate's complete ordered ANY binding images."""
+    scopes = _records(document, _K.PREDICATE_ANY_SCOPE)
+    active = _records(document, _K.PREDICATE_EXPRESSION)
+    if not scopes and not active:
+        return None
+
+    def need(value):
+        if not value:
+            raise ValueError("Predicate ANY scope lost ordered authority.")
+
+    def syntax(record, name):
+        return json.loads(_text(record, name))
+
+    def absent(record, name):
+        return _field(record, name).tag is ProjectQueryBlockIRPureTag.ABSENT
+
+    def root_context(use):
+        context = syntax(use, "context")
+        seen = set()
+        while context.get("node") == "AnyExpr":
+            parents = tuple(
+                item
+                for item in _records(document, _K.SCALAR_ANY_USE)
+                if _ref(item, "owner") == _ref(use, "owner")
+                and syntax(item, "current") == context
+            )
+            if len(parents) != 1:
+                raise ValueError("ANY scope requires one exact parent.")
+            need(_ref(parents[0], "ref") not in seen)
+            seen.add(_ref(parents[0], "ref"))
+            context = syntax(parents[0], "context")
+        return context
+
+    def replay(record):
+        pending = [(syntax(record, "authored"), syntax(record, "normalized"))]
+        calls = tuple(
+            (syntax(declared[ref], "call"), syntax(declared[ref], "expanded"))
+            for ref in _refs(record, "calls")
+        )
+        cursor, pairs = 0, []
+        while pending:
+            before, after = pending.pop()
+            if cursor < len(calls) and before == calls[cursor][0]:
+                need(after == calls[cursor][1])
+                cursor += 1
+            elif type(before) is dict:
+                need(type(after) is dict and tuple(before) == tuple(after))
+                if before.get("node") == "AnyExpr":
+                    pairs.append((before, after))
+                pending.extend(
+                    (before[key], after[key]) for key in reversed(tuple(before))
+                )
+            elif type(before) is list:
+                need(type(after) is list and len(before) == len(after))
+                pending.extend(reversed(tuple(zip(before, after, strict=True))))
+            else:
+                need(before == after)
+        need(cursor == len(calls))
+        return tuple(pairs)
+
+    retained = []
+    for record in active:
+        own = tuple(
+            item for item in scopes if _ref(item, "expression") == _ref(record, "ref")
+        )
+        retained.extend(own)
+        need(
+            tuple((syntax(item, "before"), syntax(item, "after")) for item in own)
+            == replay(record)
+        )
+        ordinals = tuple(_integer(item, "read_ordinal") for item in own)
+        need(len(set(ordinals)) == len(ordinals))
+        for ordinal, item in enumerate(own):
+            use = declared[_ref(item, "use")]
+            before, after = syntax(item, "before"), syntax(item, "after")
+            need(
+                _integer(item, "ordinal") == ordinal
+                and _ref(use, "owner") == _ref(record, "owner")
+                and before == syntax(use, "current")
+            )
+            need(
+                after["binding_name"] == before["binding_name"]
+                and after["relation_name"] == before["relation_name"]
+            )
+            context = root_context(use)
+            expected = {
+                "JoinOnClause": "join_on",
+                "WhereClause": "where",
+                "SelectItem": "select",
+                "LetBinding": "let",
+            }.get(context.get("node"))
+            need(
+                expected is not None
+                and _enumeration(item, "position") == expected
+                and syntax(record, "context") == context
+            )
+            definition = syntax(use, "owner_definition")
+            if expected == "join_on":
+                containers = tuple(
+                    join["on_clause"] for join in definition["join_clauses"]
+                )
+            elif expected == "select":
+                containers = tuple(definition["select_items"])
+            elif expected == "let":
+                clause = definition["let_clause"]
+                containers = () if clause is None else tuple(clause["bindings"])
+            else:
+                containers = (definition["where_clause"],)
+            position = _integer(item, "container_ordinal")
+            need(position < len(containers) and containers[position] == context)
+            if absent(item, "target"):
+                need(absent(item, "relation"))
+            else:
+                need(not absent(item, "relation"))
+                relation, target = (
+                    syntax(item, "relation"),
+                    declared[_ref(item, "target")],
+                )
+                need(
+                    relation["name"] == _text(target, "declared_name")
+                    and relation["span"]["path"] == _text(target, "module_path")
+                )
+                related = tuple(declared[ref] for ref in _refs(use, "values"))
+                need(
+                    not related
+                    or any(
+                        not absent(value, "target")
+                        and _ref(value, "target") == _ref(item, "target")
+                        for value in related
+                    )
+                )
+    need(tuple(retained) == scopes)
+    arguments = _records(document, _K.PREDICATE_ARGUMENT)
+    for record in active:
+        own = tuple(
+            item for item in scopes if _ref(item, "expression") == _ref(record, "ref")
+        )
+        if not own:
+            continue
+        pending: list[tuple[Any, tuple[dict[str, Any], ...]]] = [
+            (syntax(record, "authored"), ())
+        ]
+        lexical = []
+        while pending:
+            node, visible = pending.pop()
+            if type(node) is list:
+                pending.extend((child, visible) for child in reversed(node))
+            elif type(node) is dict and "node" in node:
+                if node["node"] == "CallExpr":
+                    lexical.append((node, visible))
+                if node["node"] == "AnyExpr":
+                    visible = (*visible, node)
+                pending.extend(
+                    (child, visible)
+                    for key, child in reversed(tuple(node.items()))
+                    if key != "span"
+                    and not (node["node"] == "CallExpr" and key == "callee")
+                )
+        for call_ref in _refs(record, "calls"):
+            call = declared[call_ref]
+            matches = tuple(
+                visible for node, visible in lexical if node == syntax(call, "call")
+            )
+            need(len(matches) == 1)
+            for argument in arguments:
+                if _ref(argument, "call") != call_ref:
+                    continue
+                actual, occurrence = (
+                    syntax(argument, "argument"),
+                    syntax(argument, "occurrence"),
+                )
+                visible = tuple(
+                    item
+                    for item in reversed(matches[0])
+                    if item["binding_name"] == actual["name"]
+                )
+                if occurrence.get("node") == "AnyExpr":
+                    need(bool(visible) and visible[0] == occurrence)
+                    target_scopes = tuple(
+                        item for item in own if syntax(item, "before") == occurrence
+                    )
+                    need(
+                        len(target_scopes) == 1
+                        and not absent(target_scopes[0], "target")
+                        and _ref(target_scopes[0], "target") == _ref(argument, "target")
+                    )
+                else:
+                    need(not visible)
     return None

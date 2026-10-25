@@ -18,9 +18,7 @@ def test_check_valid_file_returns_success(
     path = _write(
         tmp_path,
         "valid.pietto",
-        "shape User:\n"
-        "    email: Text not null\n"
-        'source users: User is postgres.table("users")\n',
+        'shape User:\n    email: Text\nsource users: User = postgres.table("users")\n',
     )
 
     assert cli.main(["check", str(path)]) == 0
@@ -92,7 +90,7 @@ def test_check_overly_long_integer_returns_parser_error_without_traceback(
     path = _write(
         tmp_path,
         "huge-integer.pietto",
-        "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
+        "type Huge = Int(max = " + "9" * 5000 + ")\n",
     )
 
     assert cli.main(["check", str(path)]) == 1
@@ -112,7 +110,7 @@ def test_check_deep_unary_returns_parser_error_without_traceback(
     path = _write(
         tmp_path,
         "deep-unary.pietto",
-        "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
+        "derive deep() -> Int:\n    return " + "+" * 1500 + "1\n",
     )
 
     assert cli.main(["check", str(path)]) == 1
@@ -133,7 +131,7 @@ def test_check_semantic_error_returns_diagnostic_error(
     path = _write(
         tmp_path,
         "semantic.pietto",
-        "shape User:\n    email: MissingType not null\n",
+        "shape User:\n    email: MissingType\n",
     )
 
     assert cli.main(["check", str(path)]) == 1
@@ -155,14 +153,14 @@ def test_check_reports_one_line_per_lf_crlf_or_lone_cr(
 ) -> None:
     lines = [
         "shape User:",
-        "    id: UUID not null",
-        "    deleted_at: Timestamp nullable",
+        "    id: UUID",
+        "    deleted_at: Timestamp | None",
         "",
-        'source users: User is postgres.table("public.users")',
+        'source users: User = postgres.table("public.users")',
         "",
         "query q:",
         "    from users",
-        "    where missing_field is null",
+        "    where missing_field is None",
         "    select:",
         "        id",
     ]
@@ -191,10 +189,8 @@ def test_check_deep_alias_chain_returns_semantic_error_without_traceback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    aliases = [
-        f"type Alias{index} = Alias{index + 1} not null\n" for index in range(1399)
-    ]
-    aliases.append("type Alias1399 = Int not null\n")
+    aliases = [f"type Alias{index} = Alias{index + 1}\n" for index in range(1399)]
+    aliases.append("type Alias1399 = Int\n")
     path = _write(tmp_path, "deep-aliases.pietto", "".join(aliases))
 
     assert cli.main(["check", str(path)]) == 1
@@ -214,14 +210,14 @@ def test_check_warnings_do_not_fail(
     path = _write(
         tmp_path,
         "warning.pietto",
-        "shape User:\n    email: Text\n",
+        'shape User:\n    email: Text\nsource raw = postgres.table("raw")\n',
     )
 
     assert cli.main(["check", str(path)]) == 0
 
     captured = capsys.readouterr()
     assert captured.out == f"OK: {path}\n"
-    assert f"{path}:2:12 PIE-S2005 warning:" in captured.err
+    assert f"{path}:3:1 PIE-S2303 warning:" in captured.err
 
 
 def test_check_stops_before_semantic_analysis_after_parser_error(
@@ -247,7 +243,7 @@ def test_check_does_not_build_ir_or_emit_sql(
     path = _write(
         tmp_path,
         "valid.pietto",
-        "shape User:\n    email: Text not null\n",
+        "shape User:\n    email: Text\n",
     )
 
     def unexpected_call(*args: object, **kwargs: object) -> object:

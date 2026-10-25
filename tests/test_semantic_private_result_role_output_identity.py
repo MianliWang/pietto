@@ -563,8 +563,7 @@ def _ordinary_project(path: Path) -> Path:
         path,
         "query projected:\n"
         "    from users\n"
-        "    let:\n"
-        "        adjusted = score + bonus\n"
+        "    let adjusted = score + bonus\n"
         "    select:\n"
         "        id\n"
         "        renamed = id\n"
@@ -617,11 +616,11 @@ def _project(path: Path, relations: str) -> Path:
     )
     (path / "models.pietto").write_text(
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text not null\n"
-        "    score: Int not null\n"
-        "    bonus: Int nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        "    email: Text\n"
+        "    score: Int\n"
+        "    bonus: Int | None\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )

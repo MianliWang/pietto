@@ -10,9 +10,9 @@ def _source(
 ) -> str:
     return (
         f"""shape Row:
-    value: {type_name} nullable
-    hidden: Float nullable
-source rows: Row is {family}.table("rows")
+    value: {type_name} | None
+    hidden: Float | None
+source rows: Row = {family}.table("rows")
 {kind} result:
     from rows
 """

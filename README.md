@@ -7,27 +7,25 @@
 
 [![CI](https://github.com/MianliWang/pietto/actions/workflows/ci.yml/badge.svg)](https://github.com/MianliWang/pietto/actions/workflows/ci.yml)
 ![Python 3.12 and 3.13](https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
-![Package version 0.1.4](https://img.shields.io/badge/package-0.1.4-6f42c1)
+![Package version 0.1.5](https://img.shields.io/badge/package-0.1.5-6f42c1)
 
 Readable, typed SQL authoring with deterministic compilation.
 
-Pietto is a gradual semantic SQL authoring DSL. It parses and checks readable,
-indentation-based source, builds immutable compiler facts, and emits explicitly
-selected PostgreSQL or MySQL SQL. Version 0.1.4 adds a Python-style layout:
-clause items after `:` on the header line, separated by commas; condition
-blocks of one condition per line, joined with `and`; expressions that continue
-over several lines inside parentheses; and soft keywords such as `type` or
-`select` as names of fields, outputs, `let:` bindings and parameters. It also
-adds one-line relationships, relationship JOINs whose `from` line and VIA roles
-an explicit-module project infers when exactly one earlier binding and
-direction fit, and inline `def` functions whose calls emit the SQL of the same
-expression written by hand, and it fixes compiler and CLI defects found after
-0.1.3. The alpha Python execution and saved-result API keep their explicitly
-selected database routes.
+Pietto is a gradual semantic SQL authoring DSL. It checks indentation-based
+source, builds immutable compiler facts, and emits explicitly selected
+PostgreSQL or MySQL SQL. The source syntax in this checkout uses single-line
+clauses without a colon, `None`/`True`/`False`, explicit FROM inputs, `let` names,
+shape-typed relationship predicates and Boolean existence expressions.
+Reusable scalar `def` calls expand at compile time.
 
-**Version: 0.1.4 public alpha candidate.** The versioned
-[GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.4)
-and [PyPI listing](https://pypi.org/project/pietto/0.1.4/) determine release
+These examples describe this checkout's syntax. Use the documentation packaged
+with an installed release for that release's source surface; the package version
+and the optional `pietto NUMBER` header do not select a source syntax. Database
+access remains confined to explicitly selected Python execution routes.
+
+**Version: 0.1.5 public alpha candidate.** The versioned
+[GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.5)
+and [PyPI listing](https://pypi.org/project/pietto/0.1.5/) determine release
 availability only after both channels provide the accepted files. Its
 compiler and CLI remain public surfaces; database access is available only from
 the explicit Python API, never from a Pietto CLI command.
@@ -38,15 +36,17 @@ the explicit Python API, never from a Pietto CLI command.
   grouping, and bounded window expressions.
 - Deterministic parser, semantic, and backend diagnostics with source locations
   where the relevant stage has them.
-- Single-file `check`, `explain`, and `emit-sql` commands with applicable JSON
-  output. `check` and PostgreSQL emission support all seven JOIN kinds,
-  binding-field reads and aggregates guarded against fan-out, within the
-  [single-file JOIN limits](docs/language.md#single-file-joins). MySQL refuses
-  each JOIN relation while keeping other artifacts; `explain` refuses JOIN
-  relations because its metadata format has one input per relation.
-- Set operations, DISTINCT, relation lets, relation reads, query header
-  parameters, typed VALUES bodies and `generate_series` require an
-  explicit-module project. LEGACY_FLAT keeps its existing JOIN boundaries.
+- Single-file `check`, `explain`, and `emit-sql` commands, with applicable JSON
+  output, including supported explicit JOINs and Boolean `any` expressions:
+  `check` and PostgreSQL `emit-sql` support INNER, LEFT, RIGHT, FULL and CROSS
+  JOINs, `any`/`not any` filters, input-qualified field reads and aggregates
+  guarded against JOIN fan-out, within the
+  [single-file JOIN limits](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#single-file-joins).
+  MySQL refuses each JOIN relation while keeping other artifacts; `explain`
+  refuses JOIN relations because its metadata format has one input per relation.
+  Set operations, DISTINCT, relation blocks, legacy whole-relation reads, query
+  header parameters, typed VALUES and `generate_series` retain their
+  explicit-module project requirements.
 - Explicit-project `emit-sql` for one selected table or query, one selected
   dialect and an explicit emission contract, producing the versioned
   `pietto.sql-emission.v1` artifact (`pietto.sql-emission.v2` for a VERIFIED
@@ -66,13 +66,13 @@ management, scheduler, or arbitrary I/O language features.
 
 ## Install
 
-Install the published 0.1.4 files from PyPI after the release is available in a
+Install the published 0.1.5 files from PyPI after the release is available in a
 virtual environment with CPython 3.12 or later (replace `python3.12` with your
 interpreter):
 
 ```bash
 python3.12 -m venv pietto-env
-pietto-env/bin/python -m pip install "pietto==0.1.4"
+pietto-env/bin/python -m pip install "pietto==0.1.5"
 pietto-env/bin/pietto --version
 ```
 
@@ -80,30 +80,33 @@ The optional extras described below install the same way, for example
 `pietto-env/bin/python -m pip install "pietto[arrow]"`.
 
 After the release is available, its wheel and sdist are attached to the
-[v0.1.4 pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.4).
+[v0.1.5 pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.5).
 To install that wheel directly:
 
 ```bash
-pietto-env/bin/python -m pip install "https://github.com/MianliWang/pietto/releases/download/v0.1.4/pietto-0.1.4-py3-none-any.whl"
+pietto-env/bin/python -m pip install "https://github.com/MianliWang/pietto/releases/download/v0.1.5/pietto-0.1.5-py3-none-any.whl"
 ```
 
 When that release supplies `SHA256SUMS`, it lists the SHA-256 of the wheel and
 sdist. To check manually downloaded files, keep their names and run
 `sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
 then also offers an automatic source archive under the same name,
-`pietto-0.1.4.tar.gz`; it is a snapshot of the v0.1.4 repository tag, not the
+`pietto-0.1.5.tar.gz`; it is a snapshot of the v0.1.5 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`. The compiler and CLI were verified
 with CPython 3.12 and 3.13 on Linux x86-64; other platforms and Python versions
 are not covered by this evidence. With Pietto installed, run the commands below
 with `pietto-env/bin/pietto` (or activate the environment) instead of `uv run
 pietto`.
 
-Version 0.1.4 rejects bundles and saved jobs produced by 0.1.3 or earlier by
+Version 0.1.5 rejects bundles and saved jobs produced by 0.1.4 or earlier by
 code identity; Pietto neither migrates nor rewrites those bytes, so retained
 state needs its matching old environment. The VS Code extension 0.1.0 accepts
-only the 0.1.2 wheel or its baseline fingerprint and refuses 0.1.4.
-Some programs that 0.1.3 accepted are refused, and some emit different SQL; see
-[Compatibility and retained data](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/release-notes.md#compatibility-and-retained-data).
+only the 0.1.2 wheel or its baseline fingerprint and refuses 0.1.5.
+Its compiler reads only the modern source syntax: a 0.1.4 file that uses a
+retired spelling fails with `PIE-P1000`, and `pietto migrate` writes its modern
+form, as described under "Reusable row predicates and migration" below. Some
+programs that 0.1.4 accepted are refused, and some emit different SQL; see
+[Upgrading a 0.1.4 file](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/release-notes.md#upgrading-a-014-file).
 
 ## Install from a checkout
 
@@ -131,13 +134,13 @@ Or build and select the extra on that exact local wheel:
 
 ```bash
 uv build --wheel
-uv pip install --python /tmp/pietto-arrow/bin/python "./dist/pietto-0.1.4-py3-none-any.whl[arrow]"
+uv pip install --python /tmp/pietto-arrow/bin/python "./dist/pietto-0.1.5-py3-none-any.whl[arrow]"
 ```
 
 For a core-only wheel install, omit `[arrow]` and use a fresh environment.
 These are checkout/local-wheel instructions; from PyPI, install
 `"pietto[arrow]"` as shown above.
-The candidate package and CLI version are **0.1.4**. The verified optional-extra matrix
+The candidate package and CLI version are **0.1.5**. The verified optional-extra matrix
 is **CPython 3.12 and 3.13, Linux x86-64, PyArrow 26.0.0**; other platforms,
 interpreters and Arrow versions are not covered by this evidence.
 Installing the extra only makes its dependency available; it does not select a
@@ -166,7 +169,7 @@ qualifies storage. A selected route whose pinned driver is absent refuses with
 with that route's version error, and another route's installed driver is never
 used instead. These extras were verified on CPython 3.13.13, Linux x86-64,
 with the lock's exact artifacts; other platforms, interpreters and driver
-versions are not covered. The execution alpha below is part of the 0.1.4
+versions are not covered. The execution alpha below is part of the 0.1.5
 candidate; it becomes available from PyPI and GitHub assets only after the
 accepted files appear on those channels.
 
@@ -186,7 +189,7 @@ relay to a local reference cooperative sink. R2 takes one caller-supplied
 compiled-source declaration for every source in compiled order, including
 guarded and refined sources. The API reference records effects, cleanup and
 compatibility requirements in the
-[execution documentation](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/execution.md).
+[execution documentation](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/execution.md).
 
 All execution names, fields, `PIE-R` codes and behavior may change in a later
 alpha release. The compiler, CLI and existing public contracts do not change.
@@ -200,16 +203,16 @@ Create `active_users.pietto`:
 
 ```pietto
 shape User:
-    id: Int not null
-    email: Text nullable
-    email_norm: Text nullable
-    deleted: Bool not null
+    id: Int
+    email: Text | None
+    email_norm: Text | None
+    deleted: Bool
 
-source users: User is postgres.table("users")
+source users: User = postgres.table("users")
 
 table active_users:
     from users
-    where deleted == false
+    where deleted == False
     select:
         id
         email
@@ -253,7 +256,7 @@ partially writing SQL. SQL files selected with `--output` remain UTF-8 and use
 LF line endings on every platform.
 `check`, `explain`, and `emit-sql` take `--check-mode loose`, `checked` (the
 default), or `strict` for one file. The
-[language guide](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/language.md#source-structure)
+[language guide](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#source-structure)
 describes the modes.
 
 A single-file `postgres.table` or `mysql.table` string may be one table name
@@ -272,7 +275,44 @@ projecting the values, `==`/`!=`, `count`, `count_distinct`, `DISTINCT`,
 inequality comparison, `min`/`max`, full joins, a `Timestamp` or `UUID`
 window partition or order key, range/as-of behavior, timezone conversion,
 parsing and other casts remain unavailable. See
-[Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/language.md#timestamp-and-uuid-source-meaning).
+[Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#timestamp-and-uuid-source-meaning).
+
+## Reusable row predicates and migration
+
+A relationship predicate takes named rows of declared shapes. Name a JOIN input
+with `let`, then pass the actual row aliases explicitly in ON. A predicate may
+include fixed filters and Boolean composition; it does not assert that a matching
+row exists or perform database writes. See the complete
+[multi-JOIN example](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#named-inputs-and-reusable-relationship-predicates).
+
+`any(predicate for row in relation)` is a non-null Bool value in ON, SELECT,
+scalar LET and tail WHERE. Its row name is local to the parentheses; it does not
+add a row or column to the query output. Only TRUE predicates match. A WHERE
+before a later JOIN accepts only `and`-joined `any`/`not any` tests, which filter
+the rows at that point; they replace the retired `semi join` and `anti join`.
+Existing type, aggregate and selected-backend restrictions still apply.
+
+To migrate an older file, write the complete result to a different file:
+
+```bash
+uv run pietto migrate old.pietto > migrated.pietto
+```
+
+The command never edits its input and emits no partial source on failure. It
+preserves untouched bytes and refuses source-bound relationship/JOIN rewrites
+or dual-valid source with different meanings, such as old `True` identifiers,
+an old `return(x)` call that looks like a modern return statement, or a bare
+type such as `Int`, which old source read as unknown nullability and modern
+source reads as never None; it refuses a bare type the same way in a source
+that mixes old spelling with modern spelling that its reader of old source
+cannot read, such as `T | None`. Old
+`T not null` becomes `T`, and old `T nullable` or a bare `T` becomes
+`T | None`. An old
+`semi join` or `anti join`, written with `as`, needs a manual rewrite to
+`where any(...)` or `where not any(...)`, and a named window declared after
+`select` moves before it. Review the located PIE-P1011 diagnostics; a numeric
+header is not a syntax selector. The [release notes](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/release-notes.md)
+list the syntax changes of this checkout with examples.
 
 ## Projects
 
@@ -303,12 +343,18 @@ uv run pietto check --project demo-project
 Project input selection and diagnostics are deterministic. Project checking is
 not SQL generation; project SQL emission is a separate explicit command.
 
+A legacy-flat project checks no JOIN and no `any(...)` of the current syntax
+(PIE-S2334), so the relationship JOINs that 0.1.4 checked in one are no longer
+available:
+rewrite them and use an explicit-module project (`schema_version = 2`), as
+[project and package](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/project-package.md#schema-compatibility) describes.
+
 ## Project SQL emission
 
 `emit-sql --project` compiles one explicitly selected `table` or `query` of an
 explicit-module project into the versioned `pietto.sql-emission.v1` artifact
 (`pietto.sql-emission.v2` for a VERIFIED query with header parameters, see
-[project CLI JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/spec/project-cli-json-v2.md#emit-sql-result))
+[project CLI JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/spec/project-cli-json-v2.md#emit-sql-result))
 for one explicitly selected dialect. The physical relation and column names,
 storage types and value premises come from an emission contract you write for
 your database; the compiler never connects to it.
@@ -333,10 +379,10 @@ include = ["*.pietto"]
 
 ```pietto
 shape Item:
-    id: Int not null
-    label: Text not null
+    id: Int
+    label: Text
 
-source items: Item is postgres.table("fixture.items")
+source items: Item = postgres.table("fixture.items")
 
 table active_items:
     from items
@@ -414,20 +460,20 @@ contract is the
 
 ## Documentation
 
-- [Language](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/language.md)
-- [Project and package](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/project-package.md)
-- [Development](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/development.md)
-- [Roadmap](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/roadmap.md)
-- [Status](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/status.md)
+- [Language](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md)
+- [Project and package](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/project-package.md)
+- [Development](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/development.md)
+- [Roadmap](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/roadmap.md)
+- [Status](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/status.md)
 
 Public contracts:
 
-- [CLI JSON v1](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/spec/cli-json-v1.md)
-- [Diagnostics](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/spec/diagnostics.md)
-- [Project JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/spec/project-cli-json-v2.md)
-- [Semantic metadata artifact v1](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/spec/semantic-metadata-artifact-v1.md)
-- [Configuration](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/spec/pietto-config-v1.md)
-- [Golden fixture policy](https://github.com/MianliWang/pietto/blob/v0.1.4/docs/spec/golden-fixture-policy-v1.md)
+- [CLI JSON v1](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/spec/cli-json-v1.md)
+- [Diagnostics](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/spec/diagnostics.md)
+- [Project JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/spec/project-cli-json-v2.md)
+- [Semantic metadata artifact v1](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/spec/semantic-metadata-artifact-v1.md)
+- [Configuration](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/spec/pietto-config-v1.md)
+- [Golden fixture policy](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/spec/golden-fixture-policy-v1.md)
 
 ## Development
 
@@ -464,10 +510,10 @@ not promises or dates, and the detailed plan lives in the
 ## License
 
 Pietto is released under the
-[MIT License](https://github.com/MianliWang/pietto/blob/v0.1.4/LICENSE).
+[MIT License](https://github.com/MianliWang/pietto/blob/v0.1.5/LICENSE).
 Third-party material in the wheel, the sdist and the source archive is listed
-in [THIRD_PARTY_NOTICES.md](https://github.com/MianliWang/pietto/blob/v0.1.4/THIRD_PARTY_NOTICES.md),
+in [THIRD_PARTY_NOTICES.md](https://github.com/MianliWang/pietto/blob/v0.1.5/THIRD_PARTY_NOTICES.md),
 with the original license texts in
-[LICENSES/](https://github.com/MianliWang/pietto/tree/v0.1.4/LICENSES).
+[LICENSES/](https://github.com/MianliWang/pietto/tree/v0.1.5/LICENSES).
 The Pietto logo artwork in `docs/assets/brand/` is © Mianli Wang, all rights
 reserved, and is not covered by the MIT License that applies to the code.

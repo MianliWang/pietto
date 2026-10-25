@@ -8,12 +8,12 @@ from pietto.ir import ConnectorIR, SourceIR, build_ir
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 
-SHAPE = "shape User:\n    id: UUID not null\n    email: Text not null\n"
+SHAPE = "shape User:\n    id: UUID\n    email: Text\n"
 
 
 def test_mysql_connector_name_argument_and_span_are_preserved() -> None:
     script, source_ir = _lower_source(
-        SHAPE + 'source users: User is mysql.table("app.users")\n',
+        SHAPE + 'source users: User = mysql.table("app.users")\n',
         path="mysql-source.pietto",
     )
     source_ast = script.definitions[-1]
@@ -42,8 +42,8 @@ def test_mysql_connector_name_argument_and_span_are_preserved() -> None:
 def test_mysql_and_postgres_sources_preserve_definition_order() -> None:
     source = (
         SHAPE
-        + 'source mysql_users: User is mysql.table("app.users")\n'
-        + 'source postgres_users: User is postgres.table("public.users")\n'
+        + 'source mysql_users: User = mysql.table("app.users")\n'
+        + 'source postgres_users: User = postgres.table("public.users")\n'
     )
     parse_result = parse_source(source, path="ordered-sources.pietto")
     assert parse_result.diagnostics == ()
@@ -70,7 +70,7 @@ def test_mysql_and_postgres_sources_preserve_definition_order() -> None:
 
 
 def test_connector_ir_contains_static_metadata_only() -> None:
-    _, source_ir = _lower_source(SHAPE + 'source users: User is mysql.table("users")\n')
+    _, source_ir = _lower_source(SHAPE + 'source users: User = mysql.table("users")\n')
 
     assert [field.name for field in fields(source_ir.connector)] == [
         "name",
@@ -100,7 +100,7 @@ def test_connector_ir_contains_static_metadata_only() -> None:
 
 def test_postgres_connector_ir_behavior_is_unchanged() -> None:
     _, source_ir = _lower_source(
-        SHAPE + 'source users: User is postgres.table("public.users")\n'
+        SHAPE + 'source users: User = postgres.table("public.users")\n'
     )
 
     assert source_ir.connector == ConnectorIR(

@@ -7,6 +7,13 @@ Pietto project checking. `pietto check --project ROOT` loads the selected
 `pietto.toml` without upward discovery and can emit JSON schema version 2.
 Single-file CLI JSON version 1 remains a separate compatibility contract.
 
+The current source language is documented in [Language](../language.md).
+Modern source spelling does not alter JSON v2 keys, field meanings or schema
+selection: JSON keeps its own `null`, `true` and `false`, and the optional
+`pietto NUMBER` source header is metadata only. Schema version 2 here names the
+project result contract, not a language-version switch. The phase-labelled
+compatibility baseline below remains a historical record of that contract.
+
 ## Goals
 
 The future project interface must:
@@ -117,6 +124,11 @@ and emits the `pietto.sql-emission.v1` artifact documented in the
 or the `pietto.sql-emission.v2` document of a VERIFIED query with header
 parameters ([below](#emit-sql-result)). Its exit codes follow the same classes
 as below.
+
+The source-only `migrate PATH` command is separate from project invocation
+and from JSON v1/v2. It emits a complete migrated source or a refusal with no
+partial source; it does not introduce a project mode, command tag, output
+metadata field or JSON envelope into this contract.
 
 ## Exit Codes
 
@@ -324,8 +336,8 @@ v1 reader rejects v2 by its tag. v2 is v1 with these differences:
   9223372036854775807 on MySQL). `subject` is an expression ref for an
   operation and a window argument ref (`{"kind": "window_argument",
   "position": i}`) for a count; `parameters` lists every parameter the subject
-  depends on, directly or through `let:` bindings, and, for an operation of a
-  query with relation lets, every parameter that a let reads (a let column
+  depends on, directly or through scalar `let` bindings, and, for an operation
+  of a query with relation lets, every parameter that a let reads (a let column
   reaches its readers without its reads); a count names only the parameter it
   reads. It may name a parameter whose value cannot change the check, never
   omit one that can.
@@ -437,7 +449,11 @@ Root-level failures without source coordinates remain CLI errors rather than
 fabricated compiler diagnostics.
 
 Diagnostics use the deterministic stage, file, producer, and related-location
-ordering defined by the multi-file semantics contract.
+ordering defined by the multi-file semantics contract. Modern parser rewrite
+suggestions and relationship/ANY failures use this same object; actual source
+locations refer to the accepted authored text. Query-local row aliases, local
+ANY binders and shape-template identities do not add public fields or collapse
+repeated diagnostics by spelling.
 
 ## CLI Error Object
 

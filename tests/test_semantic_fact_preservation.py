@@ -43,6 +43,8 @@ from pietto.ast_nodes import (
     WindowExpr,
     WindowUseKind,
 )
+from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.parser_api import parse_source
 from pietto.semantic.capability_facts import (
     CapabilityDomain,
     CapabilityKey,
@@ -95,6 +97,63 @@ def _semantic_project(
     )
     assert parse_result.ok
     return parse_result, build_empty_project_semantic_result(parse_result)
+
+
+def _assert_duplicate_let_refusal(
+    root: Path,
+    source: str,
+    names: tuple[str, ...],
+    duplicate_ordinals: tuple[int, ...],
+) -> None:
+    authored = parse_source(source, path="main.pietto")
+    assert authored.ast is not None and authored.diagnostics == ()
+    (authored_query,) = tuple(
+        item
+        for item in authored.ast.definitions
+        if isinstance(item, QueryDef) and item.name == "result"
+    )
+    declarations = authored_query.naming_declarations
+    assert tuple(item.name for item in declarations) == names
+    parsed = project_check.check_project_parse_only(
+        _configured_project(root, {"main.pietto": source})
+    )
+    assert not parsed.ok and parsed.errors == ()
+    assert parsed.diagnostics == tuple(
+        Diagnostic(
+            code="PIE-S2604",
+            severity=Severity.ERROR,
+            message=f"Duplicate query local name: {names[ordinal]}",
+            location=SourceLocation(
+                path="main.pietto",
+                line=declarations[ordinal].span.line,
+                column=declarations[ordinal].span.column,
+                end_line=declarations[ordinal].span.end_line,
+                end_column=declarations[ordinal].span.end_column,
+            ),
+        )
+        for ordinal in duplicate_ordinals
+    )
+    (parsed_input,) = parsed.parsed_inputs
+    (module,) = parsed.modules
+    assert module.parsed_input is parsed_input
+    (normalized_query,) = tuple(
+        item
+        for item in parsed_input.script.definitions
+        if isinstance(item, QueryDef) and item.name == "result"
+    )
+    assert normalized_query.naming_declarations == ()
+    assert normalized_query.let_clause is not None
+    bindings = normalized_query.let_clause.bindings
+    assert tuple((item.name, item.expression, item.span) for item in bindings) == tuple(
+        (item.name, item.expression, item.span) for item in declarations
+    )
+    assert len({id(item) for item in bindings}) == len(bindings)
+    refused = build_empty_project_semantic_result(parsed)
+    assert refused.modules is parsed.modules
+    assert refused.model is None
+    assert refused.module_catalogs is None
+    assert refused.module_relation_resolutions is None
+    assert refused.module_semantic_facts is None
 
 
 def _fact_set(
@@ -166,27 +225,28 @@ def _replace_window_in_final_semantic(
 def _library_source(*, export_relation: str = "table projected") -> str:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        "    name: Text nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        "    name: Text | None\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"
         "        id\n"
         "        amount\n"
         "        name\n"
-        f"export:\n    {export_relation}\n"
+        "export (\n"
+        f"    {export_relation})\n"
     )
 
 
 def _prefix() -> str:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        "    category: Text nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        "    category: Text | None\n"
+        'source rows: Row = postgres.table("rows")\n'
     )
 
 
@@ -198,13 +258,20 @@ def _unavailable_candidate_body(
     expressions: tuple[str, ...],
     *,
     relation_qualifier: str,
+    distinct_names: bool = False,
 ) -> str:
-    lines = ["    let:"]
-    lines.extend(f"        key = {expression}" for expression in expressions)
+    names = tuple(
+        f"key_{ordinal}" if distinct_names and ordinal else "key"
+        for ordinal in range(len(expressions))
+    )
+    lines = [
+        f"    let {name} = {expression}"
+        for name, expression in zip(names, expressions, strict=True)
+    ]
     lines.extend(
         (
-            f"        qualified_key = {relation_qualifier}.id",
-            "        wrong_qualified_key = other.id",
+            f"    let qualified_key = {relation_qualifier}.id",
+            "    let wrong_qualified_key = other.id",
         )
     )
     lines.extend(
@@ -217,10 +284,15 @@ def _unavailable_candidate_body(
             "        wrong_qualified_projected = other.id",
         )
     )
+    if distinct_names:
+        lines.extend(
+            f"        projected_{ordinal} = {name}"
+            for ordinal, name in enumerate(names[1:], start=1)
+        )
     lines.extend(f"        total = sum({expression})" for expression in expressions)
     lines.extend(
         (
-            "    satisfying:",
+            "    having:",
             "        total > 0",
             "    order by:",
             "        total",
@@ -246,6 +318,17 @@ def _assert_unavailable_candidate_matrix(
         *tuple(permutations(("id", "amount", "id + amount"))),
     )
     for case_ordinal, expressions in enumerate(expression_orders):
+        if len(expressions) > 1:
+            _assert_duplicate_let_refusal(
+                tmp_path / f"rejected-{case_ordinal}",
+                source_head
+                + _unavailable_candidate_body(
+                    expressions,
+                    relation_qualifier=relation_qualifier,
+                ),
+                (*("key" for _ in expressions), "qualified_key", "wrong_qualified_key"),
+                tuple(range(1, len(expressions))),
+            )
         _, semantic = _semantic_project(
             tmp_path / f"case-{case_ordinal}",
             {
@@ -253,6 +336,7 @@ def _assert_unavailable_candidate_matrix(
                 + _unavailable_candidate_body(
                     expressions,
                     relation_qualifier=relation_qualifier,
+                    distinct_names=True,
                 )
             },
         )
@@ -280,6 +364,33 @@ def _assert_unavailable_candidate_matrix(
         assert len(projected.references) == 1
         assert projected.references[0].let_candidates == expected_lets
         assert projected.references[0].status is bucket_status
+        assert tuple(fact.binding.name for fact in relation.let_bindings) == (
+            *(
+                "key" if ordinal == 0 else f"key_{ordinal}"
+                for ordinal in range(len(expressions))
+            ),
+            "qualified_key",
+            "wrong_qualified_key",
+        )
+        for ordinal, expression in enumerate(expressions):
+            binding = relation.let_bindings[ordinal]
+            assert binding.binding_ordinal == ordinal
+            assert tuple(
+                reference.local_name for reference in binding.references
+            ) == tuple(expression.split(" + "))
+            assert all(
+                reference.status is bucket_status for reference in binding.references
+            )
+            output_name = "projected" if ordinal == 0 else f"projected_{ordinal}"
+            selected = next(
+                item
+                for item in relation.select_facts
+                if item.output_name == output_name
+            )
+            assert len(selected.references) == 1
+            assert selected.references[0].let_candidates == (binding.binding,)
+            assert selected.references[0].let_candidates[0] is binding.binding
+            assert selected.references[0].status is bucket_status
         qualified_references = (
             next(
                 fact
@@ -361,14 +472,8 @@ def _window_call(identity: str) -> str:
 def _window_lines(identities: tuple[str, ...]) -> str:
     lines = ["    select:", "        id"]
     for position, identity in enumerate(identities):
-        lines.extend(
-            (
-                f"        w{position} = {_window_call(identity)} window:",
-                "            partition by:",
-                "                category",
-                "            order by:",
-                "                id desc",
-            )
+        lines.append(
+            f"        w{position} = {_window_call(identity)} window(partition by category order by id desc)"
         )
     return "\n".join(lines) + "\n"
 
@@ -645,9 +750,9 @@ def test_schema_v2_builds_sidecar_from_exact_slice10_authority_without_slice11_i
         {
             "main.pietto": _query(
                 "    select:\n"
-                "        mystery = mystery_window() window:\n"
-                "            order by:\n"
-                "                id\n"
+                "        mystery = mystery_window() window(\n"
+                "            order by\n"
+                "                id)\n"
             )
         },
     )
@@ -719,17 +824,17 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
 
     rich_query = (
         "    from rows\n"
-        "    let:\n"
-        "        key = id\n"
+        "\n"
+        "    let key = id\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
         "        id\n"
         "        total = sum(amount)\n"
-        "        position = rank() window:\n"
-        "            order by:\n"
-        "                total desc\n"
-        "    satisfying:\n"
+        "        position = rank() window(\n"
+        "            order by\n"
+        "                total desc)\n"
+        "    having:\n"
         "        total > 0\n"
         "    order by:\n"
         "        position\n"
@@ -840,13 +945,25 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
             ),
         )
 
+    _assert_duplicate_let_refusal(
+        tmp_path / "duplicate-carrier-let",
+        _query(
+            "\n"
+            "    let id = amount\n"
+            "    let id = category\n"
+            "    select:\n"
+            "        bare = id\n"
+        ),
+        ("id", "id"),
+        (1,),
+    )
     _, carrier_semantic = _semantic_project(
         tmp_path / "whole-relation-carrier-closure",
         {
             "main.pietto": _query(
-                "    let:\n"
-                "        id = amount\n"
-                "        id = category\n"
+                "\n"
+                "    let id = amount\n"
+                "    let other = missing\n"
                 "    select:\n"
                 "        bare = id\n"
             )
@@ -867,7 +984,7 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
         carrier_reference.status
         is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
     )
-    assert carrier_reference.let_candidates == carrier_scope.bindings
+    assert carrier_reference.let_candidates == (carrier_scope.bindings[0],)
 
     for forged_reference in (
         replace(carrier_reference),
@@ -903,7 +1020,10 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
 
     forged_scope = replace(
         carrier_scope,
-        binding_expressions={"id": carrier_scope.bindings[1].expression},
+        binding_expressions={
+            **carrier_scope.binding_expressions,
+            "id": carrier_scope.bindings[1].expression,
+        },
     )
     forged_scope_bindings = tuple(
         replace(binding, scope_facts=forged_scope)
@@ -925,8 +1045,7 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
     forged_concrete_scope = replace(
         carrier_scope,
         status=ProjectLetScopeFactsStatus.CONCRETE,
-        binding_expressions={"id": carrier_scope.bindings[1].expression},
-        value_types={"id": concrete_value_type},
+        value_types={"id": concrete_value_type, "other": concrete_value_type},
     )
     forged_concrete_bindings = tuple(
         replace(binding, scope_facts=forged_concrete_scope)
@@ -1054,9 +1173,9 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
     unsupported_query = (
         "    from rows\n"
         "    select:\n"
-        "        bad = row_number(1) window:\n"
-        "            order by:\n"
-        "                id\n"
+        "        bad = row_number(1) window(\n"
+        "            order by\n"
+        "                id)\n"
     )
     _, unsupported_semantic = _semantic_project(
         tmp_path / "unsupported-owner-closure",
@@ -1243,16 +1362,16 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
 
     foreign_window_body = (
         "    select:\n"
-        "        position = rank() window:\n"
-        "            order by:\n"
-        "                id\n"
+        "        position = rank() window(\n"
+        "            order by\n"
+        "                id)\n"
     )
     _, foreign_semantic = _semantic_project(
         tmp_path / "foreign-window-roots",
         {
             "main.pietto": (
                 _prefix()
-                + 'source other: Row is postgres.table("other")\n'
+                + 'source other: Row = postgres.table("other")\n'
                 + "query first:\n"
                 + "    from rows\n"
                 + foreign_window_body
@@ -1416,14 +1535,14 @@ def test_local_computed_output_preserves_expression_type_nullability_origin_and_
 
     nested_source = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        "    tax: Int nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        "    tax: Int | None\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        adjusted = gross + 1\n"
     )
@@ -1485,13 +1604,13 @@ def test_local_computed_output_preserves_expression_type_nullability_origin_and_
 
     invalid_let_prefix = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
-        "    let:\n"
-        "        gross = missing + 1\n"
+        "\n"
+        "    let gross = missing + 1\n"
         "    select:\n"
     )
     unavailable_expressions = (
@@ -1502,13 +1621,13 @@ def test_local_computed_output_preserves_expression_type_nullability_origin_and_
         "gross >= 0",
         "gross == 0",
         "gross != 0",
-        "gross is null",
-        "gross is not null",
-        "gross between 0 and 1",
+        "gross is None",
+        "gross is not None",
+        "0 <= gross <= 1",
         "-gross",
         "gross + 1",
         "lower(gross)",
-        "(gross > 0) is null",
+        "(gross > 0) is None",
     )
     for position, expression in enumerate(unavailable_expressions):
         _, unavailable_semantic = _semantic_project(
@@ -1595,7 +1714,7 @@ def test_local_computed_output_preserves_expression_type_nullability_origin_and_
         (
             ("missing > 0", "missing"),
             ("missing", "missing > 0"),
-            ("missing is null", "missing is null"),
+            ("missing is None", "missing is None"),
         )
     ):
         selection = "".join(
@@ -1623,8 +1742,8 @@ def test_local_computed_output_preserves_expression_type_nullability_origin_and_
         )
 
     shadowing_source = _query(
-        "    let:\n"
-        "        id = missing + 1\n"
+        "\n"
+        "    let id = missing + 1\n"
         "    select:\n"
         "        direct = id\n"
         "        compared = id > 0\n"
@@ -1686,8 +1805,12 @@ def test_imported_computed_output_preserves_local_lookup_and_nominal_target(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table projected as Input\n'
-                "query result:\n    from Input\n    select:\n        total = id + 1\n"
+                'from "b.pietto" import (\n'
+                "    table projected as Input)\n"
+                "query result:\n"
+                "    from Input\n"
+                "    select:\n"
+                "        total = id + 1\n"
             ),
             "b.pietto": _library_source(),
         },
@@ -1706,8 +1829,12 @@ def test_aliased_import_keeps_qualifier_separate_from_nominal_target_identity(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table projected as Local\n'
-                "query result:\n    from Local\n    select:\n        total = Local.id + 1\n"
+                'from "b.pietto" import (\n'
+                "    table projected as Local)\n"
+                "query result:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        total = Local.id + 1\n"
             ),
             "b.pietto": _library_source(),
         },
@@ -1730,12 +1857,18 @@ def test_explicit_reexport_keeps_direct_facade_lookup_and_original_nominal_targe
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table Public as Local\n'
-                "query result:\n    from Local\n    select:\n        total = Local.id + 1\n"
+                'from "b.pietto" import (\n'
+                "    table Public as Local)\n"
+                "query result:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        total = Local.id + 1\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    table projected as Public\n'
-                "export:\n    table Public\n"
+                'from "c.pietto" import (\n'
+                "    table projected as Public)\n"
+                "export (\n"
+                "    table Public)\n"
             ),
             "c.pietto": _library_source(),
         },
@@ -1773,9 +1906,17 @@ def test_same_target_through_two_local_aliases_retains_two_identity_distinct_fac
         tmp_path,
         {
             "a.pietto": (
-                'import "z.pietto":\n    table projected as First\n    table projected as Second\n'
-                "query one:\n    from First\n    select:\n        id\n"
-                "query two:\n    from Second\n    select:\n        id\n"
+                'from "z.pietto" import (\n'
+                "    table projected as First,\n"
+                "    table projected as Second)\n"
+                "query one:\n"
+                "    from First\n"
+                "    select:\n"
+                "        id\n"
+                "query two:\n"
+                "    from Second\n"
+                "    select:\n"
+                "        id\n"
             ),
             "z.pietto": _library_source(),
         },
@@ -1817,11 +1958,11 @@ def test_relation_and_output_cardinalities_zero_one_two_three_have_no_truncation
 def test_module_definition_and_fact_permutations_change_only_explicit_tuple_order(
     tmp_path: Path,
 ) -> None:
-    shape = "shape Row:\n    id: Int not null\n"
+    shape = "shape Row:\n    id: Int\n"
     records = (
         (
             "rows",
-            'source rows: Row is postgres.table("rows")\n',
+            'source rows: Row = postgres.table("rows")\n',
         ),
         (
             "first",
@@ -1907,7 +2048,7 @@ def test_unknown_upstream_state_and_reason_propagate_without_child_inference(
     _assert_unavailable_candidate_matrix(
         tmp_path,
         source_head=(
-            'source unknown is postgres.table("unknown")\n'
+            'source unknown = postgres.table("unknown")\n'
             "query result:\n"
             "    from unknown\n"
         ),
@@ -1927,7 +2068,7 @@ def test_deferred_upstream_state_and_reason_propagate_without_concretization(
             _prefix() + "query pending:\n"
             "    from rows\n"
             "    select:\n"
-            "        unset = null\n"
+            "        unset = None\n"
             "query result:\n"
             "    from pending\n"
         ),
@@ -1982,28 +2123,28 @@ def test_local_and_module_cycles_retain_complete_roots_without_guessed_facts(
             "main.pietto": (
                 "query a:\n"
                 "    from b\n"
-                "    let:\n"
-                "        qualified = b.id\n"
-                "        wrong = other.id\n"
+                "\n"
+                "    let qualified = b.id\n"
+                "    let wrong = other.id\n"
                 "    select:\n"
                 "        id\n"
                 "        qualified = b.id\n"
                 "        wrong = other.id\n"
-                "        position = rank() window:\n"
-                "            order by:\n"
-                "                id\n"
+                "        position = rank() window(\n"
+                "            order by\n"
+                "                id)\n"
                 "query b:\n"
                 "    from a\n"
-                "    let:\n"
-                "        qualified = a.id\n"
-                "        wrong = other.id\n"
+                "\n"
+                "    let qualified = a.id\n"
+                "    let wrong = other.id\n"
                 "    select:\n"
                 "        id\n"
                 "        qualified = a.id\n"
                 "        wrong = other.id\n"
-                "        position = rank() window:\n"
-                "            order by:\n"
-                "                id\n"
+                "        position = rank() window(\n"
+                "            order by\n"
+                "                id)\n"
             )
         },
     )
@@ -2044,8 +2185,8 @@ def test_local_and_module_cycles_retain_complete_roots_without_guessed_facts(
     _, module_semantic = _semantic_project(
         tmp_path / "module",
         {
-            "a.pietto": 'import "b.pietto":\n    query b as B\n',
-            "b.pietto": 'import "a.pietto":\n    query a as A\n',
+            "a.pietto": 'from "b.pietto" import (\n    query b as B)\n',
+            "b.pietto": 'from "a.pietto" import (\n    query a as A)\n',
         },
     )
     facts = _fact_set(module_semantic)
@@ -2057,66 +2198,73 @@ def test_let_binding_ledger_preserves_source_order_duplicates_visibility_and_sta
     tmp_path: Path,
 ) -> None:
     source = _query(
-        "    let:\n"
-        "        first = id + 1\n"
-        "        repeated = first + 1\n"
-        "        repeated = amount + 1\n"
+        "\n"
+        "    let first = id + 1\n"
+        "    let repeated = first + 1\n"
+        "    let repeated = amount + 1\n"
         "    group by:\n"
         "        id\n"
         "    select:\n"
         "        id\n"
         "        projected = repeated\n"
         "        total = sum(id)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        sum(repeated) > 0\n"
         "    order by:\n"
         "        repeated\n"
     )
-    _, semantic = _semantic_project(tmp_path, {"main.pietto": source})
+    _assert_duplicate_let_refusal(
+        tmp_path / "duplicate-ledger-let",
+        source,
+        ("first", "repeated", "repeated"),
+        (2,),
+    )
+    _, semantic = _semantic_project(
+        tmp_path / "distinct-ledger-lets",
+        {
+            "main.pietto": _query(
+                "    let first = id + 1\n"
+                "    let second = first + 1\n"
+                "    let third = amount + 1\n"
+                "    select:\n"
+                "        a = first\n"
+                "        b = second\n"
+                "        c = third\n"
+            )
+        },
+    )
     relation = _relation(semantic, "main.pietto", "result")
     assert tuple(item.binding.name for item in relation.let_bindings) == (
         "first",
-        "repeated",
-        "repeated",
+        "second",
+        "third",
     )
+    assert tuple(item.binding_ordinal for item in relation.let_bindings) == (0, 1, 2)
     assert relation.let_bindings[1].references[0].let_candidates == (
         relation.let_bindings[0].binding,
     )
     assert relation.let_scope_facts is not None
-    assert relation.let_scope_facts.status is not ProjectLetScopeFactsStatus.CONCRETE
-    projected = next(
-        fact for fact in relation.select_facts if fact.output_name == "projected"
-    )
-    assert len(projected.references) == 1
-    assert projected.references[0].let_candidates == tuple(
-        fact.binding for fact in relation.let_bindings[1:]
-    )
-    assert (
-        projected.references[0].status
-        is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
-    )
-    for role in (
-        preservation.ProjectModuleFactOccurrenceRole.SATISFYING,
-        preservation.ProjectModuleFactOccurrenceRole.GROUPED_ORDER,
+    assert relation.let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
+    assert tuple(item.output_name for item in relation.select_facts) == ("a", "b", "c")
+    for binding, selected in zip(
+        relation.let_bindings, relation.select_facts, strict=True
     ):
-        dependency = next(
-            fact for fact in relation.clause_dependencies if fact.role is role
-        )
+        assert len(selected.references) == 1
+        assert selected.references[0].let_candidates == (binding.binding,)
+        assert selected.references[0].let_candidates[0] is binding.binding
         assert (
-            dependency.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+            selected.references[0].status
+            is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
         )
-        assert dependency.target_occurrences == ()
-        assert dependency.target_fields == ()
-        assert dependency.aggregate_result_facts == ()
 
     _, qualified_semantic = _semantic_project(
         tmp_path / "qualified",
         {
             "main.pietto": _query(
-                "    let:\n"
-                "        id = amount\n"
-                "        missing = amount\n"
-                "        qualified = rows.id\n"
+                "\n"
+                "    let id = amount\n"
+                "    let missing = amount\n"
+                "    let qualified = rows.id\n"
                 "    select:\n"
                 "        existing = rows.id\n"
                 "        absent = rows.missing\n"
@@ -2165,7 +2313,7 @@ def test_let_binding_ledger_preserves_source_order_duplicates_visibility_and_sta
 def test_let_derived_output_preserves_type_nullability_origin_dependency_and_role(
     tmp_path: Path,
 ) -> None:
-    source = _query("    let:\n        total = id + 1\n    select:\n        total\n")
+    source = _query("\n    let total = id + 1\n    select:\n        total\n")
     _, semantic = _semantic_project(tmp_path, {"main.pietto": source})
     relation = _relation(semantic, "main.pietto", "result")
     selected = relation.select_facts[0]
@@ -2204,7 +2352,7 @@ def test_select_output_collision_preserves_every_candidate_and_never_overwrites(
                 "        category\n"
                 "        total = sum(id)\n"
                 "        total = sum(amount)\n"
-                "    satisfying:\n"
+                "    having:\n"
                 "        total > 0\n"
                 "    order by:\n"
                 "        total\n"
@@ -2280,10 +2428,10 @@ def test_group_keys_preserve_source_order_visibility_fields_and_result_roles(
         tmp_path / "let-backed",
         {
             "main.pietto": _query(
-                "    let:\n"
-                "        category_key = rows.category\n"
-                "        bucket = category_key\n"
-                "        id_key = id\n"
+                "\n"
+                "    let category_key = rows.category\n"
+                "    let bucket = category_key\n"
+                "    let id_key = id\n"
                 "    group by:\n"
                 "        bucket\n"
                 "        id_key\n"
@@ -2317,9 +2465,9 @@ def test_group_keys_preserve_source_order_visibility_fields_and_result_roles(
 
     for case, body in {
         "nonconcrete-let": (
-            "    let:\n"
-            "        key = category\n"
-            "        key = id\n"
+            "\n"
+            "    let key = category\n"
+            "    let key = id\n"
             "    group by:\n"
             "        key\n"
             "    select:\n"
@@ -2327,9 +2475,9 @@ def test_group_keys_preserve_source_order_visibility_fields_and_result_roles(
             "        total = count()\n"
         ),
         "nonconcrete-shadowing-input": (
-            "    let:\n"
-            "        category = id\n"
-            "        category = amount\n"
+            "\n"
+            "    let category = id\n"
+            "    let category = amount\n"
             "    group by:\n"
             "        category\n"
             "    select:\n"
@@ -2344,8 +2492,8 @@ def test_group_keys_preserve_source_order_visibility_fields_and_result_roles(
             "        total = count()\n"
         ),
         "non-direct-let": (
-            "    let:\n"
-            "        key = id + 1\n"
+            "\n"
+            "    let key = id + 1\n"
             "    group by:\n"
             "        key\n"
             "    select:\n"
@@ -2353,6 +2501,12 @@ def test_group_keys_preserve_source_order_visibility_fields_and_result_roles(
             "        total = count()\n"
         ),
     }.items():
+        if case in {"nonconcrete-let", "nonconcrete-shadowing-input"}:
+            name = "key" if case == "nonconcrete-let" else "category"
+            _assert_duplicate_let_refusal(
+                tmp_path / case, _query(body), (name, name), (1,)
+            )
+            continue
         _, unavailable_semantic = _semantic_project(
             tmp_path / case,
             {"main.pietto": _query(body)},
@@ -2531,22 +2685,25 @@ def test_satisfying_aggregate_candidate_bucket_preserves_all_matches_without_fir
     tmp_path: Path,
 ) -> None:
     source = _query(
-        "    let:\n        gross = amount\n"
-        "    group by:\n        id\n"
+        "\n"
+        "    let gross = amount\n"
+        "    group by:\n"
+        "        id\n"
         "    select:\n"
         "        id\n"
         "        first = sum(gross)\n"
         "        second = sum(gross)\n"
-        "        position = rank() window:\n"
-        "            order by:\n"
-        "                id\n"
-        "        sequence = row_number() window:\n"
-        "            order by:\n"
-        "                first\n"
-        "        dense = dense_rank() window:\n"
-        "            order by:\n"
-        "                second\n"
-        "    satisfying:\n        sum(gross) > 0\n"
+        "        position = rank() window(\n"
+        "            order by\n"
+        "                id)\n"
+        "        sequence = row_number() window(\n"
+        "            order by\n"
+        "                first)\n"
+        "        dense = dense_rank() window(\n"
+        "            order by\n"
+        "                second)\n"
+        "    having:\n"
+        "        sum(gross) > 0\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": source})
     relation = _relation(semantic, "main.pietto", "result")
@@ -2590,20 +2747,22 @@ def test_satisfying_aggregate_candidate_bucket_preserves_all_matches_without_fir
         (0, ""),
         (
             1,
-            "        position = rank() window:\n"
-            "            order by:\n"
-            "                id\n",
+            "        position = rank() window(\n"
+            "            order by\n"
+            "                id)\n",
         ),
     ):
         matrix_source = _query(
-            "    let:\n        gross = amount\n"
-            "    group by:\n        id\n"
+            "\n"
+            "    let gross = amount\n"
+            "    group by:\n"
+            "        id\n"
             "    select:\n"
             "        id\n"
             "        first = sum(gross)\n"
             "        second = sum(gross)\n"
             + window_source
-            + "    satisfying:\n        sum(gross) > 0\n"
+            + "    having:\n        sum(gross) > 0\n"
         )
         _, matrix_semantic = _semantic_project(
             tmp_path / f"window-count-{count}",
@@ -2713,20 +2872,23 @@ def test_satisfying_aggregate_candidate_bucket_preserves_all_matches_without_fir
         tmp_path / "navigation-window",
         {
             "main.pietto": _query(
-                "    let:\n        gross = amount\n"
-                "    group by:\n        id\n"
+                "\n"
+                "    let gross = amount\n"
+                "    group by:\n"
+                "        id\n"
                 "    select:\n"
                 "        id\n"
                 "        first = sum(gross)\n"
                 "        second = sum(gross)\n"
-                "        previous = lag(first, 2, second) window:\n"
-                "            partition by:\n"
+                "        previous = lag(first, 2, second) window(\n"
+                "            partition by\n"
+                "                id,\n"
                 "                id\n"
-                "                id\n"
-                "            order by:\n"
-                "                first\n"
-                "                first\n"
-                "    satisfying:\n        sum(gross) > 0\n"
+                "            order by\n"
+                "                first,\n"
+                "                first)\n"
+                "    having:\n"
+                "        sum(gross) > 0\n"
             )
         },
     )
@@ -2841,22 +3003,25 @@ def test_grouped_order_let_candidate_bucket_preserves_all_matching_outputs(
     tmp_path: Path,
 ) -> None:
     source = _query(
-        "    let:\n        key = id\n"
-        "    group by:\n        id\n"
+        "\n"
+        "    let key = id\n"
+        "    group by:\n"
+        "        id\n"
         "    select:\n"
         "        first = id\n"
         "        second = id\n"
         "        total = sum(amount)\n"
-        "        position = rank() window:\n"
-        "            order by:\n"
-        "                first\n"
-        "        sequence = row_number() window:\n"
-        "            order by:\n"
-        "                second\n"
-        "        dense = dense_rank() window:\n"
-        "            order by:\n"
-        "                first\n"
-        "    order by:\n        key\n"
+        "        position = rank() window(\n"
+        "            order by\n"
+        "                first)\n"
+        "        sequence = row_number() window(\n"
+        "            order by\n"
+        "                second)\n"
+        "        dense = dense_rank() window(\n"
+        "            order by\n"
+        "                first)\n"
+        "    order by:\n"
+        "        key\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": source})
     relation = _relation(semantic, "main.pietto", "result")
@@ -2888,14 +3053,16 @@ def test_grouped_order_let_candidate_bucket_preserves_all_matching_outputs(
         (0, ""),
         (
             1,
-            "        position = rank() window:\n"
-            "            order by:\n"
-            "                first\n",
+            "        position = rank() window(\n"
+            "            order by\n"
+            "                first)\n",
         ),
     ):
         matrix_source = _query(
-            "    let:\n        key = id\n"
-            "    group by:\n        id\n"
+            "\n"
+            "    let key = id\n"
+            "    group by:\n"
+            "        id\n"
             "    select:\n"
             "        first = id\n"
             "        second = id\n"
@@ -2960,9 +3127,9 @@ def test_grouped_order_let_candidate_bucket_preserves_all_matching_outputs(
         tmp_path / "chained",
         {
             "main.pietto": _query(
-                "    let:\n"
-                "        key = category\n"
-                "        bucket = key\n"
+                "\n"
+                "    let key = category\n"
+                "    let bucket = key\n"
                 "    group by:\n"
                 "        category\n"
                 "    select:\n"
@@ -2992,12 +3159,18 @@ def test_aggregate_grouped_concrete_unknown_deferred_and_blocked_states_are_atom
     cases = {
         "concrete": _query("    select:\n        total = sum(amount)\n"),
         "unknown": _query("    select:\n        total = sum(missing)\n"),
-        "deferred": _query("    select:\n        unset = null\n"),
+        "deferred": _query("    select:\n        unset = None\n"),
         "blocked": _query(
-            "    let:\n        gross = amount\n"
-            "    group by:\n        id\n"
-            "    select:\n        id\n        a = sum(gross)\n        b = sum(gross)\n"
-            "    satisfying:\n        sum(gross) > 0\n"
+            "\n"
+            "    let gross = amount\n"
+            "    group by:\n"
+            "        id\n"
+            "    select:\n"
+            "        id\n"
+            "        a = sum(gross)\n"
+            "        b = sum(gross)\n"
+            "    having:\n"
+            "        sum(gross) > 0\n"
         ),
     }
     statuses = {}
@@ -3101,27 +3274,27 @@ def test_named_windows_publish_project_facts_after_semantic_resolution(
         tmp_path,
         {
             "main.pietto": _query(
+                "    let root = window()\n"
+                "    let ordered = window(\n"
+                "        partition by\n"
+                "            category\n"
+                "        order by\n"
+                "            id)\n"
+                "    let alias_window = window ordered\n"
+                "    let framed = window ordered(\n"
+                "        rows current row)\n"
                 "    select:\n"
-                "        inline = row_number() window:\n"
-                "            order by:\n"
-                "                id\n"
+                "        inline = row_number() window(\n"
+                "            order by\n"
+                "                id)\n"
                 "        direct = row_number() window ordered\n"
-                "        extended = row_number() window root:\n"
-                "            order by:\n"
-                "                id\n"
+                "        extended = row_number() window root(\n"
+                "            order by\n"
+                "                id)\n"
                 "        alias = row_number() window alias_window\n"
                 "        frame_value = first_value(amount) ignore nulls window ordered\n"
                 "        frame_value_inherited = first_value(amount) window framed\n"
                 "        inherited_frame = row_number() window framed\n"
-                "    window root\n"
-                "    window ordered:\n"
-                "        partition by:\n"
-                "            category\n"
-                "        order by:\n"
-                "            id\n"
-                "    window alias_window = ordered\n"
-                "    window framed = ordered:\n"
-                "        rows current row\n"
             )
         },
     )
@@ -3189,33 +3362,33 @@ def test_named_windows_publish_project_facts_after_semantic_resolution(
     (
         (
             "duplicate",
-            "    window duplicate:\n"
-            "        order by:\n"
-            "            id\n"
-            "    window duplicate:\n"
-            "        order by:\n"
-            "            id\n",
+            "    let duplicate = window(\n"
+            "        order by\n"
+            "            id)\n"
+            "    let duplicate = window(\n"
+            "        order by\n"
+            "            id)\n",
             "PIE-S2110",
         ),
         ("missing", "", "PIE-S2111"),
         (
             "a",
-            "    window a = b\n    window b = a\n",
+            "    let a = window b\n    let b = window a\n",
             "PIE-S2112",
         ),
         (
             "child",
-            "    window base:\n"
-            "        order by:\n"
-            "            id\n"
-            "    window child = base:\n"
-            "        order by:\n"
-            "            id\n",
+            "    let base = window(\n"
+            "        order by\n"
+            "            id)\n"
+            "    let child = window base(\n"
+            "        order by\n"
+            "            id)\n",
             "PIE-S2113",
         ),
         (
             "keyed",
-            "    window keyed:\n        order by:\n            nothere\n",
+            "    let keyed = window(\n        order by\n            nothere)\n",
             "PIE-S2102",
         ),
     ),
@@ -3230,8 +3403,9 @@ def test_named_window_resolution_diagnostics_remain_project_failures(
         tmp_path,
         {
             "main.pietto": _query(
-                "    select:\n"
-                f"        result = row_number() window {reference}\n" + declarations
+                declarations
+                + "    select:\n"
+                + f"        result = row_number() window {reference}\n"
             )
         },
     )
@@ -3255,26 +3429,44 @@ def test_a_binding_of_unknown_type_or_with_an_error_leaves_other_clauses_typed(
     requires canonical window input scope facts`, the WHERE was not checked,
     `v = h` was PIE-S2333, and a window that read `f` was PIE-S2333 too."""
     window = (
-        "        rn = row_number() window:\n            order by:\n                id\n"
+        "        rn = row_number() window(\n            order by\n                id)\n"
     )
     queries = {
-        "erroneous": "    let:\n        w = lower(amount)\n    select:\n        id\n"
-        + window,
-        "unread": "    let:\n        k = null\n    select:\n        id\n" + window,
-        "known": "    let:\n        k = null\n        f = id\n        h = f\n"
-        "    select:\n        id\n        v = h\n" + window,
-        "reading": "    let:\n        k = null\n        f = id\n    select:\n"
-        "        id\n        rn = row_number() window:\n"
-        "            partition by:\n                f\n            order by:\n"
-        "                id\n",
-        "nulled": "    let:\n        k = null\n        f = id\n    select:\n"
-        "        id\n        rn = row_number() window:\n"
-        "            partition by:\n                k\n            order by:\n"
-        "                id\n",
-        "never": "    let:\n        k = null\n    where amount == k\n    select:\n"
+        "erroneous": "\n    let w = lower(amount)\n    select:\n        id\n" + window,
+        "unread": "\n    let k = None\n    select:\n        id\n" + window,
+        "known": "\n"
+        "    let k = None\n"
+        "    let f = id\n"
+        "    let h = f\n"
+        "    select:\n"
+        "        id\n"
+        "        v = h\n" + window,
+        "reading": "\n"
+        "    let k = None\n"
+        "    let f = id\n"
+        "    select:\n"
+        "        id\n"
+        "        rn = row_number() window(\n"
+        "            partition by\n"
+        "                f\n"
+        "            order by\n"
+        "                id)\n",
+        "nulled": "\n"
+        "    let k = None\n"
+        "    let f = id\n"
+        "    select:\n"
+        "        id\n"
+        "        rn = row_number() window(\n"
+        "            partition by\n"
+        "                k\n"
+        "            order by\n"
+        "                id)\n",
+        "never": "\n    let k = None\n    where amount == k\n    select:\n        id\n",
+        "filtered": "\n"
+        "    let w = lower(amount)\n"
+        '    where w == "a" and lower(id) == "b"\n'
+        "    select:\n"
         "        id\n",
-        "filtered": "    let:\n        w = lower(amount)\n"
-        '    where w == "a" and lower(id) == "b"\n    select:\n        id\n',
     }
     text = _prefix() + "".join(
         f"query {name}:\n    from rows\n{body}" for name, body in queries.items()
@@ -3311,7 +3503,7 @@ def test_a_binding_of_unknown_type_or_with_an_error_leaves_other_clauses_typed(
         (
             "PIE-S2105",
             "Invalid operands for operator ==: comparison with null is never "
-            "true; write `is null` instead",
+            "true; write `is None` instead",
             at("where amount", "never"),
             11,
         ),
@@ -3331,14 +3523,14 @@ def test_a_repeated_output_name_is_pie_s2305_at_each_later_item(
     earlier output name is PIE-S2305 at the item, as in a single file, also
     for a computed, aggregate or window output and beside a `let:` binding of
     unknown type. Before, such a relation reported only a bare PIE-S2333."""
-    window = "rank() window:\n            order by:\n                id\n"
+    window = "rank() window(\n            order by\n                id)\n"
     queries = {
         "direct": "    select:\n        id\n        id\n        id\n",
         "renamed": "    select:\n        x = id\n        x = lower(category)\n",
         "grouped": "    group by:\n        category\n    select:\n        category\n"
         "        c = count()\n        c = max(id)\n",
         "windowed": f"    select:\n        id\n        r = {window}        r = {window}",
-        "nulled": "    let:\n        k = null\n    select:\n        id\n        id\n",
+        "nulled": "\n    let k = None\n    select:\n        id\n        id\n",
     }
     text = _prefix() + "".join(
         f"query {name}:\n    from rows\n{body}" for name, body in queries.items()
@@ -3372,14 +3564,21 @@ def test_a_built_in_call_of_null_values_is_a_condition_of_its_result_type(
     operand or a conditional's condition PIE-S2105. Before, such a WHERE
     passed `check --project` and the conditional was a bare PIE-S2333."""
     queries = {
-        "plain": "    where lower(coalesce(null, null))\n    select:\n        id\n",
-        "beside": "    let:\n        k = null\n    where len(coalesce(k, k))\n"
-        "    select:\n        id\n",
-        "lines": "    where:\n        len(coalesce(null, null))\n        id > 1\n"
-        "    select:\n        id\n",
-        "chosen": "    select:\n        id\n"
-        "        v = 1 if len(coalesce(null, null)) else 2\n",
-        "fine": "    where contains(coalesce(null, null), 'x')\n    select:\n        id\n",
+        "plain": "    where lower(coalesce(None, None))\n    select:\n        id\n",
+        "beside": "\n"
+        "    let k = None\n"
+        "    where len(coalesce(k, k))\n"
+        "    select:\n"
+        "        id\n",
+        "lines": "    where:\n"
+        "        len(coalesce(None, None))\n"
+        "        id > 1\n"
+        "    select:\n"
+        "        id\n",
+        "chosen": "    select:\n"
+        "        id\n"
+        "        v = 1 if len(coalesce(None, None)) else 2\n",
+        "fine": "    where contains(coalesce(None, None), 'x')\n    select:\n        id\n",
     }
     text = _prefix() + "".join(
         f"query {name}:\n    from rows\n{body}" for name, body in queries.items()
@@ -3417,10 +3616,9 @@ def test_a_selected_read_of_a_binding_bound_to_null_is_typed_where_it_stands(
     as in a single file. Before, such a relation was a bare PIE-S2333."""
     text = (
         _prefix()
-        + "def ni(x: Int not null) -> Int not null: return x\n"
+        + "def ni(x: Int) -> Int: return x\n"
         + "".join(
-            f"query {name}:\n    from rows\n    let:\n        k = null\n"
-            f"    select:\n{items}"
+            (f"query {name}:\n    from rows\n\n    let k = None\n    select:\n{items}")
             for name, items in (
                 (
                     "reads",
@@ -3440,8 +3638,8 @@ def test_a_selected_read_of_a_binding_bound_to_null_is_typed_where_it_stands(
     ] == [
         (
             "PIE-S2395",
-            "Invalid argument for def ni at position 1 (x): expected Int not null, "
-            "got Text nullable",
+            "Invalid argument for def ni at position 1 (x): expected Int, "
+            "got Text | None",
             20,
             13,
         ),
@@ -3476,24 +3674,36 @@ def test_a_window_value_of_an_enum_field_is_a_column_of_that_enum(
     nullable column of that enum, as in a single file, which a later relation
     reads as the enum. Before, the project window fact refused the enum result
     while keeping it, and the check crashed with a ValueError."""
-    window = "window:\n            order by:\n                id\n"
+    window = "window(\n            order by\n                id)\n"
     text = (
-        "enum Status:\n    active\n    gone\ntype Phase = Status\n"
-        "shape Row:\n    id: Int not null\n    status: Status not null\n"
-        "    phase: Phase not null\n    maybe: Status nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table navigated:\n    from rows\n    select:\n        id\n"
-        f"        previous = lag(status) {window}"
-        f"        prior = lag(maybe) {window}"
-        f"        following = lead(phase) {window}"
-        f"        first = first_value(status) {window}"
-        f"        last = last_value(phase) {window}"
-        f"        nth = nth_value(status, 2) {window}"
-        "query grouped:\n    from rows\n    group by:\n        status\n"
-        "    select:\n        status\n        n = count()\n"
-        "        last = last_value(status) window:\n            order by:\n"
-        "                status\n"
-        "query later:\n    from navigated\n    select:\n        id\n"
+        "enum Status:\n"
+        "    active\n"
+        "    gone\n"
+        "type Phase = Status\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        "    status: Status\n"
+        "    phase: Phase\n"
+        "    maybe: Status | None\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table navigated:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        f"        previous = lag(status) {window}        prior = lag(maybe) {window}        following = lead(phase) {window}        first = first_value(status) {window}        last = last_value(phase) {window}        nth = nth_value(status, 2) {window}query grouped:\n"
+        "    from rows\n"
+        "    group by:\n"
+        "        status\n"
+        "    select:\n"
+        "        status\n"
+        "        n = count()\n"
+        "        last = last_value(status) window(\n"
+        "            order by\n"
+        "                status)\n"
+        "query later:\n"
+        "    from navigated\n"
+        "    select:\n"
+        "        id\n"
         "        v = lower(previous)\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
@@ -3545,20 +3755,36 @@ def test_a_window_of_a_join_relation_computed_column_completes(
     that type, as without the JOIN; `lag(v4, 1, 0)`, whose result would have
     the column's unknown nullability, stays PIE-S2104. Before, each window
     was PIE-S2104 `value type must be concrete`."""
-    window = "window:\n            order by:\n                id\n"
+    window = "window(\n            order by\n                id)\n"
     text = (
-        "shape S:\n    id: Int not null\n    n: Int nullable\n    m: Int not null\n"
-        "    unique s_key on id\n"
-        'source src: S is postgres.table("app.src")\n'
-        "table t1:\n    from src\n    inner join src as o:\n        from src\n"
-        "        on src.n == o.n\n    let:\n        k2 = o.m\n    select:\n"
-        "        id = src.id\n        v2 = k2 + 1\n        v4 = o.m + 1\n"
-        "query q2:\n    from t1\n    select:\n        id\n"
-        f"        r0 = last_value(v2) {window}"
-        "query q4:\n    from t1\n    select:\n        id\n"
-        f"        r0 = last_value(v4) {window}"
-        f"        r1 = lag(v4) {window}"
-        "query refused:\n    from t1\n    select:\n        id\n"
+        "shape S:\n"
+        "    id: Int\n"
+        "    n: Int | None\n"
+        "    m: Int\n"
+        "    s_key = unique(id)\n"
+        'source src: S = postgres.table("app.src")\n'
+        "table t1:\n"
+        "    from src\n"
+        "    let o = src\n"
+        "    inner join o on src.n == o.n\n"
+        "\n"
+        "    let k2 = o.m\n"
+        "    select:\n"
+        "        id = src.id\n"
+        "        v2 = k2 + 1\n"
+        "        v4 = o.m + 1\n"
+        "query q2:\n"
+        "    from t1\n"
+        "    select:\n"
+        "        id\n"
+        f"        r0 = last_value(v2) {window}query q4:\n"
+        "    from t1\n"
+        "    select:\n"
+        "        id\n"
+        f"        r0 = last_value(v4) {window}        r1 = lag(v4) {window}query refused:\n"
+        "    from t1\n"
+        "    select:\n"
+        "        id\n"
         f"        r0 = lag(v4, 1, 0) {window}"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
@@ -3573,7 +3799,7 @@ def test_a_window_of_a_join_relation_computed_column_completes(
         (
             "PIE-S2104",
             "Invalid arguments for function lag: value type must be concrete",
-            text.splitlines().index("        r0 = lag(v4, 1, 0) window:") + 1,
+            text.splitlines().index("        r0 = lag(v4, 1, 0) window(") + 1,
             14,
         )
     ]
@@ -3627,29 +3853,45 @@ def test_a_window_value_of_a_shape_field_is_a_column_of_that_shape(
     while a computed read of it, as of any shape column, fails closed with
     PIE-S2333. Before, each window value was PIE-S2104 `value type must be
     concrete` (`default type must be concrete` for a default)."""
-    window = "window:\n            order by:\n                id\n"
+    window = "window(\n            order by\n                id)\n"
     text = (
-        "shape Payload:\n    a: Int not null\n"
-        "shape Row:\n    id: Int not null\n    payload: Payload nullable\n"
-        "    q: Payload not null\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table navigated:\n    from rows\n    select:\n        id\n        payload\n"
-        f"        previous = lag(payload) {window}"
-        f"        following = lead(q, 2) {window}"
-        f"        defaulted = lag(null, 1, payload) {window}"
-        f"        first = first_value(q) {window}"
-        f"        last = last_value(payload) {window}"
-        f"        nth = nth_value(q, 2) {window}"
-        "query mismatched:\n    from rows\n    select:\n        id\n"
-        f"        p = lag(id, 1, payload) {window}"
-        "query keyed:\n    from rows\n    select:\n        id\n"
-        "        ranked = rank() window:\n            partition by:\n"
-        "                payload\n            order by:\n                id\n"
-        "        ordered = lag(payload) window:\n            order by:\n"
-        "                q\n"
-        "query later:\n    from navigated\n    select:\n        id\n"
-        f"        previous\n        r = first_value(previous) {window}"
-        "query computed:\n    from navigated\n    select:\n        id\n"
+        "shape Payload:\n"
+        "    a: Int\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        "    payload: Payload | None\n"
+        "    q: Payload\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table navigated:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        payload\n"
+        f"        previous = lag(payload) {window}        following = lead(q, 2) {window}        defaulted = lag(None, 1, payload) {window}        first = first_value(q) {window}        last = last_value(payload) {window}        nth = nth_value(q, 2) {window}query mismatched:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        f"        p = lag(id, 1, payload) {window}query keyed:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        ranked = rank() window(\n"
+        "            partition by\n"
+        "                payload\n"
+        "            order by\n"
+        "                id)\n"
+        "        ordered = lag(payload) window(\n"
+        "            order by\n"
+        "                q)\n"
+        "query later:\n"
+        "    from navigated\n"
+        "    select:\n"
+        "        id\n"
+        "        previous\n"
+        f"        r = first_value(previous) {window}query computed:\n"
+        "    from navigated\n"
+        "    select:\n"
+        "        id\n"
         "        c = coalesce(previous, payload)\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
@@ -3663,21 +3905,21 @@ def test_a_window_value_of_a_shape_field_is_a_column_of_that_shape(
             "PIE-S2104",
             "Invalid arguments for function lag: value and default must have the "
             "same exact type",
-            lines.index("        p = lag(id, 1, payload) window:") + 1,
+            lines.index("        p = lag(id, 1, payload) window(") + 1,
             13,
         ),
         (
             "PIE-S2103",
             "Unsupported window computation for function rank: window partition "
             "field type must be concrete",
-            lines.index("        ranked = rank() window:") + 1,
+            lines.index("        ranked = rank() window(") + 1,
             18,
         ),
         (
             "PIE-S2103",
             "Unsupported window computation for function lag: window order field "
             "type must be concrete",
-            lines.index("        ordered = lag(payload) window:") + 1,
+            lines.index("        ordered = lag(payload) window(") + 1,
             19,
         ),
         (
@@ -3725,25 +3967,41 @@ def test_a_window_value_finds_its_declaration_by_kind_and_name(
     while a row with two shapes `Payload` from different modules fails closed
     with PIE-S2333 at a window over either. Before, the shape windows were
     PIE-S2104 `value type must be concrete`."""
-    window = "window:\n            order by:\n                id\n"
+    window = "window(\n            order by\n                id)\n"
     text = (
-        'import "b.pietto":\n    shape Status as Box\n    shape Payload as Other\n'
-        "enum Status:\n    active\n    paused\n"
-        "shape Payload:\n    a: Int not null\n"
-        "shape Row:\n    id: Int not null\n    state: Status nullable\n"
-        "    box: Box nullable\n    mine: Payload nullable\n"
-        "    other: Other nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "query states:\n    from rows\n    select:\n        id\n"
-        f"        previous = lag(state) {window}"
-        f"        boxed = lag(box) {window}"
-        "query payloads:\n    from rows\n    select:\n        id\n"
+        'from "b.pietto" import (\n'
+        "    shape Status as Box,\n"
+        "    shape Payload as Other)\n"
+        "enum Status:\n"
+        "    active\n"
+        "    paused\n"
+        "shape Payload:\n"
+        "    a: Int\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        "    state: Status | None\n"
+        "    box: Box | None\n"
+        "    mine: Payload | None\n"
+        "    other: Other | None\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query states:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        f"        previous = lag(state) {window}        boxed = lag(box) {window}query payloads:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
         f"        previous = lag(mine) {window}"
     )
     library = (
-        "shape Status:\n    b: Text not null\n"
-        "shape Payload:\n    b: Text not null\n"
-        "export:\n    shape Status\n    shape Payload\n"
+        "shape Status:\n"
+        "    b: Text\n"
+        "shape Payload:\n"
+        "    b: Text\n"
+        "export (\n"
+        "    shape Status,\n"
+        "    shape Payload)\n"
     )
     _, semantic = _semantic_project(
         tmp_path, {"main.pietto": text, "b.pietto": library}
@@ -3783,35 +4041,65 @@ def test_a_lag_or_lead_of_an_enum_completes_where_its_relation_is_read(
     these crashed `check --project` and `emit-sql --project` with a
     ValueError (`DISTINCT computed field cannot substitute its type
     evidence.`)."""
-    window = "window:\n            order by:\n                id\n"
+    window = "window(\n            order by\n                id)\n"
     text = (
-        "enum Status:\n    active\n    gone\n"
-        "shape Row:\n    id: Int not null\n    status: Status not null\n"
-        "    maybe: Status nullable\n    unique row_key on id\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table navigated:\n    from rows\n    select:\n        id\n"
-        f"        previous = lag(status) {window}"
-        f"        following = lead(maybe) {window}"
-        "query joined:\n    from navigated\n    inner join rows as r:\n"
-        "        from navigated\n        on r.id == navigated.id\n"
-        "    select:\n        id = navigated.id\n        previous = navigated.previous\n"
-        "query distinct_lag:\n    from rows\n    select distinct:\n        id\n"
-        f"        previous = lag(status) {window}"
-        "table joined_window:\n    from rows\n    left join rows as r:\n"
-        "        from rows\n        on r.id == rows.id\n    select:\n"
-        "        id = rows.id\n        previous = lag(r.status) window:\n"
-        "            order by:\n                rows.id\n"
-        "query unioned:\n    union all:\n        from joined_window\n"
+        "enum Status:\n"
+        "    active\n"
+        "    gone\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        "    status: Status\n"
+        "    maybe: Status | None\n"
+        "    row_key = unique(id)\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table navigated:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        f"        previous = lag(status) {window}        following = lead(maybe) {window}query joined:\n"
+        "    from navigated\n"
+        "    let r = rows\n"
+        "    inner join r on r.id == navigated.id\n"
+        "    select:\n"
+        "        id = navigated.id\n"
+        "        previous = navigated.previous\n"
+        "query distinct_lag:\n"
+        "    from rows\n"
+        "    select distinct:\n"
+        "        id\n"
+        f"        previous = lag(status) {window}table joined_window:\n"
+        "    from rows\n"
+        "    let r = rows\n"
+        "    left join r on r.id == rows.id\n"
+        "    select:\n"
+        "        id = rows.id\n"
+        "        previous = lag(r.status) window(\n"
+        "            order by\n"
+        "                rows.id)\n"
+        "query unioned:\n"
+        "    union all:\n"
         "        from joined_window\n"
-        "query existing:\n    from rows\n    where exists joined_window\n"
-        "    select:\n        id\n"
-        "query semi_reader:\n    from joined_window\n    semi join rows as r:\n"
-        "        from joined_window\n        on r.id == joined_window.id\n"
-        "    select:\n        id\n"
-        "table qualified:\n    from rows\n    select:\n        id\n"
-        f"        previous = lag(status) {window}"
-        "    qualify:\n        previous is not null\n"
-        "query unioned_qualified:\n    union all:\n        from qualified\n"
+        "        from joined_window\n"
+        "query existing:\n"
+        "    from rows\n"
+        "    where exists joined_window\n"
+        "    select:\n"
+        "        id\n"
+        "query semi_reader:\n"
+        "    from joined_window\n"
+        "    let r = rows\n"
+        "    where any(r.id == joined_window.id for r in r)\n"
+        "    select:\n"
+        "        id\n"
+        "table qualified:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        f"        previous = lag(status) {window}    qualify:\n"
+        "        previous is not None\n"
+        "query unioned_qualified:\n"
+        "    union all:\n"
+        "        from qualified\n"
         "        from qualified\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
@@ -3846,8 +4134,11 @@ def test_a_window_result_that_no_project_column_carries_fails_closed(
         tmp_path,
         {
             "main.pietto": _query(
-                "    select:\n        id\n        rn = row_number() window:\n"
-                "            order by:\n                id\n"
+                "    select:\n"
+                "        id\n"
+                "        rn = row_number() window(\n"
+                "            order by\n"
+                "                id)\n"
             )
         },
     )
@@ -3885,28 +4176,48 @@ def test_a_window_reads_only_the_named_windows_it_uses(tmp_path: Path) -> None:
     analyzed with it, as in a single file. Before, any named window that read
     a binding made every named use fail closed, and a base that read `f`
     left the relation to PIE-S2333."""
-    lets = (
-        "    let:\n        k = null\n        w = coalesce(k, amount)\n        f = id\n"
-    )
-    split = "    window split:\n        partition by:\n            w\n"
+    lets = "\n    let k = None\n    let w = coalesce(k, amount)\n    let f = id\n"
+    split = "    let split = window(\n        partition by\n            w)\n"
     queries = {
-        "other": "        rn = row_number() window ordered\n"
-        "    window ordered:\n        order by:\n            id\n" + split,
-        "based": "        rn = row_number() window child\n    window child = base\n"
-        "    window base:\n        order by:\n            id\n" + split,
-        "extended": "        rn = row_number() window base:\n            order by:\n"
-        "                id\n    window base:\n        partition by:\n"
-        "            id\n" + split,
-        "reading": "        rn = row_number() window child\n    window child = base\n"
-        "    window base:\n        partition by:\n            k\n"
-        "        order by:\n            id\n",
-        "aliased": "        rn = row_number() window child\n    window child = base\n"
-        "    window base:\n        partition by:\n            f\n"
-        "        order by:\n            id\n",
+        "other": (
+            "        rn = row_number() window ordered\n",
+            "    let ordered = window(\n        order by\n            id)\n" + split,
+        ),
+        "based": (
+            "        rn = row_number() window child\n",
+            "    let child = window base\n"
+            "    let base = window(\n"
+            "        order by\n"
+            "            id)\n" + split,
+        ),
+        "extended": (
+            "        rn = row_number() window base(\n"
+            "            order by\n"
+            "                id)\n",
+            "    let base = window(\n        partition by\n            id)\n" + split,
+        ),
+        "reading": (
+            "        rn = row_number() window child\n",
+            "    let child = window base\n"
+            "    let base = window(\n"
+            "        partition by\n"
+            "            k\n"
+            "        order by\n"
+            "            id)\n",
+        ),
+        "aliased": (
+            "        rn = row_number() window child\n",
+            "    let child = window base\n"
+            "    let base = window(\n"
+            "        partition by\n"
+            "            f\n"
+            "        order by\n"
+            "            id)\n",
+        ),
     }
     text = _prefix() + "".join(
-        f"query {name}:\n    from rows\n{lets}    select:\n        id\n{body}"
-        for name, body in queries.items()
+        f"query {name}:\n    from rows\n{lets}{windows}    select:\n        id\n{item}"
+        for name, (item, windows) in queries.items()
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
 
@@ -3965,13 +4276,13 @@ def test_window_partition_order_and_direction_bindings_preserve_order_and_duplic
 ) -> None:
     source = _query(
         "    select:\n"
-        "        w = rank() window:\n"
-        "            partition by:\n"
+        "        w = rank() window(\n"
+        "            partition by\n"
+        "                category,\n"
         "                category\n"
-        "                category\n"
-        "            order by:\n"
-        "                id desc\n"
-        "                id desc\n"
+        "            order by\n"
+        "                id desc,\n"
+        "                id desc)\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": source})
     analysis = cast(
@@ -4006,13 +4317,21 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
     bodies = (
         (
             "    select:\n"
-            "        good = row_number() window:\n            order by:\n                id\n"
-            "        bad = ntile(0) window:\n            order by:\n                id\n"
+            "        good = row_number() window(\n"
+            "            order by\n"
+            "                id)\n"
+            "        bad = ntile(0) window(\n"
+            "            order by\n"
+            "                id)\n"
         ),
         (
             "    select:\n"
-            "        bad = ntile(0) window:\n            order by:\n                id\n"
-            "        good = row_number() window:\n            order by:\n                id\n"
+            "        bad = ntile(0) window(\n"
+            "            order by\n"
+            "                id)\n"
+            "        good = row_number() window(\n"
+            "            order by\n"
+            "                id)\n"
         ),
     )
     for position, body in enumerate(bodies):
@@ -4057,9 +4376,9 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
             "main.pietto": _query(
                 "    select:\n"
                 "        missing\n"
-                "        position = rank() window:\n"
-                "            order by:\n"
-                "                id\n"
+                "        position = rank() window(\n"
+                "            order by\n"
+                "                id)\n"
             )
         },
     )
@@ -4084,9 +4403,9 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
         {
             "main.pietto": _query(
                 "    select:\n"
-                "        position = rank() window:\n"
-                "            order by:\n"
-                "                missing\n"
+                "        position = rank() window(\n"
+                "            order by\n"
+                "                missing)\n"
             )
         },
     )
@@ -4123,22 +4442,23 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
     def unavailable_body(field_name: str) -> str:
         return (
             "    select:\n"
-            "        first = rank() window:\n"
-            "            order by:\n"
-            f"                {field_name}\n"
-            "        bad = row_number(1) window:\n"
-            "            order by:\n"
-            f"                {field_name}\n"
-            "        last = dense_rank() window:\n"
-            "            order by:\n"
-            f"                {field_name}\n"
+            "        first = rank() window(\n"
+            "            order by\n"
+            f"                {field_name})\n"
+            "        bad = row_number(1) window(\n"
+            "            order by\n"
+            f"                {field_name})\n"
+            "        last = dense_rank() window(\n"
+            "            order by\n"
+            f"                {field_name})\n"
         )
 
     unavailable_cases = (
         (
             "unknown",
-            'source unknown is postgres.table("unknown")\n'
-            "query result:\n    from unknown\n" + unavailable_body("id"),
+            'source unknown = postgres.table("unknown")\n'
+            "query result:\n"
+            "    from unknown\n" + unavailable_body("id"),
             ProjectRelationRowSchemaStatus.UNKNOWN,
             preservation.ProjectModuleCandidateBucketStatus.UNKNOWN,
         ),
@@ -4147,7 +4467,7 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
             _prefix() + "query pending:\n"
             "    from rows\n"
             "    select:\n"
-            "        unset = null\n"
+            "        unset = None\n"
             "query result:\n"
             "    from pending\n" + unavailable_body("unset"),
             ProjectRelationRowSchemaStatus.DEFERRED,
@@ -4217,9 +4537,13 @@ def test_window_dependency_occurrences_preserve_duplicates_and_edges_first_dedup
 ) -> None:
     source = _query(
         "    select:\n"
-        "        w = rank() window:\n"
-        "            partition by:\n                category\n                category\n"
-        "            order by:\n                id\n                id\n"
+        "        w = rank() window(\n"
+        "            partition by\n"
+        "                category,\n"
+        "                category\n"
+        "            order by\n"
+        "                id,\n"
+        "                id)\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": source})
     project_fact = (
@@ -4239,17 +4563,19 @@ def test_window_dependency_occurrences_preserve_duplicates_and_edges_first_dedup
             tmp_path / f"grouped-let-{index}",
             {
                 "main.pietto": _query(
-                    "    let:\n"
-                    "        key = id\n"
-                    "    group by:\n"
-                    "        id\n"
-                    "    select:\n"
-                    f"        {first_name} = id\n"
-                    f"        {second_name} = id\n"
-                    "        total = count()\n"
-                    "        position = rank() window:\n"
-                    "            order by:\n"
-                    "                key\n"
+                    (
+                        "\n"
+                        "    let key = id\n"
+                        "    group by:\n"
+                        "        id\n"
+                        "    select:\n"
+                        f"        {first_name} = id\n"
+                        f"        {second_name} = id\n"
+                        "        total = count()\n"
+                        "        position = rank() window(\n"
+                        "            order by\n"
+                        "                key)\n"
+                    )
                 )
             },
         )
@@ -4269,17 +4595,17 @@ def test_window_dependency_occurrences_preserve_duplicates_and_edges_first_dedup
         tmp_path / "grouped-let-output-collision",
         {
             "main.pietto": _query(
-                "    let:\n"
-                "        key = id\n"
+                "\n"
+                "    let key = id\n"
                 "    group by:\n"
                 "        id\n"
                 "    select:\n"
                 "        key = id\n"
                 "        first = id\n"
                 "        total = count()\n"
-                "        key = rank() window:\n"
-                "            order by:\n"
-                "                key\n"
+                "        key = rank() window(\n"
+                "            order by\n"
+                "                key)\n"
             )
         },
     )
@@ -4294,16 +4620,16 @@ def test_window_dependency_occurrences_preserve_duplicates_and_edges_first_dedup
 
     provider_sources = {
         "qualified": _query(
-            "    let:\n"
-            "        key = rows.id\n"
+            "\n"
+            "    let key = rows.id\n"
             "    group by:\n"
             "        key\n"
             "    select:\n"
             "        first = rows.id\n"
             "        total = count()\n"
-            "        position = rank() window:\n"
-            "            order by:\n"
-            "                key\n"
+            "        position = rank() window(\n"
+            "            order by\n"
+            "                key)\n"
         ),
     }
     for name, provider_source in provider_sources.items():
@@ -4369,12 +4695,14 @@ def test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one
     tmp_path: Path,
 ) -> None:
     source = _query(
-        "    group by:\n        id\n"
+        "    group by:\n"
+        "        id\n"
         "    select:\n"
         "        id\n"
         "        total = sum(amount)\n"
-        "        position = rank() window:\n"
-        "            order by:\n                total desc\n"
+        "        position = rank() window(\n"
+        "            order by\n"
+        "                total desc)\n"
         "    order by:\n"
         "        position\n"
         "        position desc\n"
@@ -4417,10 +4745,10 @@ def test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one
                     "    select:\n"
                     "        id\n"
                     "        total = sum(amount)\n"
-                    "        position = rank() window:\n"
-                    "            order by:\n"
-                    "                total desc\n"
-                    "    satisfying:\n"
+                    "        position = rank() window(\n"
+                    "            order by\n"
+                    "                total desc)\n"
+                    "    having:\n"
                     "        position > 0\n"
                 )
                 + "query downstream:\n"
@@ -4694,10 +5022,10 @@ def test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one
                 "    select:\n"
                 "        id\n"
                 "        duplicate = sum(amount)\n"
-                "        duplicate = rank() window:\n"
-                "            order by:\n"
-                "                id\n"
-                "    satisfying:\n"
+                "        duplicate = rank() window(\n"
+                "            order by\n"
+                "                id)\n"
+                "    having:\n"
                 "        duplicate > 0\n"
                 "    order by:\n"
                 "        duplicate\n"
@@ -4760,9 +5088,11 @@ def test_nominal_generic_same_spelling_types_fail_closed_without_cross_module_me
     tmp_path: Path,
 ) -> None:
     template = (
-        "enum Status:\n    active\n"
-        "shape Row:\n    status: Status\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "enum Status:\n"
+        "    active\n"
+        "shape Row:\n"
+        "    status: Status\n"
+        'source rows: Row = postgres.table("rows")\n'
     )
     _, semantic = _semantic_project(
         tmp_path,

@@ -121,7 +121,7 @@ def test_qualified_fields_bind_in_where_and_input_scope_ordering() -> None:
     source = (
         _source_prefix("postgres.table", "public.users") + "query selected:\n"
         "    from users\n"
-        "    where users.active == true\n"
+        "    where users.active == True\n"
         "    select:\n"
         "        users.email\n"
         "    order by:\n"
@@ -198,7 +198,7 @@ def test_invalid_qualified_references_fail_closed_with_exact_span(
 def test_existing_relation_name_that_is_not_input_fails_as_qualifier() -> None:
     source = (
         _source_prefix("postgres.table", "public.users")
-        + 'source orders: User is postgres.table("public.orders")\n'
+        + 'source orders: User = postgres.table("public.orders")\n'
         "table selected:\n"
         "    from users\n"
         "    select:\n"
@@ -229,16 +229,16 @@ def test_existing_relation_name_that_is_not_input_fails_as_qualifier() -> None:
             [("Unknown field: items.a.b", 5, 13), ("Unknown field: other.a", 6, 13)],
         ),
         (
-            "    group by: item.cost\n    select:\n        n = count()\n",
-            [("Unknown field: item.cost", 4, 15)],
+            "    group by item.cost\n    select:\n        n = count()\n",
+            [("Unknown field: item.cost", 4, 14)],
         ),
         (
             "    select:\n        n = count(public.items.x)\n",
             [("Unknown field: public.items.x", 5, 19)],
         ),
         (
-            "    select:\n        id\n    order by: other.id\n",
-            [("Unknown field: other.id", 6, 15)],
+            "    select:\n        id\n    order by other.id\n",
+            [("Unknown field: other.id", 6, 14)],
         ),
     ],
 )
@@ -247,7 +247,7 @@ def test_invalid_qualified_references_fail_closed_over_a_source_without_a_shape(
     expected: list[tuple[str, int, int]],
 ) -> None:
     parse_result = parse_source(
-        'source items is postgres.table("shop.items")\n'
+        'source items = postgres.table("shop.items")\n'
         "query q:\n"
         "    from items\n" + body,
         path="qualified.pietto",
@@ -301,8 +301,8 @@ def test_dotted_function_call_remains_call_not_qualified_field() -> None:
     ] == [("PIE-S2103", "Unknown function: users.email")]
 
 
-def test_projection_alias_does_not_enter_order_by_input_scope() -> None:
-    parse_result = parse_source(
+def test_projection_alias_order_by_key_reads_the_qualified_output() -> None:
+    script, semantic, script_ir = _compile(
         _source_prefix("postgres.table", "public.users") + "table selected:\n"
         "    from users\n"
         "    select:\n"
@@ -310,30 +310,31 @@ def test_projection_alias_does_not_enter_order_by_input_scope() -> None:
         "    order by:\n"
         "        sort_key\n"
     )
-    assert parse_result.diagnostics == ()
-    assert parse_result.ast is not None
+    relation_ast = cast(TableDef, script.definitions[-1])
+    assert relation_ast.order_by_clause is not None
+    order_key = relation_ast.order_by_clause.items[0].expression
 
-    semantic = analyze(parse_result.ast)
-
-    assert [
-        (diagnostic.code, diagnostic.message)
-        for diagnostic in semantic.diagnostics
-        if diagnostic.severity is Severity.ERROR
-    ] == [
-        (
-            "PIE-S2102",
-            "Unknown field: sort_key; outside a grouped query an ORDER BY key "
-            "cannot name a SELECT output (restate its expression or bind it in "
-            "`let:`)",
-        )
-    ]
+    # Before: PIE-S2102 said an ORDER BY key outside a grouped query cannot
+    # name a SELECT output. The key now reads the output's qualified field.
+    assert semantic.diagnostics == ()
+    value_type = semantic.model.expression_value_types[order_key]
+    assert value_type.resolved_type.name == "Text"
+    assert value_type.nullability is EffectiveNullability.NULLABLE
+    relation_ir = _relation_ir(script_ir)
+    assert relation_ir.order_by[0].expression is relation_ir.projections[0].expression
+    field = cast(FieldRefIR, relation_ir.order_by[0].expression)
+    assert field.qualifier == ("users",)
+    assert field.field == FieldId(
+        owner=SymbolId(SymbolNamespace.RELATION, "users"),
+        name="email",
+    )
 
 
 def test_relationship_metadata_does_not_participate_in_qualified_lookup() -> None:
     source = (
-        _source_prefix("postgres.table", "public.users") + "relationship membership:\n"
-        "    endpoint member: users\n"
-        "    endpoint group: users\n"
+        _source_prefix("postgres.table", "public.users")
+        + "relationship membership(member: User, group: User):\n"
+        "    member.email == group.email\n"
         "table selected:\n"
         "    from users\n"
         "    select:\n"
@@ -341,7 +342,7 @@ def test_relationship_metadata_does_not_participate_in_qualified_lookup() -> Non
     )
     _, semantic, script_ir = _compile(source)
 
-    assert len(semantic.model.relationships) == 1
+    assert len(semantic.model.relationship_templates) == 1
     field = cast(FieldRefIR, _relation_ir(script_ir).projections[0].expression)
     assert field.field == FieldId(
         owner=SymbolId(SymbolNamespace.RELATION, "users"),
@@ -427,7 +428,7 @@ def _source(
 ) -> str:
     body = "table selected:\n    from users\n"
     if include_where_order:
-        body += "    where users.active == true\n"
+        body += "    where users.active == True\n"
     body += "    select:\n        users.email\n"
     if include_where_order:
         body += "    order by:\n        users.email desc\n"
@@ -437,9 +438,9 @@ def _source(
 def _source_prefix(connector: str, physical_name: str) -> str:
     return (
         "shape User:\n"
-        "    email: Text nullable\n"
-        "    active: Bool not null\n"
-        f'source users: User is {connector}("{physical_name}")\n'
+        "    email: Text | None\n"
+        "    active: Bool\n"
+        f'source users: User = {connector}("{physical_name}")\n'
     )
 
 

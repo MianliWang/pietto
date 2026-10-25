@@ -54,7 +54,7 @@ def test_exact_types_do_not_promote(tmp_path: Path) -> None:
 
 def test_width_mismatch_has_no_partial_output(tmp_path: Path) -> None:
     source = _source().replace(
-        "    other: Int nullable", "    other: Int nullable\n    extra: Int nullable"
+        "    other: Int | None", "    other: Int | None\n    extra: Int | None"
     )
     completed = _completed(tmp_path, source)
     assert not completed.ok
@@ -97,9 +97,7 @@ def test_six_laws_include_zero_and_null_class(
 ) -> None:
     completed = _completed(
         tmp_path,
-        _source(kind, quantifier, replay=False).replace(
-            "id: Int not null", "id: Int nullable"
-        ),
+        _source(kind, quantifier, replay=False).replace("id: Int", "id: Int | None"),
     )
     assert completed.ok, completed.diagnostics
     entry = _entry(completed)
@@ -143,23 +141,16 @@ def test_three_operand_except_is_left_fold_and_nested_is_not_flattened(
     tmp_path: Path,
 ) -> None:
     source = """shape Row:
-    id: Int nullable
-source p: Row is postgres.table("p")
-source q: Row is postgres.table("q")
-source s: Row is postgres.table("s")
+    id: Int | None
+source p: Row = postgres.table("p")
+source q: Row = postgres.table("q")
+source s: Row = postgres.table("s")
 table flat:
-    except all:
-        from p
-        from q
-        from s
+    except all p, q, s
 table inner_right:
-    except all:
-        from q
-        from s
+    except all q, s
 table nested:
-    except all:
-        from p
-        from inner_right
+    except all p, inner_right
 """
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
@@ -180,9 +171,7 @@ table nested:
 def test_union_all_separates_type_from_equivalence(
     tmp_path: Path, type_name: str
 ) -> None:
-    source = _source(right_type=type_name).replace(
-        "id: Int not null", f"id: {type_name} not null"
-    )
+    source = _source(right_type=type_name).replace("id: Int", f"id: {type_name}")
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     entry = _entry(completed)
@@ -199,7 +188,7 @@ def test_comparison_required_even_for_intersect_except_all(
     tmp_path: Path, kind: str, quantifier: str
 ) -> None:
     source = _source(kind, quantifier, right_type="Float").replace(
-        "id: Int not null", "id: Float nullable"
+        "id: Int", "id: Float | None"
     )
     completed = _completed(tmp_path, source)
     assert not completed.ok
@@ -225,7 +214,7 @@ def test_exact_decimal_and_unknown_type_evidence(
     tmp_path: Path, left_type: str, right_type: str, ok: bool
 ) -> None:
     source = _source(right_type=right_type).replace(
-        "id: Int not null", f"id: {left_type} nullable"
+        "id: Int", f"id: {left_type} | None"
     )
     completed = _completed(tmp_path, source)
     assert completed.ok is ok, completed.diagnostics
@@ -261,12 +250,12 @@ def test_canonical_aliases_keep_provenance(tmp_path: Path) -> None:
 
 def test_different_nominal_types_are_not_same_spelling(tmp_path: Path) -> None:
     (tmp_path / "a.pietto").write_text(
-        'enum Status:\n    active\nshape Row:\n    id: Status nullable\nsource rows: Row is postgres.table("a")\nexport:\n    source rows\n'
+        'enum Status:\n    active\nshape Row:\n    id: Status | None\nsource rows: Row = postgres.table("a")\nexport source rows\n'
     )
     (tmp_path / "b.pietto").write_text(
-        'enum Status:\n    active\nshape Row:\n    id: Status nullable\nsource rows: Row is postgres.table("b")\nexport:\n    source rows\n'
+        'enum Status:\n    active\nshape Row:\n    id: Status | None\nsource rows: Row = postgres.table("b")\nexport source rows\n'
     )
-    source = 'import "a.pietto":\n    source rows as Left\nimport "b.pietto":\n    source rows as Right\ntable combined:\n    union all:\n        from Left\n        from Right\n'
+    source = 'from "a.pietto" import source rows as Left\nfrom "b.pietto" import source rows as Right\ntable combined:\n    union all Left, Right\n'
     completed = _completed(tmp_path, source)
     assert not completed.ok
     assert any(d.code == "PIE-S2343" for d in completed.diagnostics)
@@ -274,15 +263,15 @@ def test_different_nominal_types_are_not_same_spelling(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "kind,expected",
-    (("union", "unknown"), ("intersect", "non_null"), ("except", "unknown")),
+    (("union", "nullable"), ("intersect", "non_null"), ("except", "nullable")),
 )
 def test_nullability_is_independent_of_type_identity(
     tmp_path: Path, kind: str, expected: str
 ) -> None:
     source = (
         _source(kind, "all")
-        .replace("id: Int not null", "id: Int")
-        .replace("other: Int nullable", "other: Int not null")
+        .replace("id: Int", "id: Int | None")
+        .replace("other: Int | None", "other: Int")
     )
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
@@ -291,21 +280,18 @@ def test_nullability_is_independent_of_type_identity(
 
 
 def _property_source(kind: str, quantifier: str, *, unique: bool = True) -> str:
-    key = "    unique key_id on id\n" if unique else ""
+    key = "    key_id = unique(id)\n" if unique else ""
     return f"""shape Row:
-    id: Int not null
-    name: Text nullable
-{key}source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
+    id: Int
+    name: Text | None
+{key}source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
 table combined:
-    {kind} {quantifier}:
-        from lhs
-        from rhs
+    {kind} {quantifier} lhs, rhs
 query result:
     from combined
-    inner join lhs as l:
-        from combined
-        on true
+    let l = lhs
+    inner join l on True
     select:
         key = combined.id
 """
@@ -370,9 +356,9 @@ def test_two_global_inputs_are_not_global_union(tmp_path: Path) -> None:
         before
         + globals_
         + "table combined:"
-        + after.replace("from lhs", "from one").replace("from rhs", "from two")
+        + after.replace("union all lhs, rhs", "union all one, two")
     )
-    source += "query result:\n    from combined\n    inner join lhs as l:\n        from combined\n        on true\n    select:\n        total = combined.total\n"
+    source += "query result:\n    from combined\n    let l = lhs\n    inner join l on True\n    select:\n        total = combined.total\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     entry = _entry(completed)

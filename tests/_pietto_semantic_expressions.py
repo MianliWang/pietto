@@ -8,17 +8,17 @@ from pietto.semantic import ValueType, analyze
 
 
 _BOUNDARY_SHAPE = """shape Order:
-    status: Text not null
-    active: Bool not null
-    amount: Int not null
-    tax: Int not null
-    optional_amount: Int nullable
-    score: Float not null
-    weight: Float nullable
-    price: Decimal not null
-    discount: Decimal nullable
-    order_date: Date nullable
-    created_at: Timestamp not null
+    status: Text
+    active: Bool
+    amount: Int
+    tax: Int
+    optional_amount: Int | None
+    score: Float
+    weight: Float | None
+    price: Decimal
+    discount: Decimal | None
+    order_date: Date | None
+    created_at: Timestamp
 """
 
 
@@ -37,7 +37,7 @@ def expression_facts(
 def _projected_source(connector: str, projections: str) -> str:
     return (
         _BOUNDARY_SHAPE
-        + f'source orders: Order is {connector}("orders")\n'
+        + f'source orders: Order = {connector}("orders")\n'
         + "table projected:\n"
         + "    from orders\n"
         + "    select:\n"

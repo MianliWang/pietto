@@ -196,9 +196,8 @@ def test_real_unfulfilled_obligation_is_refused_before_connect(tmp_path, monkeyp
         "postgres",
         """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on true
+    let r = rhs
+    inner join r on True
     select:
         value = lhs.id
 """,

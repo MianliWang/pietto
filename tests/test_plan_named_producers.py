@@ -126,7 +126,8 @@ def test_real_join_repeated_or_mixed_inputs_have_distinct_scoped_symbols(
     if mixed:
         text = text.replace('postgres.table("rhs")', 'mysql.table("lhs")')
     else:
-        text = text.replace("join rhs as r:", "join lhs as r:")
+        assert text.count("    let r = rhs\n") == 1
+        text = text.replace("    let r = rhs\n", "    let r = lhs\n")
     roots = _roots(tmp_path, text)
     assert roots[0].ok
     bindings, view = _binding_product(roots)
@@ -172,14 +173,13 @@ def test_imported_reexported_producer_keeps_defining_module_and_exact_trail(
     from pietto._project.project_sql_plan import ProjectSQLSymbolNamespace
 
     original = _chain().split("table second:", 1)[0]
-    (tmp_path / "a.pietto").write_text(original + "export:\n    table first\n")
+    (tmp_path / "a.pietto").write_text(original + "export table first\n")
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import (table first as Public)\nexport table Public\n'
     )
     roots = _roots(
         tmp_path,
-        """import "b.pietto":
-    table Public as Alias
+        """from "b.pietto" import (table Public as Alias)
 query result:
     from Alias
     select:
@@ -222,18 +222,16 @@ query result:
 
 def test_two_import_paths_share_definition_but_not_binding(tmp_path: Path) -> None:
     (tmp_path / "a.pietto").write_text(
-        _chain().split("table second:", 1)[0] + "export:\n    table first\n"
+        _chain().split("table second:", 1)[0] + "export table first\n"
     )
     for facade in ("b", "c"):
         (tmp_path / f"{facade}.pietto").write_text(
-            'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n'
+            'from "a.pietto" import (table first as Public)\nexport table Public\n'
         )
     roots = _roots(
         tmp_path,
-        """import "b.pietto":
-    table Public as Left
-import "c.pietto":
-    table Public as Right
+        """from "b.pietto" import (table Public as Left)
+from "c.pietto" import (table Public as Right)
 query result:
     union all:
         from Left
@@ -689,11 +687,11 @@ def test_import_provenance_and_defining_source_cannot_be_grafted(
     )
 
     (tmp_path / "a.pietto").write_text(
-        _source().split("query result:")[0] + "export:\n    source rows\n"
+        _source().split("query result:")[0] + "export source rows\n"
     )
     roots = _roots(
         tmp_path,
-        'import "a.pietto":\n    source rows as local\nquery result:\n    from local\n    select:\n        id\n',
+        'from "a.pietto" import (source rows as local)\nquery result:\n    from local\n    select:\n        id\n',
     )
     assert roots[0].ok
     bindings, _ = _binding_product(roots)

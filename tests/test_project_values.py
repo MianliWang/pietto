@@ -32,9 +32,9 @@ from pietto._project.project_values import ProjectValuesRelation
 from pietto.ast_nodes import ValuesRelationDef
 
 HEAD = """shape Row:
-    id: Int not null
-    key: Int nullable
-source lhs: Row is postgres.table("lhs")
+    id: Int
+    key: Int | None
+source lhs: Row = postgres.table("lhs")
 """
 
 
@@ -72,11 +72,11 @@ def _completed(tmp_path: Path, body: str):
 
 TYPED = (
     "query q:\n"
-    "    values(id: Int not null, f: Float nullable, b: Bool not null,"
-    " t: Text nullable):\n"
-    '        -9223372036854775808, -2.5, true, "it\'s"\n'
-    "        1, null, false, null\n"
-    "        1, null, false, null\n"
+    "    values(id: Int, f: Float | None, b: Bool,"
+    " t: Text | None):\n"
+    '        -9223372036854775808, -2.5, True, "it\'s"\n'
+    "        1, None, False, None\n"
+    "        1, None, False, None\n"
 )
 
 
@@ -131,7 +131,7 @@ def test_a_values_body_is_a_typed_zero_input_relation(tmp_path: Path) -> None:
 
 def test_a_zero_row_header_keeps_its_complete_typed_schema(tmp_path: Path) -> None:
     completed = _completed(
-        tmp_path, "table empty:\n    values(id: Int not null, t: Text nullable)\n"
+        tmp_path, "table empty:\n    values(id: Int, t: Text | None)\n"
     )
     assert completed.ok, completed.diagnostics
     assert completed.effective_outputs is not None
@@ -147,18 +147,18 @@ def test_a_zero_row_header_keeps_its_complete_typed_schema(tmp_path: Path) -> No
 
 def test_a_let_values_body_is_read_like_any_relation(tmp_path: Path) -> None:
     body = (
-        "query q:\n    let seed:\n        values(rid: Int not null):\n"
-        "            1\n    from lhs\n    inner join seed as s:\n        from lhs\n"
-        "        on lhs.id == s.rid\n    select:\n        id\n"
+        "query q:\n    let seed:\n        values(rid: Int):\n"
+        "            1\n    from lhs\n    let s = seed\n"
+        "    inner join s on lhs.id == s.rid\n    select:\n        id\n"
     )
     assert _check(tmp_path, body) == (0, [])
 
 
 def test_a_row_level_let_reads_the_values_schema(tmp_path: Path) -> None:
     body = (
-        "table seed:\n    values(id: Int not null, t: Text nullable):\n"
+        "table seed:\n    values(id: Int, t: Text | None):\n"
         '        1, "a"\n'
-        "query q:\n    from seed\n    let:\n        missing = t is null\n"
+        "query q:\n    from seed\n    let missing = t is None\n"
         "    where id > 0\n    select:\n        id\n        missing\n"
     )
     assert _check(tmp_path, body) == (0, [])
@@ -166,34 +166,26 @@ def test_a_row_level_let_reads_the_values_schema(tmp_path: Path) -> None:
 
 DIAGNOSTICS = {
     "duplicate_column": (
-        'query q:\n    values(id: Int not null, id: Text nullable):\n        1, "a"\n',
-        [("PIE-S2001", "Duplicate VALUES column name 'id'.", 6, 30, 6, 47)],
+        'query q:\n    values(id: Int, id: Text | None):\n        1, "a"\n',
+        [("PIE-S2001", "Duplicate VALUES column name 'id'.", 6, 21, 6, 36)],
     ),
+    # A bare column type is never None, so only the Decimal column is refused.
     "column_types": (
-        "query q:\n    values(id: Decimal not null, t: Text)\n",
+        "query q:\n    values(id: Decimal, t: Text)\n",
         [
             (
                 "PIE-S2361",
-                "VALUES column type must be Bool, Int, Float or Text followed by "
-                "'not null' or 'nullable'.",
+                "VALUES column type must be Bool, Int, Float or Text, optionally "
+                "followed by '| None'.",
                 6,
                 16,
                 6,
-                32,
-            ),
-            (
-                "PIE-S2361",
-                "VALUES column type must be Bool, Int, Float or Text followed by "
-                "'not null' or 'nullable'.",
-                6,
-                37,
-                6,
-                41,
+                23,
             ),
         ],
     ),
     "row_width": (
-        "query q:\n    values(id: Int not null, t: Text nullable):\n        1\n"
+        "query q:\n    values(id: Int, t: Text | None):\n        1\n"
         '        1, "a", 3\n',
         [
             ("PIE-S2362", "VALUES row has 1 values for 2 columns.", 7, 9, 7, 10),
@@ -201,14 +193,14 @@ DIAGNOSTICS = {
         ],
     ),
     "row_let_unknown_field": (
-        "table seed:\n    values(id: Int not null):\n        1\n"
-        "query q:\n    from seed\n    let:\n        x = nope\n"
+        "table seed:\n    values(id: Int):\n        1\n"
+        "query q:\n    from seed\n    let x = nope\n"
         "    select:\n        x\n",
-        [("PIE-S2102", "Unknown field: nope", 11, 13, 11, 17)],
+        [("PIE-S2102", "Unknown field: nope", 10, 13, 10, 17)],
     ),
     "not_a_literal": (
-        "query q:\n    values(id: Int not null, t: Text nullable):\n"
-        '        1 + 1, upper("a")\n        id, null\n',
+        "query q:\n    values(id: Int, t: Text | None):\n"
+        '        1 + 1, upper("a")\n        id, None\n',
         [
             (
                 "PIE-S2363",
@@ -220,9 +212,9 @@ DIAGNOSTICS = {
         ],
     ),
     "cell_type": (
-        "query q:\n    values(id: Int not null, f: Float nullable, b: Bool not null):\n"
-        "        1.5, 1, 1\n        null, null, null\n"
-        "        9223372036854775808, -1.0, true\n",
+        "query q:\n    values(id: Int, f: Float | None, b: Bool):\n"
+        "        1.5, 1, 1\n        None, None, None\n"
+        "        9223372036854775808, -1.0, True\n",
         [
             (
                 "PIE-S2364",
@@ -230,19 +222,17 @@ DIAGNOSTICS = {
                 *span,
             )
             for name, declared, span in (
-                ("id", "Int not null", (7, 9, 7, 12)),
-                ("f", "Float nullable", (7, 14, 7, 15)),
-                ("b", "Bool not null", (7, 17, 7, 18)),
-                ("id", "Int not null", (8, 9, 8, 13)),
-                ("b", "Bool not null", (8, 21, 8, 25)),
-                ("id", "Int not null", (9, 9, 9, 28)),
+                ("id", "Int", (7, 9, 7, 12)),
+                ("f", "Float | None", (7, 14, 7, 15)),
+                ("b", "Bool", (7, 17, 7, 18)),
+                ("id", "Int", (8, 9, 8, 13)),
+                ("b", "Bool", (8, 21, 8, 25)),
+                ("id", "Int", (9, 9, 9, 28)),
             )
         ],
     ),
     "column_limit": (
-        "query q:\n    values("
-        + ", ".join(f"c{i}: Int not null" for i in range(65))
-        + ")\n",
+        "query q:\n    values(" + ", ".join(f"c{i}: Int" for i in range(65)) + ")\n",
         [
             (
                 "PIE-S2365",
@@ -250,12 +240,12 @@ DIAGNOSTICS = {
                 6,
                 5,
                 6,
-                1236,
+                651,
             )
         ],
     ),
     "row_limit": (
-        "query q:\n    values(id: Int not null):\n" + "        1\n" * 1001,
+        "query q:\n    values(id: Int):\n" + "        1\n" * 1001,
         [
             (
                 "PIE-S2365",
@@ -268,7 +258,7 @@ DIAGNOSTICS = {
         ],
     ),
     "unread_let": (
-        "query q:\n    let v:\n        values(id: Int not null):\n            1\n"
+        "query q:\n    let v:\n        values(id: Int):\n            1\n"
         "    from lhs\n    select:\n        id\n",
         [("PIE-S2359", "Let relation v is never read.", 6, 5, 8, 14)],
     ),
@@ -284,14 +274,12 @@ def test_each_rejected_values_shape_has_its_own_diagnostic(
 
 
 SEED_LET = (
-    "    let seed:\n        values(id: Int not null, t: Text nullable):\n"
-    '            1, "a"\n            2, null\n'
+    "    let seed:\n        values(id: Int, t: Text | None):\n"
+    '            1, "a"\n            2, None\n'
 )
-SEED_QUERY = (
-    'query v:\n    values(id: Int not null, t: Text nullable):\n        1, "a"\n'
-)
+SEED_QUERY = 'query v:\n    values(id: Int, t: Text | None):\n        1, "a"\n'
 COMPUTED_KEY = (
-    "    let:\n        big = 1 if id > 1 else 0\n    group by:\n        big\n"
+    "    let big = 1 if id > 1 else 0\n    group by:\n        big\n"
     "    select:\n        b = big\n        total = count()\n"
 )
 # A VALUES input keeps the limits of a set operation input: grouping over it,
@@ -299,11 +287,11 @@ COMPUTED_KEY = (
 GROUPED = {
     "computed_key_over_a_let": (
         "query q:\n" + SEED_LET + "    from seed\n" + COMPUTED_KEY,
-        (5, 17),
+        (5, 16),
     ),
     "computed_key_over_a_values_query": (
         SEED_QUERY + "query q:\n    from v\n" + COMPUTED_KEY,
-        (8, 16),
+        (8, 15),
     ),
     "field_key_over_a_values_query": (
         SEED_QUERY + "query q:\n    from v\n    group by:\n        id\n"
@@ -313,9 +301,9 @@ GROUPED = {
     "joined_computed_key_over_a_let": (
         "query q:\n"
         + SEED_LET
-        + "    from lhs\n    inner join seed as s:\n        from lhs\n"
-        "        on lhs.id == s.id\n" + COMPUTED_KEY.replace("if id", "if s.id"),
-        (5, 20),
+        + "    from lhs\n    let s = seed\n    inner join s on lhs.id == s.id\n"
+        + COMPUTED_KEY.replace("if id", "if s.id"),
+        (5, 18),
     ),
 }
 
@@ -346,7 +334,7 @@ def test_a_values_let_may_be_read_twice_and_forward(tmp_path: Path) -> None:
 
 
 def test_at_the_static_bounds_a_values_body_is_accepted(tmp_path: Path) -> None:
-    columns = ", ".join(f"c{i}: Int not null" for i in range(64))
+    columns = ", ".join(f"c{i}: Int" for i in range(64))
     row = ", ".join("0" for _ in range(64))
     body = "query q:\n    values(" + columns + "):\n" + f"        {row}\n" * 1000
     assert _check(tmp_path, body) == (0, [])
@@ -360,7 +348,7 @@ def test_values_is_available_only_in_explicit_module_projects(
         "schema_version = 2", f"schema_version = {schema_version}"
     )
     code, diagnostics = _check(
-        tmp_path, "query q:\n    values(id: Int not null):\n        1\n", config=config
+        tmp_path, "query q:\n    values(id: Int):\n        1\n", config=config
     )
     if schema_version == 2:
         assert (code, diagnostics) == (0, [])

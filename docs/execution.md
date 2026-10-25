@@ -1,10 +1,10 @@
 # Execution (public alpha)
 
-**Version:** This document describes the public alpha API of the `0.1.4`
+**Version:** This document describes the public alpha API of the `0.1.5`
 candidate. Release availability is established only when the exact accepted
-files appear on the versioned GitHub pre-release and PyPI `0.1.4` channels.
+files appear on the versioned GitHub pre-release and PyPI `0.1.5` channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
-`0.1.3` distributions and this candidate select `pyarrow==26.0.0`. The
+`0.1.3` and `0.1.4` distributions and this candidate select `pyarrow==26.0.0`. The
 historical `0.1.1` wheel does not provide this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
@@ -67,7 +67,7 @@ execution or a supported Windows profile.
 
 ## Install
 
-The `0.1.4` distribution exposes `pietto.execution` when it is released. Install its selected
+The `0.1.5` distribution exposes `pietto.execution` when it is released. Install its selected
 `execute-postgres`, `execute-postgres-adbc`, or `execute-mysql` extra in a
 fresh environment, or build a wheel from the matching checkout. The PostgreSQL
 rows extra adds `psycopg[binary]==3.3.5`; PostgreSQL ADBC adds
@@ -76,6 +76,13 @@ adds `mysql-connector-python==26.7.0`; all select `pyarrow==26.0.0`. Compiling,
 exporting and loading a bundle and an unopened `execute()` need none of these
 extras. Without the selected route closure, opening an attempt is refused with
 `PIE-R2001` before any connection; another installed driver is never a fallback.
+
+Pietto source examples below use the modern syntax of this checkout. Installed
+release documentation remains the authority for that release's source surface;
+the retained package version and `pietto NUMBER` metadata do not select syntax.
+Source migration, when needed, is the separate stdout-only `pietto migrate PATH`
+command. It does not migrate compiled bundles or saved-job records, whose code
+identity and compatibility requirements remain unchanged.
 
 ## Example
 
@@ -102,10 +109,10 @@ include = ["*.pietto"]
 
 ```pietto
 shape Item:
-    id: Int not null
-    label: Text not null
+    id: Int
+    label: Text
 
-source items: Item is postgres.table("fixture.items")
+source items: Item = postgres.table("fixture.items")
 
 table active_items:
     from items
@@ -213,7 +220,7 @@ except RequestRejected as error:
 
 ### Saved-result API
 
-These APIs are public alpha in `0.1.4`. They do not add a CLI database
+These APIs are public alpha in `0.1.5`. They do not add a CLI database
 command. Existing `check`, `emit-sql`, text output and JSON output keep their
 contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
 `--output` reports its clear output error through the established CLI result
@@ -299,14 +306,16 @@ before any connection or workspace. After that source
 check, `save_recoverable` and `recover` refuse five shapes that are not R2
 shapes yet with `PIE-R1004` before any workspace access or connection, in this
 order: first a statement in which the query, or a relation it reads, groups by
-a value that relation's own `let:` computes (detail
+a value that relation's own `let` computes (detail
 `PUBLIC_R2_COMPUTED_GROUP_KEY`), then a query with a typed VALUES body, even
 one read beside a physical source (`PUBLIC_R2_VALUES_COORDINATE_BASIS`: a
 fixed row has no recovery coordinate), then a query with a table-function
 input, even one read beside a physical source
 (`PUBLIC_R2_TABLE_FUNCTION_COORDINATE_BASIS`: a generated row has none
 either), then a query with an `exists`, `scalar` or `in` read, including such
-a read of a let with `capture` lines, with or without its ORDER BY and LIMIT
+a read of a let with `capture` lines, with or without its ORDER BY and LIMIT,
+or with an `any` or `not any` test that is not a filter of a JOIN prefix (as a
+JOIN-prefix filter it is a JOIN; elsewhere it is such a read)
 (`REFINEMENT_EXPRESSION_BLOCK_READ`), then a query with a JOIN that reads a
 let with `capture` lines LATERAL, with or without its ORDER BY and LIMIT
 (`REFINEMENT_LATERAL_JOIN`). These checks read the live query alone, so
@@ -771,17 +780,19 @@ Slot order is the compiler's order of the literals:
 
 - The tables and queries that the query reads come first, each after the ones
   it reads, then the query itself. This is the compiler's schedule, not the
-  order in which the query names its inputs: in a `union all` of `from a` and
-  `from b`, the literals of `b` come first when `b` is declared before `a`. A
-  table that the query reads twice contributes its literals once. The relation
+  order in which the query names its inputs: in `union all a, b`, the
+  literals of `b` come first when `b` is declared before `a`. A table that the
+  query reads twice contributes its literals once. The relation
   lets of a table or query come before it, each after the lets it reads and
   otherwise in the order they are written; a let read twice also contributes
   its literals once.
-- Within one table or query, the literals of its row-level `let:` come before
-  those of `where`, and those before the ones of `select`; each expression is
-  read from left to right. With `let: bonus = id + 30`, `where id > 1 and
-  label != "x"` and `select: more = bonus + 7`, the slots are `30`, `1`, `"x"`
-  and `7`.
+- In a simple row query, literals of scalar `let` values precede WHERE and
+  SELECT literals; each expression is read from left to right. With
+  `let bonus = id + 30`, `where id > 1 and label != "x"` and
+  `select more = bonus + 7`, the slots are `30`, `1`, `"x"` and `7`.
+  For expressions containing nested ANY or scalar expansion, consume the
+  compiler's actual `fixed_values` and `parameter_uses`; source name order is
+  not an alternative binding order.
 - The live query's `emission` shows every slot: `fixed_values[i]` is slot `i`
   with its tag and compiled value, and the `ranges` entry of kind `parameter`
   whose `subject` is that record's `site` locates the literal in your source
@@ -814,8 +825,8 @@ The values:
 ## Parameters
 
 A query can declare named parameters in its header, for example
-`query since(low: Int not null, note: Text nullable):`, and read them in `let`,
-`where`, JOIN `on`, the items of an ungrouped `select`, `satisfying`, `qualify`
+`query since(low: Int, note: Text | None):`, and read them in `let`,
+`where`, JOIN `on`, the items of an ungrouped `select`, `having`, `qualify`
 and ORDER BY keys, in a grouped query through a computed `let` group key or a
 `count`, `avg`, `min` or `max` of one `let`, and as a window argument: an
 `Int` or `Float` value, an `Int` `lag`/`lead` default, offset, `ntile` bucket
@@ -838,8 +849,8 @@ each parameter as `(name, tag, nullable)` in declaration order, for example
   `BINDING_PARAMETERS`.
 - Each value has its parameter's exact type, as for slots (see
   [Values](#values)); nothing is converted. `None` is accepted only for a
-  `nullable` parameter and sends a typed NULL. Any other value is refused with
-  `PIE-R1006` and `detail` `BINDING_PARAMETER:<ordinal>:<tag>`, where
+  parameter declared with `| None` and sends a typed NULL. Any other value is
+  refused with `PIE-R1006` and `detail` `BINDING_PARAMETER:<ordinal>:<tag>`, where
   `<ordinal>` is the 0-based declaration position; neither shows the value.
 - A value-dependent check that the template could not decide, listed as the
   artifact's `binding_obligations` (an `Int` result range, a `Text` result
@@ -1372,6 +1383,15 @@ until the process exits; the deadline itself only cancels a statement that is
 still running. Interpreter exit waits for the deadline timer, up to
 `limits.seconds`. Use `with`.
 
+Modern query constructs still cross the same compile/execute boundary.
+Shape-typed relationships are compile-time predicates over explicit row inputs;
+`any(predicate for row in relation)` is a non-null Bool value whose binder stays
+local. Neither form writes to a database or promises foreign-key coverage.
+An iterable source used only inside ANY is not exempt from source qualification.
+The selected target, deployment premise, retained physical facts and applicable
+execution/recovery route must all admit the compiled query. Syntax acceptance
+or a successful semantic check alone establishes none of those premises.
+
 ## Known limitations
 
 - The PostgreSQL rows route reads the whole native result into client memory at
@@ -1408,18 +1428,30 @@ still running. Interpreter exit waits for the deadline timer, up to
   environment that built it); there is no migration between versions. The
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
-  A bundle or saved-job record made under `0.1.3` or earlier is refused under
-  `0.1.4` by the changed code identity. The old bytes are preserved; use their
+  A bundle or saved-job record made under `0.1.4` or earlier is refused under
+  `0.1.5` by the changed code identity. The old bytes are preserved; use their
   matching old environment. Pietto supplies no migration or rewrite.
 - The pin of a bundle is a content identity, not a signature, and protects the
   bytes only when it comes from your own records. There is no signing,
   registry or revocation.
 - Bundles with a guard program or a refinement, which `compile_query` does not
   produce, are refused (`PIE-R1004`).
-- R2 checks every page against its own reading of the native SQL, which does
-  not yet read conditional (`if ... else`), `between`, literal-list `in`,
-  `cast`, scalar-call or `not` expressions. An R2 attempt whose statement
-  contains one fails closed at its first page.
+- R2 checks every page against its own reading of native SQL. Its existing
+  unsupported expression domain includes conditional CASE, BETWEEN,
+  literal-list IN, CAST, scalar calls and NOT. Modern source spellings such as
+  an inclusive comparison chain or `Float(value)` still lower to the
+  corresponding SQL operations and do not remove this boundary. An R2 attempt
+  whose statement contains such an unsupported form fails closed at its first
+  page.
+- `semi join` and `anti join` are retired; `where any(...)` and
+  `where not any(...)` replace them. A filter before a later JOIN is a
+  JOIN-prefix filter, which R2 treats as the JOIN it replaces. A trailing
+  `where any(...)` or `where not any(...)` after the last JOIN, including the
+  form that `pietto migrate` writes for a last `semi join` or `anti join`, is an
+  existence read, so `save_recoverable` and `recover` refuse it with
+  `PIE-R1004` (`REFINEMENT_EXPRESSION_BLOCK_READ`) where R2 accepted that last
+  JOIN. Ordinary execution, an ordinary `save` and bundles accept it. R2
+  support for a trailing correlated EXISTS is planned for a later release.
 - `cancel()` asks the route's control owner to cancel a running attempt and
   returns `None`; its `Outcome` keeps the observed cancellation, transaction and
   cleanup facts. A deadline and server-side statement limit remain separate, and

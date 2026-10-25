@@ -45,7 +45,7 @@ def test_cross_file_relation_namespace_references_resolve(tmp_path: Path) -> Non
     _write(
         root,
         "models/a_source.pietto",
-        'shape Row:\n    id: Int\nsource raw: Row is postgres.table("raw")\n',
+        'shape Row:\n    id: Int\nsource raw: Row = postgres.table("raw")\n',
     )
     _write(
         root,
@@ -137,7 +137,7 @@ def test_a_set_operation_input_is_refused_as_in_a_single_file(tmp_path: Path) ->
     _write(
         root,
         "set_input.pietto",
-        'shape U:\n    id: Int not null\nsource us: U is postgres.table("us")\n'
+        'shape U:\n    id: Int\nsource us: U = postgres.table("us")\n'
         "table a1:\n    from us\n    select:\n        id\n"
         "query q:\n    union distinct:\n        from a1\n        from a1\n"
         "query q2:\n    from q\n    select:\n        id\n",
@@ -163,6 +163,70 @@ def test_a_set_operation_input_is_refused_as_in_a_single_file(tmp_path: Path) ->
     )
 
 
+@pytest.mark.parametrize("schema_version", (1, 2))
+def test_a_legacy_flat_join_on_names_the_schema_version_that_checks_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], schema_version: int
+) -> None:
+    """A schema_version = 1 project has no JOIN in the current syntax: each
+    JOIN `on`, a relationship call or another condition, is PIE-S2334 at the
+    `on`, once, naming the way out; schema_version = 2 checks the file."""
+    root = _project_root(tmp_path, include=("*.pietto",))
+    config = root / "pietto.toml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            "schema_version = 1", f"schema_version = {schema_version}"
+        ),
+        encoding="utf-8",
+    )
+    _write(
+        root,
+        "joins.pietto",
+        "shape Order:\n    id: Int\n    customer_id: Int | None\n"
+        "shape Customer:\n    id: Int\n    name: Text\n"
+        'source orders: Order = postgres.table("orders")\n'
+        'source customers: Customer = postgres.table("customers")\n'
+        "relationship order_customer(o: Order, c: Customer): o.customer_id == c.id\n"
+        "query by_call:\n    from orders\n    let customer = customers\n"
+        "    inner join customer on order_customer(orders, customer)\n"
+        "    select:\n        name = customer.name\n"
+        "query by_condition:\n    from orders\n"
+        "    left join customers on orders.customer_id == customers.id\n"
+        "    select:\n        name = customers.name\n",
+    )
+
+    code = cli.main(["check", "--project", str(root), "--format", "json"])
+
+    diagnostics = [
+        (d["code"], d["message"], d["location"])
+        for d in json.loads(capsys.readouterr().out)["diagnostics"]
+    ]
+    if schema_version == 2:
+        assert (code, diagnostics) == (0, [])
+        return
+    tail = ": a schema_version = 1 project has no JOIN in the current syntax; "
+    tail += "set schema_version = 2 to check it."
+    assert (code, diagnostics) == (
+        1,
+        [
+            (
+                "PIE-S2334",
+                f"JOIN {binding}{tail}",
+                {
+                    "path": "joins.pietto",
+                    "line": line,
+                    "column": 25,
+                    "end_line": line,
+                    "end_column": end_column,
+                },
+            )
+            for binding, line, end_column in (
+                ("customer", 13, 60),
+                ("customers", 18, 62),
+            )
+        ],
+    )
+
+
 def test_duplicate_relation_symbols_short_circuit_relation_resolution(
     tmp_path: Path,
 ) -> None:
@@ -172,7 +236,7 @@ def test_duplicate_relation_symbols_short_circuit_relation_resolution(
         "duplicate_relation.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "table rows:\n"
         "    from missing_relation\n"
         "    select:\n"
@@ -202,7 +266,7 @@ def test_type_and_relation_diagnostics_coexist_in_deterministic_order(
         root,
         "mixed_diagnostics.pietto",
         "type Alias = MissingType\n"
-        'source rows: MissingShape is postgres.table("rows")\n'
+        'source rows: MissingShape = postgres.table("rows")\n'
         "table projected:\n"
         "    from missing_relation\n"
         "    select:\n"
@@ -262,24 +326,26 @@ def test_relation_cycles_emit_project_cycle_diagnostics(tmp_path: Path) -> None:
     ]
 
 
-def test_sources_and_relationship_metadata_endpoints_are_out_of_scope(
+def test_sources_and_relationship_predicate_roles_are_out_of_scope(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
+    # Before: legacy endpoint metadata (`endpoint missing: missing_endpoint`),
+    # which the modern parser refuses; a relationship predicate's role names a
+    # shape, here an unknown one, never a relation.
     _write(
         root,
         "relationship_deferred.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "relationship external:\n"
-        "    endpoint known: rows\n"
-        "    endpoint missing: missing_endpoint\n",
+        'source rows: Row = postgres.table("rows")\n'
+        "relationship external(known: Row, missing: MissingShape):\n"
+        "    known.id == missing.id\n",
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
 
-    assert parse_result.parsed_inputs[0].script.relationships
+    assert parse_result.parsed_inputs[0].script.relationship_templates
     assert semantic_result.ok
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
@@ -295,7 +361,7 @@ def test_project_json_v2_does_not_expose_relation_resolution_facts(
         "good.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"

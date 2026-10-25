@@ -324,7 +324,9 @@ The exact `order_by` facts are:
 
 C04 is supported because no-GROUP input ordering reuses row expression typing
 and has no independent result-type or orderability check. Select output aliases
-do not create its name scope. Evidence proceeds from order grammar/AST through
+do not create its name scope: only a key that is one output name alone reads
+that output (see the name rule after `select` in `docs/language.md`), and a
+key expression reads no output name. Evidence proceeds from order grammar/AST through
 row inference/model, order IR and lowering, PostgreSQL then private MySQL
 rendering, roadmap, input-order/alias/qualified-field/row-let tests, and the
 order and row-let contracts.

@@ -49,10 +49,10 @@ TEST_REL = "tests/test_semantic_rust_ready_pure_boundaries_differential_vectors.
 
 _SHAPE_PREFIX = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    category: Text nullable\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    category: Text | None\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 
 _SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
@@ -99,9 +99,12 @@ def _inspection(
 
 def _facade_sources() -> dict[str, str]:
     return {
-        "base.pietto": (_SHAPE_PREFIX + "export:\n    shape Row\n    source rows\n"),
+        "base.pietto": (_SHAPE_PREFIX + "export shape Row, source rows\n"),
         "main.pietto": (
-            'import "base.pietto":\n    shape Row\n    source rows as r\n'
+            'from "base.pietto" import (\n'
+            "    shape Row,\n"
+            "    source rows as r,\n"
+            ")\n"
             "query result:\n    from r\n    select:\n        id\n        amount\n"
         ),
     }
@@ -110,29 +113,24 @@ def _facade_sources() -> dict[str, str]:
 def _cycle_sources() -> dict[str, str]:
     return {
         "a.pietto": (
-            'import "b.pietto":\n    shape S\nexport:\n    shape T\nshape T:\n'
-            "    id: Int\n"
+            'from "b.pietto" import shape S\nexport shape T\nshape T:\n    id: Int\n'
         ),
         "b.pietto": (
-            'import "a.pietto":\n    shape T\nexport:\n    shape S\nshape S:\n'
-            "    id: Int\n"
+            'from "a.pietto" import shape T\nexport shape S\nshape S:\n    id: Int\n'
         ),
     }
 
 
 _RICH_QUERY = (
     "    from rows\n"
-    "    let:\n"
-    "        key = id\n"
+    "    let key = id\n"
     "    group by:\n"
     "        key\n"
     "    select:\n"
     "        id\n"
     "        total = sum(amount)\n"
-    "        position = rank() window:\n"
-    "            order by:\n"
-    "                total desc\n"
-    "    satisfying:\n"
+    "        position = rank() window(order by total desc)\n"
+    "    having:\n"
     "        total > 0\n"
     "    order by:\n"
     "        position\n"
@@ -141,13 +139,12 @@ _RICH_QUERY = (
 
 def _alias_chain_sources() -> dict[str, str]:
     return {
-        "base.pietto": "type Years = Int\nexport:\n    type Years\n",
+        "base.pietto": "type Years = Int\nexport type Years\n",
         "mid.pietto": (
-            'import "base.pietto":\n    type Years\ntype Age = Years\n'
-            "export:\n    type Age\n"
+            'from "base.pietto" import type Years\ntype Age = Years\nexport type Age\n'
         ),
         "leaf.pietto": (
-            'import "mid.pietto":\n    type Age\nshape Person:\n    age: Age\n'
+            'from "mid.pietto" import type Age\nshape Person:\n    age: Age\n'
         ),
     }
 
@@ -163,11 +160,10 @@ def _bootstrap_fixtures() -> dict[str, dict[str, str]]:
         "non_ascii": {"模块é.pietto": _SHAPE_PREFIX},
         "rich": {"rich.pietto": _SHAPE_PREFIX + "query rich:\n" + _RICH_QUERY},
         "alias_chain": _alias_chain_sources(),
-        "unresolved_import": {"a.pietto": 'import "missing.pietto":\n    shape Nope\n'},
+        "unresolved_import": {"a.pietto": 'from "missing.pietto" import shape Nope\n'},
         "ambiguous_export": {
             "a.pietto": (
-                "shape Row:\n    id: Int\nshape Row:\n    id: Int\n"
-                "export:\n    shape Row\n"
+                "shape Row:\n    id: Int\nshape Row:\n    id: Int\nexport shape Row\n"
             )
         },
     }

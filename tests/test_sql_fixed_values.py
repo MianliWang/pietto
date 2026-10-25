@@ -233,7 +233,7 @@ def test_complete_shape_and_representation_boundaries(
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_between_is_an_admitted_fixed_value_projection(tmp_path, target):
     item = probe.native_fixture(target, "preserve")
-    source = item["source"].replace("id = id", "value = id between 0 and 1")
+    source = item["source"].replace("id = id", "value = 0 <= id <= 1")
     checked, outcome = probe.build_case(
         tmp_path, source, item["contract"], item["policy"]
     )
@@ -251,7 +251,7 @@ def test_untyped_null_retains_the_original_unavailable_root(tmp_path, target):
     item = probe.native_fixture(target, "preserve")
     checked, outcome = probe.build_case(
         tmp_path,
-        item["source"].replace("id = id", "value = null"),
+        item["source"].replace("id = id", "value = None"),
         item["contract"],
         item["policy"],
     )
@@ -567,7 +567,7 @@ def test_unrelated_sources_keep_structure_without_selected_applicability(
     other = "mysql" if target == "postgres" else "postgres"
     checked, outcome = probe.build_case(
         tmp_path,
-        item["source"] + f'\nsource unused: Row is {other}.table("unrelated")\n',
+        item["source"] + f'\nsource unused: Row = {other}.table("unrelated")\n',
         probe.encoded(contract),
         item["policy"],
     )

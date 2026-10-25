@@ -52,18 +52,18 @@ TEST_REL = "tests/test_project_module_qualified_nominal_declaration_catalogs.py"
 
 
 EIGHT_KIND_SOURCE = (
-    "type Email = Text not null\n"
+    "type Email = Text\n"
     "enum Status:\n"
     "    active\n"
     "    inactive\n"
-    "constraint valid_email(value: Text not null) -> Bool not null:\n"
-    '    matches(value, "@")\n'
-    "derive normalized_email(value: Text not null) -> Text not null:\n"
-    "    lower(trim(value))\n"
+    "constraint valid_email(value: Text) -> Bool:\n"
+    '    return matches(value, "@")\n'
+    "derive normalized_email(value: Text) -> Text:\n"
+    "    return lower(trim(value))\n"
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    'source users: User is postgres.table("public.users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    'source users: User = postgres.table("public.users")\n'
     "table FirstRelation:\n"
     "    from users\n"
     "    select:\n"
@@ -327,19 +327,18 @@ def test_relationships_imports_and_exports_are_excluded_from_local_declaration_o
     source = (
         "shape User:\n"
         "    id: Int\n"
-        "relationship membership:\n"
-        "    endpoint member: users\n"
-        "    endpoint group: groups\n"
-        'import "missing.pietto":\n'
-        "    shape External as Imported\n"
-        "export:\n"
-        "    shape User\n"
+        "relationship membership(member: User, group: User):\n"
+        "    member.id == group.id\n"
+        'from "missing.pietto" import (\n'
+        "    shape External as Imported)\n"
+        "export (\n"
+        "    shape User)\n"
     )
     module = _module(source)
     catalog = module_catalog._build_project_module_catalog_set((module,)).catalogs[0]
 
     assert module.parsed_input is not None
-    assert len(module.parsed_input.script.relationships) == 1
+    assert len(module.parsed_input.script.relationship_templates) == 1
     assert len(module.parsed_input.script.module_statements) == 2
     assert tuple(item.identity.declared_name for item in catalog.occurrences) == (
         "User",
@@ -544,7 +543,7 @@ def test_catalog_construction_never_reopens_sources_or_consults_import_targets_o
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _module(
-        'type Local = Int\nimport "does/not/exist.pietto":\n    type Remote as Alias\n'
+        'type Local = Int\nfrom "does/not/exist.pietto" import (\n    type Remote as Alias)\n'
     )
 
     def forbidden(*_args: object, **_kwargs: object) -> Any:
@@ -582,7 +581,7 @@ def test_same_spelling_in_different_namespaces_has_distinct_identity_and_lookup_
     None
 ):
     catalog = _catalog(
-        "type shared = Int\nconstraint shared(value: Int) -> Bool:\n    value > 0\n"
+        "type shared = Int\nconstraint shared(value: Int) -> Bool:\n    return value > 0\n"
     )
     identities = tuple(item.identity for item in catalog.occurrences)
 
@@ -836,13 +835,13 @@ def test_import_export_blocks_do_not_add_remove_rename_reorder_or_link_local_dec
     None
 ):
     definitions = (
-        'shape Row:\n    id: Int\nsource rows: Row is postgres.table("public.rows")\n'
+        'shape Row:\n    id: Int\nsource rows: Row = postgres.table("public.rows")\n'
     )
     module_statements = (
-        'import "missing.pietto":\n'
-        "    shape External as Imported\n"
-        "export:\n"
-        "    shape Row\n"
+        'from "missing.pietto" import (\n'
+        "    shape External as Imported)\n"
+        "export (\n"
+        "    shape Row)\n"
     )
     plain = _catalog(definitions)
     enriched_module = _module(definitions + module_statements)

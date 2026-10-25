@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import textwrap
-from pathlib import Path
 from typing import Any, cast
 
 
@@ -13,13 +12,15 @@ from antlr4.Token import Token
 from pietto.errors import Diagnostic, DiagnosticErrorListener, Severity
 from pietto.generated.PiettoLexer import PiettoLexer
 from pietto.generated.PiettoParser import PiettoParser
-from pietto.indentation import find_leading_tab_diagnostics, inject_indentation
+from pietto.indentation import (
+    find_leading_tab_diagnostics,
+    inject_indentation,
+    join_parenthesized_lines,
+)
 from pietto.parser_api import parse_source
-from pietto.ast_nodes import QueryDef, WindowExpr
+from pietto.ast_nodes import NameExpr, QueryDef, WindowExpr
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-GRAMMAR_REL = "grammar/Pietto.g4"
 WINDOW_FUNCTION_NAMES = (
     "row_number",
     "rank",
@@ -30,10 +31,6 @@ WINDOW_FUNCTION_NAMES = (
     "lag",
     "lead",
 )
-
-
-def _read(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(encoding="utf-8")
 
 
 def _window_query(
@@ -49,8 +46,9 @@ def _window_query(
         "    from rows\n"
         "    select:\n"
         + "".join(f"        {item}\n" for item in before)
-        + f"        {projection} window:\n"
+        + f"        {projection} window(\n"
         + textwrap.indent(body_text, "            ")
+        + "        )\n"
         + "".join(f"        {item}\n" for item in after)
     )
 
@@ -74,8 +72,17 @@ def _raw_parse(
     lexer = PiettoLexer(InputStream(source))
     lexer.removeErrorListeners()
     lexer.addErrorListener(lexer_listener)
-    indentation = inject_indentation(
+    joined = join_parenthesized_lines(
         _raw_tokens(lexer),
+        newline_type=PiettoLexer.NEWLINE,
+        open_type=PiettoLexer.LPAREN,
+        close_type=PiettoLexer.RPAREN,
+        window_type=PiettoLexer.WINDOW,
+        colon_type=PiettoLexer.COLON,
+        path=path,
+    )
+    indentation = inject_indentation(
+        joined.tokens,
         newline_type=PiettoLexer.NEWLINE,
         indent_type=PiettoParser.INDENT,
         dedent_type=PiettoParser.DEDENT,
@@ -94,6 +101,7 @@ def _raw_parse(
         sorted(
             (
                 *lexer_listener.diagnostics,
+                *joined.diagnostics,
                 *find_leading_tab_diagnostics(source, path=path),
                 *indentation.diagnostics,
                 *parser_listener.diagnostics,
@@ -126,111 +134,81 @@ def _window_select_items(tree: Any) -> tuple[Any, ...]:
 
 
 RAW_POSITIVE_CASES = (
-    (
-        "order_only_omitted_direction",
-        _window_query("""
-            order by:
-                observed_at
-        """),
-        1,
-    ),
+    ("order_only_omitted_direction", _window_query("order by observed_at"), 1),
     (
         "one_partition_one_ascending_order",
-        _window_query("""
-            partition by:
-                account_id
-            order by:
-                observed_at asc
-        """),
+        _window_query("partition by account_id order by observed_at asc"),
         1,
     ),
     (
         "multiple_partition_mixed_order",
-        _window_query("""
-            partition by:
-                account_id
-                region
-            order by:
-                observed_at desc
-                sequence_id asc
-        """),
+        _window_query(
+            "partition by account_id, region\n"
+            "order by observed_at desc, sequence_id asc"
+        ),
         1,
     ),
     (
         "blank_lines",
         _window_query("""
-
-            partition by:
+            partition by
 
                 account_id
 
-            order by:
+            order by
 
                 observed_at
-
         """),
         1,
     ),
     (
         "qualified_call",
-        _window_query(
-            """
-            order by:
-                observed_at
-            """,
-            projection="rn = analytics.row_number()",
-        ),
+        _window_query("order by observed_at", projection="rn = analytics.row_number()"),
         1,
     ),
     (
         "arguments_and_trailing_comma",
-        _window_query(
-            """
-            order by:
-                observed_at
-            """,
-            projection="previous = lag(value, 1,)",
-        ),
+        _window_query("order by observed_at", projection="previous = lag(value, 1,)"),
         1,
     ),
     (
         "unrelated_function",
         _window_query(
-            """
-            partition by:
-                account_id
-            """,
-            projection="custom_value = custom(value)",
+            "partition by account_id", projection="custom_value = custom(value)"
         ),
         1,
     ),
     (
         "two_independent_windows",
-        (
-            "query ranked:\n"
-            "    from rows\n"
-            "    select:\n"
-            "        rn = row_number() window:\n"
-            "            order by:\n"
-            "                observed_at\n"
-            "        previous = lag(value, 1) window:\n"
-            "            partition by:\n"
-            "                account_id\n"
-            "            order by:\n"
-            "                observed_at desc\n"
-        ),
+        "query ranked:\n    from rows\n    select:\n"
+        "        rn = row_number() window(order by observed_at)\n"
+        "        previous = lag(value, 1) window(partition by account_id order by observed_at desc)\n",
         2,
     ),
     (
         "surrounding_ordinary_items",
-        _window_query(
-            """
-            order by:
-                observed_at
-            """,
-            before=("account_id",),
-            after=("value",),
-        ),
+        _window_query("order by observed_at", before=("account_id",), after=("value",)),
+        1,
+    ),
+    ("empty_window", _window_query(""), 1),
+    (
+        "continuation_at_select_indentation",
+        "query ranked:\n    from rows\n    select:\n"
+        "        rn = row_number() window(\n"
+        "        order by observed_at\n        )\n",
+        1,
+    ),
+    (
+        "continuation_indentation",
+        "query ranked:\n    from rows\n    select:\n"
+        "        rn = row_number() window(\n"
+        "            order by observed_at,\n"
+        "              sequence_id\n        )\n",
+        1,
+    ),
+    (
+        "qualify",
+        _window_query("order by observed_at") + "    qualify rn == 1\n",
         1,
     ),
 )
@@ -244,152 +222,44 @@ GENERIC_EXPRESSION_CASES = (
 
 RAW_NEGATIVE_CASES = (
     (
-        "missing_window_colon",
-        _window_query("""
-            order by:
-                observed_at
-        """).replace(" window:\n", " window\n", 1),
+        "missing_select_indent",
+        _window_query("order by observed_at").replace("        rn =", "    rn =", 1),
     ),
     (
-        "missing_outer_window_indent",
-        (
-            "query ranked:\n"
-            "    from rows\n"
-            "    select:\n"
-            "        rn = row_number() window:\n"
-            "        order by:\n"
-            "            observed_at\n"
+        "tab_continuation",
+        _window_query("order by observed_at").replace(
+            "            order", "\torder", 1
         ),
     ),
-    (
-        "inconsistent_nested_indent",
-        (
-            "query ranked:\n"
-            "    from rows\n"
-            "    select:\n"
-            "        rn = row_number() window:\n"
-            "            order by:\n"
-            "                observed_at\n"
-            "              sequence_id\n"
-        ),
-    ),
-    (
-        "empty_window",
-        "query ranked:\n    from rows\n    select:\n        rn = row_number() window:\n",
-    ),
-    (
-        "empty_partition",
-        (
-            "query ranked:\n"
-            "    from rows\n"
-            "    select:\n"
-            "        rn = row_number() window:\n"
-            "            partition by:\n"
-            "            order by:\n"
-            "                observed_at\n"
-        ),
-    ),
-    (
-        "empty_order",
-        (
-            "query ranked:\n"
-            "    from rows\n"
-            "    select:\n"
-            "        rn = row_number() window:\n"
-            "            order by:\n"
-        ),
-    ),
+    ("empty_partition", _window_query("partition by order by observed_at")),
+    ("empty_order", _window_query("order by")),
     (
         "duplicate_partition",
-        _window_query("""
-            partition by:
-                account_id
-            partition by:
-                region
-            order by:
-                observed_at
-        """),
+        _window_query(
+            "partition by account_id partition by region order by observed_at"
+        ),
     ),
-    (
-        "duplicate_order",
-        _window_query("""
-            order by:
-                observed_at
-            order by:
-                sequence_id
-        """),
-    ),
+    ("duplicate_order", _window_query("order by observed_at order by sequence_id")),
     (
         "partition_after_order",
-        _window_query("""
-            order by:
-                observed_at
-            partition by:
-                account_id
-        """),
+        _window_query("order by observed_at partition by account_id"),
     ),
-    (
-        "unknown_subclause",
-        _window_query("""
-            cluster by:
-                account_id
-        """),
-    ),
-    (
-        "nulls_first",
-        _window_query("""
-            order by:
-                observed_at nulls first
-        """),
-    ),
-    (
-        "nulls_last",
-        _window_query("""
-            order by:
-                observed_at nulls last
-        """),
-    ),
-    (
-        "qualify",
-        _window_query("""
-            order by:
-                observed_at
-        """)
-        + "    qualify rn == 1\n",
-    ),
+    ("unknown_subclause", _window_query("cluster by account_id")),
+    ("nulls_first", _window_query("order by observed_at nulls first")),
+    ("nulls_last", _window_query("order by observed_at nulls last")),
     (
         "multiple_window_suffixes",
-        _window_query("""
-            order by:
-                observed_at
-        """)
-        + "        window:\n            order by:\n                sequence_id\n",
+        _window_query("order by observed_at")
+        + "        window(order by sequence_id)\n",
     ),
     (
         "suffix_on_non_call_shape",
-        _window_query(
-            """
-            order by:
-                observed_at
-            """,
-            projection="rn = (row_number())",
-        ),
+        _window_query("order by observed_at", projection="rn = (row_number())"),
     ),
-    (
-        "malformed_order_item",
-        _window_query("""
-            order by:
-                observed_at +
-        """),
-    ),
+    ("malformed_order_item", _window_query("order by observed_at +")),
     (
         "malformed_partition_item",
-        _window_query("""
-            partition by:
-                account_id +
-            order by:
-                observed_at
-        """),
+        _window_query("partition by account_id + order by observed_at"),
     ),
 )
 
@@ -398,8 +268,7 @@ FAIL_CLOSED_CASES = (
         "qualified",
         _window_query(
             """
-            order by:
-                observed_at
+            order by observed_at
             """,
             projection="rn = analytics.row_number()",
         ),
@@ -409,8 +278,7 @@ FAIL_CLOSED_CASES = (
         "arguments",
         _window_query(
             """
-            order by:
-                observed_at
+            order by observed_at
             """,
             projection="previous = lag(value, 1)",
         ),
@@ -420,8 +288,7 @@ FAIL_CLOSED_CASES = (
         "unrelated",
         _window_query(
             """
-            partition by:
-                account_id
+            partition by account_id
             """,
             projection="custom_value = custom(value)",
         ),
@@ -431,7 +298,7 @@ FAIL_CLOSED_CASES = (
 
 LOWERCASE_WINDOW_IDENTIFIER_CASES = (
     ("query_name", "query window:\n    from rows\n    select:\n        id\n"),
-    ("source_name", 'source window is postgres.table("rows")\n'),
+    ("source_name", 'source window = postgres.table("rows")\n'),
     ("table_name", "table window:\n    from rows\n    select:\n        id\n"),
     ("from_relation", "query q:\n    from window\n    select:\n        id\n"),
     ("shape_field", "shape Row:\n    window: Int\n"),
@@ -441,18 +308,18 @@ LOWERCASE_WINDOW_IDENTIFIER_CASES = (
     ),
     (
         "let_name",
-        "query q:\n    from rows\n    let:\n        window = value\n    select:\n        value\n",
+        "query q:\n    from rows\n    let window = value\n    select:\n        value\n",
     ),
-    ("derive_parameter", "derive f(window: Int) -> Int:\n    window\n"),
-    ("dotted_part", 'source s is postgres.window("rows")\n'),
-    ("function_name", "source s is window()\n"),
+    ("derive_parameter", "derive f(window: Int) -> Int:\n    return window\n"),
+    ("dotted_part", 'source s = postgres.window("rows")\n'),
+    ("function_name", "source s = window()\n"),
     (
         "relationship_name",
-        "relationship window:\n    endpoint left: rows\n    endpoint right: rows\n",
+        "relationship window(left: Row, right: Row):\n    left.id == right.id\n",
     ),
     (
-        "endpoint_local_name",
-        "relationship r:\n    endpoint window: rows\n    endpoint right: rows\n",
+        "relationship_parameter",
+        "relationship r(window: Row, right: Row):\n    window.id == right.id\n",
     ),
 )
 
@@ -481,35 +348,58 @@ HISTORICAL_NEGATIVE_SOURCES = (
 )
 
 
-def test_combined_grammar_rules_and_token_order_are_exact() -> None:
-    grammar = _read(GRAMMAR_REL)
-    normalized = " ".join(grammar.split())
-    for rule in (
-        "selectLine : selectWindowItem | selectItem (COMMA selectItem)* COMMA? NEWLINE ;",
-        "selectWindowItem : fieldName ASSIGN windowExpression ;",
-        "selectItem : fieldName ASSIGN expression | expression ;",
-        "windowExpression : dottedName callSuffix nthValueDirection? nullTreatment? windowSpec ;",
-        "nthValueDirection : FROM (FIRST | LAST) ;",
-        "nullTreatment : (RESPECT | IGNORE) NULLS ;",
-        "windowSpec : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier NEWLINE | WINDOW identifier COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier? COLON windowInlineClause ;",
-        "namedWindowDeclaration : WINDOW identifier (ASSIGN identifier)? NEWLINE | WINDOW identifier (ASSIGN identifier)? COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT | WINDOW identifier (ASSIGN identifier)? COLON windowInlineClause ;",
-        "windowSpecBody : NEWLINE* partitionByClause NEWLINE* (orderByClause NEWLINE*)? (windowFrameClause NEWLINE*)? | NEWLINE* orderByClause NEWLINE* (windowFrameClause NEWLINE*)? | NEWLINE* windowFrameClause NEWLINE* ;",
-        "partitionByClause : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT | PARTITION BY COLON windowPartitionLine (INDENT windowPartitionBody DEDENT)? ;",
-        "windowPartitionBody : NEWLINE* windowPartitionLine (windowPartitionLine | NEWLINE)* ;",
-        "windowPartitionLine : windowPartitionItem (COMMA windowPartitionItem)* COMMA? NEWLINE ;",
-        "windowPartitionItem : expression ;",
-        "windowFrameClause : (ROWS | RANGE | GROUPS) (BETWEEN frameBound AND frameBound | frameBound) (EXCLUDE (NO OTHERS | CURRENT ROW | GROUP | TIES))? NEWLINE ;",
-        "frameBound : UNBOUNDED (PRECEDING | FOLLOWING) | CURRENT ROW | expression (PRECEDING | FOLLOWING) ;",
-    ):
-        assert rule in normalized, rule
-    assert normalized.count("windowExpression :") == 1
-    assert normalized.count("nthValueDirection :") == 1
-    assert normalized.count("nullTreatment :") == 1
-    assert normalized.count("windowSpec :") == 1
-    assert normalized.count("namedWindowDeclaration :") == 1
-    assert normalized.count("partitionByClause :") == 1
-    assert normalized.count("windowFrameClause :") == 1
-    assert normalized.count("frameBound :") == 1
+def test_compact_window_tokens_and_ast_keep_clause_order() -> None:
+    source = _window_query(
+        "partition by account_id, region\n"
+        "order by observed_at desc, sequence_id asc\n"
+        "rows between 2 preceding and current row exclude ties"
+    )
+    _, tokens, diagnostics = _raw_parse(source)
+    assert diagnostics == ()
+    start = next(
+        i for i, token in enumerate(tokens) if token.type == PiettoLexer.WINDOW
+    )
+    end = next(
+        i for i in range(start, len(tokens)) if tokens[i].type == PiettoLexer.RPAREN
+    )
+    assert tuple(token.text for token in tokens[start : end + 1]) == (
+        "window",
+        "(",
+        "partition",
+        "by",
+        "account_id",
+        ",",
+        "region",
+        "order",
+        "by",
+        "observed_at",
+        "desc",
+        ",",
+        "sequence_id",
+        "asc",
+        "rows",
+        "between",
+        "2",
+        "preceding",
+        "and",
+        "current",
+        "row",
+        "exclude",
+        "ties",
+        ")",
+    )
+    result = parse_source(source)
+    assert result.diagnostics == () and result.ast is not None
+    expression = cast(
+        WindowExpr, cast(QueryDef, result.ast.definitions[0]).select_items[0].expression
+    )
+    assert [cast(NameExpr, item).name for item in expression.spec.partition_by] == [
+        "account_id",
+        "region",
+    ]
+    assert [item.direction for item in expression.spec.order_by] == ["desc", "asc"]
+    assert expression.spec.frame.kind.value == "between"
+    assert expression.spec.frame.exclusion.value == "ties"
 
 
 @pytest.mark.parametrize(
@@ -524,6 +414,20 @@ def test_raw_parser_accepts_canonical_window_shapes(
 ) -> None:
     tree, tokens, diagnostics = _raw_parse(source)
     assert diagnostics == (), name
+    public = parse_source(source)
+    assert public.diagnostics == () and public.ast is not None, name
+    relation = cast(QueryDef, public.ast.definitions[0])
+    expressions = tuple(
+        item.expression
+        for item in relation.select_items
+        if isinstance(item.expression, WindowExpr)
+    )
+    assert len(expressions) == expected_windows
+    assert len({id(expression.spec) for expression in expressions}) == expected_windows
+    if name == "empty_window":
+        assert not expressions[0].spec.has_components
+    if name == "continuation_indentation":
+        assert len(expressions[0].spec.order_by) == 2
     window_items = _window_select_items(tree)
     assert len(window_items) == expected_windows
     window_tokens = tuple(token for token in tokens if token.type == PiettoLexer.WINDOW)
@@ -548,26 +452,22 @@ def test_partition_and_order_items_accept_generic_expression_shapes(
 ) -> None:
     source = _window_query(
         f"""
-        partition by:
-            {partition_expression}
-        order by:
-            {order_expression}
+        partition by {partition_expression}
+        order by {order_expression}
         """
     )
     tree, _, diagnostics = _raw_parse(source)
     assert diagnostics == (), name
     window_spec = _window_select_items(tree)[0].windowExpression().windowSpec()
-    partition_lines = (
-        window_spec.windowSpecBody()
-        .partitionByClause()
-        .windowPartitionBody()
-        .windowPartitionLine()
+    compact = window_spec.compactWindowSpec()
+    assert len(compact.expression()) == 1
+    assert len(compact.orderItem()) == 1
+    public = parse_source(source)
+    assert public.diagnostics == () and public.ast is not None, name
+    expression = cast(
+        WindowExpr, cast(QueryDef, public.ast.definitions[0]).select_items[0].expression
     )
-    order_lines = (
-        window_spec.windowSpecBody().orderByClause().orderByBody().orderByLine()
-    )
-    assert [len(line.windowPartitionItem()) for line in partition_lines] == [1]
-    assert [len(line.orderItem()) for line in order_lines] == [1]
+    assert len(expression.spec.partition_by) == len(expression.spec.order_by) == 1
 
 
 @pytest.mark.parametrize(
@@ -583,6 +483,8 @@ def test_raw_parser_rejects_malformed_or_deferred_window_shapes(
     _, _, repeated = _raw_parse(source)
     assert diagnostics, name
     assert diagnostics == repeated
+    public = parse_source(source, path="slice2-window-raw.pietto")
+    assert public.ast is None and public.diagnostics, name
     assert all(
         diagnostic.severity is Severity.ERROR
         and diagnostic.location.path == "slice2-window-raw.pietto"
@@ -682,29 +584,18 @@ def test_historical_unsupported_window_samples_remain_negative(
 
 def test_window_list_clauses_may_follow_their_header_on_one_line() -> None:
     short = parse_source(
-        "query q:\n"
-        "    from rows\n"
+        "query q:\n    from rows\n"
+        "    let by_time = window(order by observed_at)\n"
         "    select:\n"
-        "        rn = row_number() window:\n"
-        "            partition by: account_id, region\n"
-        "            order by: observed_at desc, id\n"
-        "    window by_time:\n"
-        "        order by: observed_at\n"
+        "        rn = row_number() window(partition by account_id, region order by observed_at desc, id)\n"
     )
     long = parse_source(
-        "query q:\n"
-        "    from rows\n"
+        "query q:\n    from rows\n"
+        "    let by_time = window(\n        order by observed_at)\n"
         "    select:\n"
-        "        rn = row_number() window:\n"
-        "            partition by:\n"
-        "                account_id\n"
-        "                region\n"
-        "            order by:\n"
-        "                observed_at desc\n"
-        "                id\n"
-        "    window by_time:\n"
-        "        order by:\n"
-        "            observed_at\n"
+        "        rn = row_number() window(\n"
+        "            partition by account_id,\n                region\n"
+        "            order by observed_at desc,\n                id)\n"
     )
     assert short.diagnostics == long.diagnostics == ()
     assert short.ast is not None and long.ast is not None
@@ -723,33 +614,177 @@ def test_window_list_clauses_may_follow_their_header_on_one_line() -> None:
 
 
 @pytest.mark.parametrize(
-    ("body", "line", "column"),
+    ("body", "line", "column", "suggestion"),
     (
-        ("    select:\n        rn = row_number() window: order by: id\n", 4, 35),
         (
-            "    select:\n        rn = row_number() window w: order by: id\n"
-            "    window w:\n        order by: id\n",
+            "    select:\n        rn = row_number() window: order by id\n",
             4,
-            37,
+            33,
+            "Use 'window(partition by ... order by ...)' with parentheses.",
         ),
-        ("    select: id\n    window w: partition by: id\n", 4, 15),
-        ("    select: id\n    window w = base: order by: id\n", 4, 22),
+        (
+            "    let w = window(order by id)\n"
+            "    select:\n        rn = row_number() window w: order by id\n",
+            5,
+            35,
+            "Use 'window(partition by ... order by ...)' with parentheses.",
+        ),
+        (
+            "    select id\n    window w: partition by id\n",
+            4,
+            5,
+            "Name the window with 'let name = window(...)' among the lets after FROM and every JOIN, before 'where', 'group by' and 'select'.",
+        ),
+        (
+            "    select id\n    window w = base: order by id\n",
+            4,
+            5,
+            "Name the window with 'let name = window(...)' among the lets after FROM and every JOIN, before 'where', 'group by' and 'select'.",
+        ),
+        (
+            "    window w: partition by id\n    select id\n",
+            3,
+            5,
+            "Name the window with 'let name = window(...)' among the lets after FROM and every JOIN, before 'where', 'group by' and 'select'.",
+        ),
     ),
 )
-def test_a_window_block_never_starts_on_its_header_line(
-    body: str, line: int, column: int
+def test_legacy_window_blocks_have_located_modern_rewrites(
+    body: str, line: int, column: int, suggestion: str
 ) -> None:
     result = parse_source("query q:\n    from rows\n" + body)
     assert result.ast is None
     assert [
-        (item.code, item.message, item.location.line, item.location.column)
+        (
+            item.code,
+            item.message,
+            item.location.line,
+            item.location.column,
+            item.suggestion,
+        )
         for item in result.diagnostics
     ] == [
         (
             "PIE-P1000",
-            "A compound clause cannot follow ':' on the same line; put the window "
-            "clauses in an indented block.",
+            "This spelling is not accepted by the modern syntax. " + suggestion,
             line,
             column,
+            suggestion,
         )
     ]
+
+
+MOVE_WINDOW = (
+    "Move the window before 'select', among the lets after FROM and every JOIN, "
+    "before 'where' and 'group by'."
+)
+WINDOW_LET_HINT = (
+    "A named window is a `let` among the lets after FROM and every JOIN, "
+    "before `where`, `group by` and `select`."
+)
+CLAUSE_ORDER = (
+    "a relation body lists from, joins, let, where, group by, select, having, "
+    "qualify, order by and limit in that order."
+)
+
+
+def test_named_windows_are_lets_after_the_joins_and_before_where() -> None:
+    result = parse_source(
+        "query q:\n"
+        "    from rows\n"
+        "    let net = value - 1\n"
+        "    let ordered = window(order by observed_at)\n"
+        "    let per_account = window ordered(partition by account_id)\n"
+        "    where net > 0\n"
+        "    select:\n"
+        "        rn = row_number() window per_account\n",
+        path="windows.pietto",
+    )
+    assert result.diagnostics == () and result.ast is not None
+    query = cast(QueryDef, result.ast.definitions[0])
+    assert [
+        (item.name, item.span.line, item.span.column) for item in query.named_windows
+    ] == [("ordered", 4, 5), ("per_account", 5, 5)]
+    assert [item.name for item in query.naming_declarations] == ["net"]
+    use = cast(WindowExpr, query.select_items[0].expression)
+    assert use.base is not None and use.base.name == "per_account"
+
+
+def test_named_windows_after_select_are_located_retired_spellings() -> None:
+    result = parse_source(
+        "query q:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        rn = row_number() window alias\n"
+        "    let ordered = window(order by observed_at)\n"
+        "    let alias = window ordered\n",
+        path="late.pietto",
+    )
+    assert result.ast is None
+    assert [
+        (
+            item.code,
+            item.message,
+            item.location.path,
+            item.location.line,
+            item.location.column,
+            item.suggestion,
+        )
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            "This spelling is not accepted by the modern syntax. " + MOVE_WINDOW,
+            "late.pietto",
+            line,
+            5,
+            MOVE_WINDOW,
+        )
+        for line in (5, 6)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("body", "line", "column", "message"),
+    (
+        (
+            "    let ordered = window(order by id)\n"
+            "    from rows\n"
+            "    select:\n"
+            "        rn = row_number() window ordered\n",
+            2,
+            19,
+            "Unexpected 'window'; expected an expression. " + WINDOW_LET_HINT,
+        ),
+        (
+            "    from rows\n"
+            "    where id > 0\n"
+            "    let ordered = window(order by id)\n"
+            "    select:\n"
+            "        rn = row_number() window ordered\n",
+            4,
+            5,
+            "Clause `let` is out of order or repeated; " + CLAUSE_ORDER,
+        ),
+        (
+            "    from rows\n"
+            "    let ordered = window(order by id)\n"
+            "    inner join others on rows.id == others.id\n"
+            "    select:\n"
+            "        rn = row_number() window ordered\n",
+            4,
+            5,
+            "Clause `join` is out of order or repeated; " + CLAUSE_ORDER,
+        ),
+    ),
+    ids=("before_from", "after_where", "before_a_join"),
+)
+def test_named_windows_outside_the_lets_are_syntax_errors(
+    body: str, line: int, column: int, message: str
+) -> None:
+    result = parse_source("query q:\n" + body, path="misplaced.pietto")
+    assert result.ast is None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", message, line, column)]

@@ -46,8 +46,8 @@ def _binding_product(roots):
 
 def _repeated_sets(depth: int = 12) -> str:
     text = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+source rows: Row = postgres.table("rows")
 table p0:
     from rows
     select:

@@ -7,12 +7,12 @@ def select_body(call, *, frame="", order="id", partition=None, alias="w"):
         "    from rows",
         "    select:",
         "        id",
-        f"        {alias} = {call} window:",
+        f"        {alias} = {call} window(",
     ]
     if partition is not None:
-        lines += ["            partition by:", f"                {partition}"]
-    lines += ["            order by:"]
-    lines += [f"                {key}" for key in order.split(",")]
+        lines += [f"            partition by {partition}"]
+    lines += [f"            order by {order}"]
     if frame:
         lines += [f"            {frame}"]
+    lines += ["        )"]
     return "\n".join(lines) + "\n"

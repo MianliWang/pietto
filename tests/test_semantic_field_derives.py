@@ -17,8 +17,8 @@ def test_valid_field_derive_uses_same_shape_fields_and_builtins() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    email_norm: Text not null derive lower(trim(email))\n"
+            "    email: Text\n"
+            "    email_norm: Text derive lower(trim(email))\n"
         )
     )
     expression = _field(result, "email_norm").derive_expression
@@ -34,9 +34,7 @@ def test_valid_field_derive_uses_same_shape_fields_and_builtins() -> None:
 def test_field_derive_can_reference_later_field() -> None:
     result = analyze(
         _parse(
-            "shape User:\n"
-            "    email_norm: Text not null derive lower(email)\n"
-            "    email: Text not null\n"
+            "shape User:\n    email_norm: Text derive lower(email)\n    email: Text\n"
         )
     )
 
@@ -45,9 +43,7 @@ def test_field_derive_can_reference_later_field() -> None:
 
 def test_field_derive_type_mismatch_reports_pie_s2402_at_expression() -> None:
     script = _parse(
-        "shape User:\n"
-        "    email: Text not null\n"
-        "    is_valid: Bool not null derive lower(email)\n",
+        "shape User:\n    email: Text\n    is_valid: Bool derive lower(email)\n",
         path="field-derives.pietto",
     )
     shape = script.definitions[0]
@@ -86,8 +82,8 @@ def test_unknown_field_derive_function_suppresses_pie_s2402() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    email_norm: Text not null derive normalize(email)\n"
+            "    email: Text\n"
+            "    email_norm: Text derive normalize(email)\n"
         )
     )
     expression = _field(result, "email_norm").derive_expression
@@ -99,7 +95,7 @@ def test_unknown_field_derive_function_suppresses_pie_s2402() -> None:
 
 def test_unknown_field_reference_reports_pie_s2102_without_mismatch() -> None:
     result = analyze(
-        _parse("shape User:\n    email_norm: Text not null derive lower(missing)\n")
+        _parse("shape User:\n    email_norm: Text derive lower(missing)\n")
     )
     expression = _field(result, "email_norm").derive_expression
     assert isinstance(expression, CallExpr)
@@ -112,8 +108,8 @@ def test_unknown_declared_field_type_suppresses_pie_s2402() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    email_norm: Missing not null derive lower(email)\n"
+            "    email: Text\n"
+            "    email_norm: Missing derive lower(email)\n"
         )
     )
 
@@ -123,11 +119,11 @@ def test_unknown_declared_field_type_suppresses_pie_s2402() -> None:
 def test_field_derive_aliases_use_canonical_types() -> None:
     result = analyze(
         _parse(
-            "type Email = Text not null\n"
-            "type NormalizedEmail = Email not null\n"
+            "type Email = Text\n"
+            "type NormalizedEmail = Email\n"
             "shape User:\n"
-            "    email: Email not null\n"
-            "    email_norm: NormalizedEmail not null derive lower(trim(email))\n"
+            "    email: Email\n"
+            "    email_norm: NormalizedEmail derive lower(trim(email))\n"
         )
     )
     field = _field(result, "email_norm")
@@ -144,9 +140,9 @@ def test_multiple_field_derive_mismatches_follow_source_order() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    is_valid: Bool not null derive lower(email)\n"
-            "    email_length: Int not null derive lower(email)\n"
+            "    email: Text\n"
+            "    is_valid: Bool derive lower(email)\n"
+            "    email_length: Int derive lower(email)\n"
         )
     )
 
@@ -169,9 +165,7 @@ def test_multiple_field_derive_mismatches_follow_source_order() -> None:
 
 def test_field_derive_validation_does_not_mutate_input_ast() -> None:
     script = _parse(
-        "shape User:\n"
-        "    email: Text not null\n"
-        "    email_norm: Text not null derive lower(trim(email))\n"
+        "shape User:\n    email: Text\n    email_norm: Text derive lower(trim(email))\n"
     )
     original = deepcopy(script)
 
@@ -184,8 +178,8 @@ def test_field_derive_results_do_not_expose_antlr_nodes() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    email_norm: Text not null derive lower(trim(email))\n"
+            "    email: Text\n"
+            "    email_norm: Text derive lower(trim(email))\n"
         )
     )
 

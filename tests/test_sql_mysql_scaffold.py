@@ -16,16 +16,16 @@ from pietto.sql import SqlResult
 from pietto.sql.mysql import emit_mysql_sql
 
 METADATA_SOURCE = (
-    "type Email = Text not null\n"
+    "type Email = Text\n"
     "enum Status:\n"
     "    active\n"
-    "constraint valid_email(email: Text not null) -> Bool not null:\n"
-    "    email is not null\n"
-    "derive normalize_email(email: Text not null) -> Text not null:\n"
-    "    trim(email)\n"
+    "constraint valid_email(email: Text) -> Bool:\n"
+    "    return email is not None\n"
+    "derive normalize_email(email: Text) -> Text:\n"
+    "    return trim(email)\n"
     "shape User:\n"
-    "    email: Email not null\n"
-    'source users: User is mysql.table("users")\n'
+    "    email: Email\n"
+    'source users: User = mysql.table("users")\n'
 )
 RELATION_SOURCE = (
     METADATA_SOURCE + "table first:\n"

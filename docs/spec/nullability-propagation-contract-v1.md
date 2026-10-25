@@ -1,5 +1,29 @@
 # Nullability Propagation Contract v1
 
+## Reading this contract with current source
+
+A current declared type has two states: a bare `T` is `NON_NULL` and `T | None`
+is `NULLABLE`; `T not null` and `T nullable` are retired spellings, and only a
+field of a source without a shape is `UNKNOWN`. The source-facing propagation
+table below uses modern spelling without changing `NON_NULL`, `NULLABLE` or
+`UNKNOWN`. The historical
+Repo Facts section records Phase 30 only: its statement that Decimal has no
+precision/scale carrier is not a description of the current implementation.
+Current Decimal parameters and selected-target requirements are documented in
+[Language](../language.md#parameterized-decimal-domain-phase67-slice06).
+A later ANY value is `Bool NON_NULL`; its nullable predicate still matches only
+TRUE and does not conflate compile-time unknown facts with SQL UNKNOWN.
+
+The phase status, pinned baselines, decisions, delivery gates and later-slice
+handoffs below are retained historical records. They do not select a source
+syntax or a new release version. Current source defaults to the
+[modern language](../language.md); `pietto NUMBER` remains metadata. Retired
+spelling is read only for diagnostics/migration, and
+[`pietto migrate`](../language.md#migrating-old-source) writes a complete result
+or a manual-refusal diagnostic without editing the input. Exact diagnostic,
+SQL, JSON and internal enum/opcode spellings remain unchanged.
+
+
 ## Status
 
 Phase 30 Slice 3 is complete as nullability propagation contract, static
@@ -78,6 +102,8 @@ unknown value type is not a known type with unknown nullability.
 
 ## Current Repo Facts
 
+Historical Phase 30 observations, retained for the original contract baseline:
+
 Slice 3 grounds the nullability contract in current implementation facts:
 
 - `EffectiveNullability` has exactly `NON_NULL`, `NULLABLE`, and `UNKNOWN`;
@@ -103,9 +129,9 @@ The current v0.2 nullability rules are:
 
 | Surface | Current nullability rule |
 |---|---|
-| Declared `nullable` type expression | `EffectiveNullability.NULLABLE` |
-| Declared `not null` type expression | `EffectiveNullability.NON_NULL` |
-| Implicit type-expression nullability | `EffectiveNullability.UNKNOWN` |
+| Declared `T \| None` type expression | `EffectiveNullability.NULLABLE` |
+| Declared bare `T` type expression | `EffectiveNullability.NON_NULL` |
+| Field of a source without a shape | `EffectiveNullability.UNKNOWN` |
 | Source, shape, and callable field | Inherits the field or parameter `TypeExpr` effective nullability |
 | Bare field reference | Preserves the resolved `RowField.nullability` |
 | Supported single-input qualified field reference | Preserves the resolved `RowField.nullability` |
@@ -117,8 +143,8 @@ The current v0.2 nullability rules are:
 | Binary arithmetic `+`, `-`, `*`, `%` | Uses the current result type rules and returns conservative `EffectiveNullability.UNKNOWN` |
 | Bool `and` / `or` expression | Requires known Bool operands and returns `Bool UNKNOWN` |
 | Comparison expression | Types children and returns `Bool UNKNOWN` when children are known, except that known operands rejected by the comparison family check (see `operator-comparison-matrix-contract-v1.md`) report `PIE-S2105` and produce unknown value type |
-| `between` expression | Types children and returns `Bool UNKNOWN` when children are known, except that a known bound rejected by the comparison family check reports `PIE-S2105` and produces unknown value type |
-| `is null` / `is not null` expression | Returns `Bool NON_NULL` |
+| Inclusive chain `lower <= value <= upper` | Types children and returns `Bool UNKNOWN` when children are known, except that a known bound rejected by the comparison family check reports `PIE-S2105` and produces unknown value type |
+| `is None` / `is not None` expression | Returns `Bool NON_NULL` |
 | Scalar function call | Uses the current exact built-in signature, under which `abs` picks its `Int`, `Float` or `Decimal` line by its argument's type, and joins the argument nullabilities: `NULLABLE` when one argument is `NULLABLE`, else `UNKNOWN` when one is `UNKNOWN`, else `NON_NULL`; `matches` returns `Bool UNKNOWN`, `coalesce` is `NON_NULL` when one argument is `NON_NULL`, else `UNKNOWN` when one is `UNKNOWN`, else `NULLABLE`, and `nullif` is `NULLABLE` when its first argument is `NON_NULL` and otherwise has that argument's nullability |
 | Computed projection alias | Preserves known expression `ValueType` nullability or publishes unknown output field facts |
 | Group-key projection output | Preserves input field nullability |
@@ -127,11 +153,11 @@ The current v0.2 nullability rules are:
 
 These rules describe current behavior only. Slice 3 does not add a broader
 nullability solver and does not infer non-null results from operators,
-predicates, functions, aggregate inputs, `where`, or `satisfying:`.
+predicates, functions, aggregate inputs, `where`, or `having`.
 
 A later change proves more in one place: when typing does not prove a `def`
-body with a `not null` result non-null, the body check types it again, and
-there binary `+`, `-` and `*`, a comparison and `between` whose operands are
+body whose result has no `| None` non-null, the body check types it again, and
+there binary `+`, `-` and `*`, a comparison and an inclusive chain whose operands are
 all `NON_NULL` record `NON_NULL`, while `/`, `%`, `and` and `or` keep their
 results (see the
 [operator and comparison matrix](operator-comparison-matrix-contract-v1.md)).
@@ -173,7 +199,7 @@ existing predicate diagnostic. If the predicate value type is unknown,
 existing unknown-type, unknown-field, unsupported-expression, and deferred
 diagnostic paths remain responsible for fail-closed behavior.
 
-Result-level `satisfying:` consumes known Bool predicates over supported
+Result-level `having` consumes known Bool predicates over supported
 output names under current behavior. It has its own result-predicate typing
 path, requires GROUP BY in the current MVP, rejects unsupported output
 references, and records predicate facts only when the result predicate is

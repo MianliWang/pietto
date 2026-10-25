@@ -109,7 +109,7 @@ EXPECTED_SURFACE_SHA256: dict[str, object] = {
             "2d3e0e50dfa0246ec1bf8269ddae764d23cf111afcd945f6ea1f150ef3008fdc"
         ),
         "json_sha256": (
-            "02e6e6cc7eb78370f930c82c881f9728b609dac65e36ec807ce80f8c359c76d3"
+            "69ab556d63bbe391a69c8c64f701988937c838d91c0d02c6ee7926a4e95164da"
         ),
     },
 }

@@ -77,7 +77,7 @@ Operator result `UNKNOWN` below means Pietto
 nullability is not proven. It is not SQL three-valued logic `UNKNOWN`.
 
 A later change proves more in one place: when typing does not prove a `def`
-body with a `not null` result non-null, the body check types it again, and
+body whose result has no `| None` non-null, the body check types it again, and
 there binary `+`, `-` and `*`, a comparison and `between` whose operands are
 all `NON_NULL` record `NON_NULL`, while `/`, `%`, `and` and `or` keep the
 results below (see Result under Inline functions in the
@@ -108,8 +108,8 @@ arguments included, records the results below and in the comparison matrix.
 
 Every row above reads a type alias operand, including an alias chain, as the
 builtin type it expands to, and records that base type, not the alias, as the
-result: with `type Age = Int not null`, `age + 1` is `Int UNKNOWN` and `-age`
-is `Int`, and with `type Money = Decimal(12, 2) not null`, `money * 2` reports
+result: with `type Age = Int`, `age + 1` is `Int UNKNOWN` and `-age`
+is `Int`, and with `type Money = Decimal(12, 2)`, `money * 2` reports
 `PIE-S2105` as `Decimal` does. A later defect fix extended this from `/` to
 `+`, `-`, `*`, `%`, unary `+`/`-` and `and`/`or`; unary `not` already read it.
 An alias of an Enum or shape is not expanded.
@@ -176,8 +176,8 @@ replaced it with an operand family check:
   of the enum's labels stays accepted; any other `Text` operand, a literal
   that is not a label included, reports `PIE-S2105`;
 - an operand that is the null literal, or a `let:` name bound to it, reports
-  `PIE-S2105` (`comparison with null is never true`, adding ``write `is null`
-  instead`` for `==` and ``write `is not null` instead`` for `!=` unless both
+  `PIE-S2105` (`comparison with null is never true`, adding ``write `is None`
+  instead`` for `==` and ``write `is not None` instead`` for `!=` unless both
   operands are null) and records `ValueTypeKind.UNKNOWN`, because SQL evaluates
   the comparison to NULL for every row;
 - other unknown children and `Any` operands are not checked and record

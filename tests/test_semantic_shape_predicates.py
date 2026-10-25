@@ -19,19 +19,18 @@ from pietto.semantic import SemanticResult, ValueTypeKind, analyze
     [
         "enabled",
         "amount >= 0",
-        "label is not null",
-        "true",
+        "label is not None",
+        "True",
     ],
 )
 def test_known_bool_shape_check_passes(body: str) -> None:
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    enabled: Bool not null\n"
-            "    amount: Int not null\n"
-            "    label: Text nullable\n"
-            "    check valid:\n"
-            f"        {body}\n"
+            "    enabled: Bool\n"
+            "    amount: Int\n"
+            "    label: Text | None\n"
+            f"    valid = check({body})\n"
         )
     )
     expression = _shape(result).checks[0].expression
@@ -42,12 +41,7 @@ def test_known_bool_shape_check_passes(body: str) -> None:
 
 def test_known_non_bool_shape_check_reports_pie_s2202() -> None:
     result = analyze(
-        _parse(
-            "shape Record:\n"
-            "    label: Text not null\n"
-            "    check valid_label:\n"
-            "        label\n"
-        )
+        _parse("shape Record:\n    label: Text\n    valid_label = check(label)\n")
     )
     expression = _shape(result).checks[0].expression
 
@@ -68,8 +62,8 @@ def test_known_bool_index_predicate_passes() -> None:
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    label: Text nullable\n"
-            "    index active_label on label when label is not null\n"
+            "    label: Text | None\n"
+            "    active_label = index(label) when label is not None\n"
         )
     )
     expression = _index_predicate(result)
@@ -82,8 +76,8 @@ def test_known_non_bool_index_predicate_reports_pie_s2202() -> None:
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    label: Text not null\n"
-            "    index active_label on label when label\n"
+            "    label: Text\n"
+            "    active_label = index(label) when label\n"
         )
     )
     expression = _index_predicate(result)
@@ -104,12 +98,12 @@ def test_known_non_bool_index_predicate_reports_pie_s2202() -> None:
 @pytest.mark.parametrize("item_kind", ["check", "index"])
 def test_shape_predicate_diagnostic_uses_expression_span(item_kind: str) -> None:
     if item_kind == "check":
-        item = "    check valid_label:\n        label\n"
+        item = "    valid_label = check(label)\n"
     else:
-        item = "    index active_label on label when label\n"
+        item = "    active_label = index(label) when label\n"
     result = analyze(
         _parse(
-            f"shape Record:\n    label: Text not null\n{item}",
+            f"shape Record:\n    label: Text\n{item}",
             path="shape-predicate.pietto",
         )
     )
@@ -136,12 +130,7 @@ def test_shape_predicate_diagnostic_uses_expression_span(item_kind: str) -> None
 
 def test_unknown_shape_field_suppresses_bool_cascade() -> None:
     result = analyze(
-        _parse(
-            "shape Record:\n"
-            "    label: Text not null\n"
-            "    check valid_label:\n"
-            "        missing\n"
-        )
+        _parse("shape Record:\n    label: Text\n    valid_label = check(missing)\n")
     )
     expression = _shape(result).checks[0].expression
 
@@ -151,12 +140,7 @@ def test_unknown_shape_field_suppresses_bool_cascade() -> None:
 
 def test_unknown_field_type_suppresses_bool_cascade() -> None:
     result = analyze(
-        _parse(
-            "shape Record:\n"
-            "    value: Missing not null\n"
-            "    check valid_value:\n"
-            "        value\n"
-        )
+        _parse("shape Record:\n    value: Missing\n    valid_value = check(value)\n")
     )
     expression = _shape(result).checks[0].expression
 
@@ -168,10 +152,9 @@ def test_unknown_shape_functions_do_not_cascade_to_bool_diagnostic() -> None:
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    label: Text not null\n"
-            "    check valid_label:\n"
-            "        unknown_check(label)\n"
-            "    index active_label on label when unknown_index(label)\n"
+            "    label: Text\n"
+            "    valid_label = check(unknown_check(label))\n"
+            "    active_label = index(label) when unknown_index(label)\n"
         )
     )
     shape = _shape(result)
@@ -191,11 +174,10 @@ def test_shape_predicate_diagnostics_follow_source_order() -> None:
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    label: Text not null\n"
-            "    amount: Int not null\n"
-            "    check valid_label:\n"
-            "        label\n"
-            "    index positive_amount on amount when amount\n"
+            "    label: Text\n"
+            "    amount: Int\n"
+            "    valid_label = check(label)\n"
+            "    positive_amount = index(amount) when amount\n"
         )
     )
 
@@ -203,8 +185,8 @@ def test_shape_predicate_diagnostics_follow_source_order() -> None:
         (diagnostic.location.line, diagnostic.code, diagnostic.message)
         for diagnostic in result.diagnostics
     ] == [
-        (5, "PIE-S2202", "Expected Bool expression in shape check"),
-        (6, "PIE-S2202", "Expected Bool expression in index predicate"),
+        (4, "PIE-S2202", "Expected Bool expression in shape check"),
+        (5, "PIE-S2202", "Expected Bool expression in index predicate"),
     ]
 
 
@@ -215,13 +197,11 @@ def test_a_built_in_call_of_null_values_is_a_shape_condition_of_its_type() -> No
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    amount: Int not null\n"
-            "    label: Text nullable\n"
-            "    check sized:\n"
-            "        len(coalesce(null, null))\n"
-            "    check unknown:\n"
-            "        len(missing)\n"
-            "    index by_label on label when lower(coalesce(null, null))\n"
+            "    amount: Int\n"
+            "    label: Text | None\n"
+            "    sized = check(len(coalesce(None, None)))\n"
+            "    unknown = check(len(missing))\n"
+            "    by_label = index(label) when lower(coalesce(None, None))\n"
         )
     )
 
@@ -229,9 +209,9 @@ def test_a_built_in_call_of_null_values_is_a_shape_condition_of_its_type() -> No
         (d.code, d.location.line, d.location.column, d.message)
         for d in result.diagnostics
     ] == [
-        ("PIE-S2202", 5, 9, "Expected Bool expression in shape check"),
-        ("PIE-S2102", 7, 13, "Unknown field: missing"),
-        ("PIE-S2202", 8, 34, "Expected Bool expression in index predicate"),
+        ("PIE-S2202", 4, 19, "Expected Bool expression in shape check"),
+        ("PIE-S2102", 5, 25, "Unknown field: missing"),
+        ("PIE-S2202", 6, 34, "Expected Bool expression in index predicate"),
     ]
 
 
@@ -241,13 +221,11 @@ def test_shape_predicates_mix_decimal_with_int_membership_as_queries_do() -> Non
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    amount: Decimal(12, 2) not null\n"
-            "    n: Int not null\n"
-            "    check listed:\n"
-            "        amount in (1, 2)\n"
-            "    check fractional:\n"
-            "        amount in (2.5)\n"
-            "    index listed_ix on amount when n not in (amount, 3)\n"
+            "    amount: Decimal(12, 2)\n"
+            "    n: Int\n"
+            "    listed = check(amount in (1, 2))\n"
+            "    fractional = check(amount in (2.5))\n"
+            "    listed_ix = index(amount) when n not in (amount, 3)\n"
         )
     )
     shape = _shape(result)
@@ -265,8 +243,8 @@ def test_shape_predicates_mix_decimal_with_int_membership_as_queries_do() -> Non
             "PIE-S2105",
             "Invalid operands for operator in: "
             "expected same canonical membership operands",
-            7,
-            9,
+            5,
+            24,
         )
     ]
     for expression in (shape.checks[0].expression, _index_predicate(result)):
@@ -276,9 +254,7 @@ def test_shape_predicates_mix_decimal_with_int_membership_as_queries_do() -> Non
 
 def test_index_without_predicate_adds_no_expression_type() -> None:
     result = analyze(
-        _parse(
-            "shape Record:\n    label: Text not null\n    index label_idx on label\n"
-        )
+        _parse("shape Record:\n    label: Text\n    label_idx = index(label)\n")
     )
 
     assert result.diagnostics == ()
@@ -286,12 +262,7 @@ def test_index_without_predicate_adds_no_expression_type() -> None:
 
 
 def test_shape_predicate_validation_does_not_mutate_input_ast() -> None:
-    script = _parse(
-        "shape Record:\n"
-        "    label: Text not null\n"
-        "    check valid_label:\n"
-        "        label\n"
-    )
+    script = _parse("shape Record:\n    label: Text\n    valid_label = check(label)\n")
     original = deepcopy(script)
 
     analyze(script)
@@ -303,8 +274,8 @@ def test_shape_predicate_results_do_not_expose_antlr_nodes() -> None:
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    label: Text not null\n"
-            "    index active_label on label when label\n"
+            "    label: Text\n"
+            "    active_label = index(label) when label\n"
         )
     )
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import fields, is_dataclass
 from dataclasses import replace
+from typing import Any
 
 from pietto.ir.model import (
     AggregateCallIR,
     ExpressionIR,
+    ExistsIR,
     FieldId,
     FieldRefIR,
     LiteralIR,
@@ -20,6 +23,7 @@ from pietto.ir.model import (
     SymbolId,
     TypeKindIR,
     WindowCallIR,
+    WindowUseKindIR,
 )
 from pietto.sql.expressions import (
     expression_uses_qualified_field,
@@ -44,9 +48,16 @@ def render_relation_sql(
     *,
     sources: Mapping[SymbolId, SourceIR],
     relations: Mapping[SymbolId, RelationIR],
+    _include_exists_dependencies: bool = True,
 ) -> str:
     """Render a minimal relation using a source table or relation-name input."""
 
+    dependencies = (
+        _exists_relation_dependencies(relation, relations)
+        if _include_exists_dependencies
+        else ()
+    )
+    _validate_exists_targets(relation, sources, relations)
     input_name = _relation_input_name(
         relation.source.target,
         sources=sources,
@@ -159,7 +170,23 @@ def render_relation_sql(
         )
     if relation.limit is not None:
         lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
-    return "\n".join(lines)
+    sql = "\n".join(lines)
+    if dependencies:
+        definitions = ",\n".join(
+            f"{quote_identifier(item.name)} AS (\n{render_relation_sql(item, sources=sources, relations=relations, _include_exists_dependencies=False)}\n)"
+            for item in dependencies
+        )
+        hidden = hidden_table_read(
+            relation, dependencies, sources, relations, mysql=False
+        )
+        if hidden is not None:
+            raise ValueError(
+                f"PostgreSQL scalar ANY defines relation {hidden[0]} as a CTE, "
+                f"which would hide table {hidden[1]} read in the same SQL; rename "
+                "the relation or read the table with its schema"
+            )
+        return f"WITH {definitions}\n{sql}"
+    return sql
 
 
 def qualify_alias_captured_order_fields(
@@ -171,9 +198,12 @@ def qualify_alias_captured_order_fields(
     """Qualify each bare ORDER BY input field that a SELECT item could capture.
 
     PostgreSQL and MySQL bind a whole bare ORDER BY name to a SELECT output
-    before an input column (MySQL compares the names case-insensitively);
-    inside an expression both read the input column. An output that is the
-    same input field reads the same value, so it captures nothing. PostgreSQL
+    before an input column (MySQL compares the names case-insensitively).
+    Inside an expression PostgreSQL reads the input column; MySQL documents
+    the alias-first lookup for every ORDER BY name, so for MySQL each field
+    inside a key is qualified too (window calls and `any` reads keep their
+    own scopes). An output that is the same input field reads the same
+    value, so it captures nothing. PostgreSQL
     also names an unaliased computed item implicitly (`lower`, `coalesce`,
     `case`, ...), so there any unaliased computed item counts as a capture.
     MySQL names it by its expression text; of those names only an unaliased
@@ -207,27 +237,38 @@ def qualify_alias_captured_order_fields(
             isinstance(expression, FieldRefIR) and expression.field == key.field
         )
 
-    def captured(expression: ExpressionIR) -> bool:
-        return (
-            isinstance(expression, FieldRefIR)
-            and not expression.qualifier
-            and expression.field is not None
-            and any(
-                captures(projection, expression) for projection in relation.projections
-            )
-        )
+    def qualified(expression: ExpressionIR) -> ExpressionIR:
+        if isinstance(expression, FieldRefIR):
+            if (
+                not expression.qualifier
+                and expression.field is not None
+                and any(
+                    captures(projection, expression)
+                    for projection in relation.projections
+                )
+            ):
+                return replace(expression, qualifier=(qualifier,))
+            return expression
+        if not mysql or isinstance(expression, (ExistsIR, WindowCallIR)):
+            return expression
+        changes: dict[str, object] = {}
+        for part in fields(expression):
+            value = getattr(expression, part.name)
+            if isinstance(value, ExpressionIR):
+                changes[part.name] = qualified(value)
+            elif type(value) is tuple and all(
+                isinstance(item, ExpressionIR) for item in value
+            ):
+                changes[part.name] = tuple(qualified(item) for item in value)
+        return replace(expression, **changes)
 
-    if not any(captured(item.expression) for item in relation.order_by):
-        return relation
-    return replace(
-        relation,
-        order_by=tuple(
-            replace(item, expression=replace(item.expression, qualifier=(qualifier,)))
-            if captured(item.expression)
-            else item
-            for item in relation.order_by
-        ),
+    order_by = tuple(
+        replace(item, expression=qualified(item.expression))
+        for item in relation.order_by
     )
+    if order_by == relation.order_by:
+        return relation
+    return replace(relation, order_by=order_by)
 
 
 def _render_input(input_name: tuple[str, ...], alias: str | None) -> str:
@@ -250,6 +291,133 @@ def _relation_uses_qualified_fields(relation: RelationIR) -> bool:
     return any(
         expression_uses_qualified_field(expression) for expression in expressions
     )
+
+
+def _ir_children(value: Any) -> tuple[object, ...]:
+    children: list[object] = []
+    for field in fields(value):
+        try:
+            children.append(getattr(value, field.name))
+        except AttributeError:
+            raise ValueError(
+                f"Incomplete IR node {type(value).__name__}: missing {field.name}"
+            ) from None
+    return tuple(children)
+
+
+def _exists_reads(value: object) -> tuple[ExistsIR, ...]:
+    """Return every scalar ANY read in an IR value, in source order."""
+
+    reads: list[ExistsIR] = []
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, ExistsIR):
+            reads.append(item)
+        if isinstance(item, tuple):
+            pending.extend(reversed(item))
+        elif is_dataclass(item) and not isinstance(item, type):
+            pending.extend(reversed(_ir_children(item)))
+    return tuple(reads)
+
+
+def _exists_relation_dependencies(
+    relation: RelationIR, relations: Mapping[SymbolId, RelationIR]
+) -> tuple[RelationIR, ...]:
+    """Order named iterators and all of their dependencies before this reader."""
+
+    def scalar_targets(value: object) -> tuple[SymbolId, ...]:
+        return tuple(item.target for item in _exists_reads(value))
+
+    done: set[SymbolId] = set()
+    active: set[SymbolId] = {relation.symbol}
+    result: list[RelationIR] = []
+
+    def visit(symbol: SymbolId) -> None:
+        dependency = relations.get(symbol)
+        if dependency is None or symbol in done:
+            return
+        if symbol in active:
+            raise ValueError("Scalar ANY relation dependency contains a cycle")
+        active.add(symbol)
+        for child in (
+            dependency.source.target,
+            *(item.target for item in dependency.inputs),
+            *scalar_targets(dependency),
+        ):
+            visit(child)
+        active.remove(symbol)
+        done.add(symbol)
+        result.append(dependency)
+
+    for target in scalar_targets(relation):
+        visit(target)
+    return tuple(result)
+
+
+def hidden_table_read(
+    relation: RelationIR,
+    dependencies: tuple[RelationIR, ...],
+    sources: Mapping[SymbolId, SourceIR],
+    relations: Mapping[SymbolId, RelationIR],
+    *,
+    mysql: bool,
+) -> tuple[str, str] | None:
+    """Return the first CTE name and table read that the CTE would hide.
+
+    The statement defines `dependencies` as CTEs, in order, before the main
+    SELECT of `relation`. A CTE without RECURSIVE is visible in the CTEs after
+    it and in the main SELECT, where it takes the place of any table named
+    without a schema (MySQL compares the names case-insensitively).
+    """
+
+    def spelling(name: str) -> str:
+        return name.casefold() if mysql else name
+
+    ctes = {item.symbol for item in dependencies}
+    for index, reader in enumerate((*dependencies, relation)):
+        visible = {spelling(item.name): item.name for item in dependencies[:index]}
+        inputs = (reader.source.target, *(item.target for item in reader.inputs))
+        reads = (
+            *((target, None) for target in inputs),
+            *((item.target, item.connector) for item in _exists_reads(reader)),
+        )
+        for target, connector in reads:
+            if target in ctes:
+                continue
+            source = sources.get(target)
+            if connector is None and source is not None:
+                connector = source.connector
+            name = (
+                relations[target].name
+                if connector is None
+                else str(connector.arguments[0])
+            )
+            if "." not in name and spelling(name) in visible:
+                return visible[spelling(name)], name
+    return None
+
+
+def _validate_exists_targets(
+    relation: RelationIR,
+    sources: Mapping[SymbolId, SourceIR],
+    relations: Mapping[SymbolId, RelationIR],
+) -> None:
+    pending: list[object] = [relation]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, ExistsIR):
+            source = sources.get(value.target)
+            target = relations.get(value.target)
+            if source is not None:
+                if target is not None or value.connector != source.connector:
+                    raise ValueError("Scalar ANY requires the exact source connector.")
+            elif target is None or value.connector is not None:
+                raise ValueError("Scalar ANY target does not resolve to a relation.")
+        if isinstance(value, tuple):
+            pending.extend(value)
+        elif is_dataclass(value) and not isinstance(value, type):
+            pending.extend(_ir_children(value))
 
 
 def _relation_input_name(
@@ -340,7 +508,11 @@ def _render_named_over(expression: WindowCallIR) -> str:
     )
     reference = quote_identifier(named.reference_spelling)
     if not components:
-        return reference
+        return (
+            f"({reference})"
+            if named.occurrence.kind is WindowUseKindIR.NAMED_EXTENDED
+            else reference
+        )
     return f"({reference} {' '.join(components)})"
 
 

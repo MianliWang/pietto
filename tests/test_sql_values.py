@@ -39,39 +39,39 @@ def _emit(tmp_path: Path, target: str, body: str, policy="preserve_literals"):
 
 
 TOP = (
-    "query result:\n    values(id: Int not null, label: Text nullable):\n"
-    '        1, "a"\n        2, null\n'
+    "query result:\n    values(id: Int, label: Text | None):\n"
+    '        1, "a"\n        2, None\n'
 )
 LET_FROM = (
     "query result:\n    let seed:\n"
-    "        values(id: Int not null, label: Text nullable):\n"
-    '            1, "a"\n            2, null\n'
+    "        values(id: Int, label: Text | None):\n"
+    '            1, "a"\n            2, None\n'
     "    from seed\n    where id > 1\n    select:\n        id\n        label\n"
 )
 LET_JOIN = (
     "query result:\n    let seed:\n"
-    "        values(rid: Int not null, label: Text nullable):\n"
-    '            1, "a"\n            2, null\n'
-    "    from lhs\n    inner join seed as s:\n        from lhs\n"
-    "        on lhs.id == s.rid\n    select:\n        a = lhs.id\n        b = s.label\n"
+    "        values(rid: Int, label: Text | None):\n"
+    '            1, "a"\n            2, None\n'
+    "    from lhs\n    let s = seed\n    inner join s on lhs.id == s.rid\n"
+    "    select:\n        a = lhs.id\n        b = s.label\n"
 )
 ZERO_JOIN = (
     "query result:\n    let seed:\n"
-    "        values(rid: Int not null, label: Text nullable)\n"
-    "    from lhs\n    left join seed as s:\n        from lhs\n"
-    "        on lhs.id == s.rid\n    select:\n        a = lhs.id\n        b = s.label\n"
+    "        values(rid: Int, label: Text | None)\n"
+    "    from lhs\n    let s = seed\n    left join s on lhs.id == s.rid\n"
+    "    select:\n        a = lhs.id\n        b = s.label\n"
 )
 # A row-level let over a VALUES let reads its declared schema like any relation.
 ROW_LET = (
     "query result:\n    let seed:\n"
-    "        values(id: Int not null, label: Text nullable):\n"
-    '            1, "a"\n            2, null\n'
-    "    from seed\n    let:\n        missing = label is null\n"
+    "        values(id: Int, label: Text | None):\n"
+    '            1, "a"\n            2, None\n'
+    "    from seed\n    let missing = label is None\n"
     "    where id > 1\n    select:\n        id\n        missing\n"
 )
 SET_OPERAND = (
-    "query result:\n    let seed:\n        values(id: Int not null, key: Int nullable):\n"
-    "            7, null\n    union all:\n        from seed\n        from lhs\n"
+    "query result:\n    let seed:\n        values(id: Int, key: Int | None):\n"
+    "            7, None\n    union all:\n        from seed\n        from lhs\n"
 )
 
 EXPECTED = {
@@ -199,9 +199,9 @@ def test_mysql_refuses_a_statement_without_physical_source(
 
 # A header query reads a VALUES table; a header beside a relation let is gated.
 PARAMETER_FROM = (
-    "table v:\n    values(id: Int not null, label: Text nullable):\n"
-    '        1, "a"\n        2, null\n'
-    "query result(low: Int not null):\n    from v\n    where id > low\n"
+    "table v:\n    values(id: Int, label: Text | None):\n"
+    '        1, "a"\n        2, None\n'
+    "query result(low: Int):\n    from v\n    where id > low\n"
     "    select:\n        id\n        label\n"
 )
 
@@ -233,15 +233,15 @@ def test_the_public_decoder_reads_a_source_free_values_statement(
 
 
 SHADOW_VALUES = (
-    "query v:\n    values(code: Int not null, note: Text nullable):\n"
-    '        1, "a"\n        2, null\n'
+    "query v:\n    values(code: Int, note: Text | None):\n"
+    '        1, "a"\n        2, None\n'
 )
 
 
 def test_a_header_named_like_a_values_column_emits_no_sql(tmp_path: Path) -> None:
     """The column `code` is never read as the parameter `code`."""
     shadowed = SHADOW_VALUES + (
-        "query result(code: Int not null):\n    from v\n    where code > 1\n"
+        "query result(code: Int):\n    from v\n    where code > 1\n"
         "    select:\n        note\n"
     )
     _, document = _emit(
@@ -269,10 +269,10 @@ def test_a_header_named_like_a_values_column_emits_no_sql(tmp_path: Path) -> Non
 REUSED_FORWARD = (
     "query result:\n    let a:\n        from seed\n        where rid > 1\n"
     "        select:\n            rid\n    let seed:\n"
-    "        values(rid: Int not null):\n            1\n            2\n"
-    "    from lhs\n    inner join a as x:\n        from lhs\n"
-    "        on lhs.id == x.rid\n    inner join seed as s:\n        from lhs\n"
-    "        on lhs.id == s.rid\n    select:\n        id = lhs.id\n"
+    "        values(rid: Int):\n            1\n            2\n"
+    "    from lhs\n    let x = a\n    inner join x on lhs.id == x.rid\n"
+    "    let s = seed\n    inner join s on lhs.id == s.rid\n"
+    "    select:\n        id = lhs.id\n"
 )
 
 
@@ -389,10 +389,10 @@ def test_every_declared_type_null_duplicate_and_bound_cell_is_written(
 ) -> None:
     body = (
         "query result:\n"
-        "    values(id: Int not null, n: Int nullable, f: Float nullable,"
-        " b: Bool nullable, t: Text nullable):\n"
-        "        1, null, null, null, null\n        1, null, null, null, null\n"
-        '        -9223372036854775808, 9223372036854775807, -2.5, true, "it\'s"\n'
+        "    values(id: Int, n: Int | None, f: Float | None,"
+        " b: Bool | None, t: Text | None):\n"
+        "        1, None, None, None, None\n        1, None, None, None, None\n"
+        '        -9223372036854775808, 9223372036854775807, -2.5, True, "it\'s"\n'
     )
     outcome, document = _emit(tmp_path, "postgres", body)
     assert document["status"] == "VERIFIED", document
@@ -447,7 +447,7 @@ def test_every_declared_type_null_duplicate_and_bound_cell_is_written(
 
 
 def test_a_zero_row_statement_is_a_typed_empty_select(tmp_path: Path) -> None:
-    body = "query result:\n    values(id: Int not null, t: Text nullable)\n"
+    body = "query result:\n    values(id: Int, t: Text | None)\n"
     _, document = _emit(tmp_path, "postgres", body)
     assert document["status"] == "VERIFIED", document
     assert document["sql"] == (
@@ -481,7 +481,7 @@ def test_the_independent_checks_reject_a_changed_values_unit(tmp_path: Path) -> 
 
 
 def _int_body(rows: int, columns: int) -> str:
-    names = ", ".join(f"c{i}: Int not null" for i in range(columns))
+    names = ", ".join(f"c{i}: Int" for i in range(columns))
     row = ", ".join("0" for _ in range(columns))
     return f"query result:\n    values({names}):\n" + f"        {row}\n" * rows
 

@@ -127,6 +127,31 @@ FIELDS = {
     ),
     "join_value": ("owner", "input", "logical"),
     "join_equality": ("owner", "left", "right"),
+    "any_filter": ("join", "location", "context", "context_location", "prefix"),
+    "any_value": ("read", "location", "context", "context_location", "prefix"),
+    # Only actual modern row-predicate calls carry these records. The scalar
+    # expansion remains the executable expression, never an implicit equality.
+    "predicate_call": (
+        "owner",
+        "role",
+        "site",
+        "ordinal",
+        "template",
+        "location",
+        "root",
+        "expression",
+        "arguments",
+        "equalities",
+    ),
+    "predicate_argument": (
+        "call",
+        "ordinal",
+        "parameter",
+        "shape",
+        "binding",
+        "use",
+        "ports",
+    ),
     "aggregate": (
         "owner",
         "use",
@@ -640,6 +665,17 @@ def row_bindings(records, use):
     (the first port carrying each field) and computes a value of no binding;
     any other producer's row is one binding.
     """
+    if use.kind == "expression_block_use":
+        producer = records[use].get("producer")
+        ports = []
+        for address, record in records.items():
+            if address.kind != "port":
+                continue
+            if type(record) is not Record or record.address != address:
+                raise CompiledError("COMPILED_ROW_BINDING_PORT")
+            if record.get("owner") == producer:
+                ports.append(address)
+        return (tuple(ports),)
     owner = records[records[use].get("consumer")].get("owner")
     groups: dict[Any, dict[Address, Address]] = {}
     for port in records[use].get("ports"):
@@ -786,3 +822,96 @@ def selected_records(records, entry):
             ):
                 pending.append(scalar_read_port(records, value))
     return frozenset(reached)
+
+
+def predicate_calls(records, owner):
+    """All actual row-predicate calls of one executable unit, in site order."""
+    calls, position = [], 0
+    while Address("predicate_call", position) in records:
+        record = records[Address("predicate_call", position)]
+        if record.get("owner") == owner.address:
+            calls.append(record)
+        position += 1
+    return tuple(calls)
+
+
+def positive_equalities(records, root):
+    """Positive AND equality operations with two exact row reads, in order."""
+    result, pending, seen = [], [root], set()
+    while pending:
+        address = pending.pop()
+        if address in seen:
+            continue
+        seen.add(address)
+        if address is None or address.kind != "operation":
+            continue
+        record = records[address]
+        if record.get("operator") == ("binary", "and"):
+            pending.extend(reversed(record.get("operands")))
+        elif record.get("operator") == ("comparison", "==") and all(
+            child.kind == "read" for child in record.get("operands")
+        ):
+            result.append(record)
+    return tuple(result)
+
+
+def predicate_equalities(records, owner):
+    """Call-authorized equalities in normalized ON order, once per occurrence."""
+    authorized = {
+        address
+        for call in predicate_calls(records, owner)
+        if call.get("role") == "on"
+        for address in call.get("equalities")
+    }
+    if not authorized:
+        return ()
+    return tuple(
+        item
+        for item in positive_equalities(records, owner.get("predicate"))
+        if item.address in authorized
+    )
+
+
+def predicate_identity(node):
+    """Source declaration or call coordinates; identity, never a proof alone."""
+    span = node.span
+    return (
+        span.path,
+        span.line,
+        span.column,
+        span.end_line,
+        span.end_column,
+        getattr(node, "name", None),
+    )
+
+
+def any_context(node):
+    from pietto import ast_nodes as ast
+
+    kinds = {
+        ast.JoinOnClause: "on",
+        ast.WhereClause: "where",
+        ast.SelectItem: "select",
+        ast.LetBinding: "let",
+        ast.QueryLetDeclaration: "let",
+        ast.AnyExpr: "any",
+    }
+    kind = kinds.get(type(node))
+    if kind is None:
+        raise CompiledError("COMPILED_ANY_CONTEXT")
+    return kind
+
+
+def predicate_binding_position(records, use, ports):
+    """Authored row occurrence ordinal, retaining gaps left by SEMI/ANTI."""
+    if use.kind == "expression_block_use":
+        return 0
+    consumer = records[records[use].get("consumer")]
+    binding, _ = _carried(records, consumer.get("owner"), ports[0])
+    origin = records[binding if binding is not None else use]
+    unit = records[origin.get("consumer")]
+    return (
+        unit.get("ordinal") + 1
+        if (unit.address.kind == "join" and origin.get("ordinal") == 1)
+        else 0
+    )

@@ -29,15 +29,15 @@ FROM "shop"."orders" AS "orders"
 CROSS JOIN "shop"."regions" AS "region"
 
 SELECT
-    "customers"."id" AS "id",
-    "customers"."name" AS "name"
+    "id" AS "id",
+    "name" AS "name"
 FROM "shop"."customers" AS "customers"
-WHERE EXISTS (SELECT 1 FROM "shop"."orders" AS "o" WHERE "customers"."id" = "o"."customer_id")
+WHERE EXISTS (SELECT 1 FROM "shop"."orders" AS "_pietto_value_1" WHERE "customers"."id" = "_pietto_value_1"."customer_id")
 
 SELECT
     "customers"."id" AS "customer_id"
 FROM "shop"."customers" AS "customers"
-WHERE NOT EXISTS (SELECT 1 FROM "shop"."orders" AS "o" WHERE ("customers"."id" = "o"."customer_id") AND ("o"."amount" > 100))
+WHERE NOT EXISTS (SELECT 1 FROM "shop"."orders" AS "_pietto_value_2" WHERE ("customers"."id" = "_pietto_value_2"."customer_id") AND ("_pietto_value_2"."amount" > 100))
 
 SELECT
     "orders"."id" AS "order_id",
@@ -67,7 +67,7 @@ SELECT
     "region"."label" AS "region_label",
     "customers"."id" AS "customer_id"
 FROM "shop"."customers" AS "customers"
-RIGHT JOIN "shop"."regions" AS "region" ON ("customers"."region_id" = "region"."id") AND (EXISTS (SELECT 1 FROM "shop"."orders" AS "o" WHERE "customers"."id" = "o"."customer_id"))
+RIGHT JOIN "shop"."regions" AS "region" ON ("customers"."region_id" = "region"."id") AND (EXISTS (SELECT 1 FROM "shop"."orders" AS "_pietto_any_1" WHERE "customers"."id" = "_pietto_any_1"."customer_id"))
 
 SELECT
     "customers"."id" AS "customer_id",

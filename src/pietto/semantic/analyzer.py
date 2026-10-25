@@ -6,12 +6,16 @@ from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._syntax_admission import unadmitted_syntax_diagnostics
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import fields, is_dataclass, replace
 from heapq import heappop, heappush
 from typing import TYPE_CHECKING, cast
 
+if TYPE_CHECKING:
+    from pietto.semantic.relationship_predicates import RelationshipCallFailure
+
 from pietto.ast_nodes import (
+    AnyExpr,
     BetweenExpr,
     BinaryExpr,
     CastExpr,
@@ -26,6 +30,7 @@ from pietto.ast_nodes import (
     EnumDef,
     Expression,
     FieldDef,
+    FunctionDef,
     FromClause,
     GroupByClause,
     IsNullExpr,
@@ -55,6 +60,7 @@ from pietto.semantic.aggregates import (
     is_semantic_aggregate_call,
     semantic_aggregate_call_name,
 )
+from pietto.semantic.any_values import check_any_values, resolve_any_inputs
 from pietto.semantic.callables import (
     check_callable_bodies,
     check_callable_signatures,
@@ -67,9 +73,18 @@ from pietto.semantic.expressions import (
     type_shape_predicates,
     type_source_connector_arguments,
 )
+from pietto.semantic.existence_generators import (
+    AnyUseInfo,
+    AnyValueInfo,
+    AnyValueTrace,
+    collect_any_values,
+    normalize_existence_generators,
+    rebind_existence_generators,
+)
 from pietto.semantic.field_derive_cycles import check_field_derive_cycles
 from pietto.semantic.inline_functions import (
     drop_repeated_call_diagnostics,
+    drop_repeated_operand_diagnostics,
     inline_functions,
 )
 from pietto.semantic.join_fanout import join_fanout_diagnostics
@@ -112,7 +127,15 @@ from pietto.semantic.relationship_metadata import (
     check_relationship_conditions,
     check_relationship_metadata,
 )
-from pietto.semantic.relations import check_join_references, resolve_relation_inputs
+from pietto.semantic.relations import (
+    resolve_relation_inputs,
+    same_file_relation_reads,
+)
+from pietto.semantic.modern_inputs import (
+    bind_script_relationship_predicates,
+    normalize_query_names,
+)
+from pietto.semantic.relationship_predicates import check_relationship_templates
 from pietto.semantic.shapes import check_field_derives, check_shape_structures
 from pietto.semantic.source_connectors import (
     check_source_connectors,
@@ -158,20 +181,24 @@ def analyze_project_namespace(script: Script) -> SemanticResult:
     Such a project emits no SQL, so the analysis types as an explicit-module
     project check does and omits the checks that only single-file SQL needs:
     a field of an alias of an enum is typed as that enum, a `let:` name may be
-    selected unaliased, and there is no let inline expansion limit
-    (PIE-S2328), no refusal of a bare constant ungrouped ORDER BY key other
-    than an integer literal (which the parser refuses, PIE-P1000), no ROWS
-    or GROUPS frame offset or window count literal range check (a RANGE
-    offset of a selected window is checked, as in an explicit-module check,
-    and one of a QUALIFY window is not, as in a single file), no refusal of
-    a `min` or `max` whose argument is a `let:` name in a relation without
-    GROUP BY (PIE-S2315) and no connector table-name check, so source
-    connectors get the diagnostics of an explicit-module check. An ungrouped
-    ORDER BY key still reads input fields and `let:` bindings but no SELECT
-    output other than a selected window result named alone (`w`, not
-    `w + 1`). It has no JOIN binding fields, computed `let:` group keys or
+    selected unaliased also in a relation with GROUP BY, and there is no let
+    inline expansion limit (PIE-S2328), no refusal of a bare constant
+    ungrouped ORDER BY key other than an integer literal (which the parser
+    refuses, PIE-P1000), no ROWS or GROUPS frame offset or window count
+    literal range check (a RANGE offset of a selected window is checked, as
+    in an explicit-module check, and one of a QUALIFY window is not, as in a
+    single file), no refusal of a `min` or `max` whose argument is a `let:`
+    name in a relation without GROUP BY (PIE-S2315) and no connector
+    table-name check, so source connectors get the diagnostics of an
+    explicit-module check. An ungrouped ORDER BY key reads input fields,
+    `let:` bindings and SELECT outputs named alone as in a single file. It
+    has no JOIN binding fields, computed `let:` group keys or
     aggregates of `let:` names in grouped relations, so it reports nothing
-    inside a table or query that reads one or reads such a relation. LOOSE
+    inside a table or query that reads one or reads such a relation. The
+    project model refuses each JOIN and each any(...) of the project, which
+    has neither in the current syntax (PIE-S2334), and the legacy-flat check
+    analyzes the script without its any(...) and keeps no diagnostic inside a
+    JOIN or an any(...). LOOSE
     omits the diagnostics that a check mode selects, which project commands
     do not take.
     """
@@ -188,18 +215,63 @@ def _analyze_script(
     mode = mode_override or CheckMode.CHECKED
     try:
         mode = mode_override or _mode_from_script(script)
+        parsed = script
+        any_trace = AnyValueTrace(script)
+        script, existence_generators, existence_diagnostics = (
+            normalize_existence_generators(script, occurrence_observer=any_trace.record)
+        )
+        if existence_diagnostics:
+            return SemanticResult(
+                model=SemanticModel(mode=mode),
+                diagnostics=drop_repeated_operand_diagnostics(
+                    parsed, existence_diagnostics
+                ),
+                script=script,
+            )
+        any_uses = collect_any_values(script, trace=any_trace)
         unadmitted = unadmitted_syntax_diagnostics(script, single_file=single_file)
         if unadmitted:
             return SemanticResult(
-                model=SemanticModel(mode=mode), diagnostics=unadmitted, script=script
+                model=SemanticModel(mode=mode),
+                diagnostics=drop_repeated_operand_diagnostics(parsed, unadmitted),
+                script=script,
             )
-        parsed = script
-        script, inline_diagnostics = inline_functions(script)
+        scalar_names = frozenset(
+            item.name for item in script.definitions if isinstance(item, FunctionDef)
+        )
+        before_naming = script
+        script, naming_diagnostics = normalize_query_names(
+            script,
+            existence_generators=existence_generators,
+            occurrence_observer=any_trace.record,
+        )
+        existence_generators = rebind_existence_generators(
+            before_naming, script, existence_generators
+        )
+        any_uses = collect_any_values(script, trace=any_trace)
+        if naming_diagnostics:
+            return SemanticResult(
+                model=SemanticModel(mode=mode),
+                diagnostics=drop_repeated_operand_diagnostics(
+                    parsed, naming_diagnostics
+                ),
+                script=script,
+            )
+        before_inlining = script
+        script, inline_diagnostics = inline_functions(
+            script, occurrence_observer=any_trace.record
+        )
+        existence_generators = rebind_existence_generators(
+            before_inlining, script, existence_generators
+        )
+        any_uses = collect_any_values(script, trace=any_trace)
         if inline_diagnostics:
             return SemanticResult(
                 model=SemanticModel(mode=mode),
                 diagnostics=name_uncallable_calls(
-                    inline_diagnostics, parsed, shared=not single_file
+                    drop_repeated_operand_diagnostics(parsed, inline_diagnostics),
+                    parsed,
+                    shared=not single_file,
                 ),
                 script=script,
             )
@@ -207,7 +279,15 @@ def _analyze_script(
         # an expansion can nest deeper than its call. The checks above walk
         # the parsed script without recursion, so their errors come first.
         if _expression_levels(script) <= _MAX_EXPRESSION_LEVELS:
-            result = _analyze(script, mode=mode, single_file=single_file)
+            result = _analyze(
+                script,
+                mode=mode,
+                single_file=single_file,
+                scalar_names=scalar_names,
+                existence_generators=existence_generators,
+                any_uses=any_uses,
+                any_trace=any_trace,
+            )
             return replace(
                 result,
                 diagnostics=name_uncallable_calls(
@@ -322,7 +402,16 @@ def _nesting_depth(script: Script) -> int:
     return deepest
 
 
-def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticResult:
+def _analyze(
+    script: Script,
+    *,
+    mode: CheckMode,
+    single_file: bool,
+    scalar_names: frozenset[str] = frozenset(),
+    existence_generators: tuple[AnyUseInfo, ...] = (),
+    any_uses: tuple[AnyValueInfo, ...] = (),
+    any_trace: AnyValueTrace | None = None,
+) -> SemanticResult:
     """Implement semantic analysis inside the public recursion boundary."""
 
     type_symbols: dict[str, Definition] = {}
@@ -354,7 +443,10 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
     )
     diagnostics.extend(relationship_diagnostics)
 
-    for type_expr in _iter_type_expressions(script):
+    for type_expr in (
+        *_iter_type_expressions(script),
+        *_iter_cast_target_type_expressions(script),
+    ):
         _record_type_expression(
             type_expr,
             type_symbols=type_symbols,
@@ -362,19 +454,6 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
             type_nullability=type_nullability,
             decimal_precision_scales=decimal_precision_scales,
             diagnostics=diagnostics,
-            mode=mode,
-            report_implicit_nullability=True,
-        )
-    for type_expr in _iter_cast_target_type_expressions(script):
-        _record_type_expression(
-            type_expr,
-            type_symbols=type_symbols,
-            type_resolutions=type_resolutions,
-            type_nullability=type_nullability,
-            decimal_precision_scales=decimal_precision_scales,
-            diagnostics=diagnostics,
-            mode=mode,
-            report_implicit_nullability=False,
         )
 
     type_expansions, alias_diagnostics = expand_type_aliases(
@@ -405,6 +484,70 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
             source: _enum_alias_fields_as_enums(schema, type_expansions)
             for source, schema in source_row_schemas.items()
         }
+    shape_candidates: dict[str, list[Node]] = {}
+    for definition in script.definitions:
+        if isinstance(definition, (ShapeDef, TypeDef, EnumDef)):
+            shape_candidates.setdefault(definition.name, []).append(definition)
+    relationship_templates, template_diagnostics = check_relationship_templates(
+        script,
+        shape_candidates=shape_candidates,
+        type_resolutions=type_resolutions,
+        type_expansions=type_expansions,
+        type_nullability=type_nullability,
+    )
+    diagnostics.extend(template_diagnostics)
+    previous_definitions = script.definitions
+    before_predicates = script
+    script, relationship_calls, call_diagnostics, failed_relationship_calls = (
+        bind_script_relationship_predicates(
+            script,
+            templates=relationship_templates,
+            shape_candidates=shape_candidates,
+            scalar_names=scalar_names,
+            occurrence_observer=None if any_trace is None else any_trace.record,
+        )
+    )
+    if any_trace is not None:
+        any_uses = collect_any_values(script, trace=any_trace)
+    diagnostics.extend(call_diagnostics)
+    # Predicate instantiation copies located cast targets; bind those exact nodes.
+    known_targets = {id(target) for target in type_resolutions}
+    for target in _iter_cast_target_type_expressions(script):
+        if id(target) in known_targets:
+            continue
+        known_targets.add(id(target))
+        _record_type_expression(
+            target,
+            type_symbols=type_symbols,
+            type_resolutions=type_resolutions,
+            type_nullability=type_nullability,
+            decimal_precision_scales=decimal_precision_scales,
+            diagnostics=diagnostics,
+        )
+        direct = type_resolutions[target]
+        if direct.kind is TypeKind.TYPE_ALIAS:
+            alias = direct.definition
+            assert isinstance(alias, TypeDef)
+            type_expansions[target] = type_expansions[alias.base]
+        else:
+            type_expansions[target] = direct
+    decimal_precision_scales.update(
+        _propagate_decimal_precision_scale_aliases(
+            type_resolutions=type_resolutions,
+            decimal_precision_scales=decimal_precision_scales,
+        )
+    )
+    existence_generators = rebind_existence_generators(
+        before_predicates, script, existence_generators
+    )
+    normalized_definitions = {
+        id(before): after
+        for before, after in zip(previous_definitions, script.definitions, strict=True)
+    }
+    relation_symbols = {
+        name: normalized_definitions[id(definition)]
+        for name, definition in relation_symbols.items()
+    }
     from_resolutions, relation_diagnostics = resolve_relation_inputs(
         script,
         relation_symbols,
@@ -422,11 +565,29 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
     else:
         structures = {}
         join_resolutions = None
-        diagnostics.extend(check_join_references(script, relation_symbols))
+    any_resolutions, any_resolution_diagnostics = resolve_any_inputs(
+        any_uses if single_file else (), relation_symbols, existence_generators
+    )
+    diagnostics.extend(any_resolution_diagnostics)
+    if single_file:
+        # Only single-file SQL reads a table or query of the file by name.
+        diagnostics.extend(
+            same_file_relation_reads(
+                script,
+                from_resolutions,
+                relation_symbols,
+                {id(use.clause): use.expression for use in existence_generators},
+            )
+        )
     cyclic_relations, cycle_diagnostics = check_relation_cycles(
         script,
         from_resolutions,
         join_resolutions=join_resolutions,
+        any_dependencies=tuple(
+            (use.owner, use.expression, any_resolutions.get(use.expression))
+            for use in any_uses
+            if single_file
+        ),
     )
     diagnostics.extend(cycle_diagnostics)
     structures = {
@@ -451,6 +612,10 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
         type_expansions=type_expansions,
         single_file=single_file,
         join_structures=structures,
+        existence_generators=existence_generators,
+        any_uses=any_uses,
+        any_resolutions=any_resolutions,
+        failed_relationship_calls=failed_relationship_calls,
     )
     diagnostics.extend(schema_diagnostics)
     diagnostics.extend(
@@ -489,7 +654,28 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
     expression_diagnostics.extend(callable_expression_diagnostics)
     expression_value_types.update(relation_value_types)
     expression_diagnostics.extend(relation_expression_diagnostics)
-    diagnostics.extend(expression_diagnostics)
+    failure_diagnostic_ids = {
+        id(d) for failure in failed_relationship_calls for d in failure.diagnostics
+    }
+    diagnostics.extend(
+        d for d in expression_diagnostics if id(d) not in failure_diagnostic_ids
+    )
+    any_values, any_diagnostics = check_any_values(
+        any_uses if single_file else (),
+        resolutions=any_resolutions,
+        from_resolutions=from_resolutions,
+        structures=structures,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schemas,
+        let_scopes=let_scopes,
+        expression_value_types=expression_value_types,
+        type_expansions=type_expansions,
+        cyclic_relations=cyclic_relations,
+        failed_relationship_calls=failed_relationship_calls,
+    )
+    diagnostics.extend(
+        d for d in any_diagnostics if id(d) not in failure_diagnostic_ids
+    )
     diagnostics.extend(check_relation_limits(script))
     connector_diagnostics = check_source_connectors(script, expression_value_types)
     diagnostics.extend(connector_diagnostics)
@@ -549,6 +735,21 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
         joined_inputs=joined_inputs,
     )
 
+    # ANY bodies are nested row scopes; direct Decimal leaves use their own
+    # checked occurrence's producer schema, never the outer binding spelling.
+    for value in any_values.values():
+        for expression, read in value.field_reads.items():
+            schema = (
+                source_row_schemas.get(read.relation)
+                if isinstance(read.relation, SourceDef)
+                else relation_row_schemas.get(read.relation)
+            )
+            field = None if schema is None else schema.fields.get(read.field_name)
+            if field is not None and field.definition is not None:
+                precision = decimal_precision_scales.get(field.definition.type_expr)
+                if precision is not None:
+                    decimal_expression_precision_scales[expression] = precision
+
     checks = None
     if single_file:
         checks = check_join_semantics(
@@ -559,6 +760,7 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
             relation_row_schemas=relation_row_schemas,
             expression_value_types=expression_value_types,
             type_expansions=type_expansions,
+            failed_relationship_calls=failed_relationship_calls,
         )
         diagnostics.extend(checks.diagnostics)
         for definition, info in checks.facts.items():
@@ -569,13 +771,14 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
                     type_symbols=type_symbols,
                     source_row_schemas=source_row_schemas,
                     let_expressions=relation_let_expressions.get(definition, {}),
+                    relationship_calls=relationship_calls,
                 )
             )
 
     diagnostics.extend(
         diagnostic
         for definition in script.definitions
-        for diagnostic in syntax_diagnostics(definition, allow_joins=single_file)
+        for diagnostic in syntax_diagnostics(definition, allow_joins=True)
     )
     return SemanticResult(
         script=script,
@@ -599,6 +802,10 @@ def _analyze(script: Script, *, mode: CheckMode, single_file: bool) -> SemanticR
             let_scopes=let_scopes,
             relation_joins={} if checks is None else checks.facts,
             relationships=relationships,
+            relationship_templates=relationship_templates,
+            relationship_calls=relationship_calls,
+            existence_generators=existence_generators,
+            any_values=any_values,
         ),
         diagnostics=tuple(
             sorted(
@@ -788,7 +995,10 @@ def _decimal_expression_precision_scales(
                 _collect_decimal_expression_precision_scales(
                     binding.expression,
                     input_schema=input_schema,
-                    field_qualifier=definition.from_clause.source_name,
+                    field_qualifier=(
+                        definition.from_clause.binding_name
+                        or definition.from_clause.source_name
+                    ),
                     expression_value_types=expression_value_types,
                     decimal_precision_scales=decimal_precision_scales,
                     facts=facts,
@@ -797,7 +1007,10 @@ def _decimal_expression_precision_scales(
             _collect_decimal_expression_precision_scales(
                 definition.where_clause.expression,
                 input_schema=input_schema,
-                field_qualifier=definition.from_clause.source_name,
+                field_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 expression_value_types=expression_value_types,
                 decimal_precision_scales=decimal_precision_scales,
                 facts=facts,
@@ -806,7 +1019,10 @@ def _decimal_expression_precision_scales(
             _collect_decimal_expression_precision_scales(
                 item.expression,
                 input_schema=input_schema,
-                field_qualifier=definition.from_clause.source_name,
+                field_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 expression_value_types=expression_value_types,
                 decimal_precision_scales=decimal_precision_scales,
                 facts=facts,
@@ -816,7 +1032,10 @@ def _decimal_expression_precision_scales(
                 _collect_decimal_expression_precision_scales(
                     item.expression,
                     input_schema=input_schema,
-                    field_qualifier=definition.from_clause.source_name,
+                    field_qualifier=(
+                        definition.from_clause.binding_name
+                        or definition.from_clause.source_name
+                    ),
                     expression_value_types=expression_value_types,
                     decimal_precision_scales=decimal_precision_scales,
                     facts=facts,
@@ -944,7 +1163,9 @@ def _expression_children(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
-    if isinstance(expression, (LiteralExpr, NameExpr, DottedNameExpr, WindowExpr)):
+    if isinstance(
+        expression, (LiteralExpr, NameExpr, DottedNameExpr, WindowExpr, AnyExpr)
+    ):
         return ()
     raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
 
@@ -959,6 +1180,10 @@ def _analyze_relation_schema_expressions(
     type_expansions: Mapping[TypeExpr, ResolvedType],
     single_file: bool,
     join_structures: Mapping[DerivedRelation, JoinStructure],
+    existence_generators: tuple[AnyUseInfo, ...] = (),
+    any_uses: tuple[AnyValueInfo, ...] = (),
+    any_resolutions: Mapping[AnyExpr, RelationDefinition] | None = None,
+    failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
 ) -> tuple[
     dict[DerivedRelation, RowSchema],
     list[Diagnostic],
@@ -982,7 +1207,14 @@ def _analyze_relation_schema_expressions(
     )
     reserved_names = (
         {
-            definition: join_reserved_let_names(definition)
+            definition: join_reserved_let_names(
+                definition,
+                generated_joins=tuple(
+                    use.clause
+                    for use in existence_generators
+                    if use.owner is definition
+                ),
+            )
             for definition in script.definitions
             if isinstance(definition, (TableDef, QueryDef)) and definition.join_clauses
         }
@@ -996,6 +1228,7 @@ def _analyze_relation_schema_expressions(
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,
         joined_input_builder=joined_input_builder,
+        reserved_let_names=reserved_names,
         type_expansions=type_expansions,
     )
     derived_relation_count = sum(
@@ -1019,6 +1252,12 @@ def _analyze_relation_schema_expressions(
         if definition in join_structures:
             targets.extend(
                 item.relation for item in join_structures[definition].inputs[1:]
+            )
+        if any_resolutions is not None:
+            targets.extend(
+                any_resolutions.get(use.expression)
+                for use in any_uses
+                if use.owner is definition
             )
         for target in dict.fromkeys(targets):
             if isinstance(target, (TableDef, QueryDef)):
@@ -1053,6 +1292,7 @@ def _analyze_relation_schema_expressions(
                 joined_inputs=joined_inputs,
                 reserved_let_names=reserved_names,
                 type_expansions=type_expansions,
+                failed_relationship_calls=failed_relationship_calls,
             )
             relation_value_types, _, _, _ = type_relation_expressions(
                 replace(script, definitions=(definition,)),
@@ -1067,6 +1307,7 @@ def _analyze_relation_schema_expressions(
                 let_diagnostics=temporary_let_diagnostics,
                 single_file=single_file,
                 joined_inputs=joined_inputs,
+                failed_relationship_calls=failed_relationship_calls,
                 let_part_types=temporary_let_value_types,
             )
             relation_value_types.update(temporary_let_value_types)
@@ -1107,6 +1348,7 @@ def _analyze_relation_schema_expressions(
                 input_schema,
                 mode=mode,
                 expression_value_types=temporary_value_types,
+                reserved_let_names=reserved_names,
                 joined_input_builder=joined_input_builder,
                 type_expansions=type_expansions,
             )
@@ -1151,6 +1393,7 @@ def _analyze_relation_schema_expressions(
         joined_inputs=joined_inputs,
         reserved_let_names=reserved_names,
         type_expansions=type_expansions,
+        failed_relationship_calls=failed_relationship_calls,
     )
     (
         relation_value_types,
@@ -1170,6 +1413,7 @@ def _analyze_relation_schema_expressions(
         single_file=single_file,
         joined_inputs=joined_inputs,
         let_part_types=let_value_types,
+        failed_relationship_calls=failed_relationship_calls,
     )
     relation_value_types.update(let_value_types)
     relation_expression_diagnostics.extend(let_diagnostics)
@@ -1177,7 +1421,10 @@ def _analyze_relation_schema_expressions(
         diagnostic
         for definition, scope in let_scopes.items()
         if single_file
-        for diagnostic in let_expansion_diagnostics(definition, scope.value_types)
+        for diagnostic in let_expansion_diagnostics(
+            definition,
+            scope.value_types,
+        )
     ]
     # A key over the let inlining limit already has that error: no PIE-S2380.
     over_limit = {diagnostic.location for diagnostic in expansion_diagnostics}
@@ -1194,6 +1441,7 @@ def _analyze_relation_schema_expressions(
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,
         joined_input_builder=joined_input_builder,
+        reserved_let_names=reserved_names,
         expression_value_types=relation_value_types,
         type_expansions=type_expansions,
         reported_errors=frozenset(relation_expression_diagnostics),
@@ -1395,6 +1643,8 @@ def _iter_cast_target_type_expressions(script: Script) -> Iterator[TypeExpr]:
     for relationship in script.relationships:
         if relationship.base_match is not None:
             yield from _cast_targets_in_expression(relationship.base_match.expression)
+    for template in script.relationship_templates:
+        yield from _cast_targets_in_expression(template.body)
 
 
 def _cast_targets_in_type_arguments(type_expr: TypeExpr) -> Iterator[TypeExpr]:
@@ -1412,8 +1662,6 @@ def _record_type_expression(
     type_nullability: dict[TypeExpr, EffectiveNullability],
     decimal_precision_scales: dict[TypeExpr, DecimalPrecisionScale],
     diagnostics: list[Diagnostic],
-    mode: CheckMode,
-    report_implicit_nullability: bool,
 ) -> None:
     """Resolve one declared or cast-target type without weakening validation."""
 
@@ -1429,10 +1677,6 @@ def _record_type_expression(
         decimal_precision_scales[type_expr] = decimal_precision_scale
     if decimal_diagnostic is not None:
         diagnostics.append(decimal_diagnostic)
-    if report_implicit_nullability:
-        implicit_diagnostic = _implicit_nullability_diagnostic(type_expr, mode)
-        if implicit_diagnostic is not None:
-            diagnostics.append(implicit_diagnostic)
 
 
 def _relation_cast_targets(definition: TableDef | QueryDef) -> Iterator[TypeExpr]:
@@ -1468,6 +1712,9 @@ def _relation_cast_targets(definition: TableDef | QueryDef) -> Iterator[TypeExpr
 def _cast_targets_in_expression(expression: Expression) -> Iterator[TypeExpr]:
     """Yield every cast target while preserving expression source order."""
 
+    if isinstance(expression, AnyExpr):
+        yield from _cast_targets_in_expression(expression.predicate)
+        return
     if isinstance(expression, CastExpr):
         yield from _cast_targets_in_expression(expression.value)
         yield expression.target
@@ -1654,26 +1901,6 @@ def _invalid_decimal_type_arguments_diagnostic(
         code="PIE-S2004",
         severity=Severity.ERROR,
         message=message,
-    )
-
-
-def _implicit_nullability_diagnostic(
-    type_expr: TypeExpr,
-    mode: CheckMode,
-) -> Diagnostic | None:
-    """Apply the mode-sensitive policy for omitted nullability."""
-
-    if type_expr.nullability is not Nullability.IMPLICIT or mode is CheckMode.LOOSE:
-        return None
-    severity = Severity.WARNING if mode is CheckMode.CHECKED else Severity.ERROR
-    return _type_diagnostic(
-        type_expr,
-        code="PIE-S2005",
-        severity=severity,
-        message=(
-            f"Implicit nullability for type {type_expr.name}; "
-            "use `nullable` or `not null`"
-        ),
     )
 
 

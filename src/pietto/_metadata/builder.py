@@ -22,6 +22,9 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity
 from pietto.ir.model import (
     AggregateCallIR,
+    AnyFieldIR,
+    ExistsIR,
+    FieldId,
     BetweenIR,
     BinaryIR,
     CastIR,
@@ -402,8 +405,10 @@ def _expression_summary(
 
 
 def _expression_kind(expression: ExpressionIR) -> str:
-    if isinstance(expression, FieldRefIR):
+    if isinstance(expression, (FieldRefIR, AnyFieldIR)):
         return "field_ref"
+    if isinstance(expression, ExistsIR):
+        return "predicate"
     if isinstance(expression, AggregateCallIR):
         return "aggregate_call"
     if isinstance(expression, (BinaryIR, UnaryIR, ConditionalIR, CastIR)):
@@ -459,7 +464,17 @@ def _field_leaf(
 
 def _walk_expressions(expression: ExpressionIR) -> Iterable[ExpressionIR]:
     yield expression
-    if isinstance(expression, AggregateCallIR):
+    if isinstance(expression, AnyFieldIR):
+        yield FieldRefIR(
+            span=expression.span,
+            value_type=expression.value_type,
+            name=expression.name,
+            qualifier=(expression.source_binding,),
+            field=FieldId(owner=expression.relation, name=expression.name),
+        )
+    elif isinstance(expression, ExistsIR):
+        yield from _walk_expressions(expression.predicate)
+    elif isinstance(expression, AggregateCallIR):
         yield from _walk_many(expression.arguments)
     elif isinstance(expression, CallIR):
         yield from _walk_many(expression.arguments)

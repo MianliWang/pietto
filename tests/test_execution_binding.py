@@ -68,7 +68,7 @@ def test_exact_inventory(predicate, tmp_path):
 @pytest.mark.parametrize(
     "seed,values,bad",
     [
-        ("true", (False, True), (0, 1, None, "false")),
+        ("True", (False, True), (0, 1, None, "false")),
         ("1.5", (0.0, -0.0, 1.25), (1, True, float("inf"), float("nan"), None)),
         ('"seed"', ("", "雪é😀  ? %s $1", "x" * 1024), (b"x", None, "\ud800")),
     ],
@@ -316,7 +316,7 @@ def test_proofs_rederived_and_unfulfilled_guard_refuses(tmp_path):
 
 
 @pytest.mark.parametrize("all_unique", [False, True])
-def test_complete_path_and_hop_request_correspondence(tmp_path, all_unique):
+def test_two_join_request_correspondence(tmp_path, all_unique):
     from _pietto_plan_joins import _roots, _path_source, _path_requests
     from pietto._project.model import build_empty_project_semantic_result
     from pietto._project.project_completed_semantics import (
@@ -327,8 +327,7 @@ def test_complete_path_and_hop_request_correspondence(tmp_path, all_unique):
     original, _, _ = _roots(
         tmp_path, _path_source(all_unique=all_unique), _path_requests
     )
-    # Semantic-layer witness includes the unfulfilled whole-path request; such
-    # a graph cannot produce executable emission before S07 fulfills its guard.
+    # A non-unique second target keeps its own unfulfilled direct request.
     attribution = original.semantic_result.module_attribution_facts
     assert attribution is not None
     parsed = attribution._authority.parse_result
@@ -340,22 +339,24 @@ def test_complete_path_and_hop_request_correspondence(tmp_path, all_unique):
     mapped = binding._requests(original, fresh, nodes)
     checking._obligations(original, mapped, nodes)
     assert tuple(r.scope for r in mapped.single_match_requests) == (
-        ProjectSingleMatchScope.PATH_HOP,
-        ProjectSingleMatchScope.PATH_HOP,
-        ProjectSingleMatchScope.WHOLE_PATH,
+        ProjectSingleMatchScope.DIRECT_BINARY,
+        ProjectSingleMatchScope.DIRECT_BINARY,
     )
     assert tuple(a.state for a in mapped.single_matches.entries) == tuple(
         a.state for a in original.single_matches.entries
     )
-    wrong = replace(
-        mapped.single_match_requests[0], hop=mapped.single_match_requests[1].hop
-    )
+    first, second = mapped.single_match_requests
+    assert first.use is not second.use and first.use.clause is not second.use.clause
+    for before, after in zip(
+        original.single_match_requests, mapped.single_match_requests, strict=True
+    ):
+        assert after.use.clause is nodes[id(before.use.clause)]
     from pietto._project.project_completed_semantics import (
         with_project_single_match_requests,
     )
 
     swapped = with_project_single_match_requests(
-        fresh, (wrong, *mapped.single_match_requests[1:])
+        fresh, tuple(reversed(mapped.single_match_requests))
     )
     with pytest.raises(binding.BindingError, match="^BINDING_OBLIGATIONS$"):
         checking._obligations(original, swapped, nodes)
@@ -612,14 +613,12 @@ def test_a_position_binding_outside_its_proven_range_is_refused(
         )
 
 
-QUALIFY_ONLY = """query result(low: Int not null, label: Text nullable):
+QUALIFY_ONLY = """query result(low: Int, label: Text | None):
     from rows
     where contains(text, label)
     select:
         id
-        r = row_number() window:
-            order by:
-                id
+        r = row_number() window(order by id)
     qualify:
         r <= low + 1
 """
@@ -648,9 +647,9 @@ def test_the_qualify_obligation_alone_refuses_its_overflowing_binding(tmp_path, 
 # value, a window count and a QUALIFY operand under a LET ORDER key and LIMIT.
 COMPILED_POSITIONS = {
     "builtins_distinct": (
-        """query result(low: Int not null, label: Text nullable):
+        """query result(low: Int, label: Text | None):
     from rows
-    where starts_with(label, text) or ends_with(label, text) or label is null
+    where starts_with(label, text) or ends_with(label, text) or label is None
     select distinct:
         id
         b = upper(label)
@@ -666,11 +665,10 @@ COMPILED_POSITIONS = {
         {"low": 0, "label": "x"},
     ),
     "let_min": (
-        """query result(low: Int not null, high: Int nullable):
+        """query result(low: Int, high: Int | None):
     from rows
-    let:
-        s = id + high
-        k = id * low
+    let s = id + high
+    let k = id * low
     group by:
         k
     select:
@@ -680,49 +678,42 @@ COMPILED_POSITIONS = {
         {"low": 1, "high": None},
     ),
     "joined_satisfying": (
-        """query result(low: Int not null):
+        """query result(low: Int):
     from rows
-    inner join rows as r:
-        from rows
-        on rows.id == r.id
+    let r = rows
+    inner join r on rows.id == r.id
     group by:
         rows.id
     select:
         k = rows.id
         n = count()
-    satisfying:
+    having:
         n > low
 """,
         {"low": 1},
     ),
     "grouped_window": (
-        """query result(low: Int not null):
+        """query result(low: Int):
     from rows
-    let:
-        k = id * low
+    let k = id * low
     group by:
         k
     select:
         k
         n = count()
-        r = row_number() window:
-            order by:
-                n desc
+        r = row_number() window(order by n desc)
     qualify:
         r <= low
 """,
         {"low": 0},
     ),
     "window_count_qualify": (
-        """query result(step: Int not null, fill: Int nullable):
+        """query result(step: Int, fill: Int | None):
     from rows
-    let:
-        s = id * step
+    let s = id * step
     select:
         id
-        a = lag(id, step, fill) window:
-            order by:
-                id
+        a = lag(id, step, fill) window(order by id)
     qualify:
         a > step
     order by:
@@ -752,20 +743,13 @@ def test_every_result_position_compiles_and_binds(tmp_path, target, name):
     assert accepted.arguments == probe.decoded_arguments(document, values)
 
 
-WINDOW_COUNTS = """query result(k: Int not null, b: Int not null, p: Int not null):
+WINDOW_COUNTS = """query result(k: Int, b: Int, p: Int):
     from rows
     select:
         id
-        a = lag(id, k) window:
-            order by:
-                id
-        n = ntile(b) window:
-            order by:
-                id
-        t = nth_value(id, p) window:
-            order by:
-                id
-            rows between unbounded preceding and unbounded following
+        a = lag(id, k) window(order by id)
+        n = ntile(b) window(order by id)
+        t = nth_value(id, p) window(order by id rows between unbounded preceding and unbounded following)
 """
 # (offset, bucket count, position) at each end of every target interval.
 COUNT_LIMITS = {"postgres": 2**31 - 1, "mysql": 2**63 - 1}

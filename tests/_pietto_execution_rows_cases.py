@@ -48,6 +48,16 @@ CASES = (
     ("S_set_producers", "grouped_union"),
     ("O_named_later", "two_facades"),
 )
+# A tail `[not] any` filter (what a last `semi join`/`anti join` became) is an
+# expression block read: every ordinary route runs it, but R2 refines no such
+# read yet (docs/execution.md, `REFINEMENT_EXPRESSION_BLOCK_READ`).
+BLOCK_READS = frozenset(
+    {
+        ("W_join_shapes", "semi"),
+        ("W_join_shapes", "anti"),
+        ("A_window_qualify", "hidden"),
+    }
+)
 
 
 def build(directory, target, case, variant):

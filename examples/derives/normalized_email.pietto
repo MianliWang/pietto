@@ -1,2 +1,2 @@
-derive normalized_email(x: Text not null) -> Text not null:
-    lower(trim(x))
+derive normalized_email(x: Text) -> Text:
+    return lower(trim(x))

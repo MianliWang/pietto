@@ -1,8 +1,8 @@
 """R03 ORDER/LIMIT sharing, R11/C09 LIMIT membership and Slice9 composition.
 
 A definition with result boundaries is a complete terminal producer: every
-named use, JOIN input and SEMI/ANTI right side binds its post-DISTINCT/ORDER/
-LIMIT output, never its projection or its source. The window, QUALIFY and
+named use, JOIN input and `[not] any` read binds its post-DISTINCT/ORDER/LIMIT
+output, never its projection or its source. The window, QUALIFY and
 aggregate stages of Slice8/9 are consumed as established ports and keep their
 own meaning.
 """
@@ -48,11 +48,12 @@ UNORDERED_RIGHT = """table ranked:
 
 
 def consumer(kind):
+    """The tail `[not] any` read of `ranked` (a semi/anti JOIN before S6)."""
+    negation = "not " if kind == "anti" else ""
     return f"""query result:
     from lhs
-    {kind} join ranked as r:
-        from lhs
-        on lhs.id == r.id
+    let r = ranked
+    where {negation}any(lhs.id == r.id for r in r)
     select:
         a = lhs.id
 """
@@ -144,7 +145,7 @@ def units(outcome) -> Any:
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
-    "kind,marker", (("semi", "EXISTS ("), ("anti", "NOT EXISTS ("))
+    "kind,marker", (("semi", "EXISTS ("), ("anti", "(NOT EXISTS ("))
 )
 def test_a_right_limit_zero_terminal_decides_membership(target, kind, marker):
     """R11/C09: the right side is the complete post-LIMIT terminal, kept LIMIT 0."""
@@ -161,7 +162,7 @@ def test_a_right_limit_zero_terminal_decides_membership(target, kind, marker):
         for r in document(outcome)["requirements"]
         if r["denominator"] == "generated"
     ]
-    assert "complete_right_terminal" in generated and "static_limit" in generated
+    assert "exists" in generated and "static_limit" in generated
     producer = [u for u in units(outcome) if type(u) is resulting.RowResultBody]
     assert len(producer) == 1 and producer[0].limit is not None
     assert producer[0].limit.value == 0 and not producer[0].final
@@ -169,7 +170,7 @@ def test_a_right_limit_zero_terminal_decides_membership(target, kind, marker):
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
-    "kind,marker", (("semi", "EXISTS ("), ("anti", "NOT EXISTS ("))
+    "kind,marker", (("semi", "EXISTS ("), ("anti", "(NOT EXISTS ("))
 )
 def test_a_right_ordered_limit_one_terminal_decides_membership(target, kind, marker):
     """R11/C09: ORDER + LIMIT 1 selects one key; membership wraps that terminal."""
@@ -189,37 +190,24 @@ def test_a_right_ordered_limit_one_terminal_decides_membership(target, kind, mar
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_membership_right_side_never_short_circuits_the_result_body(target):
-    """A right producer bound to its projection instead of its terminal is rejected."""
-    from dataclasses import replace
-
+    """An `any` read bound to its producer's projection instead of its terminal is
+    rejected."""
     from pietto._project.project_sql_emission_verification import verify_row_query
 
     outcome = emit_join(target, LIMIT1_RIGHT + consumer("semi"))
     assert outcome.status == "VERIFIED", blockers(outcome)
     artifact = artifact_of(outcome)
     query = artifact.ast
-    all_units = list(query.units)
-    (result,) = [u for u in all_units if type(u) is resulting.RowResultBody]
-    (join,) = [u for u in all_units if hasattr(u, "membership")]
-    right = join.inputs[1]
-    shortcut = replace(
-        join,
-        inputs=(
-            join.inputs[0],
-            replace(
-                right,
-                producer=result.scan.body,
-                columns=tuple(
-                    replace(column, terminal=read.column.terminal)
-                    for column, read in zip(right.columns, result.scan.body.columns)
-                ),
-            ),
-        ),
-    )
-    all_units[all_units.index(join)] = shortcut
-    assert not verify_row_query(
-        artifact.request, replace(query, units=tuple(all_units))
-    )
+    (result,) = [u for u in units(outcome) if type(u) is resulting.RowResultBody]
+    (read,) = probe.block_reads(query)
+    assert read.kind == "exists" and read.predicate is not None
+    assert read.target.producer is result
+    try:
+        object.__setattr__(read.target, "producer", result.scan.body)
+        assert not verify_row_query(artifact.request, query)
+    finally:
+        object.__setattr__(read.target, "producer", result)
+    assert verify_row_query(artifact.request, query)
 
 
 SHARED_ORDER_LIMIT = """table top:
@@ -231,9 +219,8 @@ SHARED_ORDER_LIMIT = """table top:
     limit 2
 query result:
     from top
-    inner join top as r:
-        from top
-        on top.rid == r.rid
+    let r = top
+    inner join r on top.rid == r.rid
     select:
         a = top.rid
         b = r.rid
@@ -272,18 +259,13 @@ QUALIFY_THEN_DISTINCT = """query result:
     select distinct:
         record_id = id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 4
+        row_number() window(order by id) <= 4
 """
 SELECTED_WINDOW_ORDER = """query result:
     from rows
     select:
         record_id = id
-        n = row_number() window:
-            order by:
-                id
+        n = row_number() window(order by id)
     order by:
         n desc
     limit 2
@@ -293,10 +275,7 @@ QUALIFY_ORDER_LIMIT = """query result:
     select distinct:
         record_id = id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
+        row_number() window(order by id) <= 3
     order by:
         id desc
     limit 2
@@ -377,14 +356,14 @@ def test_an_ordinary_named_use_reads_the_post_limit_terminal(target):
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_an_order_key_with_a_part_of_unknown_type_is_blocked(target):
-    """A part of unknown type, such as the null literal in `null is null`, has
+    """A part of unknown type, such as the null literal in `None is None`, has
     no comparison a target can write: the key is BLOCKED with PIE-B1003 at
-    the plan, like `key > 0 and null`. Before, the first two were
+    the plan, like `key > 0 and None`. Before, the first two were
     INPUT_REJECTED with `Invalid current planning roots.`."""
     for key in (
-        "(null is null)",
-        "(null is null) == (key is null)",
-        "key > 0 and null",
+        "(None is None)",
+        "(None is None) == (key is None)",
+        "key > 0 and None",
     ):
         outcome = emit_join(
             target,

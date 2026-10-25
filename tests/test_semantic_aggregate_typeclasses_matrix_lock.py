@@ -37,22 +37,22 @@ MATRIX_SHAPE = (
     "    active\n"
     "    paused\n"
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    region: Text not null\n"
-    "    active: Bool not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal not null\n"
-    "    order_date: Date nullable\n"
-    "    created_at: Timestamp not null\n"
-    "    raw: Bytes not null\n"
-    "    payload: Json not null\n"
-    "    customer_id: UUID not null\n"
-    "    anything: Any nullable\n"
-    "    enum_status: Status not null\n"
+    "    status: Text\n"
+    "    region: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    order_date: Date | None\n"
+    "    created_at: Timestamp\n"
+    "    raw: Bytes\n"
+    "    payload: Json\n"
+    "    customer_id: UUID\n"
+    "    anything: Any | None\n"
+    "    enum_status: Status\n"
 )
 
 NO_GROUP_PROJECTIONS = (
@@ -365,7 +365,7 @@ def test_fail_closed_aggregate_typeclass_boundaries_are_locked(
     semantic = analyze(
         _parse(
             MATRIX_SHAPE
-            + 'source orders: Order is postgres.table("orders")\n'
+            + 'source orders: Order = postgres.table("orders")\n'
             + "table aggregate_stats:\n"
             + "    from orders\n"
             + "    select:\n"
@@ -382,7 +382,7 @@ def test_decimal_product_aggregate_arguments_are_semantically_admitted(
 ) -> None:
     script = _parse(
         MATRIX_SHAPE
-        + 'source orders: Order is postgres.table("orders")\n'
+        + 'source orders: Order = postgres.table("orders")\n'
         + "table aggregate_stats:\n"
         + "    from orders\n"
         + "    select:\n"
@@ -404,7 +404,7 @@ def test_projection_alias_type_alias_and_phase43_row_let_boundaries() -> None:
     projection_alias = analyze(
         _parse(
             MATRIX_SHAPE
-            + 'source orders: Order is postgres.table("orders")\n'
+            + 'source orders: Order = postgres.table("orders")\n'
             + "table aggregate_stats:\n"
             + "    from orders\n"
             + "    select:\n"
@@ -416,16 +416,16 @@ def test_projection_alias_type_alias_and_phase43_row_let_boundaries() -> None:
 
     let_script = _parse(
         MATRIX_SHAPE
-        + 'source orders: Order is postgres.table("orders")\n'
+        + 'source orders: Order = postgres.table("orders")\n'
         + "query aggregate_stats:\n"
         + "    from orders\n"
-        + "    let:\n"
-        + "        gross = amount + tax\n"
+        + "    let gross = amount + tax\n"
         + "    select:\n"
         + "        value = sum(gross)\n"
     )
     let_name = analyze(let_script)
-    relation = _relation_ast(let_script)
+    assert let_name.script is not None
+    relation = _relation_ast(let_name.script)
 
     assert _error_codes(let_name) == []
     _assert_value_type(
@@ -435,10 +435,10 @@ def test_projection_alias_type_alias_and_phase43_row_let_boundaries() -> None:
     )
 
     type_alias_script = _parse(
-        "type Money = Decimal(12, 2) not null\n"
+        "type Money = Decimal(12, 2)\n"
         "shape Order:\n"
-        "    money: Money not null\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    money: Money\n"
+        'source orders: Order = postgres.table("orders")\n'
         "table aggregate_stats:\n"
         "    from orders\n"
         "    select:\n"
@@ -460,26 +460,26 @@ def test_projection_alias_type_alias_and_phase43_row_let_boundaries() -> None:
 # Every aliased field below, alias chain included, aggregates exactly as its base
 # type does; `status` stays Text for the lower/trim chain.
 ALIAS_TYPES = (
-    "type Flag = Bool not null\n"
-    "type Count = Int not null\n"
-    "type Ratio = Float not null\n"
-    "type Money = Decimal not null\n"
-    "type Cash = Money not null\n"
-    "type Day = Date nullable\n"
-    "type Moment = Timestamp not null\n"
-    "type Ident = UUID not null\n"
+    "type Flag = Bool\n"
+    "type Count = Int\n"
+    "type Ratio = Float\n"
+    "type Money = Decimal\n"
+    "type Cash = Money\n"
+    "type Day = Date\n"
+    "type Moment = Timestamp\n"
+    "type Ident = UUID\n"
 )
 ALIAS_FIELDS = (
-    ("    active: Bool not null\n", "    active: Flag not null\n"),
-    ("    amount: Int not null\n", "    amount: Count not null\n"),
-    ("    tax: Int not null\n", "    tax: Count not null\n"),
-    ("    score: Float not null\n", "    score: Ratio not null\n"),
-    ("    weight: Float not null\n", "    weight: Ratio not null\n"),
-    ("    price: Decimal not null\n", "    price: Money not null\n"),
-    ("    discount: Decimal not null\n", "    discount: Cash not null\n"),
-    ("    order_date: Date nullable\n", "    order_date: Day nullable\n"),
-    ("    created_at: Timestamp not null\n", "    created_at: Moment not null\n"),
-    ("    customer_id: UUID not null\n", "    customer_id: Ident not null\n"),
+    ("    active: Bool\n", "    active: Flag\n"),
+    ("    amount: Int\n", "    amount: Count\n"),
+    ("    tax: Int\n", "    tax: Count\n"),
+    ("    score: Float\n", "    score: Ratio\n"),
+    ("    weight: Float\n", "    weight: Ratio\n"),
+    ("    price: Decimal\n", "    price: Money\n"),
+    ("    discount: Decimal\n", "    discount: Cash\n"),
+    ("    order_date: Date | None\n", "    order_date: Day | None\n"),
+    ("    created_at: Timestamp\n", "    created_at: Moment\n"),
+    ("    customer_id: UUID\n", "    customer_id: Ident\n"),
 )
 
 
@@ -528,14 +528,14 @@ def test_aggregate_alias_arguments_keep_their_base_type_boundaries() -> None:
     # An alias of Any counts as Any, which count refuses; an alias of Json or
     # Bytes counts as before, and refusals name the alias as written.
     script = _parse(
-        "type Whatever = Any not null\n"
-        "type Doc = Json not null\n"
-        "type Blob = Bytes not null\n"
+        "type Whatever = Any\n"
+        "type Doc = Json\n"
+        "type Blob = Bytes\n"
         "shape Order:\n"
-        "    anything: Whatever not null\n"
-        "    payload: Doc not null\n"
-        "    raw: Blob not null\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    anything: Whatever\n"
+        "    payload: Doc\n"
+        "    raw: Blob\n"
+        'source orders: Order = postgres.table("orders")\n'
         "table counted:\n"
         "    from orders\n"
         "    select:\n"
@@ -586,9 +586,9 @@ def test_aggregate_alias_arguments_keep_their_base_type_boundaries() -> None:
 def test_decimal_precision_scale_aggregates_remain_logical_non_public_decimal() -> None:
     script, semantic, script_ir = _compile(
         "shape Order:\n"
-        "    amount: Decimal(12, 2) not null\n"
-        "    tax: Decimal(12, 2) not null\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    amount: Decimal(12, 2)\n"
+        "    tax: Decimal(12, 2)\n"
+        'source orders: Order = postgres.table("orders")\n'
         "table decimal_stats:\n"
         "    from orders\n"
         "    select:\n"
@@ -643,7 +643,7 @@ def _matrix_source(connector: str, *, grouped: bool) -> str:
         "    select:\n"
         f"{NO_GROUP_PROJECTIONS}"
     )
-    return MATRIX_SHAPE + f'source orders: Order is {connector}("orders")\n' + relation
+    return MATRIX_SHAPE + f'source orders: Order = {connector}("orders")\n' + relation
 
 
 def _parse(source: str) -> Script:

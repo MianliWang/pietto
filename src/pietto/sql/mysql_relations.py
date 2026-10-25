@@ -16,6 +16,7 @@ from pietto.ir.model import (
     SourceIR,
     SymbolId,
     WindowCallIR,
+    WindowUseKindIR,
 )
 from pietto.sql.expressions import expression_uses_qualified_field
 from pietto.sql.mysql_expressions import (
@@ -30,6 +31,9 @@ from pietto.sql.mysql_render import (
 )
 from pietto.sql.relations import (
     has_untyped_result_predicate,
+    hidden_table_read,
+    _exists_relation_dependencies,
+    _validate_exists_targets,
     qualify_alias_captured_order_fields,
 )
 from pietto.sql.window_strategy import (
@@ -45,9 +49,19 @@ def render_mysql_relation(
     *,
     sources: Mapping[SymbolId, SourceIR],
     relations: Mapping[SymbolId, RelationIR],
+    _include_exists_dependencies: bool = True,
 ) -> str:
     """Render a minimal relation using a MySQL source or relation-name input."""
 
+    try:
+        dependencies = (
+            _exists_relation_dependencies(relation, relations)
+            if _include_exists_dependencies
+            else ()
+        )
+        _validate_exists_targets(relation, sources, relations)
+    except ValueError as error:
+        raise MySqlRenderError(str(error)) from error
     if relation.joins:
         raise MySqlRenderError("MySQL JOIN emission is not available yet")
     quote_identifier(relation.name, context="relation identifier")
@@ -134,7 +148,23 @@ def render_mysql_relation(
         )
     if relation.limit is not None:
         lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
-    return "\n".join(lines)
+    sql = "\n".join(lines)
+    if dependencies:
+        definitions = ",\n".join(
+            f"{quote_identifier(item.name, context='relation identifier')} AS (\n{render_mysql_relation(item, sources=sources, relations=relations, _include_exists_dependencies=False)}\n)"
+            for item in dependencies
+        )
+        hidden = hidden_table_read(
+            relation, dependencies, sources, relations, mysql=True
+        )
+        if hidden is not None:
+            raise MySqlRenderError(
+                f"MySQL scalar ANY defines relation {hidden[0]} as a CTE, which "
+                f"would hide table {hidden[1]} read in the same SQL; rename the "
+                "relation or read the table with its schema"
+            )
+        return f"WITH {definitions}\n{sql}"
+    return sql
 
 
 def _render_input(input_sql: str, alias: str | None) -> str:
@@ -260,7 +290,11 @@ def _render_named_over(expression: WindowCallIR) -> str:
         context="named window identifier",
     )
     if not components:
-        return reference
+        return (
+            f"({reference})"
+            if named.occurrence.kind is WindowUseKindIR.NAMED_EXTENDED
+            else reference
+        )
     return f"({reference} {' '.join(components)})"
 
 

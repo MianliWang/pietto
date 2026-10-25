@@ -1,5 +1,25 @@
 # Bool And Predicate Semantics Contract v1
 
+## Reading this contract with current source
+
+The source-facing facts below use `True`/`False`, `None`, `is None`, scalar
+`let name = value`, `having`, and inclusive chains such as
+`lower <= value <= upper`. Bare type nullability and SQL three-valued logic
+are unchanged. Later shape-typed relationship predicates and full Boolean ANY
+are described in the [language guide](../language.md#boolean-existence-with-any);
+ANY itself is non-null Bool and matches only TRUE predicate rows. That later
+surface does not broaden this historical slice's aggregate or target domain.
+
+The phase status, pinned baselines, decisions, delivery gates and later-slice
+handoffs below are retained historical records. They do not select a source
+syntax or a new release version. Current source defaults to the
+[modern language](../language.md); `pietto NUMBER` remains metadata. Retired
+spelling is read only for diagnostics/migration, and
+[`pietto migrate`](../language.md#migrating-old-source) writes a complete result
+or a manual-refusal diagnostic without editing the input. Exact diagnostic,
+SQL, JSON and internal enum/opcode spellings remain unchanged.
+
+
 ## Status
 
 Phase 30 Slice 4 is complete as Bool and predicate semantics contract, static
@@ -67,8 +87,8 @@ Current expression typing records these Bool and predicate-producing facts:
 | Bool `and` / `or` | Requires known Bool operands; returns `Bool UNKNOWN` |
 | Bool `and` / `or` with known non-Bool operands | Reports existing `PIE-S2105` invalid-operator diagnostic and produces unknown value type |
 | Comparison expression | Types children and returns `Bool UNKNOWN` when children are known, except that known operands rejected by the comparison family check (see `operator-comparison-matrix-contract-v1.md`) report existing `PIE-S2105` and produce unknown value type |
-| `between` expression | Types children and returns `Bool UNKNOWN` when the value and every bound that is not the null literal (or a `let:` name bound to it) are known, also beside one null bound, except that a known bound rejected by the comparison family check reports existing `PIE-S2105` and produces unknown value type |
-| `is null` / `is not null` expression | Returns `Bool NON_NULL` |
+| Inclusive chain `lower <= value <= upper` | Types children and returns `Bool UNKNOWN` when the value and every bound that is not the null literal (or a `let` name bound to it) are known, also beside one null bound, except that a known bound rejected by the comparison family check reports existing `PIE-S2105` and produces unknown value type |
+| `is None` / `is not None` expression | Returns `Bool NON_NULL` |
 | Unknown or unsupported child value type | Produces unknown value type and relies on existing unknown or unsupported diagnostics |
 
 The `UNKNOWN` in `Bool UNKNOWN` is Pietto `EffectiveNullability.UNKNOWN`: the
@@ -76,9 +96,10 @@ value type is known to be `Bool`, but compile-time nullability is not proven.
 It is not a SQL runtime truth value.
 
 A later change proves more in one place: when typing does not prove a `def`
-body with a `not null` result non-null, the body check types it again, and
-there a comparison or `between` whose operands are all `NON_NULL` returns
-`Bool NON_NULL`, while `and` and `or` still return `Bool UNKNOWN` (see the
+body with a bare (never None) result type non-null, the body check types it
+again, and there a comparison or inclusive chain whose operands are all
+`NON_NULL` returns `Bool NON_NULL`, while `and` and `or` still return
+`Bool UNKNOWN` (see the
 [operator and comparison matrix](operator-comparison-matrix-contract-v1.md)).
 Every other typing, a def call's arguments included, records the facts above.
 
@@ -91,7 +112,7 @@ Slice 4 formalizes four current predicate contexts:
 | Row-level `where` | Consumes a Pietto expression typed as known `Bool` under current row-scope expression rules |
 | Shape `check` | Consumes a Pietto expression typed as known `Bool` under current shape-scope expression rules |
 | Index `when` predicate | Consumes a Pietto expression typed as known `Bool` under current shape/index expression rules |
-| Result-level `satisfying:` | Consumes a supported grouped result predicate typed as known `Bool` over supported selected output names |
+| Result-level `having` | Consumes a supported grouped result predicate typed as known `Bool` over supported selected output names |
 
 A known Bool predicate is accepted only as a compile-time type-level fact. It
 does not mean Pietto proves the predicate non-null, does not mean the runtime
@@ -109,45 +130,45 @@ For row-level `where`, shape `check`, and index `when` predicates:
 - existing unknown-type, unknown-field, unsupported-expression, and deferred
   diagnostics remain responsible for fail-closed behavior.
 
-For result-level `satisfying:` predicates:
+For result-level `having` predicates:
 
-- `satisfying:` requires GROUP BY and otherwise reports existing `PIE-S2323`;
+- `having` requires GROUP BY and otherwise reports existing `PIE-S2323`;
 - unknown selected output names report existing `PIE-S2324`;
 - input field references where a selected output name is required report
   existing `PIE-S2325`;
 - unsupported selected outputs report existing `PIE-S2326`;
 - unsupported result-predicate expression forms report existing `PIE-S2327`;
-- direct aggregate calls inside `satisfying:` report the existing aggregate
+- direct aggregate calls inside `having` report the existing aggregate
   invalid-context diagnostic `PIE-S2308`;
-- known non-Bool `satisfying:` predicates report existing `PIE-S2202`;
+- known non-Bool `having` predicates report existing `PIE-S2202`;
 - invalid Bool `and` / `or` operands report existing `PIE-S2105`.
 
 A later defect fix reads a type alias, an alias chain included, as the builtin
 type it expands to in these checks: a `where`, shape `check`, index `when` or
-`satisfying:` predicate whose type is an alias of `Bool`, and a `satisfying:`
+`having` predicate whose type is an alias of `Bool`, and a `having`
 `and` / `or` operand of such an alias, count as known `Bool`.
 
 A later defect fix reads a predicate of unknown value type that is a call of
 any built-in scalar function but `coalesce` and `nullif`, also as the value of
-a `let:` name, as the result type its signature gives it (a number for `abs`),
+a `let` name, as the result type its signature gives it (a number for `abs`),
 because the call has that type or fails wherever it runs: over a source
 without a shape `where len(t)` and `where lower(t)` report `PIE-S2202`, unless
-an error of the predicate's own, or of a `let:` binding it reads, explains
+an error of the predicate's own, or of a `let` binding it reads, explains
 the unknown type. It reads a quotient with a `Decimal` operand, which has no
-type yet, as a number, also as the value of a `let:` name, with arithmetic
+type yet, as a number, also as the value of a `let` name, with arithmetic
 over it or in a `coalesce`, `nullif` or conditional of such numbers, where a
-`null` takes their type, so `where amount / 2` reports `PIE-S2202`. The same reading applies to
+`None` takes their type, so `where amount / 2` reports `PIE-S2202`. The same reading applies to
 an `and` / `or` / `not` operand and to a conditional's condition, which report
 existing `PIE-S2105` when they are such a call or quotient or of a known
 non-Bool type beside an operand of unknown type
-that reported no error of its own and reads no `let:` binding with one
+that reported no error of its own and reads no `let` binding with one
 (`t and 5`). Over a source without a shape a `count()` output is a known
-`Int` to `satisfying:`. Any other predicate of unknown value type still
+`Int` to `having`. Any other predicate of unknown value type still
 receives no Bool-cascade diagnostic. Another later defect fix gives such a
 call that type wherever it is read, not only as a predicate, so a predicate
 built on it, such as `where len(t) + 1`, is of a known type too, and over a
 source without a shape a `count` or `count_distinct` output whose argument
-reads a field is a known `Int` to `satisfying:` as well.
+reads a field is a known `Int` to `having` as well.
 
 These codes and messages are existing repo behavior. Slice 4 introduces no new
 diagnostic code and does not change diagnostic ordering, spans, severity,

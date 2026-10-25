@@ -443,8 +443,7 @@ def test_compile_stops_at_an_unadmitted_relation_let_without_internal_error(
     project = api.write_example(tmp_path)
     main = project / "main.pietto"
     main.write_text(
-        main.read_text(encoding="utf-8")
-        + "\nquery gated(k: Int not null):\n    let l:\n"
+        main.read_text(encoding="utf-8") + "\nquery gated(k: Int):\n    let l:\n"
         "        from generate_series(1, 3, 1) as n\n"
         "        select:\n            n\n    from l\n    select:\n        n\n"
     )
@@ -457,9 +456,9 @@ def test_compile_stops_at_an_unadmitted_relation_let_without_internal_error(
 
 
 SINCE = """
-query since(low: Int not null, note: Text nullable):
+query since(low: Int, note: Text | None):
     from items
-    where id > low and (note is null or label != note)
+    where id > low and (note is None or label != note)
     select:
         id
         tag = note
@@ -641,23 +640,19 @@ def test_compile_arguments_are_checked_before_the_project_is_read(
 
 
 WINDOWED = """
-query windowed(k: Int not null, b: Int not null, p: Int not null, v: Int nullable, f: Int not null):
+query windowed(k: Int, b: Int, p: Int, v: Int | None, f: Int):
     from items
     select:
         id
-        a = lag(id, k, f) window:
-            order by:
-                id
-        n = ntile(b) window:
-            order by:
-                id
-        t = nth_value(id, p) window:
-            order by:
-                id
-            rows between unbounded preceding and unbounded following
-        l = lag(v) window:
-            order by:
-                id
+        a = lag(id, k, f) window(
+            order by id)
+        n = ntile(b) window(
+            order by id)
+        t = nth_value(id, p) window(
+            order by id
+            rows between unbounded preceding and unbounded following)
+        l = lag(v) window(
+            order by id)
 """
 # k is a lag offset, b an ntile bucket count and p an nth_value position; v and
 # f are a window value and a lag default, which only their type constrains.

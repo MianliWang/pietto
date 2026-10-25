@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from pietto._project.model import (
     ProjectRelationRowSchemaState,
@@ -30,6 +30,10 @@ from pietto.semantic.expressions import LetValues, _let_names_with_diagnostics
 from pietto.semantic.let_bindings import analyze_relation_let_bindings
 from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
 from pietto.errors import Diagnostic
+
+if TYPE_CHECKING:
+    from pietto._project.existence_values import ProjectAnyValue
+    from pietto.semantic.relationship_predicates import RelationshipCallFailure
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -103,10 +107,23 @@ class ProjectRelationLetScopeFacts:
         default_factory=lambda: _readonly_mapping()
     )
     diagnostics: tuple[Diagnostic, ...] = ()
+    existence_values: tuple[ProjectAnyValue, ...] = ()
 
     def __post_init__(self) -> None:
         """Copy fact maps into immutable containers and validate invariants."""
 
+        if type(self.existence_values) is not tuple:
+            raise TypeError("LET ANY facts require an exact tuple.")
+        if self.existence_values:
+            from pietto._project.existence_values import ProjectAnyValue
+
+            if type(self.existence_values) is not tuple or any(
+                type(value) is not ProjectAnyValue
+                or value.input.binding.owner.definition is not self.definition
+                or not any(value.context is binding for binding in self.bindings)
+                for value in self.existence_values
+            ):
+                raise ValueError("LET ANY facts require their exact binding scope.")
         if not isinstance(self.status, ProjectLetScopeFactsStatus):
             raise ValueError("Project let scope facts require a status")
         if not isinstance(self.reason, ProjectLetScopeFactsReason):
@@ -187,9 +204,22 @@ def build_project_relation_let_scope_facts(
     input_schema: ProjectRowSchema | None,
     upstream_definition: _RelationDefinition | None,
     upstream_state: ProjectRelationRowSchemaState | None = None,
+    normalized_bindings: Mapping[LetBinding, Expression] | None = None,
+    failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
 ) -> ProjectRelationLetScopeFacts:
     """Build private let scope facts from existing semantic let analysis."""
 
+    bindings = (
+        () if definition.let_clause is None else tuple(definition.let_clause.bindings)
+    )
+    if normalized_bindings is not None and (
+        len(normalized_bindings) != len(bindings)
+        or any(
+            actual is not binding
+            for actual, binding in zip(normalized_bindings, bindings, strict=True)
+        )
+    ):
+        raise ValueError("Normalized LET bindings require complete exact source order.")
     if definition.let_clause is None:
         return ProjectRelationLetScopeFacts(
             status=ProjectLetScopeFactsStatus.ABSENT,
@@ -202,8 +232,7 @@ def build_project_relation_let_scope_facts(
             input_state=upstream_state,
         )
 
-    bindings = tuple(definition.let_clause.bindings)
-    binding_expressions = _binding_expressions(bindings)
+    binding_expressions = _binding_expressions(bindings, normalized_bindings)
     non_concrete = _upstream_non_concrete_facts(
         definition,
         upstream_state=upstream_state,
@@ -241,6 +270,8 @@ def build_project_relation_let_scope_facts(
         source_row_schemas=_source_row_schemas(upstream_definition, row_schema),
         relation_row_schemas=_relation_row_schemas(upstream_definition, row_schema),
         allow_unaliased_selected_let_outputs=True,
+        normalized_bindings=normalized_bindings,
+        failed_relationship_calls=failed_relationship_calls,
     )
     scope = scopes.get(definition)
     erroneous = _let_names_with_diagnostics(definition, diagnostics)
@@ -386,11 +417,16 @@ def _relation_row_schemas(
     return {}
 
 
-def _binding_expressions(bindings: tuple[LetBinding, ...]) -> Mapping[str, Expression]:
+def _binding_expressions(
+    bindings: tuple[LetBinding, ...],
+    normalized_bindings: Mapping[LetBinding, Expression] | None = None,
+) -> Mapping[str, Expression]:
     expressions: dict[str, Expression] = {}
     for binding in bindings:
         if binding.name not in expressions:
-            expressions[binding.name] = binding.expression
+            expressions[binding.name] = (normalized_bindings or {}).get(
+                binding, binding.expression
+            )
     return expressions
 
 

@@ -4,86 +4,84 @@ import ast
 from copy import copy
 from dataclasses import replace
 from pathlib import Path
-from typing import cast
 
 import pytest
 
-from pietto._project import project_phase62_inspection as inspection
-from pietto._project import project_phase62_pure_boundary as pure
-from pietto._project.project_multifact import ProjectAggregateFactJoinLocality
+from pietto._project import project_query_block_ir_inspection as inspection
+from pietto._project import project_query_block_ir_pure_boundary as pure
+from pietto._project import project_phase62_inspection as base_inspection
+from pietto._project import project_phase62_pure_boundary as base_pure
 from pietto._project.project_phase62_verification import (
-    ProjectPhase62AnalysisBundle,
     build_project_phase62_analysis_bundle,
-    verify_project_phase62,
 )
-from _pietto_project_aggregate import (
-    _build,
+from pietto._project.project_ir import _declaration_identity
+from pietto._project.project_query_block_ir import (
+    ProjectIRCompletedQueryBlockOutput,
+    ProjectIRCompletedSetOperationOutput,
+    ProjectIRReboundExistingOutput,
+    ProjectIRReusedEffectiveOutput,
 )
+from pietto._project.project_query_block_ir_verification import (
+    ProjectIRQueryBlockVerificationIssue,
+    ProjectIRQueryBlockVerificationIssueKind,
+    ProjectIRQueryBlockVerificationStatus,
+)
+from _pietto_project_aggregate import _build
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-INSPECTION_SOURCE = REPO_ROOT / "src/pietto/_project/project_phase62_inspection.py"
-PURE_SOURCE = REPO_ROOT / "src/pietto/_project/project_phase62_pure_boundary.py"
-SPEC = (
-    REPO_ROOT
-    / "docs/spec/phase62-slice14-private-inspection-winner-free-query-pure-canonical-boundary-v1.md"
+INSPECTION_SOURCE = (
+    REPO_ROOT / "src/pietto/_project/project_query_block_ir_inspection.py"
 )
+PURE_SOURCE = REPO_ROOT / "src/pietto/_project/project_query_block_ir_pure_boundary.py"
 
 
 @pytest.fixture(scope="module")
-def bundle(tmp_path_factory: pytest.TempPathFactory) -> ProjectPhase62AnalysisBundle:
-    root = _build(tmp_path_factory.mktemp("p62s14"))
-    return build_project_phase62_analysis_bundle(verify_project_phase62(root))
+def built(tmp_path_factory: pytest.TempPathFactory):
+    return _build(tmp_path_factory.mktemp("aggregate_inspection"))
 
 
 @pytest.fixture(scope="module")
-def product(
-    bundle: ProjectPhase62AnalysisBundle,
-) -> inspection.ProjectPhase62InspectionProduct:
-    return inspection.build_project_phase62_inspection(bundle)
+def bundle(built):
+    return built[2]
 
 
-def _same_objects(actual: tuple[object, ...], expected: tuple[object, ...]) -> bool:
+@pytest.fixture(scope="module")
+def product(built):
+    return built[3]
+
+
+def _same_objects(actual, expected):
     return len(actual) == len(expected) and all(
         item is retained for item, retained in zip(actual, expected, strict=True)
     )
 
 
-def _unsafe[Value](value: Value, **changes: object) -> Value:
+def _unsafe(value, **changes):
     copied = copy(value)
     for name, replacement in changes.items():
         object.__setattr__(copied, name, replacement)
     return copied
 
 
-def _replace_record(
-    document: pure.ProjectPhase62PureDocument,
-    position: int,
-    record: pure.ProjectPhase62PureRecord,
-) -> pure.ProjectPhase62PureDocument:
-    return replace(
-        document,
-        records=(
-            *document.records[:position],
-            record,
-            *document.records[position + 1 :],
-        ),
-    )
+def _record(document, kind):
+    return next(i for i, item in enumerate(document.records) if item.kind is kind)
 
 
-def _record_position(
-    document: pure.ProjectPhase62PureDocument,
-    kind: pure.ProjectPhase62RecordKind,
-) -> int:
-    return next(
-        position
-        for position, record in enumerate(document.records)
-        if record.kind is kind
-    )
+def _field(record, key):
+    return next(i for i, item in enumerate(record.fields) if item.key == key)
 
 
-def test_slice14_owners_are_private_pure_and_single_encoder() -> None:
-    assert inspection.__all__ == ()
-    assert pure.__all__ == ()
+def _replace_field(document, position, field_position, value):
+    record = document.records[position]
+    fields = list(record.fields)
+    fields[field_position] = replace(fields[field_position], value=value)
+    records = list(document.records)
+    records[position] = replace(record, fields=tuple(fields))
+    return replace(document, records=tuple(records))
+
+
+def test_owners_are_private_pure_and_single_encoder():
+    assert inspection.__all__ == pure.__all__ == ()
     pure_source = PURE_SOURCE.read_text(encoding="utf-8")
     inspection_source = INSPECTION_SOURCE.read_text(encoding="utf-8")
     tree = ast.parse(pure_source)
@@ -100,292 +98,568 @@ def test_slice14_owners_are_private_pure_and_single_encoder() -> None:
         == 1
     )
     assert "project_bag_null_oracle" not in pure_source + inspection_source
-    assert "import json" not in pure_source + inspection_source
     assert "deserialize" not in pure_source + inspection_source
     assert ".encode(" not in inspection_source
-    assert pure.PROJECT_PHASE62_INSPECTION_FORMAT == "pietto.phase62-inspection.v1"
 
 
-def test_verified_bundle_only_admission_and_exact_runtime_closure(
-    bundle: ProjectPhase62AnalysisBundle,
-    product: inspection.ProjectPhase62InspectionProduct,
-) -> None:
+def test_verified_bundle_only_admission_and_exact_runtime_closure(bundle, product):
     observed = product.inspection
     root = bundle.root
     assert observed.analysis_bundle is bundle
     assert observed.verification is bundle.verification
     assert observed.root is root
-    assert observed.base_verification is bundle.verification.base_verification
+    assert observed.completed is root.completed
+    assert observed.project_completion is root.completed.completion
+    assert observed.effective_output_completion is root.completed.effective_outputs
+    assert observed.phase62_verification is root.completed.verification
+    assert observed.phase62_root is root.completed.verification.root
+    assert observed.base_plan is root.base_plan
+    assert observed.join_stage is root.join_stage
+    assert observed.owners is root.owners
+    assert observed.dependencies is root.dependencies
+    assert observed.schedule is root.schedule
+    assert observed.entries is root.entries
     assert observed.combined_reverse_uses is bundle.combined_reverse_uses
     assert observed.combined_topological_order is bundle.combined_topological_order
-    assert observed.nulling_provenance is bundle.nulling_provenance
-    assert observed.fact_locality_index is bundle.fact_localities
-    assert observed.multifact_alignment_index is bundle.multifact_alignments
-    assert _same_objects(
-        observed.relationship_subjects,
-        root.join_regions.uses.relationships.subjects,
-    )
-    assert _same_objects(
-        observed.relationship_directions, root.join_regions.uses.index.directions
-    )
-    assert _same_objects(observed.join_use_ledgers, root.join_regions.uses.ledgers)
-    assert _same_objects(
-        observed.join_output_properties, root.join_regions.properties.outputs
-    )
-    assert _same_objects(observed.aggregate_facts, root.facts)
-    assert _same_objects(observed.home_localities, root.home_localities)
-    assert _same_objects(observed.join_localities, root.join_localities)
-    assert _same_objects(observed.alignments, root.alignments)
-    assert _same_objects(observed.chasms, bundle.multifact_alignments.chasms)
-    assert _same_objects(
-        observed.non_concrete_multifact_regions, root.non_concrete_regions
-    )
-    assert observed.summary.relationship_count == len(observed.relationship_subjects)
-    assert observed.summary.binary_join_count == len(observed.binary_joins)
-    assert observed.summary.candidate_key_count == len(observed.candidate_keys)
-    assert observed.summary.value_fd_count == len(observed.value_fds)
-    assert observed.summary.aggregate_fact_count == len(observed.aggregate_facts)
-    assert observed.summary.alignment_count == len(observed.alignments)
+    assert observed.combined_reachability is bundle.combined_reachability
     with pytest.raises(TypeError, match="analysis bundle"):
-        inspection.build_project_phase62_inspection(root)  # type: ignore[arg-type]
+        inspection.build_project_query_block_ir_inspection(root)
     with pytest.raises(TypeError, match="analysis bundle"):
-        inspection.build_project_phase62_inspection(  # type: ignore[arg-type]
-            bundle.verification  # pyright: ignore[reportArgumentType]
+        inspection.build_project_query_block_ir_inspection(bundle.verification)
+    invalid = _unsafe(
+        bundle.verification,
+        status=ProjectIRQueryBlockVerificationStatus.INVALID,
+        issues=(
+            ProjectIRQueryBlockVerificationIssue(
+                kind=ProjectIRQueryBlockVerificationIssueKind.ROOT_CONTINUITY
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="VERIFIED"):
+        inspection.build_project_query_block_ir_inspection(
+            _unsafe(bundle, verification=invalid)
         )
 
 
-def test_complete_runtime_sections_retain_occurrences_not_winners(
-    product: inspection.ProjectPhase62InspectionProduct,
-) -> None:
+def test_complete_runtime_sections_retain_occurrences_not_winners(product):
     observed = product.inspection
-    assert len(observed.relationship_directions) == 2 * len(
-        observed.relationship_subjects
-    )
-    assert any(len(bucket) > 1 for bucket in observed.direct_candidate_buckets)
+    root = observed.root
+    base = root.base_plan.structural_stage
+    join = root.join_stage.structural
+    for actual, expected in (
+        (observed.combined_nodes, (*base.nodes, *join.nodes, *root.structural.nodes)),
+        (
+            observed.combined_outputs,
+            (*base.outputs, *join.outputs, *root.structural.outputs),
+        ),
+        (
+            observed.combined_input_slots,
+            (*base.input_slots, *join.input_slots, *root.structural.input_slots),
+        ),
+        (observed.combined_uses, (*base.uses, *join.uses, *root.structural.uses)),
+    ):
+        assert _same_objects(actual, expected)
+    assert observed.algebra_joins
     assert all(
-        _same_objects(condition.correspondences, retained)
-        for condition, retained in zip(
-            observed.relationship_conditions,
+        len(item.inputs) == len(item.input_uses) == 2 for item in observed.algebra_joins
+    )
+    left = tuple(
+        item for item in observed.algebra_joins if item.source.kind.value == "left"
+    )
+    assert left and all(
+        any(field.nulling_joins for field in item.source.output.row_shape.fields)
+        for item in left
+    )
+    assert observed.predicate_calls and observed.predicate_equalities
+    assert all(
+        item.fd_index.facts == item.fds for item in observed.relational_properties
+    )
+    assert (
+        tuple(item.blocker for item in observed.terminals) == observed.terminal_blockers
+    )
+    assert observed.terminals
+    assert observed.summary.entry_count == len(observed.entries)
+    assert observed.summary.analysis_entry_count == sum(
+        map(
+            len,
             (
+                observed.combined_reverse_uses,
+                observed.combined_topological_order,
+                observed.combined_reachability,
+            ),
+        )
+    )
+
+
+def test_current_predicate_inventory_matches_every_authored_call_and_exact_inputs(
+    product,
+):
+    from pietto import ast_nodes as nodes
+    from pietto.semantic.inline_functions import _tree_nodes
+
+    observed = product.inspection
+    root = observed.root
+    semantic = root.completed.semantic_result
+    names = {
+        module.path: {
+            template.name
+            for template in module.parsed_input.script.relationship_templates
+        }
+        for module in semantic.modules
+        if module.parsed_input is not None
+    }
+    authored = tuple(
+        node
+        for owner in root.owners
+        for node in _tree_nodes(owner.definition)
+        if type(node) is nodes.CallExpr
+        and type(node.callee) is nodes.NameExpr
+        and node.callee.name in names[owner.identity.module_path]
+    )
+    assert authored
+    assert _same_objects(
+        tuple(call.call for call in observed.predicate_calls), authored
+    )
+    canonical = root.completed.roots.join_conditions.predicate_expressions
+    expected = tuple(
+        record
+        for owner in root.owners
+        for record in canonical
+        if record.owner is owner and record.calls
+    )
+    assert _same_objects(observed.predicate_expressions, expected)
+    for record in expected:
+        for call, bindings in zip(record.calls, record.argument_bindings, strict=True):
+            assert (
+                call.context is record.context and call.owner is record.owner.definition
+            )
+            for argument, binding in zip(call.arguments, bindings, strict=True):
+                assert binding.owner is record.owner and binding.target is not None
+                assert argument.occurrence is binding.site
+                assert argument.relation is binding.target.target_occurrence.definition
+    conditions = tuple(
+        joined.condition
+        for joined in sorted(
+            (*observed.historical_matches, *observed.algebra_joins),
+            key=lambda joined: joined.node.ref.position,
+        )
+        if joined.condition.environment.predicate_expression is not None
+        and joined.condition.environment.predicate_expression.calls
+    )
+    assert conditions
+    assert _same_objects(
+        observed.predicate_equalities,
+        tuple(
+            equality
+            for condition in conditions
+            for equality in condition.mandatory_equalities
+        ),
+    )
+    assert _same_objects(
+        observed.predicate_key_matches,
+        tuple(match for condition in conditions for match in condition.key_matches),
+    )
+    assert observed.predicate_key_matches
+    for equality in observed.predicate_equalities:
+        assert equality.calls and all(
+            any(call is retained for retained in observed.predicate_calls)
+            for call in equality.calls
+        )
+    (control,) = tuple(
+        entry
+        for entry in root.completed.effective_outputs.entries
+        if entry.owner.definition.name == "aggregate_left_outputs"
+    )
+    from pietto._project.project_final_outputs import ProjectCompletedEffectiveOutput
+
+    assert isinstance(control, ProjectCompletedEffectiveOutput)
+    assert tuple(control.schema.fields) == ("order_id", "matched_customer_id")
+    from pietto._project.model import ProjectRowFieldNullability
+
+    assert (
+        control.schema.fields["order_id"].nullability
+        is ProjectRowFieldNullability.NON_NULL
+    )
+    assert (
+        control.schema.fields["matched_customer_id"].nullability
+        is ProjectRowFieldNullability.NULLABLE
+    )
+    (entry,) = tuple(value for value in root.entries if value.owner is control.owner)
+    assert (
+        isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+        and entry.join_prefix is not None
+    )
+    joined = entry.join_prefix.final_join
+    assert (
+        joined.inputs[0].producer is not None and joined.inputs[1].producer is not None
+    )
+    assert joined.inputs[0].producer.definition.name == "orders"
+    assert joined.inputs[1].producer.definition.name == "customers"
+    left_width = len(joined.inputs[0].source_properties.fields)
+    assert all(
+        not field.nulling_joins for field in joined.output.row_shape.fields[:left_width]
+    )
+    assert all(
+        len(field.nulling_joins) == 1 and field.nulling_joins[0] is joined.node.ref
+        for field in joined.output.row_shape.fields[left_width:]
+    )
+
+
+@pytest.mark.parametrize(
+    "owner_name",
+    (
+        "aggregate_pair_outputs",
+        "aggregate_pair_same_input",
+        "aggregate_pair_keyed",
+        "aggregate_pair_shared_inputs",
+    ),
+)
+def test_current_aggregate_candidates_keep_all_authorities_and_common_grains(
+    product, owner_name
+):
+    from pietto._project.project_grain import (
+        ProjectGrainFactorSet,
+        grain_dependency_closure,
+    )
+    from pietto._project.project_multifact import (
+        ProjectActualGrainAuthorityKind,
+        ProjectCommonGrainStatus,
+        ProjectCurrentMultiFactRegion,
+    )
+    from pietto.ast_nodes import QueryDef, TableDef
+    from pietto._project.project_joined_aggregation import (
+        ProjectConcreteJoinedAggregation,
+        ProjectNonConcreteJoinedAggregation,
+        ProjectJoinedAggregateOccurrence,
+    )
+
+    completed = product.inspection.completed
+    base_facts = completed.verification.root.facts
+    assert len(base_facts) > len({fact.identity.aggregate_node for fact in base_facts})
+    (result,) = tuple(
+        result
+        for tail in completed.effective_outputs.current_tails
+        for result in tail.window_set.aggregation_set.results
+        if result.input_filter.entry.owner.definition.name == owner_name
+    )
+    if type(result) is ProjectConcreteJoinedAggregation:
+        aggregates = result.aggregates
+    else:
+        assert type(result) is ProjectNonConcreteJoinedAggregation
+        aggregates = result.aggregate_results
+    assert len(aggregates) == len(result.grain_linkages) == 2
+    assert all(type(item) is ProjectJoinedAggregateOccurrence for item in aggregates), (
+        aggregates
+    )
+    definition = result.input_filter.entry.owner.definition
+    assert isinstance(definition, (QueryDef, TableDef))
+    assert all(
+        aggregate.selected_output_ordinal == ordinal
+        and aggregate.item is definition.select_items[ordinal]
+        for ordinal, aggregate in enumerate(aggregates)
+    )
+    (pair,) = result.pair_linkages
+    left, right = result.grain_linkages
+    assert pair.left is left and pair.right is right
+    assert left.aggregate is aggregates[0] and right.aggregate is aggregates[1]
+    assert left.aggregate.call is not right.aggregate.call
+    region = left.multifact_region
+    assert right.multifact_region is region
+    assert type(region) is ProjectCurrentMultiFactRegion
+    expected = tuple(
+        authority
+        for join, properties in zip(
+            region.region.joins, region.region.join_properties, strict=True
+        )
+        for authority in (
+            (
+                ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT,
+                (join, join.input_uses[0], join.left_input.grain),
+            ),
+            (
+                ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT,
+                (join, join.input_uses[1], join.right_input.grain),
+            ),
+            (
+                ProjectActualGrainAuthorityKind.JOIN_OUTPUT,
+                (join, properties.relational.grain),
+            ),
+        )
+    )
+    assert region.actual_candidates
+    positions = []
+    candidate_positions = []
+    for candidate in region.actual_candidates:
+        selected = []
+        for authority in candidate.authorities:
+            (position,) = tuple(
+                i
+                for i, (kind, evidence) in enumerate(expected)
+                if authority.kind is kind
+                and _same_objects(authority.evidence, evidence)
+            )
+            selected.append(position)
+        assert selected == sorted(selected)
+        positions.extend(selected)
+        candidate_positions.append(tuple(selected))
+    assert sorted(positions) == list(range(len(expected)))
+    common = pair.common_grain
+    assert common.actual_candidates is region.actual_candidates
+    index = region.grain_index
+    closures = tuple(
+        grain_dependency_closure(
+            index,
+            ProjectGrainFactorSet(
+                universe=index.universe, factors=link.contextual_grain.factors
+            ),
+        )
+        for link in (left, right)
+    )
+    expected_common = tuple(
+        candidate
+        for candidate in region.actual_candidates
+        if all(candidate.factors.mask & ~closure.mask == 0 for closure in closures)
+    )
+    assert _same_objects(
+        tuple(item.candidate for item in common.common_candidates), expected_common
+    )
+    candidate_closures = {
+        id(candidate): grain_dependency_closure(index, candidate.factors).mask
+        for candidate in expected_common
+    }
+    expected_retained = tuple(
+        candidate
+        for candidate in expected_common
+        if not any(
+            candidate.factors.mask & ~candidate_closures[id(other)] == 0
+            and other.factors.mask & ~candidate_closures[id(candidate)] != 0
+            for other in expected_common
+        )
+    )
+    assert _same_objects(
+        tuple(item.candidate for item in common.candidates), expected_retained
+    )
+    assert left.contextual_grain.factors and right.contextual_grain.factors
+    left_reaches_right = set(right.contextual_grain.factors) <= set(closures[0].factors)
+    right_reaches_left = set(left.contextual_grain.factors) <= set(closures[1].factors)
+    if owner_name == "aggregate_pair_outputs":
+        # The key-proved local right -> prior-input dependencies (orders ->
+        # customers, returned -> dimension) make both closures reach the first
+        # join's three grains: the ambiguous chasm of aggregate_pair_shared_inputs.
+        assert len(region.region.joins) == 3
+        assert tuple(candidate_positions) == (
+            (0,),
+            (1,),
+            (2, 3),
+            (4,),
+            (5, 6),
+            (7,),
+            (8,),
+        )
+        assert _same_objects(expected_common, region.actual_candidates[:3])
+        assert _same_objects(expected_retained, expected_common)
+        assert type(result) is ProjectNonConcreteJoinedAggregation
+        assert common.status is ProjectCommonGrainStatus.AMBIGUOUS
+        assert common.candidate is None
+        assert not left_reaches_right and not right_reaches_left
+        assert len(pair.chasm_candidates) == 3
+        assert _same_objects(pair.chasm_candidates, common.candidates)
+    elif owner_name == "aggregate_pair_same_input":
+        assert len(expected_retained) == 1
+        assert common.status is ProjectCommonGrainStatus.UNIQUE
+        assert common.candidate is expected_retained[0]
+        assert left_reaches_right and right_reaches_left
+        assert pair.chasm_candidates == ()
+    else:
+        assert len(expected_retained) >= 2
+        assert common.status is ProjectCommonGrainStatus.AMBIGUOUS
+        assert common.candidate is None
+        if owner_name == "aggregate_pair_keyed":
+            assert type(result) is ProjectConcreteJoinedAggregation
+            assert left_reaches_right and right_reaches_left
+            assert pair.chasm_candidates == ()
+        else:
+            assert not left_reaches_right and not right_reaches_left
+            assert _same_objects(pair.chasm_candidates, common.candidates)
+    for linkage in (left, right):
+        for exposure in linkage.multiplicity_exposures:
+            assert any(exposure.join is join for join in region.region.joins)
+            assert exposure.factor_additions
+
+
+def test_typed_queries_are_scope_closed_and_return_complete_buckets(product, tmp_path):
+    observed = product.inspection
+    for entry in observed.entries:
+        identity = _declaration_identity(entry.owner)
+        bucket = tuple(
+            item
+            for item in observed.entries
+            if _declaration_identity(item.owner) == identity
+        )
+        assert _same_objects(
+            inspection.query_project_query_block_entries(observed, identity), bucket
+        )
+        assert _same_objects(
+            inspection.query_project_query_block_terminals(observed, identity),
+            tuple(
+                item
+                for item in observed.terminals
+                if _declaration_identity(item.owner) == identity
+            ),
+        )
+        concrete = (
+            ProjectIRReusedEffectiveOutput,
+            ProjectIRReboundExistingOutput,
+            ProjectIRCompletedQueryBlockOutput,
+            ProjectIRCompletedSetOperationOutput,
+        )
+        expected_roots = tuple(
+            (item.active_output, item.active_properties)
+            for item in bucket
+            if isinstance(item, concrete)
+        )
+        actual_roots = inspection.query_project_query_block_active_roots(
+            observed, identity
+        )
+        assert len(actual_roots) == len(expected_roots)
+        assert all(
+            actual_output is expected_output
+            and actual_properties is expected_properties
+            for (actual_output, actual_properties), (
+                expected_output,
+                expected_properties,
+            ) in zip(actual_roots, expected_roots, strict=True)
+        )
+        expected_inputs = tuple(
+            item.relation_input
+            for item in bucket
+            if isinstance(
+                item,
+                (ProjectIRReboundExistingOutput, ProjectIRCompletedQueryBlockOutput),
+            )
+            and item.relation_input is not None
+        )
+        assert _same_objects(
+            inspection.query_project_query_block_relation_inputs(observed, identity),
+            expected_inputs,
+        )
+    for items, query in (
+        (observed.combined_nodes, inspection.query_project_query_block_nodes),
+        (observed.combined_outputs, inspection.query_project_query_block_outputs),
+        (
+            observed.combined_input_slots,
+            inspection.query_project_query_block_input_slots,
+        ),
+        (observed.combined_uses, inspection.query_project_query_block_uses),
+    ):
+        assert items
+        for item in items:
+            assert _same_objects(
+                query(observed, item.ref),
+                tuple(other for other in items if other.ref == item.ref),
+            )
+    for node in observed.combined_nodes:
+        assert _same_objects(
+            inspection.query_project_query_block_reachability(observed, node.ref),
+            tuple(
+                item
+                for item in observed.combined_reachability
+                if item.source.ref == node.ref
+            ),
+        )
+        assert _same_objects(
+            inspection.query_project_query_block_grain_origins(observed, node.ref),
+            tuple(
+                item for item in observed.grain_origins if item.operator.ref == node.ref
+            ),
+        )
+    for output in observed.combined_outputs:
+        assert _same_objects(
+            inspection.query_project_query_block_reverse_uses(observed, output.ref),
+            tuple(
+                item
+                for item in observed.combined_reverse_uses
+                if item.output.ref == output.ref
+            ),
+        )
+    for field in observed.query_block_row_fields:
+        if field.final_identity is not None:
+            assert _same_objects(
+                inspection.query_project_query_block_final_fields(
+                    observed, field.final_identity
+                ),
                 tuple(
                     item
-                    for item in observed.correspondences
-                    if item.identity.base_match is condition.identity
-                )
-                for condition in observed.relationship_conditions
+                    for item in observed.query_block_row_fields
+                    if item.final_identity is field.final_identity
+                ),
+            )
+    for factor in observed.grain_factors:
+        assert _same_objects(
+            inspection.query_project_query_block_grain_factors(
+                observed, factor.identity
             ),
-            strict=True,
-        )
-    )
-    assert all(
-        _same_objects(
-            use.path.steps,
             tuple(
-                step
-                for step in observed.path_steps
-                if any(step is local for local in use.path.steps)
+                item
+                for item in observed.grain_factors
+                if item.identity is factor.identity
             ),
         )
-        for use in observed.join_uses
-        if use.path is not None
-    )
-    assert all(
-        len(join.input_slots) == len(join.input_uses) == 2
-        for join in observed.binary_joins
-    )
-    assert all(
-        join.outer_join_barrier.value == "present"
-        for join in observed.binary_joins
-        if join.kind.value == "left"
-    )
-    assert all(
-        output.fd_index.facts == output.fds
-        for output in (
-            *observed.base_relational_outputs,
-            *observed.join_relational_outputs,
-        )
-    )
-    assert all(
-        locality.contextual_grain is retained
-        for locality, retained in zip(
-            observed.fact_localities, observed.contextual_grains, strict=True
-        )
-    )
-    assert len(observed.aggregate_facts) > len(
-        {fact.identity.aggregate_node for fact in observed.aggregate_facts}
-    )
-    ambiguous = tuple(
-        result
-        for result in observed.common_grain_results
-        if result.status.value == "ambiguous"
-    )
-    assert ambiguous
-    assert all(len(item.candidates) > 1 for item in ambiguous)
-    assert all(
-        alignment.structural.value
-        and isinstance(alignment.multiplicity_risks, tuple)
-        and isinstance(alignment.requirements, tuple)
-        for alignment in observed.alignments
-    )
-    assert all(len(chasm.localities) >= 2 for chasm in observed.chasms)
-
-
-def test_typed_queries_are_scope_closed_and_return_complete_buckets(
-    product: inspection.ProjectPhase62InspectionProduct,
-    tmp_path: Path,
-) -> None:
-    observed = product.inspection
-    relationship = observed.relationship_subjects[0]
-    assert inspection.query_project_phase62_relationships(
-        observed, relationship.occurrence.identity
-    ) == (relationship,)
-    direction = observed.relationship_directions[0]
-    assert inspection.query_project_phase62_directions(
-        observed, direction.direction
-    ) == (direction,)
-    join_use = observed.join_uses[0]
-    assert inspection.query_project_phase62_join_uses(observed, join_use.identity) == (
-        join_use,
-    )
-    binary = observed.binary_joins[0]
-    assert inspection.query_project_phase62_binary_joins(observed, binary.identity) == (
-        binary,
-    )
-    assert inspection.query_project_phase62_nodes(observed, binary.node.ref) == (
-        binary.node,
-    )
-    assert inspection.query_project_phase62_outputs(
-        observed, binary.output.occurrence.ref
-    ) == (binary.output.occurrence,)
-    assert inspection.query_project_phase62_input_slots(
-        observed, binary.input_slots[0].ref
-    ) == (binary.input_slots[0],)
-    assert inspection.query_project_phase62_uses(
-        observed, binary.input_uses[0].ref
-    ) == (binary.input_uses[0],)
-    nulling = next(item for item in observed.nulling_provenance if item.nulling_joins)
-    assert inspection.query_project_phase62_nulling(
-        observed,
-        nulling.coordinate.output,
-        nulling.coordinate.field_position,
-    ) == (nulling,)
-    fact = observed.aggregate_facts[0]
-    assert inspection.query_project_phase62_facts(observed, fact.identity) == (fact,)
-    fact_localities = inspection.query_project_phase62_fact_localities(
-        observed, fact.identity
-    )
-    assert fact_localities == next(
-        entry.localities for entry in observed.fact_locality_index if entry.fact is fact
-    )
-    locality = next(
-        item
-        for item in observed.join_localities
-        if inspection.query_project_phase62_alignments_involving(observed, item)
-    )
-    involving = inspection.query_project_phase62_alignments_involving(
-        observed, locality
-    )
-    assert all(item.left is locality or item.right is locality for item in involving)
-    pair = involving[0]
-    assert inspection.query_project_phase62_alignment_bucket(
-        observed, pair.left, pair.right
-    ) == (pair,)
-    assert inspection.query_project_phase62_common_grains(observed, pair) == (
-        pair.common_grain,
-    )
-    chasm_locality = observed.chasms[0].localities[0]
-    assert observed.chasms[0] in inspection.query_project_phase62_chasms_containing(
-        observed, chasm_locality
-    )
-    assert inspection.query_project_phase62_non_concrete_join_uses(observed)
-    assert inspection.query_project_phase62_non_concrete_join_regions(observed)
-    assert inspection.query_project_phase62_non_concrete_multifact_regions(observed)
-
-    fresh_root = _build(tmp_path / "fresh")
-    fresh = inspection.build_project_phase62_inspection(
-        build_project_phase62_analysis_bundle(verify_project_phase62(fresh_root))
-    )
-    assert fresh.canonical_bytes == product.canonical_bytes
-    assert fresh.inspection.summary.scope is not observed.summary.scope
+    foreign = _build(tmp_path / "foreign")[3].inspection
     with pytest.raises(ValueError, match="snapshot scope"):
-        inspection.query_project_phase62_nodes(
-            fresh.inspection,
-            observed.combined_topological_order[0].ref,
+        inspection.query_project_query_block_nodes(
+            foreign, observed.combined_nodes[0].ref
         )
-    with pytest.raises(ValueError, match="snapshot scope"):
-        inspection.query_project_phase62_facts(
-            fresh.inspection, observed.aggregate_facts[0].identity
+    with pytest.raises(ValueError, match="VERIFIED analysis bundle"):
+        replace(observed, analysis_bundle=foreign.analysis_bundle)
+    with pytest.raises(ValueError, match="combined_outputs"):
+        replace(
+            observed,
+            combined_outputs=(*observed.combined_outputs, foreign.combined_outputs[-1]),
         )
 
 
-def test_portable_document_is_accepted_and_shifted_coordinates_change_bytes(
-    product: inspection.ProjectPhase62InspectionProduct,
-) -> None:
-    outcome = pure.evaluate_project_phase62_document(product.document)
-    assert outcome.status is pure.ProjectPhase62PureStatus.OK
+def test_current_and_retained_base_portable_coordinate_contracts_are_explicit(product):
+    outcome = pure.evaluate_project_query_block_ir_document(product.document)
+    assert outcome.status is pure.ProjectQueryBlockIRPureStatus.OK
     assert outcome.canonical_bytes == product.canonical_bytes
-    header = product.document.records[0]
-    assert tuple(field.value.enumeration for field in header.fields[1:]) == (
-        "verified",
-        "verified",
-    )
-    direction = next(
-        record
-        for record in product.document.records
-        if record.kind is pure.ProjectPhase62RecordKind.RELATIONSHIP_DIRECTION
-    )
-    runtime_direction = product.inspection.relationship_directions[0].direction
-    assert tuple(field.value.text for field in direction.fields[4:]) == (
-        runtime_direction.source.authored_role,
-        runtime_direction.target.authored_role,
-        runtime_direction.source.authored_relation_spelling,
-        runtime_direction.target.authored_relation_spelling,
-    )
-    non_concrete = tuple(
-        record
-        for record in product.document.records
-        if record.kind is pure.ProjectPhase62RecordKind.NON_CONCRETE
-    )
-    assert all(record.fields[3].value.enumerations for record in non_concrete)
-    runtime_domains = {
-        pure.ProjectPhase62PortableRefDomain.PLAN_NODE,
-        pure.ProjectPhase62PortableRefDomain.OUTPUT_VALUE,
-        pure.ProjectPhase62PortableRefDomain.INPUT_SLOT,
-        pure.ProjectPhase62PortableRefDomain.USE,
+    domains = {
+        pure.ProjectQueryBlockIRPortableRefDomain.PLAN_NODE,
+        pure.ProjectQueryBlockIRPortableRefDomain.OUTPUT_VALUE,
+        pure.ProjectQueryBlockIRPortableRefDomain.INPUT_SLOT,
+        pure.ProjectQueryBlockIRPortableRefDomain.USE,
     }
 
-    def shift(ref: pure.ProjectPhase62PortableRef) -> pure.ProjectPhase62PortableRef:
-        return (
-            replace(ref, position=ref.position + 7)
-            if ref.domain in runtime_domains
-            else ref
-        )
+    def shift(ref):
+        return replace(ref, position=ref.position + 7) if ref.domain in domains else ref
 
-    shifted_records = tuple(
+    records = tuple(
         replace(
             record,
             fields=tuple(
                 replace(
                     field,
                     value=(
-                        replace(
-                            field.value,
-                            ref=shift(
-                                cast(
-                                    pure.ProjectPhase62PortableRef,
-                                    field.value.ref,
-                                )
-                            ),
+                        replace(field.value, ref=shift(field.value.ref))
+                        if field.value.tag is pure.ProjectQueryBlockIRPureTag.REF
+                        else replace(
+                            field.value, refs=tuple(map(shift, field.value.refs))
                         )
-                        if field.value.tag is pure.ProjectPhase62PureTag.REF
-                        else (
-                            replace(
-                                field.value,
-                                refs=tuple(shift(item) for item in field.value.refs),
-                            )
-                            if field.value.tag is pure.ProjectPhase62PureTag.REFS
-                            else field.value
-                        )
+                        if field.value.tag is pure.ProjectQueryBlockIRPureTag.REFS
+                        else replace(field.value, integer=field.value.integer + 7)
+                        if record.kind is pure.ProjectQueryBlockIRRecordKind.HEADER
+                        and field.key
+                        in {
+                            "node_start",
+                            "output_start",
+                            "slot_start",
+                            "use_start",
+                            "node_end",
+                            "output_end",
+                            "slot_end",
+                            "use_end",
+                        }
+                        else field.value
                     ),
                 )
                 for field in record.fields
@@ -393,178 +667,141 @@ def test_portable_document_is_accepted_and_shifted_coordinates_change_bytes(
         )
         for record in product.document.records
     )
-    shifted = replace(product.document, records=shifted_records)
-    shifted_outcome = pure.evaluate_project_phase62_document(shifted)
-    assert shifted_outcome.status is pure.ProjectPhase62PureStatus.OK
-    assert shifted_outcome.canonical_bytes != product.canonical_bytes
+    shifted = pure.evaluate_project_query_block_ir_document(
+        replace(product.document, records=records)
+    )
+    assert shifted.status is pure.ProjectQueryBlockIRPureStatus.INVALID_COUNT
+    assert shifted.canonical_bytes is None
 
-
-def test_pure_evaluator_normalizes_malformed_documents_without_text_echo(
-    product: inspection.ProjectPhase62InspectionProduct,
-) -> None:
-    document = product.document
-    assert pure.evaluate_project_phase62_document(object()).status is (
-        pure.ProjectPhase62PureStatus.INVALID_DOCUMENT
-    )
-    unknown = replace(document, format_marker="untrusted\ntext")
-    result = pure.evaluate_project_phase62_document(unknown)
-    assert result.status is pure.ProjectPhase62PureStatus.UNKNOWN_FORMAT
-    assert result.canonical_bytes is None
-    assert not hasattr(result, "message")
-    missing_header = replace(document, records=document.records[1:])
-    assert pure.evaluate_project_phase62_document(missing_header).status is (
-        pure.ProjectPhase62PureStatus.INVALID_HEADER
-    )
-    swapped = replace(
-        document,
-        records=(
-            document.records[0],
-            document.records[2],
-            document.records[1],
-            *document.records[3:],
-        ),
-    )
-    assert pure.evaluate_project_phase62_document(swapped).status is (
-        pure.ProjectPhase62PureStatus.INVALID_SECTION_ORDER
-    )
-
-    binary_position = _record_position(
-        document, pure.ProjectPhase62RecordKind.BINARY_JOIN
-    )
-    binary = document.records[binary_position]
-    slot_position = next(
-        position for position, field in enumerate(binary.fields) if field.key == "slots"
-    )
-    malformed_binary = replace(
-        binary,
-        fields=(
-            *binary.fields[:slot_position],
-            replace(
-                binary.fields[slot_position],
-                value=pure.project_phase62_pure_refs(
-                    (binary.fields[slot_position].value.refs[0],)
-                ),
-            ),
-            *binary.fields[slot_position + 1 :],
-        ),
+    retained = base_inspection.build_project_phase62_inspection(
+        build_project_phase62_analysis_bundle(product.inspection.completed.verification)
     )
     assert (
-        pure.evaluate_project_phase62_document(
-            _replace_record(document, binary_position, malformed_binary)
-        ).status
-        is pure.ProjectPhase62PureStatus.INVALID_JOIN
+        base_pure.evaluate_project_phase62_document(retained.document).canonical_bytes
+        == retained.canonical_bytes
     )
+    base_domains = {
+        base_pure.ProjectPhase62PortableRefDomain.PLAN_NODE,
+        base_pure.ProjectPhase62PortableRefDomain.OUTPUT_VALUE,
+        base_pure.ProjectPhase62PortableRefDomain.INPUT_SLOT,
+        base_pure.ProjectPhase62PortableRefDomain.USE,
+    }
 
-    use_position = _record_position(document, pure.ProjectPhase62RecordKind.PROJECT_USE)
-    use = document.records[use_position]
-    output_position = next(
-        position for position, field in enumerate(use.fields) if field.key == "output"
-    )
-    dangling = replace(
-        use,
-        fields=(
-            *use.fields[:output_position],
+    def shift_base(ref):
+        return (
+            replace(ref, position=ref.position + 7)
+            if ref.domain in base_domains
+            else ref
+        )
+
+    shifted_base = replace(
+        retained.document,
+        records=tuple(
             replace(
-                use.fields[output_position],
-                value=pure.project_phase62_pure_ref(
-                    pure.ProjectPhase62PortableRef(
-                        domain=pure.ProjectPhase62PortableRefDomain.OUTPUT_VALUE,
-                        position=10**6,
+                record,
+                fields=tuple(
+                    replace(
+                        field,
+                        value=replace(field.value, ref=shift_base(field.value.ref))
+                        if field.value.tag is base_pure.ProjectPhase62PureTag.REF
+                        else replace(
+                            field.value, refs=tuple(map(shift_base, field.value.refs))
+                        )
+                        if field.value.tag is base_pure.ProjectPhase62PureTag.REFS
+                        else field.value,
                     )
+                    for field in record.fields
                 ),
-            ),
-            *use.fields[output_position + 1 :],
+            )
+            for record in retained.document.records
         ),
+    )
+    base_outcome = base_pure.evaluate_project_phase62_document(shifted_base)
+    assert base_outcome.status is base_pure.ProjectPhase62PureStatus.OK
+    assert base_outcome.canonical_bytes != retained.canonical_bytes
+
+
+def test_pure_evaluator_normalizes_malformed_documents_without_text_echo(product):
+    document = product.document
+    evaluate = pure.evaluate_project_query_block_ir_document
+    status = pure.ProjectQueryBlockIRPureStatus
+    assert evaluate(object()).status is status.INVALID_DOCUMENT
+    unknown = evaluate(replace(document, format_marker="untrusted\ntext"))
+    assert unknown.status is status.UNKNOWN_FORMAT and unknown.canonical_bytes is None
+    assert not hasattr(unknown, "message")
+    missing = evaluate(replace(document, records=document.records[1:]))
+    assert missing.status is status.INVALID_HEADER and missing.record_position == 0
+    node = _record(document, pure.ProjectQueryBlockIRRecordKind.NODE)
+    dependency = _record(document, pure.ProjectQueryBlockIRRecordKind.DEPENDENCY)
+    records = list(document.records)
+    records[node], records[dependency] = records[dependency], records[node]
+    assert (
+        evaluate(replace(document, records=tuple(records))).status
+        is status.INVALID_SECTION_ORDER
+    )
+    algebra = _record(document, pure.ProjectQueryBlockIRRecordKind.ALGEBRA)
+    inputs = _field(document.records[algebra], "inputs")
+    refs = document.records[algebra].fields[inputs].value.refs
+    malformed = evaluate(
+        _replace_field(
+            document, algebra, inputs, pure.project_query_block_ir_pure_refs(refs[:1])
+        )
     )
     assert (
-        pure.evaluate_project_phase62_document(
-            _replace_record(document, use_position, dangling)
-        ).status
-        is pure.ProjectPhase62PureStatus.DANGLING_REF
+        malformed.status is status.INVALID_OPERATOR
+        and malformed.canonical_bytes is None
     )
-
-    guarantee_position = _record_position(
-        document, pure.ProjectPhase62RecordKind.MATCH_GUARANTEE
+    use = _record(document, pure.ProjectQueryBlockIRRecordKind.USE)
+    output = _field(document.records[use], "output")
+    dangling = pure.project_query_block_ir_pure_ref(
+        pure.ProjectQueryBlockIRPortableRef(
+            domain=pure.ProjectQueryBlockIRPortableRefDomain.OUTPUT_VALUE,
+            position=10**6,
+        )
     )
-    guarantee = document.records[guarantee_position]
-    minimum_position = next(
-        position
-        for position, field in enumerate(guarantee.fields)
-        if field.key == "minimum"
+    assert (
+        evaluate(_replace_field(document, use, output, dangling)).status
+        is status.DANGLING_REF
     )
-    invalid_value = _unsafe(
-        guarantee.fields[minimum_position].value,
-        enumeration="untrusted\ntext",
+    invalid = _unsafe(
+        document.records[algebra].fields[inputs].value, refs="untrusted\ntext"
     )
-    invalid_guarantee = replace(
-        guarantee,
-        fields=(
-            *guarantee.fields[:minimum_position],
-            replace(guarantee.fields[minimum_position], value=invalid_value),
-            *guarantee.fields[minimum_position + 1 :],
-        ),
-    )
-    invalid_outcome = pure.evaluate_project_phase62_document(
-        _replace_record(document, guarantee_position, invalid_guarantee)
-    )
-    assert invalid_outcome.status is pure.ProjectPhase62PureStatus.INVALID_VALUE
-    assert invalid_outcome.record_position == guarantee_position
-    assert invalid_outcome.field_position == minimum_position
+    outcome = evaluate(_replace_field(document, algebra, inputs, invalid))
+    assert outcome.status is status.INVALID_VALUE
+    assert (outcome.record_position, outcome.field_position) == (algebra, inputs)
+    assert outcome.canonical_bytes is None and not hasattr(outcome, "message")
 
 
-def test_projection_is_zero_mutation_and_repeatable(
-    bundle: ProjectPhase62AnalysisBundle,
-    product: inspection.ProjectPhase62InspectionProduct,
-) -> None:
+def test_projection_is_zero_mutation_and_repeatable(bundle, product):
     root = bundle.root
+    observed = product.inspection
     before = (
-        root.join_regions.starting_allocation,
-        root.join_regions.ending_allocation,
-        tuple(join.node.ref for join in product.inspection.binary_joins),
-        tuple(fact.identity for fact in root.facts),
+        root,
+        root.structural,
+        root.entries,
         bundle.verification,
         bundle.combined_reverse_uses,
         bundle.combined_topological_order,
-        bundle.nulling_provenance,
-        bundle.fact_localities,
-        bundle.multifact_alignments,
+        bundle.combined_reachability,
+        *observed.combined_nodes,
+        *observed.combined_outputs,
+        *observed.combined_input_slots,
+        *observed.combined_uses,
     )
-    repeated = inspection.build_project_phase62_inspection(bundle)
+    repeated = inspection.build_project_query_block_ir_inspection(bundle)
     after = (
-        root.join_regions.starting_allocation,
-        root.join_regions.ending_allocation,
-        tuple(join.node.ref for join in repeated.inspection.binary_joins),
-        tuple(fact.identity for fact in root.facts),
+        bundle.root,
+        root.structural,
+        root.entries,
         bundle.verification,
         bundle.combined_reverse_uses,
         bundle.combined_topological_order,
-        bundle.nulling_provenance,
-        bundle.fact_localities,
-        bundle.multifact_alignments,
+        bundle.combined_reachability,
+        *repeated.inspection.combined_nodes,
+        *repeated.inspection.combined_outputs,
+        *repeated.inspection.combined_input_slots,
+        *repeated.inspection.combined_uses,
     )
-    assert all(
-        actual is retained
-        for actual, retained in zip(after[:2], before[:2], strict=True)
-    )
-    assert _same_objects(after[2], before[2])
-    assert _same_objects(after[3], before[3])
-    assert all(
-        actual is retained
-        for actual, retained in zip(after[4:], before[4:], strict=True)
-    )
+    assert _same_objects(after, before)
     assert repeated.document == product.document
     assert repeated.canonical_bytes == product.canonical_bytes
-
-
-def test_slice14_spec_exists_and_freezes_private_boundaries() -> None:
-    text = SPEC.read_text(encoding="utf-8")
-    for phrase in (
-        "pietto.phase62-inspection.v1",
-        "ProjectPhase62AnalysisBundle",
-        "winner-free",
-        "canonical bytes are not identity",
-        "BAG/NULL oracle",
-        "Slice 15",
-    ):
-        assert phrase in text
-    assert ProjectAggregateFactJoinLocality is not object

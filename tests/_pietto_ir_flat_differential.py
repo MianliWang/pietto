@@ -33,9 +33,9 @@ from pietto._project import project_query_block_ir_pure_boundary as pure
 
 SEED_ENVIRONMENT = "PIETTO_PHASE64_SLICE10_AMBIENT"
 SOURCE = """shape Row:
-    id: Decimal(10, 2) nullable
-source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
+    id: Decimal(10, 2) | None
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
 table dedup:
     from lhs
     select distinct:
@@ -44,10 +44,7 @@ table dedup:
         id
     limit 2
 table combined:
-    union all:
-        from dedup
-        from rhs
-        from dedup
+    union all dedup, rhs, dedup
 table limited:
     from rhs
     select:
@@ -55,24 +52,20 @@ table limited:
     limit 1
 table joined:
     from combined
-    semi join limited as r:
-        from combined
-        on true
+    let r = limited
+    inner join r on True
     select distinct:
         id = combined.id
 table final:
-    except distinct:
-        from joined
-        from joined
-        from joined
+    except distinct joined, joined, joined
 query result:
     from final
     select:
         id
 """
 CONTROL = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
@@ -81,10 +74,10 @@ query result:
 
 
 FD_SOURCE = """shape Row:
-    value: Int not null
-    hidden: Float nullable
-    unique by_value on value
-source rows: Row is postgres.table("rows")
+    value: Int
+    hidden: Float | None
+    by_value = unique(value)
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select distinct:
@@ -103,10 +96,10 @@ def _completed(
     )
     if imported_alias:
         (root / "types.pietto").write_text(
-            "type Base = Decimal(10, 2)\nexport:\n    type Base\n"
+            "type Base = Decimal(10, 2)\nexport type Base\n"
         )
         (root / "facade.pietto").write_text(
-            'import "types.pietto":\n    type Base as Public\nexport:\n    type Public\n'
+            'from "types.pietto" import type Base as Public\nexport type Public\n'
         )
     (root / "main.pietto").write_text(source)
     parsed = check_project_parse_only(root)
@@ -126,8 +119,8 @@ def observation(workspace: Path) -> dict[str, object]:
         ("unproved", SOURCE.replace("limit 1", "limit 2")),
         (
             "alias",
-            'import "facade.pietto":\n    type Public as Alias\n'
-            + SOURCE.replace("id: Decimal(10, 2) nullable", "id: Alias nullable"),
+            'from "facade.pietto" import type Public as Alias\n'
+            + SOURCE.replace("id: Decimal(10, 2) | None", "id: Alias | None"),
         ),
         ("strict_fd", FD_SOURCE),
         ("v1_control", CONTROL),

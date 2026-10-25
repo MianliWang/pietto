@@ -268,9 +268,9 @@ def _parse_relation(
 def _grouped_program(relation_kind: str) -> str:
     return (
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    amount: Int not null\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    status: Text\n"
+        "    amount: Int\n"
+        'source orders: Order = postgres.table("orders")\n'
         f"{relation_kind} grouped_orders:\n"
         "    from orders\n"
         '    where status == "paid"\n'

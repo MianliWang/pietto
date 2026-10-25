@@ -7,17 +7,18 @@ import pytest
 
 import pietto.cli as cli
 
-# The implicit-nullability field is the only mode-dependent diagnostic here.
+# The source without a shape is the only mode-dependent diagnostic here.
 BODY = (
     "shape User:\n"
     "    id: Int\n"
-    'source users: User is postgres.table("users")\n'
+    'source users: User = postgres.table("users")\n'
+    'source raw = postgres.table("raw")\n'
     "table all_users:\n"
     "    from users\n"
     "    select:\n"
     "        id\n"
 )
-MESSAGE = "Implicit nullability for type Int; use `nullable` or `not null`"
+MESSAGE = "Source raw has no bound shape; row schema is unknown"
 SQL = 'SELECT\n    "id" AS "id"\nFROM "users"'
 USAGE = (
     "usage: pietto {command} [-h] [--project PROJECT] [--format {{text,json}}]"
@@ -53,7 +54,7 @@ def test_check_mode_overrides_the_header_and_defaults_to_checked(
     severity: str | None,
 ) -> None:
     path = _write(tmp_path, header)
-    line = 3 if header else 2
+    line = 5 if header else 4
 
     code = cli.main(["check", str(path), *options])
 
@@ -61,7 +62,7 @@ def test_check_mode_overrides_the_header_and_defaults_to_checked(
     assert code == (1 if severity == "error" else 0)
     assert captured.out == ("" if severity == "error" else f"OK: {path}\n")
     assert captured.err == (
-        "" if severity is None else f"{path}:{line}:9 PIE-S2005 {severity}: {MESSAGE}\n"
+        "" if severity is None else f"{path}:{line}:1 PIE-S2303 {severity}: {MESSAGE}\n"
     )
 
 
@@ -120,7 +121,7 @@ def test_emit_sql_and_explain_text_follow_the_selected_mode(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _write(tmp_path)
-    error = f"{path}:2:9 PIE-S2005 error: {MESSAGE}\n"
+    error = f"{path}:4:1 PIE-S2303 error: {MESSAGE}\n"
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
     assert capsys.readouterr().out == f"{SQL}\n"
@@ -267,14 +268,14 @@ def test_project_emit_sql_rejects_check_mode(
 
 # Every gated relation-block form; the gate stops analysis before any mode rule.
 RELATION_BLOCKS = (
-    "query q(a: Int not null):\n"
+    "query q(a: Int):\n"
     "    let l:\n"
     "        capture users\n"
     "        from generate_series(1, 2, 1) as n\n"
     "        select:\n"
     "            n\n"
     "    let inner:\n"
-    "        values(id: Int not null)\n"
+    "        values(id: Int)\n"
     "    from users\n"
     "    where scalar l.n in l and exists inner\n"
     "    select:\n"

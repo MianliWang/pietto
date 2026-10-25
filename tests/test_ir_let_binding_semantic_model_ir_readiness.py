@@ -24,11 +24,11 @@ IR_SURFACE_PATHS = (
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int nullable\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int | None\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -50,8 +50,7 @@ def test_table_and_query_let_scopes_store_clause_and_bindings(
     relation, semantic = _analyze_relation(
         f"{keyword} enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        gross_value = gross\n"
     )
@@ -70,10 +69,9 @@ def test_source_ordered_bindings_and_value_types_are_preserved() -> None:
     relation, semantic = _analyze_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        normalized = lower(trim(status))\n"
-        "        status_len = len(normalized)\n"
-        "        gross = amount + tax\n"
+        "    let normalized = lower(trim(status))\n"
+        "    let status_len = len(normalized)\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        normalized_value = normalized\n"
         "        status_length = status_len\n"
@@ -98,8 +96,7 @@ def test_binding_expression_value_types_remain_in_semantic_model() -> None:
     relation, semantic = _analyze_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        gross_value = gross\n"
     )
@@ -117,10 +114,8 @@ def test_invalid_binding_names_are_excluded_from_admitted_value_types() -> None:
     relation, semantic = _analyze_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        gross = amount - tax\n"
-        "        amount = tax\n"
+        "    let amount = tax\n"
+        "    let orders = tax\n"
         "    select:\n"
         "        amount\n"
     )
@@ -131,9 +126,8 @@ def test_invalid_binding_names_are_excluded_from_admitted_value_types() -> None:
 
     scope = semantic.model.let_scopes[relation]
     assert [binding.name for binding in scope.bindings] == [
-        "gross",
-        "gross",
         "amount",
+        "orders",
     ]
     assert tuple(scope.value_types) == ()
 
@@ -142,9 +136,8 @@ def test_dependency_order_storage_is_deterministic() -> None:
     relation, semantic = _analyze_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        normalized = lower(trim(status))\n"
-        "        status_len = len(normalized)\n"
+        "    let normalized = lower(trim(status))\n"
+        "    let status_len = len(normalized)\n"
         "    select:\n"
         "        status_length = status_len\n"
     )
@@ -160,8 +153,7 @@ def test_semantic_model_let_scope_mappings_are_read_only() -> None:
     relation, semantic = _analyze_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        gross_value = gross\n"
     )
@@ -183,14 +175,12 @@ def test_pie_s2328_is_not_emitted_for_supported_row_level_let_relations() -> Non
         SOURCE_PREFIX
         + "table enriched_orders:\n"
         + "    from orders\n"
-        + "    let:\n"
-        + "        gross = amount + tax\n"
+        + "    let gross = amount + tax\n"
         + "    select:\n"
         + "        gross_value = gross\n"
         + "query filtered_orders:\n"
         + "    from orders\n"
-        + "    let:\n"
-        + "        net = amount - tax\n"
+        + "    let net = amount - tax\n"
         + "    select:\n"
         + "        net_value = net\n"
     )
@@ -312,8 +302,12 @@ def _analyze_relation(source: str) -> tuple[TableDef | QueryDef, SemanticResult]
     result = parse_source(SOURCE_PREFIX + source, path="let_model.pietto")
     assert result.diagnostics == ()
     assert result.ast is not None
-    relation = cast(TableDef | QueryDef, result.ast.definitions[-1])
-    return relation, analyze(result.ast)
+    semantic = analyze(result.ast)
+    # Semantic facts describe the analyzed script, where each modern
+    # `let name = expression` declaration is normalized into the let clause.
+    assert semantic.script is not None
+    relation = cast(TableDef | QueryDef, semantic.script.definitions[-1])
+    return relation, semantic
 
 
 def _error_codes(semantic: SemanticResult) -> list[str]:
@@ -341,8 +335,7 @@ def _write_let_source(tmp_path: Path) -> Path:
         SOURCE_PREFIX
         + "query enriched_orders:\n"
         + "    from orders\n"
-        + "    let:\n"
-        + "        gross = amount + tax\n"
+        + "    let gross = amount + tax\n"
         + "    select:\n"
         + "        gross_value = gross\n",
         encoding="utf-8",

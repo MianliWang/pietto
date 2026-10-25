@@ -18,16 +18,16 @@ from pietto.semantic import SemanticResult, analyze
 from pietto.semantic.model import DecimalPrecisionScale
 
 VALID_SOURCE = (
-    "type Money = Decimal(12, 2) not null\n"
-    "type Price = Money nullable\n"
+    "type Money = Decimal(12, 2)\n"
+    "type Price = Money\n"
     "shape Order:\n"
-    "    amount: Decimal(12, 2) not null\n"
-    "    money: Money not null\n"
-    "    price: Price nullable\n"
-    "    plain: Decimal not null\n"
-    "    empty: Decimal() nullable\n"
-    "    label: Text(max = 255) not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    amount: Decimal(12, 2)\n"
+    "    money: Money\n"
+    "    price: Price | None\n"
+    "    plain: Decimal\n"
+    "    empty: Decimal() | None\n"
+    "    label: Text(max = 255)\n"
+    'source orders: Order = postgres.table("orders")\n'
     "table report:\n"
     "    from orders\n"
     "    select:\n"
@@ -37,7 +37,7 @@ VALID_SOURCE = (
     "        plain\n"
     "        empty\n"
 )
-INVALID_SOURCE = "shape Order:\n    amount: Decimal(0, 0) not null\n"
+INVALID_SOURCE = "shape Order:\n    amount: Decimal(0, 0)\n"
 
 _TYPE_KEYS = {
     "status",

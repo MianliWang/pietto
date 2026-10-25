@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import ast
+import json
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -20,6 +20,7 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto._project.project_completed_semantics import (
+    ProjectConcreteCompletedSemanticResult,
     build_project_completed_semantic_result,
 )
 from pietto.ast_nodes import DottedNameExpr, QueryDef
@@ -29,65 +30,53 @@ from pietto.semantic import analyze
 from pietto.semantic.model import EffectiveNullability
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION = REPO_ROOT / "src/pietto/_project/project_joined_aggregation.py"
 PROJECT_SOURCE = """shape AccountRow:
-    id: Int not null
-    dimension_id: Int not null
-    metric: Int not null
-    label: Text not null
-    unique account_key on id
-    unique account_dimension_key on dimension_id
+    id: Int
+    dimension_id: Int
+    metric: Int
+    label: Text
+    account_key = unique(id)
+    account_dimension_key = unique(dimension_id)
 shape DimensionRow:
-    id: Int not null
-    unique dimension_key on id
+    id: Int
+    dimension_key = unique(id)
 shape EventRow:
-    id: Int not null
-    account_id: Int not null
-    dimension_id: Int not null
-    parent_id: Int not null
-    metric: Int nullable
-    label: Text not null
-    unique event_key on id
+    id: Int
+    account_id: Int
+    dimension_id: Int
+    parent_id: Int
+    metric: Int | None
+    label: Text
+    event_key = unique(id)
 shape SignalRow:
-    id: Int not null
-    dimension_id: Int not null
-    metric: Int nullable
-    label: Text not null
-    unique signal_key on id
-source accounts: AccountRow is postgres.table("accounts")
-source dimensions: DimensionRow is postgres.table("dimensions")
-source events: EventRow is postgres.table("events")
-source signals: SignalRow is postgres.table("signals")
-relationship account_dimension:
-    endpoint account: accounts
-    endpoint dimension: dimensions
-    on account.dimension_id == dimension.id
-relationship account_events:
-    endpoint account: accounts
-    endpoint event: events
-    on account.id == event.account_id
-relationship dimension_signals:
-    endpoint dimension: dimensions
-    endpoint signal: signals
-    on dimension.id == signal.dimension_id
-relationship event_parent:
-    endpoint child: events
-    endpoint parent: events
-    on child.parent_id == parent.id
+    id: Int
+    dimension_id: Int
+    metric: Int | None
+    label: Text
+    signal_key = unique(id)
+source accounts: AccountRow = postgres.table("accounts")
+source dimensions: DimensionRow = postgres.table("dimensions")
+source events: EventRow = postgres.table("events")
+source signals: SignalRow = postgres.table("signals")
+relationship account_dimension(account: AccountRow, dimension: DimensionRow):
+    account.dimension_id == dimension.id
+relationship account_events(account: AccountRow, event: EventRow):
+    account.id == event.account_id
+relationship dimension_signals(dimension: DimensionRow, signal: SignalRow):
+    dimension.id == signal.dimension_id
+relationship event_parent(child: EventRow, parent: EventRow):
+    child.parent_id == parent.id
 query absent_stage:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         account_id = accounts.id
 query grouped_safe:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    where event.metric is not null
+    let event = events
+    inner join event on account_events(accounts, event)
+    where event.metric is not None
     group by:
         accounts.id
     select:
@@ -100,21 +89,18 @@ query grouped_safe:
         maximum = max(event.metric)
 query global_safe:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         total = sum(event.metric)
         average = avg(event.metric)
         counted = count()
 query grouped_let:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        key = event.id
-        amount = event.metric
+    let event = events
+    inner join event on account_events(accounts, event)
+    let key = event.id
+    let amount = event.metric
     group by:
         key
     select:
@@ -122,22 +108,18 @@ query grouped_let:
         total = sum(amount)
 query multi_field_argument:
     from accounts
-    inner join dimensions as dimension:
-        from accounts
-        via account_dimension: account -> dimension
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    inner join signals as signal:
-        from dimension
-        via dimension_signals: dimension -> signal
+    let dimension = dimensions
+    inner join dimension on account_dimension(accounts, dimension)
+    let event = events
+    inner join event on account_events(accounts, event)
+    let signal = signals
+    inner join signal on dimension_signals(dimension, signal)
     select:
         total = sum(event.metric + signal.metric)
 query duplicate_group_key:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         account_id
         event.account_id
@@ -146,9 +128,8 @@ query duplicate_group_key:
         total = count()
 query distinct_same_spelling_keys:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         accounts.id
         event.id
@@ -158,41 +139,35 @@ query distinct_same_spelling_keys:
         total = count()
 query unknown_group_key:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         missing
     select:
         total = count()
 query ambiguous_group_key:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         id
     select:
         total = count()
 query computed_alias_group_key:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        computed = event.metric + 1
-        alias = computed
+    let event = events
+    inner join event on account_events(accounts, event)
+    let computed = event.metric + 1
+    let alias = computed
     group by:
         alias
     select:
         total = count()
 query computed_both_sides_key:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        band = accounts.metric > event.metric
+    let event = events
+    inner join event on account_events(accounts, event)
+    let band = accounts.metric > event.metric
     group by:
         band
         accounts.id
@@ -202,11 +177,9 @@ query computed_both_sides_key:
         total = sum(event.metric)
 query computed_fanout_key:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        same_event = event.id + 0
+    let event = events
+    inner join event on account_events(accounts, event)
+    let same_event = event.id + 0
     group by:
         same_event
     select:
@@ -214,11 +187,9 @@ query computed_fanout_key:
         total = sum(accounts.metric)
 query computed_self_key:
     from events
-    inner join events as parent:
-        from events
-        via event_parent: child -> parent
-    let:
-        older = events.id > parent.id
+    let parent = events
+    inner join parent on event_parent(events, parent)
+    let older = events.id > parent.id
     group by:
         older
     select:
@@ -226,11 +197,9 @@ query computed_self_key:
         total = count()
 query computed_duplicate_key:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        band = accounts.metric > event.metric
+    let event = events
+    inner join event on account_events(accounts, event)
+    let band = accounts.metric > event.metric
     group by:
         band
         band
@@ -238,11 +207,9 @@ query computed_duplicate_key:
         total = count()
 query computed_extrema:
     from events
-    inner join events as parent:
-        from events
-        via event_parent: child -> parent
-    let:
-        gap = parent.id + events.id * 0
+    let parent = events
+    inner join parent on event_parent(events, parent)
+    let gap = parent.id + events.id * 0
     group by:
         events.id
     select:
@@ -251,12 +218,10 @@ query computed_extrema:
         high = max(gap)
 query computed_extrema_blocked:
     from events
-    inner join events as parent:
-        from events
-        via event_parent: child -> parent
-    let:
-        fixed = 3
-        tag = parent.label
+    let parent = events
+    inner join parent on event_parent(events, parent)
+    let fixed = 3
+    let tag = parent.label
     group by:
         events.id
     select:
@@ -265,12 +230,10 @@ query computed_extrema_blocked:
         name = min(tag)
 query extremum_fanout_let:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        same_event = event.id + 0
-        measured = accounts.metric + 0
+    let event = events
+    inner join event on account_events(accounts, event)
+    let same_event = event.id + 0
+    let measured = accounts.metric + 0
     group by:
         same_event
     select:
@@ -278,11 +241,9 @@ query extremum_fanout_let:
         top = max(measured)
 query extremum_fanout_field:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        same_event = event.id + 0
+    let event = events
+    inner join event on account_events(accounts, event)
+    let same_event = event.id + 0
     group by:
         same_event
     select:
@@ -290,12 +251,10 @@ query extremum_fanout_field:
         top = max(accounts.metric)
 query extremum_fanout_constant:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        same_event = event.id + 0
-        constant = 7
+    let event = events
+    inner join event on account_events(accounts, event)
+    let same_event = event.id + 0
+    let constant = 7
     group by:
         same_event
     select:
@@ -303,18 +262,16 @@ query extremum_fanout_constant:
         top = max(constant)
 query pure_grouping:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         event_id = event.id
 query non_grouped_projection:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         accounts.id
     select:
@@ -323,11 +280,9 @@ query non_grouped_projection:
         total = count()
 query aggregate_errors:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        amount = event.metric
+    let event = events
+    inner join event on account_events(accounts, event)
+    let amount = event.metric
     group by:
         event.id
     select:
@@ -341,9 +296,8 @@ query aggregate_errors:
         unapproved_let = min(amount + 1)
 query wrong_type_only:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
@@ -351,16 +305,14 @@ query wrong_type_only:
         total = sum(event.label)
 query fanout_risk:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         total = sum(accounts.metric)
 query fanout_absorbed:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
@@ -368,9 +320,8 @@ query fanout_absorbed:
         total = sum(accounts.metric)
 query fanout_unrelated_group:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.account_id
     select:
@@ -378,9 +329,8 @@ query fanout_unrelated_group:
         total = sum(accounts.metric)
 query repeated_self:
     from events
-    inner join events as parent:
-        from events
-        via event_parent: child -> parent
+    let parent = events
+    inner join parent on event_parent(events, parent)
     group by:
         events.id
     select:
@@ -389,73 +339,64 @@ query repeated_self:
         parent_total = sum(parent.metric)
 query ambiguous_chasm:
     from accounts
-    inner join dimensions as dimension:
-        from accounts
-        via account_dimension: account -> dimension
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    inner join signals as signal:
-        from dimension
-        via dimension_signals: dimension -> signal
+    let dimension = dimensions
+    inner join dimension on account_dimension(accounts, dimension)
+    let event = events
+    inner join event on account_events(accounts, event)
+    let signal = signals
+    inner join signal on dimension_signals(dimension, signal)
     select:
         event_total = sum(event.metric)
         signal_total = sum(signal.metric)
 query satisfying_outputs:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         key = event.id
         total = sum(accounts.metric)
-    satisfying:
+    having:
         key > 0 and total > 0
 query satisfying_aggregate_let:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        amount = accounts.metric
+    let event = events
+    inner join event on account_events(accounts, event)
+    let amount = accounts.metric
     group by:
         event.id
     select:
         key = event.id
         total = sum(amount)
-    satisfying:
+    having:
         sum(amount) > 0
 query satisfying_input_field:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         key = event.id
         total = sum(accounts.metric)
-    satisfying:
+    having:
         account_id > 0
 query satisfying_unknown_output:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         key = event.id
         total = sum(accounts.metric)
-    satisfying:
+    having:
         missing > 0
 query satisfying_non_bool:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
         event.label
@@ -463,71 +404,65 @@ query satisfying_non_bool:
         key = event.id
         label = event.label
         total = sum(accounts.metric)
-    satisfying:
+    having:
         label
 query satisfying_invalid_bool_operands:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         key = event.id
         total = sum(accounts.metric)
-    satisfying:
+    having:
         key and total
 query satisfying_cross_family_comparison:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         key = event.id
         total = sum(accounts.metric)
-    satisfying:
+    having:
         total > "0"
 query satisfying_unsupported_output:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         key = event.id
         unsupported = event.metric
         total = sum(accounts.metric)
-    satisfying:
+    having:
         unsupported > 0
 query satisfying_unmatched_aggregate:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         key = event.id
         total = sum(accounts.metric)
-    satisfying:
+    having:
         sum(event.metric) > 0
 query global_satisfying:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         total = sum(event.metric)
-    satisfying:
+    having:
         total > 0
 query upstream_filter_blocked:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     where missing > 0
     group by:
         event.id
@@ -537,11 +472,11 @@ query upstream_filter_blocked:
 """
 
 SINGLE_INPUT_PREFIX = """shape Row:
-    id: Int not null
-    account_id: Int not null
-    metric: Int nullable
-    label: Text not null
-source rows: Row is postgres.table("rows")
+    id: Int
+    account_id: Int
+    metric: Int | None
+    label: Text
+source rows: Row = postgres.table("rows")
 """
 
 
@@ -549,24 +484,43 @@ source rows: Row is postgres.table("rows")
 class _Built:
     semantic: ProjectSemanticResult
     completion: completion.ProjectCompletion
-    filters: row_filter.ProjectJoinedRowFilterSet
-    aggregations: aggregation.ProjectJoinedAggregationSet
+    filters: tuple[row_filter.ProjectJoinedRowFilterSet, ...]
+    aggregations: tuple[aggregation.ProjectJoinedAggregationSet, ...]
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
     semantic = slice7._semantic_project(
-        tmp_path_factory.mktemp("p63s9") / "project",
+        tmp_path_factory.mktemp("joined-grouping") / "project",
         {"main.pietto": PROJECT_SOURCE},
         reverse_creation=False,
     )
-    completed = completion.build_project_completion(slice7._phase62(semantic))
-    filters = row_filter.build_project_joined_row_filters(completed)
+    completed = build_project_completed_semantic_result(semantic)
+    assert type(completed) is ProjectConcreteCompletedSemanticResult
+    aggregations = tuple(
+        tail.window_set.aggregation_set
+        for tail in completed.effective_outputs.current_tails
+    )
+    assert aggregations
+    expected = tuple(
+        owner
+        for owner in completed.completion.schedule
+        if type(owner.definition) is QueryDef and owner.definition.join_clauses
+    )
+    actual = tuple(
+        result.input_filter.entry.owner
+        for values in aggregations
+        for result in values.results
+    )
+    assert len(actual) == len(expected) and expected
+    assert all(
+        owner is retained for owner, retained in zip(actual, expected, strict=True)
+    )
     return _Built(
-        semantic=semantic,
-        completion=completed,
-        filters=filters,
-        aggregations=aggregation.build_project_joined_aggregations(filters),
+        semantic=completed.semantic_result,
+        completion=completed.completion,
+        filters=tuple(values.filter_set for values in aggregations),
+        aggregations=aggregations,
     )
 
 
@@ -576,7 +530,8 @@ def _result(
 ) -> aggregation.ProjectJoinedAggregationResult:
     matches = tuple(
         result
-        for result in built.aggregations.results
+        for values in built.aggregations
+        for result in values.results
         if result.input_filter.entry.owner.identity.declared_name == name
     )
     assert len(matches) == 1
@@ -972,11 +927,10 @@ def test_extrema_over_a_field_free_joined_let_value_link_no_side(
 
 _JOINED_KEY_QUERY = """query computed_key_tail:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        band = accounts.metric > event.metric
+    let event = events
+    inner join event on account_events(accounts, event)
+
+    let band = accounts.metric > event.metric
     group by:
         band
     select:
@@ -989,29 +943,35 @@ _JOINED_KEY_QUERY = """query computed_key_tail:
     ("tail", "expected"),
     (
         (
-            "        position = row_number() window:\n"
-            "            order by:\n                high\n",
-            [("PIE-S2102", "Unknown field: high", 15, 17)],
+            "        position = row_number() window(\n"
+            "            order by\n"
+            "                high)\n",
+            [("PIE-S2102", "Unknown field: high", 14, 17)],
         ),
         (
-            "        position = row_number() window:\n"
-            "            partition by:\n                high\n",
-            [("PIE-S2102", "Unknown field: high", 15, 17)],
+            "        position = row_number() window(\n"
+            "            partition by\n                high)\n",
+            [("PIE-S2102", "Unknown field: high", 14, 17)],
         ),
         (
-            "        position = row_number() window:\n"
-            "            order by:\n                total\n"
-            "    qualify:\n        high\n",
-            [("PIE-S2332", "Unknown QUALIFY reference: high", 17, 9)],
+            "        position = row_number() window(\n"
+            "            order by\n"
+            "                total)\n"
+            "    qualify:\n"
+            "        high\n",
+            [("PIE-S2332", "Unknown QUALIFY reference: high", 16, 9)],
         ),
         (
-            "        position = row_number() window:\n"
-            "            order by:\n                total\n"
-            "    qualify:\n        row_number() window:\n"
-            "            order by:\n                high\n        <= 1\n",
-            [("PIE-S2102", "Unknown field: high", 19, 17)],
+            "        position = row_number() window(\n"
+            "            order by\n"
+            "                total)\n"
+            "    qualify:\n"
+            "        row_number() window(\n"
+            "            order by\n"
+            "                high) <= 1\n",
+            [("PIE-S2102", "Unknown field: high", 18, 17)],
         ),
-        ("    satisfying:\n        high\n    order by:\n        high desc\n", []),
+        ("    having:\n        high\n    order by:\n        high desc\n", []),
     ),
     ids=("window_order", "window_partition", "qualify", "hidden_window", "ordered"),
 )
@@ -1027,8 +987,10 @@ def test_a_joined_computed_key_output_orders_but_stays_outside_windows(
     (tmp_path / "main.pietto").write_text(
         header + _JOINED_KEY_QUERY + tail, encoding="utf-8"
     )
+    parsed = check_project_parse_only(tmp_path)
+    assert parsed.ok, parsed.diagnostics
     completed = build_project_completed_semantic_result(
-        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+        build_empty_project_semantic_result(parsed)
     )
     offset = header.count("\n")
     assert completed.ok is not expected
@@ -1256,81 +1218,62 @@ _UNAVAILABLE = "Project relation semantic completion is unavailable: "
 def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
     tmp_path: Path,
 ) -> None:
-    """PIE-S2333 keeps its code and span; the relation whose own aggregate is
-    refused for fan-out names the repeating JOINs and remedies, also beneath a
-    row let, a window and QUALIFY, and offers no declared key for an ON
-    condition; a reader of it stays bare."""
+    """Current JOIN refusals name their own repeating inputs; upstream readers stay bare."""
 
     def query(name: str) -> str:
         start = PROJECT_SOURCE.index(f"query {name}:")
         return PROJECT_SOURCE[start : PROJECT_SOURCE.index("\nquery ", start) + 1]
 
     header = PROJECT_SOURCE.split("query absent_stage:")[0]
-    (tmp_path / "pietto.toml").write_text(
-        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
-    )
-    (tmp_path / "main.pietto").write_text(
+    source = (
         header
         + query("fanout_risk")
         + query("ambiguous_chasm")
         + "query reader:\n    from fanout_risk\n    select:\n        total\n"
-        + "query qualified_risk:\n    from accounts\n"
-        "    inner join events as event:\n        from accounts\n"
-        "        via account_events: account -> event\n"
-        "    let:\n        weight = accounts.metric\n"
-        "    group by:\n        accounts.label\n"
+        + "query qualified_risk:\n    from accounts\n    let event = events\n"
+        "    inner join event on account_events(accounts, event)\n"
+        "    let weight = accounts.metric\n    group by:\n        accounts.label\n"
         "    select:\n        label = accounts.label\n        top = max(weight)\n"
-        "        rk = rank() window:\n            order by:\n                top desc\n"
-        "    qualify:\n        rk <= 3\n"
+        "        rk = rank() window(order by top desc)\n    qualify:\n        rk <= 3\n"
         + query("fanout_risk")
         .replace("fanout_risk", "on_risk")
-        .replace(
-            "via account_events: account -> event", "on accounts.id == event.account_id"
-        ),
-        encoding="utf-8",
+        .replace("account_events(accounts, event)", "accounts.id == event.account_id")
     )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
     completed = build_project_completed_semantic_result(
         build_empty_project_semantic_result(check_project_parse_only(tmp_path))
     )
-    offset = header.count("\n")
-    event = (
-        " (an aggregate may read rows repeated by JOIN event; declare a unique key "
-        "on events.account_id (matched by JOIN event), or group by a unique key of "
-        "event whose fields are all not null)"
-    )
     assert not completed.ok
+
+    def at(name: str) -> int:
+        return source[: source.index(f"query {name}:")].count("\n") + 1
+
+    event = " (an aggregate may read rows repeated by JOIN event; match a unique key of event whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)"
     assert [
-        (d.code, d.message, d.location.line - offset, d.location.column)
+        (d.code, d.message, d.location.line, d.location.column)
         for d in completed.diagnostics
     ] == [
-        ("PIE-S2333", f"{_UNAVAILABLE}fanout_risk{event}", 1, 1),
+        ("PIE-S2333", f"{_UNAVAILABLE}fanout_risk{event}", at("fanout_risk"), 1),
         (
             "PIE-S2333",
-            f"{_UNAVAILABLE}ambiguous_chasm (an aggregate may read rows repeated by "
-            "JOIN event and JOIN signal; declare a unique key on events.account_id "
-            "(matched by JOIN event) and a unique key on signals.dimension_id (matched "
-            "by JOIN signal), or group by unique keys of event and signal whose "
-            "fields are all not null)",
-            8,
+            f"{_UNAVAILABLE}ambiguous_chasm (an aggregate may read rows repeated by JOIN event and JOIN signal; match unique keys of event and signal whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            at("ambiguous_chasm"),
             1,
         ),
-        ("PIE-S2333", f"{_UNAVAILABLE}reader", 22, 1),
-        ("PIE-S2333", f"{_UNAVAILABLE}qualified_risk{event}", 26, 1),
-        (
-            "PIE-S2333",
-            f"{_UNAVAILABLE}on_risk (an aggregate may read rows repeated by JOIN "
-            "event; group by a unique key of event whose fields are all not null)",
-            43,
-            1,
-        ),
+        ("PIE-S2333", f"{_UNAVAILABLE}reader", at("reader"), 1),
+        ("PIE-S2333", f"{_UNAVAILABLE}qualified_risk{event}", at("qualified_risk"), 1),
+        ("PIE-S2333", f"{_UNAVAILABLE}on_risk{event}", at("on_risk"), 1),
     ]
 
 
 _FANOUT_SHAPES = {
-    "orders": ("Order", ("customer_id: Int not null", "amount: Int not null")),
-    "customers": ("Customer", ("name: Text not null", "region_id: Int not null")),
-    "regions": ("Region", ("name: Text not null",)),
-    "emps": ("Emp", ("manager_id: Int not null", "name: Text not null")),
+    "orders": ("Order", ("customer_id: Int", "amount: Int")),
+    "customers": ("Customer", ("name: Text", "region_id: Int")),
+    "regions": ("Region", ("name: Text",)),
+    "emps": ("Emp", ("manager_id: Int", "name: Text")),
 }
 _FANOUT_RELATIONSHIPS = (
     ("order_customer", "order", "orders", "customer", "customers"),
@@ -1361,34 +1304,36 @@ _FANOUT_BINDINGS = {
     "c1": "customers",
     "c2": "customers",
 }
-_CUST = "    {} join customers as cust:\n        from orders\n"
-_VIA_CUST = "        via order_customer: order -> customer\n"
-_REG = "    inner join regions as reg:\n        from cust\n"
-_VIA_REG = "        via customer_region: customer -> region\n"
-_SELF = (
-    "    inner join emps as boss:\n        from emps\n"
-    "        via report_manager: report -> manager\n"
-)
+_CUST = "    let cust = customers\n    {} join cust on "
+_VIA_CUST = "order_customer(orders, cust)\n"
+_REG = "    let reg = regions\n    inner join reg on "
+_VIA_REG = "customer_region(cust, reg)\n"
+_SELF = "    let boss = emps\n    inner join boss on report_manager(emps, boss)\n"
 _FROM_SIDE = (("cust.name",), ("cname = cust.name", "top = max(orders.amount)"))
 _TARGET_SIDE = (("orders.amount",), ("amt = orders.amount", "top = max(cust.id)"))
 _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]] = {
     **{
         f"{kind}_{match}_{side}": (
             "orders",
-            _CUST.format(kind) + text,
+            (_CUST.format(kind) + text)
+            if kind != "cross"
+            else "    let cust = customers\n    cross join cust\n",
             groups,
             outputs,
             "",
         )
         for kind, match, text in (
-            ("inner", "via", _VIA_CUST),
-            ("left", "via", _VIA_CUST),
-            ("right", "via", _VIA_CUST),
-            ("full", "via", _VIA_CUST),
-            ("inner", "zero_hop", ""),
-            ("inner", "via_on", _VIA_CUST + '        on cust.name != "x"\n'),
-            ("inner", "on", "        on orders.customer_id == cust.id\n"),
-            ("left", "on", "        on orders.customer_id == cust.id\n"),
+            ("inner", "typed", _VIA_CUST),
+            ("left", "typed", _VIA_CUST),
+            ("right", "typed", _VIA_CUST),
+            ("full", "typed", _VIA_CUST),
+            (
+                "inner",
+                "typed_refinement",
+                'order_customer(orders, cust) and cust.name != "x"\n',
+            ),
+            ("inner", "on", "orders.customer_id == cust.id\n"),
+            ("left", "on", "orders.customer_id == cust.id\n"),
             ("cross", "cross", ""),
         )
         for side, (groups, outputs) in (("from", _FROM_SIDE), ("target", _TARGET_SIDE))
@@ -1416,10 +1361,7 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
     ),
     "chain_on_last": (
         "orders",
-        _CUST.format("inner")
-        + _VIA_CUST
-        + _REG
-        + "        on cust.region_id == reg.id\n",
+        _CUST.format("inner") + _VIA_CUST + _REG + "cust.region_id == reg.id\n",
         ("orders.amount",),
         ("amt = orders.amount", "top = max(reg.id)"),
         "",
@@ -1429,14 +1371,14 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
         _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
         ("orders.amount",),
         ("amt = orders.amount", "n = count(reg.id)"),
-        "orders:unique proven on customer_id",
+        "orders:proven = unique(customer_id)",
     ),
     "chain_partly_proven_first": (
         "orders",
         _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
         ("reg.name",),
         ("rname = reg.name", "top = max(orders.amount)"),
-        "customers:unique proven on id",
+        "customers:proven = unique(id)",
     ),
     "chain_left_first": (
         "orders",
@@ -1466,11 +1408,13 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
         ("cname = cust.name", "top = max(orders.amount)", "most = max(cust.id)"),
         "",
     ),
-    # A SEMI JOIN target repeats nothing and is never named.
+    # An `any` filter repeats nothing and its binder is never named.
     "semi_then_via": (
         "orders",
-        "    semi join regions as sr:\n        from orders\n"
-        "        on orders.amount == sr.id\n" + _CUST.format("inner") + _VIA_CUST,
+        "    let sr = regions\n"
+        "    where any(orders.amount == sr.id for sr in sr)\n"
+        + _CUST.format("inner")
+        + _VIA_CUST,
         ("cust.name",),
         ("cname = cust.name", "top = max(orders.amount)"),
         "",
@@ -1478,7 +1422,7 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
     **{
         f"{name}_{side}": (
             "orders",
-            _CUST.format("inner") + f"        via {relationship}: order -> customer\n",
+            _CUST.format("inner") + f"{relationship}(orders, cust)\n",
             groups,
             outputs,
             "",
@@ -1489,11 +1433,11 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
         )
         for side, (groups, outputs) in (("from", _FROM_SIDE), ("target", _TARGET_SIDE))
     },
-    # One key serves both JOINs and is listed once.
-    "two_joins_one_key": (
+    # Both aliases retain independent occurrences of the same producer.
+    "two_joins_same_producer": (
         "orders",
         "".join(
-            f"    inner join customers as {name}:\n        from orders\n{_VIA_CUST}"
+            f"    let {name} = customers\n    inner join {name} on order_customer(orders, {name})\n"
             for name in ("c1", "c2")
         ),
         ("orders.amount",),
@@ -1511,24 +1455,21 @@ def _fanout_source(
     base, joins, case_groups, outputs, extra = case
     declared = tuple(filter(None, (extra, *declarations)))
     shapes = "".join(
-        f"shape {shape}:\n    id: Int not null\n    uid: Int not null\n"
-        + "".join(f"    {field}\n" for field in fields)
+        f"shape {shape}:\n    id: Int\n    uid: Int\n"
+        + "".join(f"    {item}\n" for item in fields)
         + "".join(
             f"    {line.split(':', 1)[1]}\n"
             for line in dict.fromkeys(declared)
             if line.split(":", 1)[0] == relation
         )
-        + f'source {relation}: {shape} is postgres.table("{relation}")\n'
+        + f'source {relation}: {shape} = postgres.table("{relation}")\n'
         for relation, (shape, fields) in _FANOUT_SHAPES.items()
     )
     relationships = "".join(
-        f"relationship {name}:\n    endpoint {left}: {left_relation}\n"
-        f"    endpoint {right}: {right_relation}\n"
-        f"    on {_FANOUT_CONDITIONS[name]}\n"
+        f"relationship {name}({left}: {_FANOUT_SHAPES[left_relation][0]}, {right}: {_FANOUT_SHAPES[right_relation][0]}):\n"
+        f"    {_FANOUT_CONDITIONS[name]}\n"
         for name, left, left_relation, right, right_relation in _FANOUT_RELATIONSHIPS
-        # A repeated-operand relationship only where a JOIN reads it, so a
-        # zero-hop JOIN keeps one candidate relationship.
-        if name not in _FANOUT_REPEATED or f"via {name}:" in joins
+        if name not in _FANOUT_REPEATED or f"{name}(" in joins
     )
     return (
         shapes
@@ -1559,76 +1500,59 @@ def _fanout_check(
 
 
 @pytest.mark.parametrize("name", _FANOUT_CASES)
-def test_every_fanout_remedy_applied_alone_clears_the_refusal(
+def test_every_current_fanout_group_remedy_applied_alone_clears_the_refusal(
     tmp_path: Path, name: str
 ) -> None:
-    """Over JOIN kinds, ON, zero-hop, VIA+ON, both aggregate directions, chains,
-    a partly proven chain and a self-join: the refusal names a repeating JOIN,
-    always offers the group-by remedy, and each remedy it offers, applied to
-    the source alone, clears it."""
-
+    """Current typed/ordinary ON, CROSS, chains and repeated uses retain real remedies."""
     case = _FANOUT_CASES[name]
     ((code, message),) = _fanout_check(tmp_path, "refused", _fanout_source(case))
     assert code == "PIE-S2333"
     assert message.startswith(
         f"{_UNAVAILABLE}q (an aggregate may read rows repeated by JOIN "
     )
-    keys = [
-        (relation, field or fields)
-        for relation, field, fields in re.findall(
-            r"a unique key on (\w+)(?:\.(\w+)| \(([\w, ]+)\)) "
-            r"\(matched by JOINs? [\w ,]+\)",
-            message,
-        )
-    ]
+    assert "declare a unique key" not in message
+    # The remedy names the inputs whose unique keys close the refusal; grouping
+    # by those keys proves the names here without changing the ON.
     grouped = re.search(
-        r"group by (?:a unique key|unique keys) of (.+) whose fields are all not null",
+        r"match (?:a unique key|unique keys) of (.+) whose fields are never None in",
         message,
     )
     assert grouped is not None
     names = re.split(r", | and ", grouped.group(1))
-    remedies = {
-        "group": (
-            tuple(
-                f"{_FANOUT_BINDINGS[item]}:unique group_key on uid" for item in names
-            ),
-            tuple(f"{item}.uid" for item in names),
-        )
-    }
-    if keys:
-        remedies["key"] = (
-            tuple(
-                f"{relation}:unique fix_{position} on {field}"
-                for position, (relation, field) in enumerate(keys)
-            ),
-            (),
-        )
-    for remedy, (declarations, groups) in remedies.items():
-        assert (
-            _fanout_check(tmp_path, remedy, _fanout_source(case, declarations, groups))
-            == []
-        ), remedy
+    assert names and len(names) == len(set(names))
+    declarations = tuple(
+        f"{_FANOUT_BINDINGS[item]}:group_key = unique(uid)" for item in names
+    )
+    groups = tuple(f"{item}.uid" for item in names)
+    assert (
+        _fanout_check(tmp_path, "group", _fanout_source(case, declarations, groups))
+        == []
+    )
 
 
 _DECLARABLE_HEADER = (
-    "shape Customer:\n    id: Int not null\n    uid: Int not null\n"
-    "    code: Int not null\n    name: Text not null\n"
-    "shape Order:\n    id: Int not null\n    uid: Int not null\n"
-    "    customer_id: Int not null\n    amount: Int not null\n"
-    'source customers: Customer is postgres.table("customers")\n'
-    'source customers_b: Customer is postgres.table("customers_b")\n'
-    'source orders: Order is postgres.table("orders")\n'
+    "shape Customer:\n"
+    "    id: Int\n"
+    "    uid: Int\n"
+    "    code: Int\n"
+    "    name: Text\n"
+    "shape Order:\n"
+    "    id: Int\n"
+    "    uid: Int\n"
+    "    customer_id: Int\n"
+    "    amount: Int\n"
+    'source customers: Customer = postgres.table("customers")\n'
+    'source customers_b: Customer = postgres.table("customers_b")\n'
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
 def _endpoint(kind: str, groups: str, aggregate: str) -> str:
     return (
-        f"{kind} bc:\n    from customers\n    select:\n        id = code\n"
-        "        name\nrelationship order_bc:\n    endpoint order: orders\n"
-        "    endpoint b: bc\n    on order.customer_id == b.id\n"
-        "query q:\n    from orders\n    inner join bc as j0:\n        from orders\n"
-        f"        via order_bc: order -> b\n    group by:\n        {groups}\n"
-        f"    select:\n        g = {groups}\n        top = max({aggregate})\n"
+        f"{kind} bc:\n    from customers\n    select:\n        id = code\n        name\n"
+        "query q:\n    from orders\n    let j0 = bc\n"
+        "    inner join j0 on orders.customer_id == j0.id\n"
+        f"    group by:\n        {groups}\n    select:\n        g = {groups}\n        top = max({aggregate})\n"
     )
 
 
@@ -1638,10 +1562,19 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
     group key that cannot exist, and each remedy it does offer clears it."""
 
     union = (
-        "query su:\n    union all:\n        from customers\n        from customers_b\n"
-        "query q:\n    from orders\n    inner join su as s:\n        from orders\n"
-        "        on orders.customer_id == s.id\n    group by:\n        s.name\n"
-        "    select:\n        n = s.name\n        top = max(orders.amount)\n"
+        "query su:\n"
+        "    union all:\n"
+        "        from customers\n"
+        "        from customers_b\n"
+        "query q:\n"
+        "    from orders\n"
+        "    let s = su\n"
+        "    inner join s on orders.customer_id == s.id\n"
+        "    group by:\n"
+        "        s.name\n"
+        "    select:\n"
+        "        n = s.name\n"
+        "        top = max(orders.amount)\n"
     )
     bare = f"{_UNAVAILABLE}q (an aggregate may read rows repeated by JOIN "
     for name, body, message in (
@@ -1653,46 +1586,35 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
             ("PIE-S2333", message)
         ]
 
-    # Over the endpoint's fields the declarable FROM-side key is offered.
     target = _endpoint("query", "orders.amount", "j0.id")
     assert _fanout_check(tmp_path, "target", _DECLARABLE_HEADER + target) == [
         (
             "PIE-S2333",
-            f"{bare}j0; declare a unique key on orders.customer_id (matched by JOIN "
-            "j0), or group by a unique key of orders whose fields are all not null)",
+            f"{bare}j0; match a unique key of orders whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
     with_order = _DECLARABLE_HEADER.replace(
-        "    amount: Int not null\n", "    amount: Int not null\n{}", 1
+        "    amount: Int\n",
+        "    amount: Int\n    group_key = unique(uid)\n",
+        1,
     )
-    for fix, key, group in (
-        ("target_key", "    unique fix on customer_id\n", ""),
-        ("target_group", "    unique fix on uid\n", "        orders.uid\n"),
-    ):
-        fixed = with_order.format(key) + target.replace(
-            "        orders.amount\n    select",
-            f"        orders.amount\n{group}    select",
-        )
-        assert _fanout_check(tmp_path, fix, fixed) == []
+    fixed = with_order + target.replace(
+        "        orders.amount\n    select",
+        "        orders.amount\n        orders.uid\n    select",
+    )
+    assert _fanout_check(tmp_path, "target_group", fixed) == []
 
-    # An imported source is named by its own declaration, in its own module.
     module = (
-        "shape Customer:\n    id: Int not null\n    uid: Int not null\n"
-        "    name: Text not null\n{}"
-        'source customers: Customer is postgres.table("customers")\n'
-        "export:\n    source customers\n"
+        "shape Customer:\n    id: Int\n    uid: Int\n    name: Text\n{}"
+        'source customers: Customer = postgres.table("customers")\nexport source customers\n'
     )
     main = (
-        'import "a.pietto":\n    source customers as cs\n'
-        "shape Order:\n    id: Int not null\n    customer_id: Int not null\n"
-        "    amount: Int not null\n"
-        'source orders: Order is postgres.table("orders")\n'
-        "relationship order_customer:\n    endpoint order: orders\n"
-        "    endpoint customer: cs\n    on order.customer_id == customer.id\n"
-        "query q:\n    from orders\n    inner join cs as cust:\n        from orders\n"
-        "        via order_customer: order -> customer\n"
-        "    group by:\n        cust.name\n{}"
-        "    select:\n        n = cust.name\n        top = max(orders.amount)\n"
+        'from "a.pietto" import source customers as cs\n'
+        "shape Order:\n    id: Int\n    customer_id: Int\n    amount: Int\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "query q:\n    from orders\n    let cust = cs\n"
+        "    inner join cust on orders.customer_id == cust.id\n"
+        "    group by:\n        cust.name\n{}    select:\n        n = cust.name\n        top = max(orders.amount)\n"
     )
     assert _fanout_check(
         tmp_path,
@@ -1701,118 +1623,50 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
     ) == [
         (
             "PIE-S2333",
-            f"{bare}cust; declare a unique key on customers.id (matched by JOIN "
-            "cust), or group by a unique key of cust whose fields are all not null)",
+            f"{bare}cust; match a unique key of cust whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
-    for fix, key, group in (
-        ("import_key", "    unique fix on id\n", ""),
-        ("import_group", "    unique fix on uid\n", "        cust.uid\n"),
-    ):
-        files = {"a.pietto": module.format(key), "main.pietto": main.format(group)}
-        assert _fanout_check(tmp_path, fix, files) == []
-
-
-@pytest.mark.parametrize(
-    ("first", "second", "spelled"),
-    [
-        (
-            "src.x == dst.x and src.y == dst.y",
-            "src.y == dst.y and src.x == dst.x",
-            "x, y",
-        ),
-        # The first match wins over field declaration and alphabetical order.
-        (
-            "src.y == dst.y and src.x == dst.x",
-            "src.x == dst.x and src.y == dst.y",
-            "y, x",
-        ),
-    ],
-)
-def test_a_composite_key_matched_in_two_field_orders_is_offered_once(
-    first: str,
-    second: str,
-    spelled: str,
-    tmp_path: Path,
-) -> None:
-    """Two JOINs match the same composite key with their equalities in opposite
-    orders: the clause offers that key once, spelled as first matched, and
-    declaring it in either field order clears the refusal."""
-
-    source = (
-        "shape A:\n    id: Int not null\n    x: Int not null\n    y: Int not null\n"
-        "    metric: Int not null\n"
-        "shape B:\n    id: Int not null\n    x: Int not null\n    y: Int not null\n"
-        "    name: Text not null\n{}"
-        'source a: A is postgres.table("a")\nsource b: B is postgres.table("b")\n'
-        + "".join(
-            f"relationship {name}:\n    endpoint src: a\n    endpoint dst: b\n"
-            f"    on {condition}\n"
-            for name, condition in (("ab1", first), ("ab2", second))
-        )
-        + "query q:\n    from a\n"
-        + "".join(
-            f"    inner join b as {name}:\n        from a\n"
-            f"        via {relationship}: src -> dst\n"
-            for name, relationship in (("b1", "ab1"), ("b2", "ab2"))
-        )
-        + "    group by:\n        b1.name\n"
-        "    select:\n        n = b1.name\n        top = max(a.metric)\n"
-    )
-    assert _fanout_check(tmp_path, "refused", source.format("")) == [
-        (
-            "PIE-S2333",
-            f"{_UNAVAILABLE}q (an aggregate may read rows repeated by JOIN b1 and "
-            f"JOIN b2; declare a unique key on b ({spelled}) (matched by JOINs b1 and b2), "
-            "or group by unique keys of b1 and b2 whose fields are all not null)",
-        )
-    ]
-    for name, key in (("xy", "x, y"), ("yx", "y, x")):
-        declared = source.format(f"    unique bk on {key}\n")
-        assert _fanout_check(tmp_path, name, declared) == []
+    files = {
+        "a.pietto": module.format("    group_key = unique(uid)\n"),
+        "main.pietto": main.format("        cust.uid\n"),
+    }
+    assert _fanout_check(tmp_path, "import_group", files) == []
 
 
 _NULLING_HEADER = """shape Order:
-    id: Int not null
-    customer_id: Int nullable
-    amount: Int not null
-    rush: Bool not null
-    unique order_key on id
+    id: Int
+    customer_id: Int | None
+    amount: Int
+    rush: Bool
+    order_key = unique(id)
 shape Customer:
-    id: Int not null
-    region_id: Int nullable
-    vip: Bool not null
-    unique customer_key on id
+    id: Int
+    region_id: Int | None
+    vip: Bool
+    customer_key = unique(id)
 shape Region:
-    id: Int not null
-    unique region_key on id
+    id: Int
+    region_key = unique(id)
 shape Payment:
-    id: Int not null
-    order_id: Int not null
-    unique payment_key on id
-source orders: Order is postgres.table("orders")
-source customers: Customer is postgres.table("customers")
-source regions: Region is postgres.table("regions")
-source payments: Payment is postgres.table("payments")
-relationship order_customer: orders.customer_id == customers.id
-relationship customer_region: customers.region_id == regions.id
-relationship payment_order: payments.order_id == orders.id
+    id: Int
+    order_id: Int
+    payment_key = unique(id)
+source orders: Order = postgres.table("orders")
+source customers: Customer = postgres.table("customers")
+source regions: Region = postgres.table("regions")
+source payments: Payment = postgres.table("payments")
+relationship order_customer(orders: Order, customers: Customer):
+    orders.customer_id == customers.id
+relationship customer_region(customers: Customer, regions: Region):
+    customers.region_id == regions.id
+relationship payment_order(payments: Payment, orders: Order):
+    payments.order_id == orders.id
 """
-_RIGHT_C = "    from orders\n    right join customers as c\n"
-_CROSS_R = "    cross join regions as r: from orders\n"
-_BY_ORDER = "    group by: orders.id\n    select:\n        oid = orders.id\n"
-_BY_PAYMENT = "    group by: payments.id\n    select:\n        pid = payments.id\n"
-_RIGHT_O = "    from payments\n    right join orders as o\n"
-
-
-def _where(condition: str) -> str:
-    return (
-        _RIGHT_C
-        + _CROSS_R
-        + f"    where {condition}\n"
-        + _BY_ORDER
-        + ("        n = count(r.id)\n")
-    )
+_RIGHT_C = "    from orders\n    let c = customers\n    right join c on order_customer(orders, c)\n"
+_CROSS_R = "    let r = regions\n    cross join r\n"
+_BY_ORDER = "    group by orders.id\n    select:\n        oid = orders.id\n"
+_BY_PAYMENT = "    group by payments.id\n    select:\n        pid = payments.id\n"
+_RIGHT_O = "    from payments\n    let o = orders\n    right join o on payment_order(payments, o)\n"
 
 
 # Refused shapes (0.1.4 accepted them) with the JOINs and the group-key binding
@@ -1820,274 +1674,608 @@ def _where(condition: str) -> str:
 # that matches no order, or reads only such rows that a later JOIN's row pins.
 _NULLING_CASES = {
     "right_then_left": (
-        _RIGHT_C
-        + "    left join regions as r: from c\n"
-        + _BY_ORDER
-        + "        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    left join r on customer_region(c, r)\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         ("JOIN c and JOIN r", "c"),
     ),
     "right_then_cross": (
-        _RIGHT_C + _CROSS_R + _BY_ORDER + "        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         ("JOIN c", "c"),
     ),
     "full_then_cross": (
-        _RIGHT_C.replace("right", "full")
-        + _CROSS_R
-        + _BY_ORDER
-        + "        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    full join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         ("JOIN c", "c"),
     ),
     "or_reads_both_sides": (
-        "    from customers\n    right join regions as r\n"
-        "    cross join orders as w: from customers\n"
-        "    select:\n        n = count(customers.vip or w.rush)\n",
+        "    from customers\n"
+        "    let r = regions\n"
+        "    right join r on customer_region(customers, r)\n"
+        "    let w = orders\n"
+        "    cross join w\n"
+        "    select:\n"
+        "        n = count(customers.vip or w.rush)\n",
         ("JOIN r", "r"),
     ),
     "or_true": (
-        _RIGHT_C + "    select:\n        n = count(orders.rush or true)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    select:\n"
+        "        n = count(orders.rush or True)\n",
         ("JOIN c", "c"),
     ),
-    "where_or": (_where("orders.amount > 0 or c.vip"), ("JOIN c", "c")),
-    "where_not_not": (_where("not (not (orders.id is null))"), ("JOIN c", "c")),
-    "where_not_in_empty": (_where("orders.id not in ()"), ("JOIN c", "c")),
-    "where_not_of_in_empty": (_where("not (orders.id in ())"), ("JOIN c", "c")),
-    "where_in_empty_is_false": (_where("(orders.id in ()) == false"), ("JOIN c", "c")),
+    "where_or": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where orders.amount > 0 or c.vip\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "where_not_not": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where not (not (orders.id is None))\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "where_not_in_empty": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where orders.id not in ()\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "where_not_of_in_empty": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where not (orders.id in ())\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
+    "where_in_empty_is_false": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where (orders.id in ()) == False\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        ("JOIN c", "c"),
+    ),
     "where_not_in_empty_and": (
-        _where("orders.id not in () and r.id > 0"),
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where orders.id not in () and r.id > 0\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         ("JOIN c", "c"),
     ),
     "on_not_in_empty": (
-        _RIGHT_C
-        + "    inner join regions as r:\n        from orders\n"
-        + "        on orders.id not in ()\n"
-        + _BY_ORDER
-        + "        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    inner join r on orders.id not in ()\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         ("JOIN c", "c"),
     ),
     "let_not_in_empty": (
-        _where("keep").replace(
-            "    where keep\n",
-            "    let:\n        keep = orders.id not in ()\n    where keep\n",
-        ),
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "\n"
+        "    let keep = orders.id not in ()\n"
+        "    where keep\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         ("JOIN c", "c"),
     ),
     "full_where_not_in_empty": (
-        _RIGHT_C.replace("right", "full")
-        + _CROSS_R
-        + "    where orders.amount not in ()\n"
-        + _BY_ORDER
-        + "        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    full join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where orders.amount not in ()\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         ("JOIN c", "c"),
     ),
     "anti_keeps_unmatched": (
-        _RIGHT_C
-        + "    anti join payments as p:\n        from orders\n"
-        + "        on p.order_id == orders.id\n"
-        + _CROSS_R
-        + _BY_ORDER
-        + "        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let p = payments\n"
+        "    where not any(p.order_id == orders.id for p in p)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         ("JOIN c", "c"),
     ),
     "conditional_else_literal": (
-        _RIGHT_C
-        + "    let:\n        v = orders.amount if orders.rush else 0\n"
-        + "    select:\n        top = max(v)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "\n"
+        "    let v = orders.amount if orders.rush else 0\n"
+        "    select:\n"
+        "        top = max(v)\n",
         ("JOIN c", "c"),
     ),
     "conditional_on_not_in_empty": (
-        _RIGHT_C
-        + "    let:\n        v = 0 if orders.id not in () else orders.amount\n"
-        + "    select:\n        top = max(v)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "\n"
+        "    let v = 0 if orders.id not in () else orders.amount\n"
+        "    select:\n"
+        "        top = max(v)\n",
         ("JOIN c", "c"),
     ),
     "many_to_one_from_the_right": (
-        _RIGHT_O
-        + "    left join customers as c2: from o\n"
-        + _BY_PAYMENT
-        + "        n = count(c2.id)\n",
+        "    from payments\n"
+        "    let o = orders\n"
+        "    right join o on payment_order(payments, o)\n"
+        "    let c2 = customers\n"
+        "    left join c2 on order_customer(o, c2)\n"
+        "    group by payments.id\n"
+        "    select:\n"
+        "        pid = payments.id\n"
+        "        n = count(c2.id)\n",
         ("JOIN o and JOIN c2", "o"),
     ),
     "on_or_from_the_right": (
-        _RIGHT_O
-        + "    left join payments as p2:\n        from o\n"
-        + "        on p2.order_id == o.id or p2.id > 0\n"
-        + _BY_PAYMENT
-        + "        n = count(p2.id)\n",
+        "    from payments\n"
+        "    let o = orders\n"
+        "    right join o on payment_order(payments, o)\n"
+        "    let p2 = payments\n"
+        "    left join p2 on p2.order_id == o.id or p2.id > 0\n"
+        "    group by payments.id\n"
+        "    select:\n"
+        "        pid = payments.id\n"
+        "        n = count(p2.id)\n",
         ("JOIN o and JOIN p2", "o"),
     ),
     "same_source_semi_removes_orphans": (
-        _RIGHT_O
-        + "    semi join payments as p2: from o\n"
-        + "    cross join regions as r: from payments\n"
-        + _BY_PAYMENT
-        + "        n = count(r.id)\n",
+        "    from payments\n"
+        "    let o = orders\n"
+        "    right join o on payment_order(payments, o)\n"
+        "    let p2 = payments\n"
+        "    where any(payment_order(p2, o) for p2 in p2)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by payments.id\n"
+        "    select:\n"
+        "        pid = payments.id\n"
+        "        n = count(r.id)\n",
         None,
     ),
     "same_source_full_semi_removes_orphans": (
-        _RIGHT_O.replace("right", "full")
-        + "    semi join payments as p2: from o\n"
-        + "    cross join regions as r: from payments\n"
-        + _BY_PAYMENT
-        + "        n = count(r.id)\n",
+        "    from payments\n"
+        "    let o = orders\n"
+        "    full join o on payment_order(payments, o)\n"
+        "    let p2 = payments\n"
+        "    where any(payment_order(p2, o) for p2 in p2)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by payments.id\n"
+        "    select:\n"
+        "        pid = payments.id\n"
+        "        n = count(r.id)\n",
         None,
     ),
     "same_source_later_on_still_removes_orphans": (
-        _RIGHT_O
-        + "    semi join payments as p2:\n        from o\n"
-        + "        via payment_order: orders -> payments\n        on p2.id > 0\n"
-        + "    cross join regions as r: from payments\n"
-        + _BY_PAYMENT
-        + "        n = count(r.id)\n",
+        "    from payments\n"
+        "    let o = orders\n"
+        "    right join o on payment_order(payments, o)\n"
+        "    let p2 = payments\n"
+        "    where any(payment_order(p2, o) and p2.id > 0 for p2 in p2)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by payments.id\n"
+        "    select:\n"
+        "        pid = payments.id\n"
+        "        n = count(r.id)\n",
         None,
     ),
     "same_source_anti_keeps_orphans": (
-        _RIGHT_O
-        + "    anti join payments as p2: from o\n"
-        + "    cross join regions as r: from payments\n"
-        + _BY_PAYMENT
-        + "        n = count(r.id)\n",
+        "    from payments\n"
+        "    let o = orders\n"
+        "    right join o on payment_order(payments, o)\n"
+        "    let p2 = payments\n"
+        "    where not any(payment_order(p2, o) for p2 in p2)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by payments.id\n"
+        "    select:\n"
+        "        pid = payments.id\n"
+        "        n = count(r.id)\n",
         ("JOIN o", "o"),
     ),
     "same_source_extra_on_keeps_orphans": (
-        _RIGHT_O.replace(
-            "as o\n",
-            "as o:\n        from payments\n        via payment_order: payments -> orders\n        on o.rush\n",
-        )
-        + "    semi join payments as p2: from o\n"
-        + "    cross join regions as r: from payments\n"
-        + _BY_PAYMENT
-        + "        n = count(r.id)\n",
+        "    from payments\n"
+        "    let o = orders\n"
+        "    right join o on payment_order(payments, o) and o.rush\n"
+        "    let p2 = payments\n"
+        "    where any(payment_order(p2, o) for p2 in p2)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by payments.id\n"
+        "    select:\n"
+        "        pid = payments.id\n"
+        "        n = count(r.id)\n",
         ("JOIN o", "o"),
     ),
     "strict_argument": (
-        _RIGHT_C + "    select:\n        n = count(orders.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    select:\n"
+        "        n = count(orders.id)\n",
         None,
     ),
     "full_strict_argument": (
-        _RIGHT_C.replace("right", "full")
-        + "    select:\n        n = count(orders.amount)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    full join c on order_customer(orders, c)\n"
+        "    select:\n"
+        "        n = count(orders.amount)\n",
         None,
     ),
     "grouped_by_the_null_extended_key": (
-        _RIGHT_C + _BY_ORDER + "        n = count(c.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(c.id)\n",
         None,
     ),
     "or_of_one_side": (
-        _RIGHT_C + "    select:\n        n = count(orders.rush or orders.rush)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    select:\n"
+        "        n = count(orders.rush or orders.rush)\n",
         None,
     ),
     "coalesce_of_two_left_inputs": (
-        "    from orders\n    inner join payments as p: from orders\n"
-        "    right join customers as c: from orders\n"
-        "    let:\n        v = coalesce(p.id, orders.amount)\n"
-        "    select:\n        top = max(v)\n",
+        "    from orders\n"
+        "    let p = payments\n"
+        "    inner join p on payment_order(p, orders)\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "\n"
+        "    let v = coalesce(p.id, orders.amount)\n"
+        "    select:\n"
+        "        top = max(v)\n",
         None,
     ),
     "let_extremum": (
-        _RIGHT_C
-        + "    let:\n        amt = orders.amount * 2\n"
-        + "    select:\n        top = max(amt)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "\n"
+        "    let amt = orders.amount * 2\n"
+        "    select:\n"
+        "        top = max(amt)\n",
         None,
     ),
     "conditional_of_null_branches": (
-        _RIGHT_C
-        + "    let:\n        v = orders.amount if orders.rush else orders.amount + 1\n"
-        + "    select:\n        top = max(v)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "\n"
+        "    let v = orders.amount if orders.rush else orders.amount + 1\n"
+        "    select:\n"
+        "        top = max(v)\n",
         None,
     ),
     "conditional_else_unmatched": (
-        _RIGHT_C
-        + "    left join payments as p: from orders\n"
-        + "    let:\n        v = 1 if orders.rush else p.id\n"
-        + "    select:\n        top = max(v)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let p = payments\n"
+        "    left join p on payment_order(p, orders)\n"
+        "\n"
+        "    let v = 1 if orders.rush else p.id\n"
+        "    select:\n"
+        "        top = max(v)\n",
         None,
     ),
     "conditional_on_in_empty": (
-        _RIGHT_C
-        + "    let:\n        v = 0 if orders.id in () else orders.amount\n"
-        + "    select:\n        top = max(v)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "\n"
+        "    let v = 0 if orders.id in () else orders.amount\n"
+        "    select:\n"
+        "        top = max(v)\n",
         None,
     ),
     "inner_from_the_left": (
-        _RIGHT_C
-        + "    inner join payments as p: from orders\n"
-        + "    select:\n        n = count(p.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let p = payments\n"
+        "    inner join p on payment_order(p, orders)\n"
+        "    select:\n"
+        "        n = count(p.id)\n",
         None,
     ),
     "left_from_the_left": (
-        _RIGHT_C
-        + "    left join payments as p: from orders\n"
-        + _BY_ORDER
-        + "        n = count(p.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let p = payments\n"
+        "    left join p on payment_order(p, orders)\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(p.id)\n",
         None,
     ),
     "full_from_the_left": (
-        _RIGHT_C.replace("right", "full")
-        + "    full join payments as p: from orders\n"
-        + _BY_ORDER
-        + "        n = count(p.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    full join c on order_customer(orders, c)\n"
+        "    let p = payments\n"
+        "    full join p on payment_order(p, orders)\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(p.id)\n",
         None,
     ),
     "inner_on_from_the_left": (
-        _RIGHT_C
-        + "    inner join payments as p:\n        from orders\n"
-        + "        on p.order_id == orders.id\n"
-        + _BY_ORDER
-        + "        n = count(p.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let p = payments\n"
+        "    inner join p on p.order_id == orders.id\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(p.id)\n",
         None,
     ),
     "right_on_the_left": (
-        _RIGHT_C
-        + "    right join payments as p:\n        from orders\n"
-        + "        on p.order_id == orders.id\n"
-        + _CROSS_R
-        + "    group by: orders.id, p.id\n    select:\n        oid = orders.id\n"
-        + "        pid = p.id\n        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let p = payments\n"
+        "    right join p on p.order_id == orders.id\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by orders.id, p.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        pid = p.id\n"
+        "        n = count(r.id)\n",
         None,
     ),
     "semi_removes_unmatched": (
-        _RIGHT_C
-        + "    semi join payments as p: from orders\n"
-        + _CROSS_R
-        + _BY_ORDER
-        + "        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let p = payments\n"
+        "    where any(payment_order(p, orders) for p in p)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         None,
     ),
-    "where_removes_unmatched": (_where("orders.id is not null"), None),
-    "where_not_is_null": (_where("not (orders.id is null)"), None),
-    "where_not_or": (_where("not (orders.id is null or c.region_id is null)"), None),
-    "where_in": (_where("orders.id in (1, 2)"), None),
-    "where_between": (_where("orders.amount between 1 and 10"), None),
-    "where_in_empty": (_where("orders.id in ()"), None),
-    "where_not_of_not_in_empty": (_where("not (orders.id not in ())"), None),
+    "where_removes_unmatched": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where orders.id is not None\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        None,
+    ),
+    "where_not_is_null": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where not (orders.id is None)\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        None,
+    ),
+    "where_not_or": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where not (orders.id is None or c.region_id is None)\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        None,
+    ),
+    "where_in": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where orders.id in (1, 2)\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        None,
+    ),
+    "where_between": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where 1 <= orders.amount <= 10\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        None,
+    ),
+    "where_in_empty": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where orders.id in ()\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        None,
+    ),
+    "where_not_of_not_in_empty": (
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "    where not (orders.id not in ())\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
+        None,
+    ),
     "on_in_empty": (
-        _RIGHT_C
-        + "    inner join regions as r:\n        from orders\n"
-        + "        on orders.id in ()\n"
-        + _BY_ORDER
-        + "        n = count(r.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    inner join r on orders.id in ()\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         None,
     ),
     "where_let_condition": (
-        _where("known").replace(
-            "    where known\n",
-            "    let:\n        known = orders.id is not null\n    where known\n",
-        ),
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let r = regions\n"
+        "    cross join r\n"
+        "\n"
+        "    let known = orders.id is not None\n"
+        "    where known\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(r.id)\n",
         None,
     ),
     "left_from_the_right": (
-        _RIGHT_C
-        + "    left join orders as o2: from c\n"
-        + _BY_ORDER
-        + "        n = count(o2.id)\n",
+        "    from orders\n"
+        "    let c = customers\n"
+        "    right join c on order_customer(orders, c)\n"
+        "    let o2 = orders\n"
+        "    left join o2 on order_customer(o2, c)\n"
+        "    group by orders.id\n"
+        "    select:\n"
+        "        oid = orders.id\n"
+        "        n = count(o2.id)\n",
         None,
     ),
     "on_key_from_the_right": (
-        _RIGHT_O
-        + "    left join payments as p2:\n        from o\n"
-        + "        on p2.order_id == o.id\n"
-        + _BY_PAYMENT
-        + "        n = count(p2.id)\n",
+        "    from payments\n"
+        "    let o = orders\n"
+        "    right join o on payment_order(payments, o)\n"
+        "    let p2 = payments\n"
+        "    left join p2 on p2.order_id == o.id\n"
+        "    group by payments.id\n"
+        "    select:\n"
+        "        pid = payments.id\n"
+        "        n = count(p2.id)\n",
         None,
     ),
 }
@@ -2101,16 +2289,16 @@ def test_a_null_extended_join_side_proves_nothing_the_aggregate_may_read(
     at-most-one match proves nothing there: a group key of the NULL-extended
     side or an argument that is not NULL on such a row (`or` over both sides or
     with a literal, a conditional whose else branch is a literal, WHERE with
-    `or` or `not (not ...)`, ANTI, a later JOIN that may match such a row more
-    than once) no longer hides a repeated row; nor does an empty list, which
+    `or` or `not (not ...)`, `not any`, a later JOIN that may match such a row
+    more than once) no longer hides a repeated row; nor does an empty list, which
     is never NULL: `not in ()` is TRUE there in a WHERE or ON (also through
-    `not`, `and`, `== false` or a LET) and as a condition. The match still
+    `not`, `and`, `== False` or a LET) and as a condition. The match still
     proves an aggregate that never reads such a row: its argument is NULL when
     the left side is (`or` of one side, `coalesce` of two left inputs, a LET,
     a conditional with NULL branches or whose condition, such as `in ()`, is
-    never TRUE), WHERE is never TRUE there (`is not null`, `not (... is null)`,
-    `in`, `between`, `in ()`, a LET condition), or a later JOIN drops it
-    (INNER, SEMI, RIGHT) or NULL-extends what it reads (LEFT, FULL). It also
+    never TRUE), WHERE is never TRUE there (`is not None`, `not (... is None)`,
+    `in`, `between`, `in ()`, a LET condition), or a later JOIN or `any` drops
+    it (INNER, `any`, RIGHT) or NULL-extends what it reads (LEFT, FULL). It also
     proves one that reads only such rows holding a row of a later JOIN whose
     relationship or `on` equality matches a key of the right input."""
 
@@ -2125,21 +2313,30 @@ def test_a_null_extended_join_side_proves_nothing_the_aggregate_may_read(
         build_empty_project_semantic_result(check_project_parse_only(tmp_path))
     )
     lines = source.splitlines()
-    assert [
+    actual = [
         (d.code, d.message, d.location.line, d.location.column)
         for d in completed.diagnostics
-    ] == [
+    ]
+    expected = [
         (
             "PIE-S2333",
             f"{_UNAVAILABLE}{name} (an aggregate may read rows repeated by "
-            f"{refusal[0]}; group by a unique key of {refusal[1]} whose fields are "
-            "all not null)",
+            f"{refusal[0]}; match a unique key of {refusal[1]} whose fields are "
+            "never None in `on` with a relationship call, use `any(...)` for an "
+            "input that only filters rows, or aggregate in a separate query first)",
             lines.index(f"query {name}:") + 1,
             1,
         )
         for name, (_, refusal) in _NULLING_CASES.items()
         if refusal is not None
     ]
+
+    if actual != expected:
+        pytest.fail(
+            "Complete null-extension diagnostic vectors:\n"
+            + json.dumps({"expected": expected, "actual": actual}, indent=2),
+            pytrace=False,
+        )
 
 
 def test_repeated_self_bindings_keep_argument_occurrences_and_factors_distinct(
@@ -2320,18 +2517,18 @@ def test_satisfying_reports_a_def_argument_that_does_not_fit_once(
     JOIN inputs."""
     header = PROJECT_SOURCE.split("query absent_stage:")[0]
     queries = "".join(
-        f"query {name}:\n    from accounts\n    inner join events as event:\n"
-        "        from accounts\n        on event.account_id == accounts.id\n"
+        f"query {name}:\n    from accounts\n    let event = events\n"
+        "    inner join event on event.account_id == accounts.id\n"
         f"    group by:\n        {key}\n    select:\n        key = {item}\n"
         f"        top = {top}\n        total = count(event.id)\n"
-        f"    satisfying:\n        {predicate}\n"
+        f"    having:\n        {predicate}\n"
         for name, key, item, top, predicate in (
             (
                 "null_predicate",
                 "accounts.id",
                 "accounts.id",
                 "max(event.metric)",
-                "nb(null)",
+                "nb(None)",
             ),
             (
                 "comparison_predicate",
@@ -2361,8 +2558,8 @@ def test_satisfying_reports_a_def_argument_that_does_not_fit_once(
     )
     (tmp_path / "main.pietto").write_text(
         header
-        + "def nb(x: Bool not null) -> Bool not null: return x\n"
-        + "def nn(x: Int not null) -> Int not null: return x\n"
+        + "def nb(x: Bool) -> Bool: return x\n"
+        + "def nn(x: Int) -> Int: return x\n"
         + queries,
         encoding="utf-8",
     )
@@ -2377,15 +2574,15 @@ def test_satisfying_reports_a_def_argument_that_does_not_fit_once(
         (
             "PIE-S2395",
             f"Invalid argument for def {name} at position 1 (x): "
-            f"expected {expected} not null, got {actual}",
+            f"expected {expected}, got {actual}",
             line,
             column,
         )
         for name, expected, actual, line, column in (
-            ("nb", "Bool", "null", 15, 9),
-            ("nb", "Bool", "Bool of unknown nullability", 28, 9),
-            ("nn", "Int", "Int nullable", 38, 15),
-            ("nn", "Int", "Int nullable", 50, 15),
+            ("nb", "Bool", "null", 14, 9),
+            ("nb", "Bool", "Bool of unknown nullability", 26, 9),
+            ("nn", "Int", "Int | None", 35, 15),
+            ("nn", "Int", "Int | None", 46, 15),
         )
     ]
 
@@ -2397,15 +2594,16 @@ def test_an_aggregate_reports_its_unfit_def_argument_alone(tmp_path: Path) -> No
     argument written by hand keeps PIE-S2315."""
     header = PROJECT_SOURCE.split("query absent_stage:")[0]
     joined = (
-        "    from accounts\n    inner join events as event:\n"
-        "        from accounts\n        on event.account_id == accounts.id\n"
+        "    from accounts\n"
+        "    let event = events\n"
+        "    inner join event on event.account_id == accounts.id\n"
     )
-    grouped = "    group by: accounts.id\n    select:\n        key = accounts.id\n"
+    grouped = "    group by accounts.id\n    select:\n        key = accounts.id\n"
     queries = (
         f"query field:\n{joined}{grouped}        top = max(nn(event.metric))\n"
         f"query global:\n{joined}    select:\n"
         "        total = count(nn(event.metric))\n"
-        f"query let_name:\n{joined}    let:\n        j = event.metric\n{grouped}"
+        f"query let_name:\n{joined}    let j = event.metric\n{grouped}"
         "        top = max(nn(j))\n"
         f"query wrong_type:\n{joined}{grouped}        top = max(tn(event.metric))\n"
         f"query fits:\n{joined}{grouped}        top = max(ni(event.metric))\n"
@@ -2417,9 +2615,9 @@ def test_an_aggregate_reports_its_unfit_def_argument_alone(tmp_path: Path) -> No
     )
     (tmp_path / "main.pietto").write_text(
         header
-        + "def nn(x: Int not null) -> Int not null: return x\n"
-        + "def ni(x: Int nullable) -> Int nullable: return x\n"
-        + "def tn(x: Text not null) -> Text not null: return x\n"
+        + "def nn(x: Int) -> Int: return x\n"
+        + "def ni(x: Int | None) -> Int | None: return x\n"
+        + "def tn(x: Text) -> Text: return x\n"
         + queries,
         encoding="utf-8",
     )
@@ -2435,29 +2633,29 @@ def test_an_aggregate_reports_its_unfit_def_argument_alone(tmp_path: Path) -> No
             (
                 "PIE-S2395",
                 f"Invalid argument for def {name} at position 1 (x): "
-                f"expected {expected} not null, got Int nullable",
+                f"expected {expected}, got Int | None",
                 line,
                 column,
             )
             for name, expected, line, column in (
-                ("nn", "Int", 9, 19),
-                ("nn", "Int", 16, 23),
-                ("nn", "Int", 27, 19),
-                ("tn", "Text", 36, 19),
+                ("nn", "Int", 8, 19),
+                ("nn", "Int", 14, 23),
+                ("nn", "Int", 23, 19),
+                ("tn", "Text", 31, 19),
             )
         ),
         (
             "PIE-S2104",
             "Invalid argument type for function lower at position 1: "
             "expected Text, got Int",
-            54,
+            47,
             19,
         ),
         (
             "PIE-S2315",
             "Aggregate function max requires a direct field argument; "
             "expression arguments are not supported yet",
-            54,
+            47,
             15,
         ),
     ]
@@ -2475,24 +2673,25 @@ def test_an_aggregate_keeps_the_s2315_of_an_unfit_def_argument_form(
     reads a `let:` name."""
     header = PROJECT_SOURCE.split("query absent_stage:")[0]
     joined = (
-        "    from accounts\n    inner join events as event:\n"
-        "        from accounts\n        on event.account_id == accounts.id\n"
+        "    from accounts\n"
+        "    let event = events\n"
+        "    inner join event on event.account_id == accounts.id\n"
     )
-    grouped = "    group by: accounts.id\n    select:\n        key = accounts.id\n"
+    grouped = "    group by accounts.id\n    select:\n        key = accounts.id\n"
     queries = (
         f"query plus:\n{joined}{grouped}        c = count(nn(event.metric + 1))\n"
-        f"query let_upper:\n{joined}    let:\n        j = upper(event.label)\n"
+        f"query let_upper:\n{joined}    let j = upper(event.label)\n"
         f"{grouped}        c = count(nn(j))\n"
-        f"query let_constant:\n{joined}    let:\n        j = 1.5\n{grouped}"
+        f"query let_constant:\n{joined}    let j = 1.5\n{grouped}"
         "        s = sum(nn(j))\n"
-        f"query let_read:\n{joined}    let:\n        j = event.metric\n{grouped}"
+        f"query let_read:\n{joined}    let j = event.metric\n{grouped}"
         "        c = count(nn(j + 1))\n"
     )
     (tmp_path / "pietto.toml").write_text(
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
     )
     (tmp_path / "main.pietto").write_text(
-        header + "def nn(x: Int not null) -> Int not null: return x\n" + queries,
+        header + "def nn(x: Int) -> Int: return x\n" + queries,
         encoding="utf-8",
     )
     completed = build_project_completed_semantic_result(
@@ -2504,7 +2703,7 @@ def test_an_aggregate_keeps_the_s2315_of_an_unfit_def_argument_form(
         return (
             "PIE-S2395",
             "Invalid argument for def nn at position 1 (x): "
-            f"expected Int not null, got {actual}",
+            f"expected Int, got {actual}",
             line,
             column,
         )
@@ -2522,13 +2721,13 @@ def test_an_aggregate_keeps_the_s2315_of_an_unfit_def_argument_form(
         (d.code, d.message, d.location.line - offset, d.location.column)
         for d in completed.diagnostics
     ] == [
-        mismatch(9, 19, "Int of unknown nullability"),
-        mismatch(20, 19, "Text not null"),
-        expression_argument("count", 20),
-        mismatch(31, 17, "Float not null"),
-        expression_argument("sum", 31),
-        mismatch(42, 19, "Int of unknown nullability"),
-        expression_argument("count", 42),
+        mismatch(8, 19, "Int of unknown nullability"),
+        mismatch(17, 19, "Text"),
+        expression_argument("count", 17),
+        mismatch(26, 17, "Float"),
+        expression_argument("sum", 26),
+        mismatch(35, 19, "Int of unknown nullability"),
+        expression_argument("count", 35),
     ]
 
 
@@ -2542,10 +2741,11 @@ def test_an_aggregate_argument_part_that_does_not_fit_its_def_is_unknown(
     accepts the form for no argument type (`max(nn(event.metric) + 1)`)."""
     header = PROJECT_SOURCE.split("query absent_stage:")[0]
     joined = (
-        "    from accounts\n    inner join events as event:\n"
-        "        from accounts\n        on event.account_id == accounts.id\n"
+        "    from accounts\n"
+        "    let event = events\n"
+        "    inner join event on event.account_id == accounts.id\n"
     )
-    grouped = "    group by: accounts.id\n    select:\n        key = accounts.id\n"
+    grouped = "    group by accounts.id\n    select:\n        key = accounts.id\n"
     queries = (
         f"query part:\n{joined}{grouped}        c = count(nn(event.metric) + 1)\n"
         f"query extremum:\n{joined}{grouped}        m = max(nn(event.metric) + 1)\n"
@@ -2554,7 +2754,7 @@ def test_an_aggregate_argument_part_that_does_not_fit_its_def_is_unknown(
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
     )
     (tmp_path / "main.pietto").write_text(
-        header + "def nn(x: Int not null) -> Int not null: return x\n" + queries,
+        header + "def nn(x: Int) -> Int: return x\n" + queries,
         encoding="utf-8",
     )
     completed = build_project_completed_semantic_result(
@@ -2562,45 +2762,43 @@ def test_an_aggregate_argument_part_that_does_not_fit_its_def_is_unknown(
     )
     offset = header.count("\n") + 1
     mismatch = (
-        "Invalid argument for def nn at position 1 (x): "
-        "expected Int not null, got Int nullable"
+        "Invalid argument for def nn at position 1 (x): expected Int, got Int | None"
     )
     assert [
         (d.code, d.message, d.location.line - offset, d.location.column)
         for d in completed.diagnostics
     ] == [
-        ("PIE-S2395", mismatch, 9, 19),
-        ("PIE-S2395", mismatch, 18, 17),
+        ("PIE-S2395", mismatch, 8, 19),
+        ("PIE-S2395", mismatch, 16, 17),
         (
             "PIE-S2315",
             "Aggregate function max requires a direct field argument; "
             "expression arguments are not supported yet",
-            18,
+            16,
             13,
         ),
     ]
 
 
 _JOINED_STAGE_SOURCE = """shape Point:
-    code: Text not null
+    code: Text
 shape T:
-    id: Int not null
-    n: Int nullable
-    home: Point not null
-    unique t_key on id
+    id: Int
+    n: Int | None
+    home: Point
+    t_key = unique(id)
 shape O:
-    oid: Int not null
-    tid: Int not null
-    unique o_key on oid
-source src: T is postgres.table("src")
-source oth: O is postgres.table("oth")
-def bl(x: Bool nullable) -> Bool nullable: return x
-def ni(x: Int nullable) -> Int nullable: return x
-def nn(x: Int not null) -> Int not null: return x
+    oid: Int
+    tid: Int
+    o_key = unique(oid)
+source src: T = postgres.table("src")
+source oth: O = postgres.table("oth")
+def bl(x: Bool | None) -> Bool | None: return x
+def ni(x: Int | None) -> Int | None: return x
+def nn(x: Int) -> Int: return x
 """
 _JOINED_STAGE_INPUT = (
-    "    from oth\n    inner join src as r:\n        from oth\n"
-    "        on r.id == oth.tid\n"
+    "    from oth\n    let r = src\n    inner join r on r.id == oth.tid\n"
 )
 
 
@@ -2631,31 +2829,31 @@ def test_satisfying_null_literal_is_pie_s2327_and_an_unknown_predicate_fails_clo
     ValueError."""
     predicates = (
         "a > 0",
-        "null",
-        "a == null",
-        "null and a > 0",
-        "bl(null)",
-        "bl(a == null)",
-        "ni(null) > 0",
+        "None",
+        "a == None",
+        "None and a > 0",
+        "bl(None)",
+        "bl(a == None)",
+        "ni(None) > 0",
     )
     queries = "".join(
         f"query q{ordinal}:\n{_JOINED_STAGE_INPUT}    group by:\n        oth.oid\n"
         "    select:\n        key = oth.oid\n        a = count(r.n)\n"
-        f"    satisfying:\n        {predicate}\n"
+        f"    having:\n        {predicate}\n"
         for ordinal, predicate in enumerate(predicates)
     )
-    shape_line = len(predicates) * 12 + 1
+    shape_line = len(predicates) * 11 + 1
     queries += (
         f"query shaped:\n{_JOINED_STAGE_INPUT}    group by:\n        oth.oid\n"
         "        r.home\n    select:\n        key = oth.oid\n        h = r.home\n"
-        "        a = count(r.n)\n    satisfying:\n        h == h\n"
+        "        a = count(r.n)\n    having:\n        h == h\n"
     )
     assert _joined_stage_diagnostics(tmp_path, queries) == [
         *(
             (
                 "PIE-S2327",
-                "Unsupported satisfying expression form: null literal",
-                ordinal * 12 + 12,
+                "Unsupported having expression form: null literal",
+                ordinal * 11 + 11,
                 column,
             )
             for ordinal, column in ((1, 9), (2, 14), (3, 9), (4, 12), (5, 17), (6, 12))
@@ -2675,8 +2873,8 @@ def test_a_let_renaming_a_field_selects_that_field_group_key(tmp_path: Path) -> 
     (PIE-S2395); a `let:` name that selects no group key is no unknown field
     (PIE-S2102), and the relation fails closed with PIE-S2333."""
     queries = "".join(
-        f"query {name}:\n{_JOINED_STAGE_INPUT}    let:\n        g1 = r.n\n"
-        f"        g2 = r.id\n    group by:\n        g1\n    select:\n"
+        f"query {name}:\n{_JOINED_STAGE_INPUT}    let g1 = r.n\n"
+        f"    let g2 = r.id\n    group by:\n        g1\n    select:\n"
         f"        k = {item}\n        c = count()\n"
         for name, item in (("alias", "g1"), ("unfit", "nn(g1)"), ("other", "g2"))
     )
@@ -2684,48 +2882,50 @@ def test_a_let_renaming_a_field_selects_that_field_group_key(tmp_path: Path) -> 
         (
             "PIE-S2395",
             "Invalid argument for def nn at position 1 (x): "
-            "expected Int not null, got Int nullable",
-            25,
+            "expected Int, got Int | None",
+            21,
             13,
         ),
         (
             "PIE-S2333",
             "Project relation semantic completion is unavailable: other",
-            27,
+            23,
             1,
         ),
     ]
 
 
-def test_collection_preserves_exact_slice8_order_membership_and_slice7_ledger(
+def test_collection_preserves_exact_current_tail_order_and_base_ledger(
     built: _Built,
 ) -> None:
     entries_before = built.completion.entries
-    assert len(built.aggregations.results) == len(built.filters.results)
-    assert all(
-        result.input_filter is input_filter
-        for result, input_filter in zip(
-            built.aggregations.results,
-            built.filters.results,
-            strict=True,
+    assert len(built.aggregations) == len(built.filters) and built.aggregations
+    for aggregations, filters in zip(built.aggregations, built.filters, strict=True):
+        assert aggregations.filter_set is filters
+        assert filters.completion is built.completion
+        current = filters.current_semantics
+        assert current is not None
+        owner = current.namespaces.binding_environment.ledger.owner
+        expected = tuple(entry for entry in entries_before if entry.owner is owner)
+        assert len(expected) == 1
+        assert tuple(result.entry for result in filters.results) == expected
+        assert len(aggregations.results) == len(filters.results) and filters.results
+        assert all(
+            result.input_filter is input_filter
+            for result, input_filter in zip(
+                aggregations.results, filters.results, strict=True
+            )
         )
-    )
-    assert built.aggregations.filter_set is built.filters
-    assert built.filters.completion is built.completion
+        assert all(
+            input_filter.current_semantics is current
+            and input_filter.joined_semantics is current
+            for input_filter in filters.results
+        )
+        with pytest.raises(ValueError, match="exact Slice-8 membership"):
+            aggregation.build_project_joined_aggregation(
+                filters, replace(filters.results[0])
+            )
     assert built.completion.entries is entries_before
-    assert all(
-        entry.reason
-        is completion.ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
-        for entry in entries_before
-        if type(entry) is completion.ProjectEffectiveOutputTerminal
-        and any(result.entry is entry for result in built.filters.results)
-    )
-    input_filter = built.filters.results[0]
-    with pytest.raises(ValueError, match="exact Slice-8 membership"):
-        aggregation.build_project_joined_aggregation(
-            built.filters,
-            replace(input_filter),
-        )
 
 
 def test_evidence_carriers_reject_forged_protection_grain_pair_and_output(
@@ -2824,7 +3024,7 @@ def _single_input_errors(body: str) -> tuple[str, ...]:
             "    select:\n"
             "        key = id\n"
             "        total = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        account_id > 0\n",
             ("PIE-S2325",),
         ),
@@ -2833,7 +3033,7 @@ def _single_input_errors(body: str) -> tuple[str, ...]:
             "    from rows\n"
             "    select:\n"
             "        total = sum(metric)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        total > 0\n",
             ("PIE-S2323",),
         ),
@@ -2854,42 +3054,6 @@ def test_join_free_semantic_decisions_and_diagnostics_remain_compatible(
     )
 
 
-def test_scope_boundary_has_no_old_fact_forgery_ir_allocation_or_later_stage() -> None:
-    source = PRODUCTION.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    imports = tuple(
-        alias.name
-        for node in ast.walk(tree)
-        if type(node) is ast.Import
-        for alias in node.names
-    ) + tuple(
-        node.module or "" for node in ast.walk(tree) if type(node) is ast.ImportFrom
-    )
-    assert not any(
-        name.startswith(("pietto.sql", "pietto.cli", "pyarrow")) for name in imports
-    )
-    for forbidden in (
-        "ProjectAggregateFactJoinLocality(",
-        "ProjectMultiFactAlignment(",
-        "ProjectModuleRowFieldIdentity(",
-        "ProjectGroupedGrainFactorIdentity(",
-        "ProjectIRSnapshotScope(",
-        "ProjectIROutputValueOccurrence(",
-        "build_project_completion(",
-        "build_project_joined_row_filters(",
-        "WINDOW_EVALUATION",
-        "QUALIFY",
-        "FINAL_PROJECTION",
-        "emit_sql",
-        "reaggregate",
-        "preaggregate",
-        "symmetric_aggregate",
-    ):
-        assert forbidden not in source
-    assert source.count("analyze_project_joined_namespace_expression(") == 1
-    assert "ProjectCompletion.entries" not in source
-
-
 def test_unknown_join_grain_with_an_aggregate_issue_reports_the_issue(
     tmp_path: Path,
 ) -> None:
@@ -2898,17 +3062,17 @@ def test_unknown_join_grain_with_an_aggregate_issue_reports_the_issue(
     result = _completed(
         tmp_path,
         "shape Customer:\n"
-        "    id: Int not null\n"
-        "    score: Int not null\n"
-        'source customers: Customer is postgres.table("customers")\n'
+        "    id: Int\n"
+        "    score: Int\n"
+        'source customers: Customer = postgres.table("customers")\n'
         "query scores:\n"
         "    from customers\n"
         "    select:\n"
         "        score\n"
         "query q:\n"
         "    from generate_series(1, 5, 1) as gs\n"
-        "    cross join scores as j0:\n"
-        "        from gs\n"
+        "    let j0 = scores\n"
+        "    cross join j0\n"
         "    group by:\n"
         "        j0.score\n"
         "    select:\n"
@@ -2928,27 +3092,29 @@ def test_equality_non_null_unique_group_key_protects_its_final_join_rows(
     tmp_path: Path, compound: bool, extra_on: bool
 ) -> None:
     header = _NULLING_HEADER.replace(
-        "    unique order_key on id\n",
-        "    unique order_key on id\n    unique match_key on customer_id"
+        "    order_key = unique(id)\n",
+        "    order_key = unique(id)\n    match_key = unique(customer_id"
         + (", amount" if compound else "")
-        + "\n",
+        + ")\n",
     )
     if compound:
-        header = header.replace("amount: Int not null", "amount: Int nullable").replace(
+        header = header.replace("amount: Int", "amount: Int | None").replace(
             "orders.customer_id == customers.id\n",
             "orders.customer_id == customers.id and orders.amount == customers.region_id\n",
         )
     body = _RIGHT_C
     if extra_on:
         body = body.replace(
-            "as c\n",
-            "as c:\n        from orders\n        via order_customer: orders -> customers\n        on c.vip\n",
+            "on order_customer(orders, c)\n",
+            "on order_customer(orders, c) and c.vip\n",
         )
-    body += "    inner join orders as o2: from c\n" + _CROSS_R
+    body += (
+        "    let o2 = orders\n    inner join o2 on order_customer(o2, c)\n" + _CROSS_R
+    )
     groups = "orders.id"
     if extra_on:
         groups += ", o2.customer_id" + (", o2.amount" if compound else "")
-    body += f"    group by: {groups}\n    select:\n        n = count(r.id)\n"
+    body += f"    group by {groups}\n    select:\n        n = count(r.id)\n"
     assert _fanout_check(tmp_path, "nonnull", header + "query result:\n" + body) == []
     if extra_on:
         # One unproved component cannot make a nullable composite key strict.
@@ -2959,14 +3125,14 @@ def test_equality_non_null_unique_group_key_protects_its_final_join_rows(
             )
             if compound
             else header.replace(
-                "unique match_key on customer_id",
-                "unique match_key on customer_id, region",
+                "match_key = unique(customer_id)",
+                "match_key = unique(customer_id, region)",
             )
         )
         if not compound:
             incomplete = incomplete.replace(
-                "    rush: Bool not null",
-                "    region: Int nullable\n    rush: Bool not null",
+                "    rush: Bool",
+                "    region: Int | None\n    rush: Bool",
             )
             body = body.replace("o2.customer_id\n", "o2.customer_id, o2.region\n")
         assert _fanout_check(
@@ -2975,7 +3141,7 @@ def test_equality_non_null_unique_group_key_protects_its_final_join_rows(
             (
                 "PIE-S2333",
                 _UNAVAILABLE
-                + "result (an aggregate may read rows repeated by JOIN c; group by a unique key of o2 whose fields are all not null)",
+                + "result (an aggregate may read rows repeated by JOIN c; match a unique key of o2 whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
             )
         ]
 
@@ -2986,12 +3152,12 @@ def test_composed_where_and_let_depth_does_not_stack(
 ) -> None:
     repeated = " and ".join(["orders.amount > 0"] * 300)
     declarations = [
-        f"        w = (orders.id is not null) and {repeated}\n",
-        "        v = r.id\n",
+        f"    let w = (orders.id is not None) and {repeated}\n",
+        "    let v = r.id\n",
     ]
     if not where_first:
         declarations.reverse()
-    body = _RIGHT_C + _CROSS_R + "    let:\n" + "".join(declarations)
+    body = _RIGHT_C + _CROSS_R + "".join(declarations)
     body += f"    where w and {repeated}\n" + _BY_ORDER + "        n = count(v)\n"
     assert (
         _fanout_check(tmp_path, "depth", _NULLING_HEADER + "query result:\n" + body)
@@ -3000,7 +3166,7 @@ def test_composed_where_and_let_depth_does_not_stack(
 
 
 def test_null_proof_visits_only_demanded_operands_in_order() -> None:
-    source = "query q:\n    from input\n    where (a is null) and (b in ()) and (c or c)\n    select: x\n"
+    source = "query q:\n    from input\n    where (a is None) and (b in ()) and (c or c)\n    select x\n"
     program = parse_source(source)
     assert program.ast is not None and not program.diagnostics
     query = next(item for item in program.ast.definitions if isinstance(item, QueryDef))
@@ -3021,22 +3187,25 @@ def test_inverse_relationship_requires_the_same_unfiltered_source_domain(
 ) -> None:
     header = _NULLING_HEADER
     if filtered:
-        header += "query other:\n    from payments\n    where payments.id > 0\n    select: id, order_id\n"
+        header += "query other:\n    from payments\n    where payments.id > 0\n    select id, order_id\n"
     else:
-        header += 'source other: Payment is postgres.table("payments")\n'
-    header += "relationship other_order: other.order_id == orders.id\n"
+        header += 'source other: Payment = postgres.table("payments")\n'
     body = (
-        "query result:\n    from other\n    right join orders as o:\n"
-        "        from other\n        via other_order: other -> orders\n"
-        "    semi join payments as p: from o\n"
-        "    cross join regions as r: from other\n"
-        "    group by: other.id\n    select:\n        n = count(r.id)\n"
+        "query result:\n"
+        "    from other\n"
+        "    let o = orders\n"
+        "    right join o on other.order_id == o.id\n"
+        "    let p = payments\n    where any(payment_order(p, o) for p in p)\n"
+        "    let r = regions\n    cross join r\n"
+        "    group by other.id\n"
+        "    select:\n"
+        "        n = count(r.id)\n"
     )
     assert _fanout_check(tmp_path, "domains", header + body) == [
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "result (an aggregate may read rows repeated by JOIN o; group by a unique key of o whose fields are all not null)",
+            + "result (an aggregate may read rows repeated by JOIN o; match a unique key of o whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3045,22 +3214,22 @@ def test_later_outer_join_invalidates_equality_non_null_group_key(
     tmp_path: Path,
 ) -> None:
     header = _NULLING_HEADER.replace(
-        "    unique order_key on id\n",
-        "    unique order_key on id\n    unique match_key on customer_id\n",
+        "    order_key = unique(id)\n",
+        "    order_key = unique(id)\n    match_key = unique(customer_id)\n",
     )
     body = (
-        "query result:\n    from orders\n    right join customers as c:\n"
-        "        from orders\n        via order_customer: orders -> customers\n        on c.vip\n"
-        "    inner join orders as o2: from c\n"
-        "    right join customers as c3: from o2\n"
+        "query result:\n    from orders\n    let c = customers\n"
+        "    right join c on order_customer(orders, c) and c.vip\n"
+        "    let o2 = orders\n    inner join o2 on order_customer(o2, c)\n"
+        "    let c3 = customers\n    right join c3 on order_customer(o2, c3)\n"
         + _CROSS_R
-        + "    group by: orders.id, o2.customer_id\n    select:\n        n = count(r.id)\n"
+        + "    group by orders.id, o2.customer_id\n    select:\n        n = count(r.id)\n"
     )
     assert _fanout_check(tmp_path, "outer", header + body) == [
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "result (an aggregate may read rows repeated by JOIN c; group by a unique key of c3 whose fields are all not null)",
+            + "result (an aggregate may read rows repeated by JOIN c; match a unique key of c3 whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3084,39 +3253,40 @@ def test_null_argument_does_not_visit_a_where_let(
     monkeypatch.setattr(aggregation, "_namespace_leaf", namespace)
     repeated = " and ".join(["orders.amount > 0"] * 300)
     source = _NULLING_HEADER + "query result:\n" + _RIGHT_C
-    source += f"    let:\n        w = {repeated}\n    where w\n"
+    source += f"    let w = {repeated}\n    where w\n"
     source += "    select:\n        n = count(orders.id)\n"
     assert _fanout_check(tmp_path, "skipped", source) == []
     assert visits == []
 
 
 _COMPOSITE_REVERSE_SOURCE = """shape Payment:
-    id: Int not null
-    x: Int not null
-    y: Int not null
-    unique payment_key on id
+    id: Int
+    x: Int
+    y: Int
+    payment_key = unique(id)
 shape Order:
-    x: Int not null
-    y: Int not null
-    unique order_key on x, y
+    x: Int
+    y: Int
+    order_key = unique(x, y)
 shape Region:
-    id: Int not null
-    unique region_key on id
-source payments: Payment is postgres.table("payments")
-source orders: Order is postgres.table("orders")
-source regions: Region is postgres.table("regions")
-relationship forward_match: payments.x == orders.x and payments.y == orders.y
-relationship reverse_match: orders.y == payments.y and orders.x == payments.x
+    id: Int
+    region_key = unique(id)
+source payments: Payment = postgres.table("payments")
+source orders: Order = postgres.table("orders")
+source regions: Region = postgres.table("regions")
+relationship forward_match(payments: Payment, orders: Order):
+    payments.x == orders.x and payments.y == orders.y
+relationship reverse_match(orders: Order, payments: Payment):
+    orders.y == payments.y and orders.x == payments.x
 query reordered_reverse:
     from payments
-    right join orders as o:
-        from payments
-        via forward_match: payments -> orders
-    semi join payments as p2:
-        from o
-        via reverse_match: orders -> payments
-    cross join regions as r: from payments
-    group by: payments.id
+    let o = orders
+    right join o on forward_match(payments, o)
+    let p2 = payments
+    where any(reverse_match(o, p2) for p2 in p2)
+    let r = regions
+    cross join r
+    group by payments.id
     select:
         n = count(r.id)
 """
@@ -3151,39 +3321,44 @@ def test_inverse_match_compares_complete_paired_equality_multisets(
             (
                 "PIE-S2333",
                 _UNAVAILABLE
-                + "reordered_reverse (an aggregate may read rows repeated by JOIN o; group by a unique key of o whose fields are all not null)",
+                + "reordered_reverse (an aggregate may read rows repeated by JOIN o; match a unique key of o whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
             )
         ]
     )
 
 
 _UNBOUNDED_NULLABLE_SOURCE = """shape Order:
-    id: Int not null
-    unique order_key on id
+    id: Int
+    order_key = unique(id)
 shape Payment:
-    id: Int not null
-    order_id: Int not null
-    customer_id: Int nullable
-    unique payment_key on id
-    unique payment_customer on customer_id
+    id: Int
+    order_id: Int
+    customer_id: Int | None
+    payment_key = unique(id)
+    payment_customer = unique(customer_id)
 shape Customer:
-    id: Int not null
-    unique customer_key on id
+    id: Int
+    customer_key = unique(id)
 shape Region:
-    id: Int not null
-    unique region_key on id
-source orders: Order is postgres.table("orders")
-source payments: Payment is postgres.table("payments")
-source customers: Customer is postgres.table("customers")
-source regions: Region is postgres.table("regions")
-relationship payment_order: payments.order_id == orders.id
-relationship payment_customer: payments.customer_id == customers.id
+    id: Int
+    region_key = unique(id)
+source orders: Order = postgres.table("orders")
+source payments: Payment = postgres.table("payments")
+source customers: Customer = postgres.table("customers")
+source regions: Region = postgres.table("regions")
+relationship payment_order(payments: Payment, orders: Order):
+    payments.order_id == orders.id
+relationship payment_customer(payments: Payment, customers: Customer):
+    payments.customer_id == customers.id
 query scope_unbounded_right:
     from orders
-    right join payments as p: from orders
-    inner join customers as c: from p
-    cross join regions as r: from orders
-    group by: orders.id, p.customer_id
+    let p = payments
+    right join p on payment_order(p, orders)
+    let c = customers
+    inner join c on payment_customer(p, c)
+    let r = regions
+    cross join r
+    group by orders.id, p.customer_id
     select:
         n = count(r.id)
 """
@@ -3197,15 +3372,227 @@ def test_nullable_holder_key_never_seeds_an_unrelated_unbounded_join(
     if unrelated_bounded:
         source = source.replace(
             "query scope_unbounded_right:",
-            "relationship order_region: orders.id == regions.id\nquery scope_unbounded_right:",
+            "relationship order_region(orders: Order, regions: Region):\n    orders.id == regions.id\nquery scope_unbounded_right:",
         ).replace(
-            "    from orders\n    right join payments",
-            "    from orders\n    right join regions as bounded: from orders\n    right join payments",
+            "    from orders\n    let p = payments\n",
+            "    from orders\n    let bounded = regions\n    right join bounded on order_region(orders, bounded)\n    let p = payments\n",
         )
     assert _fanout_check(tmp_path, "scope", source) == [
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "scope_unbounded_right (an aggregate may read rows repeated by JOIN p; group by a unique key of c whose fields are all not null)",
+            + "scope_unbounded_right (an aggregate may read rows repeated by JOIN p; match a unique key of c whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
+
+
+def test_modern_predicate_reverse_proof_uses_whole_accumulated_left_key(
+    tmp_path: Path,
+) -> None:
+    from _pietto_project_join import _completed
+    from pietto._project.project_current_joins import (
+        ProjectCurrentBinaryJoin,
+        current_forward_at_most_one,
+    )
+
+    source = """shape Row:
+    id: Int
+    tenant: Int
+    row_key = unique(id, tenant)
+shape Many:
+    id: Int
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
+source events: Many = postgres.table("events")
+relationship SameId(a: Row, b: Row):
+    a.id == b.id
+relationship SameTenant(a: Row, b: Row):
+    a.tenant == b.tenant
+query result:
+    from lhs
+    let e = events
+    left join e on lhs.id == e.id
+    let r = rhs
+    left join r on SameId(lhs, r) and SameTenant(lhs, r)
+    select:
+        id = lhs.id
+        matched = r.id
+"""
+    completed = _completed(tmp_path, source)
+    assert completed.ok, completed.diagnostics
+    regions = tuple(
+        region
+        for region in completed.effective_outputs.current_regions
+        if region.ledger.owner.identity.declared_name == "result"
+    )
+    assert len(regions) == 1
+    first, second = regions[0].joins
+    assert isinstance(first, ProjectCurrentBinaryJoin)
+    assert isinstance(second, ProjectCurrentBinaryJoin)
+    assert current_forward_at_most_one(second.condition)
+    assert any(
+        match.binding is second.condition.ledger.bindings[0]
+        for match in second.condition.key_matches
+    )
+    assert first.properties.relational.keys == ()
+    assert second.properties.relational.keys == ()
+
+
+@pytest.mark.parametrize("prior_join", (False, True))
+@pytest.mark.parametrize(
+    "join", ("cross join r", "inner join r on True", "inner join r on r.id > 0")
+)
+def test_disconnected_join_fanout_names_the_factor_introduction(
+    tmp_path: Path, prior_join: bool, join: str
+) -> None:
+    body = _RIGHT_C if prior_join else "    from orders\n"
+    body += f"    let r = regions\n    {join}\n"
+    if prior_join:
+        body += "    group by orders.id\n"
+    body += "    select:\n        n = count(r.id)\n"
+    repeated, grouped = ("c", "c") if prior_join else ("r", "orders")
+    assert _fanout_check(
+        tmp_path, "disconnected", _NULLING_HEADER + "query result:\n" + body
+    ) == [
+        (
+            "PIE-S2333",
+            _UNAVAILABLE
+            + f"result (an aggregate may read rows repeated by JOIN {repeated}; match a unique key of {grouped} whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    ("orders.id == r.id or c.id == r.id", "c.id == r.id or orders.id == r.id"),
+)
+def test_join_fanout_retains_every_prior_predicate_binding(
+    tmp_path: Path, predicate: str
+) -> None:
+    body = _RIGHT_C + f"    let r = regions\n    inner join r on {predicate}\n"
+    body += "    group by orders.id\n    select:\n        n = count(r.id)\n"
+    assert _fanout_check(
+        tmp_path, "all_bindings", _NULLING_HEADER + "query result:\n" + body
+    ) == [
+        (
+            "PIE-S2333",
+            _UNAVAILABLE
+            + "result (an aggregate may read rows repeated by JOIN c and JOIN r; match a unique key of c whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "predicate,joins",
+    (
+        pytest.param(
+            "any(candidate.id == c.id and candidate.id == r.id for candidate in regions) or orders.id == r.id",
+            "JOIN c and JOIN r",
+            id="any_then_direct",
+        ),
+        pytest.param(
+            "orders.id == r.id or any(candidate.id == c.id and candidate.id == r.id for candidate in regions)",
+            "JOIN c and JOIN r",
+            id="direct_then_any",
+        ),
+        pytest.param(
+            "any(candidate.id == c.id and candidate.id == r.id for candidate in regions)",
+            "JOIN c and JOIN r",
+            id="only_any",
+        ),
+        pytest.param(
+            "any(any(inner.id == c.id and inner.id == r.id and inner.id == candidate.id for inner in regions) for candidate in regions) or orders.id == r.id",
+            "JOIN c and JOIN r",
+            id="nested_outer_capture",
+        ),
+        pytest.param(
+            "any(candidate.id == c.id and candidate.id == r.id for candidate in regions) or any(candidate.id == c.id and candidate.id == r.id for candidate in regions) or orders.id == r.id",
+            "JOIN c and JOIN r",
+            id="overlapping_captures",
+        ),
+        pytest.param(
+            "any(candidate.id == r.id for candidate in regions) or orders.id == r.id",
+            "JOIN c",
+            id="target_capture_only",
+        ),
+        pytest.param(
+            "any(c.id == r.id for c in regions) or orders.id == r.id",
+            "JOIN c",
+            id="local_shadow",
+        ),
+        pytest.param(
+            "any(any(inner.id == c.id and inner.id == r.id for inner in regions) for c in regions) or orders.id == r.id",
+            "JOIN c",
+            id="nested_local_capture",
+        ),
+    ),
+)
+def test_join_fanout_reads_exact_any_outer_captures(
+    tmp_path: Path, predicate: str, joins: str
+) -> None:
+    body = _RIGHT_C + f"    let r = regions\n    inner join r on {predicate}\n"
+    body += "    group by orders.id\n    select:\n        n = count(r.id)\n"
+    assert _fanout_check(
+        tmp_path, "any_capture", _NULLING_HEADER + "query result:\n" + body
+    ) == [
+        (
+            "PIE-S2333",
+            _UNAVAILABLE
+            + f"result (an aggregate may read rows repeated by {joins}; match a unique key of c whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+        )
+    ]
+
+
+_REGION_REVENUE = """shape Customer:
+    id: Int
+    region: Text
+    customer_key = unique(id)
+shape Order:
+    id: Int
+    customer_id: Int
+    amount: Int
+    order_key = unique(id)
+source customers: Customer = postgres.table("customers")
+source orders: Order = postgres.table("orders")
+relationship OrderCustomer(order: Order, customer: Customer):
+    order.customer_id == customer.id
+query revenue_by_region:
+    from orders
+    inner join customers on orders.customer_id == customers.id
+    group by customers.region
+    select region = customers.region, n = count(orders.id), total = sum(orders.amount)
+"""
+
+
+def test_single_file_fanout_remedy_keeps_the_grouping_the_query_asks_for() -> None:
+    """Grouping by a customer key would pass but change the result's grain;
+    the remedy matches the key in `on` instead, which this release proves
+    for a relationship call."""
+
+    def check(source: str) -> list[tuple[str, str, int, int]]:
+        parsed = parse_source(source)
+        assert parsed.ast is not None and parsed.diagnostics == ()
+        return [
+            (d.code, d.message, d.location.line, d.location.column)
+            for d in analyze(parsed.ast).diagnostics
+        ]
+
+    remedy = (
+        "An aggregate may read rows that a JOIN repeats; match a declared unique "
+        "key of customers whose fields are never None in `on` with a relationship "
+        "call, use `any(...)` for an input that only filters rows, or aggregate in "
+        "a separate query first"
+    )
+    assert check(_REGION_REVENUE) == [
+        ("PIE-S2381", remedy, 18, 43),
+        ("PIE-S2381", remedy, 18, 69),
+    ]
+    assert (
+        check(
+            _REGION_REVENUE.replace(
+                "on orders.customer_id == customers.id",
+                "on OrderCustomer(orders, customers)",
+            )
+        )
+        == []
+    )

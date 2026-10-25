@@ -92,18 +92,19 @@ def _int_key(target: str, low: int, high: int, *, width: int = 64) -> dict:
 
 
 def _window(call: str, frame: str = "", order: str = "id") -> str:
-    lines = [
-        "query result:",
-        "    from rows",
-        "    select:",
-        "        record_id = id",
-        f"        w = {call} window:",
-        "            order by:",
-        f"                {order}",
-    ]
-    if frame:
-        lines.append(f"            {frame}")
-    return "\n".join(lines) + "\n"
+    specification = f"order by {order} {frame}" if frame else f"order by {order}"
+    return (
+        "\n".join(
+            [
+                "query result:",
+                "    from rows",
+                "    select:",
+                "        record_id = id",
+                f"        w = {call} window({specification})",
+            ]
+        )
+        + "\n"
+    )
 
 
 def _refusal(outcome: Any) -> list[tuple[str, str]]:
@@ -123,38 +124,22 @@ def _generated(artifact: Any) -> list[Any]:
 
 NAMED_PLAIN_FIRST = """query result:
     from rows
+    let base = window(order by id)
     select:
         id
         a = rank() window base
-        c = row_number() window base:
-            partition by:
-                flag
+        c = row_number() window base(partition by flag)
         d = dense_rank() window base
-        e = first_value(id) window base:
-            rows between 1 preceding and current row
-    window base:
-        order by:
-            id
+        e = first_value(id) window base(rows between 1 preceding and current row)
 """
 INLINE_PLAIN_FIRST = """query result:
     from rows
     select:
         id
-        a = rank() window:
-            order by:
-                id
-        c = row_number() window:
-            partition by:
-                flag
-            order by:
-                id
-        d = dense_rank() window:
-            order by:
-                id
-        e = first_value(id) window:
-            order by:
-                id
-            rows between 1 preceding and current row
+        a = rank() window(order by id)
+        c = row_number() window(partition by flag order by id)
+        d = dense_rank() window(order by id)
+        e = first_value(id) window(order by id rows between 1 preceding and current row)
 """
 
 
@@ -163,9 +148,8 @@ def _reorder(body: str) -> str:
     plain = "        a = rank() window base\n"
     assert body.count(plain) == 1
     moved = body.replace(plain, "")
-    tail = "    window base:\n"
-    assert tail in moved
-    return moved.replace(tail, plain + tail)
+    assert moved.endswith(" window base(rows between 1 preceding and current row)\n")
+    return moved + plain
 
 
 def _over(sql: str) -> dict[str, str]:
@@ -221,16 +205,12 @@ def test_identical_uses_share_and_equal_declarations_stay_apart(target):
     )
     twins = """query result:
     from rows
+    let first = window(order by id)
+    let second = window(order by id)
     select:
         id
         a = rank() window first
         b = rank() window second
-    window first:
-        order by:
-            id
-    window second:
-        order by:
-            id
 """
     sql = _sql(_build(_item(target, twins)))
     definitions = re.findall(r'["`](w\d+)["`] AS \(([^()]*)\)', sql)
@@ -241,14 +221,11 @@ def test_identical_uses_share_and_equal_declarations_stay_apart(target):
 def test_an_exclusion_difference_is_its_own_definition_on_postgres():
     body = """query result:
     from rows
+    let base = window(order by id)
     select:
         id
         a = first_value(id) window base
-        b = first_value(id) window base:
-            groups between 1 preceding and current row exclude current row
-    window base:
-        order by:
-            id
+        b = first_value(id) window base(groups between 1 preceding and current row exclude current row)
 """
     sql = _sql(_build(_item("postgres", body)))
     definitions = dict(re.findall(r'"(w\d+)" AS \(([^()]*)\)', sql))
@@ -1056,9 +1033,8 @@ def test_the_null_key_full_witness_is_postgres_only(target):
 
 FULL = """query result:
     from lhs
-    full join rhs as r:
-        from lhs
-        on {}
+    let r = rhs
+    full join r on {}
     select:
         a = lhs.id
         b = r.id
@@ -1068,7 +1044,7 @@ FULL = """query result:
 @pytest.mark.parametrize(
     "predicate,detail",
     (
-        ("false", "full_join_condition_not_an_equality_tree"),
+        ("False", "full_join_condition_not_an_equality_tree"),
         ("lhs.key < r.key", "full_join_condition_not_an_equality"),
         ("lhs.key != r.key", "full_join_condition_not_an_equality"),
         ("lhs.key == r.key and r.id > 7", "full_join_condition_not_an_equality"),
@@ -1174,9 +1150,9 @@ def test_bind_safe_binds_the_data_literal_and_never_the_structural_limit(target)
 # d + 1) and BIGINT from ten. A non-null default encloses the interval.
 
 WIDTHS_HEADER = (
-    "shape Wide:\n    rid: Int not null\n    s: Int nullable\n    i: Int nullable\n"
-    "    b: Int nullable\n"
-    'source rows: Wide is {target}.table("widths.locator.not.sql")\n'
+    "shape Wide:\n    rid: Int\n    s: Int | None\n    i: Int | None\n"
+    "    b: Int | None\n"
+    'source rows: Wide = {target}.table("widths.locator.not.sql")\n'
 )
 WIDTH_KINDS = {
     ("postgres", 16): "pg_int2",
@@ -1234,8 +1210,8 @@ def _widths_item(target: str, body: str) -> dict:
 def _windows_body(calls) -> str:
     lines = ["query result:", "    from rows", "    select:", "        record_id = rid"]
     for label, call, frame in calls:
-        lines += [f"        {label} = {call} window:", "            order by:"]
-        lines += ["                rid"] + ([f"            {frame}"] if frame else [])
+        specification = f"order by rid {frame}" if frame else "order by rid"
+        lines.append(f"        {label} = {call} window({specification})")
     return "\n".join(lines) + "\n"
 
 
@@ -1260,7 +1236,7 @@ MATRIX = (
             ("d", "lead({})", ""),
         )
     ),
-    ("s_null", "lag(s, 1, null)", "", ("pg_int2", "my_int"), (3, 7)),
+    ("s_null", "lag(s, 1, None)", "", ("pg_int2", "my_int"), (3, 7)),
     ("s_zero", "lag(s, 1, 0)", "", ("pg_int4", "my_int"), (0, 7)),
     ("s_six", "lead(s, 1, 100000)", "", ("pg_int4", "my_int"), (3, 100000)),
     ("s_eight", "lag(s, 1, 99999999)", "", ("pg_int4", "my_int"), (3, 99999999)),
@@ -1290,7 +1266,7 @@ def _int_representation(kind: str, low: int, high: int, nullable=True) -> dict:
 # Over the non-null rid, a NULL default is itself returned while an integer
 # default never is, so only the first result may be NULL.
 NULLABILITY = (
-    ("r_null", "lag(rid, 1, null)", True),
+    ("r_null", "lag(rid, 1, None)", True),
     ("r_zero", "lag(rid, 1, 0)", False),
 )
 
@@ -1315,9 +1291,7 @@ CARRIED = """table first:
     from rows
     select:
         record_id = rid
-        v = lag(s) window:
-            order by:
-                rid
+        v = lag(s) window(order by rid)
 query result:
     from first
     select:
@@ -1328,16 +1302,12 @@ TWO_STAGE = """table first:
     from rows
     select:
         record_id = rid
-        v = first_value(s) window:
-            order by:
-                rid
+        v = first_value(s) window(order by rid)
 query result:
     from first
     select:
         record_id
-        w = first_value(v) window:
-            order by:
-                record_id
+        w = first_value(v) window(order by record_id)
 """
 # A carry repeats no computation; a second window re-evaluates the carried
 # result, which MySQL materialized as INT (display 11), so it becomes BIGINT.
@@ -1600,9 +1570,7 @@ query result:
     from t
     select:
         record_id
-        w = first_value(bumped) window:
-            order by:
-                record_id
+        w = first_value(bumped) window(order by record_id)
 """
 LITERAL = """table t:
     from rows
@@ -1613,9 +1581,7 @@ query result:
     from t
     select:
         record_id
-        w = lag(one) window:
-            order by:
-                record_id
+        w = lag(one) window(order by record_id)
 """
 GROUPED = """table g:
     from rows
@@ -1628,9 +1594,7 @@ query result:
     from g
     select:
         record_id = rid
-        w = first_value(m) window:
-            order by:
-                rid
+        w = first_value(m) window(order by rid)
 """
 ORIGIN_BLOCKED = (
     "PIE-B1002",
@@ -1709,7 +1673,7 @@ BOOL_CALLS = (
     ("last_value(flag)", ROWS1),
     ("nth_value(flag, 2)", ROWS1),
     ("lag(flag)", ""),
-    ("lead(flag, 1, null)", ""),
+    ("lead(flag, 1, None)", ""),
 )
 CARRIED_BOOL = """table first:
     from rows
@@ -1720,9 +1684,7 @@ query result:
     from first
     select:
         record_id
-        w = first_value(kept) window:
-            order by:
-                record_id
+        w = first_value(kept) window(order by record_id)
 """
 
 
@@ -1830,9 +1792,7 @@ THREE_OWNERS = (
         record_id
         v
         w
-        z = first_value(w) window:
-            order by:
-                record_id
+        z = first_value(w) window(order by record_id)
 """
 )
 
@@ -1871,8 +1831,7 @@ def test_mixed_window_definitions_keep_their_own_origins_and_ports(target, body)
 
 IMAGE_BODY = """query result:
     from rows
-    let:
-        x = rid + 0
+    let x = rid + 0
     select:
         record_id = x
 """
@@ -2073,9 +2032,7 @@ def test_mixed_window_projection_positions_follow_each_kind_not_output_index(tar
         + """query result:
     from first
     select:
-        w = first_value(v) window:
-            order by:
-                record_id
+        w = first_value(v) window(order by record_id)
         record_id
         v
         repeated = v
@@ -2140,9 +2097,7 @@ def test_materialized_group_key_keeps_its_own_retained_origin(target):
 query result:
     from grouped
     select:
-        w = first_value(one) window:
-            order by:
-                one
+        w = first_value(one) window(order by one)
 """
     )
     literal = _build(_widths_item(target, body))

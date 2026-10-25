@@ -11,6 +11,9 @@ from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ParamSpec, cast
 
+if TYPE_CHECKING:
+    from pietto.semantic.relationship_predicates import RelationshipCallFailure
+
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     BetweenExpr,
@@ -102,6 +105,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.ConditionalExpr,
         ast.MembershipExpr,
         ast.RelationExistsExpr,
+        ast.AnyExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
         ast.CastExpr,
@@ -248,10 +252,10 @@ def _fits_parameters(
             actual = "null"
         else:
             actual = (
-                f"{(canonical or value_type.resolved_type).name} "
+                f"{(canonical or value_type.resolved_type).name}"
                 f"{_NULLABILITY_TEXT[value_type.nullability]}"
             )
-        expected = "nullable" if slot.nullable else "not null"
+        expected = " | None" if slot.nullable else ""
         diagnostics.append(
             Diagnostic(
                 code="PIE-S2395",
@@ -259,7 +263,7 @@ def _fits_parameters(
                 message=(
                     f"Invalid argument for def {slot.function} at position "
                     f"{slot.position} ({slot.parameter}): expected "
-                    f"{slot.type_name} {expected}, got {actual}"
+                    f"{slot.type_name}{expected}, got {actual}"
                 ),
                 location=_span_location(slot.call),
             )
@@ -536,17 +540,24 @@ class _Written:
     errors: tuple[Diagnostic, ...] = ()
 
 
+class _FailedRelationshipTypes(dict[Expression, ValueType]):
+    def __init__(self, failures: Sequence[RelationshipCallFailure]) -> None:
+        super().__init__()
+        self.failures = {id(failure.expression): failure for failure in failures}
+
+
 class _WrittenTypes(dict[Expression, ValueType]):
     """The types a written form (`_written_form`) is typed with, by part,
     and the diagnostics of each part it keeps whole, by identity, which
     typing reports where it reaches that part, as it would the part itself
     written there."""
 
-    __slots__ = ("diagnostics",)
+    __slots__ = ("diagnostics", "failures")
 
     def __init__(self) -> None:
         super().__init__()
         self.diagnostics: dict[int, list[Diagnostic]] = {}
+        self.failures: dict[int, RelationshipCallFailure] = {}
 
 
 def _written_form(
@@ -584,6 +595,10 @@ def _written_form(
     from pietto.semantic.let_bindings import _level_weight
 
     seeds = _WrittenTypes()
+    sources = value_types.maps if isinstance(value_types, ChainMap) else (value_types,)
+    for source in sources:
+        if isinstance(source, (_FailedRelationshipTypes, _WrittenTypes)):
+            seeds.failures.update(source.failures)
 
     def keep(part: Expression, value_type: ValueType, node: Expression) -> None:
         seeds[part] = value_type
@@ -679,6 +694,10 @@ def _written_form(
         if not root:
             for slot in inlined_arguments(node):
                 result = with_inlined_argument(result, slot)
+        failure = seeds.failures.get(id(node))
+        if failure is not None:
+            assert isinstance(result, CallExpr)
+            seeds.failures[id(result)] = dataclasses.replace(failure, expression=result)
         return result, True, null, size, levels
 
     item = walk(expression, root)
@@ -978,9 +997,9 @@ def _null_operands(node: Expression) -> tuple[Expression, ...]:
 
 _NULLABILITY_TEXT = MappingProxyType(
     {
-        EffectiveNullability.NON_NULL: "not null",
-        EffectiveNullability.NULLABLE: "nullable",
-        EffectiveNullability.UNKNOWN: "of unknown nullability",
+        EffectiveNullability.NON_NULL: "",
+        EffectiveNullability.NULLABLE: " | None",
+        EffectiveNullability.UNKNOWN: " of unknown nullability",
     }
 )
 
@@ -1205,6 +1224,7 @@ def type_relation_expressions(
     single_file: bool = True,
     let_part_types: Mapping[Expression, ValueType] | None = None,
     joined_inputs: Mapping[DerivedRelation, RowSchema] | None = None,
+    failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
 ) -> tuple[
     dict[Expression, ValueType],
     list[Diagnostic],
@@ -1222,7 +1242,11 @@ def type_relation_expressions(
     they are bound (`LetValues.part_types`).
     """
 
-    value_types: dict[Expression, ValueType] = {}
+    value_types: dict[Expression, ValueType] = (
+        _FailedRelationshipTypes(failed_relationship_calls)
+        if failed_relationship_calls
+        else {}
+    )
     diagnostics: list[Diagnostic] = []
     window_analyses: dict[WindowExpr, WindowExpressionAnalysis] = {}
     named_window_namespaces: dict[
@@ -1266,7 +1290,10 @@ def type_relation_expressions(
                     let_expressions,
                     input_schema,
                     value_types,
-                    field_qualifier=definition.from_clause.source_name,
+                    field_qualifier=(
+                        definition.from_clause.binding_name
+                        or definition.from_clause.source_name
+                    ),
                     bare_value_types=let_value_types,
                     type_expansions=type_expansions,
                 )
@@ -1328,7 +1355,10 @@ def type_relation_expressions(
                 value_types,
                 diagnostics,
                 report_unknown_name=True,
-                field_qualifier=definition.from_clause.source_name,
+                field_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 bare_value_types=let_value_types,
                 bare_value_expressions=let_expressions,
                 suppressed_unknown_names=rejected_lets,
@@ -1362,7 +1392,10 @@ def type_relation_expressions(
                     selected_output_ordinal=selected_output_ordinal,
                     source_id=item.expression.span.path or definition.name,
                     input_schema=input_schema,
-                    field_qualifier=definition.from_clause.source_name,
+                    field_qualifier=(
+                        definition.from_clause.binding_name
+                        or definition.from_clause.source_name
+                    ),
                     value_types=value_types,
                     diagnostics=diagnostics,
                     let_value_types=let_value_types or {},
@@ -1430,7 +1463,10 @@ def type_relation_expressions(
                 diagnostics,
                 # Bare projection diagnostics are owned by schema propagation.
                 report_unknown_name=not isinstance(item.expression, NameExpr),
-                field_qualifier=definition.from_clause.source_name,
+                field_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 allow_aggregate_projection=_is_direct_aggregate_projection(item),
                 bare_value_types=select_let_value_types,
                 bare_value_expressions=let_expressions,
@@ -1445,6 +1481,18 @@ def type_relation_expressions(
                 contains_semantic_aggregate(selected.expression)
                 for selected in definition.select_items
             )
+            # A key that names a SELECT output alone reads that output, which
+            # emission restates as it inlines a `let:` value; a name two
+            # outputs share is a duplicate output already.
+            outputs = {
+                name: selected.expression
+                for name, selected in zip(
+                    selected_output_names, definition.select_items, strict=True
+                )
+                if name is not None
+                and type(selected.expression) is not WindowExpr
+                and selected_output_name_counts[name] == 1
+            }
             for item in definition.order_by_clause.items:
                 key_diagnostic_count = len(diagnostics)
                 _append_invalid_count_context_diagnostic(
@@ -1467,8 +1515,21 @@ def type_relation_expressions(
                         item.expression.name: _UNKNOWN_VALUE_TYPE,
                         **(let_value_types or {}),
                     }
-                order_suppressed_names = rejected_lets
-                if (
+                ambiguity = (
+                    order_output_ambiguity(
+                        item.expression,
+                        definition,
+                        input_schema,
+                        let_expressions,
+                        let_names={*(let_value_types or {}), *rejected_lets},
+                    )
+                    if type(item.expression) is NameExpr
+                    else None
+                )
+                order_lets: Mapping[str, Expression] = let_expressions or {}
+                if ambiguity is not None:
+                    diagnostics.append(ambiguity)
+                elif (
                     type(item.expression) is NameExpr
                     and item.expression.name in selected_output_name_counts
                     and not _names_window_output(definition, item.expression.name)
@@ -1477,33 +1538,28 @@ def type_relation_expressions(
                     and not input_schema.is_unknown
                     and not has_bare_field(input_schema, item.expression.name)
                 ):
-                    diagnostics.append(
-                        _order_by_output_name_diagnostic(
-                            item.expression,
-                            tuple(
-                                selected.expression
-                                for name, selected in zip(
-                                    selected_output_names,
-                                    definition.select_items,
-                                    strict=True,
-                                )
-                                if name == item.expression.name
-                            ),
-                            input_schema,
-                            let_expressions,
-                        )
-                    )
-                    order_suppressed_names = {*rejected_lets, item.expression.name}
+                    output = outputs.get(item.expression.name)
+                    order_bare_value_types = {
+                        **(let_value_types or {}),
+                        item.expression.name: _UNKNOWN_VALUE_TYPE
+                        if output is None
+                        else value_types.get(output, _UNKNOWN_VALUE_TYPE),
+                    }
+                    if output is not None:
+                        order_lets = {**order_lets, item.expression.name: output}
                 _infer(
                     item.expression,
                     input_schema,
                     value_types,
                     diagnostics,
                     report_unknown_name=True,
-                    field_qualifier=definition.from_clause.source_name,
+                    field_qualifier=(
+                        definition.from_clause.binding_name
+                        or definition.from_clause.source_name
+                    ),
                     bare_value_types=order_bare_value_types,
                     bare_value_expressions=let_expressions,
-                    suppressed_unknown_names=order_suppressed_names,
+                    suppressed_unknown_names=rejected_lets,
                     type_expansions=type_expansions,
                 )
                 # A key that already reported its own error gets no PIE-S2380.
@@ -1515,7 +1571,7 @@ def type_relation_expressions(
                     else _order_key_problem(
                         item.expression,
                         input_schema,
-                        let_expressions or {},
+                        order_lets,
                         aggregated=aggregated,
                         bare_constants=single_file,
                         rejected_lets=rejected_lets,
@@ -1827,6 +1883,7 @@ def infer_row_expression(
     captured_value_types: (
         Mapping[ast.CapturedFieldExpr, ValueType | Diagnostic] | None
     ) = None,
+    failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
 ) -> ValueType:
     """Infer one row-level expression with optional bare-only local bindings.
 
@@ -1838,6 +1895,12 @@ def infer_row_expression(
     outer input lacks maps to that environment's own diagnostic instead.
     """
 
+    original_types = value_types
+    if failed_relationship_calls and not isinstance(
+        value_types, _FailedRelationshipTypes
+    ):
+        value_types = _FailedRelationshipTypes(failed_relationship_calls)
+        value_types.update(original_types)
     seed = value_types.get(expression)
     refused: list[Diagnostic] = []
     if captured_value_types:
@@ -1892,6 +1955,24 @@ def infer_row_expression(
                 diagnostics.append(refused.pop(0))
             diagnostics.append(diagnostic)
         diagnostics.extend(refused)
+    if value_types is not original_types:
+        original_types.update(value_types)
+    if isinstance(value_types, _FailedRelationshipTypes):
+        owned = {
+            id(diagnostic)
+            for failure in value_types.failures.values()
+            for diagnostic in failure.diagnostics
+        }
+        seen: set[int] = set()
+        unique: list[Diagnostic] = []
+        for diagnostic in diagnostics:
+            identity = id(diagnostic)
+            if identity in owned:
+                if identity in seen:
+                    continue
+                seen.add(identity)
+            unique.append(diagnostic)
+        diagnostics[:] = unique
     if seed is not None:
         # A read the caller seeded that is the whole expression is the
         # caller's own result.
@@ -2059,6 +2140,42 @@ def _infer(
     `always_null` of it decides (`_fits_parameters`).
     """
 
+    if isinstance(value_types, (_FailedRelationshipTypes, _WrittenTypes)):
+        failure = value_types.failures.get(id(expression))
+        if failure is not None and not (
+            type(value_types) is _WrittenTypes and expression in value_types
+        ):
+            reported = len(diagnostics)
+            assert isinstance(expression, CallExpr)
+            for argument in expression.arguments:
+                if isinstance(argument, NameExpr):
+                    value_types[argument] = _UNKNOWN_VALUE_TYPE
+                else:
+                    _infer(
+                        argument,
+                        row_schema,
+                        value_types,
+                        diagnostics,
+                        report_unknown_name=report_unknown_name,
+                        field_qualifier=field_qualifier,
+                        bare_value_types=bare_value_types,
+                        bare_value_expressions=bare_value_expressions,
+                        suppressed_unknown_names=suppressed_unknown_names,
+                        type_expansions=type_expansions,
+                        relation_columns=relation_columns,
+                    )
+            value_types[expression] = _UNKNOWN_VALUE_TYPE
+            diagnostics.extend(failure.diagnostics)
+            if (
+                type(bare_value_expressions) is LetValues
+                and bare_value_expressions.differs
+            ):
+                bare_value_expressions.typed[id(expression)] = (
+                    diagnostics,
+                    reported,
+                    len(diagnostics),
+                )
+            return _UNKNOWN_VALUE_TYPE
     if type(expression) not in _KNOWN_EXPRESSIONS:
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
     reported = len(diagnostics)
@@ -2146,7 +2263,7 @@ def _infer(
     elif isinstance(expression, ast.CapturedFieldExpr):
         # A captured field is typed only by its let's capture environment.
         raise AssertionError("Captured field read lacks its capture environment.")
-    elif isinstance(expression, ast.RelationExistsExpr):
+    elif isinstance(expression, (ast.RelationExistsExpr, ast.AnyExpr)):
         # An existence test is never NULL; its relation is resolved, scheduled
         # and checked by the owner of the relation name, not by this kernel.
         value_type = _builtin_value_type("Bool", EffectiveNullability.NON_NULL)
@@ -2343,7 +2460,7 @@ def _infer(
                     bare_value_expressions,
                     every=True,
                 )
-                else {"==": "is null", "!=": "is not null"}.get(expression.operator)
+                else {"==": "is None", "!=": "is not None"}.get(expression.operator)
             )
             diagnostics.append(_null_comparison_diagnostic(expression, remedy=remedy))
             value_type, expected = _UNKNOWN_VALUE_TYPE, None
@@ -2812,9 +2929,9 @@ def _membership_value_type(
             remedy = (
                 None
                 if null_value
-                else "is not null"
+                else "is not None"
                 if expression.negated
-                else "is null"
+                else "is None"
             )
             diagnostics.append(_null_comparison_diagnostic(expression, remedy=remedy))
             return _UNKNOWN_VALUE_TYPE
@@ -4672,6 +4789,15 @@ def _call_argument_types(
             or any(
                 diagnostic.code == "PIE-S2395" for diagnostic in temporary_diagnostics
             )
+            or (
+                isinstance(value_types, (_FailedRelationshipTypes, _WrittenTypes))
+                and any(
+                    diagnostic is owned
+                    for diagnostic in temporary_diagnostics
+                    for failure in value_types.failures.values()
+                    for owned in failure.diagnostics
+                )
+            )
         ):
             diagnostics.extend(temporary_diagnostics)
         elif temporary_diagnostics:
@@ -5023,8 +5149,8 @@ def _invalid_cast_diagnostic(
         code="PIE-S2105",
         severity=Severity.ERROR,
         message=(
-            f"Invalid cast: cast({source} as {target}) is not supported; "
-            "expected cast(Int as Float), the only supported cast"
+            f"Invalid cast from {source} to {target}: "
+            "only Int-to-Float conversion is supported; write Float(expression)"
         ),
         location=SourceLocation(
             path=span.path,
@@ -5043,9 +5169,7 @@ def _type_expression_text(type_expr: TypeExpr) -> str:
     if type_expr.arguments:
         text += f"({', '.join(map(_type_argument_text, type_expr.arguments))})"
     if type_expr.nullability is Nullability.NULLABLE:
-        return f"{text} nullable"
-    if type_expr.nullability is Nullability.NOT_NULL:
-        return f"{text} not null"
+        return f"{text} | None"
     return text
 
 
@@ -5091,38 +5215,68 @@ def _names_window_output(definition: TableDef | QueryDef, name: str) -> bool:
     )
 
 
-def _order_by_output_name_diagnostic(
-    expression: NameExpr,
-    outputs: tuple[Expression, ...],
+def order_output_ambiguity(
+    key: NameExpr,
+    definition: TableDef | QueryDef,
     input_schema: RowSchema,
     let_expressions: Mapping[str, Expression] | None,
-) -> Diagnostic:
-    """Report an ungrouped ORDER BY key that names only a SELECT output.
+    *,
+    let_names: set[str],
+) -> Diagnostic | None:
+    """Refuse an ungrouped ORDER BY key, named alone, that is both a known
+    input field and a SELECT output of another value: neither reading wins.
 
-    ``outputs`` are the expressions selected under that name. An aggregate is
-    refused in an ungrouped ORDER BY key and in `let:` too, so for an
-    aggregate output the remedy is the grouped form instead; a bare constant
-    key is refused (PIE-S2380), so a constant output gets no remedy.
+    An output of that same field (`x`, `x = x`, `x = q.x`, or a `let:` name
+    bound to one) reads the same value. A `let:` name never names an output
+    of another value (PIE-S2329), and over a joined row a name that several
+    inputs have is PIE-S2335 already.
     """
 
-    span = expression.span
-    if any(contains_semantic_aggregate(output) for output in outputs):
-        remedy = (
-            ", and an aggregate output cannot be ordered there (a grouped "
-            "query can order by its name)"
+    name = key.name
+    if input_schema.is_unknown or name in let_names:
+        return None
+    if input_schema.joined:
+        keys = [
+            field for field in input_schema.fields if field.partition(".")[2] == name
+        ]
+        if len(keys) != 1:
+            return None
+        qualified = keys[0]
+    elif name in input_schema.fields:
+        qualifier = (
+            definition.from_clause.binding_name or definition.from_clause.source_name
         )
-    elif any(
-        _is_bare_constant(output, input_schema, let_expressions) for output in outputs
-    ):
-        remedy = ", and a constant output sorts nothing and cannot be an ORDER BY key"
+        qualified = f"{qualifier}.{name}"
     else:
-        remedy = " (restate its expression or bind it in `let:`)"
+        return None
+
+    def same_field(selected: SelectItem) -> bool:
+        if type(selected.expression) is WindowExpr:
+            return False
+        value = let_value(selected.expression, input_schema, let_expressions)
+        if type(value) is NameExpr:
+            return value.name == name
+        return type(value) is DottedNameExpr and ".".join(value.parts) == qualified
+
+    if all(
+        same_field(selected)
+        for selected in definition.select_items
+        if _relation_projection_output_name(selected) == name
+    ):
+        return None
+    return order_output_ambiguity_diagnostic(key, qualified)
+
+
+def order_output_ambiguity_diagnostic(key: NameExpr, qualified: str) -> Diagnostic:
+    """PIE-S2102 for an ORDER BY key that names an input field and an output."""
+
+    span = key.span
     return Diagnostic(
         code="PIE-S2102",
         severity=Severity.ERROR,
         message=(
-            f"Unknown field: {expression.name}; outside a grouped query an "
-            f"ORDER BY key cannot name a SELECT output{remedy}"
+            f"Ambiguous field: {key.name} is both the input field {qualified} and "
+            f"a SELECT output; write {qualified}, or give the output another name"
         ),
         location=SourceLocation(
             path=span.path,
@@ -5193,8 +5347,7 @@ def _window_without_spec_diagnostic(
         code="PIE-S2103",
         message=(
             f"Window function needs a `window` specification: {function_name} "
-            f"(write `{call} window:` in a SELECT item, with an indented "
-            "`order by:`)"
+            f"(write `{call} window(order by ...)` in a SELECT item)"
         ),
     )
 

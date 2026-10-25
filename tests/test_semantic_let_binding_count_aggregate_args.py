@@ -29,18 +29,18 @@ SOURCE_PREFIX = (
     "    active\n"
     "    paused\n"
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    discount: Int not null\n"
-    "    score: Float not null\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    raw: Bytes not null\n"
-    "    payload: Json not null\n"
-    "    anything: Any nullable\n"
-    "    enum_status: Status not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    discount: Int\n"
+    "    score: Float\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    raw: Bytes\n"
+    "    payload: Json\n"
+    "    anything: Any | None\n"
+    "    enum_status: Status\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
@@ -49,11 +49,10 @@ def test_count_row_let_arguments_are_semantically_accepted() -> None:
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        amount_value = amount\n"
-        "        gross = amount + tax\n"
-        "        net = gross - discount\n"
-        "        normalized = lower(trim(status))\n"
+        "    let amount_value = amount\n"
+        "    let gross = amount + tax\n"
+        "    let net = gross - discount\n"
+        "    let normalized = lower(trim(status))\n"
         "    select:\n"
         "        known_amounts = count(amount_value)\n"
         "        known_gross = count(gross)\n"
@@ -78,10 +77,9 @@ def test_count_distinct_row_let_arguments_are_semantically_accepted() -> None:
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        amount_value = amount\n"
-        "        label = status\n"
-        "        normalized = lower(trim(status))\n"
+        "    let amount_value = amount\n"
+        "    let label = status\n"
+        "    let normalized = lower(trim(status))\n"
         "    select:\n"
         "        unique_amounts = count_distinct(amount_value)\n"
         "        unique_labels = count_distinct(label)\n"
@@ -104,9 +102,8 @@ def test_grouped_count_family_row_let_arguments_are_semantically_accepted() -> N
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        normalized = lower(trim(status))\n"
+        "    let gross = amount + tax\n"
+        "    let normalized = lower(trim(status))\n"
         "    group by:\n"
         "        status\n"
         "    select:\n"
@@ -160,10 +157,9 @@ def test_sql_inlines_count_family_row_let_arguments_without_hidden_layers(
     sql = _sql_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        net = gross - discount\n"
-        "        normalized = lower(trim(status))\n"
+        "    let gross = amount + tax\n"
+        "    let net = gross - discount\n"
+        "    let normalized = lower(trim(status))\n"
         "    select:\n"
         "        known_net = count(net)\n"
         "        unique_normalized = count_distinct(normalized)\n",
@@ -184,10 +180,9 @@ def test_ir_count_family_aggregate_arguments_inline_expand_row_let_names() -> No
     relation = _relation_ir(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        net = gross - discount\n"
-        "        normalized = lower(trim(status))\n"
+        "    let gross = amount + tax\n"
+        "    let net = gross - discount\n"
+        "    let normalized = lower(trim(status))\n"
         "    select:\n"
         "        known_net = count(net)\n"
         "        unique_normalized = count_distinct(normalized)\n"
@@ -210,9 +205,8 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         "count_aggregate_let.pietto",
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        normalized = lower(trim(status))\n"
+        "    let gross = amount + tax\n"
+        "    let normalized = lower(trim(status))\n"
         "    select:\n"
         "        known_gross = count(gross)\n"
         "        unique_normalized = count_distinct(normalized)\n",
@@ -276,8 +270,7 @@ def test_unsupported_count_family_let_expansion_shapes_keep_existing_diagnostics
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        f"        {binding}\n"
+        f"    let {binding}\n"
         "    select:\n"
         f"        {projection}\n"
     )
@@ -290,8 +283,7 @@ def test_unsupported_count_family_let_expansion_shapes_keep_existing_diagnostics
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -301,8 +293,7 @@ def test_unsupported_count_family_let_expansion_shapes_keep_existing_diagnostics
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
@@ -314,21 +305,19 @@ def test_unsupported_count_family_let_expansion_shapes_keep_existing_diagnostics
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        known = count(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -336,8 +325,7 @@ def test_unsupported_count_family_let_expansion_shapes_keep_existing_diagnostics
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        known = count(orders.gross)\n",
             "PIE-S2102",
@@ -387,7 +375,8 @@ def _script_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> ScriptIR:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir

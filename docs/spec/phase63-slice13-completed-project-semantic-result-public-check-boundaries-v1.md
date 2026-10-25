@@ -145,16 +145,19 @@ ERROR（例如 `PIE-S2001`、`PIE-S2301` 或 `PIE-S2704`）时不生成 fallback
 Post-Phase70 amendment：若该 relation 自身的 joined aggregate 因某个 JOIN 可能重复其
 输入行（fan-out）而被拒绝，message 在 relation name 后追加一个原因从句。它按源码顺序点名
 位于每个被拒 aggregate 已确定行的边界上的 JOIN（aggregate 不读任何 JOIN 侧时写作
-`rows that a JOIN repeats`），再列出至多两个 grain 证明接受的补救，任一补救单独应用即可
-消除 fan-out 原因：声明全部列出的 unique key（只在 source 的 shape 字段上，且该字段被
-无 ON 的单跳 relationship JOIN 匹配：INNER 与 LEFT 的 target 字段、INNER 的 source 字段；
-同一个 key 只列一次并写出它服务的全部 JOIN），或按每个列出 binding 的全部字段 not null 的
-unique key 分组（binding 须为 source 或已有这种 key 的输入）。证明无法确认的补救不列出，
-因此从句可能不含补救（例如 multi-hop VIA 或 UNION 输入）；已证明的 key 从不列出。未分组的
-aggregate 若后接 ORDER BY、window 或 QUALIFY，应用 key 补救后仍以原 message 被拒绝：
+`rows that a JOIN repeats`），再列出 grain 证明接受的补救：声明全部列出的 unique key（只在
+source 的 shape 字段上，且该字段被无 ON 的单跳 relationship JOIN 匹配：INNER 与 LEFT 的
+target 字段、INNER 的 source 字段；同一个 key 只列一次并写出它服务的全部 JOIN；单独应用即可
+消除 fan-out 原因），或点名其 unique key 能闭合证明的 binding（binding 须为 source 或已有
+全部字段不为 None 的 key 的输入；按这些 key 分组即可消除原因，但会改变查询粒度，所以消息
+不教分组，而教在 `on` 里用 relationship 调用匹配这些 binding 的全部字段不为 None 的
+unique key、只用于过滤的输入改用 `any(...)`，或先在单独的查询里聚合）。证明无法确认的
+补救不列出，因此从句可能不含补救（例如 multi-hop VIA 或 UNION 输入）；已证明的 key 从不
+列出。未分组的 aggregate 若后接 ORDER BY、window 或 QUALIFY，应用 key 补救后仍以原 message
+被拒绝：
 
 ```text
-PIE-S2333 — Project relation semantic completion is unavailable: q (an aggregate may read rows repeated by JOIN cust; declare a unique key on customers.id (matched by JOIN cust), or group by a unique key of cust whose fields are all not null)
+PIE-S2333 — Project relation semantic completion is unavailable: q (an aggregate may read rows repeated by JOIN cust; declare a unique key on customers.id (matched by JOIN cust), or match a unique key of cust whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)
 ```
 
 code、severity、span 与顺序不变；仅读取该 relation 的下游 relation 保持原有 message。

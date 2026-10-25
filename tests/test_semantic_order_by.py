@@ -21,11 +21,11 @@ from pietto.sql.mysql import emit_mysql_sql
 REPO_ROOT = Path(__file__).resolve().parents[1]
 POSTGRES_PREFIX = (
     "shape User:\n"
-    "    id: Int not null\n"
-    "    created_at: Int not null\n"
-    "    email: Text not null\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: Int\n"
+    "    created_at: Int\n"
+    "    email: Text\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
 )
 MYSQL_PREFIX = POSTGRES_PREFIX.replace("postgres.table", "mysql.table")
 
@@ -165,11 +165,11 @@ def test_grammar_keeps_relation_order_surface_narrow() -> None:
 def test_new_order_keywords_remain_valid_in_identifier_positions() -> None:
     result = parse_source(
         "shape Keywords:\n"
-        "    order: Int not null\n"
-        "    by: Int not null\n"
-        "    asc: Int not null\n"
-        "    desc: Int not null\n"
-        'source order: Keywords is postgres.table("keywords")\n'
+        "    order: Int\n"
+        "    by: Int\n"
+        "    asc: Int\n"
+        "    desc: Int\n"
+        'source order: Keywords = postgres.table("keywords")\n'
         "query by:\n"
         "    from order\n"
         "    select:\n"
@@ -188,7 +188,7 @@ def test_semantic_accepts_input_fields_and_existing_expression_typing() -> None:
     script = _parse(
         POSTGRES_PREFIX
         + _relation_source(
-            where="active == true",
+            where="active == True",
             order_items=("created_at + id desc", "lower(email)"),
         )
     )
@@ -208,87 +208,220 @@ def test_semantic_accepts_input_fields_and_existing_expression_typing() -> None:
     )
 
 
+def test_order_key_named_alone_reads_a_select_output() -> None:
+    query = _relation_source(
+        projections=("id", "sort_key = lower(email)"),
+        order_items=("sort_key desc", "id"),
+    )
+    script_ir = _compile_ir(POSTGRES_PREFIX + query)
+    relation = _relation_ir(script_ir)
+    postgres = sql_api.emit_postgres_sql(script_ir)
+    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + query))
+
+    # Before: PIE-S2102 said an ORDER BY key cannot name a SELECT output.
+    # Emission restates the output, as it inlines a `let` value.
+    assert relation.order_by[0].expression is relation.projections[1].expression
+    assert postgres.artifacts[0].sql.endswith(
+        'ORDER BY\n    lower("email") DESC,\n    "id" ASC'
+    )
+    assert mysql.artifacts[0].sql.endswith(
+        "ORDER BY\n    LOWER(`email`) DESC,\n    `id` ASC"
+    )
+
+
 def test_projection_alias_is_not_an_order_by_name_scope() -> None:
     script = _parse(
         POSTGRES_PREFIX
         + _relation_source(
             projections=("sort_key = lower(email)",),
-            order_items=("sort_key",),
+            order_items=("upper(sort_key)",),
         )
     )
 
     result = analyze(script)
-    errors = [
-        diagnostic
+
+    # Only a whole key reads a SELECT output; inside a key expression an
+    # output name is no field.
+    assert [
+        (diagnostic.code, diagnostic.message)
         for diagnostic in result.diagnostics
         if diagnostic.severity is Severity.ERROR
-    ]
-
-    assert [(diagnostic.code, diagnostic.message) for diagnostic in errors] == [
-        (
-            "PIE-S2102",
-            "Unknown field: sort_key; outside a grouped query an ORDER BY key "
-            "cannot name a SELECT output (restate its expression or bind it in "
-            "`let:`)",
-        )
-    ]
-
-
-_AGGREGATE_OUTPUT_HINT = (
-    "an aggregate output cannot be ordered there (a grouped query can order by "
-    "its name)"
-)
-_CONSTANT_OUTPUT_HINT = "a constant output sorts nothing and cannot be an ORDER BY key"
+    ] == [("PIE-S2102", "Unknown field: sort_key")]
 
 
 @pytest.mark.parametrize(
-    ("let_line", "output", "hint", "grouped_keys"),
-    [
-        (None, "count()", _AGGREGATE_OUTPUT_HINT, ("COUNT(*)", "COUNT(*)")),
-        (None, "sum(id)", _AGGREGATE_OUTPUT_HINT, ('SUM("id")', "SUM(`id`)")),
-        (None, "1", _CONSTANT_OUTPUT_HINT, None),
-        (None, "-1", _CONSTANT_OUTPUT_HINT, None),
-        ('label = "x"', "label", _CONSTANT_OUTPUT_HINT, None),
-    ],
-    ids=("count", "sum", "literal", "signed-literal", "let-literal"),
+    ("output", "postgres_key", "mysql_key"),
+    [("count()", "COUNT(*)", "COUNT(*)"), ("sum(id)", 'SUM("id")', "SUM(`id`)")],
+    ids=("count", "sum"),
 )
-def test_output_key_outside_a_grouped_query_offers_only_an_accepted_remedy(
-    let_line: str | None,
+def test_aggregate_output_key_orders_with_or_without_group_by(
     output: str,
-    hint: str,
-    grouped_keys: tuple[str, str] | None,
+    postgres_key: str,
+    mysql_key: str,
 ) -> None:
     ungrouped = _relation_source(
         projections=(f"total = {output}",), order_items=("total",)
     )
-    if let_line is not None:
-        ungrouped = ungrouped.replace(
-            "    select:\n", f"    let:\n        {let_line}\n    select:\n"
-        )
-
-    result = analyze(_parse(POSTGRES_PREFIX + ungrouped))
-
-    # Before: the hint offered restating the output or binding it in `let:`.
-    # PIE-S2308 refuses both for an aggregate; for a bare constant, `let:` and
-    # a restated signed or text literal are PIE-S2380, a restated integer is
-    # PIE-P1000.
-    assert [(d.code, d.message) for d in result.diagnostics] == [
-        (
-            "PIE-S2102",
-            "Unknown field: total; outside a grouped query an ORDER BY key "
-            f"cannot name a SELECT output, and {hint}",
-        )
-    ]
-    if grouped_keys is None:
-        return
-    postgres_key, mysql_key = grouped_keys
     grouped = ungrouped.replace(
         "    select:\n", "    group by:\n        email\n    select:\n"
     )
-    postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + grouped))
-    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + grouped))
-    assert postgres.artifacts[0].sql.endswith(f"ORDER BY\n    {postgres_key} ASC")
-    assert mysql.artifacts[0].sql.endswith(f"ORDER BY\n    {mysql_key} ASC")
+
+    # Before: without GROUP BY the key was PIE-S2102.
+    for source in (ungrouped, grouped):
+        postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + source))
+        mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + source))
+        assert postgres.artifacts[0].sql.endswith(f"ORDER BY\n    {postgres_key} ASC")
+        assert mysql.artifacts[0].sql.endswith(f"ORDER BY\n    {mysql_key} ASC")
+
+
+@pytest.mark.parametrize(
+    ("let_line", "output"),
+    [(None, "1"), (None, "-1"), ('label = "x"', "label")],
+    ids=("literal", "signed-literal", "let-literal"),
+)
+def test_output_key_whose_value_is_a_bare_constant_is_refused(
+    let_line: str | None,
+    output: str,
+) -> None:
+    source = _relation_source(
+        projections=(f"total = {output}",), order_items=("total",)
+    )
+    if let_line is not None:
+        source = source.replace("    select:\n", f"    let {let_line}\n    select:\n")
+
+    result = analyze(_parse(POSTGRES_PREFIX + source))
+
+    # Before: PIE-S2102 said a constant output sorts nothing. The restated
+    # output is a bare constant, which SQL reads as a column position or
+    # rejects.
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+        if d.location is not None
+    ] == [
+        (
+            "PIE-S2380",
+            "Constant ORDER BY key: a target reads a bare constant key as a "
+            "column position or rejects it",
+            12 if let_line is None else 13,
+            9,
+        )
+    ]
+
+
+_AMBIGUOUS_CREATED_AT = (
+    "Ambiguous field: created_at is both the input field users.created_at and a "
+    "SELECT output; write users.created_at, or give the output another name"
+)
+
+
+@pytest.mark.parametrize(
+    "projections",
+    [
+        ("created_at = lower(email)",),
+        ("id", "created_at = row_number() window(order by id)"),
+        ("created_at = id",),
+    ],
+    ids=("computed", "window-result", "another-field"),
+)
+def test_order_key_naming_an_input_field_and_another_output_is_ambiguous(
+    projections: tuple[str, ...],
+) -> None:
+    source = _relation_source(projections=projections, order_items=("created_at",))
+
+    result = analyze(_parse(POSTGRES_PREFIX + source))
+
+    # Before: the key silently sorted by the input field.
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+        if d.location is not None
+    ] == [("PIE-S2102", _AMBIGUOUS_CREATED_AT, 11 + len(projections), 9)]
+
+
+def test_qualified_key_reads_the_input_field_beside_an_output_of_its_name() -> None:
+    query = _relation_source(
+        projections=("created_at = lower(email)",),
+        order_items=("users.created_at desc",),
+    )
+
+    postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + query))
+    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + query))
+
+    assert postgres.artifacts[0].sql == (
+        'SELECT\n    lower("email") AS "created_at"\nFROM "users" AS "users"\n'
+        'ORDER BY\n    "users"."created_at" DESC'
+    )
+    assert mysql.artifacts[0].sql == (
+        "SELECT\n    LOWER(`email`) AS `created_at`\nFROM `users` AS `users`\n"
+        "ORDER BY\n    `users`.`created_at` DESC"
+    )
+
+
+def test_select_lists_a_let_name_that_order_by_reads() -> None:
+    query = _relation_source(
+        projections=("id", "total"), order_items=("total desc",)
+    ).replace("    select:\n", "    let total = id * 2\n    select:\n")
+    grouped = (
+        "query selected:\n    from users\n    let g = created_at\n"
+        "    group by:\n        created_at\n    select:\n        g\n        n = count()\n"
+    )
+
+    postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + query))
+    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + query))
+    grouped_result = analyze(_parse(POSTGRES_PREFIX + grouped))
+
+    # Before: PIE-S2329 refused selecting `total` without a new output name.
+    assert postgres.artifacts[0].sql == (
+        'SELECT\n    "id" AS "id",\n    "id" * 2 AS "total"\nFROM "users"\n'
+        'ORDER BY\n    "id" * 2 DESC'
+    )
+    assert mysql.artifacts[0].sql == (
+        "SELECT\n    `id` AS `id`,\n    `id` * 2 AS `total`\nFROM `users`\n"
+        "ORDER BY\n    `id` * 2 DESC"
+    )
+    # A single file still selects no `let` name in a relation with GROUP BY.
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in grouped_result.diagnostics
+        if d.location is not None
+    ] == [("PIE-S2329", "Let binding conflicts with projection output name: g", 9, 5)]
+
+
+_JOINED = (
+    "shape Account:\n    id: Int\n    name: Text\n"
+    "    account_key = unique(id)\n"
+    "shape Event:\n    id: Int\n    account_id: Int\n"
+    "    kind: Text\n"
+    'source accounts: Account = postgres.table("accounts")\n'
+    'source events: Event = postgres.table("events")\n'
+    "query labeled:\n    from events\n"
+    "    inner join accounts on events.account_id == accounts.id\n"
+    "    select:\n        id = events.id\n        who = accounts.name\n"
+    "        kind = lower(events.kind)\n"
+    "    order by:\n"
+)
+
+
+def test_joined_order_key_reads_an_output_and_refuses_an_ambiguous_name() -> None:
+    postgres = sql_api.emit_postgres_sql(_compile_ir(_JOINED + "        who desc\n"))
+    ambiguous = analyze(_parse(_JOINED + "        who\n        kind\n"))
+
+    # Before: `who` was PIE-S2102 and `kind` sorted by the input field.
+    assert postgres.artifacts[0].sql.endswith('ORDER BY\n    "accounts"."name" DESC')
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in ambiguous.diagnostics
+        if d.location is not None
+    ] == [
+        (
+            "PIE-S2102",
+            "Ambiguous field: kind is both the input field events.kind and a "
+            "SELECT output; write events.kind, or give the output another name",
+            20,
+            9,
+        )
+    ]
 
 
 @pytest.mark.parametrize(
@@ -302,7 +435,7 @@ def test_output_key_outside_a_grouped_query_offers_only_an_accepted_remedy(
         ),
         # A source without a shape: the unknown input row is not refused.
         (
-            'source users is postgres.table("users")\n'
+            'source users = postgres.table("users")\n'
             "query selected:\n    from users\n    select:\n        a = lower(email)\n"
             "    order by:\n        a asc\n",
             [],
@@ -319,13 +452,15 @@ def test_order_by_over_an_unknown_input_row_names_no_select_output(
     ] == expected
 
 
-def test_alias_matching_an_input_field_still_resolves_the_input_field() -> None:
+def test_let_key_of_an_input_field_beside_an_output_of_its_name_reads_the_field() -> (
+    None
+):
     script_ir = _compile_ir(
         POSTGRES_PREFIX
         + _relation_source(
             projections=("created_at = lower(email)",),
-            order_items=("created_at",),
-        )
+            order_items=("created_on",),
+        ).replace("    select:\n", "    let created_on = created_at\n    select:\n")
     )
     relation = _relation_ir(script_ir)
     expression = relation.order_by[0].expression
@@ -340,14 +475,24 @@ def test_alias_matching_an_input_field_still_resolves_the_input_field() -> None:
     ("body", "postgres_order", "mysql_order"),
     [
         (
+            "    let created_on = created_at\n"
             "    select:\n"
             "        id\n"
             "        created_at = lower(email)\n"
             "    order by:\n"
-            "        created_at desc\n"
+            "        created_on desc\n"
             "    limit 3\n",
             '"users"."created_at" DESC',
             "`users`.`created_at` DESC",
+        ),
+        (
+            "    select:\n"
+            "        created_at = lower(email)\n"
+            "        created = created_at\n"
+            "    order by:\n"
+            "        created\n",
+            '"users"."created_at" ASC',
+            "`users`.`created_at` ASC",
         ),
         (
             "    group by:\n"
@@ -366,14 +511,13 @@ def test_alias_matching_an_input_field_still_resolves_the_input_field() -> None:
             "`users`.`created_at` ASC",
         ),
         (
-            "    let:\n"
-            "        later = created_at + 1\n"
+            "    let later = created_at + 1\n"
             "    select:\n"
             "        created_at = id\n"
             "    order by:\n"
             "        later\n",
             '"created_at" + 1 ASC',
-            "`created_at` + 1 ASC",
+            "`users`.`created_at` + 1 ASC",
         ),
         (
             "    select:\n        id\n        lower(email)\n    order by:\n        id\n",
@@ -382,10 +526,11 @@ def test_alias_matching_an_input_field_still_resolves_the_input_field() -> None:
         ),
     ],
     ids=(
-        "ungrouped",
+        "let-key",
+        "restated-output",
         "grouped",
         "mysql-casefold",
-        "expression-reads-input",
+        "expression-field-mysql-only",
         "postgres-unaliased-computed-item",
     ),
 )
@@ -408,6 +553,37 @@ def test_input_order_key_that_a_select_item_would_capture_is_qualified(
         assert f"\nFROM {quote}users{quote}\n" in sql
 
 
+def test_mysql_qualifies_a_captured_field_inside_an_order_key() -> None:
+    query = (
+        "query restated:\n    from users\n    let later = created_at + 1\n"
+        "    select:\n        id\n        created_at = id\n"
+        "    order by:\n        later desc\n        lower(email)\n"
+        "query grouped:\n    from users\n    group by:\n        email\n"
+        "    select:\n        email\n        created_at = sum(created_at)\n"
+        "    order by:\n        created_at desc\n"
+    )
+
+    postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + query))
+    mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + query))
+
+    # PostgreSQL reads an input column for a name inside an expression.
+    assert [artifact.sql for artifact in postgres.artifacts] == [
+        'SELECT\n    "id" AS "id",\n    "id" AS "created_at"\nFROM "users"\n'
+        'ORDER BY\n    "created_at" + 1 DESC,\n    lower("email") ASC',
+        'SELECT\n    "email" AS "email",\n    SUM("created_at") AS "created_at"\n'
+        'FROM "users"\nGROUP BY\n    "email"\nORDER BY\n    SUM("created_at") DESC',
+    ]
+    # Before: MySQL emitted `created_at` + 1 and SUM(`created_at`), names that
+    # MySQL documents it looks up among the SELECT aliases first.
+    assert [artifact.sql for artifact in mysql.artifacts] == [
+        "SELECT\n    `id` AS `id`,\n    `id` AS `created_at`\nFROM `users`\n"
+        "ORDER BY\n    `users`.`created_at` + 1 DESC,\n    LOWER(`email`) ASC",
+        "SELECT\n    `email` AS `email`,\n    SUM(`created_at`) AS `created_at`\n"
+        "FROM `users`\nGROUP BY\n    `email`\n"
+        "ORDER BY\n    SUM(`users`.`created_at`) DESC",
+    ]
+
+
 @pytest.mark.parametrize(
     ("function", "field"),
     [("lower(email)", "lower"), ('coalesce(email, "x")', "coalesce")],
@@ -417,8 +593,8 @@ def test_postgresql_implicit_column_name_of_an_unaliased_item_is_not_bound(
     field: str,
 ) -> None:
     query = (
-        f"shape Row:\n    email: Text not null\n    {field}: Int not null\n"
-        'source rows: Row is {connector}.table("sales.rows")\n'
+        f"shape Row:\n    email: Text\n    {field}: Int\n"
+        'source rows: Row = {connector}.table("sales.rows")\n'
         "query q:\n"
         "    from rows\n"
         "    select:\n"
@@ -444,18 +620,18 @@ def test_postgresql_implicit_column_name_of_an_unaliased_item_is_not_bound(
 
 def test_mysql_unaliased_true_false_null_item_names_capture_the_key() -> None:
     query = (
-        "shape Row:\n    id: Int not null\n    TRUE: Int not null\n"
-        "    False: Int not null\n    NULL: Int not null\n    Amount: Int not null\n"
-        'source rows: Row is mysql.table("sales.rows")\n'
-        "query q:\n    from rows\n    select:\n        id\n        true\n"
-        '        false\n        null\n        "amount"\n        1\n'
-        "    order by:\n        TRUE\n        False\n        NULL\n"
+        "shape Row:\n    id: Int\n    TRUE: Int\n"
+        "    fAlSe: Int\n    NULL: Int\n    Amount: Int\n"
+        'source rows: Row = mysql.table("sales.rows")\n'
+        "query q:\n    from rows\n    select:\n        id\n        True\n"
+        '        False\n        None\n        "amount"\n        1\n'
+        "    order by:\n        TRUE\n        fAlSe\n        NULL\n"
         "        Amount\n        id\n"
     )
 
     mysql = emit_mysql_sql(_compile_ir(query))
 
-    # Before: the bare `TRUE`, `False` and `NULL` keys stayed bare, and MySQL
+    # Before: the bare `TRUE`, `fAlSe` and `NULL` keys stayed bare, and MySQL
     # bound them to the unaliased TRUE, FALSE and NULL items, which it names
     # by that text, so the rows were sorted by constants. An unaliased Int
     # literal is named `1` and captures no key.
@@ -464,7 +640,7 @@ def test_mysql_unaliased_true_false_null_item_names_capture_the_key() -> None:
         "SELECT\n    `id` AS `id`,\n    TRUE,\n    FALSE,\n    NULL,\n"
         "    'amount',\n    1\n"
         "FROM `sales`.`rows`\nORDER BY\n    `rows`.`TRUE` ASC,\n"
-        "    `rows`.`False` ASC,\n    `rows`.`NULL` ASC,\n"
+        "    `rows`.`fAlSe` ASC,\n    `rows`.`NULL` ASC,\n"
         "    `rows`.`Amount` ASC,\n    `id` ASC"
     )
 
@@ -472,11 +648,12 @@ def test_mysql_unaliased_true_false_null_item_names_capture_the_key() -> None:
 def test_captured_key_uses_the_name_from_already_gives_the_input() -> None:
     def source(connector: str, name: str, first: str) -> str:
         return (
-            "shape Row:\n    id: Int not null\n    amount: Int not null\n"
-            "    other: Int not null\n"
-            f'source {name}: Row is {connector}.table("sales.orders")\n'
-            f"query q:\n    from {name}\n    select:\n        {first}\n"
-            "        amount = other\n    order by:\n        amount\n"
+            "shape Row:\n    id: Int\n    amount: Int\n"
+            "    other: Int\n"
+            f'source {name}: Row = {connector}.table("sales.orders")\n'
+            f"query q:\n    from {name}\n    let total = amount\n"
+            f"    select:\n        {first}\n"
+            "        amount = other\n    order by:\n        total\n"
         )
 
     long_name = "s" * 70
@@ -504,19 +681,35 @@ def test_captured_key_uses_the_name_from_already_gives_the_input() -> None:
 
 
 @pytest.mark.parametrize(
-    "select_items",
+    ("select_items", "expected"),
     [
-        ("amount = count()", "n = count()"),
-        ("m = count()", "n = count()"),
+        (
+            ("amount = count()", "n = count()"),
+            (
+                "PIE-S2102",
+                "Ambiguous field: amount is both the input field orders.amount and "
+                "a SELECT output; write orders.amount, or give the output another "
+                "name",
+            ),
+        ),
+        (
+            ("m = count()", "n = count()"),
+            (
+                "PIE-S2380",
+                "ORDER BY key reads an input field outside an aggregate in a query "
+                "with aggregates and no GROUP BY, which SQL targets reject",
+            ),
+        ),
     ],
     ids=("colliding-output", "no-collision"),
 )
 def test_input_field_key_of_an_ungrouped_aggregate_query_is_refused(
     select_items: tuple[str, ...],
+    expected: tuple[str, str],
 ) -> None:
     source = (
-        "shape Row:\n    amount: Int not null\n    other: Int not null\n"
-        'source orders: Row is postgres.table("orders")\n'
+        "shape Row:\n    amount: Int\n    other: Int\n"
+        'source orders: Row = postgres.table("orders")\n'
         "query q:\n"
         "    from orders\n"
         "    select:\n"
@@ -527,14 +720,9 @@ def test_input_field_key_of_an_ungrouped_aggregate_query_is_refused(
 
     result = analyze(_parse(source))
 
-    # Before: check passed and PostgreSQL rejects the ungrouped ORDER BY column.
-    assert [(d.code, d.message) for d in result.diagnostics] == [
-        (
-            "PIE-S2380",
-            "ORDER BY key reads an input field outside an aggregate in a query "
-            "with aggregates and no GROUP BY, which SQL targets reject",
-        )
-    ]
+    # Before: check passed and PostgreSQL rejects the ungrouped ORDER BY column;
+    # a key that also names an output of another value is ambiguous.
+    assert [(d.code, d.message) for d in result.diagnostics] == [expected]
 
 
 @pytest.mark.parametrize(
@@ -542,7 +730,7 @@ def test_input_field_key_of_an_ungrouped_aggregate_query_is_refused(
     [
         ((), "amount", 6),
         ((), "n", 6),
-        (("k = amount + 1",), "k", 8),
+        (("k = amount + 1",), "k", 7),
         ((), "raw.amount desc", 6),
     ],
 )
@@ -551,15 +739,13 @@ def test_input_field_key_of_an_ungrouped_aggregate_query_without_a_shape_fails(
     key: str,
     line: int,
 ) -> None:
-    let_clause = "".join(f"        {item}\n" for item in let_lines)
+    let_clause = "".join(f"    let {item}\n" for item in let_lines)
     source = (
-        'source raw is postgres.table("raw")\n'
+        'source raw = postgres.table("raw")\n'
         "query q:\n"
-        "    from raw\n"
-        + ("    let:\n" + let_clause if let_clause else "")
-        + "    select:\n"
+        "    from raw\n" + let_clause + "    select:\n"
         "        n = count()\n"
-        f"    order by: {key}\n"
+        f"    order by {key}\n"
     )
 
     result = analyze(_parse(source))
@@ -576,16 +762,20 @@ def test_input_field_key_of_an_ungrouped_aggregate_query_without_a_shape_fails(
             "ORDER BY key reads an input field outside an aggregate in a query "
             "with aggregates and no GROUP BY, which SQL targets reject",
             line,
-            15,
+            14,
         )
     ]
 
 
-def test_output_alias_reading_the_same_input_field_keeps_a_bare_order_key() -> None:
+@pytest.mark.parametrize("value", ["users.created_at", "created"])
+def test_output_alias_reading_the_same_input_field_keeps_a_bare_order_key(
+    value: str,
+) -> None:
+    # The same field, also through a `let` name, is no ambiguity.
     query = _relation_source(
-        projections=("id", "created_at = users.created_at"),
+        projections=("id", f"created_at = {value}"),
         order_items=("created_at",),
-    )
+    ).replace("    select:\n", "    let created = created_at\n    select:\n")
     postgres = sql_api.emit_postgres_sql(_compile_ir(POSTGRES_PREFIX + query))
     mysql = emit_mysql_sql(_compile_ir(MYSQL_PREFIX + query))
 
@@ -594,12 +784,10 @@ def test_output_alias_reading_the_same_input_field_keeps_a_bare_order_key() -> N
 
 
 def _keyed_body(key: str, let_lines: tuple[str, ...] = ()) -> str:
-    let_clause = "".join(f"        {line}\n" for line in let_lines)
+    let_clause = "".join(f"    let {line}\n" for line in let_lines)
     return (
         "query selected:\n"
-        "    from users\n"
-        + ("    let:\n" + let_clause if let_clause else "")
-        + "    select:\n"
+        "    from users\n" + let_clause + "    select:\n"
         "        id\n"
         "    order by:\n"
         f"        {key} asc\n"
@@ -614,8 +802,8 @@ def _keyed_body(key: str, let_lines: tuple[str, ...] = ()) -> str:
         ((), "-1"),
         ((), "+2"),
         ((), "2.5"),
-        ((), "true"),
-        ((), "null"),
+        ((), "True"),
+        ((), "None"),
         (("position = 2",), "position"),
         (("position = -2",), "position"),
         (("base = 2",), "-base"),
@@ -630,7 +818,7 @@ def test_bare_constant_order_key_is_refused_at_check(
     body = _keyed_body(key, let_lines)
     result = analyze(_parse(POSTGRES_PREFIX + body))
 
-    key_line = 12 + (1 + len(let_lines) if let_lines else 0)
+    key_line = 12 + len(let_lines)
     assert [
         (diagnostic.code, diagnostic.location and diagnostic.location.line)
         for diagnostic in result.diagnostics
@@ -662,14 +850,12 @@ def test_bare_constant_key_is_refused_from_a_source_without_a_shape(
     key: str,
     accepted: bool,
 ) -> None:
-    let_clause = "".join(f"        {line}\n" for line in let_lines)
+    let_clause = "".join(f"    let {line}\n" for line in let_lines)
     path = tmp_path / "loose.pietto"
     path.write_text(
-        f'source raw is {connector}.table("raw")\n'
+        f'source raw = {connector}.table("raw")\n'
         "query selected:\n"
-        "    from raw\n"
-        + ("    let:\n" + let_clause if let_clause else "")
-        + "    select:\n        id\n        amount\n"
+        "    from raw\n" + let_clause + "    select:\n        id\n        amount\n"
         f"    order by:\n        {key}\n",
         encoding="utf-8",
     )
@@ -693,13 +879,13 @@ def test_bare_constant_key_is_refused_from_a_source_without_a_shape(
 
 def test_key_over_the_let_inline_limit_reports_only_that_error() -> None:
     # 400 `+ 1` steps weigh more than the 768-level inline limit.
-    lets = "".join(f"        l{i} = l{i - 1} + 1\n" for i in range(1, 401))
+    lets = "".join(f"    let l{i} = l{i - 1} + 1\n" for i in range(1, 401))
     source = (
-        "shape Row:\n    amount: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n    amount: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query q:\n"
         "    from rows\n"
-        "    let:\n        l0 = amount\n" + lets + "    select:\n"
+        "    let l0 = amount\n" + lets + "    select:\n"
         "        n = count()\n"
         "    order by:\n"
         "        l400\n"
@@ -755,13 +941,10 @@ def test_order_keys_reading_fields_lets_or_windows_are_not_constant() -> None:
     body = (
         "query selected:\n"
         "    from users\n"
-        "    let:\n"
-        "        bucket = id + 1\n"
+        "    let bucket = id + 1\n"
         "    select:\n"
         "        id\n"
-        "        position = row_number() window:\n"
-        "            order by:\n"
-        "                id\n"
+        "        position = row_number() window(order by id)\n"
         "    order by:\n"
         "        bucket\n"
         "        position\n"
@@ -988,7 +1171,8 @@ def _compile_ir(source: str) -> ScriptIR:
         for diagnostic in semantic_result.diagnostics
         if diagnostic.severity is Severity.ERROR
     ]
-    result = build_ir(script, semantic_result.model)
+    assert semantic_result.script is not None
+    result = build_ir(semantic_result.script, semantic_result.model)
     assert result.diagnostics == ()
     assert result.ir is not None
     return result.ir

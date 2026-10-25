@@ -50,17 +50,17 @@ MYSQL_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/mysql_expressions.py"
 
 BOUNDARY_SHAPE = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    optional_amount: Int nullable\n"
-    "    score: Float not null\n"
-    "    weight: Float nullable\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal nullable\n"
-    "    order_date: Date nullable\n"
-    "    created_at: Timestamp not null\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    optional_amount: Int | None\n"
+    "    score: Float\n"
+    "    weight: Float | None\n"
+    "    price: Decimal\n"
+    "    discount: Decimal | None\n"
+    "    order_date: Date | None\n"
+    "    created_at: Timestamp\n"
 )
 
 
@@ -396,8 +396,8 @@ def test_unsupported_sum_avg_literal_and_expression_boundaries_fail_closed(
 def test_decimal_value_facts_keep_logical_types_and_deferred_operators() -> None:
     source = (
         "shape PricedOrder:\n"
-        "    price: Decimal(12, 2) not null\n"
-        'source orders: PricedOrder is postgres.table("orders")\n'
+        "    price: Decimal(12, 2)\n"
+        'source orders: PricedOrder = postgres.table("orders")\n'
         "table projected:\n"
         "    from orders\n"
         "    select:\n"
@@ -452,7 +452,7 @@ def test_decimal_value_facts_keep_logical_types_and_deferred_operators() -> None
 
 
 def _source_prefix(connector: str) -> str:
-    return BOUNDARY_SHAPE + f'source orders: Order is {connector}("orders")\n'
+    return BOUNDARY_SHAPE + f'source orders: Order = {connector}("orders")\n'
 
 
 def _projected_source(connector: str, projections: str) -> str:

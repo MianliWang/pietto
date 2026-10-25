@@ -28,19 +28,19 @@ EMIT_SQL_KEYS = {
 
 SOURCE_SHAPE = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    optional_active: Bool nullable\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
+    "    region: Text\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    optional_active: Bool | None\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
 )
 
 NO_GROUP_SELECT_BODY = (
     "amount_tax = count(amount + tax)\n"
     "        amount_one = count(amount + 1)\n"
     "        lowered = count(lower(status))\n"
-    "        active_count = count(active and true)"
+    "        active_count = count(active and True)"
 )
 
 POSTGRES_NO_GROUP_SQL = (
@@ -378,7 +378,7 @@ def _source(
 ) -> str:
     group_block = "    group by:\n        region\n" if grouped else ""
     return (
-        SOURCE_SHAPE + f'source orders: Order is {connector}("orders")\n'
+        SOURCE_SHAPE + f'source orders: Order = {connector}("orders")\n'
         "table aggregate_stats:\n"
         "    from orders\n"
         f"{group_block}"

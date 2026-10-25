@@ -1,5 +1,5 @@
 shape User:
-    id: UUID not null
-    email: Text(max = 255) not null @pii @sensitive
-    email_norm: Text nullable derive lower(trim(email))
-    age: Int nullable ensure self is null or self between 0 and 130
+    id: UUID
+    email: Text(max = 255) @pii @sensitive
+    email_norm: Text | None derive lower(trim(email))
+    age: Int | None ensure self is None or 0 <= self <= 130

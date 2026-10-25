@@ -34,6 +34,13 @@ POSTGRES_INPUT = Path("tests/fixtures/postgres/compatibility_ordering_metadata.p
 POSTGRES_GOLDEN = Path(
     "tests/fixtures/golden/emit_sql_compatibility_ordering_metadata.sql"
 )
+# The input's query reads a table of its own file, so the text output warns.
+POSTGRES_STDERR = (
+    f"{POSTGRES_INPUT.as_posix()}:33:5 PIE-S2382 warning: `FirstRelation` is a "
+    "table of this file; single-file SQL reads it by name, so the SQL runs only "
+    "where the database already has a relation named FirstRelation (an "
+    "EXPLICIT_MODULES project emits it as a CTE)\n"
+).encode()
 MYSQL_INPUT = Path("tests/fixtures/mysql/compatibility_ordering_metadata.pietto")
 MYSQL_GOLDEN = Path(
     "tests/fixtures/golden/emit_mysql_compatibility_ordering_metadata.json"
@@ -42,10 +49,10 @@ MYSQL_GOLDEN = Path(
 # console entrypoint as a real subprocess from an unrelated working directory.
 PROJECT_EMIT_CONFIG = 'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n'
 PROJECT_EMIT_SOURCE = """shape Item:
-    id: Int not null
-    label: Text not null
+    id: Int
+    label: Text
 
-source items: Item is postgres.table("fixture.items")
+source items: Item = postgres.table("fixture.items")
 
 table active_items:
     from items
@@ -940,7 +947,7 @@ def _smoke_installed_cli(
         b'version = "1.0.0"\n\n[[assets]]\nkind = "module_source"\n'
         b'path = "main.pietto"\n'
     )
-    project_explain_source = b"shape Row:\n    id: Int not null\n"
+    project_explain_source = b"shape Row:\n    id: Int\n"
     (project_explain_package / "pietto-package.toml").write_bytes(
         project_explain_manifest
     )
@@ -1079,7 +1086,7 @@ def _smoke_installed_cli(
         environment=environment,
     )
     expected_postgres = (REPO_ROOT / POSTGRES_GOLDEN).read_bytes()
-    if postgres.stdout != expected_postgres or postgres.stderr:
+    if postgres.stdout != expected_postgres or postgres.stderr != POSTGRES_STDERR:
         raise SmokeFailure(
             "installed PostgreSQL text output differs from reviewed golden bytes"
         )

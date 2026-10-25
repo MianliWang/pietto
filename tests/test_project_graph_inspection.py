@@ -52,9 +52,9 @@ SPEC = (
 def _source(expression: str = "id") -> bytes:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
         "    select:\n"
@@ -88,8 +88,8 @@ def test_equivalent_runtime_scopes_have_identical_private_canonical_data(
 ) -> None:
     source = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
         "    select:\n"
@@ -117,19 +117,15 @@ def test_named_window_semantic_links_are_canonical_and_fail_closed(
         tmp_path,
         (
             "shape Row:\n"
-            "    id: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
+            "    let other = window(order by id desc)\n"
+            "    let ordered = window base\n"
+            "    let base = window(order by id)\n"
             "    select:\n"
             "        result = row_number() window ordered\n"
-            "    window other:\n"
-            "        order by:\n"
-            "            id desc\n"
-            "    window ordered = base\n"
-            "    window base:\n"
-            "        order by:\n"
-            "            id\n"
         ).encode(),
     )
     inspection = _inspect_package_graph(snapshot)
@@ -394,9 +390,9 @@ def test_canonical_data_excludes_runtime_scope_and_preserves_order_multiplicity_
         tmp_path / "states",
         (
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    amount: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            "    amount: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"

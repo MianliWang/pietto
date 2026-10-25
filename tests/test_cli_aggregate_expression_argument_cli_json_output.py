@@ -22,13 +22,13 @@ EMIT_SQL_KEYS = {
 
 BASE_SHAPE = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    region: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    "    price: Decimal not null\n"
+    "    status: Text\n"
+    "    region: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
 )
 
 NO_GROUP_SELECT_BODY = (
@@ -479,10 +479,10 @@ def _source(
 ) -> str:
     group_block = "    group by:\n        region\n" if grouped else ""
     satisfying_block = (
-        f"    satisfying:\n        {satisfying}\n" if satisfying is not None else ""
+        f"    having:\n        {satisfying}\n" if satisfying is not None else ""
     )
     return (
-        BASE_SHAPE + f'source orders: Order is {connector}("orders")\n'
+        BASE_SHAPE + f'source orders: Order = {connector}("orders")\n'
         "table aggregate_stats:\n"
         "    from orders\n"
         f"{group_block}"

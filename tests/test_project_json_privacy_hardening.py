@@ -129,9 +129,9 @@ def test_project_json_v2_grouped_relation_skip_keeps_private_schema_absent(
         _project(
             tmp_path,
             "shape User:\n"
-            "    id: Int not null\n"
-            "    email: Text nullable\n"
-            'source users: User is postgres.table("users")\n'
+            "    id: Int\n"
+            "    email: Text | None\n"
+            'source users: User = postgres.table("users")\n'
             "table projected:\n"
             "    from users\n"
             "    group by:\n"
@@ -239,10 +239,10 @@ def _direct_source_project(tmp_path: Path, select_body: str) -> Path:
     return _project(
         tmp_path,
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
+        "    id: Int\n"
+        "    email: Text | None\n"
         "    score: Int\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"

@@ -56,18 +56,18 @@ SPEC_HEADINGS = (
 
 def _source() -> str:
     return """shape Row:
-    id: Int not null
-    category: Text nullable
-    amount: Int nullable
-    unique id_key on id
-source rows_one: Row is postgres.table("rows_one")
-source rows_two: Row is postgres.table("rows_two")
+    id: Int
+    category: Text | None
+    amount: Int | None
+    id_key = unique(id)
+source rows_one: Row = postgres.table("rows_one")
+source rows_two: Row = postgres.table("rows_two")
 shape NoKey:
-    plain: Int nullable
-source unkeyed_rows: NoKey is postgres.table("unkeyed")
+    plain: Int | None
+source unkeyed_rows: NoKey = postgres.table("unkeyed")
 shape Broken:
-    broken: MissingType not null
-source broken_rows: Broken is postgres.table("broken")
+    broken: MissingType
+source broken_rows: Broken = postgres.table("broken")
 query grouped_one:
     from rows_one
     group by:
@@ -293,12 +293,12 @@ def test_dependency_kernel_is_typed_local_finite_and_arbitrary_width(
     tmp_path: Path,
 ) -> None:
     sources = "".join(
-        f'source rows_{position}: Row is postgres.table("rows_{position}")\n'
+        f'source rows_{position}: Row = postgres.table("rows_{position}")\n'
         for position in range(70)
     )
     result = _grain(
         tmp_path,
-        "shape Row:\n    id: Int not null\n" + sources,
+        "shape Row:\n    id: Int\n" + sources,
     )
     factors = tuple(
         origin.basis.universe.factors[0] for origin in result.source_origins

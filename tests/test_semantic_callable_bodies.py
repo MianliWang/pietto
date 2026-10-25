@@ -16,8 +16,8 @@ from pietto.semantic import SemanticResult, TypeKind, ValueTypeKind, analyze
 def test_valid_derive_body_uses_parameter_environment() -> None:
     result = analyze(
         _parse(
-            "derive normalized_email(email: Text not null) -> Text not null:\n"
-            "    lower(trim(email))\n"
+            "derive normalized_email(email: Text) -> Text:\n"
+            "    return lower(trim(email))\n"
         )
     )
     derive = _derive(result, "normalized_email")
@@ -33,8 +33,8 @@ def test_valid_derive_body_uses_parameter_environment() -> None:
 
 def test_derive_body_type_mismatch_reports_pie_s2402() -> None:
     script = _parse(
-        "derive normalized_email(email: Text not null) -> Text not null:\n"
-        '    matches(email, ".+@.+")\n',
+        "derive normalized_email(email: Text) -> Text:\n"
+        '    return matches(email, ".+@.+")\n',
         path="callable-bodies.pietto",
     )
     derive = script.definitions[0]
@@ -69,10 +69,7 @@ def test_derive_body_type_mismatch_reports_pie_s2402() -> None:
 
 def test_derive_unknown_name_suppresses_body_mismatch() -> None:
     result = analyze(
-        _parse(
-            "derive normalized_email(email: Text not null) -> Text not null:\n"
-            "    missing\n"
-        )
+        _parse("derive normalized_email(email: Text) -> Text:\n    return missing\n")
     )
     body = _derive(result, "normalized_email").body
 
@@ -82,9 +79,7 @@ def test_derive_unknown_name_suppresses_body_mismatch() -> None:
 
 def test_unknown_parameter_type_suppresses_body_mismatch() -> None:
     result = analyze(
-        _parse(
-            "derive identity(value: Missing not null) -> Text not null:\n    value\n"
-        )
+        _parse("derive identity(value: Missing) -> Text:\n    return value\n")
     )
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2002"]
@@ -93,8 +88,8 @@ def test_unknown_parameter_type_suppresses_body_mismatch() -> None:
 def test_valid_constraint_body_returns_bool() -> None:
     result = analyze(
         _parse(
-            "constraint valid_email(email: Text not null) -> Bool not null:\n"
-            '    matches(email, ".+@.+")\n'
+            "constraint valid_email(email: Text) -> Bool:\n"
+            '    return matches(email, ".+@.+")\n'
         )
     )
     body = _constraint(result, "valid_email").body
@@ -105,10 +100,7 @@ def test_valid_constraint_body_returns_bool() -> None:
 
 def test_constraint_text_body_reports_pie_s2402() -> None:
     result = analyze(
-        _parse(
-            "constraint valid_email(email: Text not null) -> Bool not null:\n"
-            "    email\n"
-        )
+        _parse("constraint valid_email(email: Text) -> Bool:\n    return email\n")
     )
 
     assert [
@@ -123,10 +115,7 @@ def test_constraint_text_body_reports_pie_s2402() -> None:
 
 def test_constraint_unknown_body_suppresses_pie_s2402() -> None:
     result = analyze(
-        _parse(
-            "constraint valid_email(email: Text not null) -> Bool not null:\n"
-            "    missing\n"
-        )
+        _parse("constraint valid_email(email: Text) -> Bool:\n    return missing\n")
     )
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
@@ -135,15 +124,15 @@ def test_constraint_unknown_body_suppresses_pie_s2402() -> None:
 def test_parameter_and_return_aliases_use_canonical_types() -> None:
     result = analyze(
         _parse(
-            "type Email = Text not null\n"
-            "type NormalizedEmail = Email not null\n"
-            "type Predicate = Bool not null\n"
-            "derive normalized_email(email: Email not null) "
-            "-> NormalizedEmail not null:\n"
-            "    lower(trim(email))\n"
-            "constraint valid_email(email: Email not null) "
-            "-> Predicate not null:\n"
-            '    matches(email, ".+@.+")\n'
+            "type Email = Text\n"
+            "type NormalizedEmail = Email\n"
+            "type Predicate = Bool\n"
+            "derive normalized_email(email: Email) "
+            "-> NormalizedEmail:\n"
+            "    return lower(trim(email))\n"
+            "constraint valid_email(email: Email) "
+            "-> Predicate:\n"
+            '    return matches(email, ".+@.+")\n'
         )
     )
     derive = _derive(result, "normalized_email")
@@ -163,8 +152,7 @@ def test_parameter_and_return_aliases_use_canonical_types() -> None:
 def test_wrong_builtin_arguments_suppress_body_mismatch() -> None:
     result = analyze(
         _parse(
-            "derive normalized_count(count: Int not null) -> Text not null:\n"
-            "    lower(count)\n"
+            "derive normalized_count(count: Int) -> Text:\n    return lower(count)\n"
         )
     )
 
@@ -181,11 +169,7 @@ def test_wrong_builtin_arguments_suppress_body_mismatch() -> None:
 
 def test_duplicate_parameter_diagnostic_still_applies() -> None:
     result = analyze(
-        _parse(
-            "derive choose(value: Text not null, value: Text not null) "
-            "-> Text not null:\n"
-            "    value\n"
-        )
+        _parse("derive choose(value: Text, value: Text) -> Text:\n    return value\n")
     )
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2001"]
@@ -193,8 +177,7 @@ def test_duplicate_parameter_diagnostic_still_applies() -> None:
 
 def test_callable_body_validation_does_not_mutate_input_ast() -> None:
     script = _parse(
-        "derive normalized_email(email: Text not null) -> Text not null:\n"
-        "    lower(trim(email))\n"
+        "derive normalized_email(email: Text) -> Text:\n    return lower(trim(email))\n"
     )
     original = deepcopy(script)
 
@@ -206,8 +189,8 @@ def test_callable_body_validation_does_not_mutate_input_ast() -> None:
 def test_callable_body_results_do_not_expose_antlr_nodes() -> None:
     result = analyze(
         _parse(
-            "constraint valid_email(email: Text not null) -> Bool not null:\n"
-            '    matches(email, ".+@.+")\n'
+            "constraint valid_email(email: Text) -> Bool:\n"
+            '    return matches(email, ".+@.+")\n'
         )
     )
 

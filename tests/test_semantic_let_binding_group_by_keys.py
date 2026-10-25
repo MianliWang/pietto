@@ -27,13 +27,13 @@ from pietto.sql.mysql import emit_mysql_sql
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    status: Text not null\n"
-    "    region: Text nullable\n"
-    "    active: Bool not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    status: Text\n"
+    "    region: Text | None\n"
+    "    active: Bool\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
@@ -42,8 +42,7 @@ def test_group_by_direct_field_row_let_is_semantically_accepted() -> None:
     semantic = _semantic_for(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        key = status\n"
+        "    let key = status\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -65,9 +64,8 @@ def test_group_by_qualified_and_chained_field_row_lets_are_semantically_accepted
     semantic = _semantic_for(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        region_key = orders.region\n"
-        "        bucket = region_key\n"
+        "    let region_key = orders.region\n"
+        "    let bucket = region_key\n"
         "    group by:\n"
         "        bucket\n"
         "    select:\n"
@@ -87,10 +85,9 @@ def test_ir_group_keys_inline_expand_row_let_names_to_field_refs() -> None:
     relation = _relation_ir(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        status_key = status\n"
-        "        region_key = orders.region\n"
-        "        bucket = region_key\n"
+        "    let status_key = status\n"
+        "    let region_key = orders.region\n"
+        "    let bucket = region_key\n"
         "    group by:\n"
         "        status_key\n"
         "        bucket\n"
@@ -139,8 +136,7 @@ def test_sql_inlines_group_by_row_let_without_hidden_layers(
     sql = _sql_for(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        key = status\n"
+        "    let key = status\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -168,8 +164,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         "group_by_let.pietto",
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        key = status\n"
+        "    let key = status\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -214,8 +209,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -225,8 +219,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        normalized = lower(trim(status))\n"
+            "    let normalized = lower(trim(status))\n"
             "    group by:\n"
             "        normalized\n"
             "    select:\n"
@@ -236,8 +229,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        one = 1\n"
+            "    let one = 1\n"
             "    group by:\n"
             "        one\n"
             "    select:\n"
@@ -247,21 +239,19 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        key = status\n"
+            "    let key = status\n"
             "    group by:\n"
             "        key\n"
             "    select:\n"
             "        status\n"
             "        total = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        key > 0\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        key = status\n"
+            "    let key = status\n"
             "    select:\n"
             "        amount\n"
             "    limit key\n",
@@ -269,8 +259,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = status\n"
+            "    let gross = status\n"
             "    group by:\n"
             "        orders.gross\n"
             "    select:\n"
@@ -280,8 +269,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        key = status\n"
+            "    let key = status\n"
             "    group by:\n"
             "        key\n"
             "    select:\n"
@@ -291,16 +279,14 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        key = status\n"
+            "    let key = status\n"
             "    select:\n"
             "        smallest = min(key)\n",
             "PIE-S2314",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        key = status\n"
+            "    let key = status\n"
             "    select:\n"
             "        largest = max(key)\n",
             "PIE-S2314",
@@ -320,8 +306,7 @@ def test_a_refused_let_group_key_reports_only_the_refusal() -> None:
     semantic = _semantic_for(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        key = status\n"
+        "    let key = status\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -338,8 +323,7 @@ def test_a_refused_let_group_key_reports_only_the_refusal() -> None:
 COMPUTED_KEY_RELATION = (
     "query grouped_orders:\n"
     "    from orders\n"
-    "    let:\n"
-    "        gross = amount + tax\n"
+    "    let gross = amount + tax\n"
     "    group by:\n"
     "        gross\n"
     "    select:\n"
@@ -407,8 +391,8 @@ UNAVAILABLE = (
         (
             "",
             "    group by:\n        bucket\n    select:\n        bucket\n"
-            "        total = count()\n        r = row_number() window:\n"
-            "            order by:\n                bucket asc\n",
+            "        total = count()\n"
+            "        r = row_number() window(order by bucket asc)\n",
             (
                 "PIE-S2103",
                 "Unsupported window computation for function row_number: "
@@ -418,9 +402,8 @@ UNAVAILABLE = (
         (
             "",
             "    group by:\n        bucket\n    select:\n        bucket\n"
-            "        total = count()\n        r = row_number() window:\n"
-            "            partition by:\n                bucket\n"
-            "            order by:\n                total asc\n",
+            "        total = count()\n"
+            "        r = row_number() window(partition by bucket order by total asc)\n",
             (
                 "PIE-S2103",
                 "Unsupported window computation for function row_number: "
@@ -428,7 +411,7 @@ UNAVAILABLE = (
             ),
         ),
         (
-            "        alias = bucket\n",
+            "    let alias = bucket\n",
             "    group by:\n        alias\n    select:\n        total = count()\n",
             UNAVAILABLE,
         ),
@@ -447,7 +430,7 @@ UNAVAILABLE = (
         (
             "",
             "    group by:\n        bucket\n    select:\n        b = bucket\n"
-            "        total = count()\n    satisfying:\n        b > 0\n",
+            "        total = count()\n    having:\n        b > 0\n",
             UNAVAILABLE,
         ),
     ),
@@ -471,8 +454,7 @@ def test_explicit_module_computed_keys_keep_their_documented_refusals(
     )
     (tmp_path / "main.pietto").write_text(
         SOURCE_PREFIX
-        + "query grouped_orders:\n    from orders\n    let:\n"
-        + "        bucket = amount * 2\n"
+        + "query grouped_orders:\n    from orders\n    let bucket = amount * 2\n"
         + let_lines
         + tail,
         encoding="utf-8",
@@ -512,7 +494,8 @@ def _script_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> ScriptIR:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir

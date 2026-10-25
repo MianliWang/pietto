@@ -763,12 +763,12 @@ def parameter_source(target="postgres"):
         original.source(target)
         .replace(
             "table result:",
-            "query result(low: Int not null, scale: Float nullable,"
-            " note: Text nullable, flag: Bool nullable):",
+            "query result(low: Int, scale: Float | None,"
+            " note: Text | None, flag: Bool | None):",
         )
         .replace(
             "    select:",
-            "    where id > low and (scale is null or note is null or flag is null)\n"
+            "    where id > low and (scale is None or note is None or flag is None)\n"
             "    select:",
         )
     )

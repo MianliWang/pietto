@@ -3,28 +3,28 @@ mode checked
 dialect postgres
 encoding utf8
 
-type Email = Text not null
+type Email = Text
 
 enum Status:
     active
     inactive
 
-constraint valid_email(value: Text not null) -> Bool not null:
-    matches(value, "@")
+constraint valid_email(value: Text) -> Bool:
+    return matches(value, "@")
 
-derive normalized_email(value: Text not null) -> Text not null:
-    lower(trim(value))
+derive normalized_email(value: Text) -> Text:
+    return lower(trim(value))
 
 shape User:
-    id: UUID not null
-    email: Text not null
-    active: Bool not null
+    id: UUID
+    email: Text
+    active: Bool
 
-source users: User is postgres.table("public.users")
+source users: User = postgres.table("public.users")
 
 table FirstRelation:
     from users
-    where active == true
+    where active == True
     select:
         id
         email

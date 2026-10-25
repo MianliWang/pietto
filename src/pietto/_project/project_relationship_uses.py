@@ -233,7 +233,8 @@ class ProjectRelationBindingOccurrence:
         definition = _derived_definition(self.owner)
         if self.identity.binding_position == 0:
             expected_site = definition.from_clause
-            expected_name = expected_relation = expected_site.source_name
+            expected_name = expected_site.binding_name or expected_site.source_name
+            expected_relation = expected_site.source_name
         else:
             position = self.identity.binding_position - 1
             if position >= len(definition.join_clauses):
@@ -811,7 +812,8 @@ def _binding(
     site: FromClause | JoinClause
     if position == 0:
         site = definition.from_clause
-        name = relation_name = site.source_name
+        name = site.binding_name or site.source_name
+        relation_name = site.source_name
         resolutions = environment.find_from_clause(site)
         targets = tuple(item.target_symbol for item in resolutions)
         issues = _relation_issues(environment, owner, relation_name, site)
@@ -1663,7 +1665,8 @@ def build_project_relationship_uses(
                 continue
             definition = _derived_definition(owner)
             names = (
-                definition.from_clause.source_name,
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name,
                 *(clause.target_binding_name for clause in definition.join_clauses),
             )
             duplicates = {name for name in names if names.count(name) > 1}

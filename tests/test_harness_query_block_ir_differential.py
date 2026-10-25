@@ -11,7 +11,6 @@ from typing import cast
 import pytest
 
 import _pietto_ir_query_block_differential as probe
-import _pietto_project_query_block as slice14
 from pietto._project import project_query_block_ir_inspection as inspection
 from pietto._project import project_query_block_ir_pure_boundary as pure
 from pietto._project.project_ir_pure_boundary import PROJECT_IR_INSPECTION_FORMAT
@@ -30,8 +29,6 @@ from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockVerificationIssue,
     ProjectIRQueryBlockVerificationIssueKind,
     ProjectIRQueryBlockVerificationStatus,
-    build_project_query_block_ir_analysis_bundle,
-    verify_project_query_block_ir,
 )
 
 
@@ -939,32 +936,6 @@ def test_authority_closure_matrix_precedes_production_and_freezes_roots() -> Non
         "Slice 16 is `NEXT / NOT IMPLEMENTED`",
     ):
         assert phrase in document
-
-
-def test_unchanged_published_positive_fixture_keeps_phase63_v1_bytes(
-    tmp_path: Path,
-) -> None:
-    completed = slice14.slice13._build(
-        tmp_path, slice14.slice13.POSITIVE_SOURCE
-    ).completed
-    snapshot = slice14.build_project_query_block_ir(completed)
-    verified = verify_project_query_block_ir(snapshot)
-    assert verified.verified
-    product = inspection.build_project_query_block_ir_inspection(
-        build_project_query_block_ir_analysis_bundle(verified)
-    )
-    assert (
-        product.document.format_marker == pure.PROJECT_QUERY_BLOCK_IR_INSPECTION_FORMAT
-    )
-    assert len(product.canonical_bytes) == 52134
-    assert (
-        hashlib.sha256(product.canonical_bytes).hexdigest()
-        == "19cc5868cbfb6450c453dd03a05c614c7fe165811a10e45f6a1e8950fd3ea76f"
-    )
-    assert (
-        pure.evaluate_project_query_block_ir_document(product.document).canonical_bytes
-        == product.canonical_bytes
-    )
 
 
 def test_lifted_fixture_active_final_fields_keep_exact_projection_authority(

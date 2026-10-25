@@ -64,7 +64,7 @@ def test_ir_metadata_models_are_frozen(value: object) -> None:
 
 
 def test_builtin_type_lowers_with_declared_and_canonical_identity() -> None:
-    script, model = _analyzed("shape User:\n    email: Text not null\n")
+    script, model = _analyzed("shape User:\n    email: Text\n")
     type_expr = _shape(script).fields[0].type_expr
 
     type_ref = lower_type_ref(type_expr, model)
@@ -82,7 +82,7 @@ def test_builtin_type_lowers_with_declared_and_canonical_identity() -> None:
 
 def test_type_alias_lowers_with_alias_and_canonical_target() -> None:
     script, model = _analyzed(
-        "type Email = Text not null\nshape User:\n    email: Email nullable\n"
+        "type Email = Text\nshape User:\n    email: Email | None\n"
     )
     type_expr = _shape(script).fields[0].type_expr
 
@@ -100,9 +100,9 @@ def test_type_alias_lowers_with_alias_and_canonical_target() -> None:
 def test_source_row_schema_lowers_in_field_order_with_copied_spans() -> None:
     script, model = _analyzed(
         "shape User:\n"
-        "    id: UUID not null\n"
-        "    email: Text nullable\n"
-        'source users: User is postgres.table("public.users")\n',
+        "    id: UUID\n"
+        "    email: Text | None\n"
+        'source users: User = postgres.table("public.users")\n',
         path="metadata.pietto",
     )
     source = _definition(script, SourceDef, "users")
@@ -120,16 +120,16 @@ def test_source_row_schema_lowers_in_field_order_with_copied_spans() -> None:
         line=2,
         column=5,
         end_line=2,
-        end_column=22,
+        end_column=13,
     )
 
 
 def test_relation_row_schema_lowers_in_projection_order() -> None:
     script, model = _analyzed(
         "shape User:\n"
-        "    id: UUID not null\n"
-        "    email: Text nullable\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    id: UUID\n"
+        "    email: Text | None\n"
+        'source users: User = postgres.table("public.users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"
@@ -148,7 +148,7 @@ def test_relation_row_schema_lowers_in_projection_order() -> None:
 
 
 def test_unknown_row_schema_lowers_without_crashing() -> None:
-    script, model = _analyzed('source raw_events is postgres.table("public.events")\n')
+    script, model = _analyzed('source raw_events = postgres.table("public.events")\n')
     source = _definition(script, SourceDef, "raw_events")
 
     schema = lower_row_schema(model.source_row_schemas[source], model)
@@ -158,10 +158,10 @@ def test_unknown_row_schema_lowers_without_crashing() -> None:
 
 def test_lowered_metadata_exposes_neither_parser_ast_nor_antlr_objects() -> None:
     script, model = _analyzed(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "shape User:\n"
-        "    email: Email nullable\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Email | None\n"
+        'source users: User = postgres.table("public.users")\n'
     )
     shape = _shape(script)
     source = _definition(script, SourceDef, "users")
@@ -176,8 +176,8 @@ def test_lowered_metadata_exposes_neither_parser_ast_nor_antlr_objects() -> None
 def test_metadata_lowering_does_not_mutate_inputs() -> None:
     script, model = _analyzed(
         "shape User:\n"
-        "    id: UUID not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    id: UUID\n"
+        'source users: User = postgres.table("public.users")\n'
     )
     source = _definition(script, SourceDef, "users")
     original_script = deepcopy(script)

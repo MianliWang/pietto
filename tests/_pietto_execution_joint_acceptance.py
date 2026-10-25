@@ -122,8 +122,8 @@ SHAPES = (
             flag
     let paired:
         from rows
-        cross join kept as k:
-            from rows
+        let k = kept
+        cross join k
         select:
             a = rows.id
             f = k.flag
@@ -146,8 +146,8 @@ SHAPES = (
             id
             text
     from rows
-    cross join picked as r:
-        from rows
+    let r = picked
+    cross join r
     select:
         a = rows.id
         t = r.text
@@ -159,9 +159,8 @@ SHAPES = (
         "computed_key",
         """query result:
     from rows
-    let:
-        positive = id > 0
-        same = id * 1
+    let positive = id > 0
+    let same = id * 1
     group by:
         positive
     select:
@@ -174,7 +173,7 @@ SHAPES = (
     # S04a/S04b: WHERE and SELECT reads, a binding obligation, a NULL echo.
     Shape(
         "param_where",
-        """query result(low: Int not null, label: Text nullable):
+        """query result(low: Int, label: Text | None):
     from rows
     where id > low
     select:
@@ -197,14 +196,13 @@ SHAPES = (
         restated=(("empty_for_null", {"low": 0, "label": ""}),),
         recovers=False,
     ),
-    # S04r: a computed key, LET aggregates, SATISFYING and a grouped ORDER.
+    # S04r: a computed key, LET aggregates, HAVING and a grouped ORDER.
     Shape(
         "param_grouped",
-        """query result(low: Int not null, high: Int nullable):
+        """query result(low: Int, high: Int | None):
     from rows
-    let:
-        k = id * low
-        s = id + high
+    let k = id * low
+    let s = id + high
     group by:
         k
     select:
@@ -213,7 +211,7 @@ SHAPES = (
         n = count(s)
         a = avg(s)
         m = max(s)
-    satisfying:
+    having:
         c > low
     order by:
         n desc
@@ -227,16 +225,14 @@ SHAPES = (
     # S04r: a builtin value argument, QUALIFY and a restated ORDER key.
     Shape(
         "param_result",
-        """query result(low: Int not null, label: Text nullable):
+        """query result(low: Int, label: Text | None):
     from rows
     where contains(text, label)
     select:
         id
         s = id * low
         u = lower(label)
-        r = row_number() window:
-            order by:
-                id
+        r = row_number() window(order by id)
     qualify:
         r <= low + 1
     order by:
@@ -249,20 +245,15 @@ SHAPES = (
     # S04w: a lag offset and default, an ntile bucket, an nth_value position.
     Shape(
         "param_window",
-        """query result(k: Int not null, b: Int not null, p: Int not null, f: Int not null):
+        """query result(k: Int, b: Int, p: Int, f: Int):
     from rows
     select:
         id
-        a = lag(id, k, f) window:
-            order by:
-                id
-        n = ntile(b) window:
-            order by:
-                id
-        t = nth_value(id, p) window:
-            order by:
-                id
-            rows between unbounded preceding and unbounded following
+        a = lag(id, k, f) window(order by id)
+        n = ntile(b) window(order by id)
+        t = nth_value(id, p) window(
+            order by id rows between unbounded preceding and unbounded following
+        )
 """,
         bindings=({"k": 1, "b": 2, "p": 2, "f": -1}, {"k": 0, "b": 1, "p": 1, "f": 0}),
         negatives=(
@@ -293,8 +284,8 @@ SHAPES = (
         select:
             id
     from low
-    cross join high as h:
-        from low
+    let h = high
+    cross join h
     select:
         x = low.a
         y = h.a
@@ -305,12 +296,10 @@ SHAPES = (
         "computed_key_join",
         """query result:
     from rows
-    inner join other as o:
-        from rows
-        on rows.id == o.id
-    let:
-        positive = rows.id > 0 and o.id > 0
-        level = o.id + rows.id * 0
+    let o = other
+    inner join o on rows.id == o.id
+    let positive = rows.id > 0 and o.id > 0
+    let level = o.id + rows.id * 0
     group by:
         positive
     select:
@@ -326,14 +315,13 @@ SHAPES = (
         "values_join",
         """query result:
     let seed:
-        values(rid: Int not null, label: Text nullable):
+        values(rid: Int, label: Text | None):
             0, "z"
-            1, null
+            1, None
             1, "y"
     from rows
-    inner join seed as s:
-        from rows
-        on rows.id == s.rid
+    let s = seed
+    inner join s on rows.id == s.rid
     select:
         a = rows.id
         b = s.label
@@ -343,10 +331,10 @@ SHAPES = (
     Shape(
         "values_only",
         """query result:
-    values(id: Int not null, label: Text nullable, ratio: Float nullable, flag: Bool nullable):
-        1, "a", 0.5, true
-        1, "a", 0.5, true
-        2, null, null, null
+    values(id: Int, label: Text | None, ratio: Float | None, flag: Bool | None):
+        1, "a", 0.5, True
+        1, "a", 0.5, True
+        2, None, None, None
 """,
         sourceless=True,
     ),
@@ -432,7 +420,7 @@ SHAPES = (
             flag
     let null_flags:
         from flags
-        where flag is null
+        where flag is None
         select:
             flag
     from rows
@@ -464,7 +452,7 @@ SHAPES = (
     let lower_null:
         capture rows
         from other
-        where other.id <= rows.id and other.flag is null
+        where other.id <= rows.id and other.flag is None
         select:
             id
     from rows
@@ -497,11 +485,10 @@ SHAPES = (
             i = id
             f = flag
     from rows
-    cross join least_bigger as g:
-        from rows
-    inner join twin as s:
-        from rows
-        on s.i > 1
+    let g = least_bigger
+    cross join g
+    let s = twin
+    inner join s on s.i > 1
     select:
         a = rows.id
         b = g.b
@@ -521,9 +508,8 @@ SHAPES = (
         select:
             b = id
     from rows
-    left join bigger as g:
-        from rows
-        on g.b == 1
+    let g = bigger
+    left join g on g.b == 1
     select:
         a = rows.id
         b = g.b
@@ -610,9 +596,8 @@ SHAPES = (
         "series_join",
         """query result:
     from generate_series(2, 0, -1) as n
-    inner join rows as r:
-        from n
-        on n.n == r.id
+    let r = rows
+    inner join r on n.n == r.id
     select:
         n = n.n
         t = r.text
@@ -622,7 +607,7 @@ SHAPES = (
     # LATERAL, in that JOIN's ON and inside a let read by EXISTS.
     Shape(
         "param_capture",
-        """query result(cut: Int not null, label: Text nullable):
+        """query result(cut: Int, label: Text | None):
     let bigger:
         capture rows
         from other
@@ -636,9 +621,8 @@ SHAPES = (
         select:
             id
     from rows
-    left join bigger as g:
-        from rows
-        on rows.id != cut
+    let g = bigger
+    left join g on rows.id != cut
     where exists tagged
     select:
         a = rows.id
@@ -651,15 +635,15 @@ SHAPES = (
     # recovers the saved binding, and R1 and R2 refuse its restatements.
     Shape(
         "param_r2",
-        """query result(low: Int not null):
+        """query result(low: Int):
     let kept:
         from other
         where id >= low
         select:
             id
     from rows
-    cross join kept as k:
-        from rows
+    let k = kept
+    cross join k
     where rows.id >= low
     select:
         a = rows.id
@@ -691,7 +675,7 @@ def write_project(directory: Path, target: str, shape: Shape) -> Path:
         other["relation"]["name"] = "p0"
         contract["sources"].append(other)
         head, marker, rest = source.partition("query result")
-        source = head + f'source other: Row is {target}.table("other")\n'
+        source = head + f'source other: Row = {target}.table("other")\n'
         source += marker + rest
     project = directory / (shape.name + "-" + target)
     project.mkdir(parents=True)

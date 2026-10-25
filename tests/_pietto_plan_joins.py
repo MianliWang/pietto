@@ -1,6 +1,5 @@
 """Shared JOIN planning fixtures."""
 
-from dataclasses import replace
 from pathlib import Path
 
 from _pietto_project_join import _completed, _source as _upstream_source
@@ -15,7 +14,6 @@ from pietto._project.project_query_block_ir_verification import (
 )
 from pietto._project.project_single_match import (
     ProjectSingleMatchRequest,
-    ProjectSingleMatchScope,
 )
 from pietto._project.project_sql_plan import ProjectSQLPlan, build_project_sql_plan
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
@@ -75,23 +73,14 @@ def _requests(completed):
 
 
 def _path_source(kind="inner", *, all_unique=False):
-    source = _asymmetric_source(target_unique=True, source_unique=all_unique).replace(
-        "inner join rhs as r:", kind + " join lhs as r:"
-    )
+    """Two authored binary boundaries, with the reverse target in the second."""
+    source = _asymmetric_source(target_unique=True, source_unique=all_unique)
     return source.replace(
-        "        from lhs\n    select:",
-        "        from lhs\n        via link: l -> r\n        via link: r -> l\n    select:",
+        "    let r = rhs\n    inner join r on Link(lhs, r)\n",
+        "    let mid = rhs\n    inner join mid on Link(lhs, mid)\n"
+        f"    let r = lhs\n    {kind} join r on Link(r, mid)\n",
     )
 
 
 def _path_requests(completed):
-    condition = completed.roots.join_conditions.entries[0]
-    path = condition.effective_use.path
-    assert path is not None
-    request = ProjectSingleMatchRequest(
-        owner=condition.use.owner, use=condition.use, path=path
-    )
-    return tuple(
-        replace(request, scope=ProjectSingleMatchScope.PATH_HOP, hop=step)
-        for step in path.steps
-    ) + (replace(request, scope=ProjectSingleMatchScope.WHOLE_PATH),)
+    return _requests(completed)

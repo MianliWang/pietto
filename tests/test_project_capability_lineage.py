@@ -43,12 +43,7 @@ from pietto.sql.window_strategy import (
 )
 
 
-PREFIX = (
-    "shape Row:\n"
-    "    id: Int not null\n"
-    "    value: Int nullable\n"
-    "    category: Text nullable\n"
-)
+PREFIX = "shape Row:\n    id: Int\n    value: Int | None\n    category: Text | None\n"
 
 
 def _source(
@@ -58,12 +53,12 @@ def _source(
     declarations: str,
 ) -> str:
     return (
-        PREFIX + f'source rows: Row is {connector}("rows")\n'
+        PREFIX + f'source rows: Row = {connector}("rows")\n'
         "query result:\n"
         "    from rows\n"
+        f"{declarations}"
         "    select:\n"
         f"{selections}"
-        f"{declarations}"
     )
 
 
@@ -93,13 +88,9 @@ def test_mysql_preserves_reachable_source_order_with_forward_references() -> Non
             connector="mysql.table",
             selections="        result = row_number() window child\n",
             declarations=(
-                "    window child = base\n"
-                "    window unused:\n"
-                "        order by:\n"
-                "            value\n"
-                "    window base:\n"
-                "        order by:\n"
-                "            id\n"
+                "    let child = window base\n"
+                "    let unused = window(order by value)\n"
+                "    let base = window(order by id)\n"
             ),
         )
     )
@@ -142,13 +133,9 @@ def test_postgresql_uses_stable_base_first_topological_order() -> None:
                 "        second = rank() window independent\n"
             ),
             declarations=(
-                "    window child = base\n"
-                "    window independent:\n"
-                "        order by:\n"
-                "            value\n"
-                "    window base:\n"
-                "        order by:\n"
-                "            id\n"
+                "    let child = window base\n"
+                "    let independent = window(order by value)\n"
+                "    let base = window(order by id)\n"
             ),
         )
     )
@@ -175,19 +162,17 @@ def test_postgresql_uses_stable_base_first_topological_order() -> None:
 
 def test_native_window_clause_uses_grouped_inputs_and_exact_clause_order() -> None:
     source = (
-        PREFIX + 'source rows: Row is postgres.table("rows")\n'
+        PREFIX + 'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
+        "    let ordered = window(order by total desc)\n"
         "    group by:\n"
         "        category\n"
         "    select:\n"
         "        category\n"
         "        total = sum(value)\n"
         "        ranking = rank() window ordered\n"
-        "    window ordered:\n"
-        "        order by:\n"
-        "            total desc\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total > 0\n"
         "    order by:\n"
         "        ranking\n"
@@ -210,23 +195,16 @@ def test_postgresql_framed_base_falls_back_to_exact_inline_bytes() -> None:
             "window child\n"
         ),
         declarations=(
-            "    window child = base\n"
-            "    window base:\n"
-            "        partition by:\n"
-            "            category\n"
-            "        order by:\n"
-            "            id desc\n"
-            "        rows between 1 preceding and current row exclude ties\n"
+            "    let child = window base\n"
+            "    let base = window(partition by category order by id desc "
+            "rows between 1 preceding and current row exclude ties)\n"
         ),
     )
     inline_source = _source(
         selections=(
-            "        result = nth_value(value, 2) from first respect nulls window:\n"
-            "            partition by:\n"
-            "                category\n"
-            "            order by:\n"
-            "                id desc\n"
-            "            rows between 1 preceding and current row exclude ties\n"
+            "        result = nth_value(value, 2) from first respect nulls "
+            "window(partition by category order by id desc "
+            "rows between 1 preceding and current row exclude ties)\n"
         ),
         declarations="",
     )
@@ -253,12 +231,7 @@ def test_direct_framed_reference_and_effective_default_remain_distinct() -> None
     _definition, framed_ir, framed_relation = _compile(
         _source(
             selections="        result = first_value(value) window base\n",
-            declarations=(
-                "    window base:\n"
-                "        order by:\n"
-                "            id\n"
-                "        rows current row\n"
-            ),
+            declarations=("    let base = window(order by id rows current row)\n"),
         )
     )
     framed_decision = decide_named_window_lowering(
@@ -279,7 +252,7 @@ def test_direct_framed_reference_and_effective_default_remain_distinct() -> None
                 "        ranking = row_number() window base\n"
                 "        result = first_value(value) window base\n"
             ),
-            declarations=("    window base:\n        order by:\n            id\n"),
+            declarations=("    let base = window(order by id)\n"),
         )
     )
     default_sql = emit_postgres_sql(default_ir).artifacts[0].sql
@@ -339,18 +312,12 @@ def test_language_named_window_example_falls_back_to_exact_inline_sql(
             connector=connector,
             selections=(
                 "        a = row_number() window ordered\n"
-                "        b = row_number() window ordered:\n"
-                "            partition by:\n"
-                "                category\n"
+                "        b = row_number() window ordered(partition by category)\n"
                 "        c = row_number() window per_category\n"
             ),
             declarations=(
-                "    window ordered:\n"
-                "        order by:\n"
-                "            id\n"
-                "    window per_category = ordered:\n"
-                "        partition by:\n"
-                "            category\n"
+                "    let ordered = window(order by id)\n"
+                "    let per_category = window ordered(partition by category)\n"
             ),
         )
     )
@@ -375,60 +342,34 @@ def test_language_named_window_example_falls_back_to_exact_inline_sql(
     ("selections", "declarations", "inline", "detail"),
     (
         (
-            "        b = row_number() window ordered:\n"
-            "            partition by:\n"
-            "                category\n",
-            "    window ordered:\n        order by:\n            id\n",
-            "        b = row_number() window:\n"
-            "            partition by:\n"
-            "                category\n"
-            "            order by:\n"
-            "                id\n",
+            "        b = row_number() window ordered(partition by category)\n",
+            "    let ordered = window(order by id)\n",
+            "        b = row_number() window(partition by category order by id)\n",
             "cannot add PARTITION BY to a copied named base",
         ),
         (
             "        a = row_number() window c\n",
-            "    window a0:\n"
-            "        order by:\n"
-            "            id\n"
-            "    window b = a0\n"
-            "    window c = b:\n"
-            "        partition by:\n"
-            "            category\n",
-            "        a = row_number() window:\n"
-            "            partition by:\n"
-            "                category\n"
-            "            order by:\n"
-            "                id\n",
+            "    let a0 = window(order by id)\n"
+            "    let b = window a0\n"
+            "    let c = window b(partition by category)\n",
+            "        a = row_number() window(partition by category order by id)\n",
             "cannot add PARTITION BY to a copied named base",
         ),
         (
-            "        a = first_value(value) window framed:\n"
-            "            order by:\n"
-            "                id\n",
-            "    window framed:\n"
-            "        partition by:\n"
-            "            category\n"
-            "        rows between 1 preceding and current row\n",
-            "        a = first_value(value) window:\n"
-            "            partition by:\n"
-            "                category\n"
-            "            order by:\n"
-            "                id\n"
-            "            rows between 1 preceding and current row\n",
+            "        a = first_value(value) window framed(order by id)\n",
+            "    let framed = window(partition by category "
+            "rows between 1 preceding and current row)\n",
+            "        a = first_value(value) window(partition by category order by id "
+            "rows between 1 preceding and current row)\n",
             "cannot copy a named base carrying a frame",
         ),
         (
             "        a = first_value(value) window alias\n",
-            "    window alias = framed\n"
-            "    window framed:\n"
-            "        order by:\n"
-            "            id\n"
-            "        rows between 1 preceding and current row\n",
-            "        a = first_value(value) window:\n"
-            "            order by:\n"
-            "                id\n"
-            "            rows between 1 preceding and current row\n",
+            "    let alias = window framed\n"
+            "    let framed = window(order by id "
+            "rows between 1 preceding and current row)\n",
+            "        a = first_value(value) window(order by id "
+            "rows between 1 preceding and current row)\n",
             "cannot copy a named base carrying a frame",
         ),
     ),
@@ -465,30 +406,19 @@ def test_copyable_named_refinements_and_chains_stay_native(
             connector=connector,
             selections=(
                 "        a = row_number() window ordered\n"
-                "        b = first_value(value) window ordered:\n"
-                "            rows between 1 preceding and current row\n"
-                "        c = row_number() window parted:\n"
-                "            order by:\n"
-                "                id\n"
+                "        b = first_value(value) window ordered("
+                "rows between 1 preceding and current row)\n"
+                "        c = row_number() window parted(order by id)\n"
                 "        d = last_value(value) window framed\n"
                 "        e = rank() window alias\n"
             ),
             declarations=(
-                "    window ordered:\n"
-                "        order by:\n"
-                "            id\n"
-                "    window parted:\n"
-                "        partition by:\n"
-                "            category\n"
-                "    window child = parted:\n"
-                "        order by:\n"
-                "            id desc\n"
-                "    window alias = child\n"
-                "    window framed = ordered:\n"
-                "        rows current row\n"
-                "    window unused = ordered:\n"
-                "        partition by:\n"
-                "            category\n"
+                "    let ordered = window(order by id)\n"
+                "    let parted = window(partition by category)\n"
+                "    let child = window parted(order by id desc)\n"
+                "    let alias = window child\n"
+                "    let framed = window ordered(rows current row)\n"
+                "    let unused = window ordered(partition by category)\n"
             ),
         )
     )
@@ -521,8 +451,8 @@ def test_copyable_named_refinements_and_chains_stay_native(
 @pytest.mark.parametrize(
     "copies",
     (
-        "    window child = base\n",
-        "    window child = mid\n    window mid = base\n",
+        "    let child = window base\n",
+        "    let child = window mid\n    let mid = window base\n",
     ),
     ids=("direct", "through-alias"),
 )
@@ -537,9 +467,7 @@ def test_copy_adding_order_to_an_ordered_base_falls_back_inline(
         _source(
             connector=connector,
             selections="        result = row_number() window child\n",
-            declarations=(
-                f"{copies}    window base:\n        order by:\n            id\n"
-            ),
+            declarations=(f"{copies}    let base = window(order by id)\n"),
         )
     )
     child, *rest = relation.named_windows
@@ -566,16 +494,9 @@ def test_an_unordered_base_cycle_fails_closed(
     _definition, _script_ir, relation = _compile(
         _source(
             connector=connector,
-            selections=(
-                "        result = row_number() window a:\n"
-                "            order by:\n"
-                "                id\n"
-            ),
+            selections=("        result = row_number() window a(order by id)\n"),
             declarations=(
-                "    window a = b\n"
-                "    window b:\n"
-                "        partition by:\n"
-                "            category\n"
+                "    let a = window b\n    let b = window(partition by category)\n"
             ),
         )
     )
@@ -601,8 +522,8 @@ def test_alias_chain_deeper_than_the_recursion_limit_stays_native(
         _source(
             connector=connector,
             selections=f"        result = row_number() window w{depth}\n",
-            declarations="    window w0:\n        order by:\n            id\n"
-            + "".join(f"    window w{i} = w{i - 1}\n" for i in range(1, depth + 1)),
+            declarations="    let w0 = window(order by id)\n"
+            + "".join(f"    let w{i} = window w{i - 1}\n" for i in range(1, depth + 1)),
         )
     )
     native, quote = (
@@ -621,15 +542,10 @@ def test_named_ir_preserves_declarations_uses_and_no_target_strategy() -> None:
         _source(
             selections=(
                 "        direct = row_number() window ordered\n"
-                "        extended = row_number() window root:\n"
-                "            order by:\n"
-                "                id\n"
+                "        extended = row_number() window root(order by id)\n"
             ),
             declarations=(
-                "    window root\n"
-                "    window ordered:\n"
-                "        order by:\n"
-                "            value\n"
+                "    let root = window()\n    let ordered = window(order by value)\n"
             ),
         )
     )
@@ -654,16 +570,10 @@ def test_target_failure_keeps_project_lineage_and_semantic_provenance(
     source = _source(
         selections=("        result = first_value(value) ignore nulls window framed\n"),
         declarations=(
-            "    window unused:\n"
-            "        order by:\n"
-            "            value\n"
-            "    window framed = base\n"
-            "    window base:\n"
-            "        partition by:\n"
-            "            category\n"
-            "        order by:\n"
-            "            id\n"
-            "        rows current row exclude ties\n"
+            "    let unused = window(order by value)\n"
+            "    let framed = window base\n"
+            "    let base = window(partition by category order by id "
+            "rows current row exclude ties)\n"
         ),
     )
     definition, script_ir, relation_ir = _compile(source)
@@ -827,17 +737,12 @@ def test_named_paths_cannot_bypass_slice9_target_restrictions(
     frame: str | None,
     evidence_kind: WindowTargetEvidenceKind,
 ) -> None:
-    frame_source = "" if frame is None else f"        {frame}\n"
+    frame_source = "" if frame is None else f" {frame}"
     _definition, script_ir, relation = _compile(
         _source(
             connector=connector,
             selections=f"        result = {call} window restricted\n",
-            declarations=(
-                "    window restricted:\n"
-                "        order by:\n"
-                "            id\n"
-                f"{frame_source}"
-            ),
+            declarations=(f"    let restricted = window(order by id{frame_source})\n"),
         )
     )
     decision = decide_named_window_lowering(relation, dialect)
@@ -864,7 +769,7 @@ def test_one_unsupported_named_use_blocks_the_whole_relation_strategy() -> None:
                 "        safe = row_number() window ordered\n"
                 "        blocked = nth_value(value, 2) from last window ordered\n"
             ),
-            declarations=("    window ordered:\n        order by:\n            id\n"),
+            declarations=("    let ordered = window(order by id)\n"),
         )
     )
     decision = decide_named_window_lowering(
@@ -882,7 +787,7 @@ def test_one_unsupported_named_use_blocks_the_whole_relation_strategy() -> None:
 def test_semantic_model_retains_exact_namespace_and_named_analysis() -> None:
     source = _source(
         selections="        result = row_number() window ordered\n",
-        declarations=("    window ordered:\n        order by:\n            id\n"),
+        declarations=("    let ordered = window(order by id)\n"),
     )
     parsed = parse_source(source, path="slice10.pietto")
     assert parsed.ast is not None
@@ -895,3 +800,109 @@ def test_semantic_model_retains_exact_namespace_and_named_analysis() -> None:
     assert analysis.resolved_named_use is not None
     assert analysis.resolved_named_use.composed.namespace is namespace
     assert analysis.authored_expression is expression
+
+
+@pytest.mark.parametrize(("connector", "dialect"), _DIALECTS)
+def test_empty_extended_named_windows_keep_copy_identity_and_default_frames(
+    connector: str, dialect: WindowTargetDialect
+) -> None:
+    from pietto.ir.model import WindowUseKindIR
+
+    definition, script_ir, relation = _compile(
+        PREFIX + f'source rows: Row = {connector}("rows")\n'
+        "query result:\n"
+        "    from rows\n"
+        "    let root = window()\n"
+        "    let ordered = window root(order by id)\n"
+        "    select:\n"
+        "        ranked_direct = row_number() window ordered\n"
+        "        ranked_copy = row_number() window ordered()\n"
+        "        value_direct = first_value(value) window ordered\n"
+        "        value_copy = first_value(value) window ordered()\n"
+    )
+    authored = tuple(
+        cast(WindowExpr, item.expression) for item in definition.select_items
+    )
+    calls = _window_calls(relation)
+    assert len(calls) == 4
+    assert tuple(expression.use_kind for expression in authored) == (
+        WindowUseKind.NAMED_DIRECT,
+        WindowUseKind.NAMED_EXTENDED,
+        WindowUseKind.NAMED_DIRECT,
+        WindowUseKind.NAMED_EXTENDED,
+    )
+    for ordinal, (expression, call) in enumerate(zip(authored, calls, strict=True)):
+        use = call.named_use
+        assert use is not None
+        assert use.occurrence.kind is WindowUseKindIR(expression.use_kind.value)
+        assert use.occurrence.selected_output_ordinal == ordinal
+        assert not use.local_spec.has_components
+        assert call.spec.order_by
+    assert window_runtime_semantically_equal(calls[0], calls[1])
+    assert window_runtime_semantically_equal(calls[2], calls[3])
+    direct = calls[0].named_use
+    assert direct is not None
+    with pytest.raises(ValueError, match="kind must match local components"):
+        replace(
+            direct,
+            local_spec=replace(direct.local_spec, order_by=calls[0].spec.order_by),
+        )
+    with pytest.raises(TypeError, match="named window use kind must be exact"):
+        replace(direct.occurrence, kind=cast(WindowUseKindIR, WindowUseKind.INLINE))
+    native, quote, exclusion = (
+        (NamedWindowLoweringStrategy.NATIVE_REORDER, '"', " EXCLUDE NO OTHERS")
+        if dialect is WindowTargetDialect.POSTGRESQL
+        else (NamedWindowLoweringStrategy.NATIVE_PRESERVE, "`", "")
+    )
+    assert _unsupported_details(relation, dialect) == (native, [])
+    sql = _emit(script_ir, dialect)
+    assert 'ROW_NUMBER() OVER "ordered" AS "ranked_direct"'.replace('"', quote) in sql
+    assert 'ROW_NUMBER() OVER ("ordered") AS "ranked_copy"'.replace('"', quote) in sql
+    for alias in ("value_direct", "value_copy"):
+        expected = (
+            'FIRST_VALUE("value") OVER ("ordered" RANGE BETWEEN UNBOUNDED PRECEDING '
+            f'AND CURRENT ROW{exclusion}) AS "{alias}"'
+        )
+        assert expected.replace('"', quote) in sql
+
+
+@pytest.mark.parametrize(("connector", "dialect"), _DIALECTS)
+def test_empty_extended_framed_base_uses_exact_inline_fallback(
+    connector: str, dialect: WindowTargetDialect
+) -> None:
+    prefix = (
+        PREFIX + f'source rows: Row = {connector}("rows")\n'
+        "query result:\n"
+        "    from rows\n"
+    )
+    extended_source = (
+        prefix + "    let base = window(order by id rows current row)\n"
+        "    select:\n"
+        "        result = first_value(value) window base()\n"
+    )
+    _, extended_ir, extended_relation = _compile(extended_source)
+    _, direct_ir, direct_relation = _compile(
+        extended_source.replace("window base()", "window base")
+    )
+    _, inline_ir, inline_relation = _compile(
+        prefix
+        + "    select:\n"
+        + "        result = first_value(value) window(order by id rows current row)\n"
+    )
+    assert window_runtime_semantically_equal(
+        _window_calls(extended_relation)[0], _window_calls(inline_relation)[0]
+    )
+    assert _unsupported_details(extended_relation, dialect) == (
+        NamedWindowLoweringStrategy.INLINE_EXACT,
+        [f"{dialect.value} cannot copy a named base carrying a frame"],
+    )
+    native, quote = (
+        (NamedWindowLoweringStrategy.NATIVE_REORDER, '"')
+        if dialect is WindowTargetDialect.POSTGRESQL
+        else (NamedWindowLoweringStrategy.NATIVE_PRESERVE, "`")
+    )
+    assert _unsupported_details(direct_relation, dialect) == (native, [])
+    assert 'OVER "base"'.replace('"', quote) in _emit(direct_ir, dialect)
+    extended_sql = _emit(extended_ir, dialect)
+    assert extended_sql == _emit(inline_ir, dialect)
+    assert "WINDOW" not in extended_sql

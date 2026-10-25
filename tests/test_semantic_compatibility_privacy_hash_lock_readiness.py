@@ -158,9 +158,9 @@ def _project(root: Path, relation_body: str) -> Path:
     (root / "models.pietto").write_text(
         (
             "shape User:\n"
-            "    id: Int not null\n"
-            "    score: Int not null\n"
-            'source users: User is postgres.table("users")\n'
+            "    id: Int\n"
+            "    score: Int\n"
+            'source users: User = postgres.table("users")\n'
             f"{relation_body}"
         ),
         encoding="utf-8",

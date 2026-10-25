@@ -17,8 +17,8 @@ from pietto.semantic import TypeKind, analyze
 def test_constraint_returning_bool_has_no_signature_diagnostic() -> None:
     result = analyze(
         _parse(
-            "constraint valid(email: Text not null) -> Bool not null:\n"
-            '    matches(email, ".+@.+")\n'
+            "constraint valid(email: Text) -> Bool:\n"
+            '    return matches(email, ".+@.+")\n'
         )
     )
 
@@ -27,7 +27,7 @@ def test_constraint_returning_bool_has_no_signature_diagnostic() -> None:
 
 def test_constraint_returning_text_reports_pie_s2401() -> None:
     result = analyze(
-        _parse("constraint label(email: Text not null) -> Text not null:\n    true\n")
+        _parse("constraint label(email: Text) -> Text:\n    return True\n")
     )
 
     assert [
@@ -45,9 +45,7 @@ def test_constraint_returning_text_reports_pie_s2401() -> None:
 def test_constraint_bool_alias_uses_canonical_expansion() -> None:
     result = analyze(
         _parse(
-            "type Predicate = Bool not null\n"
-            "constraint valid() -> Predicate not null:\n"
-            "    true\n"
+            "type Predicate = Bool\nconstraint valid() -> Predicate:\n    return True\n"
         )
     )
     constraint = _constraint(result.model.callable_symbols["valid"])
@@ -61,7 +59,7 @@ def test_constraint_bool_alias_uses_canonical_expansion() -> None:
 
 
 def test_unknown_constraint_return_type_suppresses_pie_s2401() -> None:
-    result = analyze(_parse("constraint valid() -> Missing not null:\n    true\n"))
+    result = analyze(_parse("constraint valid() -> Missing:\n    return True\n"))
     constraint = _constraint(result.model.callable_symbols["valid"])
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2002"]
@@ -72,7 +70,7 @@ def test_unknown_constraint_return_type_suppresses_pie_s2401() -> None:
 
 def test_valid_derive_signature_has_no_callable_diagnostic() -> None:
     result = analyze(
-        _parse("derive normalize(value: Text not null) -> Text not null:\n    value\n")
+        _parse("derive normalize(value: Text) -> Text:\n    return value\n")
     )
 
     assert result.diagnostics == ()
@@ -80,9 +78,7 @@ def test_valid_derive_signature_has_no_callable_diagnostic() -> None:
 
 def test_derive_unknown_return_type_relies_on_pie_s2002() -> None:
     result = analyze(
-        _parse(
-            "derive normalize(value: Text not null) -> Missing not null:\n    value\n"
-        )
+        _parse("derive normalize(value: Text) -> Missing:\n    return value\n")
     )
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2002"]
@@ -90,11 +86,7 @@ def test_derive_unknown_return_type_relies_on_pie_s2002() -> None:
 
 def test_duplicate_constraint_parameter_reports_pie_s2001() -> None:
     result = analyze(
-        _parse(
-            "constraint equal(value: Text not null, value: Text not null) "
-            "-> Bool not null:\n"
-            "    true\n"
-        )
+        _parse("constraint equal(value: Text, value: Text) -> Bool:\n    return True\n")
     )
 
     assert [
@@ -109,11 +101,7 @@ def test_duplicate_constraint_parameter_reports_pie_s2001() -> None:
 
 def test_duplicate_derive_parameter_reports_pie_s2001() -> None:
     result = analyze(
-        _parse(
-            "derive choose(value: Text not null, value: Text not null) "
-            "-> Text not null:\n"
-            "    value\n"
-        )
+        _parse("derive choose(value: Text, value: Text) -> Text:\n    return value\n")
     )
 
     assert [
@@ -128,9 +116,7 @@ def test_duplicate_derive_parameter_reports_pie_s2001() -> None:
 
 def test_duplicate_parameter_diagnostic_uses_later_parameter_span() -> None:
     script = _parse(
-        "derive choose(value: Text not null, value: Text not null) "
-        "-> Text not null:\n"
-        "    value\n",
+        "derive choose(value: Text, value: Text) -> Text:\n    return value\n",
         path="callables.pietto",
     )
     derive = _derive(script.definitions[0])
@@ -156,13 +142,13 @@ def test_duplicate_parameter_diagnostic_uses_later_parameter_span() -> None:
 def test_multiple_callable_diagnostics_follow_source_order() -> None:
     result = analyze(
         _parse(
-            "constraint first() -> Text not null:\n"
-            "    true\n"
-            "derive second(value: Text not null, value: Text not null) "
-            "-> Text not null:\n"
-            "    value\n"
-            "constraint third() -> Int not null:\n"
-            "    true\n"
+            "constraint first() -> Text:\n"
+            "    return True\n"
+            "derive second(value: Text, value: Text) "
+            "-> Text:\n"
+            "    return value\n"
+            "constraint third() -> Int:\n"
+            "    return True\n"
         )
     )
 
@@ -179,10 +165,10 @@ def test_multiple_callable_diagnostics_follow_source_order() -> None:
 def test_user_defined_callable_calls_remain_unsupported() -> None:
     result = analyze(
         _parse(
-            "constraint valid(value: Text not null) -> Bool not null:\n"
-            "    unknown_constraint(value)\n"
-            "derive normalize(value: Text not null) -> Text not null:\n"
-            "    unknown_derive(value)\n"
+            "constraint valid(value: Text) -> Bool:\n"
+            "    return unknown_constraint(value)\n"
+            "derive normalize(value: Text) -> Text:\n"
+            "    return unknown_derive(value)\n"
         )
     )
 
@@ -206,10 +192,11 @@ def test_a_call_of_a_constraint_or_derive_says_it_cannot_be_called(
 ) -> None:
     result = analyze(
         _parse(
-            'shape Item:\n    label: Text not null\nsource items: Item is postgres.table("items")\n'
-            f"constraint {constraint}(x: Text not null) -> Bool not null:\n"
-            "    x like '%a%'\n"
-            f"derive {derive}(x: Text not null) -> Text not null:\n    lower(x)\n"
+            'shape Item:\n    label: Text\nsource items: Item = postgres.table("items")\n'
+            f"constraint {constraint}(x: Text) -> Bool:\n"
+            "    return x like '%a%'\n"
+            f"derive {derive}(x: Text) -> Text:\n"
+            "    return lower(x)\n"
             f"query q:\n    from items\n    where {constraint}(label)\n"
             f"    select:\n        n = {derive}(label)\n"
         )
@@ -237,9 +224,7 @@ def test_a_call_of_a_constraint_or_derive_says_it_cannot_be_called(
 
 
 def test_callable_signature_validation_does_not_mutate_input_ast() -> None:
-    script = _parse(
-        "constraint label(value: Text not null) -> Text not null:\n    value\n"
-    )
+    script = _parse("constraint label(value: Text) -> Text:\n    return value\n")
     original = deepcopy(script)
 
     analyze(script)
@@ -249,7 +234,7 @@ def test_callable_signature_validation_does_not_mutate_input_ast() -> None:
 
 def test_callable_semantic_results_do_not_expose_antlr_nodes() -> None:
     result = analyze(
-        _parse("constraint label(value: Text not null) -> Text not null:\n    value\n")
+        _parse("constraint label(value: Text) -> Text:\n    return value\n")
     )
 
     _assert_no_antlr_nodes(result)

@@ -12,20 +12,20 @@ SOURCE_PREFIX = (
     "    active\n"
     "    paused\n"
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    enum_status: Status not null\n"
-    "    active: Bool not null\n"
-    "    optional_active: Bool nullable\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float nullable\n"
-    "    payload: Json not null\n"
-    "    raw: Bytes not null\n"
-    "    id: UUID not null\n"
-    "    anything: Any nullable\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    region: Text\n"
+    "    status: Text\n"
+    "    enum_status: Status\n"
+    "    active: Bool\n"
+    "    optional_active: Bool | None\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float | None\n"
+    "    payload: Json\n"
+    "    raw: Bytes\n"
+    "    id: UUID\n"
+    "    anything: Any | None\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -41,7 +41,7 @@ SOURCE_PREFIX = (
         ("known_values = count(trim(status))", "Text", EffectiveNullability.NON_NULL),
         ("known_values = count(len(status))", "Int", EffectiveNullability.NON_NULL),
         (
-            "known_values = count(active and true)",
+            "known_values = count(active and True)",
             "Bool",
             EffectiveNullability.UNKNOWN,
         ),
@@ -146,13 +146,13 @@ def test_qualified_field_leaves_count_as_resolved_direct_input_leaves() -> None:
     [
         "known_values = count(1)",
         'known_values = count("x")',
-        "known_values = count(true)",
+        "known_values = count(True)",
         "known_values = count(1 + 2)",
         "known_values = count(amount > 1)",
-        "known_values = count(amount between 1 and 10)",
-        "known_values = count(amount is null)",
-        "known_values = count(anything is null)",
-        "known_values = count(enum_status is null)",
+        "known_values = count(1 <= amount <= 10)",
+        "known_values = count(amount is None)",
+        "known_values = count(anything is None)",
+        "known_values = count(enum_status is None)",
         'known_values = count(matches(status, "active"))',
     ],
 )
@@ -260,7 +260,7 @@ def test_count_expression_inside_satisfying_remains_invalid_context() -> None:
             "    select:\n"
             "        region\n"
             "        known_values = count(amount + tax)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        count(amount + tax) > 0\n"
         )
     )
@@ -268,7 +268,7 @@ def test_count_expression_inside_satisfying_remains_invalid_context() -> None:
     assert _errors(result) == [
         (
             "PIE-S2308",
-            "Aggregate count() is not allowed in satisfying clause; "
+            "Aggregate count() is not allowed in having clause; "
             "use it only as a direct aliased select projection",
         )
     ]

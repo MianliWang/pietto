@@ -1,5 +1,23 @@
 # Grouped Result Ordering Contract Version 1
 
+## Reading this contract with current source
+
+Current result-predicate spelling is `having`, and single-line clauses omit
+the colon. The accepted-source examples below use that spelling while retaining
+the grouped output-name lookup and SQL lowering rules. The Baseline section is
+explicitly the historical pre-migration inventory; its old `satisfying:` name
+does not re-enable that spelling.
+
+The phase status, pinned baselines, decisions, delivery gates and later-slice
+handoffs below are retained historical records. They do not select a source
+syntax or a new release version. Current source defaults to the
+[modern language](../language.md); `pietto NUMBER` remains metadata. Retired
+spelling is read only for diagnostics/migration, and
+[`pietto migrate`](../language.md#migrating-old-source) writes a complete result
+or a manual-refusal diagnostic without editing the input. Exact diagnostic,
+SQL, JSON and internal enum/opcode spellings remain unchanged.
+
+
 ## Status
 
 Status: Phase 27 is complete for the grouped result-ordering MVP. The
@@ -14,6 +32,8 @@ runtime/database behavior, schema introspection, public MySQL API, public MySQL
 CLI exposure, or relationship/JOIN behavior.
 
 ## Baseline
+
+Historical Phase 12/25/26 baseline (before the source-spelling migration):
 
 Phase 12 already implements no-GROUP input-scope `order by:` and static
 `limit`. That contract remains authoritative for relations without `group by:`.
@@ -67,7 +87,8 @@ Accepted order items must satisfy all of these rules:
 - order item source order is preserved;
 - duplicate order items are preserved and are not deduplicated.
 
-Examples that are in scope for the completed MVP:
+Modern spelling of the accepted grouped-order examples; aggregate and
+selected-target restrictions remain separate:
 
 ```pietto
 table revenue_by_region:
@@ -78,7 +99,7 @@ table revenue_by_region:
         region
         total = sum(amount + tax)
         normalized = count_distinct(lower(trim(status)))
-    satisfying:
+    having:
         total > 1000
     order by:
         total desc
@@ -167,7 +188,7 @@ accepted grouped output-name order items. It keeps
 
 Parser-owned malformed shapes, invalid directions, duplicate clauses in the
 same position, misplaced clauses, empty blocks, and ordinal ordering such as
-`order by: 1` remain parser errors through `PIE-P1000`.
+`order by 1` remain parser errors through `PIE-P1000`.
 
 No-GROUP `order by:` remains Phase 12 input-scope behavior and continues to use
 existing input field diagnostics such as `PIE-S2102`.

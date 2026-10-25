@@ -40,15 +40,15 @@ COMPLETION = (
     ("body", "diagnostics"),
     (
         (
-            IDS + "query result:\n    from lhs\n    let:\n        f = id in ids\n"
+            IDS + "query result:\n    from lhs\n    let f = id in ids\n"
             "    select:\n        id\n        f\n",
-            [("PIE-S2350", POSITION.format("a row let"), 13, 13)],
+            [("PIE-S2350", POSITION.format("a row let"), 12, 13)],
         ),
         (
-            IDS + "query result:\n    from lhs\n    inner join rhs as r:\n"
-            "        from lhs\n        on lhs.id == r.id and r.key in ids\n"
+            IDS + "query result:\n    from lhs\n    let r = rhs\n"
+            "    inner join r on lhs.id == r.id and r.key in ids\n"
             "    select:\n        a = lhs.id\n",
-            [("PIE-S2350", POSITION.format("JOIN ON"), 14, 31)],
+            [("PIE-S2350", POSITION.format("JOIN ON"), 13, 40)],
         ),
         (
             IDS + "query result:\n    from lhs\n    select:\n        a = lhs.id\n"
@@ -73,12 +73,12 @@ COMPLETION = (
         ),
         (
             IDS + "query result:\n    from lhs\n    select:\n        a = lhs.id\n"
-            "        n = count()\n    satisfying:\n        n in ids\n",
+            "        n = count()\n    having:\n        n in ids\n",
             [
                 ("PIE-S2350", POSITION.format("SATISFYING"), 16, 9),
                 (
                     "PIE-S2323",
-                    "`satisfying` requires GROUP BY",
+                    "`having` requires GROUP BY",
                     15,
                     5,
                 ),
@@ -86,16 +86,15 @@ COMPLETION = (
         ),
         (
             IDS + "query result:\n    from lhs\n    select:\n        id\n"
-            "        r = row_number() window:\n            order by:\n"
-            "                id\n    qualify:\n        r in ids\n",
-            [("PIE-S2350", POSITION.format("QUALIFY"), 18, 9)],
+            "        r = row_number() window(order by id)\n"
+            "    qualify:\n        r in ids\n",
+            [("PIE-S2350", POSITION.format("QUALIFY"), 16, 9)],
         ),
         (
             IDS + "query result:\n    from lhs\n    select:\n        id\n"
-            "        r = row_number() window:\n            order by:\n"
-            "                id in ids\n",
+            "        r = row_number() window(order by id in ids)\n",
             [
-                ("PIE-S2350", POSITION.format("a window"), 16, 17),
+                ("PIE-S2350", POSITION.format("a window"), 14, 42),
                 (
                     "PIE-S2103",
                     "Unsupported window computation for function row_number: "
@@ -150,24 +149,22 @@ GATE = (
 def test_reads_outside_relation_bodies_keep_their_gate(tmp_path: Path) -> None:
     text = (
         IDS
-        + "constraint Known(x: Int) -> Bool:\n    x in ids\n"
-        + "derive known(x: Int) -> Bool:\n    x not in ids\n"
-        + "shape Checked:\n    id: Int not null\n    check known_id:\n"
-        + "        id in ids\n"
-        + "relationship link:\n    endpoint l: lhs\n    endpoint r: rhs\n"
-        + "    on l.id in ids\n"
+        + "constraint Known(x: Int) -> Bool:\n    return x in ids\n"
+        + "derive known(x: Int) -> Bool:\n    return x not in ids\n"
+        + "shape Checked:\n    id: Int\n    known_id = check(id in ids)\n"
+        + "relationship link(l: Row, r: Row):\n    l.id in ids\n"
         + "type Small = Int ensure value in ids\n"
-        + "source odd: Row is postgres.table(1 in ids)\n"
+        + "source odd: Row = postgres.table(1 in ids)\n"
     )
     assert _check(tmp_path, text) == (
         1,
         [
-            ("PIE-S2350", GATE, 11, 5),
-            ("PIE-S2350", GATE, 13, 5),
-            ("PIE-S2350", GATE, 17, 9),
-            ("PIE-S2350", GATE, 21, 8),
-            ("PIE-S2350", GATE, 22, 25),
-            ("PIE-S2350", GATE, 23, 35),
+            ("PIE-S2350", GATE, 11, 12),
+            ("PIE-S2350", GATE, 13, 12),
+            ("PIE-S2350", GATE, 16, 22),
+            ("PIE-S2350", GATE, 18, 5),
+            ("PIE-S2350", GATE, 19, 25),
+            ("PIE-S2350", GATE, 20, 34),
         ],
     )
 
@@ -255,10 +252,10 @@ def test_a_left_value_must_pair_with_the_read_column_like_a_literal_list(
     ) == (1, [("PIE-S2105", PAIR.format("not in"), 12, 11)])
     assert _check(
         tmp_path / "join",
-        IDS + "query result:\n    from lhs\n    inner join rhs as r:\n"
-        '        from lhs\n        on lhs.id == r.id\n    where "x" in ids\n'
+        IDS + "query result:\n    from lhs\n    let r = rhs\n"
+        '    inner join r on lhs.id == r.id\n    where "x" in ids\n'
         "    select:\n        a = lhs.id\n",
-    ) == (1, [("PIE-S2105", PAIR.format("in"), 15, 11)])
+    ) == (1, [("PIE-S2105", PAIR.format("in"), 14, 11)])
     assert _check(
         tmp_path / "set",
         union + IDS + 'query result:\n    from lhs\n    where "a" in u\n'
@@ -267,7 +264,7 @@ def test_a_left_value_must_pair_with_the_read_column_like_a_literal_list(
     # A typed VALUES header declares its column before completion.
     assert _check(
         tmp_path / "values",
-        "query result:\n    let v:\n        values(t: Text not null):\n"
+        "query result:\n    let v:\n        values(t: Text):\n"
         '            "x"\n    from lhs\n    where id in v\n    select:\n'
         "        id\n",
     ) == (1, [("PIE-S2105", PAIR.format("in"), 11, 11)])
@@ -277,8 +274,8 @@ def test_a_decimal_and_an_int_pair_as_in_a_literal_list(tmp_path: Path) -> None:
     """A Decimal pairs with an Int, as in `m in (1, 2)` and `m == 1`; a Float
     still pairs with neither."""
     monies = (
-        "shape Money:\n    m: Decimal(9, 2) not null\n    r: Float not null\n"
-        'source monies_src: Money is postgres.table("monies")\n'
+        "shape Money:\n    m: Decimal(9, 2)\n    r: Float\n"
+        'source monies_src: Money = postgres.table("monies")\n'
         "query monies:\n    from monies_src\n    select:\n        m\n"
     )
     assert _check(
@@ -341,24 +338,24 @@ def test_a_block_with_known_columns_is_read_only_with_exactly_one(
             ("PIE-S2102", "Unknown field: nope", 8, 11),
         ],
     )
-    assert _check(tmp_path / "null_width", where.format("null", "rhs")) == (
+    assert _check(tmp_path / "null_width", where.format("None", "rhs")) == (
         1,
         [("PIE-S2105", WIDTH.format("in"), 8, 11)],
     )
-    assert _check(tmp_path / "null", IDS + where.format("null", "ids")) == (0, [])
+    assert _check(tmp_path / "null", IDS + where.format("None", "ids")) == (0, [])
     assert _check(
         tmp_path / "null_not_in",
         IDS + "query result:\n    from lhs\n    select:\n        a = lhs.id\n"
-        "        f = null not in ids\n",
+        "        f = None not in ids\n",
     ) == (0, [])
     assert _check(tmp_path / "set", union + where.format("id", "u")) == (0, [])
-    values = "query v:\n    values(a: Int not null, b: Int nullable):\n        1, 2\n"
+    values = "query v:\n    values(a: Int, b: Int | None):\n        1, 2\n"
     assert _check(tmp_path / "values", values + where.format("id", "v")) == (
         1,
         [("PIE-S2105", WIDTH.format("in"), 11, 11)],
     )
-    one = "query w:\n    values(a: Int nullable):\n        null\n"
-    assert _check(tmp_path / "values_one", one + where.format("null", "w")) == (
+    one = "query w:\n    values(a: Int | None):\n        None\n"
+    assert _check(tmp_path / "values_one", one + where.format("None", "w")) == (
         0,
         [],
     )
@@ -371,14 +368,14 @@ def test_header_parameters_and_reads_keep_their_own_positions(
     never read by `exists`, `scalar` or `in`."""
     assert _check(
         tmp_path / "operand",
-        IDS + "query result(cutoff: Int not null):\n    from lhs\n"
+        IDS + "query result(cutoff: Int):\n    from lhs\n"
         "    where cutoff in ids\n    select:\n        id\n",
     ) == (
         1,
         [("PIE-S2355", "Query parameters are not available in this position.", 12, 11)],
     )
     parameterized = (
-        "query p(cutoff: Int not null):\n    from rhs\n    where id > cutoff\n"
+        "query p(cutoff: Int):\n    from rhs\n    where id > cutoff\n"
         "    select:\n        id\n"
     )
     read = (

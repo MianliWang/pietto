@@ -838,9 +838,9 @@ def _public_project(directory: Path) -> Path:
     )
     (project / "main.pietto").write_text(
         """shape Row:
-    left_id: Int not null
-    right_key: Int nullable
-source rows: Row is mysql.table("phase66.s06_public_rows")
+    left_id: Int
+    right_key: Int | None
+source rows: Row = mysql.table("phase66.s06_public_rows")
 table result:
     from rows
     select:
@@ -914,13 +914,13 @@ def _terminal_project(directory: Path) -> Path:
     )
     (project / "main.pietto").write_text(
         """shape Row:
-    id: Int not null
-source rows: Row is mysql.table("phase66.s06_public_heavy_left")
-source other: Row is mysql.table("phase66.s06_public_heavy_right")
+    id: Int
+source rows: Row = mysql.table("phase66.s06_public_heavy_left")
+source other: Row = mysql.table("phase66.s06_public_heavy_right")
 query result:
     from rows
-    cross join other as joined:
-        from rows
+    let joined = other
+    cross join joined
     where rows.id < joined.id
     select:
         total = count()

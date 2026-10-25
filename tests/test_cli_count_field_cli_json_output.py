@@ -338,9 +338,9 @@ def _write_invalid_count_field_source(tmp_path: Path) -> Path:
     path = tmp_path / "invalid-count-field.pietto"
     path.write_text(
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    amount: Int nullable\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    status: Text\n"
+        "    amount: Int | None\n"
+        'source orders: Order = postgres.table("orders")\n'
         "table invalid_count_field:\n"
         "    from orders\n"
         "    select:\n"

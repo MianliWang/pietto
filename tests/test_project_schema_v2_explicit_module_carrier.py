@@ -551,7 +551,7 @@ def test_single_file_check_behavior_remains_exact(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     source_path = tmp_path / "single.pietto"
-    source_path.write_text("shape Row:\n    id: Int not null\n", encoding="utf-8")
+    source_path.write_text("shape Row:\n    id: Int\n", encoding="utf-8")
 
     assert cli.main(["check", str(source_path)]) == 0
     captured = capsys.readouterr()

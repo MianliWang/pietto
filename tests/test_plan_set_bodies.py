@@ -127,7 +127,7 @@ def test_outer_select_consumes_set_terminal(tmp_path, kind, quantifier):
 @pytest.mark.parametrize("kind,quantifier", OPERATIONS)
 def test_float_union_all_does_not_invent_equivalence(tmp_path, kind, quantifier):
     source = _source(kind, quantifier, right_type="Float").replace(
-        "id: Int not null", "id: Float not null"
+        "id: Int", "id: Float"
     )
     roots = _roots(tmp_path, source)
     if (kind, quantifier) == ("union", "all"):
@@ -171,13 +171,13 @@ def test_decimal_parents_cross_set_and_distinct_without_reconstruction(tmp_path)
 @pytest.mark.parametrize("kind,quantifier", OPERATIONS)
 def test_multiple_columns_follow_positions_and_first_labels(tmp_path, kind, quantifier):
     source = f"""shape Left:
-    id: Int not null
-    name: Text nullable
+    id: Int
+    name: Text | None
 shape Right:
-    label: Text not null
-    key: Int nullable
-source lhs: Left is postgres.table("same_locator")
-source rhs: Right is mysql.table("same_locator")
+    label: Text
+    key: Int | None
+source lhs: Left = postgres.table("same_locator")
+source rhs: Right = mysql.table("same_locator")
 table left_side:
     from lhs
     select:
@@ -189,9 +189,7 @@ table right_side:
         other = key
         renamed = label
 query result:
-    {kind} {quantifier}:
-        from left_side
-        from right_side
+    {kind} {quantifier} left_side, right_side
 """
     _, plan, view = _product(tmp_path, source)
     assert [port.identity.name for port in plan.exports] == ["first", "second"]
@@ -217,13 +215,10 @@ query result:
 
 def test_three_operand_except_and_nested_except_keep_different_graphs(tmp_path):
     prefix = _source(replay=False).split("table combined:")[0]
-    flat = (
-        prefix
-        + "query result:\n    except all:\n        from lhs\n        from rhs\n        from lhs\n"
-    )
+    flat = prefix + "query result:\n    except all lhs, rhs, lhs\n"
     nested = (
         prefix
-        + "table inner_right:\n    except all:\n        from rhs\n        from lhs\nquery result:\n    except all:\n        from lhs\n        from inner_right\n"
+        + "table inner_right:\n    except all rhs, lhs\nquery result:\n    except all lhs, inner_right\n"
     )
     _, _, flat_view = _product(tmp_path / "flat", flat)
     _, _, nested_view = _product(tmp_path / "nested", nested)
@@ -256,18 +251,18 @@ def test_three_operand_except_and_nested_except_keep_different_graphs(tmp_path):
 def test_operand_stages_and_output_roles_survive_set(tmp_path, tail):
     prefix = _source(replay=False).split("table combined:")[0]
     bodies = {
-        "row": "    let:\n        value = id + 1\n    where value > 0\n    select:\n        output = value\n",
-        "group": "    group by:\n        id\n    select:\n        id\n        total = count()\n    satisfying:\n        total > 0\n",
+        "row": "    let value = id + 1\n    where value > 0\n    select:\n        output = value\n",
+        "group": "    group by:\n        id\n    select:\n        id\n        total = count()\n    having:\n        total > 0\n",
         "hidden_group": "    group by:\n        id\n    select:\n        total = count()\n",
         "global": "    select:\n        total = count()\n",
-        "window": "    select:\n        visible = 1\n    qualify:\n        row_number() window:\n            order by:\n                id\n        <= 2\n",
+        "window": "    select:\n        visible = 1\n    qualify:\n        row_number() window(order by id) <= 2\n",
         "result": "    select distinct:\n        id\n    order by:\n        id\n    limit 0\n",
     }
     source = (
         prefix
         + "table operand:\n    from lhs\n"
         + bodies[tail]
-        + "query result:\n    union all:\n        from operand\n        from operand\n"
+        + "query result:\n    union all operand, operand\n"
     )
     _, plan, view = _product(tmp_path, source)
     body = view.set_bodies[0]
@@ -312,10 +307,10 @@ def test_operand_stages_and_output_roles_survive_set(tmp_path, tail):
 def test_named_set_consumers_keep_actual_terminal_and_type_parents(tmp_path, consumer):
     source = _source(replay=False)
     tails = {
-        "row": "    let:\n        value = id + 1\n    where value > 0\n    select:\n        value\n",
-        "join": "    left join lhs as r:\n        from combined\n        on true\n    select:\n        a = combined.id\n        b = r.id\n",
-        "group": "    inner join lhs as r:\n        from combined\n        on true\n    group by:\n        combined.id\n    select:\n        total = count()\n",
-        "window": "    select:\n        id\n        w = row_number() window:\n            order by:\n                id\n    qualify:\n        w <= 2\n",
+        "row": "    let value = id + 1\n    where value > 0\n    select:\n        value\n",
+        "join": "    let r = lhs\n    left join r on True\n    select:\n        a = combined.id\n        b = r.id\n",
+        "group": "    let r = lhs\n    inner join r on True\n    group by:\n        combined.id\n    select:\n        total = count()\n",
+        "window": "    select:\n        id\n        w = row_number() window(order by id)\n    qualify:\n        w <= 2\n",
         "distinct": "    select distinct:\n        id\n    order by:\n        id\n    limit 1\n",
     }
     _, plan, view = _product(
@@ -335,10 +330,10 @@ def test_named_set_consumers_keep_actual_terminal_and_type_parents(tmp_path, con
 
 def test_pending_hidden_order_inside_operand_stays_pending(tmp_path):
     source = """shape Row:
-    id: Int not null
-    hidden: Text nullable
-    unique by_id on id
-source rows: Row is postgres.table("rows")
+    id: Int
+    hidden: Text | None
+    by_id = unique(id)
+source rows: Row = postgres.table("rows")
 table operand:
     from rows
     select distinct:
@@ -347,9 +342,7 @@ table operand:
         hidden
     limit 1
 query result:
-    union all:
-        from operand
-        from operand
+    union all operand, operand
 """
     _, plan, view = _product(tmp_path, source)
     (pending,) = view.hidden_order_requirements
@@ -375,8 +368,8 @@ def test_except_right_membership_retains_warning_and_source_demands(tmp_path):
     from _pietto_plan_joins import _requests
     from _pietto_plan_joins import _roots as requested_roots
 
-    source = join_source("true").replace("query result:", "table right_side:")
-    source += "table left_side:\n    from lhs\n    select:\n        id\n    limit 0\nquery result:\n    except distinct:\n        from left_side\n        from right_side\n"
+    source = join_source("True").replace("query result:", "table right_side:")
+    source += "table left_side:\n    from lhs\n    select:\n        id\n    limit 0\nquery result:\n    except distinct left_side, right_side\n"
     roots = requested_roots(tmp_path, source, _requests)
     assert roots[0].ok
     plan = build_project_sql_plan(*roots)
@@ -409,7 +402,7 @@ def test_operand_limit_and_outer_limit_have_separate_graphs(tmp_path, position):
         "    limit 1\n" if position == "operand" else ""
     )
     source += (
-        "table combined:\n    union all:\n        from operand\n        from operand\nquery result:\n    from combined\n    select distinct:\n        id\n"
+        "table combined:\n    union all operand, operand\nquery result:\n    from combined\n    select distinct:\n        id\n"
         + ("    limit 1\n" if position == "outer" else "")
     )
     _, plan, view = _product(tmp_path, source)
@@ -432,12 +425,10 @@ def test_operand_limit_and_outer_limit_have_separate_graphs(tmp_path, position):
 def set_plans(tmp_path_factory):
     source = (
         _source(replay=False)
+        .replace("    id: Int", "    id: Int\n    name: Text | None")
         .replace(
-            "    id: Int not null", "    id: Int not null\n    name: Text nullable"
-        )
-        .replace(
-            "    other: Int nullable",
-            "    other: Int nullable\n    label: Text not null",
+            "    other: Int | None",
+            "    other: Int | None\n    label: Text",
         )
     )
     source = (
@@ -451,14 +442,9 @@ def set_plans(tmp_path_factory):
         id
     limit 1
 table difference:
-    except distinct:
-        from limited
-        from rhs
-        from rhs
+    except distinct limited, rhs, rhs
 query result:
-    union all:
-        from difference
-        from limited
+    union all difference, limited
 """
     )
     return tuple(
@@ -712,12 +698,12 @@ def test_no_downstream_semantic_set_type_or_plan_construction(set_plans, monkeyp
 
 def test_imported_reexported_set_self_use_keeps_distinct_occurrences(tmp_path):
     (tmp_path / "a.pietto").write_text(
-        _source(replay=False) + "export:\n    table combined\n"
+        _source(replay=False) + "export table combined\n"
     )
     (tmp_path / "facade.pietto").write_text(
-        'import "a.pietto":\n    table combined as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import table combined as Public\nexport table Public\n'
     )
-    source = 'import "facade.pietto":\n    table Public as Alias\nquery result:\n    except distinct:\n        from Alias\n        from Alias\n'
+    source = 'from "facade.pietto" import table Public as Alias\nquery result:\n    except distinct Alias, Alias\n'
     _, plan, view = _product(tmp_path, source)
     assert len(view.set_bodies) == 2
     outer = view.set_bodies[-1]
@@ -738,9 +724,9 @@ def test_imported_reexported_set_self_use_keeps_distinct_occurrences(tmp_path):
 
 def test_decimal_set_join_distinct_and_nested_set_keep_all_parents(tmp_path):
     source = _source(right_type="Decimal(10, 2)", replay=False).replace(
-        "id: Int not null", "id: Decimal(10, 2) nullable"
+        "id: Int", "id: Decimal(10, 2) | None"
     )
-    source += "table joined:\n    from combined\n    inner join combined as r:\n        from combined\n        on true\n    select distinct:\n        price = combined.id\nquery result:\n    union distinct:\n        from joined\n        from joined\n"
+    source += "table joined:\n    from combined\n    let r = combined\n    inner join r on True\n    select distinct:\n        price = combined.id\nquery result:\n    union distinct joined, joined\n"
     _, plan, view = _product(tmp_path, source)
     assert len(view.set_bodies) == 2 and len(plan.distincts) == 1 and plan.joins
     evidence = plan.quotient_fields[0].equivalence
@@ -788,7 +774,7 @@ def test_real_invalid_set_inputs_never_publish_partial_bodies(tmp_path, scenario
         source = _source(operands=("lhs",), replay=False)
     elif scenario == "width":
         source = source.replace(
-            "other: Int nullable", "other: Int nullable\n    extra: Int nullable"
+            "other: Int | None", "other: Int | None\n    extra: Int | None"
         )
     elif scenario == "type":
         source = _source(right_type="Float", replay=False)
@@ -806,9 +792,7 @@ def test_cycle_and_unrelated_error_still_block_healthy_set_selection(tmp_path):
     source = (
         _source(replay=False).replace("table combined:", "query result:")
         + """table a:
-    union all:
-        from b
-        from lhs
+    union all b, lhs
 table b:
     from a
     select:
@@ -880,9 +864,7 @@ def test_set_type_identity_uses_original_domain_evidence(tmp_path, domain):
     quantifier = "distinct" if domain in {"alias", "enum"} else "all"
     source = prefix + _source(
         "union", quantifier, right_type=spelling, replay=False
-    ).replace("id: Int not null", f"id: {spelling} not null").replace(
-        "table combined:", "query result:"
-    )
+    ).replace("id: Int", f"id: {spelling}").replace("table combined:", "query result:")
     _, plan, view = _product(tmp_path, source)
     evidence = view.set_inputs[0].evidence
     assert evidence.resolution is not None
@@ -901,9 +883,9 @@ def test_set_type_identity_uses_original_domain_evidence(tmp_path, domain):
 def test_equal_spelling_nominal_types_do_not_create_a_set_type(tmp_path):
     for module in ("a", "b"):
         (tmp_path / f"{module}.pietto").write_text(
-            f'enum Status:\n    active\nshape Row:\n    id: Status nullable\nsource rows: Row is postgres.table("{module}")\nexport:\n    source rows\n'
+            f'enum Status:\n    active\nshape Row:\n    id: Status | None\nsource rows: Row = postgres.table("{module}")\nexport source rows\n'
         )
-    source = 'import "a.pietto":\n    source rows as Left\nimport "b.pietto":\n    source rows as Right\nquery result:\n    union all:\n        from Left\n        from Right\n'
+    source = 'from "a.pietto" import source rows as Left\nfrom "b.pietto" import source rows as Right\nquery result:\n    union all Left, Right\n'
     roots = _roots(tmp_path, source)
     assert not roots[0].ok and any(d.code == "PIE-S2343" for d in roots[0].diagnostics)
     assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
@@ -911,7 +893,7 @@ def test_equal_spelling_nominal_types_do_not_create_a_set_type(tmp_path):
 
 def test_zero_first_operand_keeps_its_label_and_all_membership(tmp_path):
     source = _source(replay=False).split("table combined:")[0]
-    source += "table empty:\n    from lhs\n    select:\n        first_label = id\n    limit 0\nquery result:\n    union all:\n        from empty\n        from rhs\n"
+    source += "table empty:\n    from lhs\n    select:\n        first_label = id\n    limit 0\nquery result:\n    union all empty, rhs\n"
     _, plan, view = _product(tmp_path, source)
     assert [port.identity.name for port in plan.exports] == ["first_label"]
     assert (

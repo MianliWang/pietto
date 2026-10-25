@@ -25,19 +25,18 @@ IR_SURFACE_PATHS = (
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
 SUPPORTED_RELATION = (
     "query enriched_orders:\n"
     "    from orders\n"
-    "    let:\n"
-    "        gross = amount + tax\n"
+    "    let gross = amount + tax\n"
     "    where gross > 0\n"
     "    select:\n"
     "        gross_value = gross\n"
@@ -82,8 +81,7 @@ def test_table_and_query_supported_row_level_matrix_inline_expands(
     relation = _relation_ir(
         f"{keyword} enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    select:\n"
         "        gross_value = gross\n"
@@ -103,8 +101,7 @@ def test_supported_grouped_where_remains_pre_aggregate_row_scope() -> None:
     relation = _relation_ir(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    group by:\n"
         "        status\n"
@@ -123,9 +120,8 @@ def test_supported_dependency_and_qualified_input_matrix_inline_expands() -> Non
     relation = _relation_ir(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = orders.amount + orders.tax\n"
-        "        net = gross - 5\n"
+        "    let gross = orders.amount + orders.tax\n"
+        "    let net = gross - 5\n"
         "    select:\n"
         "        net_value = net\n"
         "    order by:\n"
@@ -237,8 +233,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
     [
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
             "PIE-S2315",
@@ -246,8 +241,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        distinct_count = count_distinct(gross)\n",
             "PIE-S2315",
@@ -255,8 +249,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -267,22 +260,20 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
             id="satisfying-let-name",
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
@@ -295,8 +286,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -305,8 +295,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        gross_value = orders.gross\n",
             "PIE-S2102",
@@ -322,36 +311,28 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        gross = amount - tax\n"
+            "    let gross = amount + tax\n"
+            "    let gross = amount - tax\n"
             "    select:\n"
             "        amount\n",
-            "PIE-S2329",
+            # Two `let` lines of one name are refused by the query-local naming
+            # check: `Duplicate query local name: gross`.
+            "PIE-S2604",
             id="duplicate-let-name",
         ),
         pytest.param(
-            "    from orders\n"
-            "    let:\n"
-            "        amount = tax\n"
-            "    select:\n"
-            "        amount\n",
+            "    from orders\n    let amount = tax\n    select:\n        amount\n",
             "PIE-S2329",
             id="let-shadows-input-field",
         ),
         pytest.param(
-            "    from orders\n"
-            "    let:\n"
-            "        orders = amount\n"
-            "    select:\n"
-            "        amount\n",
+            "    from orders\n    let orders = amount\n    select:\n        amount\n",
             "PIE-S2329",
             id="let-shadows-source-name",
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        gross = amount\n",
             "PIE-S2329",
@@ -359,9 +340,8 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = net + tax\n"
-            "        net = amount\n"
+            "    let gross = net + tax\n"
+            "    let net = amount\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
@@ -369,8 +349,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = gross + tax\n"
+            "    let gross = gross + tax\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
@@ -378,9 +357,8 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = net\n"
-            "        net = gross\n"
+            "    let gross = net\n"
+            "    let net = gross\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
@@ -388,8 +366,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
         ),
         pytest.param(
             "    from orders\n"
-            "    let:\n"
-            "        gross = sum(amount)\n"
+            "    let gross = sum(amount)\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2308",
@@ -412,8 +389,7 @@ def test_unsupported_min_max_aggregate_let_stops_before_ir() -> None:
     semantic = _semantic_for(
         "query boundary_matrix:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        smallest = min(gross)\n"
     )
@@ -440,8 +416,7 @@ def test_unsupported_matrix_emit_sql_json_and_output_fail_closed(
         "unsupported.pietto",
         "query boundary_matrix:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        smallest = min(gross)\n",
     )
@@ -499,7 +474,8 @@ def _relation_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> RelationIR:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     relation = ir_result.ir.definitions[-1]
@@ -520,7 +496,8 @@ def _postgres_sql(source: str) -> str:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     sql_result = emit_postgres_sql(ir_result.ir)
@@ -536,7 +513,8 @@ def _mysql_sql(source: str) -> str:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     sql_result = emit_mysql_sql(ir_result.ir)

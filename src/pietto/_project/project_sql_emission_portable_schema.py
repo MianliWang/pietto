@@ -111,7 +111,7 @@ PLAN_CUTOFF = frozenset({"values_body", "values_column"})
 
 _VALUE = (
     "@sql_anchor|sql_unary|sql_null|sql_operation|sql_stage_reference|sql_block_read"
-    "|sql_captured_reference"
+    "|sql_captured_reference|sql_any_read|sql_any_reference"
 )
 _UNIT = "row_body|row_result_body|join_body|set_body"
 _PRODUCER = "@bound_source|row_body|row_result_body|set_body|join_body"
@@ -393,6 +393,24 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("kind", "text"),
         ("column", "?nat"),
         ("operands", "*" + _VALUE),
+    ),
+    "sql_any_read": (
+        ("original", "plan"),
+        ("target", "@sql_block_target"),
+        ("realization", "@realization"),
+        ("kind", "text"),
+        ("column", "?nat"),
+        ("operands", "*" + _VALUE),
+        ("predicate", _VALUE),
+    ),
+    "sql_any_reference": (
+        ("original", "plan"),
+        ("port", "plan"),
+        ("column", "@stage_column"),
+        ("realization", "@realization"),
+        ("scope", "@sql_symbol"),
+        ("use", "plan"),
+        ("position", "nat"),
     ),
     "sql_block_target": (
         ("use", "plan"),
@@ -738,6 +756,7 @@ DERIVED: dict[str, frozenset[str]] = {
     "fixed_value": frozenset({"site", "value"}),
     "row_body": frozenset({"block_kind"}),
     "sql_operation": frozenset({"operator"}),
+    "sql_any_reference": frozenset({"use", "position"}),
     "join_body": frozenset({"join_kind", "on"}),
     "join_column": frozenset({"nulling"}),
     "window_definition": frozenset({"named_use"}),
@@ -974,6 +993,7 @@ SYNTAX = {
     "exists_open": "EXISTS (",
     "exists_select": "SELECT ",
     "exists_from": " FROM ",
+    "exists_where": " WHERE ",
     "exists_qualifier": ".",
     "exists_alias": " AS ",
     "exists_close": ")",

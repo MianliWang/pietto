@@ -4,7 +4,21 @@
   "ok": true,
   "path": "tests/fixtures/mysql/compatibility_ordering_metadata.pietto",
   "dialect": "mysql",
-  "diagnostics": [],
+  "diagnostics": [
+    {
+      "code": "PIE-S2382",
+      "severity": "warning",
+      "message": "`FirstRelation` is a table of this file; single-file SQL reads it by name, so the SQL runs only where the database already has a relation named FirstRelation (an EXPLICIT_MODULES project emits it as a CTE)",
+      "location": {
+        "path": "tests/fixtures/mysql/compatibility_ordering_metadata.pietto",
+        "line": 33,
+        "column": 5,
+        "end_line": 33,
+        "end_column": 23
+      },
+      "suggestion": null
+    }
+  ],
   "cli_errors": [],
   "artifacts": [
     {

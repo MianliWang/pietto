@@ -31,9 +31,26 @@ from pietto.semantic import SemanticModel, analyze
 
 
 def test_build_ir_lowers_type_alias_identity_and_canonical_target() -> None:
-    script, model = _analyzed(
-        "type Email = Text not null\ntype WorkEmail = Email nullable\n"
+    # An alias names a non-null type: `| None` on its base is refused where
+    # the alias is declared, and each use writes `WorkEmail | None` instead.
+    refused = parse_source("type Email = Text\ntype WorkEmail = Email | None\n")
+    suggestion = (
+        "Declare 'type Name = T' and write 'Name | None' where a value may be None."
     )
+    assert refused.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in refused.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            2,
+            24,
+            "This spelling is not accepted by the modern syntax. " + suggestion,
+        )
+    ]
+    assert [item.suggestion for item in refused.diagnostics] == [suggestion]
+    script, model = _analyzed("type Email = Text\ntype WorkEmail = Email\n")
 
     result = build_ir(script, model)
 
@@ -56,7 +73,7 @@ def test_build_ir_lowers_type_alias_identity_and_canonical_target() -> None:
         "Text",
     )
     assert work_email.canonical_type.kind is TypeKindIR.BUILTIN
-    assert work_email.canonical_type.nullability is NullabilityIR.NULLABLE
+    assert work_email.canonical_type.nullability is NullabilityIR.NON_NULL
 
 
 def test_build_ir_lowers_enum_members_in_source_order() -> None:
@@ -73,10 +90,7 @@ def test_build_ir_lowers_enum_members_in_source_order() -> None:
 
 def test_build_ir_lowers_shape_fields_with_type_nullability_and_spans() -> None:
     script, model = _analyzed(
-        "type Email = Text not null\n"
-        "shape User:\n"
-        "    id: UUID not null\n"
-        "    email: Email nullable\n",
+        "type Email = Text\nshape User:\n    id: UUID\n    email: Email | None\n",
         path="declarations.pietto",
     )
 
@@ -103,16 +117,16 @@ def test_build_ir_lowers_shape_fields_with_type_nullability_and_spans() -> None:
         shape.fields[0].span.column,
         shape.fields[0].span.end_line,
         shape.fields[0].span.end_column,
-    ) == (3, 5, 3, 22)
+    ) == (3, 5, 3, 13)
     assert shape.span.line == 2
 
 
 def test_build_ir_lowers_typed_source_schema_and_static_connector() -> None:
     script, model = _analyzed(
         "shape User:\n"
-        "    id: UUID not null\n"
-        "    email: Text nullable\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    id: UUID\n"
+        "    email: Text | None\n"
+        'source users: User = postgres.table("public.users")\n'
     )
 
     result = build_ir(script, model)
@@ -135,12 +149,12 @@ def test_build_ir_lowers_typed_source_schema_and_static_connector() -> None:
 
 def test_build_ir_preserves_supported_top_level_source_order() -> None:
     script, model = _analyzed(
-        'source users: User is postgres.table("public.users")\n'
+        'source users: User = postgres.table("public.users")\n'
         "enum Status:\n"
         "    active\n"
         "shape User:\n"
-        "    email: Text not null\n"
-        "type Email = Text not null\n"
+        "    email: Text\n"
+        "type Email = Text\n"
     )
 
     result = build_ir(script, model)
@@ -159,13 +173,13 @@ def test_build_ir_preserves_supported_top_level_source_order() -> None:
 
 def test_constraint_and_derive_definitions_lower_with_other_declarations() -> None:
     script, model = _analyzed(
-        "constraint valid(x: Bool not null) -> Bool not null:\n"
-        "    x\n"
-        "derive identity(x: Text not null) -> Text not null:\n"
-        "    x\n"
+        "constraint valid(x: Bool) -> Bool:\n"
+        "    return x\n"
+        "derive identity(x: Text) -> Text:\n"
+        "    return x\n"
         "shape User:\n"
-        "    email: Text not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Text\n"
+        'source users: User = postgres.table("public.users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"
@@ -196,12 +210,12 @@ def test_constraint_and_derive_definitions_lower_with_other_declarations() -> No
 )
 def test_declaration_ir_models_are_frozen(definition_type: type[object]) -> None:
     script, model = _analyzed(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    active\n"
         "shape User:\n"
-        "    email: Email not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Email\n"
+        'source users: User = postgres.table("public.users")\n'
     )
     result = build_ir(script, model)
     assert result.ir is not None
@@ -222,12 +236,12 @@ def test_declaration_ir_models_are_frozen(definition_type: type[object]) -> None
 
 def test_public_declaration_ir_exposes_neither_ast_nor_antlr_objects() -> None:
     script, model = _analyzed(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    active\n"
         "shape User:\n"
-        "    email: Email not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Email\n"
+        'source users: User = postgres.table("public.users")\n'
     )
 
     _assert_no_parser_or_antlr_objects(build_ir(script, model))
@@ -236,8 +250,8 @@ def test_public_declaration_ir_exposes_neither_ast_nor_antlr_objects() -> None:
 def test_build_ir_does_not_mutate_script_or_semantic_model() -> None:
     script, model = _analyzed(
         "shape User:\n"
-        "    email: Text not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Text\n"
+        'source users: User = postgres.table("public.users")\n'
     )
     original_script = deepcopy(script)
     original_model = _semantic_snapshot(model)
@@ -249,7 +263,7 @@ def test_build_ir_does_not_mutate_script_or_semantic_model() -> None:
 
 
 def test_missing_required_semantic_fact_returns_pie_i1000() -> None:
-    script, model = _analyzed("type Email = Text not null\n")
+    script, model = _analyzed("type Email = Text\n")
     incomplete_model = replace(model, type_expansions={})
 
     result = build_ir(script, incomplete_model)

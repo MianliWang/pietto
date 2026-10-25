@@ -12,8 +12,8 @@ import _pietto_execution_matrix_check as check
 @pytest.mark.parametrize(
     "target,totals",
     [
-        ("postgres", (166, 0, 62, 1328, 496, 0)),
-        ("mysql", (164, 5, 62, 636, 240, 5)),
+        ("postgres", (161, 0, 59, 1288, 472, 0)),
+        ("mysql", (159, 5, 59, 616, 228, 5)),
     ],
 )
 def test_required_matrix_equals_the_producer_owners(target, totals):

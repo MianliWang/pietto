@@ -21,9 +21,9 @@ from pietto.semantic import (
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text nullable\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text | None\n"
+    'source users: User = postgres.table("users")\n'
 )
 
 
@@ -213,7 +213,7 @@ def test_complex_projection_with_alias_has_no_pie_s2304() -> None:
 def test_unknown_input_schema_preserves_names_without_field_cascade() -> None:
     result = analyze(
         _parse(
-            'source raw is postgres.table("raw")\n'
+            'source raw = postgres.table("raw")\n'
             "table projected:\n"
             "    from raw\n"
             "    select:\n"

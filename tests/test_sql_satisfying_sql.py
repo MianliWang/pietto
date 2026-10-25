@@ -86,9 +86,9 @@ BOOL_NON_NULL = TypeRefIR(
 )
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    amount: Int not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    region: Text\n"
+    "    amount: Int\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -459,9 +459,7 @@ def test_invalid_source_satisfying_still_fails_before_text_sql(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert (
-        "PIE-S2324 error: Unknown select output in satisfying: missing" in captured.err
-    )
+    assert "PIE-S2324 error: Unknown select output in having: missing" in captured.err
 
 
 def test_invalid_source_satisfying_json_output_does_not_replace_file(
@@ -530,19 +528,19 @@ def test_private_mysql_source_pipeline_renders_satisfying_having() -> None:
     (
         # A group key whose type is unknown (a Decimal division upstream).
         (
-            "shape Order:\n    id: Int not null\n    amount: Decimal not null\n",
+            "shape Order:\n    id: Int\n    amount: Decimal\n",
             "table rates:\n    from orders\n    select:\n        id\n"
             "        per = amount / id\n"
             "query q:\n    from rates\n    group by:\n        per\n"
             "    select:\n        per\n        n = count()\n"
-            "    satisfying:\n        per >= 0\n",
+            "    having:\n        per >= 0\n",
         ),
         # An unknown input row: a source without a shape.
         (
             "",
             "query q:\n    from orders\n    group by:\n        uid\n"
             "    select:\n        uid\n        n = count()\n"
-            "    satisfying:\n        n > 1\n",
+            "    having:\n        n > 1\n",
         ),
     ),
 )
@@ -553,7 +551,7 @@ def test_satisfying_of_unknown_type_fails_closed_at_emission_not_in_ir(
         shape
         + "source orders"
         + (": Order" if shape else "")
-        + f' is {connector}("orders")\n'
+        + f' = {connector}("orders")\n'
         + body
     )
     parse_result = parse_source(source)
@@ -716,7 +714,7 @@ def _valid_satisfying_source(*, connector: str = "postgres.table") -> str:
         "    select:\n"
         "        region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total_amount > 1000\n"
     )
 
@@ -730,7 +728,7 @@ def _alias_satisfying_source() -> str:
         "    select:\n"
         "        r = region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         '        total_amount > 1000 and r != "test"\n'
     )
 
@@ -744,7 +742,7 @@ def _invalid_satisfying_source() -> str:
         "    select:\n"
         "        region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        missing > 1000\n"
     )
 
@@ -752,9 +750,9 @@ def _invalid_satisfying_source() -> str:
 def _source_prefix(connector: str) -> str:
     return (
         "shape Order:\n"
-        "    region: Text not null\n"
-        "    amount: Int not null\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    region: Text\n"
+        "    amount: Int\n"
+        f'source orders: Order = {connector}("orders")\n'
     )
 
 

@@ -57,36 +57,36 @@ def _project_files(*, mode: str | None = None) -> dict[str, str]:
     header = "" if mode is None else f"mode {mode}\n"
     return {
         "a.pietto": (
-            header + 'import "b.pietto":\n    shape RemoteRow as ImportedRow\n'
+            header + 'from "b.pietto" import shape RemoteRow as ImportedRow\n'
             "shape UserRow:\n"
-            "    id: Int not null\n"
-            "    tenant_id: Int nullable\n"
-            "    implicit_id: Int\n"
-            "    alt_id: Int not null\n"
-            "    unique id_key on id\n"
-            "    unique id_key_again on id\n"
-            "    unique alt_key on alt_id\n"
-            "    unique tenant_key on tenant_id\n"
-            "    unique tenant_id_key on tenant_id, id\n"
-            "    unique strict_composite on alt_id, id\n"
-            "    unique implicit_key on implicit_id\n"
-            "    unique missing_key on missing\n"
-            "    unique repeated_key on id, id\n"
-            "    unique collision on id\n"
-            "    index collision on id\n"
-            'source users_one: UserRow is postgres.table("users_one")\n'
-            'source users_two: UserRow is postgres.table("users_two")\n'
-            'source imported_rows: ImportedRow is postgres.table("imported")\n'
-            'source missing_rows: MissingShape is postgres.table("missing")\n'
+            "    id: Int\n"
+            "    tenant_id: Int | None\n"
+            "    bare_id: Int\n"
+            "    alt_id: Int\n"
+            "    id_key = unique(id)\n"
+            "    id_key_again = unique(id)\n"
+            "    alt_key = unique(alt_id)\n"
+            "    tenant_key = unique(tenant_id)\n"
+            "    tenant_id_key = unique(tenant_id, id)\n"
+            "    strict_composite = unique(alt_id, id)\n"
+            "    bare_key = unique(bare_id)\n"
+            "    missing_key = unique(missing)\n"
+            "    repeated_key = unique(id, id)\n"
+            "    collision = unique(id)\n"
+            "    collision = index(id)\n"
+            'source users_one: UserRow = postgres.table("users_one")\n'
+            'source users_two: UserRow = postgres.table("users_two")\n'
+            'source imported_rows: ImportedRow = postgres.table("imported")\n'
+            'source missing_rows: MissingShape = postgres.table("missing")\n'
             "shape BrokenRow:\n"
-            "    broken_id: MissingType not null\n"
-            "    unique broken_key on broken_id\n"
-            'source broken_rows: BrokenRow is postgres.table("broken")\n'
+            "    broken_id: MissingType\n"
+            "    broken_key = unique(broken_id)\n"
+            'source broken_rows: BrokenRow = postgres.table("broken")\n'
             "shape AmbiguousRow:\n"
-            "    id: Int not null\n"
+            "    id: Int\n"
             "shape AmbiguousRow:\n"
-            "    id: Int not null\n"
-            'source ambiguous_rows: AmbiguousRow is postgres.table("ambiguous")\n'
+            "    id: Int\n"
+            'source ambiguous_rows: AmbiguousRow = postgres.table("ambiguous")\n'
             "table projected_users:\n"
             "    from users_one\n"
             "    select:\n"
@@ -95,9 +95,9 @@ def _project_files(*, mode: str | None = None) -> dict[str, str]:
         ),
         "b.pietto": (
             header + "shape RemoteRow:\n"
-            "    remote_id: Int not null\n"
-            "    unique remote_key on remote_id\n"
-            "export:\n    shape RemoteRow\n"
+            "    remote_id: Int\n"
+            "    remote_key = unique(remote_id)\n"
+            "export shape RemoteRow\n"
         ),
     }
 
@@ -149,10 +149,10 @@ def _source_name(subject: row_keys.ProjectRowUniquenessSubject) -> str:
 def test_current_unique_syntax_remains_unchanged() -> None:
     parsed = parse_source(
         "shape User:\n"
-        "    user_id: Int not null\n"
-        "    tenant_id: Int nullable\n"
-        "    unique user_id_key on user_id\n"
-        "    unique tenant_user_key on tenant_id, user_id\n"
+        "    user_id: Int\n"
+        "    tenant_id: Int | None\n"
+        "    user_id_key = unique(user_id)\n"
+        "    tenant_user_key = unique(tenant_id, user_id)\n"
     )
 
     assert parsed.diagnostics == ()
@@ -217,15 +217,16 @@ def test_null_policy_strength_trust_and_enforcement_are_exact(tmp_path: Path) ->
     result = _row_keys(tmp_path)
     strict = _evidence(result, "users_one", "id_key")[0]
     nullable = _evidence(result, "users_one", "tenant_key")[0]
-    unknown = _evidence(result, "users_one", "implicit_key")[0]
+    # A bare declared type is never None, so its key is as strict as `id_key`.
+    bare = _evidence(result, "users_one", "bare_key")[0]
 
     assert strict.null_policy is row_keys.ProjectUniqueNullPolicy.NULLS_DISTINCT
     assert strict.strength is row_keys.ProjectRowUniquenessStrength.STRICT
     assert nullable.strength is row_keys.ProjectRowUniquenessStrength.LAX
-    assert unknown.strength is row_keys.ProjectRowUniquenessStrength.LAX
+    assert bare.strength is row_keys.ProjectRowUniquenessStrength.STRICT
     assert strict.determinants[0].nullability is ProjectRowFieldNullability.NON_NULL
     assert nullable.determinants[0].nullability is ProjectRowFieldNullability.NULLABLE
-    assert unknown.determinants[0].nullability is ProjectRowFieldNullability.UNKNOWN
+    assert bare.determinants[0].nullability is ProjectRowFieldNullability.NON_NULL
     assert all(
         evidence.origin is row_keys.ProjectConstraintEvidenceOrigin.AUTHORED_CONTRACT
         and evidence.trust is row_keys.ProjectConstraintEvidenceTrust.TRUSTED
@@ -366,9 +367,9 @@ def test_candidate_frontier_is_complete_non_dominated_and_support_preserving(
             ("tenant_key",),
         ),
         (
-            ("implicit_id",),
-            row_keys.ProjectRowUniquenessStrength.LAX,
-            ("implicit_key",),
+            ("bare_id",),
+            row_keys.ProjectRowUniquenessStrength.STRICT,
+            ("bare_key",),
         ),
     )
     assert not any(
@@ -541,7 +542,13 @@ def test_private_carriers_add_no_fd_grain_cardinality_or_join_authority() -> Non
         "fields",
         "span",
     )
-    assert tuple(field.name for field in fields(SemanticModel))[-1] == "relationships"
+    assert tuple(field.name for field in fields(SemanticModel))[-5:] == (
+        "relationships",
+        "relationship_templates",
+        "relationship_calls",
+        "existence_generators",
+        "any_values",
+    )
     assert "row_keys" not in {field.name for field in fields(ProjectSemanticResult)}
     assert tuple(ProjectIRLogicalOperatorKind) == (
         ProjectIRLogicalOperatorKind.RELATION_INPUT,

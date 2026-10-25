@@ -132,7 +132,7 @@ def test_original_right_bound_is_static_without_guard_sql(tmp_path, limit):
         "table right_named:\n    from rhs\n    select:\n        id\n        key\n    limit "
         + str(limit)
         + "\n"
-        + DIRECT.replace("join rhs as r", "join right_named as r")
+        + DIRECT.replace("let r = rhs", "let r = right_named")
     )
     preparation = prepare_guarded(*planned(tmp_path, body=body))
     program = prepare_program(preparation)

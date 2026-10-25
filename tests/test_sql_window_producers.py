@@ -23,9 +23,7 @@ SELECTED_RIGHT = """table ranked:
     from rhs
     select:
         id
-        w = row_number() window:
-            order by:
-                id
+        w = row_number() window(order by id)
     qualify:
         w <= 1
 """
@@ -34,10 +32,7 @@ HIDDEN_RIGHT = """table ranked:
     select:
         id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 1
+        row_number() window(order by id) <= 1
 """
 PRE_WINDOW_RIGHT = """table ranked:
     from rhs
@@ -47,11 +42,12 @@ PRE_WINDOW_RIGHT = """table ranked:
 
 
 def consumer(kind):
+    """The tail `[not] any` read of `ranked` (a semi/anti JOIN before S6)."""
+    negation = "not " if kind == "anti" else ""
     return f"""query result:
     from lhs
-    {kind} join ranked as r:
-        from lhs
-        on lhs.id == r.id
+    let r = ranked
+    where {negation}any(lhs.id == r.id for r in r)
     select:
         a = lhs.id
 """
@@ -124,9 +120,7 @@ AGGREGATE_THEN_WINDOW = """table result:
     select:
         key
         total = count()
-        w = row_number() window:
-            order by:
-                key
+        w = row_number() window(order by key)
 """
 
 
@@ -146,14 +140,11 @@ def test_a_grouped_result_is_a_valid_pre_window_input(target):
 
 JOIN_THEN_WINDOW = """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    inner join r on lhs.id == r.id
     select:
         a = lhs.id
-        w = row_number() window:
-            order by:
-                lhs.id
+        w = row_number() window(order by lhs.id)
 """
 
 
@@ -172,9 +163,8 @@ WINDOW_PRODUCER_LEFT = (
     SELECTED_RIGHT
     + """query result:
     from lhs
-    left join ranked as r:
-        from lhs
-        on lhs.id == r.id
+    let r = ranked
+    left join r on lhs.id == r.id
     select:
         a = lhs.id
         b = r.w
@@ -200,10 +190,10 @@ def test_a_completed_window_value_is_nulled_as_a_port_by_an_outer_join(target):
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
-    "kind,marker", (("semi", "EXISTS ("), ("anti", "NOT EXISTS ("))
+    "kind,marker", (("semi", "EXISTS ("), ("anti", "(NOT EXISTS ("))
 )
 def test_a_selected_window_terminal_decides_membership(target, kind, marker):
-    """R11/C09: SEMI and ANTI wrap the complete right window/QUALIFY terminal."""
+    """R11/C09: `[not] any` reads the complete right window/QUALIFY terminal."""
     outcome = emit_join(target, SELECTED_RIGHT + consumer(kind))
     assert outcome.status == "VERIFIED", blockers(outcome)
     sql = sql_of(outcome)
@@ -217,7 +207,7 @@ def test_a_selected_window_terminal_decides_membership(target, kind, marker):
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
-    "kind,marker", (("semi", "EXISTS ("), ("anti", "NOT EXISTS ("))
+    "kind,marker", (("semi", "EXISTS ("), ("anti", "(NOT EXISTS ("))
 )
 def test_a_hidden_window_terminal_decides_membership_without_leaking(
     target, kind, marker
@@ -271,16 +261,14 @@ def test_a_window_producer_is_consumed_by_an_ordinary_named_use(target):
     "variant,kind,marker",
     (
         ("selected", "semi", "EXISTS ("),
-        ("hidden", "anti", "NOT EXISTS ("),
+        ("hidden", "anti", "(NOT EXISTS ("),
     ),
 )
 def test_g8_native_fixture_reads_the_complete_window_qualify_terminal(
     tmp_path, target, variant, kind, marker
 ):
-    from dataclasses import replace
-
     import _pietto_target_conformance_cases as cases
-    from pietto._project.project_sql_emission_ast import SQLJoinQuery
+    from pietto._project.project_sql_emission_ast import SQLRowQuery
     from pietto._project.project_sql_emission_verification import verify_row_query
 
     item = probe.fixture(target, "A_window_qualify", variant)
@@ -299,31 +287,33 @@ def test_g8_native_fixture_reads_the_complete_window_qualify_terminal(
     artifact = outcome.artifact
     assert artifact is not None
     query = artifact.ast
-    assert type(query) is SQLJoinQuery
-    units = query.units
-    join = next(unit for unit in units if hasattr(unit, "membership"))
-    window = next(unit for unit in units if getattr(unit, "window", None) is not None)
+    assert type(query) is SQLRowQuery
+    bodies = query.bodies
+    window = next(unit for unit in bodies if getattr(unit, "window", None) is not None)
     qualify = next(
         unit
-        for unit in units
+        for unit in bodies
         if getattr(getattr(unit, "block", None), "kind", None) is not None
         and unit.block.kind.value == "qualify"
     )
-    right = join.inputs[1]
-    assert join.join.kind.value == kind
+    # The tail `[not] any` (a `semi`/`anti` join before S6) reads the terminal.
+    (read,) = probe.block_reads(query)
+    terminal = read.target.producer
+    assert read.kind == "exists" and read.predicate is not None
+    assert (kind == "anti") is (" WHERE (NOT EXISTS (" in sql)
     assert qualify.scan.body is window
-    assert right.producer.scan.body is qualify
-    assert len(right.columns) == (2 if variant == "selected" else 1)
+    assert terminal.scan.body is qualify
+    assert len(terminal.columns) == (2 if variant == "selected" else 1)
     assert [column.selected for column in window.window.columns] == [
         variant == "selected"
     ]
-    assert right.columns[0].terminal is right.producer.columns[0].column.terminal
-    # A coherent-looking input that skips QUALIFY cannot retain the right terminal.
-    shortcut = replace(join, inputs=(join.inputs[0], replace(right, producer=window)))
-    assert not verify_row_query(
-        artifact.request,
-        replace(query, units=tuple(shortcut if u is join else u for u in units)),
-    )
+    # A coherent-looking read that skips QUALIFY cannot retain the terminal.
+    try:
+        object.__setattr__(read.target, "producer", window)
+        assert not verify_row_query(artifact.request, query)
+    finally:
+        object.__setattr__(read.target, "producer", terminal)
+    assert verify_row_query(artifact.request, query)
     key = cases.window_key("A_window_qualify", variant)
     expected = [
         [cases._integer(v)]

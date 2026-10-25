@@ -29,15 +29,13 @@ from pietto.sql.postgres import emit_postgres_sql
 
 def _source(dialect: str, kind: str, predicate: str | None) -> str:
     source = f"""shape Row:
-    id: Int not null
-source rows: Row is {dialect}.table("rows")
+    id: Int
+source rows: Row = {dialect}.table("rows")
 {kind} ranked:
     from rows
     select:
         id
-        rn = row_number() window:
-            order by:
-                id
+        rn = row_number() window(order by id)
 """
     if predicate is not None:
         source += f"    qualify:\n{predicate}\n"
@@ -46,8 +44,8 @@ source rows: Row is {dialect}.table("rows")
 
 PREDICATES = (
     "        rn <= 1",
-    "        true",
-    "        row_number() window:\n            order by:\n                id\n        <= 1",
+    "        True",
+    "        row_number() window(order by id) <= 1",
 )
 
 
@@ -138,12 +136,12 @@ def test_public_emit_never_returns_partial_sql(
 def test_existing_join_precedence_and_definition_error_order_are_preserved() -> None:
     joined = """query joined:
     from rows
-    inner join rows as other:
-        from rows
+    let other = rows
+    inner join other on rows.id == other.id
     select:
         id
     qualify:
-        true
+        True
 """
     for predicate in (None, PREDICATES[0]):
         parsed = parse_source(_source("postgres", "query", predicate) + joined)

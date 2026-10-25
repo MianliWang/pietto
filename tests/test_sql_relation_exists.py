@@ -96,9 +96,8 @@ query result:
 """,
     "join_producer": """query pairs:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    inner join r on lhs.id == r.id
     select:
         a = lhs.id
 query result:
@@ -109,9 +108,8 @@ query result:
 """,
     "join_consumer": """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    inner join r on lhs.id == r.id
     where exists rhs
     select:
         a = lhs.id
@@ -132,11 +130,11 @@ query result:
 """,
     # A typed VALUES query and a zero-row VALUES let are read like any block.
     "values": """query seeds:
-    values(rid: Int not null):
+    values(rid: Int):
         1
 query result:
     let none:
-        values(rid: Int not null)
+        values(rid: Int)
     from lhs
     where exists seeds and not exists none
     select:
@@ -229,10 +227,9 @@ def test_an_inner_source_needs_its_contract_mapping_and_target_family(
         ("PIE-B1001", "source_mapping_missing")
     }
     other = "mysql" if target == "postgres" else "postgres"
-    foreign = item["source"].replace(
-        f'source rhs: Row is {target}.table("rhs")',
-        f'source rhs: Row is {other}.table("rhs")',
-    )
+    native = f'source rhs: Row = {target}.table("rhs")'
+    assert item["source"].count(native) == 1
+    foreign = item["source"].replace(native, f'source rhs: Row = {other}.table("rhs")')
     _, outcome = probe.build_case(
         tmp_path / "foreign", foreign, item["contract"], item["policy"]
     )
@@ -267,7 +264,7 @@ def test_existence_reads_of_every_producer_shape_verify(
 @pytest.mark.parametrize(
     "body",
     (
-        "query result:\n    from lhs\n    let:\n        f = exists rhs\n"
+        "query result:\n    from lhs\n    let f = exists rhs\n"
         "    select:\n        id\n        f\n",
         "query result:\n    from lhs\n    select:\n        id\n"
         "    order by:\n        exists rhs\n",
@@ -368,7 +365,7 @@ def test_forged_existence_read_bytes_fail_the_byte_verifier(
     assert not checked.verified
 
 
-PARAMETERIZED = """query result(cut: Int not null):
+PARAMETERIZED = """query result(cut: Int):
     from lhs
     where id > cut and not exists rhs
     select:
@@ -441,9 +438,8 @@ CORRELATED = {
         select:
             id
     from lhs
-    left join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    left join r on lhs.id == r.id
     where exists matched
     select:
         a = lhs.id
@@ -739,8 +735,7 @@ CORRELATED_CHAINS = {
             bucket
     let buckets:
         from rhs
-        let:
-            bucket = 1 if key > 1 else 0
+        let bucket = 1 if key > 1 else 0
         group by:
             bucket
         select:
@@ -841,9 +836,9 @@ def test_a_capturing_let_reads_lets_that_read_lets(
 CORRELATED_OWN_FROM = {
     "own_from_values": """query result:
     let s:
-        values(n: Int not null, k: Int nullable):
+        values(n: Int, k: Int | None):
             1, 7
-            2, null
+            2, None
     let m:
         capture lhs
         from s
@@ -874,9 +869,8 @@ CORRELATED_OWN_FROM = {
     "own_from_join": """query result:
     let s:
         from lhs
-        inner join rhs as r:
-            from lhs
-            on r.id == lhs.id
+        let r = rhs
+        inner join r on r.id == lhs.id
         select:
             id = lhs.id
             k = r.key
@@ -1008,7 +1002,7 @@ PARAMETER_OVER_CAPTURE = """table t:
     select:
         id
         key
-query result(cut: Int not null):
+query result(cut: Int):
     from t
     where id > cut and key != cut
     select:
@@ -1069,7 +1063,7 @@ def test_an_entry_query_with_parameters_reads_a_table_with_a_capturing_let(
 # like any other let of it. The read renders inside the EXISTS subquery and
 # takes its placeholder in rendering order with the bind-safe slots:
 # PostgreSQL reuses `$1` for `cut`, MySQL writes one `?` per read.
-HEADER_IN_CAPTURE = """query result(cut: Int not null, hi: Int nullable):
+HEADER_IN_CAPTURE = """query result(cut: Int, hi: Int | None):
     let m:
         capture lhs
         from rhs
@@ -1152,3 +1146,142 @@ def test_a_capturing_let_reads_the_entry_query_header(
         checked.selected_owner,
         literal_policy=checked.literal_policy,
     ).verified
+
+
+# `any(P for x in X)` is an existence read of the rows of X that make P TRUE:
+# at the tail of a body one correlated EXISTS read of X, before a later JOIN one
+# hidden SEMI/ANTI JOIN of its own (the two forms `semi join`/`anti join` were).
+ANY_READS = {
+    "source": (
+        """query result:
+    from lhs
+    where not any(lhs.id == r.id for r in rhs)
+    select:
+        a = lhs.id
+""",
+        " WHERE (NOT EXISTS (SELECT 1 FROM {rhs} AS {e0} WHERE (",
+    ),
+    "named": (
+        """table picked:
+    from rhs
+    where id > 0
+    select:
+        rid = id
+query result:
+    from lhs
+    where lhs.key is None or not any(lhs.id == p.rid and p.rid > 1 for p in picked)
+    select:
+        a = lhs.id
+""",
+        " OR (NOT EXISTS (SELECT 1 FROM {p1} AS {e0} WHERE ((",
+    ),
+    "prefix": (
+        """query result:
+    from lhs
+    where any(lhs.id == r.id for r in rhs)
+    inner join rhs on lhs.id == rhs.id
+    select:
+        a = lhs.id
+""",
+        " WHERE EXISTS (SELECT 1 FROM {rhs} AS {m1} WHERE (",
+    ),
+}
+
+
+def _any_document(tmp_path: Path, target: str, shape: str) -> tuple[bytes, dict]:
+    body, marker = ANY_READS[shape]
+    _, outcome = _emit(tmp_path, target, body)
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert document["status"] == "VERIFIED", document
+    quote = '"' if target == "postgres" else "`"
+    names = {name: f"{quote}{name}{quote}" for name in ("e0", "m1", "p1")}
+    namespace = "public" if target == "postgres" else "phase66"
+    rhs = f"{quote}{namespace}{quote}.{quote}phase66 rhs é{quote}"
+    assert marker.format(rhs=rhs, **names) in document["sql"]
+    return raw, document
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("shape", sorted(ANY_READS))
+def test_an_any_read_decodes_as_its_correlated_existence_read(
+    tmp_path: Path, target: str, shape: str
+) -> None:
+    raw, document = _any_document(tmp_path, target, shape)
+    assert probe.decode_public(raw) == document
+    rules = {
+        r["rule"]
+        for r in document["requirements"]
+        if r["denominator"] == "original" and r["kind"] == "expression"
+    }
+    assert "R11" in rules or shape == "prefix"
+
+
+def _renumbered(document: dict) -> dict:
+    for denominator in ("original", "generated"):
+        found = (r for r in document["requirements"] if r["denominator"] == denominator)
+        for ordinal, requirement in enumerate(found):
+            requirement["ordinal"] = ordinal
+    return document
+
+
+def _caused_by(document: dict, ranges: list[dict], kind: str) -> dict:
+    for interval in ranges:
+        for origin in interval["origins"]:
+            origin["sources"] = [dict(origin["sources"][0], kind=kind)]
+    return document
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "damage,message",
+    (
+        ("filter_caused_by_the_read", "range origin module or association"),
+        ("binder_reference_rule", "original requirement rule"),
+        ("inner_scan_dropped", "scan occurrence and relation counts"),
+        ("read_dropped", "one physical scan without a JOIN"),
+        ("export_caused_by_the_join", "range origin module or association"),
+    ),
+)
+def test_a_damaged_any_read_fails_the_independent_decoder(
+    tmp_path: Path, target: str, damage: str, message: str
+) -> None:
+    shape = "prefix" if damage == "export_caused_by_the_join" else "source"
+    _, document = _any_document(tmp_path, target, shape)
+    ranges = document["ranges"]
+    generated = [r for r in document["requirements"] if r["denominator"] == "generated"]
+    if damage == "filter_caused_by_the_read":
+        where = [r for r in ranges if r["role"] == "where"]
+        _caused_by(document, where, "existence_value_expansion")
+    elif damage == "binder_reference_rule":
+        (scope,) = [
+            r
+            for r in ranges
+            if r["role"] == "value_scope" and r["subject"]["kind"] == "source_port"
+        ]
+        (reference,) = [
+            r
+            for r in ranges
+            if r["kind"] == "expression_range" and r["start"] == scope["start"]
+        ]
+        (demand,) = [
+            r
+            for r in document["requirements"]
+            if r["denominator"] == "original" and r["subject"] == reference["subject"]
+        ]
+        assert demand["rule"] == "R01"
+        demand["rule"] = "R04"
+    elif damage == "inner_scan_dropped":
+        scans = [r for r in generated if r["kind"] == "qualified_scan"]
+        assert len(scans) == 2
+        document["requirements"].remove(scans[1])
+        _renumbered(document)
+    elif damage == "read_dropped":
+        (read,) = [r for r in generated if r["kind"] == "exists"]
+        document["requirements"].remove(read)
+        _renumbered(document)
+    else:
+        exported = [r for r in ranges if r["subject"]["kind"] == "export"]
+        _caused_by(document, exported, "existence_generator_expansion")
+    with pytest.raises(ValueError, match=f"^{message}$"):
+        probe.decode_public(probe.encoded(document))

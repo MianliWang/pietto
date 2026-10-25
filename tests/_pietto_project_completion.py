@@ -4,29 +4,26 @@ from __future__ import annotations
 
 
 POSITIVE_SOURCE = """shape AccountRow:
-    id: Int not null
-    metric: Int nullable
-    unique account_key on id
+    id: Int
+    metric: Int | None
+    account_key = unique(id)
 shape EventRow:
-    id: Int not null
-    account_id: Int not null
-    metric: Int nullable
-    unique event_key on id
-source accounts: AccountRow is postgres.table("accounts")
-source events: EventRow is postgres.table("events")
-relationship account_events:
-    endpoint account: accounts
-    endpoint event: events
-    on account.id == event.account_id
+    id: Int
+    account_id: Int
+    metric: Int | None
+    event_key = unique(id)
+source accounts: AccountRow = postgres.table("accounts")
+source events: EventRow = postgres.table("events")
+relationship account_events(account: AccountRow, event: EventRow):
+    account.id == event.account_id
 query plain:
     from accounts
     select:
         id
 query joined:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         account_id = accounts.id
         event_id = event.id
@@ -36,9 +33,8 @@ query downstream:
         event_id
 query grouped:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.account_id
     select:
@@ -46,21 +42,17 @@ query grouped:
         total = sum(event.metric)
 query global:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         total = sum(event.metric)
 query qualified:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
     qualify:
         ranked <= 3
 """

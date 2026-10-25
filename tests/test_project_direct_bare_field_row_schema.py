@@ -94,10 +94,10 @@ def test_direct_bare_projection_preserves_select_order_not_source_order(
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
+        "    id: Int\n"
+        "    email: Text | None\n"
         "    created_at: Timestamp\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"
@@ -122,16 +122,16 @@ def test_direct_bare_projection_preserves_nullability_and_type(
         root,
         "models.pietto",
         "shape User:\n"
-        "    required: Int not null\n"
-        "    optional: Text nullable\n"
-        "    implicit: Bool\n"
-        'source users: User is postgres.table("users")\n'
+        "    required: Int\n"
+        "    optional: Text | None\n"
+        "    flag: Bool\n"
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"
         "        optional\n"
         "        required\n"
-        "        implicit\n",
+        "        flag\n",
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
@@ -143,7 +143,7 @@ def test_direct_bare_projection_preserves_nullability_and_type(
     source_schema = semantic_result.model.source_row_schemas[source]
     relation_schema = semantic_result.model.relation_row_schemas[table]
 
-    assert tuple(relation_schema.fields) == ("optional", "required", "implicit")
+    assert tuple(relation_schema.fields) == ("optional", "required", "flag")
     assert (
         relation_schema.fields["required"].nullability
         is ProjectRowFieldNullability.NON_NULL
@@ -152,11 +152,12 @@ def test_direct_bare_projection_preserves_nullability_and_type(
         relation_schema.fields["optional"].nullability
         is ProjectRowFieldNullability.NULLABLE
     )
+    # A bare declared type is never None, as `required` is.
     assert (
-        relation_schema.fields["implicit"].nullability
-        is ProjectRowFieldNullability.UNKNOWN
+        relation_schema.fields["flag"].nullability
+        is ProjectRowFieldNullability.NON_NULL
     )
-    for name in ("required", "optional", "implicit"):
+    for name in ("required", "optional", "flag"):
         assert (
             relation_schema.fields[name].resolved_type
             is source_schema.fields[name].resolved_type
@@ -262,8 +263,8 @@ def test_table_to_query_relation_row_schema_propagates_bare_field(
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        'source users: User = postgres.table("users")\n'
         "table staged:\n"
         "    from users\n"
         "    select:\n"
@@ -359,8 +360,8 @@ def _direct_projection_project(
         "models.pietto",
         "shape User:\n"
         "    id: Int\n"
-        "    email: Text nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    email: Text | None\n"
+        'source users: User = postgres.table("users")\n'
         f"{relation_kind} {relation_name}:\n"
         "    from users\n"
         "    select:\n"
@@ -378,7 +379,7 @@ def _project_with_select(tmp_path: Path, select_body: str) -> Path:
         "shape User:\n"
         "    id: Int\n"
         "    score: Int\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"

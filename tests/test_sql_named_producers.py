@@ -551,8 +551,8 @@ def test_named_public_provenance_is_coherent_without_authenticating_sources(
 def test_imported_decimal_type_alias_keeps_additional_provenance(tmp_path, target):
     item = probe.fixture(target, "N_imported_chain", "bag")
     sources = dict(item["source"])
-    sources["types.pietto"] = "type Money = Decimal(9, 2)\nexport:\n    type Money\n"
-    sources["a.pietto"] = 'import "types.pietto":\n    type Money\n' + sources[
+    sources["types.pietto"] = "type Money = Decimal(9, 2)\nexport type Money\n"
+    sources["a.pietto"] = 'from "types.pietto" import type Money\n' + sources[
         "a.pietto"
     ].replace("money: Decimal(9, 2)", "money: Money")
     _, outcome = probe.build_case(tmp_path, sources, item["contract"])
@@ -796,9 +796,8 @@ EQUIVALENTS = {
             rid = id
             key
     from lhs
-    inner join picked as p:
-        from lhs
-        on lhs.id == p.rid
+    let p = picked
+    inner join p on lhs.id == p.rid
     select:
         a = lhs.id
         b = p.key
@@ -811,9 +810,8 @@ EQUIVALENTS = {
         key
 query result:
     from lhs
-    inner join picked as p:
-        from lhs
-        on lhs.id == p.rid
+    let p = picked
+    inner join p on lhs.id == p.rid
     select:
         a = lhs.id
         b = p.key
@@ -823,9 +821,8 @@ query result:
         """query result:
     let pairs:
         from lhs
-        inner join rhs as r:
-            from lhs
-            on lhs.id == r.id
+        let r = rhs
+        inner join r on lhs.id == r.id
         select:
             a = lhs.id
             b = r.key
@@ -836,9 +833,8 @@ query result:
 """,
         """query pairs:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    inner join r on lhs.id == r.id
     select:
         a = lhs.id
         b = r.key
@@ -936,13 +932,11 @@ query result:
         select:
             id
             key
-            r = row_number() window:
-                order by:
-                    id desc
+            r = row_number() window(order by id desc)
         qualify:
             r <= 3
     from ranked
-    where key is not null
+    where key is not None
     select:
         id
         r
@@ -955,14 +949,12 @@ query result:
     select:
         id
         key
-        r = row_number() window:
-            order by:
-                id desc
+        r = row_number() window(order by id desc)
     qualify:
         r <= 3
 query result:
     from ranked
-    where key is not null
+    where key is not None
     select:
         id
         r
@@ -1131,8 +1123,8 @@ def test_a_let_source_needs_its_contract_and_target_family(
     }
     other = "mysql" if target == "postgres" else "postgres"
     foreign = item["source"].replace(
-        f'source rhs: Row is {target}.table("rhs")',
-        f'source rhs: Row is {other}.table("rhs")',
+        f'source rhs: Row = {target}.table("rhs")',
+        f'source rhs: Row = {other}.table("rhs")',
     )
     _, outcome = probe.build_case(
         tmp_path / "foreign", foreign, item["contract"], item["policy"]
@@ -1241,8 +1233,8 @@ LET_READS = {
     "self_join": (
         "query result:\n"
         + _let("a", "lhs")
-        + "    from a\n    inner join a as b:\n        from a\n"
-        "        on a.id == b.id\n    select:\n        x = a.id\n",
+        + "    from a\n    let b = a\n    inner join b on a.id == b.id\n"
+        "    select:\n        x = a.id\n",
         'WITH "p0" ("c0") AS (SELECT "s0"."order.id" AS "c0" FROM "public"."phase66 lhs é"'
         ' AS "s0"), "p1" ("c0", "c1") AS (SELECT "m0"."c0" AS "c0", "m1"."c0" AS "c1"'
         ' FROM "p0" AS "m0" INNER JOIN "p0" AS "m1" ON ("m0"."c0" = "m1"."c0")) SELECT'
@@ -1305,8 +1297,8 @@ FORWARD_READS = {
     "from": (LET_READS["diamond"][0], _let("base", "lhs")),
     "join": (
         "query result:\n    let pairs:\n        from lhs\n"
-        "        inner join later as l:\n            from lhs\n"
-        "            on lhs.id == l.id\n        select:\n            id = lhs.id\n"
+        "        let l = later\n"
+        "        inner join l on lhs.id == l.id\n        select:\n            id = lhs.id\n"
         + _let("later", "rhs")
         + "    from pairs\n    select:\n        id\n",
         _let("later", "rhs"),

@@ -29,11 +29,11 @@ from pietto.sql.mysql import emit_mysql_sql
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PREFIX = (
     "shape Row:\n"
-    "    text: Text not null\n"
-    "    count: Int not null\n"
-    "    active: Bool not null\n"
-    'source rows: Row is postgres.table("rows")\n'
-    'source mysql_rows: Row is mysql.table("rows")\n'
+    "    text: Text\n"
+    "    count: Int\n"
+    "    active: Bool\n"
+    'source rows: Row = postgres.table("rows")\n'
+    'source mysql_rows: Row = mysql.table("rows")\n'
 )
 
 
@@ -41,7 +41,7 @@ def test_boolean_binary_where_resolves_to_known_bool() -> None:
     script, semantic, _ = _compile(
         SOURCE_PREFIX + "table filtered:\n"
         "    from rows\n"
-        "    where count > 1 and active == true\n"
+        "    where count > 1 and active == True\n"
         "    select:\n"
         "        text\n"
     )
@@ -59,7 +59,7 @@ def test_between_where_resolves_to_known_bool() -> None:
     script, semantic, _ = _compile(
         SOURCE_PREFIX + "table filtered:\n"
         "    from rows\n"
-        "    where count between 1 and 5\n"
+        "    where 1 <= count <= 5\n"
         "    select:\n"
         "        text\n"
     )
@@ -77,7 +77,7 @@ def test_invalid_bool_binary_reports_s2105_at_full_span() -> None:
     parse_result = parse_source(
         SOURCE_PREFIX + "table filtered:\n"
         "    from rows\n"
-        "    where text and true\n"
+        "    where text and True\n"
         "    select:\n"
         "        text\n",
         path="scalar.pietto",
@@ -201,8 +201,8 @@ def test_invalid_arithmetic_reports_s2105() -> None:
     "body",
     [
         "    select:\n        value = missing + 1\n",
-        "    where missing and true\n    select:\n        text\n",
-        "    where missing between 1 and 5\n    select:\n        text\n",
+        "    where missing and True\n    select:\n        text\n",
+        "    where 1 <= missing <= 5\n    select:\n        text\n",
     ],
 )
 def test_unknown_children_suppress_s2105_cascades(body: str) -> None:
@@ -229,7 +229,7 @@ def test_unknown_children_suppress_s2105_cascades(body: str) -> None:
         ("ratio / 2", "Float", '"ratio" / 2', "`ratio` / 2"),
         ("n * 1.0 / m", "Float", '("n" * 1.0) / "m"', "(`n` * 1.0) / `m`"),
         (
-            "cast(n as Float) / m",
+            "Float(n) / m",
             "Float",
             '(CAST("n" AS double precision)) / "m"',
             "(CAST(`n` AS DOUBLE)) / `m`",
@@ -254,16 +254,16 @@ def test_division_follows_sql_and_never_inserts_a_cast(
 ) -> None:
     def source(connector: str) -> str:
         return (
-            "type Age = Int not null\n"
-            "type Ratio = Float not null\n"
+            "type Age = Int\n"
+            "type Ratio = Float\n"
             "shape Row:\n"
-            "    n: Int not null\n"
-            "    m: Int not null\n"
-            "    f: Float not null\n"
-            "    g: Float not null\n"
-            "    age: Age not null\n"
-            "    ratio: Ratio not null\n"
-            f'source rows: Row is {connector}.table("rows")\n'
+            "    n: Int\n"
+            "    m: Int\n"
+            "    f: Float\n"
+            "    g: Float\n"
+            "    age: Age\n"
+            "    ratio: Ratio\n"
+            f'source rows: Row = {connector}.table("rows")\n'
             "table divided:\n"
             "    from rows\n"
             "    select:\n"
@@ -292,8 +292,11 @@ def test_division_of_a_call_over_an_unknown_row_is_typed_by_its_signature() -> N
     # MySQL emitted a bare `/`, which keeps the fraction PostgreSQL drops.
     def source(connector: str) -> str:
         return (
-            f'source raw is {connector}.table("raw")\n'
-            "table divided:\n    from raw\n    select:\n        value = len(t) / 2\n"
+            f'source raw = {connector}.table("raw")\n'
+            "table divided:\n"
+            "    from raw\n"
+            "    select:\n"
+            "        value = len(t) / 2\n"
         )
 
     script, semantic, postgres_ir = _compile(source("postgres"))
@@ -328,28 +331,35 @@ def test_null_arithmetic_has_the_type_of_its_known_operand() -> None:
     # has the unsupported aggregate shape, PIE-S2315.
     head = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    n: Int nullable\n"
-        "    f1: Int not null\n"
-        "    d: Decimal(10, 2) nullable\n"
-        'source rows: Row is mysql.table("rows")\n'
+        "    id: Int\n"
+        "    n: Int | None\n"
+        "    f1: Int\n"
+        "    d: Decimal(10, 2) | None\n"
+        'source rows: Row = mysql.table("rows")\n'
     )
     refused = analyze(
         _parse(
-            head + "table refused:\n    from rows\n    where null + n\n    select:\n"
+            head + "table refused:\n"
+            "    from rows\n"
+            "    where None + n\n"
+            "    select:\n"
             "        id\n"
-            "        a = trim(null % f1)\n"
-            "        b = lower(null / d)\n"
-            '        c = (null + n) == "x"\n'
-            "table counted:\n    from rows\n    select:\n"
-            "        e = count(trim(null % f1))\n"
-            "        f = count(null + n)\n"
+            "        a = trim(None % f1)\n"
+            "        b = lower(None / d)\n"
+            '        c = (None + n) == "x"\n'
+            "table counted:\n"
+            "    from rows\n"
+            "    select:\n"
+            "        e = count(trim(None % f1))\n"
+            "        f = count(None + n)\n"
         )
     )
     script, semantic, script_ir = _compile(
-        head + "table typed:\n    from rows\n    select:\n"
-        "        v = (null + n) / 2\n"
-        "        w = null % f1\n"
+        head + "table typed:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        v = (None + n) / 2\n"
+        "        w = None % f1\n"
     )
     w_type = semantic.model.expression_value_types[_select_expression(script, 1)]
 
@@ -406,28 +416,32 @@ def test_null_arithmetic_has_the_type_of_its_known_operand() -> None:
 @pytest.mark.parametrize(
     ("argument", "function", "position", "actual"),
     [
-        ("trim(null + n)", "trim", 1, "Int"),
-        ("trim(-(null + n))", "trim", 1, "Int"),
-        ("trim(abs(null + n))", "trim", 1, "Int"),
-        ("lower(null % age)", "lower", 1, "Int"),
-        ('replace("x", null + n, "y")', "replace", 2, "Int"),
-        ("trim(null + d)", "trim", 1, "Decimal"),
-        ("trim(null / d)", "trim", 1, "numeric"),
-        ("trim(abs(null / d))", "trim", 1, "numeric"),
-        ('replace(null / d, "x", "y")', "replace", 1, "numeric"),
-        ('replace(d / 2, null + n, "y")', "replace", 2, "Int"),
+        ("trim(None + n)", "trim", 1, "Int"),
+        ("trim(-(None + n))", "trim", 1, "Int"),
+        ("trim(abs(None + n))", "trim", 1, "Int"),
+        ("lower(None % age)", "lower", 1, "Int"),
+        ('replace("x", None + n, "y")', "replace", 2, "Int"),
+        ("trim(None + d)", "trim", 1, "Decimal"),
+        ("trim(None / d)", "trim", 1, "numeric"),
+        ("trim(abs(None / d))", "trim", 1, "numeric"),
+        ('replace(None / d, "x", "y")', "replace", 1, "numeric"),
+        ('replace(d / 2, None + n, "y")', "replace", 2, "Int"),
     ],
 )
 def test_aggregate_keeps_the_scalar_error_from_typed_null_arithmetic(
     grouped: bool, argument: str, function: str, position: int, actual: str
 ) -> None:
     source = (
-        "type Age = Int not null\n"
-        "shape Row:\n    id: Int not null\n    n: Int nullable\n    age: Age not null\n"
-        "    d: Decimal(10, 2) not null\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table selected:\n    from rows\n"
-        + ("    group by: id\n" if grouped else "")
+        "type Age = Int\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        "    n: Int | None\n"
+        "    age: Age\n"
+        "    d: Decimal(10, 2)\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        + ("    group by id\n" if grouped else "")
         + f"    select:\n        v = count({argument})\n"
     )
     assert [
@@ -447,7 +461,7 @@ def test_aggregate_keeps_the_scalar_error_from_typed_null_arithmetic(
 @pytest.mark.parametrize(
     ("argument", "scalar_error", "shape_error"),
     [
-        ("trim(null / 2.5) + x", True, False),
+        ("trim(None / 2.5) + x", True, False),
         ("trim(x / 2.5)", False, True),
         ("trim(1 / 2.5) + x", True, True),
     ],
@@ -457,9 +471,10 @@ def test_unknown_row_aggregate_keeps_the_actual_typed_null_error(
     grouped: bool, argument: str, scalar_error: bool, shape_error: bool
 ) -> None:
     source = (
-        'source rows is postgres.table("rows")\n'
-        "table selected:\n    from rows\n"
-        + ("    group by: x\n" if grouped else "")
+        'source rows = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        + ("    group by x\n" if grouped else "")
         + f"    select:\n        v = count({argument})\n        field = x\n"
     )
     script = _parse(source)
@@ -501,10 +516,13 @@ def test_unknown_row_aggregate_null_error_follows_its_whole_let_argument(
     grouped: bool,
 ) -> None:
     source = (
-        'source rows is postgres.table("rows")\n'
-        "table selected:\n    from rows\n    let:\n"
-        "        bad = trim(null / 2.5) + x\n        value = bad\n"
-        + ("    group by: x\n" if grouped else "")
+        'source rows = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        "\n"
+        "    let bad = trim(None / 2.5) + x\n"
+        "    let value = bad\n"
+        + ("    group by x\n" if grouped else "")
         + "    select:\n        v = count(value)\n        field = x\n"
     )
     script = _parse(source)
@@ -532,10 +550,11 @@ def test_unknown_row_null_arithmetic_checks_only_the_aggregate_form(
     grouped: bool,
 ) -> None:
     source = (
-        'source rows is postgres.table("rows")\n'
-        "table selected:\n    from rows\n"
-        + ("    group by: x\n" if grouped else "")
-        + "    select:\n        v = count(x + null)\n"
+        'source rows = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        + ("    group by x\n" if grouped else "")
+        + "    select:\n        v = count(x + None)\n"
     )
     script = _parse(source)
     result = analyze(script)
@@ -554,29 +573,32 @@ def test_unknown_row_null_arithmetic_checks_only_the_aggregate_form(
     "argument",
     [
         "lower(n)",
-        "null + n",
-        'substr("x", null + n, "x")',
-        'substr("x", null + n, 1)',
-        'replace(n, null + n, "x")',
-        "trim(null + n, n)",
-        'abs("x" if (null + n is null) else "y")',
+        "None + n",
+        'substr("x", None + n, "x")',
+        'substr("x", None + n, 1)',
+        'replace(n, None + n, "x")',
+        "trim(None + n, n)",
+        'abs("x" if (None + n is None) else "y")',
         "trim(d / 2)",
         "trim(abs(d / 2))",
-        'replace(null / d, n, "x")',
-        "substr(null / d, null + n, 1)",
-        "trim((null / d) if lower(1) is null else (d / 2))",
-        'replace(null / d, (null + n) if lower(1) is null else n, "x")',
+        'replace(None / d, n, "x")',
+        "substr(None / d, None + n, 1)",
+        "trim((None / d) if lower(1) is None else (d / 2))",
+        'replace(None / d, (None + n) if lower(1) is None else n, "x")',
     ],
 )
 def test_unrelated_null_arithmetic_keeps_aggregate_shape_diagnostics(
     grouped: bool, argument: str
 ) -> None:
     source = (
-        "shape Row:\n    id: Int not null\n    n: Int nullable\n"
-        "    d: Decimal(10, 2) not null\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table selected:\n    from rows\n"
-        + ("    group by: id\n" if grouped else "")
+        "shape Row:\n"
+        "    id: Int\n"
+        "    n: Int | None\n"
+        "    d: Decimal(10, 2)\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        + ("    group by id\n" if grouped else "")
         + f"    select:\n        v = count({argument})\n"
     )
     assert [
@@ -597,11 +619,18 @@ def test_aggregate_null_division_error_follows_its_admitted_let_chain(
     grouped: bool,
 ) -> None:
     source = (
-        "shape Row:\n    id: Int not null\n    d: Decimal(10, 2) not null\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table selected:\n    from rows\n    let:\n"
-        "        q = null / d\n        a = abs(q)\n        b = a\n        bad = trim(b)\n"
-        + ("    group by: id\n" if grouped else "")
+        "shape Row:\n"
+        "    id: Int\n"
+        "    d: Decimal(10, 2)\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        "\n"
+        "    let q = None / d\n"
+        "    let a = abs(q)\n"
+        "    let b = a\n"
+        "    let bad = trim(b)\n"
+        + ("    group by id\n" if grouped else "")
         + "    select:\n        v = count(bad)\n"
     )
     assert [
@@ -623,16 +652,19 @@ def test_null_arithmetic_preserves_aggregate_alias_arity_and_def_diagnostics(
     grouped: bool, mode: str
 ) -> None:
     projection = {
-        "alias": "count(trim(null + n))",
-        "arity": "v = count(trim(null + n), n)",
-        "def": "v = count(nn(n + null))",
+        "alias": "count(trim(None + n))",
+        "arity": "v = count(trim(None + n), n)",
+        "def": "v = count(nn(n + None))",
     }[mode]
     source = (
-        "shape Row:\n    id: Int not null\n    n: Int nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "def nn(x: Int not null) -> Int not null: return x\n"
-        "table selected:\n    from rows\n"
-        + ("    group by: id\n" if grouped else "")
+        "shape Row:\n"
+        "    id: Int\n"
+        "    n: Int | None\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "def nn(x: Int) -> Int: return x\n"
+        "table selected:\n"
+        "    from rows\n"
+        + ("    group by id\n" if grouped else "")
         + f"    select:\n        {projection}\n"
     )
     line = 10 if grouped else 9
@@ -653,7 +685,7 @@ def test_null_arithmetic_preserves_aggregate_alias_arity_and_def_diagnostics(
         "def": [
             (
                 "PIE-S2395",
-                "Invalid argument for def nn at position 1 (x): expected Int not null, got null",
+                "Invalid argument for def nn at position 1 (x): expected Int, got null",
                 line,
                 19,
             )
@@ -674,13 +706,17 @@ def test_nested_null_arithmetic_errors_need_no_semantic_replay(
     from pietto.semantic import expressions
     from pietto.semantic.model import ValueType
 
-    value = "trim(null / d)"
+    value = "trim(None / d)"
     for _ in range(depth):
-        value = f"trim((null / d) if ({value} is null) else d / 2)"
+        value = f"trim((None / d) if ({value} is None) else d / 2)"
     source = (
-        "shape Row:\n    d: Decimal(10, 2) not null\n"
-        'source rows: Row is postgres.table("rows")\n'
-        f"table selected:\n    from rows\n    select:\n        v = count({value})\n"
+        "shape Row:\n"
+        "    d: Decimal(10, 2)\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        "    select:\n"
+        f"        v = count({value})\n"
     )
     inferred = 0
     original = expressions._infer
@@ -704,7 +740,7 @@ def test_nested_null_arithmetic_errors_need_no_semantic_replay(
             "PIE-S2104",
             "Invalid argument type for function trim at position 1: expected Text, got numeric",
             7,
-            source.splitlines()[-1].index("trim(null / d)") + 1,
+            source.splitlines()[-1].index("trim(None / d)") + 1,
         )
     ]
     # Two walks of the 5 + 9*depth value nodes, plus one connector literal.
@@ -719,9 +755,13 @@ def test_null_arithmetic_fact_requires_the_reported_diagnostic() -> None:
     from pietto.semantic.model import RowSchema
 
     script = _parse(
-        "shape Row:\n    d: Decimal(10, 2) not null\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table selected:\n    from rows\n    select:\n        v = count(trim(null / d))\n"
+        "shape Row:\n"
+        "    d: Decimal(10, 2)\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        v = count(trim(None / d))\n"
     )
     semantic = analyze(script)
     count = _select_expression(script, 0)
@@ -760,10 +800,10 @@ def test_decimal_division_keeps_its_deferred_type_and_bare_sql() -> None:
     )
     shape = (
         "shape Money:\n"
-        "    n: Int not null\n"
-        "    f: Float not null\n"
-        "    d: Decimal(10, 2) not null\n"
-        "    e: Decimal(12, 4) nullable\n"
+        "    n: Int\n"
+        "    f: Float\n"
+        "    d: Decimal(10, 2)\n"
+        "    e: Decimal(12, 4) | None\n"
     )
     columns = ("dd", "di", "id", "df", "fd")
     expected = ("d / e", "d / n", "n / d", "d / f", "f / d")
@@ -773,7 +813,7 @@ def test_decimal_division_keeps_its_deferred_type_and_bare_sql() -> None:
     ):
         script, semantic, script_ir = _compile(
             shape
-            + f'source money: Money is {connector}.table("money")\n'
+            + (f'source money: Money = {connector}.table("money")\n')
             + "table divided:\n    from money\n"
             + body
         )
@@ -808,13 +848,21 @@ def test_division_of_non_numeric_operands_reports_s2105(value: str) -> None:
 
 
 _DIVISION_OPERANDS = (
-    "enum Color:\n    red\n    blue\n"
-    "type Money = Decimal(12, 2) not null\n"
-    "shape Row:\n    n: Int not null\n    d: Money not null\n"
-    "    blob: Bytes not null\n    doc: Json not null\n    any: Any nullable\n"
-    "    color: Color not null\n"
-    'source rows: Row is postgres.table("rows")\n'
-    "table projected:\n    from rows\n    select:\n"
+    "enum Color:\n"
+    "    red\n"
+    "    blue\n"
+    "type Money = Decimal(12, 2)\n"
+    "shape Row:\n"
+    "    n: Int\n"
+    "    d: Money\n"
+    "    blob: Bytes\n"
+    "    doc: Json\n"
+    "    any: Any | None\n"
+    "    color: Color\n"
+    'source rows: Row = postgres.table("rows")\n'
+    "table projected:\n"
+    "    from rows\n"
+    "    select:\n"
 )
 
 
@@ -845,15 +893,15 @@ def test_a_decimal_quotient_is_refused_where_no_number_fits() -> None:
     semantic = analyze(
         _parse(
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    a: Decimal(10, 2) not null\n"
-            "    f: Float not null\n"
-            "    t: Text not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            "    a: Decimal(10, 2)\n"
+            "    f: Float\n"
+            "    t: Text\n"
+            'source rows: Row = postgres.table("rows")\n'
             "table refused:\n"
             "    from rows\n"
-            "    let:\n"
-            "        q = a / 2\n"
+            "\n"
+            "    let q = a / 2\n"
             "    where a / 2\n"
             "    select:\n"
             "        id\n"
@@ -866,17 +914,17 @@ def test_a_decimal_quotient_is_refused_where_no_number_fits() -> None:
             '        m = q % "x"\n'
             '        n = -q * 2 like "x%"\n'
             '        i = q in ("x", "y")\n'
-            '        e = q between "a" and "z"\n'
+            '        e = "a" <= q <= "z"\n'
             "        h = t if id > 1 else q\n"
             "        o = coalesce(t, q)\n"
             '        u = nullif(q, "x")\n'
             "        v = lower(coalesce(q, 0))\n"
-            "        z = coalesce(t, q, null)\n"
-            '        r = (q if id > 1 else null) == "x"\n'
+            "        z = coalesce(t, q, None)\n"
+            '        r = (q if id > 1 else None) == "x"\n'
             "table accepted:\n"
             "    from rows\n"
-            "    let:\n"
-            "        q = a / 2\n"
+            "\n"
+            "    let q = a / 2\n"
             "    where a / 2 > f and coalesce(q, 0) > 1\n"
             "    select:\n"
             "        id\n"
@@ -886,8 +934,8 @@ def test_a_decimal_quotient_is_refused_where_no_number_fits() -> None:
             "        s = q % 2.5\n"
             "        j = q in (1, 2.5)\n"
             "        z = 1 if id > 1 else q\n"
-            "        x = cast(a / 2 as Float)\n"
-            "        n = (q if id > 1 else null) + coalesce(q, null)\n"
+            "        x = Float(a / 2)\n"
+            "        n = (q if id > 1 else None) + coalesce(q, None)\n"
         )
     )
 
@@ -941,14 +989,14 @@ def test_abs_of_a_number_of_unknown_type_is_one() -> None:
     semantic = analyze(
         _parse(
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    a: Decimal(10, 2) not null\n"
-            'source rows: Row is postgres.table("rows")\n'
-            'source raw is postgres.table("raw")\n'
+            "    id: Int\n"
+            "    a: Decimal(10, 2)\n"
+            'source rows: Row = postgres.table("rows")\n'
+            'source raw = postgres.table("raw")\n'
             "table refused:\n"
             "    from rows\n"
-            "    let:\n"
-            "        q = abs(a / 2)\n"
+            "\n"
+            "    let q = abs(a / 2)\n"
             "    select:\n"
             "        id\n"
             "        l = lower(abs(a / 2))\n"
@@ -1026,11 +1074,14 @@ def test_abs_of_a_number_of_unknown_type_is_one() -> None:
 def test_numeric_conditional_branches_preserve_condition_error_suppression() -> None:
     semantic = analyze(
         _parse(
-            "shape Row:\n    d: Decimal(10, 2) not null\n"
-            'source rows: Row is postgres.table("rows")\n'
-            "table selected:\n    from rows\n    select:\n"
+            "shape Row:\n"
+            "    d: Decimal(10, 2)\n"
+            'source rows: Row = postgres.table("rows")\n'
+            "table selected:\n"
+            "    from rows\n"
+            "    select:\n"
             '        suppressed = abs(d / 2) if missing else "x"\n'
-            '        known = abs(d / 2) if (other is null) else "x"\n'
+            '        known = abs(d / 2) if (other is None) else "x"\n'
         )
     )
     assert [
@@ -1049,14 +1100,19 @@ def test_numeric_conditional_branches_preserve_condition_error_suppression() -> 
 
 
 @pytest.mark.parametrize("operator", ["in", "not in"])
-@pytest.mark.parametrize("null", ["null", "k"], ids=["literal", "binding"])
+@pytest.mark.parametrize("null", ["None", "k"], ids=["literal", "binding"])
 def test_numeric_membership_with_null_keeps_its_boolean_result(
     operator: str, null: str
 ) -> None:
     source = (
-        "shape Row:\n    n: Int nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table selected:\n    from rows\n    let:\n        k = null\n    select:\n"
+        "shape Row:\n"
+        "    n: Int | None\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        "\n"
+        "    let k = None\n"
+        "    select:\n"
     )
     membership = f"1.5 {operator} ({null}, n)"
     script, semantic, script_ir = _compile(source + f"        v = {membership}\n")
@@ -1083,7 +1139,15 @@ def test_numeric_membership_with_null_keeps_its_boolean_result(
             "Invalid argument type for function abs at position 1: expected Int, Float or Decimal, got Bool",
             9,
             13,
-        )
+        ),
+        (
+            "PIE-S2382",
+            "`selected` is a table of this file; single-file SQL reads it by name, "
+            "so the SQL runs only where the database already has a relation named "
+            "selected (an EXPLICIT_MODULES project emits it as a CTE)",
+            11,
+            5,
+        ),
     ]
 
 
@@ -1099,15 +1163,23 @@ def test_comparable_nonnumeric_null_membership_has_a_boolean_result(
 ) -> None:
     from pietto.ast_nodes import CallExpr, MembershipExpr
 
-    predicate = f"{field} {operator} ({literal}, null)"
+    predicate = f"{field} {operator} ({literal}, None)"
     script = _parse(
-        "enum Status:\n    active\n    gone\n"
-        "shape Row:\n    d: Date nullable\n    s: Status nullable\n"
-        f'source rows: Row is {connector}.table("rows")\n'
-        "table selected:\n    from rows\n    select:\n"
-        f"        direct = {predicate}\n"
-        f"        lowered = lower({predicate})\n"
-        f"        absolute = abs({predicate})\n"
+        (
+            "enum Status:\n"
+            "    active\n"
+            "    gone\n"
+            "shape Row:\n"
+            "    d: Date | None\n"
+            "    s: Status | None\n"
+            f'source rows: Row = {connector}.table("rows")\n'
+            "table selected:\n"
+            "    from rows\n"
+            "    select:\n"
+            f"        direct = {predicate}\n"
+            f"        lowered = lower({predicate})\n"
+            f"        absolute = abs({predicate})\n"
+        )
     )
     semantic = analyze(script)
     assert [
@@ -1141,13 +1213,20 @@ def test_comparable_nonnumeric_null_membership_has_a_boolean_result(
         ) == (ValueTypeKind.KNOWN, "Bool", EffectiveNullability.NULLABLE)
 
 
-@pytest.mark.parametrize("predicate", ["d in (label, null)", 's in ("other", null)'])
+@pytest.mark.parametrize("predicate", ["d in (label, None)", 's in ("other", None)'])
 def test_null_membership_keeps_unsupported_pairings_closed(predicate: str) -> None:
     source = (
-        "enum Status:\n    active\n    gone\n"
-        "shape Row:\n    d: Date nullable\n    s: Status nullable\n    label: Text nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table selected:\n    from rows\n    select:\n"
+        "enum Status:\n"
+        "    active\n"
+        "    gone\n"
+        "shape Row:\n"
+        "    d: Date | None\n"
+        "    s: Status | None\n"
+        "    label: Text | None\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table selected:\n"
+        "    from rows\n"
+        "    select:\n"
         f"        v = {predicate}\n"
     )
     assert [
@@ -1170,20 +1249,19 @@ def test_decimal_quotient_let_chains_check_as_their_int_twins() -> None:
     # recursion limit (PIE-S2006), where the Int twin passed.
     def checked(value: str, step: str, count: int, use: str) -> list[tuple[str, int]]:
         lets = "".join(
-            f"        q{index} = {step.format(index - 1)}\n"
+            f"    let q{index} = {step.format(index - 1)}\n"
             for index in range(1, count + 1)
         )
         source = (
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    a: Decimal(10, 2) not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            "    a: Decimal(10, 2)\n"
+            'source rows: Row = postgres.table("rows")\n'
             "table chained:\n"
             "    from rows\n"
-            "    let:\n"
-            f"        q0 = {value}\n{lets}"
-            f"{use}"
-            "    select:\n"
+            "\n"
+            f"    let q0 = {value}\n"
+            f"{lets}{use}    select:\n"
             "        id\n"
         )
         return [
@@ -1224,14 +1302,14 @@ def test_qualified_sql_bytes_from_slice1_remain_stable() -> None:
     _, _, postgres_ir = _compile(
         SOURCE_PREFIX + "table selected:\n"
         "    from rows\n"
-        "    where rows.active == true\n"
+        "    where rows.active == True\n"
         "    select:\n"
         "        rows.text\n"
     )
     _, _, mysql_ir = _compile(
         SOURCE_PREFIX + "table selected:\n"
         "    from mysql_rows\n"
-        "    where mysql_rows.active == true\n"
+        "    where mysql_rows.active == True\n"
         "    select:\n"
         "        mysql_rows.text\n"
     )
@@ -1252,21 +1330,22 @@ def test_qualified_sql_bytes_from_slice1_remain_stable() -> None:
     )
 
 
-def test_relationship_metadata_does_not_participate_in_scalar_expression_binding() -> (
+def test_unused_relationship_template_does_not_participate_in_scalar_expression_binding() -> (
     None
 ):
     script, semantic, _ = _compile(
-        SOURCE_PREFIX + "relationship membership:\n"
-        "    endpoint member: rows\n"
-        "    endpoint group: rows\n"
+        SOURCE_PREFIX + "relationship membership(member: Row, group: Row):\n"
+        "    member.count == group.count\n"
         "table selected:\n"
         "    from rows\n"
-        "    where count > 1 and active == true\n"
+        "    where count > 1 and active == True\n"
         "    select:\n"
         "        value = count % 2\n"
     )
 
-    assert len(semantic.model.relationships) == 1
+    (template,) = semantic.model.relationship_templates
+    assert template.declaration is script.relationship_templates[0]
+    assert template.declaration.name == "membership"
     assert semantic.model.expression_value_types[
         _where_expression(script)
     ].resolved_type.name == ("Bool")
@@ -1281,6 +1360,8 @@ def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:
     assert all(
         diagnostic.severity is not Severity.ERROR for diagnostic in semantic.diagnostics
     )
+    assert semantic.script is not None
+    script = semantic.script
     ir_result = build_ir(script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None

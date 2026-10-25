@@ -100,39 +100,46 @@ def _program(
         "    active\n"
         "    paused\n"
         "shape Payload:\n"
-        "    code: Int not null\n"
-        "type Alias = Int not null\n"
+        "    code: Int\n"
+        "type Alias = Int\n"
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    nullable_id: Int nullable\n"
-        "    score: Float not null\n"
-        "    nullable_score: Float nullable\n"
-        "    label: Text nullable\n"
-        "    flag: Bool not null\n"
-        "    status: Status not null\n"
-        "    payload: Payload nullable\n"
-        "    alias_value: Alias nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    nullable_id: Int | None\n"
+        "    score: Float\n"
+        "    nullable_score: Float | None\n"
+        "    label: Text | None\n"
+        "    flag: Bool\n"
+        "    status: Status\n"
+        "    payload: Payload | None\n"
+        "    alias_value: Alias | None\n"
+        'source rows: Row = postgres.table("rows")\n'
     )
     lines = [f"{kind} navigated:", "    from rows", "    select:"]
     if extra_window:
         lines.extend(
             (
-                "        ranking_value = row_number() window:",
-                "            order by:",
-                "                id",
+                "        ranking_value = row_number() window(",
+                "            order by",
+                "                id)",
             )
         )
-    selected = f"navigation_value = {call} window:" if alias else f"{call} window:"
+    selected = f"navigation_value = {call} window(" if alias else f"{call} window("
     lines.append(f"        {selected}")
     if partition:
-        lines.append("            partition by:")
-        lines.extend(f"                {value}" for value in partition)
+        lines.append("            partition by")
+        lines.extend(
+            ",\n".join(f"                {value}" for value in partition).splitlines()
+        )
     if order:
-        lines.append("            order by:")
-        for value, direction in order:
-            suffix = "" if direction is None else f" {direction}"
-            lines.append(f"                {value}{suffix}")
+        lines.append("            order by")
+        lines.extend(
+            ",\n".join(
+                f"                {value}"
+                + (f" {direction}" if direction is not None else "")
+                for value, direction in order
+            ).splitlines()
+        )
+    lines[-1] += ")"
     return prefix + "\n".join(lines) + "\n"
 
 
@@ -467,7 +474,7 @@ def test_value_accepts_bare_and_immediate_qualified_fields(case: int) -> None:
 @pytest.mark.parametrize("case", range(8))
 def test_value_accepts_selected_scalar_literal_kinds(case: int) -> None:
     identity = IDENTITIES[case // 4]
-    literal = ("true", '"fallback"', "7", "1.5")[case % 4]
+    literal = ("True", '"fallback"', "7", "1.5")[case % 4]
     result, _, _ = _success(f"{identity}({literal})")
     fact = cast(NavigationWindowSemanticFact, result.navigation_fact)
     assert not fact.value_always_null
@@ -477,8 +484,8 @@ def test_value_accepts_selected_scalar_literal_kinds(case: int) -> None:
 @pytest.mark.parametrize("case", range(8))
 def test_value_null_binding_uses_concrete_explicit_default(case: int) -> None:
     identity = IDENTITIES[case // 4]
-    default = ("id", "score", '"fallback"', "false")[case % 4]
-    result, _, _ = _success(f"{identity}(null, 1, {default})")
+    default = ("id", "score", '"fallback"', "False")[case % 4]
+    result, _, _ = _success(f"{identity}(None, 1, {default})")
     fact = cast(NavigationWindowSemanticFact, result.navigation_fact)
     assert fact.value_always_null
     assert fact.signature_match.bindings[0].first_parameter_position == 0
@@ -487,7 +494,7 @@ def test_value_null_binding_uses_concrete_explicit_default(case: int) -> None:
 @pytest.mark.parametrize("case", range(4))
 def test_value_rejects_unbound_null_without_concrete_default(case: int) -> None:
     identity = IDENTITIES[case // 2]
-    call = f"{identity}(null)" if case % 2 == 0 else f"{identity}(null, 1, null)"
+    call = f"{identity}(None)" if case % 2 == 0 else f"{identity}(None, 1, None)"
     _failure(call, "PIE-S2104")
 
 
@@ -498,8 +505,8 @@ def test_value_rejects_nonselected_expression_shapes(case: int) -> None:
         "-id",
         "id + 1",
         "id = 1",
-        "id between 1 and 2",
-        "id is null",
+        "1 <= id <= 2",
+        "id is None",
         "lower(label)",
         "rank()",
     )
@@ -556,7 +563,7 @@ def test_an_unknown_nullability_is_read_only_where_the_result_does_not_read_it()
         "lag(unknown_nullability)": EffectiveNullability.NULLABLE,
         "lead(unknown_nullability, 2)": EffectiveNullability.NULLABLE,
         "lag(unknown_nullability, 1, nullable_id)": EffectiveNullability.NULLABLE,
-        "lead(unknown_nullability, 1, null)": EffectiveNullability.NULLABLE,
+        "lead(unknown_nullability, 1, None)": EffectiveNullability.NULLABLE,
         "lag(nullable_id, 1, unknown_nullability)": EffectiveNullability.NULLABLE,
         "lead(id, 0, unknown_nullability)": EffectiveNullability.NON_NULL,
         "first_value(unknown_nullability)": EffectiveNullability.NULLABLE,
@@ -635,14 +642,14 @@ def test_offset_rejects_negative_unary_integer(case: int) -> None:
 @pytest.mark.parametrize("case", range(8))
 def test_offset_rejects_bool_float_text_and_null_literals(case: int) -> None:
     identity = IDENTITIES[case // 4]
-    offset = ("true", "1.5", '"2"', "null")[case % 4]
+    offset = ("True", "1.5", '"2"', "None")[case % 4]
     _failure(f"{identity}(id, {offset})", "PIE-S2104")
 
 
 @pytest.mark.parametrize("case", range(8))
 def test_offset_rejects_field_call_parameter_and_nonliteral_shapes(case: int) -> None:
     identity = IDENTITIES[case // 4]
-    offset = ("id", "lower(label)", "id + 1", "id is null")[case % 4]
+    offset = ("id", "lower(label)", "id + 1", "id is None")[case % 4]
     _failure(f"{identity}(id, {offset})", "PIE-S2104")
 
 
@@ -667,11 +674,11 @@ def test_default_accepts_bare_and_immediate_qualified_fields(case: int) -> None:
 @pytest.mark.parametrize("case", range(10))
 def test_default_accepts_selected_scalar_literal_kinds_and_null(case: int) -> None:
     identity = IDENTITIES[case // 5]
-    default = ("true", '"fallback"', "7", "1.5", "null")[case % 5]
+    default = ("True", '"fallback"', "7", "1.5", "None")[case % 5]
     value = ("flag", "label", "id", "score", "id")[case % 5]
     result, _, _ = _success(f"{identity}({value}, 1, {default})")
     fact = cast(NavigationWindowSemanticFact, result.navigation_fact)
-    assert fact.default_fact.always_null is (default == "null")
+    assert fact.default_fact.always_null is (default == "None")
 
 
 @pytest.mark.parametrize("case", range(14))
@@ -681,8 +688,8 @@ def test_default_rejects_nonselected_expression_shapes(case: int) -> None:
         "-id",
         "id + 1",
         "id = 1",
-        "id between 1 and 2",
-        "id is null",
+        "1 <= id <= 2",
+        "id is None",
         "lower(label)",
         "rank()",
     )
@@ -720,7 +727,7 @@ def test_exact_generic_compatibility_accepts_matching_value_and_default(
         ("id", "nullable_id"),
         ("score", "nullable_score"),
         ("label", '"fallback"'),
-        ("flag", "false"),
+        ("flag", "False"),
         ("status", "status"),
         ("payload", "payload"),
     )
@@ -751,7 +758,7 @@ def test_exact_generic_compatibility_rejects_cross_type_pairs_without_promotion(
 def test_null_default_is_compatible_after_value_binds_T(case: int) -> None:
     identity = IDENTITIES[case // 4]
     value = ("id", "score", "label", "status")[case % 4]
-    result, _, _ = _success(f"{identity}({value}, 1, null)")
+    result, _, _ = _success(f"{identity}({value}, 1, None)")
     fact = cast(NavigationWindowSemanticFact, result.navigation_fact)
     assert fact.default_fact.always_null
     assert fact.signature_match.result_type.name == fact.value_type.resolved_type.name
@@ -761,7 +768,7 @@ def test_null_default_is_compatible_after_value_binds_T(case: int) -> None:
 def test_value_null_binds_T_from_concrete_default_only(case: int) -> None:
     identity = IDENTITIES[case // 4]
     default = ("id", "score", "label", "status")[case % 4]
-    result, _, _ = _success(f"{identity}(null, 2, {default})")
+    result, _, _ = _success(f"{identity}(None, 2, {default})")
     fact = cast(NavigationWindowSemanticFact, result.navigation_fact)
     assert (
         fact.signature_match.result_type.name
@@ -774,7 +781,7 @@ def test_value_null_binds_T_from_concrete_default_only(case: int) -> None:
     (
         "lag(status)",
         "lead(status, 2)",
-        "lag(null, 1, status)",
+        "lag(None, 1, status)",
         "lead(status, 1, status)",
     ),
 )
@@ -786,19 +793,23 @@ def test_an_enum_result_keeps_its_declaration_for_later_readers(call: str) -> No
     the conditional PIE-S2105."""
     source = (
         "enum Status:\n    active\n    paused\n"
-        "shape Row:\n    id: Int not null\n    status: Status not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n    id: Int\n    status: Status\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table navigated:\n    from rows\n    select:\n        id\n        status\n"
-        f"        previous = {call} window:\n            order by:\n"
-        "                id\n"
+        f"        previous = {call} window(\n            order by\n"
+        "                id)\n"
         "query later:\n    from navigated\n    select:\n        id\n"
         "        v = coalesce(previous, status)\n"
-        "        w = previous if previous is null else status\n"
+        "        w = previous if previous is None else status\n"
     )
     parsed = parse_source(source, path="navigated.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
     semantic = analyze(parsed.ast)
-    assert semantic.diagnostics == ()
+    # Only the read of a table of the file is warned about.
+    assert [
+        (item.code, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == [("PIE-S2382", 17, 5)]
     enum, navigated = parsed.ast.definitions[0], parsed.ast.definitions[3]
     assert type(navigated) is TableDef
     schema = semantic.model.relation_row_schemas[navigated]
@@ -814,10 +825,10 @@ def test_a_computed_column_of_an_earlier_relation_is_a_window_value() -> None:
     `lag(v, 0)` and `lag(v, 1, 0)`, whose result would have the column's
     unknown nullability, stay PIE-S2104. Before, every one was PIE-S2104
     `value type must be concrete`."""
-    window = "window:\n            order by:\n                id\n"
+    window = "window(\n            order by\n                id)\n"
     source = (
-        "shape Row:\n    id: Int not null\n    m: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n    id: Int\n    m: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table computed:\n    from rows\n    select:\n        id\n        v = m + 1\n"
         "query later:\n    from computed\n    select:\n        id\n"
         f"        previous = lag(v) {window}"
@@ -838,16 +849,29 @@ def test_a_computed_column_of_an_earlier_relation_is_a_window_value() -> None:
         (item.code, item.message, item.location.line, item.location.column)
         for item in semantic.diagnostics
     ] == [
+        *(
+            (
+                "PIE-S2382",
+                "`computed` is a table of this file; single-file SQL reads it by "
+                "name, so the SQL runs only where the database already has a "
+                "relation named computed (an EXPLICIT_MODULES project emits it as "
+                "a CTE)",
+                number + 1,
+                5,
+            )
+            for number, line in enumerate(lines)
+            if line == "    from computed"
+        ),
         (
             "PIE-S2104",
             "Invalid arguments for function lag: value type must be concrete",
-            lines.index("        same = lag(v, 0) window:") + 1,
+            lines.index("        same = lag(v, 0) window(") + 1,
             16,
         ),
         (
             "PIE-S2104",
             "Invalid arguments for function lag: value type must be concrete",
-            lines.index("        defaulted = lag(v, 1, 0) window:") + 1,
+            lines.index("        defaulted = lag(v, 1, 0) window(") + 1,
             21,
         ),
     ]
@@ -874,7 +898,7 @@ def test_a_computed_column_of_an_earlier_relation_is_a_window_value() -> None:
 @pytest.mark.parametrize("case", range(2, 6))
 def test_unbound_null_only_T_cases_fail_closed(case: int) -> None:
     identity = IDENTITIES[case % 2]
-    call = f"{identity}(null, 0)" if case < 4 else f"{identity}(null, 2, null)"
+    call = f"{identity}(None, 0)" if case < 4 else f"{identity}(None, 2, None)"
     _failure(call, "PIE-S2104")
 
 
@@ -909,12 +933,12 @@ def test_positive_offset_explicit_default_joins_value_default_nullability(
     pairs = (
         ("id", "id", EffectiveNullability.NON_NULL),
         ("id", "nullable_id", EffectiveNullability.NULLABLE),
-        ("id", "null", EffectiveNullability.NULLABLE),
+        ("id", "None", EffectiveNullability.NULLABLE),
         ("nullable_id", "id", EffectiveNullability.NULLABLE),
         ("nullable_id", "nullable_id", EffectiveNullability.NULLABLE),
-        ("nullable_id", "null", EffectiveNullability.NULLABLE),
-        ("null", "id", EffectiveNullability.NULLABLE),
-        ("null", "nullable_id", EffectiveNullability.NULLABLE),
+        ("nullable_id", "None", EffectiveNullability.NULLABLE),
+        ("None", "id", EffectiveNullability.NULLABLE),
+        ("None", "nullable_id", EffectiveNullability.NULLABLE),
     )
     value, default, expected = pairs[case % 8]
     assert _result_nullability(f"{identity}({value}, 2, {default})") is expected
@@ -926,10 +950,10 @@ def test_zero_offset_concrete_value_follows_value_nullability(case: int) -> None
     pairs = (
         ("id", "id", EffectiveNullability.NON_NULL),
         ("id", "nullable_id", EffectiveNullability.NON_NULL),
-        ("id", "null", EffectiveNullability.NON_NULL),
+        ("id", "None", EffectiveNullability.NON_NULL),
         ("nullable_id", "id", EffectiveNullability.NULLABLE),
         ("nullable_id", "nullable_id", EffectiveNullability.NULLABLE),
-        ("nullable_id", "null", EffectiveNullability.NULLABLE),
+        ("nullable_id", "None", EffectiveNullability.NULLABLE),
     )
     value, default, expected = pairs[case % 8]
     assert _result_nullability(f"{identity}({value}, 0, {default})") is expected
@@ -939,14 +963,14 @@ def test_zero_offset_concrete_value_follows_value_nullability(case: int) -> None
 def test_zero_offset_null_value_preserves_always_nullable_provenance(case: int) -> None:
     identity = IDENTITIES[case // 2]
     default = ("id", "nullable_id")[case % 2]
-    result, _, _ = _success(f"{identity}(null, 0, {default})")
+    result, _, _ = _success(f"{identity}(None, 0, {default})")
     fact = cast(NavigationWindowSemanticFact, result.navigation_fact)
     assert fact.value_always_null
     assert (
         fact.nullability_match.evidence.kind is NullabilityFormulaKind.ALWAYS_NULLABLE
     )
     assert (
-        _result_nullability(f"{identity}(null, 0, {default})")
+        _result_nullability(f"{identity}(None, 0, {default})")
         is EffectiveNullability.NULLABLE
     )
 
@@ -1035,7 +1059,7 @@ def test_navigation_diagnostic_codes_messages_and_spans_are_exact(case: int) -> 
         1: f"{identity}(id, -1)",
         2: f"{identity}(id, 1, score)",
         4: f"{identity}(id + 1)",
-        5: f"{identity}(null)",
+        5: f"{identity}(None)",
     }
     result, diagnostics, _, _, relation = _analysis(calls[case % 6])
     assert type(result) is WindowExpressionUnsupported
@@ -1131,8 +1155,8 @@ def test_project_literals_offsets_and_null_create_no_dependency_occurrence(
     call = (
         f"{identity}(1)",
         f"{identity}(1, 0)",
-        f"{identity}(1, 2, null)",
-        f"{identity}(null, 2, 1)",
+        f"{identity}(1, 2, None)",
+        f"{identity}(None, 2, 1)",
     )[case % 4]
     fact = _project_fact(call)
     assert all(
@@ -1170,7 +1194,7 @@ def test_relation_input_fallback_is_exact_for_dependency_free_arguments(
     case: int,
 ) -> None:
     identity = IDENTITIES[case // 2]
-    call = f"{identity}(1)" if case % 2 == 0 else f"{identity}(null, 1, 1)"
+    call = f"{identity}(1)" if case % 2 == 0 else f"{identity}(None, 1, 1)"
     fact = _project_fact(call)
     relation_occurrences = tuple(
         item

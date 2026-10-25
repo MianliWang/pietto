@@ -3,18 +3,17 @@
 
 def _source(body: str, *, kind: str = "query", family: str = "postgres") -> str:
     return f"""shape Row:
-    id: Int not null
-    key: Int nullable
-    flag: Bool nullable
-source rows: Row is {family}.table("rows")
+    id: Int
+    key: Int | None
+    flag: Bool | None
+source rows: Row = {family}.table("rows")
 {kind} result:
     from rows
 {body}"""
 
 
-ROW_BODY = """    let:
-        a = rows.id + 1
-        b = a * 2
+ROW_BODY = """    let a = rows.id + 1
+    let b = a * 2
     where b > 0 and flag
     select:
         first = b + a

@@ -58,25 +58,32 @@ PRIVATE_JSON_FACTS = (
 
 SINGLE_FILE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int nullable\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int | None\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
-def test_public_single_file_default_rejects_unaliased_selected_let_output() -> None:
+def test_public_single_file_default_accepts_unaliased_selected_let_output() -> None:
     semantic = _analyze_single_file(
         "query projected:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        gross\n"
     )
 
-    assert "PIE-S2329" in _error_codes(semantic)
+    # Before: PIE-S2329. Without GROUP BY a `let` name selected alone is an
+    # output of the binding's value.
+    assert semantic.diagnostics == ()
+    assert semantic.script is not None
+    relation = semantic.script.definitions[-1]
+    assert isinstance(relation, QueryDef)
+    schema = semantic.model.relation_row_schemas[relation]
+    assert list(schema.fields) == ["gross"]
+    assert schema.fields["gross"].resolved_type.name == "Int"
 
 
 @pytest.mark.parametrize(
@@ -84,73 +91,59 @@ def test_public_single_file_default_rejects_unaliased_selected_let_output() -> N
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        gross = amount - tax\n"
+            "    let gross = amount + tax\n"
+            "    let gross = amount - tax\n"
             "    select:\n"
             "        amount\n",
+            "PIE-S2604",
+        ),
+        (
+            "    from orders\n    let amount = tax\n    select:\n        amount\n",
+            "PIE-S2329",
+        ),
+        (
+            "    from orders\n    let orders = amount\n    select:\n        amount\n",
             "PIE-S2329",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        amount = tax\n"
-            "    select:\n"
-            "        amount\n",
-            "PIE-S2329",
-        ),
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        orders = amount\n"
-            "    select:\n"
-            "        amount\n",
-            "PIE-S2329",
-        ),
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        gross = gross + tax\n"
+            "    let gross = gross + tax\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = net + tax\n"
-            "        net = amount\n"
+            "    let gross = net + tax\n"
+            "    let net = amount\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = sum(amount)\n"
+            "    let gross = sum(amount)\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2308",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        net = orders.gross\n"
+            "    let gross = amount + tax\n"
+            "    let net = orders.gross\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2102",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total_amount = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
         ),
@@ -173,8 +166,7 @@ def test_project_private_exact_unaliased_selected_let_output_is_let_derived(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n",
         )
@@ -200,8 +192,7 @@ def test_project_direct_input_field_keeps_priority_over_local_let(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        score = bonus\n"
+            "    let score = bonus\n"
             "    select:\n"
             "        score\n",
         )
@@ -230,8 +221,7 @@ def test_project_aliased_selected_let_reference_is_let_derived(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        exported_total = total\n",
         )
@@ -255,8 +245,7 @@ def test_project_alias_output_conflict_keeps_let_facts_non_concrete(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total = id\n",
         )
@@ -281,9 +270,8 @@ def test_project_alias_output_conflict_keeps_let_facts_non_concrete(
             "duplicate",
             "query duplicate:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score\n"
-            "        total = bonus\n"
+            "    let total = score\n"
+            "    let total = bonus\n"
             "    select:\n"
             "        total\n",
             "Unknown field: total",
@@ -292,8 +280,7 @@ def test_project_alias_output_conflict_keeps_let_facts_non_concrete(
             "source_shadow",
             "query source_shadow:\n"
             "    from users\n"
-            "    let:\n"
-            "        users = score\n"
+            "    let users = score\n"
             "    select:\n"
             "        users\n",
             "Unknown field: users",
@@ -302,8 +289,7 @@ def test_project_alias_output_conflict_keeps_let_facts_non_concrete(
             "self_reference",
             "query self_reference:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = total + bonus\n"
+            "    let total = total + bonus\n"
             "    select:\n"
             "        total\n",
             "Unknown field: total",
@@ -312,9 +298,8 @@ def test_project_alias_output_conflict_keeps_let_facts_non_concrete(
             "later_reference",
             "query later_reference:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = subtotal + bonus\n"
-            "        subtotal = score\n"
+            "    let total = subtotal + bonus\n"
+            "    let subtotal = score\n"
             "    select:\n"
             "        total\n",
             "Unknown field: total",
@@ -323,8 +308,7 @@ def test_project_alias_output_conflict_keeps_let_facts_non_concrete(
             "aggregate_let",
             "query aggregate_let:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = sum(score)\n"
+            "    let total = sum(score)\n"
             "    select:\n"
             "        total\n",
             "Unknown field: total",
@@ -358,8 +342,7 @@ def test_project_qualified_let_reference_stays_unknown(tmp_path: Path) -> None:
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        exported_total = users.total\n",
         )
@@ -382,8 +365,7 @@ def test_invalid_grouped_selected_let_output_schema_is_unknown(
             tmp_path,
             "query grouped:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    group by:\n"
             "        email\n"
             "    select:\n"
@@ -429,8 +411,7 @@ def test_project_multi_hop_let_derived_field_keeps_field_def_none(
             tmp_path,
             "query seed:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n"
             "query exported:\n"
@@ -486,8 +467,7 @@ def test_project_json_v2_keeps_slice8_private_facts_private(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n",
         )
@@ -554,11 +534,11 @@ def _project(tmp_path: Path, relation_source: str) -> Path:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text not null\n"
-        "    score: Int not null\n"
-        "    bonus: Int nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        "    email: Text\n"
+        "    score: Int\n"
+        "    bonus: Int | None\n"
+        'source users: User = postgres.table("users")\n'
         f"{relation_source}",
     )
     return root

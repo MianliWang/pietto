@@ -20,8 +20,8 @@ from pietto._project.project_sql_emission import emit_project_sql
 
 def _source(target):
     return f"""shape Row:
-    occurred_at: Timestamp nullable
-source rows: Row is {target}.table("opaque.result.fixture")
+    occurred_at: Timestamp | None
+source rows: Row = {target}.table("opaque.result.fixture")
 table result:
     from rows
     select:

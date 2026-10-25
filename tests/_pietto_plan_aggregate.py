@@ -3,9 +3,9 @@
 
 def _ordinary(body: str, *, family="postgres", kind="query"):
     return f"""shape Row:
-    id: Int not null
-    value: Int nullable
-source rows: Row is {family}.table("rows")
+    id: Int
+    value: Int | None
+source rows: Row = {family}.table("rows")
 {kind} result:
     from rows
 {body}"""
@@ -17,15 +17,14 @@ def _group_source(*, visible=(), keys=("lhs.id",), family="postgres", kind="quer
     )
     grouped = "".join(f"        {key}\n" for key in keys)
     return f"""shape Row:
-    id: Int not null
-    key: Int nullable
-source lhs: Row is {family}.table("lhs")
-source rhs: Row is {family}.table("rhs")
+    id: Int
+    key: Int | None
+source lhs: Row = {family}.table("lhs")
+source rhs: Row = {family}.table("rhs")
 {kind} result:
     from lhs
-    left join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    left join r on lhs.id == r.id
     group by:
 {grouped}    select:
 {selected}        total = count()
@@ -35,14 +34,13 @@ source rhs: Row is {family}.table("rhs")
 def _joined_aggregates(family="postgres", kind="query"):
     source = _group_source(family=family, kind=kind)
     source = source.replace(
-        "    key: Int nullable\n",
-        "    key: Int nullable\n    label: Text nullable\n    unique row_key on id\n",
+        "    key: Int | None\n",
+        "    key: Int | None\n    label: Text | None\n    row_key = unique(id)\n",
     )
     source = source.replace(
         "    group by:\n        lhs.id\n",
-        """    let:
-        group_value = lhs.id
-        amount = r.key + 1
+        """    let group_value = lhs.id
+    let amount = r.key + 1
     where lhs.id > 0
     group by:
         group_value
@@ -58,7 +56,7 @@ def _joined_aggregates(family="postgres", kind="query"):
         minimum = min(r.key)
         maximum = max(r.key)
         repeated_total = sum(amount)
-    satisfying:
+    having:
         total > 0 and total > 1 and total < 10
 """,
     )

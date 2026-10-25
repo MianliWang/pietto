@@ -12,6 +12,7 @@ from pietto.ast_nodes import (
     WindowNthDirectionKind,
     WindowNullTreatmentKind,
 )
+from pietto.errors import Severity
 from pietto.ir import build_ir
 from pietto.ir.model import (
     AggregateCallIR,
@@ -51,12 +52,7 @@ from pietto.sql.mysql import emit_mysql_sql
 from pietto.sql.postgres import emit_postgres_sql
 
 
-PREFIX = (
-    "shape Row:\n"
-    "    id: Int not null\n"
-    "    value: Int nullable\n"
-    "    category: Text nullable\n"
-)
+PREFIX = "shape Row:\n    id: Int\n    value: Int | None\n    category: Text | None\n"
 FRAME_IDENTITY = _window_identity.WindowFunctionIdentity(
     namespace=("slice9",),
     name="frame_value_contract",
@@ -75,16 +71,13 @@ def _source(
     connector: str = "postgres.table",
     declarations: str = "",
 ) -> str:
-    frame_source = "" if frame is None else f"            {frame}\n"
+    frame_source = "" if frame is None else f" {frame}"
     return (
-        PREFIX + f'source rows: Row is {connector}("rows")\n'
+        PREFIX + f'source rows: Row = {connector}("rows")\n'
         "query result:\n"
         "    from rows\n"
         "    select:\n"
-        f"        result = {call} window:\n"
-        "            order by:\n"
-        "                id\n"
-        f"{frame_source}"
+        f"        result = {call} window(order by id{frame_source})\n"
         f"{declarations}"
     )
 
@@ -188,11 +181,11 @@ def test_reverse_modifier_order_is_parser_negative_and_keywords_are_contextual()
     assert invalid.diagnostics
     contextual = parse_source(
         "shape Keywords:\n"
-        "    first: Int not null\n"
-        "    last: Int not null\n"
-        "    respect: Int not null\n"
-        "    ignore: Int not null\n"
-        "    nulls: Int not null\n",
+        "    first: Int\n"
+        "    last: Int\n"
+        "    respect: Int\n"
+        "    ignore: Int\n"
+        "    nulls: Int\n",
         path="slice9.pietto",
     )
     assert contextual.diagnostics == () and contextual.ast is not None
@@ -492,8 +485,8 @@ def test_grouped_frame_value_reads_the_selected_aggregate_call(
     aggregate_sql: str,
 ) -> None:
     position = ", 2" if function == "nth_value" else ""
-    for quantity_type in ("Int not null", "Qty not null"):
-        shapes = f"type Qty = Int not null\n{PREFIX}    quantity: {quantity_type}\n"
+    for quantity_type in ("Int", "Qty"):
+        shapes = f"type Qty = Int\n{PREFIX}    quantity: {quantity_type}\n"
         for connector, emitter, q, double, exclusion in (
             (
                 "postgres.table",
@@ -505,7 +498,7 @@ def test_grouped_frame_value_reads_the_selected_aggregate_call(
             ("mysql.table", emit_mysql_sql, "`", "DOUBLE", ""),
         ):
             source = shapes + (
-                f'source rows: Row is {connector}("rows")\n'
+                f'source rows: Row = {connector}("rows")\n'
                 "query result:\n"
                 "    from rows\n"
                 "    group by:\n"
@@ -513,9 +506,8 @@ def test_grouped_frame_value_reads_the_selected_aggregate_call(
                 "    select:\n"
                 "        category\n"
                 f"        total = {aggregate}\n"
-                f"        picked = {function}(total{position}) window:\n"
-                "            order by:\n"
-                "                total\n"
+                f"        picked = {function}(total{position}) "
+                "window(order by total)\n"
             )
             parsed = parse_source(source, path="grouped.pietto")
             assert parsed.diagnostics == () and parsed.ast is not None
@@ -673,7 +665,7 @@ def test_a_window_of_an_earlier_relation_computed_column_emits_sql() -> None:
     """A later relation's `lag` and `last_value` of a computed column, whose
     nullability is unknown, emit as over a field. Before, `check` refused
     both with PIE-S2104 `value type must be concrete`."""
-    window = "window:\n            order by:\n                id\n"
+    window = "window(order by id)\n"
     for connector, emitter, q, frame in (
         (
             "postgres.table",
@@ -689,8 +681,8 @@ def test_a_window_of_an_earlier_relation_computed_column_emits_sql() -> None:
         ),
     ):
         parsed = parse_source(
-            "shape Row:\n    id: Int not null\n    m: Int not null\n"
-            f'source rows: Row is {connector}("rows")\n'
+            "shape Row:\n    id: Int\n    m: Int\n"
+            f'source rows: Row = {connector}("rows")\n'
             "table computed:\n    from rows\n    select:\n        id\n"
             "        v = m + 1\n"
             "query later:\n    from computed\n    select:\n        id\n"
@@ -700,7 +692,11 @@ def test_a_window_of_an_earlier_relation_computed_column_emits_sql() -> None:
         )
         assert parsed.ast is not None
         semantic = analyze(parsed.ast)
-        assert semantic.diagnostics == ()
+        # Only the read of a table of the file is warned about (PIE-S2382).
+        assert [
+            (item.code, item.severity, item.location.line, item.location.column)
+            for item in semantic.diagnostics
+        ] == [("PIE-S2382", Severity.WARNING, 11, 5)]
         lowered = build_ir(parsed.ast, semantic.model)
         assert lowered.diagnostics == () and lowered.ir is not None
         emitted = emitter(lowered.ir)
@@ -729,12 +725,13 @@ def test_let_bound_frame_offset_emits_its_inlined_literal() -> None:
             "first_value(value)",
             frame="rows between n preceding and current row",
             connector=connector,
-        ).replace("    from rows\n", "    from rows\n    let:\n        n = 2\n")
+        ).replace("    from rows\n", "    from rows\n    let n = 2\n")
         parsed = parse_source(source, path="frame.pietto")
         assert parsed.ast is not None
         semantic = analyze(parsed.ast)
         assert semantic.diagnostics == ()
-        lowered = build_ir(parsed.ast, semantic.model)
+        assert semantic.script is not None
+        lowered = build_ir(semantic.script, semantic.model)
         assert lowered.ir is not None
 
         assert frame_sql in emitter(lowered.ir).artifacts[0].sql
@@ -778,15 +775,12 @@ def test_mysql_explicit_supported_modifiers_and_old_lag_omission_are_exact() -> 
 
 def test_named_frame_value_reaches_ir_but_target_restriction_still_fails() -> None:
     source = (
-        PREFIX + 'source rows: Row is postgres.table("rows")\n'
+        PREFIX + 'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
+        "    let framed = window(order by id rows current row)\n"
         "    select:\n"
         "        result = first_value(value) ignore nulls window framed\n"
-        "    window framed:\n"
-        "        order by:\n"
-        "            id\n"
-        "        rows current row\n"
     )
     parsed = parse_source(source, path="slice9.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
@@ -802,7 +796,7 @@ def test_named_frame_value_reaches_ir_but_target_restriction_still_fails() -> No
 
 def test_ordinary_calls_do_not_gain_window_identity() -> None:
     source = (
-        PREFIX + 'source rows: Row is postgres.table("rows")\n'
+        PREFIX + 'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
         "    select:\n"

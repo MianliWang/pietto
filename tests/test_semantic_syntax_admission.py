@@ -8,7 +8,7 @@ import pytest
 
 from pietto._syntax_admission import unadmitted_syntax_diagnostics
 from pietto.errors import Severity
-from pietto.parser_api import parse_file, parse_source
+from pietto.parser_api import _parse_legacy_source, parse_file, parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import CheckMode
 
@@ -29,15 +29,15 @@ FAMILIES = {
         "Query header parameters are available only in EXPLICIT_MODULES "
         "projects (schema version 2), on a query that reads a relation "
         "with FROM and has no relation let reading a table function.",
-        "query q(a: Int not null):\n    from rows\n    select:\n        id\n",
-        (1, 9, 1, 24),
+        "query q(a: Int):\n    from rows\n    select:\n        id\n",
+        (1, 9, 1, 15),
     ),
     "values_body": (
         "PIE-S2347",
         "Typed VALUES bodies are available only in EXPLICIT_MODULES "
         "projects (schema version 2).",
-        "query q:\n    values(id: Int not null)\n",
-        (2, 5, 2, 29),
+        "query q:\n    values(id: Int)\n",
+        (2, 5, 2, 20),
     ),
     "scalar_read": (
         "PIE-S2348",
@@ -71,10 +71,10 @@ FAMILIES = {
         "PIE-S2348",
         "Scalar relation reads are available only inside a FROM-based "
         "relation body in EXPLICIT_MODULES projects (schema version 2).",
-        "query q:\n    from rows\n    select:\n        total = sum(id) window:\n"
-        "            order by:\n                id\n"
-        "            rows between scalar t.c preceding and current row\n",
-        (7, 26, 7, 36),
+        "query q:\n    from rows\n    select:\n"
+        "        total = sum(id) window(order by id rows between "
+        "scalar t.c preceding and current row)\n",
+        (4, 57, 4, 67),
     ),
     "on_join_without_from": (
         "PIE-S2378",
@@ -90,15 +90,18 @@ FAMILIES = {
         (3, 5, 3, 27),
     ),
 }
+# PIE-S2378 guards the legacy JOIN spelling, which only the private legacy
+# reader still builds; the modern parser refuses that spelling with PIE-P1000.
+LEGACY_FAMILIES = frozenset({"on_join_without_from", "cross_join_without_from"})
 NESTED = (
-    "query q(a: Int not null):\n"
+    "query q(a: Int):\n"
     "    let l:\n"
     "        capture rows\n"
     "        from generate_series(1, 2, 1) as n\n"
     "        select:\n"
     "            n\n"
     "    let inner:\n"
-    "        values(id: Int not null)\n"
+    "        values(id: Int)\n"
     "    from rows\n"
     "    where scalar l.n in l and exists inner\n"
     "    select:\n"
@@ -120,8 +123,10 @@ NESTED_EXPECTED = [
 ]
 
 
-def _analyzed(source: str, **options: CheckMode):
-    parsed = parse_source(source, path="gate.pietto")
+def _analyzed(source: str, *, legacy: bool = False, **options: CheckMode):
+    parsed = (_parse_legacy_source if legacy else parse_source)(
+        source, path="gate.pietto"
+    )
     assert parsed.diagnostics == () and parsed.ast is not None
     return analyze(parsed.ast, **options)
 
@@ -131,14 +136,14 @@ def _located(diagnostics) -> list[tuple[str, int, int]]:
 
 
 @pytest.mark.parametrize(
-    ("code", "message", "source", "span"),
-    FAMILIES.values(),
+    ("family", "code", "message", "source", "span"),
+    [(name, *values) for name, values in FAMILIES.items()],
     ids=FAMILIES,
 )
 def test_each_family_reports_its_own_code_at_its_authored_span(
-    code: str, message: str, source: str, span: tuple[int, int, int, int]
+    family: str, code: str, message: str, source: str, span: tuple[int, int, int, int]
 ) -> None:
-    (diagnostic,) = _analyzed(source).diagnostics
+    (diagnostic,) = _analyzed(source, legacy=family in LEGACY_FAMILIES).diagnostics
 
     assert (diagnostic.code, diagnostic.message) == (code, message)
     assert diagnostic.severity is Severity.ERROR
@@ -156,8 +161,9 @@ def test_each_family_reports_its_own_code_at_its_authored_span(
 def test_every_nested_occurrence_is_an_error_in_source_order(
     mode: CheckMode | None,
 ) -> None:
-    options = {} if mode is None else {"mode_override": mode}
-    result = _analyzed(NESTED, **options)
+    result = (
+        _analyzed(NESTED) if mode is None else _analyzed(NESTED, mode_override=mode)
+    )
 
     assert _located(result.diagnostics) == NESTED_EXPECTED
     capture = result.diagnostics[2].location
@@ -196,7 +202,7 @@ def test_existing_sources_and_lookalike_forms_pass_the_gate() -> None:
 
 def test_deep_expressions_are_walked_without_recursion() -> None:
     deep = " + ".join(["1"] * 1200)
-    plain = parse_source(f"derive total() -> Int not null:\n    {deep}\n")
+    plain = parse_source(f"derive total() -> Int:\n    return {deep}\n")
     assert plain.ast is not None
     assert unadmitted_syntax_diagnostics(plain.ast) == ()
 
@@ -214,9 +220,9 @@ def test_explicit_modules_admit_relation_reads_only_inside_a_relation_body() -> 
         "type Age = Int:\n"
         "    ensure self > scalar t.c and exists t\n"
         "shape S:\n"
-        "    id: Int not null\n"
-        "    check positive:\n"
-        "        id > scalar t.c and exists t\n"
+        "    id: Int\n"
+        "    extra: Decimal(exists t, scalar t.c)\n"
+        "    c = check(id > scalar t.c and exists t)\n"
         "query q:\n"
         "    let l:\n"
         "        from rows\n"
@@ -227,7 +233,6 @@ def test_explicit_modules_admit_relation_reads_only_inside_a_relation_body() -> 
         "    where exists t and id == scalar t.c\n"
         "    select:\n"
         "        id\n"
-        "        d = cast(id as Decimal(exists t, scalar t.c))\n"
     )
     parsed = parse_source(source, path="gate.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
@@ -236,10 +241,10 @@ def test_explicit_modules_admit_relation_reads_only_inside_a_relation_body() -> 
     gated = [
         ("PIE-S2348", scalar, 2, 19),
         ("PIE-S2349", exists, 2, 34),
-        ("PIE-S2348", scalar, 6, 14),
-        ("PIE-S2349", exists, 6, 29),
-        ("PIE-S2349", exists, 17, 32),
-        ("PIE-S2348", scalar, 17, 42),
+        ("PIE-S2349", exists, 5, 20),
+        ("PIE-S2348", scalar, 5, 30),
+        ("PIE-S2348", scalar, 6, 20),
+        ("PIE-S2349", exists, 6, 35),
     ]
 
     def described(diagnostics):
@@ -267,7 +272,7 @@ def test_explicit_modules_admit_relation_reads_only_inside_a_relation_body() -> 
 def test_an_admitted_query_header_still_gates_a_read_in_a_parameter_type() -> None:
     """EXPLICIT_MODULES admits an entry-query header, not a form in its types."""
     parsed = parse_source(
-        "query q(a: Int(exists t) not null, b: Text nullable):\n"
+        "query q(a: Int(exists t), b: Text | None):\n"
         "    from rows\n    select:\n        id\n",
         path="gate.pietto",
     )
@@ -286,7 +291,7 @@ def test_an_admitted_query_header_still_gates_a_read_in_a_parameter_type() -> No
     assert described(unadmitted_syntax_diagnostics(parsed.ast)) == [
         ("PIE-S2346", header, 1, 9),
         ("PIE-S2349", exists, 1, 16),
-        ("PIE-S2346", header, 1, 36),
+        ("PIE-S2346", header, 1, 27),
     ]
 
 
@@ -310,10 +315,11 @@ def test_explicit_modules_admit_capture_lines() -> None:
 def test_on_and_cross_joins_without_from_stay_gated_and_def_only_where_inlined() -> (
     None
 ):
-    """Only a relationship JOIN infers an omitted `from` or VIA roles. Single
-    files and EXPLICIT_MODULES projects inline def calls; LEGACY_FLAT and
-    PACKAGE_ROOT projects keep every def gated."""
-    parsed = parse_source(
+    """Only a legacy relationship JOIN infers an omitted `from` or VIA roles
+    (read by the private legacy reader, in its spelling). Single files and
+    EXPLICIT_MODULES projects inline def calls; LEGACY_FLAT and PACKAGE_ROOT
+    projects keep every def gated."""
+    parsed = _parse_legacy_source(
         "def f(x: Int not null) -> Int not null:\n    return x\n"
         "query q:\n    from rows\n    inner join others as o: via link\n"
         "    left join others as p\n"

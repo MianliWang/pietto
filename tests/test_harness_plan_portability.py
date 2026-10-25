@@ -84,11 +84,11 @@ def test_computed_let_determinant_is_finite_typed_portable_evidence(tmp_path, jo
     source = (
         _group_source(visible=(("b", "computed"),), keys=("computed",)).replace(
             "    group by:\n",
-            "    let:\n        computed = lhs.id > r.key\n    group by:\n",
+            "    let computed = lhs.id > r.key\n    group by:\n",
         )
         if joined
         else _ordinary(
-            "    let:\n        computed = id + 1\n    group by:\n        computed\n"
+            "    let computed = id + 1\n    group by:\n        computed\n"
             "    select:\n        computed\n        total = count()\n"
         )
     )
@@ -109,14 +109,12 @@ def test_computed_let_determinant_is_finite_typed_portable_evidence(tmp_path, jo
         assert len(view.for_kind("project_sql_group_key")) == len(plan.group_keys)
 
 
-@pytest.mark.parametrize(
-    "kind", ("inner", "left", "cross", "right", "full", "semi", "anti")
-)
+@pytest.mark.parametrize("kind", ("inner", "left", "cross", "right", "full"))
 def test_seven_join_kinds_preserve_pre_match_and_output_roles(tmp_path, kind):
     from _pietto_plan_joins import _source, _product
 
     _, plan, runtime = _product(
-        tmp_path, _source(kind, "true", tail="    select:\n        id = lhs.id\n")
+        tmp_path, _source(kind, "True", tail="    select:\n        id = lhs.id\n")
     )
     verified = runtime.verification
     product = portable.build_project_sql_plan_portable(verified)
@@ -175,7 +173,7 @@ def test_proof_premises_and_shared_imported_nominal_identity(tmp_path, case):
 
         source = (
             _tail_source("global")[0]
-            + "query result:\n    from lhs\n    semi join upstream as r:\n        from lhs\n        on true\n    select:\n        id = lhs.id\n"
+            + "query result:\n    from lhs\n    let r = upstream\n    inner join r on True\n    select:\n        id = lhs.id\n"
         )
 
         def final_request(completed):
@@ -197,13 +195,11 @@ def test_proof_premises_and_shared_imported_nominal_identity(tmp_path, case):
             "    select distinct:\n        value\n    order by:\n        value\n    limit 1\n",
             kind="table",
         ).replace("table result:", "table capped:")
-        (tmp_path / "producer.pietto").write_text(
-            producer + "export:\n    table capped\n"
-        )
+        (tmp_path / "producer.pietto").write_text(producer + "export table capped\n")
         (tmp_path / "facade.pietto").write_text(
-            'import "producer.pietto":\n    table capped as public\nexport:\n    table public\n'
+            'from "producer.pietto" import table capped as public\nexport table public\n'
         )
-        source = 'import "facade.pietto":\n    table public as chosen\nquery result:\n    from chosen\n    cross join chosen as again:\n        from chosen\n    select distinct:\n        first = chosen.value\n        second = again.value\n    order by:\n        chosen.value\n    limit 0\n'
+        source = 'from "facade.pietto" import table public as chosen\nquery result:\n    from chosen\n    let again = chosen\n    cross join again\n    select distinct:\n        first = chosen.value\n        second = again.value\n    order by:\n        chosen.value\n    limit 0\n'
     _, plan, verified, _, _, _ = _reported(
         _roots(tmp_path, source, requests), P.BIND_SAFE_LITERALS
     )
@@ -293,22 +289,42 @@ def test_supplied_catalog_remains_an_unmapped_residual(tmp_path):
     assert pure.evaluate_project_sql_plan_document(missing).status is not pure.Status.OK
 
 
-def test_refinement_keeps_its_complete_original_proof(tmp_path):
+def test_filtered_typed_match_keeps_its_complete_original_proof(tmp_path):
     from _pietto_plan_joins import _product, _requests
     from _pietto_project_join_full import _unique_source
+    from pietto._project.project_join_conditions import (
+        ProjectJoinCondition,
+        ProjectJoinConditionKeyMatch,
+    )
 
     _, _, runtime = _product(
         tmp_path,
-        _unique_source("left", "r.key > 0", via="        via link: l -> r\n"),
+        _unique_source("left", "Link(lhs, r) and r.key > 0"),
         _requests,
     )
     product = runtime.portable()
     assert portable.verify_project_sql_plan_portable(
         product, runtime.verification
     ).verified
-    assert pure.Inspection(
-        pure.parse_project_sql_plan_document(product.canonical_bytes)
-    ).for_kind("project_refined_match_bounds")
+    (obligation,) = runtime.single_matches
+    assert obligation.assessment.state.value == "proved"
+    (proof,) = obligation.assessment.proofs
+    assert proof.kind.value == "matched_key"
+    condition, match, key, *equalities = proof.roots
+    assert condition is obligation.assessment.condition
+    assert isinstance(condition, ProjectJoinCondition)
+    assert condition.base_guarantee is None
+    assert any(match is candidate for candidate in condition.key_matches)
+    assert isinstance(match, ProjectJoinConditionKeyMatch)
+    assert match.binding is condition.use.target_binding and key is match.key
+    assert len(equalities) == len(match.equalities) and all(
+        left is right for left, right in zip(equalities, match.equalities, strict=True)
+    )
+    originals = dict(product.bindings)
+    (record,) = tuple(
+        record for record in product.document.records if originals[record.ref] is proof
+    )
+    assert record.kind == "project_single_match_proof"
 
 
 def test_field_roles_cycles_numeric_tags_and_foreign_bindings_reject(tmp_path):
@@ -672,6 +688,159 @@ def _change(document, record, name, value):
     )
 
 
+@pytest.mark.parametrize("joined", (False, True), ids=("ordinary", "joined"))
+def test_bound_predicate_literals_keep_normalized_context_paths(tmp_path, joined):
+    from pietto.ast_nodes import BinaryExpr
+    from pietto._project import project_sql_plan as sql
+    from pietto._project import project_sql_plan_literals as literals
+
+    target = "rhs" if joined else "lhs"
+    join = "    inner join rhs on Same(lhs, rhs) and rhs.id > 0\n" if joined else ""
+    source = f"""shape Row:
+    id: Int
+    row_key = unique(id)
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
+relationship Same(a: Row, b: Row):
+    a.id == b.id
+query result:
+    from lhs
+{join}    let keep = Same(lhs, {target}) and lhs.id > 1
+    where Same(lhs, {target}) and lhs.id > 2
+    select:
+        id = lhs.id
+        flag = Same(lhs, {target}) and lhs.id > 3
+        earlier = keep
+"""
+    verified = construction(
+        tmp_path / "source", source, literals.ProjectSQLLiteralPolicy.BIND_SAFE_LITERALS
+    )
+    product = portable.build_project_sql_plan_portable(verified)
+    assert portable.verify_project_sql_plan_portable(product, verified).verified
+    assert (
+        pure.parse_project_sql_plan_document(product.canonical_bytes).status
+        is pure.Status.OK
+    )
+
+    def record(original):
+        (ref,) = tuple(ref for ref, value in product.bindings if value is original)
+        return next(value for value in product.document.records if value.ref == ref)
+
+    assert isinstance(verified.plan, sql.ProjectSQLPlan)
+    positions = tuple(slot.site.position for slot in verified.plan.literal_slots)
+    expected_roles = {"let", "where", "select"} | ({"on"} if joined else set())
+    assert {position.role.value for position in positions} == expected_roles
+    assert len(positions) == len(expected_roles)
+    for position in positions:
+        predicate = sql.predicate_expression(position.context)
+        assert predicate is not None and predicate.parent is None
+        assert isinstance(predicate.authored, BinaryExpr)
+        assert isinstance(predicate.expression, BinaryExpr)
+        assert predicate.expression is not predicate.authored
+        assert predicate.expression.right is predicate.authored.right
+        assert tuple(parent for parent, _ in position.ancestry) == (
+            predicate.expression,
+            predicate.expression.right,
+        )
+        (demand,) = tuple(
+            demand
+            for demand in verified.plan.demands
+            if isinstance(demand, literals.ProjectSQLLiteralDemand)
+            and demand.use.slot.site.position is position
+        )
+        assert tuple(context.expression for context in demand.contexts) == (
+            predicate.expression,
+            predicate.expression.right,
+            position.literal,
+        )
+        position_record = record(position)
+        ancestry = next(
+            field.value for field in position_record.fields if field.name == "ancestry"
+        )
+        assert isinstance(ancestry.data, tuple)
+        first, second = ancestry.data
+        assert isinstance(first.data, tuple)
+        authored = schema.Value(schema.Tag.REF, record(predicate.authored).ref)
+        (other,) = tuple(
+            other
+            for other in positions
+            if other.role.value
+            == ("where" if position.role.value != "where" else "select")
+        )
+        other_predicate = sql.predicate_expression(other.context)
+        assert other_predicate is not None
+        foreign = schema.Value(schema.Tag.REF, record(other_predicate.expression).ref)
+        mutations = (
+            (
+                "authored_root",
+                schema.Value(
+                    schema.Tag.SEQUENCE,
+                    (
+                        schema.Value(schema.Tag.SEQUENCE, (authored, first.data[1])),
+                        second,
+                    ),
+                ),
+            ),
+            (
+                "other_context",
+                schema.Value(
+                    schema.Tag.SEQUENCE,
+                    (
+                        schema.Value(schema.Tag.SEQUENCE, (foreign, first.data[1])),
+                        second,
+                    ),
+                ),
+            ),
+            ("shortened", schema.Value(schema.Tag.SEQUENCE, (second,))),
+            (
+                "wrong_operand",
+                schema.Value(
+                    schema.Tag.SEQUENCE,
+                    (
+                        schema.Value(
+                            schema.Tag.SEQUENCE,
+                            (first.data[0], schema.Value(schema.Tag.INTEGER, "0")),
+                        ),
+                        second,
+                    ),
+                ),
+            ),
+        )
+        for damage, replacement in mutations:
+            changed = _change(
+                product.document, position_record, "ancestry", replacement
+            )
+            assert (
+                pure.evaluate_project_sql_plan_document(changed).status
+                is pure.Status.INVALID_RELATION
+            ), damage
+        contexts = next(
+            field.value for field in record(demand).fields if field.name == "contexts"
+        )
+        assert isinstance(contexts.data, tuple)
+        for replacement in (
+            schema.Value(schema.Tag.SEQUENCE, contexts.data[1:]),
+            schema.Value(schema.Tag.SEQUENCE, tuple(reversed(contexts.data))),
+        ):
+            changed = _change(product.document, record(demand), "contexts", replacement)
+            assert (
+                pure.evaluate_project_sql_plan_document(changed).status
+                is pure.Status.INVALID_RELATION
+            )
+        changed = _change(
+            product.document,
+            position_record,
+            "owner",
+            schema.Value(
+                schema.Tag.REF, record(verified.plan.sources[0].source.owner).ref
+            ),
+        )
+        assert (
+            pure.evaluate_project_sql_plan_document(changed).status
+            is pure.Status.INVALID_RELATION
+        )
+
+
 def test_minimal_normal_source_vertical_and_mandatory_terminal(tmp_path, monkeypatch):
     verified = construction(tmp_path / "source", CORPUS[0][1], CORPUS[0][2])
     product = portable.build_project_sql_plan_portable(verified)
@@ -705,9 +874,9 @@ def test_minimal_normal_source_vertical_and_mandatory_terminal(tmp_path, monkeyp
 
 
 LET_ORDER = """shape Row:
-    id: Int not null
-    key: Int nullable
-source lhs: Row is postgres.table("lhs")
+    id: Int
+    key: Int | None
+source lhs: Row = postgres.table("lhs")
 query result:
     let o:
         from lhs
@@ -779,8 +948,7 @@ def test_a_parameterized_plan_stays_outside_the_closed_schema(tmp_path, where):
     from _pietto_plan_windows import _planned
 
     source = LET_ORDER.split("query result:")[0] + (
-        f"query result(low: Int not null):\n    from lhs\n{where}"
-        "    select:\n        id\n"
+        f"query result(low: Int):\n    from lhs\n{where}    select:\n        id\n"
     )
     _, plan, verified, _ = _planned(tmp_path, source)
     assert [parameter.declaration.name for parameter in plan.parameters] == ["low"]
@@ -789,24 +957,37 @@ def test_a_parameterized_plan_stays_outside_the_closed_schema(tmp_path, where):
     assert refused.value.issue is portable.RuntimeIssue.UNSUPPORTED_VALUE
 
 
-@pytest.mark.parametrize(
-    "layout", (": via link", ":\n        from lhs\n        via link")
-)
-def test_an_inferred_join_plan_stays_outside_the_closed_schema(tmp_path, layout):
-    """The schema records the authored `from` and roles, which are absent."""
+def test_typed_join_portability_requires_exact_authored_binding(tmp_path):
     from _pietto_plan_windows import _planned
 
     source = LET_ORDER.split("query result:")[0] + (
-        'source rhs: Row is postgres.table("rhs")\n'
-        "relationship link:\n    endpoint l: lhs\n    endpoint r: rhs\n"
-        "    on l.id == r.id\n"
-        f"query result:\n    from lhs\n    inner join rhs as r{layout}\n"
-        "    select:\n        id = lhs.id\n"
+        'source rhs: Row = postgres.table("rhs")\n'
+        "relationship Link(l: Row, r: Row):\n    l.id == r.id\n"
+        "query result:\n    from lhs\n    let r = rhs\n"
+        "    inner join r on Link(lhs, r)\n    select:\n        id = lhs.id\n"
     )
-    _, _, verified, _ = _planned(tmp_path, source)
-    with pytest.raises(portable.TransportError) as refused:
-        portable.build_project_sql_plan_portable(verified)
-    assert refused.value.issue is portable.RuntimeIssue.UNSUPPORTED_VALUE
+    roots, _, verified, _ = _planned(tmp_path, source)
+    product = portable.build_project_sql_plan_portable(verified)
+    assert portable.verify_project_sql_plan_portable(product, verified).verified
+    assert (
+        pure.parse_project_sql_plan_document(product.canonical_bytes).status
+        is pure.Status.OK
+    )
+    (condition,) = roots[0].roots.join_conditions.entries
+    clause = condition.use.clause
+    assert sum(original is clause for _, original in product.bindings) == 1
+    graft = copy(product)
+    object.__setattr__(
+        graft,
+        "bindings",
+        tuple(
+            (ref, copy(original) if original is clause else original)
+            for ref, original in product.bindings
+        ),
+    )
+    assert portable.verify_project_sql_plan_portable(graft, verified).issues == (
+        portable.RuntimeIssue.CORRESPONDENCE,
+    )
 
 
 def test_coherent_document_is_not_runtime_authentication(tmp_path):

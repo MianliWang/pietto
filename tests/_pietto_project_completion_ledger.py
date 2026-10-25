@@ -47,10 +47,10 @@ PRODUCTION = REPO_ROOT / "src/pietto/_project/project_completion.py"
 def _project_files() -> dict[str, str]:
     return {
         "a.pietto": (
-            'import "b.pietto":\n    query Public as JoinedInput\n'
+            'from "b.pietto" import query Public as JoinedInput\n'
             "shape LocalRow:\n"
-            "    id: Int not null\n"
-            'source local_rows: LocalRow is postgres.table("local_rows")\n'
+            "    id: Int\n"
+            'source local_rows: LocalRow = postgres.table("local_rows")\n'
             "query downstream_b:\n"
             "    from JoinedInput\n"
             "    select:\n"
@@ -61,51 +61,44 @@ def _project_files() -> dict[str, str]:
             "        id\n"
             "query unsupported_join:\n"
             "    from JoinedInput\n"
-            "    inner join local_rows as local:\n"
-            "        from JoinedInput\n"
+            "    let local = local_rows\n"
+            "    inner join local\n"
             "    select:\n"
             "        id\n"
         ),
         "b.pietto": (
-            'import "c.pietto":\n    query joined_a as Public\n'
-            "export:\n"
-            "    query Public\n"
+            'from "c.pietto" import query joined_a as Public\nexport query Public\n'
         ),
         "c.pietto": (
             "shape CustomerRow:\n"
-            "    id: Int not null\n"
-            "    unique customer_key on id\n"
+            "    id: Int\n"
+            "    customer_key = unique(id)\n"
             "shape OrderRow:\n"
-            "    id: Int not null\n"
-            "    customer_id: Int not null\n"
-            "    amount: Int nullable\n"
-            "    unique order_key on id\n"
-            'source customers: CustomerRow is postgres.table("customers")\n'
-            'source orders: OrderRow is postgres.table("orders")\n'
-            'source opaque is postgres.table("opaque")\n'
+            "    id: Int\n"
+            "    customer_id: Int\n"
+            "    amount: Int | None\n"
+            "    order_key = unique(id)\n"
+            'source customers: CustomerRow = postgres.table("customers")\n'
+            'source orders: OrderRow = postgres.table("orders")\n'
+            'source opaque = postgres.table("opaque")\n'
             "query plain:\n"
             "    from orders\n"
             "    select:\n"
             "        id\n"
-            "relationship customer_orders:\n"
-            "    endpoint customer: customers\n"
-            "    endpoint orders: orders\n"
-            "    on customer.id == orders.customer_id\n"
+            "relationship customer_orders(customer: CustomerRow, orders: OrderRow):\n"
+            "    customer.id == orders.customer_id\n"
             "query joined_a:\n"
             "    from customers\n"
-            "    inner join orders as orders:\n"
-            "        from customers\n"
-            "        via customer_orders: customer -> orders\n"
+            "    let order_input = orders\n"
+            "    inner join order_input on customer_orders(customers, order_input)\n"
             "    select:\n"
             "        id\n"
             "query repeated_join:\n"
             "    from customers\n"
-            "    inner join orders as first_orders:\n"
-            "        from customers\n"
-            "        via customer_orders: customer -> orders\n"
-            "    inner join orders as second_orders:\n"
-            "        from customers\n"
-            "        via customer_orders: customer -> orders\n"
+            "    let first_orders = orders\n"
+            "    inner join first_orders on customer_orders(customers, first_orders)\n"
+            "    let second_orders = orders\n"
+            "    inner join second_orders on customer_orders(customers, second_orders)\n"
             "    select:\n"
             "        id\n"
             "query computed_orders:\n"
@@ -113,23 +106,17 @@ def _project_files() -> dict[str, str]:
             "    select:\n"
             "        customer_id\n"
             "        adjusted = amount + 1\n"
-            "relationship customer_computed_orders:\n"
-            "    endpoint customer: customers\n"
-            "    endpoint computed: computed_orders\n"
-            "    on customer.id == computed.customer_id\n"
             "query lineage_blocked_join:\n"
             "    from customers\n"
-            "    inner join computed_orders as computed:\n"
-            "        from customers\n"
-            "        via customer_computed_orders: customer -> computed\n"
+            "    let computed = computed_orders\n"
+            "    inner join computed on customers.id == computed.customer_id\n"
             "    select:\n"
             "        id\n"
             "query unknown_child:\n"
             "    from opaque\n"
             "    select:\n"
             "        id\n"
-            "export:\n"
-            "    query joined_a\n"
+            "export query joined_a\n"
         ),
     }
 

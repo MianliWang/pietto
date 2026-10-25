@@ -177,7 +177,7 @@ def test_explain_parser_enforces_file_xor_project_and_exact_formats(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     source = tmp_path / "input.pietto"
-    source.write_text("shape Row:\n    id: Int not null\n", encoding="utf-8")
+    source.write_text("shape Row:\n    id: Int\n", encoding="utf-8")
 
     def unexpected(_root: str | Path) -> ProjectExplainRuntimeBuildResult:
         raise AssertionError("parser/file mode must not enter project runtime")

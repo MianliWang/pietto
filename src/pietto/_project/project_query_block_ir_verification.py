@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from pietto._project.project_verification_scope import once
+from pietto._project import project_grain as grain
+from pietto._project import project_joined_aggregation as joined_aggregation
+from pietto._project import project_multifact as multifact
 
 from typing import TYPE_CHECKING
 
@@ -18,8 +21,11 @@ from pietto._project.project_final_outputs import (
 from pietto._project.project_current_join_inputs import ProjectCurrentMaterializedInput
 from pietto._project.project_current_joins import (
     ProjectCurrentJoinRegion,
+    ProjectCurrentJoinProperties,
     ProjectCurrentBinaryJoin,
+    resolved_join_field_nullability,
 )
+from pietto._project.project_query_block import ProjectCurrentJoinedRowSource
 from pietto._project.project_single_match import (
     ProjectSingleMatchProof,
     ProjectSingleMatchProofKind,
@@ -29,6 +35,8 @@ from pietto._project.project_single_match import (
 from pietto._project.project_ir_joins import (
     ProjectIRConcreteJoinRegion,
     ProjectIRBinaryJoinOccurrence,
+    ProjectIRJoinUnavailableProperty,
+    ProjectIRJoinOutputProperties,
 )
 
 
@@ -56,6 +64,8 @@ from pietto._project.module_semantic_fact_preservation import (
 from pietto._project.project_completion import ProjectExistingEffectiveOutput
 from pietto._project.project_final_outputs import (
     ProjectCompletedEffectiveOutput,
+    ProjectEffectiveOutputCompletionTerminal,
+    ProjectEffectiveOutputCompletionTerminalReason,
     ProjectCompletedOutputField,
     ProjectConcreteNoJoinReplay,
     ProjectNoJoinGroupedOutput,
@@ -96,6 +106,9 @@ from pietto._project.project_ir_properties import (
     ProjectIRJoinRowOutput,
     ProjectIRRelationRowOutput,
     ProjectIRSideEffectEvidence,
+    ProjectIRProvidedNullExtension,
+    ProjectIRProvidedPropertySlot,
+    ProjectIRPropertyAvailability,
 )
 from pietto._project.project_ir_relational_properties import (
     ProjectIROutputRelationalProperties,
@@ -110,6 +123,8 @@ from pietto._project.project_ir_verification import (
 )
 from pietto._project.project_phase62_verification import (
     _verify_join_structural_endpoints,
+    _comparison_valid,
+    _expected_join_effects,
     ProjectPhase62VerificationIssue,
 )
 from pietto._project.project_joined_aggregation import (
@@ -122,14 +137,18 @@ from pietto._project.project_joined_aggregation import (
 )
 from pietto._project.project_joined_qualify import (
     ProjectConcreteJoinedQualify,
+    ProjectNonConcreteJoinedQualify,
     ProjectJoinedQualifyStageKind,
 )
 from pietto._project.project_joined_row_filter import (
     ProjectJoinedRowFilterKind,
+    ProjectNonConcreteJoinedRowFilter,
     ProjectJoinedRowMultiplicity,
 )
 from pietto._project.project_joined_row_semantics import (
     ProjectJoinedRowFieldSemantics,
+    ProjectConcreteJoinedRowSemantics,
+    ProjectNonConcreteJoinedRowSemantics,
 )
 from pietto._project.project_joined_windows import (
     ProjectSelectedWindowResultBinding,
@@ -179,6 +198,9 @@ from pietto._project.project_scalar_namespaces import (
 )
 from pietto._project.project_scalar_references import ProjectScalarReferenceResolution
 from pietto.ast_nodes import (
+    AnyExpr,
+    AuthoredJoinKind,
+    WindowExpr,
     BlockRelationDef,
     DottedNameExpr,
     LetRelationDef,
@@ -852,7 +874,7 @@ def _verify_ledger(
 
 
 _RELATION_READS = frozenset(
-    {RelationExistsExpr, RelationMembershipExpr, RelationScalarExpr}
+    {RelationExistsExpr, RelationMembershipExpr, RelationScalarExpr, AnyExpr}
 )
 
 
@@ -881,7 +903,7 @@ def _authored_relation_reads(definition: object) -> tuple[object, ...]:
 def _read_column(expression: object, output: object) -> int | None:
     """A scalar read's one named output column, a membership read's sole
     column; an existence read has none."""
-    if type(expression) is RelationExistsExpr or output is None:
+    if type(expression) in {RelationExistsExpr, AnyExpr} or output is None:
         return None
     fields = cast(Any, output).row_shape.fields
     if type(expression) is RelationMembershipExpr:
@@ -2999,6 +3021,1021 @@ def _verify_grain_origins(
         _record(issues, ProjectIRQueryBlockVerificationIssueKind.GRAIN_ORIGIN)
 
 
+def _current_factor_set_valid(value, index, factors) -> bool:
+    return (
+        type(value) is grain.ProjectGrainFactorSet
+        and value.universe is index.universe
+        and _same_objects(value.factors, factors)
+        and value.mask == multifact._factor_set(index, factors).mask
+    )
+
+
+def _current_determination_valid(value, index, seed, requested) -> bool:
+    if not (
+        type(value) is multifact.ProjectFactGrainDetermination
+        and value.index is index
+        and _current_factor_set_valid(value.seed, index, seed)
+        and _current_factor_set_valid(value.requested, index, requested)
+    ):
+        return False
+    expected = grain.grain_dependency_closure(index, value.seed)
+    return _current_factor_set_valid(value.closure, index, expected.factors) and (
+        value.status
+        is (
+            multifact.ProjectFactGrainDirectionStatus.PROVEN
+            if value.requested.mask & expected.mask == value.requested.mask
+            else multifact.ProjectFactGrainDirectionStatus.NOT_PROVEN
+        )
+    )
+
+
+def _current_comparison_valid(value, index, left, right) -> bool:
+    return (
+        type(value) is multifact.ProjectFactGrainComparison
+        and value.left is left
+        and value.right is right
+        and value.index is index
+        and _current_determination_valid(
+            value.left_to_right, index, left.factors, right.factors
+        )
+        and _current_determination_valid(
+            value.right_to_left, index, right.factors, left.factors
+        )
+        and _comparison_valid(value)
+    )
+
+
+def _check_current_candidates(region) -> None:
+    final = region.region.final_properties
+    basis, index = final.relational.grain, region.grain_index
+    # Reject cyclic forged factor ancestry before the localization law walks it.
+    for factor in basis.active:
+        seen = set()
+        while type(factor) is ProjectJoinGrainFactorIdentity:
+            if id(factor) in seen:
+                raise ValueError("Current grain factor ancestry is cyclic.")
+            seen.add(id(factor))
+            factor = factor.source_factor
+    expected_index = grain._compile_grain_dependency_index(
+        index.universe, basis.dependencies
+    )
+    if not (
+        type(region) is multifact.ProjectCurrentMultiFactRegion
+        and type(index) is grain.ProjectGrainDependencyIndex
+        and region.final_properties is final
+        and _same_objects(index.universe.factors, basis.factors)
+        and _same_objects(index.facts, basis.dependencies)
+        and dict(index.positions) == dict(expected_index.positions)
+        and len(index.rules) == len(expected_index.rules)
+        and all(
+            actual.fact is expected.fact
+            and actual.lhs_mask == expected.lhs_mask
+            and actual.rhs_mask == expected.rhs_mask
+            for actual, expected in zip(index.rules, expected_index.rules, strict=True)
+        )
+        and index.incidents == expected_index.incidents
+    ):
+        raise ValueError("Current grain index lost its exact final authority.")
+    grounds = {}
+    for kind, evidence, factors, allow_empty in multifact.current_candidate_grounds(
+        region.region
+    ):
+        if factors or allow_empty:
+            ordered = multifact._factor_set(index, factors).factors
+            grounds.setdefault(ordered, []).append((kind, evidence))
+    if type(region.actual_candidates) is not tuple or len(
+        region.actual_candidates
+    ) != len(grounds):
+        raise ValueError("Current candidates must retain every factor bucket.")
+    for candidate, (factors, authorities) in zip(
+        region.actual_candidates, grounds.items(), strict=True
+    ):
+        if not (
+            type(candidate) is multifact.ProjectActualGrainCandidate
+            and _current_factor_set_valid(candidate.factors, index, factors)
+            and len(candidate.authorities) == len(authorities)
+            and all(
+                type(actual) is multifact.ProjectActualGrainAuthority
+                and actual.kind is kind
+                and _same_objects(actual.evidence, evidence)
+                for actual, (kind, evidence) in zip(
+                    candidate.authorities, authorities, strict=True
+                )
+            )
+        ):
+            raise ValueError("Current candidates lost ordered input/output grounds.")
+
+
+def _check_current_common(pair, region) -> None:
+    index, actual = region.grain_index, region.actual_candidates
+    result = pair.common_grain
+    left, right = pair.left.contextual_grain, pair.right.contextual_grain
+    determinations = multifact._candidate_determinations(
+        index=index, grains=(left, right), candidates=actual
+    )
+    positions = tuple(
+        position
+        for position, candidate in enumerate(actual)
+        if all(
+            item.status is multifact.ProjectFactGrainDirectionStatus.PROVEN
+            for item in determinations[candidate]
+        )
+    )
+    masks = multifact._candidate_dominator_masks(index, actual)
+    common_mask = sum(1 << position for position in positions)
+    if not (
+        type(result) is multifact.ProjectCommonGrainResult
+        and _same_objects(result.actual_candidates, actual)
+        and len(result.common_candidates) == len(positions)
+    ):
+        raise ValueError("Common grain must retain the complete actual candidates.")
+    for evidence, position in zip(result.common_candidates, positions, strict=True):
+        candidate = actual[position]
+        if not (
+            type(evidence) is multifact.ProjectCommonGrainCandidateEvidence
+            and evidence.candidate is candidate
+            and evidence.left_to_candidate.requested is candidate.factors
+            and evidence.right_to_candidate.requested is candidate.factors
+            and _current_determination_valid(
+                evidence.left_to_candidate,
+                index,
+                left.factors,
+                candidate.factors.factors,
+            )
+            and _current_determination_valid(
+                evidence.right_to_candidate,
+                index,
+                right.factors,
+                candidate.factors.factors,
+            )
+        ):
+            raise ValueError("Common grain must retain exact candidate determinations.")
+    retained = tuple(
+        evidence
+        for evidence, position in zip(result.common_candidates, positions, strict=True)
+        if not masks[position] & common_mask
+    )
+    expected_status = (
+        multifact.ProjectCommonGrainStatus.NONE
+        if not retained
+        else multifact.ProjectCommonGrainStatus.UNIQUE
+        if len(retained) == 1
+        else multifact.ProjectCommonGrainStatus.AMBIGUOUS
+    )
+    if (
+        not _same_objects(result.candidates, retained)
+        or result.status is not expected_status
+    ):
+        raise ValueError("Common grain cannot omit candidates or select a winner.")
+
+
+def _check_current_join_properties(region) -> None:
+    if not region.joins or region.final_properties is not region.join_properties[-1]:
+        raise ValueError("Current region lost its final JOIN properties.")
+    previous = None
+    for join, properties in zip(region.joins, region.join_properties, strict=True):
+        if (
+            type(properties)
+            is not (
+                ProjectCurrentJoinProperties
+                if type(join) is ProjectCurrentBinaryJoin
+                else ProjectIRJoinOutputProperties
+            )
+            or properties.join is not join
+            or properties.relational.output is not join.output
+            or previous is not None
+            and join.left_input is not previous.relational
+            or type(join) is ProjectCurrentBinaryJoin
+            and join.properties is not properties
+            or not _property_shape_valid(properties.relational)
+            or not _fd_index_valid(properties.relational)
+        ):
+            raise ValueError(
+                "Current JOIN properties require exact input/output roots."
+            )
+        fields = join.output.row_shape.fields
+        left_only = join.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
+        inputs = (
+            join.left_input.fields
+            if left_only
+            else (*join.left_input.fields, *join.right_input.fields)
+        )
+        if len(fields) != len(inputs):
+            raise ValueError("Current JOIN must retain every surviving row occurrence.")
+        if type(join) not in {ProjectCurrentBinaryJoin, ProjectIRBinaryJoinOccurrence}:
+            raise ValueError("Current region requires an exact binary JOIN variant.")
+        current = type(join) is ProjectCurrentBinaryJoin
+        rejected: set[tuple[int, int]] = set()
+        right_nulling: tuple[ProjectIRPlanNodeRef, ...] = ()
+        matched_left: set[int] = set()
+        matched_right: set[int] = set()
+        if current:
+            rejected = {
+                (id(proof.field.binding), id(proof.field.input_field))
+                for proof in join.condition.null_rejections
+            } | {
+                (id(item.binding), id(item.input_field))
+                for item in join.condition.legacy_matched_fields
+            }
+        elif type(join) is ProjectIRBinaryJoinOccurrence:
+            kind, fanout, survival, extension, barrier, right_nulling = (
+                _expected_join_effects(join)
+            )
+            if (
+                join.kind,
+                join.fanout,
+                join.survival,
+                join.null_extension,
+                join.outer_join_barrier,
+            ) != (kind, fanout, survival, extension, barrier):
+                raise ValueError(
+                    "Historical JOIN must retain its exact guaranteed effects."
+                )
+            matched_left = {pair.left.field_position for pair in join.matches}
+            matched_right = {pair.right.field_position for pair in join.matches}
+        for position, (retained, incoming) in enumerate(
+            zip(fields, inputs, strict=True)
+        ):
+            is_right = position >= len(join.left_input.fields)
+            nullability = incoming.effective_nullability
+            if not is_right and type(join.left_input.output) is ProjectIRJoinRowOutput:
+                previous_field = join.left_input.output.row_shape.fields[position]
+                introduction, nulling_refs = (
+                    previous_field.introduction_use,
+                    previous_field.nulling_joins,
+                )
+                nullability = previous_field.effective_nullability
+            else:
+                introduction, nulling_refs = join.input_uses[1 if is_right else 0], ()
+            if current:
+                null_extended = join.kind in (
+                    {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
+                    if is_right
+                    else {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+                )
+                if null_extended:
+                    nulling_refs = (*nulling_refs, join.node.ref)
+                binding, original = join.field_inputs[position]
+                nullability = resolved_join_field_nullability(
+                    join.kind,
+                    incoming.effective_nullability,
+                    bool(nulling_refs),
+                    (id(binding), id(original)) in rejected,
+                )
+            elif is_right:
+                nulling_refs = right_nulling
+                nullability = (
+                    ProjectRowFieldNullability.NULLABLE
+                    if right_nulling
+                    else ProjectRowFieldNullability.NON_NULL
+                    if position in matched_right
+                    else incoming.effective_nullability
+                )
+            elif (
+                join.kind.value == "inner"
+                and position in matched_left
+                and not nulling_refs
+            ):
+                nullability = ProjectRowFieldNullability.NON_NULL
+            if (
+                retained.field_position != position
+                or retained.evidence is not incoming.evidence
+                or retained.introduction_use is not introduction
+                or not _same_objects(retained.nulling_joins, nulling_refs)
+                or retained.effective_nullability is not nullability
+            ):
+                raise ValueError(
+                    "JOIN field must retain its exact input and NULL proof."
+                )
+        nulling = properties.null_extension
+        if any(field.nulling_joins for field in fields):
+            valid_null = (
+                type(nulling) is ProjectIRProvidedNullExtension
+                and nulling.output is join.output
+                and _same_objects(nulling.fields, fields)
+            )
+        else:
+            valid_null = (
+                type(nulling) is ProjectIRJoinUnavailableProperty
+                and nulling.output is join.output
+                and nulling.property_slot
+                is ProjectIRProvidedPropertySlot.NULL_EXTENSION
+                and nulling.availability is ProjectIRPropertyAvailability.NOT_APPLICABLE
+            )
+        if not valid_null or not (
+            type(properties.ordering) is ProjectIRJoinUnavailableProperty
+            and properties.ordering.output is join.output
+            and properties.ordering.property_slot
+            is ProjectIRProvidedPropertySlot.RELATION_RESULT_ORDERING
+            and properties.ordering.availability
+            is ProjectIRPropertyAvailability.UNKNOWN
+        ):
+            raise ValueError(
+                "Current JOIN NULL/order properties cannot borrow an output."
+            )
+        previous = properties
+
+
+def _check_current_readiness(readiness, region) -> None:
+    bridge = readiness.property_bridge
+    if not (
+        bridge.row_source is readiness.namespaces.binding_environment.row_source
+        and bridge.multifact_region.region is region
+        and bridge.properties is region.final_properties
+        and len(readiness.fields) == len(bridge.relational.fields)
+        and _same_objects(
+            tuple(member.scalar_field for member in readiness.fields),
+            readiness.namespaces.binding_environment.scalar_environment.fields,
+        )
+    ):
+        raise ValueError("Current readiness lost its exact JOIN property bridge.")
+    uses = tuple(
+        (use, properties)
+        for join in region.joins
+        for use, properties in zip(
+            join.input_uses, (join.left_input, join.right_input), strict=True
+        )
+    )
+    for member, joined, property_field in zip(
+        readiness.fields,
+        region.joins[-1].output.row_shape.fields,
+        bridge.relational.fields,
+        strict=True,
+    ):
+        if not (
+            type(member) is ProjectJoinedRowFieldSemantics
+            and member.joined_field is joined
+            and member.property_field is property_field
+            and member.scalar_field.source_field is joined
+            and property_field.effective_nullability is joined.effective_nullability
+            and member.scalar_field.value_type
+            == project_row_field_to_semantic_value_type(
+                joined.evidence, joined.effective_nullability
+            )
+            and member.input_field.output is member.input_properties.output
+            and member.input_field.evidence is joined.evidence
+            and any(
+                member.input_field is item for item in member.input_properties.fields
+            )
+            and any(
+                joined.introduction_use is use and member.input_properties is properties
+                for use, properties in uses
+            )
+        ):
+            raise ValueError("Current field lost its exact input introduction.")
+    _check_current_candidates(bridge.multifact_region)
+
+
+def _check_current_protections(result, keys, region) -> None:
+    group_issue = type(
+        result
+    ) is joined_aggregation.ProjectNonConcreteJoinedAggregation and any(
+        type(key) is joined_aggregation.ProjectJoinedGroupKeyIssue
+        for key in result.group_key_results
+    )
+    members = (
+        joined_aggregation._protection_members(keys)
+        if result.mode is ProjectJoinedAggregationMode.GROUPED and not group_issue
+        else ()
+    )
+    if len(result.group_protections) != len(members):
+        raise ValueError("Current group protections must cover every input root.")
+    for protection, (properties, introduction, direct, computed) in zip(
+        result.group_protections, members, strict=True
+    ):
+        seed, strict_keys, determinations, factors = (
+            joined_aggregation.resolved_group_protection(
+                properties,
+                introduction,
+                region.final_properties.relational.grain,
+                tuple(
+                    joined_aggregation._value_class_for_input_field(
+                        properties, key.field_semantics
+                    )
+                    for key in direct
+                ),
+            )
+        )
+        if not (
+            type(protection) is joined_aggregation.ProjectJoinedGroupProtection
+            and protection.input_filter is result.input_filter
+            and protection.input_properties is properties
+            and protection.introduction_use is introduction
+            and _same_objects(protection.group_keys, direct)
+            and _same_objects(protection.computed_keys, computed)
+            and protection.seed.index is properties.fd_index
+            and protection.seed == seed
+            and _same_objects(protection.strict_keys, strict_keys)
+            and len(protection.determinations) == len(determinations)
+            and all(
+                actual.seed is protection.seed
+                and actual.requested.index is properties.fd_index
+                and actual.requested == expected.requested
+                and actual.closure == expected.closure
+                and actual.status is expected.status
+                for actual, expected in zip(
+                    protection.determinations, determinations, strict=True
+                )
+            )
+            and _same_objects(protection.protected_factors, factors)
+        ):
+            raise ValueError(
+                "Current group protection lost its complete STRICT-key proof."
+            )
+
+
+def _current_orphan_dependencies(aggregate, keys, region):
+    if not aggregate.call.arguments or not any(
+        type(join) is ProjectCurrentBinaryJoin
+        and join.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+        for join in region.region.joins
+    ):
+        return ()
+    input_filter = aggregate.input_filter
+    groups = joined_aggregation._protection_members(
+        tuple(key for key in keys if type(key) is ProjectJoinedGroupKeyOccurrence)
+    )
+    leaf = joined_aggregation._namespace_leaf(input_filter, input_filter.namespace)
+    argument, where = aggregate.call.arguments[0], input_filter.where_clause
+
+    def grouped_holder(target):
+        return any(
+            use is target
+            and joined_aggregation._grouped_nullable_key(
+                properties,
+                tuple(
+                    joined_aggregation._value_class_for_input_field(
+                        properties, key.field_semantics
+                    )
+                    for key in direct
+                ),
+                joined_aggregation._current_non_null_classes(
+                    input_filter, properties, use
+                ),
+            )
+            for properties, use, direct, _ in groups
+        )
+
+    return joined_aggregation.resolved_orphan_free_dependencies(
+        region.final_properties.relational.grain,
+        tuple(
+            joined_aggregation._region_join(region.region, join)
+            for join in region.region.joins
+        ),
+        lambda nulls: (
+            joined_aggregation._null_when(argument, nulls, leaf)
+            or (
+                where is not None
+                and joined_aggregation._never(where.expression, True, nulls, leaf)
+            )
+        ),
+        grouped_holder,
+    )
+
+
+def _check_current_aggregate_result(result, readiness) -> None:
+    if type(result) not in {
+        ProjectConcreteJoinedAggregation,
+        joined_aggregation.ProjectNonConcreteJoinedAggregation,
+    }:
+        raise ValueError("Current aggregate requires an exact result variant.")
+    terminal = type(result) is joined_aggregation.ProjectNonConcreteJoinedAggregation
+    reasons = joined_aggregation.ProjectJoinedAggregationNonConcreteReason
+    input_filter = result.input_filter
+    if input_filter.joined_semantics is not readiness:
+        raise ValueError("Current aggregate lost its retained row semantics.")
+    if type(input_filter) is ProjectNonConcreteJoinedRowFilter:
+        if (
+            not terminal
+            or result.reason is not reasons.UPSTREAM_FILTER_NON_CONCRETE
+            or any(
+                (
+                    result.mode is not None,
+                    result.group_key_results,
+                    result.aggregate_results,
+                    result.stage_outputs,
+                    result.selected_output_issues,
+                    result.group_protections,
+                    result.grain_linkages,
+                    result.pair_linkages,
+                    result.grain_blocker is not None,
+                    result.satisfying is not None,
+                    result.diagnostics,
+                )
+            )
+        ):
+            raise ValueError(
+                "Upstream filter terminal cannot publish partial aggregate proof."
+            )
+        return
+    region = readiness.multifact_region
+    basis, index = region.final_properties.relational.grain, region.grain_index
+    definition = joined_aggregation._definition(input_filter)
+    key_results = result.group_key_results if terminal else result.group_keys
+    aggregate_results = result.aggregate_results if terminal else result.aggregates
+    expected_keys = (
+        () if definition.group_by_clause is None else definition.group_by_clause.items
+    )
+    expected_aggregates = tuple(
+        (position, item)
+        for position, item in enumerate(definition.select_items)
+        if type(item.expression) is not WindowExpr
+        and joined_aggregation.semantic_aggregates.contains_semantic_aggregate(
+            item.expression
+        )
+    )
+    if (
+        result.mode is not joined_aggregation._mode(definition)
+        or len(key_results) != len(expected_keys)
+        or any(
+            key.input_filter is not input_filter
+            or key.item is not item
+            or key.source_ordinal != position
+            for position, (key, item) in enumerate(
+                zip(key_results, expected_keys, strict=True)
+            )
+        )
+        or len(aggregate_results) != len(expected_aggregates)
+        or any(
+            item.input_filter is not input_filter
+            or item.item is not source
+            or item.selected_output_ordinal != position
+            for item, (position, source) in zip(
+                aggregate_results, expected_aggregates, strict=True
+            )
+        )
+    ):
+        raise ValueError(
+            "Current aggregate evidence must retain authored occurrence order."
+        )
+    keys = tuple(
+        key
+        for key in key_results
+        if isinstance(key, joined_aggregation.ProjectJoinedAnyGroupKey)
+    )
+    aggregates = tuple(
+        item
+        for item in aggregate_results
+        if type(item) is joined_aggregation.ProjectJoinedAggregateOccurrence
+    )
+    if (
+        not _same_objects(input_filter.fields, readiness.fields)
+        or input_filter.namespace is not readiness.post_let
+    ):
+        raise ValueError("Current filter must retain every exact input field.")
+    for key in keys:
+        resolutions, source_field, computed_key = (
+            joined_aggregation._direct_field_resolution(
+                input_filter, key.item.key, expand_let=True
+            )
+        )
+        if len(key.resolutions) != len(resolutions) or any(
+            type(actual) is not type(expected)
+            or actual.reference.expression is not expected.reference.expression
+            or actual.reference.environment is not expected.reference.environment
+            or actual.target is not expected.target
+            for actual, expected in zip(key.resolutions, resolutions, strict=True)
+        ):
+            raise ValueError(
+                "Current group key lost its exact resolved reference path."
+            )
+        if type(key) is ProjectJoinedGroupKeyOccurrence:
+            valid_key = (
+                not computed_key
+                and key.field_semantics is source_field
+                and key.effective_expression is resolutions[-1].reference.expression
+            )
+        else:
+            valid_key = (
+                computed_key
+                and type(key) is ProjectJoinedComputedGroupKeyOccurrence
+                and len(resolutions) == 1
+                and _same_objects(
+                    key.field_dependencies,
+                    joined_aggregation._let_field_dependencies(
+                        input_filter, key.let_value
+                    ),
+                )
+            )
+        if not valid_key:
+            raise ValueError("Current group key borrowed field semantics.")
+    for aggregate in aggregates:
+        if aggregate.call is not aggregate.item.expression:
+            raise ValueError("Current aggregate lost its exact selected call.")
+        analysis = aggregate.argument_analysis
+        if aggregate.call.arguments:
+            if (
+                type(analysis) is not ProjectConcreteJoinedNamespaceExpression
+                or analysis.expression is not aggregate.call.arguments[0]
+                or analysis.namespace is not input_filter.namespace
+            ):
+                raise ValueError("Current aggregate lost its exact argument analysis.")
+            dependencies = joined_aggregation._resolved_field_dependencies(
+                input_filter=input_filter,
+                namespace=input_filter.namespace,
+                expression=analysis.normalized_expression,
+                existence_values=analysis.existence_values,
+            )
+        else:
+            if analysis is not None:
+                raise ValueError(
+                    "Zero-argument aggregate cannot retain argument analysis."
+                )
+            dependencies = ()
+        if len(aggregate.field_dependencies) != len(dependencies) or any(
+            dependency.input_filter is not input_filter
+            or dependency.item is not aggregate.item
+            or dependency.selected_output_ordinal != aggregate.selected_output_ordinal
+            or dependency.reference is not dependency.resolution.reference
+            or dependency.reference.expression is not reference.expression
+            or dependency.reference.environment is not reference.environment
+            or dependency.resolution.target is not resolution.target
+            or not _same_objects(dependency.let_path, let_path)
+            or dependency.field_semantics is not source_field
+            for dependency, (reference, resolution, let_path, source_field) in zip(
+                aggregate.field_dependencies, dependencies, strict=True
+            )
+        ):
+            raise ValueError("Current aggregate must retain every ordered field read.")
+    _check_current_protections(result, keys, region)
+    link_aggregates = (
+        () if basis.state is ProjectGrainBasisState.UNKNOWN else aggregates
+    )
+    if not _same_objects(
+        tuple(link.aggregate for link in result.grain_linkages), link_aggregates
+    ):
+        raise ValueError(
+            "Current aggregate grain links must cover every retained aggregate."
+        )
+    protected = joined_aggregation._ordered_factors(
+        basis.active,
+        tuple(
+            factor
+            for protection in result.group_protections
+            for factor in protection.protected_factors
+        ),
+    )
+    computed = (
+        joined_aggregation.computed_key_factors(
+            basis,
+            tuple(
+                (read.input_properties.grain, read.introduction_use)
+                for key in keys
+                if type(key) is ProjectJoinedComputedGroupKeyOccurrence
+                for read in key.field_dependencies
+            ),
+        )
+        if result.grain_linkages
+        else ()
+    )
+    for link in result.grain_linkages:
+        aggregate = link.aggregate
+        arguments = joined_aggregation.resolved_argument_factors(
+            basis,
+            bool(aggregate.call.arguments),
+            tuple(
+                (
+                    dependency.field_semantics.input_properties.grain,
+                    dependency.field_semantics.introduction_use,
+                )
+                for dependency in aggregate.field_dependencies
+            ),
+        )
+        combined = joined_aggregation._ordered_factors(
+            basis.active, (*arguments, *protected)
+        )
+        if not (
+            type(link) is joined_aggregation.ProjectJoinedAggregateGrainLinkage
+            and link.multifact_region is region
+            and link.final_grain is basis
+            and _same_objects(link.argument_factors, arguments)
+            and _same_objects(link.group_protection_factors, protected)
+            and _same_objects(link.computed_key_factors, computed)
+            and _current_factor_set_valid(link.combined_seed, index, combined)
+        ):
+            raise ValueError(
+                "Current aggregate grain link lost its exact roots or seed."
+            )
+        closure = grain.grain_dependency_closure(
+            joined_aggregation.aggregate_grain_index(
+                index, _current_orphan_dependencies(aggregate, keys, region)
+            ),
+            link.combined_seed,
+        )
+        context, full = link.contextual_grain, link.final_comparison.right
+        if not (
+            _current_factor_set_valid(link.closure, index, closure.factors)
+            and type(context) is multifact.ProjectFactContextualGrain
+            and type(full) is multifact.ProjectFactContextualGrain
+            and context.authority is basis
+            and context.evidence is aggregate
+            and context.state
+            is (
+                ProjectGrainBasisState.FACTORIZED
+                if closure.factors
+                else ProjectGrainBasisState.GLOBAL
+            )
+            and _same_objects(context.factors, closure.factors)
+            and full.authority is basis
+            and full.evidence is region.final_properties
+            and full.state is basis.state
+            and _same_objects(full.factors, basis.active)
+            and _current_comparison_valid(link.final_comparison, index, context, full)
+        ):
+            raise ValueError(
+                "Current aggregate contextual grain lost its closure proof."
+            )
+        exposures = joined_aggregation.resolved_multiplicity_exposures(
+            link.final_comparison,
+            tuple(
+                (join, tuple(use.ref for use in join.input_uses))
+                for join in region.region.joins
+            ),
+        )
+        if (
+            len(link.multiplicity_exposures) != len(exposures)
+            or any(
+                type(exposure)
+                is not (
+                    multifact.ProjectCurrentMultiplicityExposure
+                    if type(join) is ProjectCurrentBinaryJoin
+                    else multifact.ProjectFactMultiplicityExposure
+                )
+                or exposure.join is not join
+                or not _same_objects(exposure.factor_additions, factors)
+                for exposure, (join, factors) in zip(
+                    link.multiplicity_exposures, exposures, strict=True
+                )
+            )
+            or link.multiplicity_risks
+            != (
+                (multifact.ProjectMultiFactMultiplicityRisk.FANOUT_RISK,)
+                if exposures
+                else ()
+            )
+            or link.requirements
+            != (
+                (multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,)
+                if exposures
+                else ()
+            )
+        ):
+            raise ValueError(
+                "Current aggregate fanout must retain every exact exposure."
+            )
+    pairs = tuple(
+        (left, right)
+        for position, left in enumerate(result.grain_linkages)
+        for right in result.grain_linkages[position + 1 :]
+    )
+    if len(result.pair_linkages) != len(pairs):
+        raise ValueError("Current aggregate pairs must retain every ordered pair.")
+    for pair, (left, right) in zip(result.pair_linkages, pairs, strict=True):
+        if not (
+            type(pair) is joined_aggregation.ProjectJoinedAggregatePairLinkage
+            and pair.left is left
+            and pair.right is right
+            and _current_comparison_valid(
+                pair.grain_comparison,
+                index,
+                left.contextual_grain,
+                right.contextual_grain,
+            )
+        ):
+            raise ValueError("Current aggregate pair lost its exact participants.")
+        _check_current_common(pair, region)
+        structural, finer, chasms = joined_aggregation.resolved_pair_shape(
+            left.contextual_grain,
+            right.contextual_grain,
+            pair.grain_comparison,
+            pair.common_grain,
+        )
+        risks = (
+            *(
+                (multifact.ProjectMultiFactMultiplicityRisk.FANOUT_RISK,)
+                if left.multiplicity_exposures or right.multiplicity_exposures
+                else ()
+            ),
+            *(
+                (multifact.ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION,)
+                if chasms
+                else ()
+            ),
+        )
+        required = (
+            structural
+            is multifact.ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
+            or bool(risks)
+        )
+        if not (
+            pair.structural is structural
+            and pair.finer is (None if finer is None else (left, right)[finer])
+            and _same_objects(pair.chasm_candidates, chasms)
+            and pair.multiplicity_risks == risks
+            and pair.requirements
+            == (
+                (multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,)
+                if required
+                else ()
+            )
+        ):
+            raise ValueError(
+                "Current aggregate pair cannot omit risks or choose candidates."
+            )
+    has_risk = any(
+        link.requirements for link in (*result.grain_linkages, *result.pair_linkages)
+    )
+    if terminal:
+        expected_reason = (
+            reasons.GROUP_KEY_NON_CONCRETE
+            if any(
+                type(key) is joined_aggregation.ProjectJoinedGroupKeyIssue
+                for key in key_results
+            )
+            else reasons.AGGREGATE_NON_CONCRETE
+            if any(
+                type(item) is joined_aggregation.ProjectJoinedAggregateIssue
+                for item in aggregate_results
+            )
+            else reasons.SELECTED_OUTPUT_NON_CONCRETE
+            if result.selected_output_issues
+            else reasons.INTRINSIC_GRAIN_NON_CONCRETE
+            if aggregates and basis.state is ProjectGrainBasisState.UNKNOWN
+            else reasons.AGGREGATE_ALGEBRA_REQUIRED
+            if has_risk
+            else reasons.SATISFYING_NON_CONCRETE
+            if result.satisfying is not None
+            and result.satisfying.status
+            is joined_aggregation.ProjectJoinedSatisfyingStatus.NON_CONCRETE
+            else None
+        )
+        if result.reason is not expected_reason or result.grain_blocker is not (
+            basis if expected_reason is reasons.INTRINSIC_GRAIN_NON_CONCRETE else None
+        ):
+            raise ValueError(
+                "Current aggregate terminal lost its actual blocking proof."
+            )
+    elif has_risk:
+        raise ValueError("Concrete aggregate cannot retain unresolved risk.")
+
+
+def _verify_current_proofs(root, issues) -> None:
+    """Check retained current proofs even when their owner allocates no IR."""
+    overlay = root.completed.effective_outputs
+    regions, readiness_values = overlay.current_regions, overlay.current_readiness
+    if not (
+        len(regions) == len(readiness_values)
+        and _same_objects(
+            tuple(region.ledger.owner for region in regions),
+            tuple(
+                owner
+                for owner in overlay.schedule
+                if any(region.ledger.owner is owner for region in regions)
+            ),
+        )
+        and _same_objects(
+            regions,
+            tuple(
+                event
+                for event in overlay.allocation_events
+                if type(event) is ProjectCurrentJoinRegion
+            ),
+        )
+    ):
+        _record(issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE)
+        return
+    tails = iter(overlay.current_tails)
+    for region, readiness in zip(regions, readiness_values, strict=True):
+        tail = (
+            next(tails, None)
+            if type(readiness) is ProjectConcreteJoinedRowSemantics
+            else None
+        )
+        try:
+            owners = tuple(
+                entry for entry in root.entries if entry.owner is region.ledger.owner
+            )
+            if (
+                len(owners) != 1
+                or region.conditions is not overlay.condition_authority
+                or not _same_objects(
+                    region.operative,
+                    tuple(
+                        condition
+                        for condition in overlay.operative_conditions.entries
+                        if condition.ledger is region.ledger
+                    ),
+                )
+            ):
+                raise ValueError(
+                    "Current proofs require one exact retained owner and condition root."
+                )
+            ir_entry = owners[0]
+            if type(
+                ir_entry.semantic_entry
+            ) is ProjectEffectiveOutputCompletionTerminal and not (
+                type(ir_entry) is ProjectIRQueryBlockTerminal
+                and ir_entry.reason
+                is ProjectIRQueryBlockTerminalReason.SEMANTIC_OUTPUT_NON_CONCRETE
+                and ir_entry.blocker is ir_entry.semantic_entry
+                and ir_entry.ending_allocation is ir_entry.starting_allocation
+            ):
+                raise ValueError(
+                    "Current semantic terminal must retain its exact zero-allocation blocker."
+                )
+            source = readiness.namespaces.binding_environment.row_source
+            if (
+                type(source) is not ProjectCurrentJoinedRowSource
+                or source.region is not region
+                or source.base_verification is not overlay.base.verification
+            ):
+                raise ValueError("Current readiness cannot borrow a region root.")
+            _check_current_join_properties(region)
+            if type(readiness) is not ProjectConcreteJoinedRowSemantics:
+                semantic = owners[0].semantic_entry
+                if not (
+                    type(readiness) is ProjectNonConcreteJoinedRowSemantics
+                    and type(semantic) is ProjectEffectiveOutputCompletionTerminal
+                    and semantic.current_region is region
+                    and semantic.joined_qualify is None
+                    and semantic.reason
+                    is ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_TAIL_NON_CONCRETE
+                    and semantic.blocker is readiness
+                ):
+                    raise ValueError(
+                        "Current readiness terminal lost its exact blocker."
+                    )
+                continue
+            _check_current_readiness(readiness, region)
+            if tail is None or len(tail.results) != 1:
+                raise ValueError("Current owner must retain its exact local tail.")
+            aggregation_set = tail.window_set.aggregation_set
+            if not _same_objects(
+                tuple(stage.input_aggregation for stage in tail.window_set.results),
+                aggregation_set.results,
+            ) or not _same_objects(
+                tuple(result.window_stage for result in tail.results),
+                tail.window_set.results,
+            ):
+                raise ValueError(
+                    "Current tail must retain complete aggregate/window stage order."
+                )
+            filters = aggregation_set.filter_set
+            if (
+                filters.completion is not overlay.base
+                or filters.current_semantics is not readiness
+                or len(aggregation_set.results) != len(filters.results)
+            ):
+                raise ValueError("Current aggregate inventory lost its filter roots.")
+            semantic = owners[0].semantic_entry
+            if type(semantic) is ProjectEffectiveOutputCompletionTerminal:
+                if semantic.current_region is not region:
+                    raise ValueError("Current terminal lost its exact region.")
+                qualifier = semantic.joined_qualify
+                if type(qualifier) is ProjectNonConcreteJoinedQualify:
+                    if (
+                        semantic.reason
+                        is not ProjectEffectiveOutputCompletionTerminalReason.JOINED_QUALIFY_NON_CONCRETE
+                        or semantic.blocker is not qualifier
+                    ):
+                        raise ValueError(
+                            "Current terminal must retain its exact QUALIFY blocker."
+                        )
+                elif type(
+                    qualifier
+                ) is not ProjectConcreteJoinedQualify or semantic.reason not in {
+                    ProjectEffectiveOutputCompletionTerminalReason.DISTINCT_NON_CONCRETE,
+                    ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
+                    ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
+                    ProjectEffectiveOutputCompletionTerminalReason.LIMIT_NON_CONCRETE,
+                }:
+                    raise ValueError(
+                        "Current finalization terminal requires its concrete tail."
+                    )
+            elif type(semantic) is ProjectCompletedEffectiveOutput:
+                qualifier = semantic.root
+            else:
+                raise ValueError("Current tail requires a completed or terminal owner.")
+            if qualifier is not tail.results[0]:
+                raise ValueError("Current owner lost its exact retained tail result.")
+            for result, input_filter in zip(
+                aggregation_set.results, filters.results, strict=True
+            ):
+                if (
+                    result.filter_set is not filters
+                    or result.input_filter is not input_filter
+                    or input_filter.entry is not semantic.base_entry
+                ):
+                    raise ValueError(
+                        "Current aggregate results must retain complete filter order."
+                    )
+                _check_current_aggregate_result(result, readiness)
+        except (AttributeError, IndexError, KeyError, TypeError, ValueError):
+            _record(issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE)
+    if next(tails, None) is not None:
+        _record(issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE)
+
+
 def verify_project_query_block_ir(
     root: ProjectIRQueryBlockSnapshot,
 ) -> ProjectIRQueryBlockVerificationResult:
@@ -3021,6 +4058,7 @@ def verify_project_query_block_ir(
         _verify_single_match_retention,
         _verify_operator_sequence,
         _verify_semantic_evidence,
+        _verify_current_proofs,
         _verify_structural_endpoints,
         _verify_row_shapes,
         _verify_properties,
@@ -3056,6 +4094,9 @@ def verify_project_query_block_ir(
                         ProjectIRQueryBlockVerificationIssueKind.OPERATOR_SEQUENCE
                     ),
                     _verify_semantic_evidence: (
+                        ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE
+                    ),
+                    _verify_current_proofs: (
                         ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE
                     ),
                     _verify_structural_endpoints: (
@@ -4747,11 +5788,40 @@ def _compiled_join_inputs(root, operator, built):
     forward = bool(matched[1]) and any(set(k[0]) <= set(matched[1]) for k in right_keys)
     reverse = bool(matched[0]) and any(set(k[0]) <= set(matched[0]) for k in left_keys)
     if record.get("law") == "current":
+        from pietto._project.project_compiled_schema import predicate_equalities
+
         reverse = (
             bool(matched[0])
             and any(set(k[0]) == set(matched[0]) for k in left_keys)
             and reverse
         )
+        # Modern key bounds come only from validated mandatory predicate-call
+        # comparisons. Keep these separate from the retained legacy equalities.
+        predicate_positions = (set(), set())
+        for equality in predicate_equalities(records, record):
+            operands = equality.get("operands")
+            for lhs, rhs in (operands, operands[::-1]):
+                if lhs.kind == rhs.kind == "read" and (
+                    records[lhs].get("use") == uses[0].address
+                    and records[rhs].get("use") == uses[1].address
+                ):
+                    for side, read in enumerate((lhs, rhs)):
+                        predicate_positions[side].add(
+                            records[records[read].get("port")].get("ordinal")
+                        )
+        predicate_matched = tuple(
+            tuple(
+                i
+                for i, group in enumerate(incoming.value_classes)
+                if any(
+                    member.field_position in predicate_positions[side]
+                    for member in group.members
+                )
+            )
+            for side, incoming in enumerate((left, right))
+        )
+        forward |= any(set(key[0]) <= set(predicate_matched[1]) for key in right_keys)
+        reverse |= any(set(key[0]) <= set(predicate_matched[0]) for key in left_keys)
         forward |= right.grain.state is ProjectGrainBasisState.GLOBAL
         reverse |= left.grain.state is ProjectGrainBasisState.GLOBAL
     return uses, parents, left, right, tuple(matched), forward, reverse
@@ -5021,6 +6091,16 @@ def verify_compiled_join_grain(root, operator, built):
         and source_active
     ):
         edges.append((right_active, source_active))
+    if not historical and not reverse and not right_nulling and right_active:
+        from pietto._project.project_current_joins import compiled_local_reverse_sources
+
+        for source in compiled_local_reverse_sources(
+            root.completed.root.records, record, left, built, refs
+        ):
+            if source:
+                edges.append(
+                    (right_active, tuple(images[0][factor] for factor in source))
+                )
     need(
         tuple((d.determinants, d.dependents) for d in actual.dependencies)
         == tuple(edges),

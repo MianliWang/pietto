@@ -25,16 +25,16 @@ from pietto.sql.mysql import emit_mysql_sql
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    discount: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float nullable\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    price: Decimal not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    discount: Int\n"
+    "    score: Float\n"
+    "    weight: Float | None\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    price: Decimal\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
@@ -43,10 +43,9 @@ def test_sum_avg_row_let_arguments_are_semantically_accepted() -> None:
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        net = gross - discount\n"
-        "        weighted = score * weight\n"
+        "    let gross = amount + tax\n"
+        "    let net = gross - discount\n"
+        "    let weighted = score * weight\n"
         "    select:\n"
         "        total = sum(gross)\n"
         "        average_net = avg(net)\n"
@@ -73,9 +72,8 @@ def test_grouped_sum_avg_row_let_arguments_are_semantically_accepted() -> None:
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        weighted = score * weight\n"
+        "    let gross = amount + tax\n"
+        "    let weighted = score * weight\n"
         "    group by:\n"
         "        status\n"
         "    select:\n"
@@ -131,9 +129,8 @@ def test_sql_inlines_sum_avg_row_let_arguments_without_hidden_layers(
     sql = _sql_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        net = gross - discount\n"
+        "    let gross = amount + tax\n"
+        "    let net = gross - discount\n"
         "    select:\n"
         "        total = sum(gross)\n"
         "        average_net = avg(net)\n",
@@ -154,9 +151,8 @@ def test_ir_aggregate_arguments_inline_expand_row_let_names() -> None:
     relation = _relation_ir(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        net = gross - discount\n"
+        "    let gross = amount + tax\n"
+        "    let net = gross - discount\n"
         "    select:\n"
         "        total = sum(gross)\n"
         "        average_net = avg(net)\n"
@@ -179,8 +175,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         "aggregate_let.pietto",
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        total = sum(gross)\n",
     )
@@ -222,8 +217,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -233,8 +227,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
@@ -246,21 +239,19 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -268,8 +259,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        total = sum(orders.gross)\n",
             "PIE-S2102",
@@ -309,8 +299,7 @@ def test_unsupported_sum_avg_let_expansion_shapes_keep_existing_diagnostics(
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        f"        {binding}\n"
+        f"    let {binding}\n"
         "    select:\n"
         f"        {projection}\n"
     )
@@ -345,7 +334,8 @@ def _script_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> ScriptIR:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir

@@ -59,7 +59,7 @@ def test_completed_operand_kinds_keep_provenance_not_local_computation_role(
     tmp_path: Path, producer: str
 ) -> None:
     if producer.endswith("join"):
-        source = _join_source("true").replace("query result:", "table operand:")
+        source = _join_source("True").replace("query result:", "table operand:")
         if producer == "grouped_join":
             source = source.replace(
                 "    select:", "    group by:\n        lhs.id\n    select:"
@@ -70,7 +70,7 @@ def test_completed_operand_kinds_keep_provenance_not_local_computation_role(
         elif producer == "filtered_join":
             source = source.replace(
                 "    select:",
-                "    let:\n        next_id = lhs.id + 1\n    where next_id > 0\n    select:",
+                "    let next_id = lhs.id + 1\n    where next_id > 0\n    select:",
             ).replace("        id = lhs.id", "        value = next_id")
             source += "    order by:\n        next_id\n    limit 2\n"
     else:
@@ -82,7 +82,7 @@ def test_completed_operand_kinds_keep_provenance_not_local_computation_role(
         elif producer == "global":
             source += "    select:\n        total = count()\n"
         elif producer == "window_qualify":
-            source += "    select:\n        id\n        rn = row_number() window:\n            order by:\n                id\n    qualify:\n        rn <= 3\n"
+            source += "    select:\n        id\n        rn = row_number() window(order by id)\n    qualify:\n        rn <= 3\n"
         else:
             source += "    select distinct:\n        id\n"
     source += (
@@ -122,7 +122,7 @@ def test_set_replay_current_join_and_distinct(tmp_path: Path, side: str) -> None
         if side == "right"
         else ("result", "result")
     )
-    source += f"query final:\n    from {left}\n    left join {right} as r:\n        from {left}\n        on true\n    select distinct:\n        left_id = {left}.id\n        right_id = r.id\n"
+    source += f"query final:\n    from {left}\n    let r = {right}\n    left join r on True\n    select distinct:\n        left_id = {left}.id\n        right_id = r.id\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     final = _entry(completed, "final")
@@ -147,9 +147,9 @@ def test_set_replay_current_join_and_distinct(tmp_path: Path, side: str) -> None
 
 def test_decimal_set_replay_join_distinct_and_nested_set(tmp_path: Path) -> None:
     source = _source(right_type="Decimal(10, 2)").replace(
-        "id: Int not null", "id: Decimal(10, 2) nullable"
+        "id: Int", "id: Decimal(10, 2) | None"
     )
-    source += "table joined:\n    from result\n    inner join result as r:\n        from result\n        on true\n    select distinct:\n        price = result.id\ntable final:\n    union distinct:\n        from joined\n        from joined\n"
+    source += "table joined:\n    from result\n    let r = result\n    inner join r on True\n    select distinct:\n        price = result.id\ntable final:\n    union distinct:\n        from joined\n        from joined\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     joined = _entry(completed, "joined")
@@ -169,12 +169,15 @@ def test_decimal_set_replay_join_distinct_and_nested_set(tmp_path: Path) -> None
 
 
 def test_import_reexport_preserves_operand_uses_and_labels(tmp_path: Path) -> None:
-    parent = _source(replay=False) + "export:\n    table combined\n"
+    parent = _source(replay=False) + "export table combined\n"
     (tmp_path / "a.pietto").write_text(parent)
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table combined as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import table combined as Public\nexport table Public\n'
     )
-    source = 'import "b.pietto":\n    table Public as Local\ntable nested:\n    union all:\n        from Local\n        from Local\nquery final:\n    from nested\n    select distinct:\n        id\n'
+    source = 'from "b.pietto" import table Public as Local\n' + (
+        "table nested:\n    union all:\n        from Local\n        from Local\n"
+        "query final:\n    from nested\n    select distinct:\n        id\n"
+    )
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     nested = _entry(completed, "nested")
@@ -204,9 +207,8 @@ table b:
         from lhs
 table c:
     from lhs
-    inner join a as x:
-        from lhs
-        on true
+    let x = a
+    inner join x on True
     select:
         id = lhs.id
 query dependent:
@@ -282,7 +284,7 @@ def test_invalid_upstream_aggregation_is_not_repaired_by_set(tmp_path: Path) -> 
 def test_set_dedup_does_not_discharge_original_matching_obligation(
     tmp_path: Path,
 ) -> None:
-    source = _join_source("true").replace("query result:", "table parent:")
+    source = _join_source("True").replace("query result:", "table parent:")
     source += "table combined:\n    union distinct:\n        from parent\n        from parent\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
@@ -306,7 +308,7 @@ def test_set_is_not_a_single_match_proof_but_downstream_own_limit_is(
             "table limited:\n    from combined\n    select:\n        id\n    limit 1\n"
         )
         right = "limited"
-    source += f"query final:\n    from lhs\n    inner join {right} as r:\n        from lhs\n        on true\n    select:\n        id = lhs.id\n"
+    source += f"query final:\n    from lhs\n    let r = {right}\n    inner join r on True\n    select:\n        id = lhs.id\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     condition = completed.roots.join_conditions.entries[0]
@@ -483,9 +485,7 @@ def test_foreign_type_root_cannot_certify_computed_input(tmp_path: Path) -> None
         before
         + "table computed:\n    from lhs\n    select:\n        value = 1\n"
         + "table combined:"
-        + after.replace("from lhs", "from computed").replace(
-            "from rhs", "from computed"
-        )
+        + after.replace("lhs, rhs", "computed, computed")
     )
     local = _completed(tmp_path / "local", source)
     foreign = _completed(tmp_path / "foreign", source)

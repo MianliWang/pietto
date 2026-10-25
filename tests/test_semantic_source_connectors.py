@@ -14,7 +14,7 @@ from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import CheckMode, SemanticResult, ValueTypeKind, analyze
 
-SHAPE = "shape UserRow:\n    id: UUID not null\n    email: Text not null\n"
+SHAPE = "shape UserRow:\n    id: UUID\n    email: Text\n"
 
 
 @pytest.mark.parametrize(
@@ -48,7 +48,7 @@ def test_completed_source_rules_preserve_single_file_diagnostics(
         _completed,
     )
 
-    text = SHAPE + f"source users: UserRow is {connector}\n"
+    text = SHAPE + f"source users: UserRow = {connector}\n"
     expected = analyze(_parse(text, path="main.pietto")).diagnostics
     completed = _completed(tmp_path, text)
     assert tuple(d.code for d in expected) == codes
@@ -73,16 +73,16 @@ def test_completed_checks_defining_modules_once_and_reuses_diagnostics(
     )
 
     (tmp_path / "a.pietto").write_text(
-        SHAPE + 'source users: UserRow is mysql.table("")\nexport:\n    source users\n'
+        SHAPE + 'source users: UserRow = mysql.table("")\nexport source users\n'
     )
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    source users as Public\nexport:\n    source Public\n'
+        'from "a.pietto" import source users as Public\nexport source Public\n'
     )
     (tmp_path / "c.pietto").write_text(
-        'import "a.pietto":\n    source users as Again\n'
+        'from "a.pietto" import source users as Again\n'
         + SHAPE
-        + "source users: UserRow is postgres.table(missing)\n"
-        + 'source second: UserRow is mysql.table("")\n'
+        + "source users: UserRow = postgres.table(missing)\n"
+        + 'source second: UserRow = mysql.table("")\n'
     )
     typed_scripts: list[Script] = []
     checked_scripts: list[Script] = []
@@ -106,7 +106,7 @@ def test_completed_checks_defining_modules_once_and_reuses_diagnostics(
     monkeypatch.setattr(boundary, "check_source_connectors", capture_checks)
     completed = _completed(
         tmp_path,
-        'import "b.pietto":\n    source Public as Imported\n' + joined_source("true"),
+        'from "b.pietto" import source Public as Imported\n' + joined_source("True"),
     )
     modules = completed.semantic_result.modules
     scripts = tuple(
@@ -148,7 +148,7 @@ def test_completed_preserves_prior_diagnostics_and_cli_semantic_caller(
     completed = _completed(
         tmp_path,
         SHAPE
-        + 'source users: UserRow is mysql.table("")\n'
+        + 'source users: UserRow = mysql.table("")\n'
         + "query broken:\n    from absent\n    select:\n        id\n",
     )
     semantic = completed.semantic_result
@@ -173,7 +173,7 @@ def test_completed_source_scan_rejects_missing_module_script(tmp_path: Path) -> 
     )
 
     completed = _completed(
-        tmp_path, SHAPE + 'source users: UserRow is postgres.table("users")\n'
+        tmp_path, SHAPE + 'source users: UserRow = postgres.table("users")\n'
     )
     module = completed.semantic_result.modules[0]
     parsed = module.parsed_input
@@ -211,7 +211,7 @@ def test_completed_nonpositive_modes_do_not_run_source_scan(
 
 def test_postgres_table_with_text_argument_passes() -> None:
     result = analyze(
-        _parse(SHAPE + 'source users: UserRow is postgres.table("public.users")\n')
+        _parse(SHAPE + 'source users: UserRow = postgres.table("public.users")\n')
     )
 
     assert result.diagnostics == ()
@@ -219,7 +219,7 @@ def test_postgres_table_with_text_argument_passes() -> None:
 
 def test_mysql_table_with_nonempty_text_literal_passes() -> None:
     result = analyze(
-        _parse(SHAPE + 'source users: UserRow is mysql.table("app.users")\n')
+        _parse(SHAPE + 'source users: UserRow = mysql.table("app.users")\n')
     )
 
     assert result.diagnostics == ()
@@ -231,7 +231,7 @@ def test_malformed_dotted_table_name_reports_pie_s2306_at_argument(
     connector_name: str, table_name: str
 ) -> None:
     script = _parse(
-        SHAPE + f'source users: UserRow is {connector_name}("{table_name}")\n',
+        SHAPE + f'source users: UserRow = {connector_name}("{table_name}")\n',
         path="table-names.pietto",
     )
     source = script.definitions[-1]
@@ -268,8 +268,8 @@ def test_project_mode_does_not_apply_the_single_file_table_name_rule(
 
     text = (
         SHAPE
-        + 'source users: UserRow is postgres.table("opaque.locator.not.sql")\n'
-        + 'source others: UserRow is mysql.table(".others")\n'
+        + 'source users: UserRow = postgres.table("opaque.locator.not.sql")\n'
+        + 'source others: UserRow = mysql.table(".others")\n'
     )
     single_file = analyze(_parse(text, path="main.pietto")).diagnostics
     completed = _completed(tmp_path, text)
@@ -289,7 +289,7 @@ def test_project_mode_does_not_apply_the_single_file_table_name_rule(
 def test_invalid_postgres_table_arguments_report_pie_s2306(
     connector: str,
 ) -> None:
-    result = analyze(_parse(SHAPE + f"source users: UserRow is {connector}\n"))
+    result = analyze(_parse(SHAPE + f"source users: UserRow = {connector}\n"))
 
     assert [
         (diagnostic.code, diagnostic.severity, diagnostic.message)
@@ -316,7 +316,7 @@ def test_invalid_postgres_table_arguments_report_pie_s2306(
 def test_invalid_mysql_table_arguments_report_pie_s2306(
     connector: str,
 ) -> None:
-    result = analyze(_parse(SHAPE + f"source users: UserRow is {connector}\n"))
+    result = analyze(_parse(SHAPE + f"source users: UserRow = {connector}\n"))
 
     assert [
         (diagnostic.code, diagnostic.severity, diagnostic.message)
@@ -331,7 +331,7 @@ def test_invalid_mysql_table_arguments_report_pie_s2306(
 
 
 def test_unknown_source_connector_reports_pie_s2306() -> None:
-    result = analyze(_parse(SHAPE + 'source users: UserRow is sqlite.table("users")\n'))
+    result = analyze(_parse(SHAPE + 'source users: UserRow = sqlite.table("users")\n'))
 
     assert [
         (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
@@ -339,7 +339,7 @@ def test_unknown_source_connector_reports_pie_s2306() -> None:
 
 
 def test_mysql_connector_name_matching_is_exact() -> None:
-    result = analyze(_parse(SHAPE + 'source users: UserRow is mysql.Table("users")\n'))
+    result = analyze(_parse(SHAPE + 'source users: UserRow = mysql.Table("users")\n'))
 
     assert [
         (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
@@ -347,7 +347,7 @@ def test_mysql_connector_name_matching_is_exact() -> None:
 
 
 def test_non_call_source_connector_reports_pie_s2306() -> None:
-    result = analyze(_parse(SHAPE + "source users: UserRow is 42\n"))
+    result = analyze(_parse(SHAPE + "source users: UserRow = 42\n"))
 
     assert [
         (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
@@ -357,7 +357,7 @@ def test_non_call_source_connector_reports_pie_s2306() -> None:
 @pytest.mark.parametrize("connector_name", ["postgres.table", "mysql.table"])
 @pytest.mark.parametrize(
     "argument",
-    ["public.users", "a.b.c", "null", 'lower("USERS")', 'coalesce(null, "users")'],
+    ["public.users", "a.b.c", "None", 'lower("USERS")', 'coalesce(None, "users")'],
 )
 def test_single_file_argument_that_is_not_a_string_literal_reports_s2306(
     tmp_path: Path, connector_name: str, argument: str
@@ -366,7 +366,7 @@ def test_single_file_argument_that_is_not_a_string_literal_reports_s2306(
         _completed,
     )
 
-    text = SHAPE + f"source users: UserRow is {connector_name}({argument})\n"
+    text = SHAPE + f"source users: UserRow = {connector_name}({argument})\n"
     script = _parse(text, path="main.pietto")
     source = script.definitions[-1]
     assert isinstance(source, SourceDef)
@@ -405,7 +405,7 @@ def test_unknown_argument_suppresses_connector_cascade(
     connector_name: str,
 ) -> None:
     result = analyze(
-        _parse(SHAPE + f"source users: UserRow is {connector_name}(missing)\n")
+        _parse(SHAPE + f"source users: UserRow = {connector_name}(missing)\n")
     )
     source = _source(result)
     connector = source.connector
@@ -425,14 +425,14 @@ def test_unknown_argument_suppresses_connector_cascade(
         ("kafka.topic(x.y)", "Unknown source connector: kafka.topic"),
         ("kafka.topic(lower(x.y))", "Unknown source connector: kafka.topic"),
         ("kafka.topic(users.id)", "Unknown source connector: kafka.topic"),
-        ("kafka.topic(null)", "Unknown source connector: kafka.topic"),
+        ("kafka.topic(None)", "Unknown source connector: kafka.topic"),
         (
             'postgres.table(x.y, "a")',
             "Invalid source connector arguments for postgres.table",
         ),
         ('mysql.table(x.y, "a")', "Invalid source connector arguments for mysql.table"),
         (
-            "postgres.table(null, 1)",
+            "postgres.table(None, 1)",
             "Invalid source connector arguments for postgres.table",
         ),
     ],
@@ -441,7 +441,7 @@ def test_argument_of_unknown_type_without_an_error_keeps_the_call_error(
     connector: str, message: str
 ) -> None:
     diagnostics = analyze(
-        _parse(SHAPE + f"source users: UserRow is {connector}\n", path="main.pietto")
+        _parse(SHAPE + f"source users: UserRow = {connector}\n", path="main.pietto")
     ).diagnostics
 
     assert [
@@ -455,13 +455,11 @@ def test_argument_of_unknown_type_without_an_error_keeps_the_call_error(
             d.location.end_column,
         )
         for d in diagnostics
-    ] == [("PIE-S2306", Severity.ERROR, message, 4, 26, 4, 26 + len(connector))]
+    ] == [("PIE-S2306", Severity.ERROR, message, 4, 25, 4, 25 + len(connector))]
 
 
 def test_unknown_connector_with_a_dotted_argument_fails_unshaped_check() -> None:
-    diagnostics = analyze(
-        _parse("source r is k(x.y)\n", path="main.pietto")
-    ).diagnostics
+    diagnostics = analyze(_parse("source r = k(x.y)\n", path="main.pietto")).diagnostics
 
     assert [
         (
@@ -480,9 +478,9 @@ def test_unknown_connector_with_a_dotted_argument_fails_unshaped_check() -> None
             "Source r has no bound shape; row schema is unknown",
             1,
             1,
-            19,
+            18,
         ),
-        ("PIE-S2306", Severity.ERROR, "Unknown source connector: k", 1, 13, 19),
+        ("PIE-S2306", Severity.ERROR, "Unknown source connector: k", 1, 12, 18),
     ]
 
 
@@ -499,7 +497,7 @@ def test_untyped_source_mode_policy_is_unchanged(
     expected: tuple[tuple[str, Severity], ...],
 ) -> None:
     result = analyze(
-        _parse('source users is postgres.table("public.users")\n'),
+        _parse('source users = postgres.table("public.users")\n'),
         mode_override=mode,
     )
 
@@ -516,7 +514,7 @@ def test_typed_source_schema_still_comes_from_declared_shape(
     connector_name: str,
 ) -> None:
     result = analyze(
-        _parse(SHAPE + f'source users: UserRow is {connector_name}("public.users")\n')
+        _parse(SHAPE + f'source users: UserRow = {connector_name}("public.users")\n')
     )
     source = _source(result)
     shape = result.model.type_symbols["UserRow"]
@@ -530,7 +528,7 @@ def test_typed_source_schema_still_comes_from_declared_shape(
 
 def test_connector_diagnostic_uses_connector_expression_span() -> None:
     script = _parse(
-        SHAPE + "source users: UserRow is mysql.table(123)\n",
+        SHAPE + "source users: UserRow = mysql.table(123)\n",
         path="source-connectors.pietto",
     )
     source = script.definitions[-1]
@@ -550,7 +548,7 @@ def test_connector_diagnostic_uses_connector_expression_span() -> None:
 
 
 def test_connector_validation_does_not_mutate_input_ast() -> None:
-    script = _parse(SHAPE + 'source users: UserRow is postgres.table("public.users")\n')
+    script = _parse(SHAPE + 'source users: UserRow = postgres.table("public.users")\n')
     original = deepcopy(script)
 
     analyze(script)
@@ -560,7 +558,7 @@ def test_connector_validation_does_not_mutate_input_ast() -> None:
 
 def test_connector_results_do_not_expose_antlr_nodes() -> None:
     result = analyze(
-        _parse(SHAPE + 'source users: UserRow is postgres.table("public.users")\n')
+        _parse(SHAPE + 'source users: UserRow = postgres.table("public.users")\n')
     )
 
     _assert_no_antlr_nodes(result)

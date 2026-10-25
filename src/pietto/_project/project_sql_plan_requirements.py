@@ -1596,6 +1596,10 @@ def compiled_requirement_rule(plan, entry, *, generated_scopes):
                 if role in row_rules.R05_OPERATIONS.values():
                     rules.append("R05")
                     continue
+                if role in ("exists", "scalar", "relation_membership"):
+                    # A block read (also `any`) wraps one complete producer.
+                    rules.append(row_rules.REQUIREMENT_RULES[role])
+                    continue
             rules.append("R01" if record.address.kind == "read" else "R04")
         if len(set(rules)) != 1:
             raise ValueError("COMPILED_REQUIREMENT_EXPRESSION_ANCHOR")

@@ -14,15 +14,15 @@ from pietto.sql import SqlArtifact, SqlArtifactKind, SqlResult
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
 )
 RELATION = (
     SOURCE + "table active_users:\n"
     "    from users\n"
-    "    where active == true\n"
+    "    where active == True\n"
     "    select:\n"
     "        id\n"
     "        email\n"
@@ -133,7 +133,8 @@ def test_emit_sql_json_warning_is_successful_and_preserved(
         "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
+        'source raw = postgres.table("raw")\n'
         "table user_emails:\n"
         "    from users\n"
         "    select:\n"
@@ -146,6 +147,7 @@ def test_emit_sql_json_warning_is_successful_and_preserved(
     assert result["ok"] is True
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
     assert [diagnostic["severity"] for diagnostic in diagnostics] == ["warning"]
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2303"]
     assert cast(list[object], result["artifacts"])
 
 
@@ -155,7 +157,7 @@ def test_emit_sql_json_warning_is_successful_and_preserved(
         ("parser.pietto", "shape User {\n", "PIE-P1005"),
         (
             "semantic.pietto",
-            "shape User:\n    email: MissingType not null\n",
+            "shape User:\n    email: MissingType\n",
             "PIE-S2002",
         ),
     ],
@@ -549,12 +551,12 @@ def test_emit_sql_json_uses_raw_fields_and_json_encoding(
     [
         (
             "huge-integer.pietto",
-            "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
+            "type Huge = Int(max = " + "9" * 5000 + ")\n",
             "PIE-P1000",
         ),
         (
             "deep-parser.pietto",
-            "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
+            "derive deep() -> Int:\n    return " + "+" * 1500 + "1\n",
             "PIE-P1000",
         ),
         (
@@ -562,10 +564,10 @@ def test_emit_sql_json_uses_raw_fields_and_json_encoding(
             "".join(
                 [
                     *(
-                        f"type Alias{index} = Alias{index + 1} not null\n"
+                        f"type Alias{index} = Alias{index + 1}\n"
                         for index in range(1399)
                     ),
-                    "type Alias1399 = Int not null\n",
+                    "type Alias1399 = Int\n",
                 ]
             ),
             "PIE-S2006",
@@ -610,7 +612,7 @@ def test_emit_sql_json_semantic_error_stops_ir_and_backend(
     path = _write(
         tmp_path,
         "semantic-error.pietto",
-        "shape User:\n    email: MissingType not null\n",
+        "shape User:\n    email: MissingType\n",
     )
     _forbid_later_stages(monkeypatch, include_semantic=False)
 

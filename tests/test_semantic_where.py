@@ -15,14 +15,14 @@ from pietto.semantic import CheckMode, SemanticResult, ValueTypeKind, analyze
 
 SOURCE = (
     "shape Row:\n"
-    "    text: Text not null\n"
-    "    count: Int not null\n"
-    "    optional_text: Text nullable\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    text: Text\n"
+    "    count: Int\n"
+    "    optional_text: Text | None\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 
 
-@pytest.mark.parametrize("operator", ["is null", "is not null"])
+@pytest.mark.parametrize("operator", ["is None", "is not None"])
 def test_is_null_where_expression_is_bool(operator: str) -> None:
     result = analyze(
         _parse(
@@ -135,7 +135,7 @@ def test_unknown_field_suppresses_bool_cascade() -> None:
 def test_unknown_input_schema_suppresses_field_and_bool_diagnostics() -> None:
     result = analyze(
         _parse(
-            'source raw is postgres.table("raw")\n'
+            'source raw = postgres.table("raw")\n'
             "table filtered:\n"
             "    from raw\n"
             "    where missing\n"
@@ -203,10 +203,10 @@ def test_a_built_in_call_over_an_unknown_row_is_a_condition_of_its_result_type()
     as a line of a `where:` block (before: each accepted, and emission wrote
     a WHERE that is not Bool). A value of unknown type stays accepted."""
     source = (
-        'source raw is postgres.table("raw")\n'
+        'source raw = postgres.table("raw")\n'
         "table a:\n    from raw\n    where len(t)\n    select:\n        id\n"
         "table b:\n    from raw\n    where lower(t)\n    select:\n        id\n"
-        "table c:\n    from raw\n    let:\n        w = year(t)\n        v = w\n"
+        "table c:\n    from raw\n    let w = year(t)\n    let v = w\n"
         "    where v\n    select:\n        id\n"
         "table d:\n    from raw\n    where:\n        t\n        5\n    select:\n"
         "        id\n"
@@ -221,22 +221,22 @@ def test_a_built_in_call_over_an_unknown_row_is_a_condition_of_its_result_type()
         ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
         ("PIE-S2202", 4, 11, EXPECTED_BOOL),
         ("PIE-S2202", 9, 11, EXPECTED_BOOL),
-        ("PIE-S2202", 17, 11, EXPECTED_BOOL),
+        ("PIE-S2202", 16, 11, EXPECTED_BOOL),
         (
             "PIE-S2105",
-            23,
+            22,
             9,
             "Invalid operands for operator and: expected Bool operands",
         ),
         (
             "PIE-S2105",
-            29,
+            28,
             11,
             "Invalid operands for operator or: expected Bool operands",
         ),
         (
             "PIE-S2105",
-            34,
+            33,
             11,
             "Invalid operands for operator not: expected Bool operand",
         ),
@@ -249,24 +249,24 @@ def test_a_built_in_call_of_null_values_is_a_condition_of_its_result_type() -> N
     a `let:` name (before: accepted). An error of its own explains an unknown
     type, also one of a binding it reads, so it adds nothing there."""
     source = SOURCE + (
-        "table a:\n    from rows\n    where lower(coalesce(null, null))\n"
+        "table a:\n    from rows\n    where lower(coalesce(None, None))\n"
         "    select:\n        text\n"
-        "table b:\n    from rows\n    let:\n        k = null\n"
-        "        j = len(coalesce(k, k))\n    where j\n    select:\n        text\n"
+        "table b:\n    from rows\n    let k = None\n"
+        "    let j = len(coalesce(k, k))\n    where j\n    select:\n        text\n"
         "table c:\n    from rows\n    where len(missing)\n    select:\n        text\n"
         "table d:\n    from rows\n    where missing and 1\n    select:\n        text\n"
-        "table e:\n    from rows\n    let:\n        e = lower(1)\n    where len(e)\n"
+        "table e:\n    from rows\n    let e = lower(1)\n    where len(e)\n"
         "    select:\n        text\n"
     )
 
     assert _errors(source) == [
         ("PIE-S2202", 8, 11, EXPECTED_BOOL),
-        ("PIE-S2202", 16, 11, EXPECTED_BOOL),
-        ("PIE-S2102", 21, 15, "Unknown field: missing"),
-        ("PIE-S2102", 26, 11, "Unknown field: missing"),
+        ("PIE-S2202", 15, 11, EXPECTED_BOOL),
+        ("PIE-S2102", 20, 15, "Unknown field: missing"),
+        ("PIE-S2102", 25, 11, "Unknown field: missing"),
         (
             "PIE-S2104",
-            32,
+            30,
             13,
             "Invalid argument type for function lower at position 1: "
             "expected Text, got Int",
@@ -288,7 +288,7 @@ def test_a_built_in_call_over_an_unknown_row_has_its_result_type_everywhere() ->
     that compare (`coalesce(t, 1, 2.5)`), and a read of a binding whose error
     is reported where it is bound adds nothing."""
     source = (
-        'source raw is postgres.table("raw")\n'
+        'source raw = postgres.table("raw")\n'
         "table a:\n    from raw\n    where len(t) + 1\n    select:\n        id\n"
         "table b:\n    from raw\n    select:\n"
         "        x = lower(t) + 1\n"
@@ -299,12 +299,12 @@ def test_a_built_in_call_over_an_unknown_row_has_its_result_type_everywhere() ->
         '        s = sign(t) + "x"\n'
         "        r = len(t) / 2\n"
         '        q = coalesce(t, 1, "x")\n'
-        "        o = coalesce(t, null, 1)\n"
+        "        o = coalesce(t, None, 1)\n"
         "        n = coalesce(t, 1, 2.5)\n"
-        "table c:\n    from raw\n    group by: g\n    select:\n        g\n"
+        "table c:\n    from raw\n    group by g\n    select:\n        g\n"
         "        n = count(t)\n        m = count_distinct(t)\n"
-        "    satisfying: n and m > 1\n"
-        "table d:\n    from raw\n    let:\n        j = lower(k)\n        k = t\n"
+        "    having n and m > 1\n"
+        "table d:\n    from raw\n    let j = lower(k)\n    let k = t\n"
         "    select:\n        p = j + 1\n"
     )
 
@@ -341,10 +341,10 @@ def test_a_built_in_call_over_an_unknown_row_has_its_result_type_everywhere() ->
         (
             "PIE-S2105",
             27,
-            17,
+            12,
             "Invalid operands for operator and: expected Bool operands",
         ),
-        ("PIE-S2330", 31, 19, "Let binding cannot reference a later binding: k"),
+        ("PIE-S2330", 30, 19, "Let binding cannot reference a later binding: k"),
     ]
 
 

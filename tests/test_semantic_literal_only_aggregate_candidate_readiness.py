@@ -8,9 +8,7 @@ from pietto.semantic import analyze
 
 
 SOURCE_PREFIX = (
-    "shape Order:\n"
-    "    amount: Int not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    'shape Order:\n    amount: Int\nsource orders: Order = postgres.table("orders")\n'
 )
 
 

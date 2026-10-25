@@ -1,101 +1,100 @@
 shape Order:
-    id: Int not null
-    customer_id: Int nullable
-    amount: Int not null
-    unique order_key on id
+    id: Int
+    customer_id: Int | None
+    amount: Int
+    order_key = unique(id)
 shape Customer:
-    id: Int not null
-    name: Text not null
-    region_id: Int nullable
-    unique customer_key on id
+    id: Int
+    name: Text
+    region_id: Int | None
+    customer_key = unique(id)
 shape Region:
-    id: Int not null
-    label: Text not null
-    unique region_key on id
-source orders: Order is postgres.table("shop.orders")
-source customers: Customer is postgres.table("shop.customers")
-source regions: Region is postgres.table("shop.regions")
-relationship order_customer: orders.customer_id == customers.id
-relationship customer_region: customers.region_id == regions.id
+    id: Int
+    label: Text
+    region_key = unique(id)
+source orders: Order = postgres.table("shop.orders")
+source customers: Customer = postgres.table("shop.customers")
+source regions: Region = postgres.table("shop.regions")
+relationship order_customer(order: Order, customer: Customer):
+    order.customer_id == customer.id
+relationship customer_region(customer: Customer, region: Region):
+    customer.region_id == region.id
 
 query order_names:
     from orders
-    inner join customers as customer
+    let customer = customers
+    inner join customer on order_customer(orders, customer)
     select:
         order_id = orders.id
         customer_name = customer.name
 
 query customer_regions:
     from customers
-    left join regions as region: via customer_region
+    let region = regions
+    left join region on customer_region(customers, region)
     select:
         customer_id = customers.id
         region_label = region.label
 
 query orders_or_customers:
     from orders
-    right join customers as customer:
-        from orders
-        on orders.customer_id == customer.id
+    let customer = customers
+    right join customer on orders.customer_id == customer.id
     select:
         order_id = orders.id
         customer_name = customer.name
 
 query order_customer_pairs:
     from orders
-    full join customers as customer:
-        from orders
-        on orders.customer_id == customer.id
+    let customer = customers
+    full join customer on orders.customer_id == customer.id
     select:
         order_id = orders.id
         customer_id = customer.id
 
 query order_region_pairs:
     from orders
-    cross join regions as region: from orders
+    let region = regions
+    cross join region
     select:
         order_id = orders.id
         region_label = region.label
 
 query customers_with_orders:
     from customers
-    semi join orders as o
+    where any(customers.id == o.customer_id for o in orders)
     select:
         id
         name
 
 query customers_without_big_orders:
     from customers
-    anti join orders as o:
-        from customers
-        via order_customer
-        on o.amount > 100
+    where not any(customers.id == o.customer_id and o.amount > 100 for o in orders)
     select:
         customer_id = customers.id
 
 query big_order_names:
     from orders
-    inner join customers as customer:
-        from orders
-        on orders.customer_id == customer.id and orders.amount > 5
+    let customer = customers
+    inner join customer on orders.customer_id == customer.id and orders.amount > 5
     select:
         order_id = orders.id
         customer_name = customer.name
 
 query orders_with_named_customers:
     from orders
-    left join customers as customer:
-        from orders
-        via order_customer
-        on customer.name != "x"
+    let customer = customers
+    left join customer on order_customer(orders, customer) and customer.name != "x"
     select:
         order_id = orders.id
         customer_name = customer.name
 
 query recent_order_regions:
     from orders
-    inner join customers as customer
-    left join regions as region: from customer
+    let customer = customers
+    inner join customer on order_customer(orders, customer)
+    let region = regions
+    left join region on customer_region(customer, region)
     where orders.amount > 1
     select:
         order_id = orders.id
@@ -107,17 +106,17 @@ query recent_order_regions:
 
 query regions_and_ordering_customers:
     from customers
-    semi join orders as o
-    right join regions as region: from customers
+    where any(customers.id == o.customer_id for o in orders)
+    let region = regions
+    right join region on customer_region(customers, region)
     select:
         region_label = region.label
         customer_id = customers.id
 
 query customer_peers:
     from customers
-    left join customers as peer:
-        from customers
-        on peer.region_id == customers.region_id and peer.id != customers.id
+    let peer = customers
+    left join peer on peer.region_id == customers.region_id and peer.id != customers.id
     select:
         customer_id = customers.id
         peer_id = peer.id
@@ -131,19 +130,19 @@ query named_customers:
 
 query orders_of_named_customers:
     from orders
-    inner join named_customers as c:
-        from orders
-        on orders.customer_id == c.id
+    let c = named_customers
+    inner join c on orders.customer_id == c.id
     select:
         order_id = orders.id
         customer_name = c.name
 
 query order_stats:
     from orders
-    inner join customers as customer
-    group by: customer.id, customer.name
+    let customer = customers
+    inner join customer on order_customer(orders, customer)
+    group by customer.id, customer.name
     select:
         name = customer.name
         biggest = max(orders.amount)
         n = count()
-    satisfying: n > 1
+    having n > 1

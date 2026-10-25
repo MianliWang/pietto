@@ -56,6 +56,14 @@ from pietto.sql.render import IdentifierTooLongError
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_INPUT = "tests/fixtures/postgres/join_mvp.pietto"
 GOLDEN_SQL = "tests/fixtures/golden/emit_sql_join_mvp.sql"
+# The golden's `orders_of_named_customers` joins the same-file query
+# `named_customers`, which single-file SQL reads by name.
+GOLDEN_WARNING = (
+    f"{GOLDEN_INPUT}:134:5 PIE-S2382 warning: `named_customers` is a query of "
+    "this file; single-file SQL reads it by name, so the SQL runs only where the "
+    "database already has a relation named named_customers (an EXPLICIT_MODULES "
+    "project emits it as a CTE)\n"
+)
 SPAN = SourceSpan(
     path="join-emission.pietto", line=3, column=5, end_line=3, end_column=9
 )
@@ -65,6 +73,7 @@ RELATIONS = {
     "orders": "orders",
     "o": "orders",
     "o2": "orders",
+    "_pietto_any_1": "orders",
     "customers": "customers",
     "customer": "customers",
     "peer": "customers",
@@ -251,6 +260,8 @@ OCR = ("orders", "customer", "region")
 CO = ("customers", "o")
 CP = ("customers", "peer")
 COR = ("customers", "o", "region")
+# A JOIN-prefix `any` is a hidden SEMI JOIN whose binding Pietto names.
+CAR = ("customers", "_pietto_any_1", "region")
 CORP = ("customers", "o", "region", "peer")
 LS = ("lines", "ship")
 ORDERS_FROM = 'FROM "shop"."orders" AS "orders"'
@@ -337,14 +348,6 @@ GOLDEN_JOINS = {
         _relation(("orders", "region"), _join(CROSS, "orders")),
         (),
     ),
-    "customers_with_orders": (
-        _relation(CO, _join(SEMI, "customers", CUSTOMER_ORDER)),
-        (),
-    ),
-    "customers_without_big_orders": (
-        _relation(CO, _join(ANTI, "customers", CUSTOMER_ORDER, on=BIG_ORDER)),
-        (),
-    ),
     "big_order_names": (
         _relation(
             OC,
@@ -389,8 +392,8 @@ GOLDEN_JOINS = {
     ),
     "regions_and_ordering_customers": (
         _relation(
-            COR,
-            _join(SEMI, "customers", CUSTOMER_ORDER),
+            CAR,
+            _join(SEMI, "customers", ("customers.id", "_pietto_any_1.customer_id")),
             _join(RIGHT, "customers", CUSTOMER_REGION),
         ),
         (),
@@ -442,8 +445,10 @@ GOLDEN_JOINS = {
 }
 
 
+# The golden's other queries have no JOIN: `named_customers`, and the two that
+# filter with a tail `where [not] any(...)`, a correlated EXISTS read.
 @pytest.mark.parametrize(
-    "name", [name for name in GOLDEN_ARTIFACTS if name != "named_customers"]
+    "name", [name for name in GOLDEN_ARTIFACTS if name in GOLDEN_JOINS]
 )
 def test_each_golden_join_relation_renders_its_reviewed_from_and_join_lines(
     name: str,
@@ -453,6 +458,31 @@ def test_each_golden_join_relation_renders_its_reviewed_from_and_join_lines(
     start = next(index for index, line in enumerate(lines) if line.startswith("FROM "))
 
     assert lines[start:] == [*_sql(relation).split("\n"), *tail]
+
+
+# The golden's last-position existence filters, once a SEMI and an ANTI JOIN:
+# a tail `where [not] any(...)` reads its relation under its own value alias.
+GOLDEN_TAIL_ANY = {
+    "customers_with_orders": HAS_ORDERS.replace('"o"', '"_pietto_value_1"'),
+    "customers_without_big_orders": HAS_NO_BIG_ORDERS.replace(
+        '"o"', '"_pietto_value_2"'
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        name
+        for name in GOLDEN_ARTIFACTS
+        if name not in GOLDEN_JOINS and name != "named_customers"
+    ],
+)
+def test_each_golden_tail_any_renders_its_reviewed_exists_filter(name: str) -> None:
+    lines = GOLDEN_ARTIFACTS[name].split("\n")
+    start = next(index for index, line in enumerate(lines) if line.startswith("FROM "))
+
+    assert lines[start:] == [CUSTOMERS_FROM, f"WHERE {GOLDEN_TAIL_ANY[name]}"]
 
 
 @pytest.mark.parametrize(
@@ -1097,7 +1127,7 @@ def test_cli_join_golden_checks_and_emits_in_every_mode(
     monkeypatch.chdir(REPO_ROOT)
     assert cli.main(["check", GOLDEN_INPUT, "--check-mode", mode]) == 0
     checked = capsys.readouterr()
-    assert checked.err == ""
+    assert checked.err == GOLDEN_WARNING
     assert (
         cli.main(
             ["emit-sql", GOLDEN_INPUT, "--dialect", "postgres", "--check-mode", mode]
@@ -1105,7 +1135,7 @@ def test_cli_join_golden_checks_and_emits_in_every_mode(
         == 0
     )
     emitted = capsys.readouterr()
-    assert emitted.err == ""
+    assert emitted.err == GOLDEN_WARNING
     assert emitted.out.encode() == (REPO_ROOT / GOLDEN_SQL).read_bytes()
 
 
@@ -1115,18 +1145,18 @@ def test_cli_join_golden_checks_and_emits_in_every_mode(
     [
         (
             "mysql",
-            "    inner join peers as p:\n        from rows\n        on rows.id == p.id\n",
+            "    let p = peers\n    inner join p on rows.id == p.id\n",
             "MySQL JOIN emission is not available yet",
         ),
         (
             "postgres",
-            "    full join peers as p:\n        from rows\n        on rows.name == p.name\n",
+            "    let p = peers\n    full join p on rows.name == p.name\n",
             FULL_REFUSAL.format("p"),
         ),
         (
             "postgres",
-            "    semi join peers as s:\n        from rows\n        on rows.id == s.id\n"
-            "    full join peers as p:\n        from rows\n        on rows.id == p.id\n",
+            "    where any(rows.id == s.id for s in peers)\n"
+            "    let p = peers\n    full join p on rows.id == p.id\n",
             "A SEMI or ANTI JOIN before FULL JOIN p is not available in PostgreSQL emission yet",
         ),
     ],
@@ -1141,9 +1171,9 @@ def test_cli_refuses_one_join_relation_and_keeps_other_artifacts(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     source = (
-        "shape Row:\n    id: Int not null\n    name: Text not null\n"
-        f'source rows: Row is {dialect}.table("shop.rows")\n'
-        f'source peers: Row is {dialect}.table("shop.peers")\n'
+        "shape Row:\n    id: Int\n    name: Text\n"
+        f'source rows: Row = {dialect}.table("shop.rows")\n'
+        f'source peers: Row = {dialect}.table("shop.peers")\n'
         "query okay:\n    from rows\n    select:\n        id\n"
         "query refused:\n    from rows\n" + joins + "    select:\n        rows.id\n"
     )
@@ -1362,7 +1392,7 @@ def test_appending_a_join_keeps_every_existing_golden_artifact(
         binding += "0"
     appended = _compile_source(
         source + f"\nquery {name}:\n    from {shaped.name}\n"
-        f"    cross join {shaped.name} as {binding}: from {shaped.name}\n"
+        f"    let {binding} = {shaped.name}\n    cross join {binding}\n"
         f"    select:\n        join_probe_key = {shaped.name}.{shaped.row_schema.fields[0].name}\n"
     )
     emitter = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql

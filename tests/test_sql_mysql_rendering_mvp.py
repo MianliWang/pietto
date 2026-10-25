@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 import tomllib
 from pathlib import Path
 
@@ -91,12 +92,11 @@ def test_slice6_does_not_add_generic_or_public_dispatch() -> None:
         if "generated" not in path.parts
     ).lower()
 
-    for forbidden in (
-        "def emit_sql(",
-        "schema_version = 2",
-        '"schema_version": 2',
-    ):
+    for forbidden in ("def emit_sql(", '"schema_version": 2'):
         assert forbidden not in runtime_source
+    # An assignment, not prose: PIE-S2334 tells a schema_version = 1 project
+    # to set `schema_version = 2` in its pietto.toml.
+    assert not re.search(r"^\s*[\w.]*schema_version = 2", runtime_source, re.M)
 
 
 def _read(path: str) -> str:

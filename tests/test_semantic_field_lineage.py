@@ -116,8 +116,8 @@ def test_direct_field_occurrences_join_existing_semantic_authority(
         tmp_path,
         (
             "shape Row:\n"
-            "    id: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"
@@ -157,8 +157,8 @@ def test_computed_lineage_preserves_nary_order_and_repeated_input_occurrences(
         tmp_path,
         (
             "shape Row:\n"
-            "    amount: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    amount: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"
@@ -201,13 +201,12 @@ def test_let_lineage_retains_binding_and_reference_occurrence_ledgers(
         tmp_path,
         (
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    amount: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            "    amount: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
-            "    let:\n"
-            "        gross = amount + id\n"
+            "    let gross = amount + id\n"
             "    select:\n"
             "        gross\n"
         ).encode(),
@@ -240,8 +239,8 @@ def test_aggregate_lineage_retains_ordered_inputs_and_exact_aggregate_evidence(
         tmp_path,
         (
             "shape Row:\n"
-            "    amount: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    amount: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"
@@ -271,19 +270,15 @@ def test_current_window_lineage_retains_roles_order_multiplicity_without_frames(
         tmp_path,
         (
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    amount: Int not null\n"
-            "    category: Text nullable\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            "    amount: Int\n"
+            "    category: Text | None\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"
             "        id\n"
-            "        previous = lag(amount, 2, amount) window:\n"
-            "            partition by:\n"
-            "                category\n"
-            "            order by:\n"
-            "                id desc\n"
+            "        previous = lag(amount, 2, amount) window(partition by category order by id desc)\n"
         ).encode(),
     )
 
@@ -324,9 +319,9 @@ def test_non_concrete_states_retain_exact_typed_evidence_without_partial_edges(
         tmp_path / "duplicate",
         (
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    amount: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            "    amount: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"
@@ -351,14 +346,12 @@ def test_non_concrete_states_retain_exact_typed_evidence_without_partial_edges(
         tmp_path / "unsupported",
         (
             "shape Row:\n"
-            "    id: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"
-            "        mystery = mystery_window() window:\n"
-            "            order by:\n"
-            "                id\n"
+            "        mystery = mystery_window() window(order by id)\n"
         ).encode(),
     )
     window_state = unsupported.current_window_lineage_states[0]
@@ -373,8 +366,8 @@ def test_equal_fields_across_packages_stay_distinct_and_dependencies_add_no_line
 ) -> None:
     source = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
         "    select:\n"
@@ -430,8 +423,8 @@ def test_foreign_wrong_domain_and_impossible_semantic_joins_fail_closed(
 ) -> None:
     source = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
         "    select:\n"
@@ -465,7 +458,7 @@ def test_foreign_wrong_domain_and_impossible_semantic_joins_fail_closed(
         tmp_path / "foreign-semantic",
         {
             "main.pietto": source.decode()
-            .replace("    id: Int not null\n", "    other: Int not null\n", 1)
+            .replace("    id: Int\n", "    other: Int\n", 1)
             .replace("        id\n", "        other\n", 1)
         },
     )
@@ -487,8 +480,8 @@ def test_snapshot_rejects_lossy_projection_relabeling_and_equal_window_grafts(
         tmp_path / "computed",
         (
             "shape Row:\n"
-            "    amount: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    amount: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"
@@ -507,14 +500,12 @@ def test_snapshot_rejects_lossy_projection_relabeling_and_equal_window_grafts(
         tmp_path / "window",
         (
             "shape Row:\n"
-            "    id: Int not null\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query result:\n"
             "    from rows\n"
             "    select:\n"
-            "        position = rank() window:\n"
-            "            order by:\n"
-            "                id\n"
+            "        position = rank() window(order by id)\n"
         ).encode(),
     )
     with pytest.raises(ValueError, match="exact input order"):

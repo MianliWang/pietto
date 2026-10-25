@@ -113,10 +113,10 @@ def test_qualified_projection_preserves_nullability_and_type(tmp_path: Path) -> 
         root,
         "models.pietto",
         "shape User:\n"
-        "    required: Int not null\n"
-        "    optional: Text nullable\n"
+        "    required: Int\n"
+        "    optional: Text | None\n"
         "    implicit: Bool\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"
@@ -143,9 +143,10 @@ def test_qualified_projection_preserves_nullability_and_type(tmp_path: Path) -> 
         relation_schema.fields["optional"].nullability
         is ProjectRowFieldNullability.NULLABLE
     )
+    # A bare declared type is never None, so `implicit` is NON_NULL too.
     assert (
         relation_schema.fields["implicit"].nullability
-        is ProjectRowFieldNullability.UNKNOWN
+        is ProjectRowFieldNullability.NON_NULL
     )
     for name in ("required", "optional", "implicit"):
         assert (
@@ -254,8 +255,8 @@ def test_phase48_table_to_query_qualified_projection_is_propagated(
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        'source users: User = postgres.table("users")\n'
         "table staged:\n"
         "    from users\n"
         "    select:\n"
@@ -350,8 +351,8 @@ def _qualified_projection_project(
         "models.pietto",
         "shape User:\n"
         "    id: Int\n"
-        "    email: Text nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    email: Text | None\n"
+        'source users: User = postgres.table("users")\n'
         f"{relation_kind} {relation_name}:\n"
         "    from users\n"
         "    select:\n"
@@ -368,9 +369,9 @@ def _project_with_select(tmp_path: Path, select_body: str) -> Path:
         "models.pietto",
         "shape User:\n"
         "    id: Int\n"
-        "    email: Text nullable\n"
+        "    email: Text | None\n"
         "    score: Int\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"

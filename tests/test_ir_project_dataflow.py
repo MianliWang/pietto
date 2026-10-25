@@ -55,10 +55,10 @@ SPEC_HEADINGS = (
 
 def _source() -> str:
     return """shape Row:
-    id: Int not null
-    amount: Int nullable
-    category: Text nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    amount: Int | None
+    category: Text | None
+source rows: Row = postgres.table("rows")
 query simple:
     from rows
     select:
@@ -71,23 +71,18 @@ query group_window:
     select:
         category
         total = sum(amount)
-        ranking = row_number() window:
-            order by:
-                total desc
+        ranking = row_number() window(order by total desc)
 query full:
     from rows
-    let:
-        floor = 0
+    let floor = 0
     where id > floor
     group by:
         category
     select:
         category
         total = sum(amount)
-        ranking = row_number() window:
-            order by:
-                total desc
-    satisfying:
+        ranking = row_number() window(order by total desc)
+    having:
         total > 0
     order by:
         ranking

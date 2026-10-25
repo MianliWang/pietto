@@ -13,13 +13,13 @@ PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts" / "package_smoke.py"
 
 _RELATION_SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
     "table active_users:\n"
     "    from users\n"
-    "    where active == true\n"
+    "    where active == True\n"
     "    select:\n"
     "        id\n"
     "        email\n"
@@ -203,7 +203,7 @@ def test_single_file_json_v1_and_artifact_v1_surfaces_remain_separate(
     check_source = _write(
         tmp_path,
         "valid.pietto",
-        "shape User:\n    email: Text not null\n",
+        "shape User:\n    email: Text\n",
     )
     relation_source = _write(tmp_path, "active_users.pietto", _RELATION_SOURCE)
 

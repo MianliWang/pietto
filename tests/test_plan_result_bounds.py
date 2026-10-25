@@ -199,11 +199,11 @@ def test_visible_equivalence_and_original_type_sources(
     "body",
     [
         "    select:\n        value\n    order by:\n        hidden\n        hidden desc\n    limit 1\n",
-        "    let:\n        v = value + 1\n    select:\n        value\n    order by:\n        v\n",
+        "    let v = value + 1\n    select:\n        value\n    order by:\n        v\n",
         "    group by:\n        value\n    select:\n        total = count()\n    order by:\n        total\n",
-        "    select:\n        w = row_number() window:\n            order by:\n                value\n    order by:\n        w\n",
+        "    select:\n        w = row_number() window(order by value)\n    order by:\n        w\n",
         "    select distinct:\n        value\n    order by:\n        value + value\n        value desc\n    limit 0\n",
-        "    select distinct:\n        constant = 1\n    qualify:\n        row_number() window:\n            order by:\n                hidden\n        <= 2\n",
+        "    select distinct:\n        constant = 1\n    qualify:\n        row_number() window(order by hidden) <= 2\n",
         "    group by:\n        value\n    select distinct:\n        total = count()\n",
     ],
 )
@@ -226,9 +226,7 @@ def test_real_result_stage_compositions(tmp_path, body):
 def test_strict_fd_remains_a_pending_scoped_requirement(tmp_path):
     source = _source(
         "    select distinct:\n        value\n    order by:\n        hidden\n    limit 1\n"
-    ).replace(
-        "value: Int nullable", "value: Int not null\n    unique by_value on value"
-    )
+    ).replace("value: Int | None", "value: Int\n    by_value = unique(value)")
     _, plan, view = _product(tmp_path, source)
     (pending,) = view.hidden_order_requirements
     (item,) = view.order_items
@@ -246,12 +244,10 @@ def test_strict_fd_remains_a_pending_scoped_requirement(tmp_path):
     assert [port.identity.name for port in plan.exports] == ["value"]
 
 
-@pytest.mark.parametrize(
-    "kind", ["inner", "left", "cross", "right", "full", "semi", "anti"]
-)
+@pytest.mark.parametrize("kind", ["inner", "left", "cross", "right", "full"])
 def test_seven_joins_keep_visible_only_quotient(tmp_path, kind):
     source = (
-        _join_source(None if kind == "cross" else "true", kind=kind).replace(
+        _join_source(None if kind == "cross" else "True", kind=kind).replace(
             "select:", "select distinct:"
         )
         + "    limit 0\n"
@@ -279,11 +275,11 @@ def test_static_limit_absence_and_bound(tmp_path, limit):
 
 @pytest.mark.parametrize("joined", [True, False])
 @pytest.mark.parametrize(
-    "literal", ["true", "1.5", "-1", "1 + 1", str(result.MAX_RELATION_LIMIT + 1)]
+    "literal", ["True", "1.5", "-1", "1 + 1", str(result.MAX_RELATION_LIMIT + 1)]
 )
 def test_invalid_limits_keep_actual_upstream_diagnostics(tmp_path, literal, joined):
     # The joined and the historical no-JOIN paths reach the completed LIMIT diagnostic.
-    source = _join_source("true") if joined else _source("    select:\n        value\n")
+    source = _join_source("True") if joined else _source("    select:\n        value\n")
     roots = _roots(tmp_path, source + f"    limit {literal}\n")
     assert not roots[0].ok and any(d.code == "PIE-S2307" for d in roots[0].diagnostics)
     assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
@@ -346,14 +342,14 @@ def test_alias_resolution_and_decimal_parent_identity(tmp_path, type_name):
     [
         "        value\n",
         "        constant = 1\n",
-        "        value\n        w = row_number() window:\n            order by:\n                value\n",
+        "        value\n        w = row_number() window(order by value)\n",
     ],
 )
 def test_hidden_and_selected_window_quotient_roles(tmp_path, projection):
     source = _source(
         "    select distinct:\n"
         + projection
-        + "    qualify:\n        row_number() window:\n            order by:\n                hidden\n        <= 2\n"
+        + "    qualify:\n        row_number() window(order by hidden) <= 2\n"
     )
     _, plan, view = _product(tmp_path, source)
     assert plan.windows and any(window.selected is None for window in plan.windows)
@@ -378,7 +374,7 @@ def test_failed_determination_and_no_inverse_projection(tmp_path, order):
     assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
     nullable = _source(
         "    select distinct:\n        value\n    order by:\n        hidden\n"
-    ).replace("    hidden:", "    unique maybe on value\n    hidden:")
+    ).replace("    hidden:", "    maybe = unique(value)\n    hidden:")
     roots = _roots(tmp_path / "nullable", nullable)
     assert not roots[0].ok and [d.code for d in roots[0].diagnostics] == ["PIE-S2340"]
 
@@ -449,7 +445,7 @@ def test_pending_single_match_and_errors_survive_limit_zero(tmp_path, distinct):
     from _pietto_plan_joins import _requests
     from _pietto_plan_joins import _roots as request_roots
 
-    source = _join_source("true") + "    limit 0\n"
+    source = _join_source("True") + "    limit 0\n"
     if distinct:
         source = source.replace("select:", "select distinct:")
     roots = request_roots(tmp_path, source, _requests)
@@ -474,20 +470,15 @@ def test_pending_single_match_and_errors_survive_limit_zero(tmp_path, distinct):
 def rich_plans(tmp_path_factory):
     source = _source("""    select distinct:
         value
-        w = row_number() window:
-            order by:
-                value
+        w = row_number() window(order by value)
     qualify:
-        row_number() window:
-            order by:
-                value
-        <= 2
+        row_number() window(order by value) <= 2
     order by:
         value + value
         hidden desc
         value asc
     limit 1
-""").replace("value: Int nullable", "value: Int not null\n    unique by_value on value")
+""").replace("value: Int | None", "value: Int\n    by_value = unique(value)")
     return tuple(
         _product(tmp_path_factory.mktemp("result-scope"), source) for _ in range(2)
     )
@@ -743,11 +734,11 @@ def test_group_and_window_order_use_their_retained_target_carriers(
     tmp_path, joined, distinct, window
 ):
     if joined:
-        source = _join_source("true")
+        source = _join_source("True")
         if window:
             source = source.replace(
                 "        id = lhs.id\n",
-                "        w = row_number() window:\n            order by:\n                lhs.id\n",
+                "        w = row_number() window(order by lhs.id)\n",
             )
             order = "w"
         else:
@@ -757,7 +748,7 @@ def test_group_and_window_order_use_their_retained_target_carriers(
             order = "total"
     else:
         body = (
-            "    select:\n        w = row_number() window:\n            order by:\n                value\n"
+            "    select:\n        w = row_number() window(order by value)\n"
             if window
             else "    group by:\n        value\n    select:\n        total = count()\n"
         )
@@ -806,16 +797,15 @@ def test_imported_reexported_repeated_limited_distinct_definition(tmp_path):
         "    select distinct:\n        value\n    order by:\n        value\n    limit 1\n",
         kind="table",
     ).replace("table result:", "table capped:")
-    (tmp_path / "producer.pietto").write_text(producer + "export:\n    table capped\n")
+    (tmp_path / "producer.pietto").write_text(producer + "export table capped\n")
     (tmp_path / "facade.pietto").write_text(
-        'import "producer.pietto":\n    table capped as public\nexport:\n    table public\n'
+        'from "producer.pietto" import table capped as public\nexport table public\n'
     )
-    source = """import "facade.pietto":
-    table public as chosen
+    source = """from "facade.pietto" import table public as chosen
 query result:
     from chosen
-    cross join chosen as again:
-        from chosen
+    let again = chosen
+    cross join again
     select distinct:
         first = chosen.value
         second = again.value
@@ -933,12 +923,10 @@ def test_lax_fd_cannot_be_laundered_into_the_original_strict_derivation(
         _source(
             "    select distinct:\n        value\n        lax\n    order by:\n        hidden\n"
         )
-        .replace(
-            "value: Int nullable", "value: Int not null\n    unique by_value on value"
-        )
+        .replace("value: Int | None", "value: Int\n    by_value = unique(value)")
         .replace(
             "    hidden:",
-            "    lax: Int nullable\n    unique by_lax on lax\n    hidden:",
+            "    lax: Int | None\n    by_lax = unique(lax)\n    hidden:",
         )
     )
     roots, plan, _ = _product(tmp_path, source)
@@ -956,7 +944,7 @@ def test_lax_fd_cannot_be_laundered_into_the_original_strict_derivation(
 
 
 def test_joined_order_cannot_capture_a_foreign_equal_position(tmp_path, monkeypatch):
-    source = _join_source("true") + "    order by:\n        lhs.id\n"
+    source = _join_source("True") + "    order by:\n        lhs.id\n"
     roots, plan, _ = _product(tmp_path / "own", source)
     _, other, _ = _product(tmp_path / "other", source)
     use, foreign = plan.order_uses[0].source, other.order_uses[0].source
@@ -975,9 +963,7 @@ def test_repeated_visible_images_and_order_items_keep_all_occurrences(tmp_path, 
     key = "hidden" if hidden else "value"
     source = _source(
         f"    select distinct:\n        first = value\n        second = value\n    order by:\n        {key}\n        {key} desc\n"
-    ).replace(
-        "value: Int nullable", "value: Int not null\n    unique by_value on value"
-    )
+    ).replace("value: Int | None", "value: Int\n    by_value = unique(value)")
     _, plan, view = _product(tmp_path, source)
     assert (
         len(view.quotient_fields) == len(view.order_items) == len(view.order_uses) == 2
@@ -1029,7 +1015,7 @@ def test_bool_never_replaces_an_original_result_coordinate(
 ):
     if coordinate == "scalar_target":
         source = (
-            _join_source("true").replace(
+            _join_source("True").replace(
                 "        id = lhs.id\n", "        constant = 1\n"
             )
             + "    order by:\n        lhs.id\n"
@@ -1037,9 +1023,7 @@ def test_bool_never_replaces_an_original_result_coordinate(
     else:
         source = _source(
             "    select distinct:\n        value\n    order by:\n        hidden\n"
-        ).replace(
-            "value: Int nullable", "value: Int not null\n    unique by_value on value"
-        )
+        ).replace("value: Int | None", "value: Int\n    by_value = unique(value)")
     roots, plan, _ = _product(tmp_path, source)
     if coordinate == "scalar_target":
         target, attribute = plan.order_uses[0].source.target, "position"

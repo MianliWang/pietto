@@ -135,7 +135,7 @@ def test_exact_current_inline_expression_matrix_has_canonical_results(
         "count_float = count(score * weight)",
         "count_text = count(lower(trim(status)))",
         "count_len = count(len(status))",
-        "count_bool = count(active and true)",
+        "count_bool = count(active and True)",
         "count_literal = count(amount + 1)",
         "distinct_text = count_distinct(lower(trim(status)))",
         "sum_int = sum(amount + tax)",
@@ -217,7 +217,7 @@ def test_concrete_direct_qualified_chained_and_computed_row_let_matrix(
         "normalized = lower(trim(status))",
         "normalized_again = normalized",
         "status_length = len(status)",
-        "active_value = active and true",
+        "active_value = active and True",
     )
     select_lines = (
         "count_direct = count(amount_value)",
@@ -301,20 +301,17 @@ def test_concrete_direct_qualified_chained_and_computed_row_let_matrix(
     (
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        exported = gross\n",
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        total_value = sum(amount)\n"
+        "    let total_value = sum(amount)\n"
         "    select:\n"
         "        total = total_value\n",
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        total = sum(users.gross)\n",
         "query candidate:\n"
@@ -324,8 +321,7 @@ def test_concrete_direct_qualified_chained_and_computed_row_let_matrix(
         "        total = sum(subtotal)\n",
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        total = sum(gross) + 1\n",
     ),
@@ -617,8 +613,7 @@ def test_expression_and_row_let_aggregate_relations_are_concrete_private_and_per
             "        total = sum(amount + tax)\n"
             "table grouped_row_let:\n"
             "    from users\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        region\n"
             "    select:\n"
@@ -853,23 +848,23 @@ def _project(root: Path, relations: str) -> Path:
     )
     (root / "models.pietto").write_text(
         "shape User:\n"
-        "    active: Bool not null\n"
-        "    optional_active: Bool nullable\n"
-        "    amount: Int not null\n"
-        "    tax: Int nullable\n"
-        "    discount: Int not null\n"
-        "    score: Float not null\n"
-        "    weight: Float nullable\n"
-        "    price: Decimal not null\n"
-        "    fee: Decimal nullable\n"
-        "    status: Text not null\n"
-        "    region: Text nullable\n"
-        "    created_at: Timestamp not null\n"
-        "    customer_id: UUID not null\n"
-        "    raw: Bytes not null\n"
-        "    payload: Json not null\n"
-        "    anything: Any nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    active: Bool\n"
+        "    optional_active: Bool | None\n"
+        "    amount: Int\n"
+        "    tax: Int | None\n"
+        "    discount: Int\n"
+        "    score: Float\n"
+        "    weight: Float | None\n"
+        "    price: Decimal\n"
+        "    fee: Decimal | None\n"
+        "    status: Text\n"
+        "    region: Text | None\n"
+        "    created_at: Timestamp\n"
+        "    customer_id: UUID\n"
+        "    raw: Bytes\n"
+        "    payload: Json\n"
+        "    anything: Any | None\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )
@@ -886,8 +881,7 @@ def _relation_body(
 ) -> str:
     body = f"{relation_kind} {name}:\n    from users\n"
     if let_lines:
-        body += "    let:\n"
-        body += "".join(f"        {line}\n" for line in let_lines)
+        body += "".join(f"    let {line}\n" for line in let_lines)
     if grouped:
         body += "    group by:\n        region\n"
     body += "    select:\n"

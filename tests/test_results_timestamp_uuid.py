@@ -430,9 +430,9 @@ def test_intrinsic_meaning_admits_temporal_equality_and_grouping_but_not_order(
     tmp_path, target
 ):
     prefix = f"""shape Row:
-    stamp: Timestamp not null
-    identifier: UUID not null
-source rows: Row is {target}.table("opaque.result.fixture")
+    stamp: Timestamp
+    identifier: UUID
+source rows: Row = {target}.table("opaque.result.fixture")
 query result:
     from rows
 """

@@ -15,6 +15,9 @@ from pietto._project.project_compiled_schema import (
     Scalar,
     content_pin,
     declaration_values,
+    predicate_identity,
+    any_context,
+    row_bindings,
     encode,
 )
 from pietto._project.project_compiled_loading import supported_compatibility
@@ -79,11 +82,14 @@ class _Export:
         self.sites, self.literals, self.slots, self.reads = {}, {}, {}, {}
         self.contexts, self.field_refs = {}, {}
         self.block_uses = None
+        self.any_inputs = {}
+        self.any_uses = {}
         # The body whose values are being exported, and for an inline let's
         # bodies the reading body's (producer, use) its captured reads name.
         self.current_unit = None
         self.capture_context = None
         self.values = {}
+        self.predicate_values = {}
         self.requirement_anchors = {}
         self.compatibility = supported_compatibility()
         parsed = self.request.verification.completed.semantic_result.module_attribution_facts._authority.parse_result
@@ -254,6 +260,7 @@ class _Export:
             BetweenExpr,
             CallExpr,
             RelationMembershipExpr,
+            AnyExpr,
         )
 
         parents = {
@@ -267,6 +274,7 @@ class _Export:
             MembershipExpr: "membership",
             RelationMembershipExpr: "relation_membership",
             CastExpr: "cast",
+            AnyExpr: "exists",
         }
         for index, site in enumerate(plan.literal_sites):
             p = site.position
@@ -381,14 +389,151 @@ class _Export:
     def scalar(self, value, producer, use, join_inputs=None):
         address = self.scalar_value(value, producer, use, join_inputs)
         self.anchor(value.original.ref, address)
+        uses = tuple(item[2] for item in join_inputs) if join_inputs else (use,)
+        self.predicate_values[value.original.ref] = (address, uses)
         return address
 
-    def block_read(self, value, producer, use):
+    def any_records(self, plan):
+        from pietto.ast_nodes import JoinFilterClause
+        from pietto._project.project_sql_plan_expressions import ProjectSQLAny
+
+        for use in plan.existence_generators:
+            joins = tuple(
+                join
+                for join in plan.joins
+                if join.source.condition.use.clause is use.clause
+            )
+            if (
+                type(use.context) is not JoinFilterClause
+                or len(joins) != 1
+                or joins[0].position != use.input_ordinal - 1
+                or joins[0].source.condition.use.identity.join_position
+                != use.input_ordinal - 1
+            ):
+                raise CompiledError("COMPILED_EXPORT_ANY_STAGE")
+            self.add(
+                "any_filter",
+                self.join_refs[id(joins[0].ref)],
+                predicate_identity(use.expression),
+                "join_filter",
+                predicate_identity(use.context),
+                use.preceding_join_count,
+            )
+        for expression in plan.expressions:
+            if type(expression) is not ProjectSQLAny:
+                continue
+            origin = expression.evidence.input.binding.origin
+            if not any(origin is use for use in plan.scalar_existence_generators):
+                raise CompiledError("COMPILED_EXPORT_ANY_ORIGIN")
+            self.add(
+                "any_value",
+                self.any_uses[expression.use],
+                predicate_identity(origin.authored_expression),
+                any_context(origin.authored_context),
+                predicate_identity(origin.authored_context),
+                origin.authored_join_count,
+            )
+
+    def predicate_records(self, plan):
+        from pietto._project.existence_values import ProjectAnyRowBinding
+        from pietto._project.project_sql_plan import (
+            predicate_expression,
+            predicate_bindings,
+        )
+
+        for site in plan.expression_sites:
+            predicate = predicate_expression(site)
+            if predicate is None or not predicate.calls:
+                continue
+            expressions = {
+                id(item.expression): item.ref
+                for item in plan.expressions
+                if item.site is site
+            }
+
+            def value(node):
+                reference = expressions.get(id(node))
+                if reference not in self.predicate_values:
+                    raise CompiledError("COMPILED_EXPORT_PREDICATE_EXPRESSION")
+                return self.predicate_values[reference]
+
+            root, uses = value(predicate.expression)
+            if None in uses or not uses:
+                raise CompiledError("COMPILED_EXPORT_PREDICATE_SCOPE")
+            owners = {self.records[use].get("consumer") for use in uses}
+            if len(owners) != 1:
+                raise CompiledError("COMPILED_EXPORT_PREDICATE_SCOPE")
+            bindings = predicate_bindings(site)
+            groups = tuple(
+                (use, ports)
+                for use in uses
+                for ports in row_bindings(self.records, use)
+            )
+            if len(bindings) != len(groups) and any(
+                type(binding) is not ProjectAnyRowBinding
+                for arguments in predicate.argument_bindings
+                for binding in arguments
+            ):
+                raise CompiledError("COMPILED_EXPORT_PREDICATE_BINDINGS")
+            for call, arguments in zip(
+                predicate.calls, predicate.argument_bindings, strict=True
+            ):
+                address = self.reserve("predicate_call")
+                described = []
+                for ordinal, (argument, binding) in enumerate(
+                    zip(call.arguments, arguments, strict=True)
+                ):
+                    if type(binding) is ProjectAnyRowBinding:
+                        local = tuple(
+                            item
+                            for item in plan.expression_block_uses
+                            if item.expression is binding.expression
+                        )
+                        if len(local) != 1 or local[0].ref not in self.any_uses:
+                            raise CompiledError("COMPILED_EXPORT_PREDICATE_ARGUMENT")
+                        use = self.any_uses[local[0].ref]
+                        (ports,) = row_bindings(self.records, use)
+                    else:
+                        positions = tuple(
+                            i for i, item in enumerate(bindings) if item is binding
+                        )
+                        if len(positions) != 1:
+                            raise CompiledError("COMPILED_EXPORT_PREDICATE_ARGUMENT")
+                        use, ports = groups[positions[0]]
+                    identity = getattr(binding, "identity", None)
+                    position = getattr(identity, "binding_position", 0)
+                    described.append(
+                        self.add(
+                            "predicate_argument",
+                            address,
+                            ordinal,
+                            argument.parameter.name,
+                            predicate_identity(argument.shape),
+                            position,
+                            use,
+                            ports,
+                        )
+                    )
+                self.finish(
+                    address,
+                    next(iter(owners)),
+                    "on" if site.role.value == "match" else site.role.value,
+                    site.ordinal,
+                    call.ordinal,
+                    predicate_identity(call.template.declaration),
+                    predicate_identity(call.call),
+                    root,
+                    value(call.expanded)[0],
+                    tuple(described),
+                    tuple(value(item)[0] for item in call.mandatory_equalities),
+                )
+
+    def block_read(self, value, producer, use, join_inputs=None):
         """A block read operation and the expression block use it executes; a
         membership operation's one operand is its left value."""
         target = value.target
         if (
-            use is None
+            (use is None and not join_inputs)
             or type(target) is not rows.SQLBlockTarget
             or value.kind not in ("exists", "scalar", "in", "not_in")
         ):
@@ -409,19 +554,29 @@ class _Export:
             raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
         if target.source is None and sql.inline_body(target.producer):
             self.inline_let(value, use, address)
+        operands = tuple(
+            self.scalar(v, producer, use, join_inputs) for v in value.operands
+        )
+        if value.predicate is not None:
+            self.any_uses[target.use.ref] = address
+            self.any_inputs[target.use.ref] = (target, address)
+            try:
+                operands += (self.scalar(value.predicate, producer, use, join_inputs),)
+            finally:
+                del self.any_inputs[target.use.ref]
         operation = self.add(
             "operation",
             (value.kind, value.kind)
             if value.kind in ("exists", "scalar")
             else ("relation_membership", value.kind),
-            tuple(self.scalar(v, producer, use) for v in value.operands),
+            operands,
             _logical(value.original.value_type),
             None,
         )
         self.finish(
             address,
             operation,
-            self.records[use].get("consumer"),
+            self.records[join_inputs[0][2] if join_inputs else use].get("consumer"),
             self.sources[id(target.producer)]
             if target.source is not None
             else self.units[id(target.producer)],
@@ -530,10 +685,25 @@ class _Export:
                 "capture",
             )
         if type(value) is rows.SQLBlockRead:
-            if join_inputs is not None:
-                raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
-            return self.block_read(value, producer, use)
+            return self.block_read(value, producer, use, join_inputs)
         if type(value) is rows.SQLStageReference:
+            from pietto._project.project_sql_plan_expressions import (
+                ProjectSQLAnyReference,
+            )
+
+            if (
+                type(value.original) is ProjectSQLAnyReference
+                and value.original.use is not None
+            ):
+                local = self.any_inputs.get(value.original.use)
+                if local is None or value.scope is not local[0].symbol:
+                    raise CompiledError("COMPILED_EXPORT_ANY_SCOPE")
+                return self.add(
+                    "read",
+                    self.port_of(value.column, local[0].producer),
+                    local[1],
+                    "any",
+                )
             if join_inputs is not None:
                 matches = tuple(
                     (p, u) for symbol, p, u in join_inputs if symbol is value.scope
@@ -1484,6 +1654,8 @@ class _Export:
         for position, unit in enumerate(units):
             self.ordinary_unit(unit, ctes, position)
             self.requirement_unit_anchors(unit)
+        self.any_records(self.request.plan)
+        self.predicate_records(self.request.plan)
         terminal = self.units[id(units[-1])]
         ports = self.unit_ports[id(units[-1])]
         requests = self.request_records()
@@ -1615,6 +1787,11 @@ class _LogicalExport(_Export):
         return self.add("read", port, matches[0], "value")
 
     def expression(self, reference, uses):
+        address = self.expression_value(reference, uses)
+        self.predicate_values[reference] = (address, uses)
+        return address
+
+    def expression_value(self, reference, uses):
         from pietto._project import project_sql_plan_expressions as expressions
         from pietto._project.project_sql_plan_aggregation import (
             ProjectSQLResultReference,
@@ -1635,6 +1812,52 @@ class _LogicalExport(_Export):
             ProjectSQLWindowReference,
         ):
             return self.read_port(original.port, uses)
+        if type(original) is expressions.ProjectSQLAnyReference:
+            if original.use is None:
+                return self.read_port(original.port, uses)
+            if original.use not in self.any_inputs:
+                raise CompiledError("COMPILED_RETAINED_ANY_SCOPE")
+            block, producer = self.any_inputs[original.use]
+            ports = tuple(
+                r.address
+                for r in self.records.values()
+                if r is not None
+                and r.address.kind == "port"
+                and r.get("owner") == producer
+            )
+            if type(original.position) is not int or not 0 <= original.position < len(
+                ports
+            ):
+                raise CompiledError("COMPILED_RETAINED_ANY_PORT")
+            return self.add("read", ports[original.position], block, "any")
+        if type(original) is expressions.ProjectSQLAny:
+            edges = tuple(
+                u for u in self.plan.expression_block_uses if u.ref is original.use
+            )
+            consumers = {self.records[use].get("consumer") for use in uses}
+            if (
+                len(edges) != 1
+                or len(consumers) != 1
+                or edges[0].producer not in self.terminals
+            ):
+                raise CompiledError("COMPILED_RETAINED_ANY_READ")
+            block = self.reserve("expression_block_use")
+            self.any_uses[original.use] = block
+            producer = self.terminals[edges[0].producer]
+            self.any_inputs[original.use] = (block, producer)
+            try:
+                predicate = self.expression(original.predicate, uses)
+            finally:
+                del self.any_inputs[original.use]
+            operation = self.add(
+                "operation",
+                ("exists", "exists"),
+                (predicate,),
+                _logical(original.value_type),
+                None,
+            )
+            self.finish(block, operation, next(iter(consumers)), producer, None)
+            return operation
         if type(original) is expressions.ProjectSQLUnary:
             token, children = (
                 (
@@ -2482,6 +2705,8 @@ class _LogicalExport(_Export):
         for definition in self.plan.bindings.definitions:
             if definition.ref not in self.terminals and definition.ref not in captured:
                 self.logical_definition(definition)
+        self.any_records(self.plan)
+        self.predicate_records(self.plan)
         selected = next(
             d
             for d in self.plan.bindings.definitions
@@ -2635,6 +2860,22 @@ def merge_retained_components(components, requests):
                     keys[record.get("consumer")],
                     record.get("ordinal"),
                 )
+            elif kind == "any_filter":
+                keys[record.address] = ("any_filter", keys[record.get("join")])
+            elif kind == "predicate_call":
+                keys[record.address] = (
+                    "predicate_call",
+                    keys[record.get("owner")],
+                    record.get("role"),
+                    record.get("site"),
+                    record.get("ordinal"),
+                )
+            elif kind == "predicate_argument":
+                keys[record.address] = (
+                    "predicate_argument",
+                    keys[record.get("call")],
+                    record.get("ordinal"),
+                )
             elif kind == "source_unique":
                 keys[record.address] = (
                     "source_unique",
@@ -2697,6 +2938,8 @@ def merge_retained_components(components, requests):
                     keys[record.get("read")],
                     record.get("ordinal"),
                 )
+            elif record.address.kind == "any_value":
+                keys[record.address] = ("any_value", keys[record.get("read")])
         kept = tuple(
             r
             for r in records.values()

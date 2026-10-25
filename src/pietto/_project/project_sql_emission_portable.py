@@ -29,6 +29,7 @@ from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_plan_expressions as plan_rows
 from pietto._project import project_sql_emission_scopes as scopes
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_windows as windowing
@@ -190,7 +191,24 @@ class _Node:
 def _kind_of(value: Any, kinds: tuple[str, ...]) -> str:
     if type(value) is tuple and PAIR_KIND in kinds and len(value) == 2:
         return PAIR_KIND
-    kind = KINDS.get(type(value))
+    if type(value) is rows.SQLBlockRead and value.predicate is not None:
+        if (
+            type(value.original) is not plan_rows.ProjectSQLAny
+            or value.target.use.ref is not value.original.use
+            or rows.root_expression(value.predicate).ref is not value.original.predicate
+        ):
+            raise _Outside
+        kind = "sql_any_read"
+    elif (
+        type(value) is rows.SQLStageReference
+        and type(value.original) is plan_rows.ProjectSQLAnyReference
+        and value.original.use is not None
+    ):
+        if value.original.port is not None or value.original.position is None:
+            raise _Outside
+        kind = "sql_any_reference"
+    else:
+        kind = KINDS.get(type(value))
     if kind is None or kind not in kinds:
         raise _Outside
     return kind
@@ -465,6 +483,10 @@ class _Export:
             if name == "nullability":
                 return obj.field.effective_nullability
             return _decimal(obj.decimal)
+        if kind == "sql_any_reference":
+            if type(obj.original) is not plan_rows.ProjectSQLAnyReference:
+                raise _Outside
+            return getattr(obj.original, name)
         if kind in ("sql_unary", "sql_operation"):
             return _operator(obj.original, getattr(obj, "kind", "sign"))
         if kind == "sql_null":
@@ -744,6 +766,10 @@ class _Binder:
             if name == "nullability":
                 return obj.field.effective_nullability
             return _decimal(obj.decimal)
+        if kind == "sql_any_reference":
+            expression = self.expression(obj.original)
+            _need(type(expression) is plan_rows.ProjectSQLAnyReference, "any_reference")
+            return getattr(expression, name)
         if kind in ("sql_unary", "sql_operation"):
             expression = self.expression(obj.original)
             return _operator(expression, getattr(obj, "kind", "sign"))

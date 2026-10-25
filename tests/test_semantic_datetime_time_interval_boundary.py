@@ -224,10 +224,10 @@ def test_future_prerequisites_and_non_authorization_are_documented() -> None:
 def _source(type_name: str, projection: str) -> str:
     return (
         "shape TemporalBoundary:\n"
-        f"    value: {type_name} not null\n"
-        f"    other: {type_name} nullable\n"
-        "    amount: Int not null\n"
-        'source events: TemporalBoundary is postgres.table("events")\n'
+        f"    value: {type_name}\n"
+        f"    other: {type_name} | None\n"
+        "    amount: Int\n"
+        'source events: TemporalBoundary = postgres.table("events")\n'
         "table projected:\n"
         "    from events\n"
         "    select:\n"
@@ -238,8 +238,8 @@ def _source(type_name: str, projection: str) -> str:
 def _source_with_order_by(type_name: str) -> str:
     return (
         "shape TemporalBoundary:\n"
-        f"    value: {type_name} not null\n"
-        'source events: TemporalBoundary is postgres.table("events")\n'
+        f"    value: {type_name}\n"
+        'source events: TemporalBoundary = postgres.table("events")\n'
         "table projected:\n"
         "    from events\n"
         "    select:\n"
@@ -252,8 +252,8 @@ def _source_with_order_by(type_name: str) -> str:
 def _source_with_group_by(type_name: str) -> str:
     return (
         "shape TemporalBoundary:\n"
-        f"    value: {type_name} not null\n"
-        'source events: TemporalBoundary is postgres.table("events")\n'
+        f"    value: {type_name}\n"
+        'source events: TemporalBoundary = postgres.table("events")\n'
         "table projected:\n"
         "    from events\n"
         "    group by:\n"
@@ -267,8 +267,8 @@ def _source_with_group_by(type_name: str) -> str:
 def _source_with_satisfying(type_name: str) -> str:
     return (
         "shape TemporalBoundary:\n"
-        f"    value: {type_name} not null\n"
-        'source events: TemporalBoundary is postgres.table("events")\n'
+        f"    value: {type_name}\n"
+        'source events: TemporalBoundary = postgres.table("events")\n'
         "table projected:\n"
         "    from events\n"
         "    group by:\n"
@@ -276,7 +276,7 @@ def _source_with_satisfying(type_name: str) -> str:
         "    select:\n"
         "        value\n"
         "        c = count()\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        value == value\n"
     )
 

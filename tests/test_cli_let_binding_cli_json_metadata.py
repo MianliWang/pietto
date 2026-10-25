@@ -11,19 +11,18 @@ import pietto.cli as cli
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
 SUPPORTED_RELATION = (
     "query enriched_orders:\n"
     "    from orders\n"
-    "    let:\n"
-    "        gross = amount + tax\n"
+    "    let gross = amount + tax\n"
     "    where gross > 0\n"
     "    select:\n"
     "        gross_value = gross\n"
@@ -213,16 +212,14 @@ def test_supported_let_emit_sql_output_writes_only_inline_sql(
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -232,21 +229,19 @@ def test_supported_let_emit_sql_output_writes_only_inline_sql(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
@@ -258,8 +253,7 @@ def test_supported_let_emit_sql_output_writes_only_inline_sql(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -267,26 +261,25 @@ def test_supported_let_emit_sql_output_writes_only_inline_sql(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        net = orders.gross\n"
+            "    let gross = amount + tax\n"
+            "    let net = orders.gross\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2102",
         ),
+        # Two `let` lines of one name are the query-local naming check's
+        # duplicate (PIE-S2604), before semantic analysis.
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        gross = amount - tax\n"
+            "    let gross = amount + tax\n"
+            "    let gross = amount - tax\n"
             "    select:\n"
             "        amount\n",
-            "PIE-S2329",
+            "PIE-S2604",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = gross + tax\n"
+            "    let gross = gross + tax\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
@@ -380,8 +373,7 @@ def test_unsupported_let_explain_json_fails_without_metadata(
         "unsupported.pietto",
         "query bad:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        smallest = min(gross)\n",
     )

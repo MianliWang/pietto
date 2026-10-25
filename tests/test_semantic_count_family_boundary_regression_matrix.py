@@ -38,17 +38,17 @@ SOURCE_PREFIX = (
     "    active\n"
     "    paused\n"
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    enum_status: Status not null\n"
-    "    active: Bool not null\n"
-    "    optional_active: Bool nullable\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    payload: Json not null\n"
-    "    raw: Bytes not null\n"
-    "    id: UUID not null\n"
-    "    anything: Any nullable\n"
+    "    region: Text\n"
+    "    status: Text\n"
+    "    enum_status: Status\n"
+    "    active: Bool\n"
+    "    optional_active: Bool | None\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    payload: Json\n"
+    "    raw: Bytes\n"
+    "    id: UUID\n"
+    "    anything: Any | None\n"
 )
 
 ACCEPTED_SELECT_BODY = (
@@ -60,7 +60,7 @@ ACCEPTED_SELECT_BODY = (
     "        ids = count(id)\n"
     "        amount_tax = count(amount + tax)\n"
     "        lowered = count(lower(status))\n"
-    "        active_expr = count(active and true)\n"
+    "        active_expr = count(active and True)\n"
     "        optional_active_expr = count(active or optional_active)\n"
     "        unique_ids = count_distinct(id)\n"
     "        unique_normalized = count_distinct(lower(trim(status)))"
@@ -282,14 +282,14 @@ def test_count_family_cli_json_artifact_success_remains_generic(
     [
         ("value = count(1)", "PIE-S2315"),
         ('value = count("x")', "PIE-S2315"),
-        ("value = count(true)", "PIE-S2315"),
+        ("value = count(True)", "PIE-S2315"),
         ("value = count(1 + 2)", "PIE-S2315"),
         ("value = count_if(active)", "PIE-S2103"),
         ("value = count(enum_status)", "PIE-S2314"),
         ("value = count(anything)", "PIE-S2314"),
         ("value = count(amount > 1)", "PIE-S2315"),
-        ("value = count(amount between 1 and 10)", "PIE-S2315"),
-        ("value = count(amount is null)", "PIE-S2315"),
+        ("value = count(1 <= amount <= 10)", "PIE-S2315"),
+        ("value = count(amount is None)", "PIE-S2315"),
         ('value = count(matches(status, "active"))', "PIE-S2315"),
         ("value = count_distinct(amount + tax)", "PIE-S2315"),
         ("value = min(amount + tax)", "PIE-S2315"),
@@ -357,7 +357,7 @@ def _projection_source(projection: str) -> str:
 
 def _source(connector: str, select_body: str) -> str:
     return (
-        SOURCE_PREFIX + f'source orders: Order is {connector}("orders")\n'
+        SOURCE_PREFIX + f'source orders: Order = {connector}("orders")\n'
         "table count_family_matrix:\n"
         "    from orders\n"
         "    select:\n"

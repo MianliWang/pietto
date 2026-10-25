@@ -18,13 +18,13 @@ import _pietto_sql_emission as probe
 from pietto import cli
 
 HEAD = """shape Row:
-    id: Int not null
-    key: Int nullable
-source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
+    id: Int
+    key: Int | None
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
 """
 T = "    let t:\n        from rhs\n        select:\n            rid = id\n"
-JOIN = "    from lhs\n    inner join rhs as r:\n        from lhs\n        on lhs.id == r.id\n"
+JOIN = "    from lhs\n    let r = rhs\n    inner join r on lhs.id == r.id\n"
 SET = "query both:\n    union all:\n        from lhs\n        from rhs\n"
 OVER = "query over:\n    from both\n    select:\n        id\n"
 LATER = "are not known before completion."
@@ -77,8 +77,8 @@ ACCEPTED = {
     "read_block_reads": "query q:\n" + T + "    let u:\n        from rhs\n"
     "        where id == scalar t.rid\n        select:\n            x = scalar lhs.key\n"
     "    from lhs\n    select:\n        id\n        y = scalar u.x + 1\n",
-    "join_consumer": "query q:\n" + T + "    from lhs\n    inner join rhs as r:\n"
-    "        from lhs\n        on lhs.id == r.id\n    where lhs.id == scalar t.rid\n"
+    "join_consumer": "query q:\n" + T + "    from lhs\n    let r = rhs\n"
+    "    inner join r on lhs.id == r.id\n    where lhs.id == scalar t.rid\n"
     "    select:\n        id = lhs.id\n",
     "join_select": "query q:\n" + JOIN + "    select:\n        a = lhs.id\n"
     "        b = scalar rhs.key\n",
@@ -92,7 +92,7 @@ ACCEPTED = {
     + T
     + "    from u\n    select:\n        id\n",
     # A typed VALUES header declares its columns before completion.
-    "values_let": "query q:\n    let v:\n        values(rid: Int not null):\n"
+    "values_let": "query q:\n    let v:\n        values(rid: Int):\n"
     "            1\n    from lhs\n    where id == scalar v.rid\n    select:\n"
     "        id\n        s = scalar v.rid\n",
 }
@@ -100,10 +100,10 @@ ACCEPTED = {
 # refused read stays untyped, so its own consumer may report a later cause.
 REFUSED = {
     "row_let": (
-        "query q:\n" + T + "    from lhs\n    let:\n        v = scalar t.rid\n"
+        "query q:\n" + T + "    from lhs\n    let v = scalar t.rid\n"
         "    select:\n        id\n        w = v\n",
         [
-            _position("a row let", 13, 13),
+            _position("a row let", 12, 13),
             (
                 "PIE-S2333",
                 "Project relation semantic completion is unavailable: q",
@@ -113,9 +113,9 @@ REFUSED = {
         ],
     ),
     "join_on": (
-        "query q:\n" + T + "    from lhs\n    inner join rhs as r:\n        from lhs\n"
-        "        on lhs.id == scalar t.rid\n    select:\n        id = lhs.id\n",
-        [_position("JOIN ON", 14, 22)],
+        "query q:\n" + T + "    from lhs\n    let r = rhs\n"
+        "    inner join r on lhs.id == scalar t.rid\n    select:\n        id = lhs.id\n",
+        [_position("JOIN ON", 13, 31)],
     ),
     "order_by": (
         "query q:\n" + T + "    from lhs\n    select:\n        id\n    order by:\n"
@@ -163,7 +163,7 @@ REFUSED = {
     ),
     "satisfying": (
         "query q:\n" + T + "    from lhs\n    group by:\n        id\n    select:\n"
-        "        id\n        n = count()\n    satisfying:\n        n > scalar t.rid\n",
+        "        id\n        n = count()\n    having:\n        n > scalar t.rid\n",
         [
             _position("SATISFYING", 18, 13),
             (
@@ -176,10 +176,9 @@ REFUSED = {
     ),
     "window": (
         "query q:\n" + T + "    from lhs\n    select:\n        id\n"
-        "        rn = row_number() window:\n            order by:\n"
-        "                scalar t.rid\n",
+        "        rn = row_number() window(order by scalar t.rid)\n",
         [
-            _position("a window", 16, 17),
+            _position("a window", 14, 43),
             (
                 "PIE-S2103",
                 "Unsupported window computation for function row_number: "
@@ -190,26 +189,27 @@ REFUSED = {
         ],
     ),
     "named_window": (
-        "query q:\n" + T + "    from lhs\n    select:\n        id\n"
-        "        rn = row_number() window ordered\n    window ordered:\n"
-        "        order by:\n            scalar t.rid\n",
+        "query q:\n" + T + "    from lhs\n"
+        "    let ordered = window(order by scalar t.rid)\n"
+        "    select:\n        id\n"
+        "        rn = row_number() window ordered\n",
         [
-            _position("a window", 17, 13),
+            _position("a window", 12, 35),
             (
                 "PIE-S2103",
                 "Unsupported window computation for function row_number: "
                 "window order expression must be a direct field",
-                14,
+                15,
                 14,
             ),
         ],
     ),
     "qualify": (
-        "query q:\n" + T + "    from lhs\n    inner join rhs as r:\n        from lhs\n"
-        "        on lhs.id == r.id\n    select:\n        id = lhs.id\n"
-        "        rn = row_number() window:\n            order by:\n"
-        "                lhs.id\n    qualify:\n        rn == scalar t.rid\n",
-        [_position("QUALIFY", 21, 15)],
+        "query q:\n" + T + "    from lhs\n    let r = rhs\n"
+        "    inner join r on lhs.id == r.id\n    select:\n        id = lhs.id\n"
+        "        rn = row_number() window(order by lhs.id)\n    qualify:\n"
+        "        rn == scalar t.rid\n",
+        [_position("QUALIFY", 18, 15)],
     ),
     "unknown_column": (
         "query q:\n" + T + "    from lhs\n    where id == scalar t.nope\n"
@@ -252,14 +252,14 @@ REFUSED = {
         ],
     ),
     "join_block": (
-        "query pairs:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
-        "        on lhs.id == r.id\n    select:\n        a = lhs.id\n"
+        "query pairs:\n    from lhs\n    let r = rhs\n"
+        "    inner join r on lhs.id == r.id\n    select:\n        a = lhs.id\n"
         "query q:\n    from lhs\n    select:\n        id\n        b = scalar pairs.a\n",
         [
             (
                 "PIE-S2348",
                 f"Scalar relation read pairs.a is not yet available: the columns of pairs {LATER}",
-                17,
+                16,
                 13,
             )
         ],
@@ -324,23 +324,23 @@ REFUSED = {
     "join_unknown_column": (
         "query q:\n" + JOIN + "    where lhs.id == scalar rhs.nope\n"
         "    select:\n        a = lhs.id\n",
-        [("PIE-S2102", "Unknown field: rhs.nope", 11, 21)],
+        [("PIE-S2102", "Unknown field: rhs.nope", 10, 21)],
     ),
     "join_select_unknown_column": (
         "query q:\n" + JOIN + "    select:\n        a = lhs.id\n"
         "        b = scalar rhs.nope\n",
-        [("PIE-S2102", "Unknown field: rhs.nope", 13, 13)],
+        [("PIE-S2102", "Unknown field: rhs.nope", 12, 13)],
     ),
     "join_set_block": (
         SET + "query q:\n" + JOIN + "    where lhs.id == scalar both.id\n"
         "    select:\n        a = lhs.id\n",
-        [_later("both.id", 15, 21)],
+        [_later("both.id", 14, 21)],
     ),
     "join_join_block": (
         "query pairs:\n" + JOIN + "    select:\n        a = lhs.id\n"
         "query q:\n" + JOIN + "    where lhs.id == scalar pairs.a\n"
         "    select:\n        a = lhs.id\n",
-        [_later("pairs.a", 18, 21)],
+        [_later("pairs.a", 16, 21)],
     ),
     "set_reader_unknown_column": (
         SET + "query q:\n    from both\n    where id == scalar rhs.nope\n"
@@ -356,7 +356,7 @@ REFUSED = {
     ),
     # A relation over a VALUES body, like one over a set, completes its row.
     "over_values": (
-        "query seeds:\n    values(rid: Int not null):\n        1\n"
+        "query seeds:\n    values(rid: Int):\n        1\n"
         "query over:\n    from seeds\n    select:\n        rid\n"
         "query q:\n    from lhs\n    where id == scalar over.rid\n    select:\n"
         "        id\n",
@@ -371,7 +371,7 @@ REFUSED = {
         ],
     ),
     "values_unknown_column": (
-        "query q:\n    let v:\n        values(rid: Int not null):\n            1\n"
+        "query q:\n    let v:\n        values(rid: Int):\n            1\n"
         "    from lhs\n    where id == scalar v.nope\n    select:\n        id\n",
         [("PIE-S2102", "Unknown field: v.nope", 11, 17)],
     ),

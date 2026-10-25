@@ -31,13 +31,13 @@ from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import SemanticModel, analyze
 
 CALLABLE_SOURCE = (
-    "type Email = Text not null\n"
-    "type Predicate = Bool not null\n"
-    "constraint valid_email(email: Email not null) -> Predicate not null:\n"
-    '    matches(email, ".+@.+")\n'
-    "derive normalized_email(prefix: Text not null, email: Email not null) "
-    "-> Email not null:\n"
-    "    trim(email)\n"
+    "type Email = Text\n"
+    "type Predicate = Bool\n"
+    "constraint valid_email(email: Email) -> Predicate:\n"
+    '    return matches(email, ".+@.+")\n'
+    "derive normalized_email(prefix: Text, email: Email) "
+    "-> Email:\n"
+    "    return trim(email)\n"
 )
 
 
@@ -121,7 +121,7 @@ def test_missing_callable_semantic_fact_reports_pie_i1000(
     expected_fact: str,
 ) -> None:
     _, script, model = _build(
-        "derive identity(value: Text not null) -> Text not null:\n    value\n"
+        "derive identity(value: Text) -> Text:\n    return value\n"
     )
     derive = next(
         definition

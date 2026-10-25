@@ -3,7 +3,12 @@
 import json
 
 import _pietto_sql_emission as emission
-from _pietto_execution_rows_cases import CASES as ORIGINAL_CASES, build, seven_artifact
+from _pietto_execution_rows_cases import (
+    BLOCK_READS,
+    CASES as ORIGINAL_CASES,
+    build,
+    seven_artifact,
+)
 
 CASES = (
     ORIGINAL_CASES
@@ -17,6 +22,8 @@ CASES = (
         for state in ("values", "empty", "null")
     )
 )
+# The admitted R2 families: R2 refines no expression block read yet.
+REFINED = tuple(case for case in CASES if case not in BLOCK_READS)
 
 R2_BOUND_RELATION = "phase66 r2 bound"
 R2_BOUND_MAX = 2147483645
@@ -25,36 +32,17 @@ MIXED = """query result:
     from rows
     select:
         record_id = id
-        rn = row_number() window:
-            order by:
-                flag
-        previous = lag(id, 1, 9007199254740995) window:
-            order by:
-                flag
-        peer_rank = rank() window:
-            order by:
-                flag
-        fraction = percent_rank() window:
-            order by:
-                flag
-        cumulative = cume_dist() window:
-            order by:
-                flag
-        bucket = ntile(3) window:
-            order by:
-                flag
-        rows_first = first_value(id) window:
-            order by:
-                flag
-            rows between 1 preceding and current row
-        peer_last = last_value(id) window:
-            order by:
-                flag
-    qualify:
-        lead(id) window:
-            order by:
-                flag
-        is not null or rn == 4
+        rn = row_number() window(order by flag)
+        previous = lag(id, 1, 9007199254740995) window(order by flag)
+        peer_rank = rank() window(order by flag)
+        fraction = percent_rank() window(order by flag)
+        cumulative = cume_dist() window(order by flag)
+        bucket = ntile(3) window(order by flag)
+        rows_first = first_value(id) window(
+            order by flag rows between 1 preceding and current row
+        )
+        peer_last = last_value(id) window(order by flag)
+    qualify lead(id) window(order by flag) is not None or rn == 4
     order by:
         rn
     limit 4
@@ -64,19 +52,13 @@ REPEATED = """table ranked:
     from rows
     select:
         record_id = id
-        rn = row_number() window:
-            order by:
-                flag
-        previous = lag(id, 1, 9007199254740995) window:
-            order by:
-                flag
+        rn = row_number() window(order by flag)
+        previous = lag(id, 1, 9007199254740995) window(order by flag)
     order by:
         flag
     limit 2
 query result:
-    union all:
-        from ranked
-        from ranked
+    union all ranked, ranked
 """
 
 

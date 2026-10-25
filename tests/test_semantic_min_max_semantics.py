@@ -10,18 +10,18 @@ from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    amount: Int not null\n"
-    "    score: Float not null\n"
-    "    price: Decimal not null\n"
-    "    order_date: Date nullable\n"
-    "    created_at: Timestamp not null\n"
-    "    raw: Bytes not null\n"
-    "    payload: Json not null\n"
-    "    id: UUID not null\n"
-    "    anything: Any nullable\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    score: Float\n"
+    "    price: Decimal\n"
+    "    order_date: Date | None\n"
+    "    created_at: Timestamp\n"
+    "    raw: Bytes\n"
+    "    payload: Json\n"
+    "    id: UUID\n"
+    "    anything: Any | None\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -263,63 +263,63 @@ _TEXT_EXTREMUM = (
             "w = amount",
             "o = max(w)",
             False,
-            [("PIE-S2315", 19, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
+            [("PIE-S2315", 18, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
             id="field_value",
         ),
         pytest.param(
             "w = amount",
             "o = max(not w)",
             False,
-            [("PIE-S2315", 19, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
+            [("PIE-S2315", 18, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
             id="inside_an_expression",
         ),
         pytest.param(
             "w = amount",
             "o = min(w + 1)",
             False,
-            [("PIE-S2315", 19, 13, f"Aggregate function min {_DIRECT_FIELD_ONLY}")],
+            [("PIE-S2315", 18, 13, f"Aggregate function min {_DIRECT_FIELD_ONLY}")],
             id="arithmetic",
         ),
         pytest.param(
             "w = status",
             "o = max(w)",
             False,
-            [("PIE-S2314", 19, 13, f"Aggregate function max {_TEXT_EXTREMUM}")],
+            [("PIE-S2314", 18, 13, f"Aggregate function max {_TEXT_EXTREMUM}")],
             id="unsupported_type",
         ),
         pytest.param(
             "w = lower(status)",
             "o = min(w)",
             False,
-            [("PIE-S2314", 19, 13, f"Aggregate function min {_TEXT_EXTREMUM}")],
+            [("PIE-S2314", 18, 13, f"Aggregate function min {_TEXT_EXTREMUM}")],
             id="computed_unsupported_type",
         ),
         pytest.param(
-            "w = null",
+            "w = None",
             "o = max(w)",
             False,
-            [("PIE-S2315", 19, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
+            [("PIE-S2315", 18, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
             id="null",
         ),
         pytest.param(
             "w = nosuch",
             "o = max(w)",
             False,
-            [("PIE-S2102", 17, 13, "Unknown field: nosuch")],
+            [("PIE-S2102", 16, 13, "Unknown field: nosuch")],
             id="binding_error_alone",
         ),
         pytest.param(
             "w = w",
             "o = max(w)",
             False,
-            [("PIE-S2330", 17, 13, "Let binding cannot reference itself: w")],
+            [("PIE-S2330", 16, 13, "Let binding cannot reference itself: w")],
             id="cyclic_binding_error_alone",
         ),
         pytest.param(
             "w = amount",
             "o = max(w)",
             True,
-            [("PIE-S2315", 22, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
+            [("PIE-S2315", 21, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}")],
             id="grouped",
         ),
     ),
@@ -331,7 +331,7 @@ def test_single_file_min_max_argument_reading_a_let_name_reports_its_value_writt
     expected: list[tuple[str, int, int, str]],
 ) -> None:
     """A single file keeps the direct-field surface of `min` and `max`, so a
-    `let:` name in their argument is no direct field (PIE-S2315); otherwise
+    `let` name in their argument is no direct field (PIE-S2315); otherwise
     the argument is checked as the binding's value written in its place:
     `max(w)` with `w = status` is PIE-S2314 as `max(status)` is, and a binding
     with an error of its own reports only that error. Before: PIE-S2102
@@ -341,7 +341,7 @@ def test_single_file_min_max_argument_reading_a_let_name_reports_its_value_writt
         _parse(
             SOURCE_PREFIX + "table order_extremes:\n"
             "    from orders\n"
-            f"    let:\n        {binding}\n"
+            f"    let {binding}\n"
             + (
                 "    group by:\n        status\n    select:\n        status\n"
                 if grouped
@@ -365,17 +365,18 @@ def test_single_file_min_max_reads_a_let_name_by_the_shape_of_its_input_row() ->
 
     result = analyze(
         _parse(
-            SOURCE_PREFIX + 'source raw is postgres.table("raw")\n'
+            SOURCE_PREFIX + 'source raw = postgres.table("raw")\n'
             "table shapeless:\n"
             "    from raw\n"
-            "    let:\n        w = 3\n        v = x\n"
+            "    let w = 3\n"
+            "    let v = x\n"
             "    select:\n        o = max(w)\n        p = min(v)\n"
             "table untyped:\n"
             "    from orders\n"
-            "    select:\n        status\n        z = null\n"
+            "    select:\n        status\n        z = None\n"
             "table untyped_through_let:\n"
             "    from untyped\n"
-            "    let:\n        w = z\n"
+            "    let w = z\n"
             "    select:\n        o = max(w)\n        p = max(z)\n"
         )
     )
@@ -385,16 +386,17 @@ def test_single_file_min_max_reads_a_let_name_by_the_shape_of_its_input_row() ->
         for d in result.diagnostics
     ] == [
         ("PIE-S2303", 14, 1, "Source raw has no bound shape; row schema is unknown"),
-        ("PIE-S2102", 21, 17, "Unknown field: w"),
-        ("PIE-S2102", 22, 17, "Unknown field: v"),
-        ("PIE-S2315", 33, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}"),
+        ("PIE-S2102", 20, 17, "Unknown field: w"),
+        ("PIE-S2102", 21, 17, "Unknown field: v"),
+        ("PIE-S2382", 28, 5, _same_file_read("untyped")),
+        ("PIE-S2315", 31, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}"),
     ]
 
 
 def test_single_file_grouped_window_input_refuses_min_max_of_a_let_name_as_in_place() -> (
     None
 ):
-    """A grouped single-file window reads the `min` of a `let:` name as the
+    """A grouped single-file window reads the `min` of a `let` name as the
     output schema does, refused, so a relation reading it reports what it
     reports over `min(amount + 1)` written in place. Before: PIE-S2102 for the
     name and for `w0`; then PIE-S2103 in place of the `w0` PIE-S2102."""
@@ -409,18 +411,12 @@ def test_single_file_grouped_window_input_refuses_min_max_of_a_let_name_as_in_pl
                 "    select:\n"
                 "        status\n"
                 f"        a1 = min({argument})\n"
-                "        w0 = rank() window:\n"
-                "            order by:\n"
-                "                status\n"
+                "        w0 = rank() window(order by status)\n"
                 "table t2:\n"
                 "    from t1\n"
                 "    select:\n"
                 "        a1\n"
-                "        r1 = percent_rank() window:\n"
-                "            partition by:\n"
-                "                w0\n"
-                "            order by:\n"
-                "                a1 desc\n"
+                "        r1 = percent_rank() window(partition by w0 order by a1 desc)\n"
             )
         )
         return [
@@ -429,14 +425,26 @@ def test_single_file_grouped_window_input_refuses_min_max_of_a_let_name_as_in_pl
         ]
 
     refused = f"Aggregate function min {_DIRECT_FIELD_ONLY}"
-    assert diagnostics("    let:\n        k2 = amount + 1\n", "k2") == [
-        ("PIE-S2315", 22, 14, refused),
-        ("PIE-S2102", 32, 17, "Unknown field: w0"),
+    assert diagnostics("    let k2 = amount + 1\n", "k2") == [
+        ("PIE-S2315", 21, 14, refused),
+        ("PIE-S2382", 24, 5, _same_file_read("t1")),
+        ("PIE-S2102", 27, 49, "Unknown field: w0"),
     ]
     assert diagnostics("", "amount + 1") == [
         ("PIE-S2315", 20, 14, refused),
-        ("PIE-S2102", 30, 17, "Unknown field: w0"),
+        ("PIE-S2382", 23, 5, _same_file_read("t1")),
+        ("PIE-S2102", 26, 49, "Unknown field: w0"),
     ]
+
+
+def _same_file_read(name: str) -> str:
+    """The PIE-S2382 warning of a single-file read of table ``name``."""
+
+    return (
+        f"`{name}` is a table of this file; single-file SQL reads it by name, so "
+        "the SQL runs only where the database already has a relation named "
+        f"{name} (an EXPLICIT_MODULES project emits it as a CTE)"
+    )
 
 
 def test_min_max_in_invalid_context_is_rejected() -> None:

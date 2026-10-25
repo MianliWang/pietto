@@ -27,16 +27,16 @@ from pietto.semantic import CheckMode, analyze
 def test_unique_definitions_populate_expected_namespaces() -> None:
     result = analyze(
         _parse(
-            "type Age = Int not null\n"
+            "type Age = Int\n"
             "enum Status:\n"
             "    active\n"
             "shape User:\n"
-            "    id: UUID not null\n"
-            "derive normalize(value: Text not null) -> Text not null:\n"
-            "    value\n"
-            "constraint valid(value: Text not null) -> Bool not null:\n"
-            "    true\n"
-            'source users: User is postgres.table("public.users")\n'
+            "    id: UUID\n"
+            "derive normalize(value: Text) -> Text:\n"
+            "    return value\n"
+            "constraint valid(value: Text) -> Bool:\n"
+            "    return True\n"
+            'source users: User = postgres.table("public.users")\n'
             "table active_users:\n"
             "    from users\n"
             "    select:\n"
@@ -48,7 +48,31 @@ def test_unique_definitions_populate_expected_namespaces() -> None:
         )
     )
 
-    assert result.diagnostics == ()
+    # Single-file SQL reads the same-file table `active_users` by name.
+    assert [
+        (
+            item.code,
+            item.severity,
+            item.message,
+            item.location.line,
+            item.location.column,
+            item.location.end_line,
+            item.location.end_column,
+        )
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-S2382",
+            Severity.WARNING,
+            "`active_users` is a table of this file; single-file SQL reads it by name, "
+            "so the SQL runs only where the database already has a relation named "
+            "active_users (an EXPLICIT_MODULES project emits it as a CTE)",
+            16,
+            5,
+            16,
+            22,
+        )
+    ]
     assert list(result.model.type_symbols) == ["Age", "Status", "User"]
     assert isinstance(result.model.type_symbols["Age"], TypeDef)
     assert isinstance(result.model.type_symbols["Status"], EnumDef)
@@ -68,12 +92,7 @@ def test_unique_definitions_populate_expected_namespaces() -> None:
 
 def test_duplicate_shape_reports_p2001() -> None:
     result = analyze(
-        _parse(
-            "shape User:\n"
-            "    id: UUID not null\n"
-            "shape User:\n"
-            "    email: Text not null\n"
-        )
+        _parse("shape User:\n    id: UUID\nshape User:\n    email: Text\n")
     )
 
     assert len(result.diagnostics) == 1
@@ -86,7 +105,7 @@ def test_duplicate_shape_reports_p2001() -> None:
 def test_source_and_table_names_duplicate_in_relation_namespace() -> None:
     result = analyze(
         _parse(
-            'source users is postgres.table("public.users")\n'
+            'source users = postgres.table("public.users")\n'
             "table users:\n"
             "    from users\n"
             "    select:\n"
@@ -105,10 +124,10 @@ def test_source_and_table_names_duplicate_in_relation_namespace() -> None:
 def test_derive_and_constraint_names_duplicate_in_callable_namespace() -> None:
     result = analyze(
         _parse(
-            "derive normalize_email(email: Text not null) -> Text not null:\n"
-            "    lower(email)\n"
-            "constraint normalize_email(email: Text not null) -> Bool not null:\n"
-            "    email is not null\n"
+            "derive normalize_email(email: Text) -> Text:\n"
+            "    return lower(email)\n"
+            "constraint normalize_email(email: Text) -> Bool:\n"
+            "    return email is not None\n"
         )
     )
 
@@ -123,10 +142,10 @@ def test_same_name_across_namespaces_is_allowed() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    id: UUID not null\n"
-            "derive User(value: Text not null) -> Text not null:\n"
-            "    value\n"
-            'source User: User is postgres.table("public.users")\n'
+            "    id: UUID\n"
+            "derive User(value: Text) -> Text:\n"
+            "    return value\n"
+            'source User: User = postgres.table("public.users")\n'
         )
     )
 
@@ -139,13 +158,13 @@ def test_same_name_across_namespaces_is_allowed() -> None:
 def test_multiple_duplicates_follow_source_order() -> None:
     result = analyze(
         _parse(
-            "type Shared = Int not null\n"
-            "type Shared = Text not null\n"
-            "derive normalize(value: Text not null) -> Text not null:\n"
-            "    value\n"
-            "constraint normalize(value: Text not null) -> Bool not null:\n"
-            "    true\n"
-            'source rows is postgres.table("rows")\n'
+            "type Shared = Int\n"
+            "type Shared = Text\n"
+            "derive normalize(value: Text) -> Text:\n"
+            "    return value\n"
+            "constraint normalize(value: Text) -> Bool:\n"
+            "    return True\n"
+            'source rows = postgres.table("rows")\n'
             "query rows:\n"
             "    from rows\n"
             "    select:\n"
@@ -169,7 +188,7 @@ def test_multiple_duplicates_follow_source_order() -> None:
 def test_duplicate_diagnostic_uses_later_definition_span() -> None:
     path = Path("examples/semantic/duplicate.pietto")
     script = _parse(
-        "shape User:\n    id: UUID not null\nshape User:\n    email: Text not null\n",
+        "shape User:\n    id: UUID\nshape User:\n    email: Text\n",
         path=path,
     )
     duplicate = script.definitions[1]
@@ -218,7 +237,7 @@ def test_repeated_enum_member_reports_s2001_once_per_name_at_the_enum() -> None:
 
 
 def test_first_symbol_remains_bound_after_duplicate() -> None:
-    script = _parse("type Value = Int not null\ntype Value = Text not null\n")
+    script = _parse("type Value = Int\ntype Value = Text\n")
     first = script.definitions[0]
 
     result = analyze(script)
@@ -233,7 +252,7 @@ def test_forward_reference_order_does_not_affect_collection() -> None:
             "    from users\n"
             "    select:\n"
             "        id\n"
-            'source users is postgres.table("public.users")\n'
+            'source users = postgres.table("public.users")\n'
         ),
         mode_override=CheckMode.LOOSE,
     )
@@ -246,8 +265,8 @@ def test_symbol_collection_coexists_with_valid_builtin_calls() -> None:
     result = analyze(
         _parse(
             "shape Row:\n"
-            "    id: UUID not null\n"
-            'source input: Row is postgres.table("input")\n'
+            "    id: UUID\n"
+            'source input: Row = postgres.table("input")\n'
             "table projected:\n"
             "    from input\n"
             '    where matches("value", "value")\n'
@@ -260,18 +279,42 @@ def test_symbol_collection_coexists_with_valid_builtin_calls() -> None:
         )
     )
 
-    assert result.diagnostics == ()
+    # Single-file SQL reads the same-file table `projected` by name.
+    assert [
+        (
+            item.code,
+            item.severity,
+            item.message,
+            item.location.line,
+            item.location.column,
+            item.location.end_line,
+            item.location.end_column,
+        )
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-S2382",
+            Severity.WARNING,
+            "`projected` is a table of this file; single-file SQL reads it by name, "
+            "so the SQL runs only where the database already has a relation named "
+            "projected (an EXPLICIT_MODULES project emits it as a CTE)",
+            10,
+            5,
+            10,
+            19,
+        )
+    ]
     assert list(result.model.relation_symbols) == ["input", "projected", "output"]
 
 
 def test_semantic_symbols_and_diagnostics_do_not_expose_antlr_nodes() -> None:
-    result = analyze(_parse("type Age = Int not null\ntype Age = Float not null\n"))
+    result = analyze(_parse("type Age = Int\ntype Age = Float\n"))
 
     _assert_no_antlr_nodes(result)
 
 
 def test_symbol_collection_does_not_mutate_input_ast() -> None:
-    script = _parse("type Age = Int not null\ntype Age = Float not null\n")
+    script = _parse("type Age = Int\ntype Age = Float\n")
     original = deepcopy(script)
 
     analyze(script)

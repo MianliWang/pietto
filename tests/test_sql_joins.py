@@ -28,6 +28,9 @@ NATIVE = {
     "full": " FULL JOIN ",
 }
 MEMBERSHIP = {"semi": " WHERE EXISTS (", "anti": " WHERE NOT EXISTS ("}
+# A SEMI/ANTI JOIN is written as a JOIN-prefix `[not] any(...)`: before a later
+# JOIN it is the hidden SEMI/ANTI JOIN whose membership is under test here.
+LATER_JOIN = "    let later = rhs\n    cross join later\n"
 
 
 def emit(tmp_path, target, body, *, link=False, policy="preserve_literals"):
@@ -48,13 +51,22 @@ def document(outcome):
     return json.loads(serialize_project_sql_emission(outcome).decode())
 
 
+def join_line(kind, predicate="lhs.id == r.id", name="r"):
+    """The JOIN of ``name`` of ``kind``; SEMI/ANTI as the JOIN-prefix `[not] any`."""
+    if kind in MEMBERSHIP:
+        negation = "not " if kind == "anti" else ""
+        return (
+            f"    where {negation}any({predicate} for {name} in {name})\n" + LATER_JOIN
+        )
+    condition = "" if kind == "cross" else f" on {predicate}"
+    return f"    {kind} join {name}{condition}\n"
+
+
 def kinds_body(kind, *, predicate="lhs.id == r.id", select="        a = lhs.id\n"):
-    condition = "" if kind == "cross" else f"        on {predicate}\n"
     return f"""query result:
     from lhs
-    {kind} join rhs as r:
-        from lhs
-{condition}    select:
+    let r = rhs
+{join_line(kind, predicate)}    select:
 {select}"""
 
 
@@ -79,7 +91,7 @@ def test_each_join_kind_emits_inside_its_own_approved_domain(tmp_path, target, k
     """PostgreSQL admits all seven; MySQL FULL stays a typed non-support."""
     select = (
         "        a = lhs.id\n"
-        if kind in {"semi", "anti"}
+        if kind in MEMBERSHIP
         else "        a = lhs.id\n        b = r.id\n"
     )
     outcome = emit(tmp_path, target, kinds_body(kind, select=select))
@@ -96,8 +108,10 @@ def test_each_join_kind_emits_inside_its_own_approved_domain(tmp_path, target, k
         return
     assert doc["status"] == "VERIFIED"
     if kind in MEMBERSHIP:
+        # The existence test is a membership filter, never a JOIN of its own:
+        # the one JOIN in the SQL is the later CROSS JOIN.
         assert MEMBERSHIP[kind] in doc["sql"]
-        assert " JOIN " not in doc["sql"]
+        assert doc["sql"].count(" JOIN ") == doc["sql"].count(NATIVE["cross"]) == 1
     else:
         assert NATIVE[kind] in doc["sql"]
 
@@ -107,7 +121,7 @@ def test_a_mysql_full_rejection_does_not_refuse_its_neighbours(tmp_path, kind):
     """Only FULL is withheld on MySQL; the neighbouring kinds still emit."""
     select = (
         "        a = lhs.id\n"
-        if kind in {"semi", "anti"}
+        if kind in MEMBERSHIP
         else "        a = lhs.id\n        b = r.id\n"
     )
     assert (
@@ -129,8 +143,7 @@ def test_a_left_join_transports_and_nulls_every_right_value_shape(tmp_path, targ
         target,
         """table prod:
     from rhs
-    let:
-        step = id + 0
+    let step = id + 0
     where id > 0
     select:
         pid = id
@@ -139,9 +152,8 @@ def test_a_left_join_transports_and_nulls_every_right_value_shape(tmp_path, targ
         stepped = step
 query result:
     from lhs
-    left join prod as r:
-        from lhs
-        on lhs.id == r.pid
+    let r = prod
+    left join r on lhs.id == r.pid
     select:
         a = lhs.id
         p = r.pid
@@ -176,9 +188,8 @@ def test_a_right_join_nulls_the_whole_accumulated_left(tmp_path, target):
         lid = id
 query result:
     from leftish
-    right join rhs as r:
-        from leftish
-        on leftish.lid == r.id
+    let r = rhs
+    right join r on leftish.lid == r.id
     select:
         a = leftish.lid
         b = r.id
@@ -199,7 +210,7 @@ def test_a_declared_source_field_keeps_its_own_domain(tmp_path, target):
     )
     doc = public(outcome)
     # `lhs` is the PRESERVED side, so `key` is nullable only because it was
-    # declared nullable -- not because the JOIN nulled anything.
+    # declared `Int | None` -- not because the JOIN nulled anything.
     assert nullability(doc) == [("a", False), ("j", True)]
     assert requirement_kinds(doc)["null_extension"] == 2
 
@@ -213,7 +224,7 @@ NARROWING = (
     ("inner", "lhs.key == r.key", "r.key", False),
     ("inner", "lhs.key > r.key", "r.key", False),
     ("inner", "lhs.id == r.id or lhs.key == r.key", "r.key", True),
-    ("inner", "lhs.id == r.id and r.key is null", "r.key", True),
+    ("inner", "lhs.id == r.id and r.key is None", "r.key", True),
     ("inner", "lhs.key + 0 == r.key", "lhs.key", True),
     ("inner", "lhs.key + 0 == r.key", "r.key", False),
     ("left", "lhs.key == r.key", "r.key", True),
@@ -285,52 +296,51 @@ def test_two_bound_on_literals_keep_their_authored_argument_order(tmp_path, targ
 
 
 # --------------------------------------------------------------------------
-# Relationship routes: valid equality, refinement, and the retained limitation
+# Relationship calls: the predicate they stand for, refinement, and endpoints
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("kind", ("inner", "left"))
-def test_a_relationship_only_via_emits_its_retained_equality(tmp_path, target, kind):
-    outcome = emit(
-        tmp_path,
-        target,
-        f"""query result:
-    from lhs
-    {kind} join rhs as r:
-        from lhs
-        via link: l -> r
-    select:
-        a = lhs.id
-""",
-        link=True,
+def test_a_relationship_call_emits_its_predicate_as_the_match_condition(
+    tmp_path, target, kind
+):
+    """A shape-typed relationship is a row predicate: its call is the JOIN's one
+    match condition and emits the SQL of the predicate it stands for. Only the
+    retired source-bound VIA declared a separate relationship equality."""
+    called, written = (
+        public(
+            emit(tmp_path / label, target, kinds_body(kind, predicate=on), link=True)
+        )
+        for label, on in (("call", "link(lhs, r)"), ("on", "lhs.id == r.id"))
     )
-    doc = public(outcome)
-    assert doc["status"] == "VERIFIED"
-    assert requirement_kinds(doc)["relationship_equality"] == 1
-    assert requirement_kinds(doc)["match_condition"] == 0
+    assert called["status"] == written["status"] == "VERIFIED"
+    assert called["sql"] == written["sql"]
+    assert requirement_kinds(called)["match_condition"] == 1
+    assert requirement_kinds(called)["comparison"] == 1
+    assert requirement_kinds(called)["relationship_equality"] == 0
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_a_via_route_refined_by_an_authored_predicate_emits_both(tmp_path, target):
+def test_a_relationship_call_refined_by_an_authored_predicate_emits_both(
+    tmp_path, target
+):
     outcome = emit(
         tmp_path,
         target,
-        """query result:
-    from lhs
-    inner join rhs as r:
-        from lhs
-        via link: l -> r
-        on lhs.key == r.key
-    select:
-        a = lhs.id
-""",
+        kinds_body("inner", predicate="link(lhs, r) and lhs.key == r.key"),
         link=True,
     )
     doc = public(outcome)
     assert doc["status"] == "VERIFIED"
-    assert requirement_kinds(doc)["relationship_equality"] == 1
+    # One ON condition holding the call's equality and the authored refinement.
     assert requirement_kinds(doc)["match_condition"] == 1
+    assert requirement_kinds(doc)["comparison"] == 2
+    q = '"' if target == "postgres" else "`"
+    assert (
+        f" ON (({q}m0{q}.{q}order.id{q} = {q}m1{q}.{q}order.id{q}) AND"
+        f" ({q}m0{q}.{q}key value{q} = {q}m1{q}.{q}key value{q}))"
+    ) in doc["sql"]
 
 
 @pytest.mark.parametrize(
@@ -347,29 +357,19 @@ def test_a_via_route_refined_by_an_authored_predicate_emits_both(tmp_path, targe
 def test_a_relationship_with_a_repeated_operand_emits_each_equality(
     tmp_path, kind, refinement, condition
 ):
-    """A repeated operand only narrows the match, for every kind and VIA+ON."""
+    """A repeated operand only narrows the match: the call emits each equality
+    of its body, for every kind and with an authored refinement."""
+    predicate = "link(lhs, r)" + (" and lhs.key == r.key" if refinement else "")
     outcome = emit(
         tmp_path,
         "postgres",
-        f"""relationship link:
-    endpoint l: lhs
-    endpoint r: rhs
-    on {condition}
-query result:
-    from lhs
-    {kind} join rhs as r:
-        from lhs
-        via link: l -> r
-"""
-        + ("        on lhs.key == r.key\n" if refinement else "")
-        + """    select:
-        a = lhs.id
-""",
+        f"relationship link(l: Row, r: Row): {condition}\n"
+        + kinds_body(kind, predicate=predicate),
     )
     doc = public(outcome)
     assert doc["status"] == "VERIFIED"
-    assert requirement_kinds(doc)["relationship_equality"] == 2
-    assert requirement_kinds(doc)["match_condition"] == (1 if refinement else 0)
+    assert requirement_kinds(doc)["comparison"] == (3 if refinement else 2)
+    assert requirement_kinds(doc)["match_condition"] == 1
 
 
 DISTINCT_ENDPOINT_SQL = {
@@ -396,46 +396,42 @@ DISTINCT_ENDPOINT_SQL = {
 @pytest.mark.parametrize("kind", ("inner", "left"))
 @pytest.mark.parametrize("side", ("source", "target"))
 @pytest.mark.parametrize("reads", ("other", "joined"))
-def test_a_relationship_only_via_over_a_distinct_endpoint_emits_its_on_form(
+def test_a_join_over_a_distinct_endpoint_emits_its_on_form(
     tmp_path, target, kind, side, reads
 ):
-    """Its relationship equality is the SQL of the equivalent explicit ON,
-    also when the JOIN leaves its source or VIA roles to be inferred and when
-    the endpoint reads the relation it is joined with."""
+    """A DISTINCT query on either side of a JOIN emits the SQL of its explicit
+    ON, whether the JOIN names its target with `let` or directly, also when the
+    query reads the relation it is joined with. A shape-typed relationship
+    cannot take the query's row, so a call over that endpoint fails closed
+    with PIE-S2604 instead of guessing the retired source-bound route."""
     left, right = ("d", "rhs") if side == "source" else ("lhs", "d")
     producer, other = ("lhs", "rhs") if side == "source" else ("rhs", "lhs")
     if reads == "joined":
         producer, other = other, producer
-    block = f"    {kind} join {right} as r:\n        from {left}\n"
+    head = (
+        f"query d:\n    from {producer}\n    select distinct:\n        id\n        key\n"
+        "relationship near(l: Row, r: Row): l.id == r.id\n"
+        f"query result:\n    from {left}\n"
+    )
+    joins = {
+        "named": (
+            f"    let r = {right}\n    {kind} join r on {left}.id == r.id\n",
+            "r",
+        ),
+        "direct": (f"    {kind} join {right} on {left}.id == {right}.id\n", right),
+        "call": (f"    let r = {right}\n    {kind} join r on near({left}, r)\n", "r"),
+    }
     docs = {
         route: public(
             emit(
                 tmp_path / route,
                 target,
-                f"""query d:
-    from {producer}
-    select distinct:
-        id
-        key
-relationship near:
-    endpoint l: {left}
-    endpoint r: {right}
-    on l.id == r.id
-query result:
-    from {left}
-{join}    select:
-        a = {left}.id
-        b = r.key
-""",
+                head
+                + join
+                + f"    select:\n        a = {left}.id\n        b = {name}.key\n",
             )
         )
-        for route, join in (
-            ("via", block + "        via near: l -> r\n"),
-            ("zero_via", block),
-            ("on", block + f"        on {left}.id == r.id\n"),
-            ("inferred", f"    {kind} join {right} as r\n"),
-            ("inferred_roles", f"    {kind} join {right} as r: via near\n"),
-        )
+        for route, (join, name) in joins.items()
     }
     expected = (
         DISTINCT_ENDPOINT_SQL[side]
@@ -444,17 +440,25 @@ query result:
     )
     if target == "mysql":
         expected = expected.replace('"public"', '"phase66"').replace('"', "`")
-    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 5
-    assert [doc["sql"] for doc in docs.values()] == [expected] * 5
-    assert [
-        requirement_kinds(doc)["relationship_equality"] for doc in docs.values()
-    ] == [1, 1, 0, 1, 1]
+    call = docs.pop("call")
+    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 2
+    assert [doc["sql"] for doc in docs.values()] == [expected] * 2
+    assert [requirement_kinds(doc)["match_condition"] for doc in docs.values()] == [
+        1,
+        1,
+    ]
+    assert call["status"] == "BLOCKED"
+    parameter = "l" if side == "source" else "r"
+    assert [(d["code"], d["message"]) for d in call["diagnostics"]] == [
+        (
+            "PIE-S2604",
+            f"Unavailable row argument for relationship near parameter {parameter}",
+        )
+    ]
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_a_relationship_join_of_two_distinct_reads_of_one_source_emits(
-    tmp_path, target
-):
+def test_a_join_of_two_distinct_reads_of_one_source_emits(tmp_path, target):
     """Each input keeps its own DISTINCT grain, although both read one source."""
     doc = public(
         emit(
@@ -470,15 +474,10 @@ query d2:
     select distinct:
         id
         key
-relationship near:
-    endpoint l: d1
-    endpoint r: d2
-    on l.id == r.id
 query result:
     from d1
-    inner join d2 as r:
-        from d1
-        via near: l -> r
+    let r = d2
+    inner join r on d1.id == r.id
     select:
         a = d1.id
         b = r.key
@@ -520,9 +519,8 @@ def test_one_named_producer_used_twice_is_scanned_by_each_use(tmp_path, target):
         pid = id
 query result:
     from prod
-    inner join prod as r:
-        from prod
-        on prod.pid == r.pid
+    let r = prod
+    inner join r on prod.pid == r.pid
     select:
         a = prod.pid
         b = r.pid
@@ -552,19 +550,18 @@ def test_a_membership_join_keeps_its_right_side_dependencies(tmp_path, target, k
     outcome = emit(
         tmp_path,
         target,
-        f"""table prod:
+        """table prod:
     from rhs
-    let:
-        step = id + 0
+    let step = id + 0
     where id > 0
     select:
         pid = step
 query result:
     from lhs
-    {kind} join prod as r:
-        from lhs
-        on lhs.id == r.pid
-    select:
+    let r = prod
+"""
+        + join_line(kind, "lhs.id == r.pid")
+        + """    select:
         a = lhs.id
 """,
     )
@@ -572,8 +569,9 @@ query result:
     assert doc["status"] == "VERIFIED"
     assert [column["label"] for column in doc["columns"]] == ["a"]
     # The right producer's own scan, filter and LET all survive inside the
-    # membership wrapper even though nothing of it reaches the result.
-    assert requirement_kinds(doc)["qualified_scan"] == 2
+    # membership wrapper even though nothing of it reaches the result; the
+    # third scan is the later JOIN's.
+    assert requirement_kinds(doc)["qualified_scan"] == 3
     assert requirement_kinds(doc)["membership"] == 1
     assert requirement_kinds(doc)["sentinel"] == 1
     assert requirement_kinds(doc)["correlation"] == 1
@@ -594,17 +592,13 @@ table base:
     from lhs
     select:
         lid = id
-export:
-    table prod
-    table base
+export table prod, table base
 """,
-            "b.pietto": 'import "a.pietto":\n'
-            "    table prod as Mid\n    table base as Root\n"
-            "export:\n    table Mid\n    table Root\n",
-            "main.pietto": 'import "b.pietto":\n'
-            "    table Mid as Public\n    table Root as Left\n"
-            "query result:\n    from Left\n    inner join Public as r:\n"
-            "        from Left\n        on Left.lid == r.pid\n"
+            "b.pietto": 'from "a.pietto" import table prod as Mid, table base as Root\n'
+            "export table Mid, table Root\n",
+            "main.pietto": 'from "b.pietto" import table Mid as Public, table Root as Left\n'
+            "query result:\n    from Left\n    let r = Public\n"
+            "    inner join r on Left.lid == r.pid\n"
             "    select:\n        a = Left.lid\n        b = r.pid\n",
         },
         module="a.pietto",
@@ -624,11 +618,9 @@ def test_a_joined_tail_carries_its_own_let_and_filter(tmp_path, target):
         target,
         """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
-    let:
-        doubled = lhs.id + 0
+    let r = rhs
+    inner join r on lhs.id == r.id
+    let doubled = lhs.id + 0
     where lhs.id > 0
     select:
         a = doubled
@@ -647,12 +639,10 @@ def test_an_ordered_join_chain_emits_one_unit_per_occurrence(tmp_path, target):
         target,
         """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
-    right join rhs as s:
-        from lhs
-        on lhs.id == s.id
+    let r = rhs
+    inner join r on lhs.id == r.id
+    let s = rhs
+    right join s on lhs.id == s.id
     select:
         a = lhs.id
         b = r.id
@@ -676,16 +666,16 @@ GROUPED_JOIN_CHAIN = """table up:
         n = count()
 query mid:
     from up
-    {kind} join rhs as m:
-        from up
-{mid_on}    select:
+    let m = rhs
+    {kind} join m{mid_on}
+    select:
         id = up.id
         n = up.n
 query result:
     from mid
-    {kind} join rhs as z:
-        from mid
-{result_on}    select:
+    let z = rhs
+    {kind} join z{result_on}
+    select:
         id = mid.id
         n = mid.n
 """
@@ -728,8 +718,8 @@ def test_a_grouped_result_joined_twice_emits(tmp_path, target, kind):
         target,
         GROUPED_JOIN_CHAIN.format(
             kind=kind,
-            mid_on="        on up.id == m.id\n" if inner else "",
-            result_on="        on mid.id == z.id\n" if inner else "",
+            mid_on=" on up.id == m.id" if inner else "",
+            result_on=" on mid.id == z.id" if inner else "",
         ),
     )
     doc = public(outcome)
@@ -743,23 +733,15 @@ def test_a_grouped_result_joined_twice_emits(tmp_path, target, kind):
     assert [column["label"] for column in doc["columns"]] == ["id", "n"]
 
 
-# A chain of two relationship JOINs that reads relations and relationships
-# its module declares after it.
+# A chain of two JOINs that reads relations its module declares after it.
 FORWARD_JOIN_CHAIN = """query result:
     from mid
 {joins}    select:
         a = mid.id
-        b = z.key
-        c = w.key
-relationship mr:
-    endpoint m: mid
-    endpoint r: rhs
-    on m.id == r.id
-relationship rd:
-    endpoint r: rhs
-    endpoint x: d
-    on r.key == x.id
-query d:
+        b = {z}.key
+        c = {w}.key
+"""
+FORWARD_DECLARATIONS = """query d:
     from rhs
     where key > 0
     select:
@@ -773,30 +755,43 @@ table mid:
         key
 """
 FORWARD_JOINS = {
-    "written": "    left join rhs as z:\n        from mid\n        via mr: m -> r\n"
-    "    inner join d as w:\n        from z\n        via rd: r -> x\n",
-    "inferred": "    left join rhs as z\n    inner join d as w\n",
-    "header_steps": "    left join rhs as z: via mr\n    inner join d as w: from z\n",
+    "named": (
+        "    let z = rhs\n    left join z on mid.id == z.id\n"
+        "    let w = d\n    inner join w on z.key == w.id\n",
+        "z",
+        "w",
+    ),
+    "direct": (
+        "    left join rhs on mid.id == rhs.id\n    inner join d on rhs.key == d.id\n",
+        "rhs",
+        "d",
+    ),
 }
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_a_join_chain_over_later_declarations_infers_its_written_sql(tmp_path, target):
+def test_a_join_chain_over_later_declarations_emits_its_let_named_sql(tmp_path, target):
+    """A chain over the shape, sources and relations declared after it emits
+    the same SQL whether its targets are named with `let` or directly."""
     header = probe.JOIN_WITNESS_HEADER.format(target=target)
     docs = [
         public(
             emit(
                 tmp_path / name,
                 target,
-                {"main.pietto": FORWARD_JOIN_CHAIN.format(joins=joins) + header},
+                {
+                    "main.pietto": FORWARD_JOIN_CHAIN.format(joins=joins, z=z, w=w)
+                    + FORWARD_DECLARATIONS
+                    + header
+                },
             )
         )
-        for name, joins in FORWARD_JOINS.items()
+        for name, (joins, z, w) in FORWARD_JOINS.items()
     ]
-    assert [doc["status"] for doc in docs] == ["VERIFIED"] * 3
+    assert [doc["status"] for doc in docs] == ["VERIFIED"] * 2
     for key in ("sql", "columns"):
-        assert [doc[key] for doc in docs] == [docs[0][key]] * 3, key
-    assert [requirement_kinds(doc) for doc in docs] == [requirement_kinds(docs[0])] * 3
+        assert [doc[key] for doc in docs] == [docs[0][key]] * 2, key
+    assert [requirement_kinds(doc) for doc in docs] == [requirement_kinds(docs[0])] * 2
 
 
 # --------------------------------------------------------------------------
@@ -852,7 +847,7 @@ def test_the_restricted_full_manifest_case_splits_by_target(tmp_path, target):
 
 
 # --------------------------------------------------------------------------
-# A JOIN without `from` or VIA roles publishes its explicit form
+# A JOIN named directly or matched by a relationship publishes its explicit form
 # --------------------------------------------------------------------------
 
 
@@ -870,44 +865,72 @@ def _authored_layout_free(value):
     return value
 
 
+def _as_written(value):
+    """A relationship call's expansion origin (the call, its body and its row
+    argument) read as the one authored cause of the predicate written in its
+    place. Inside `any`, the ANY expansion leads and the call is a generated
+    call: its body and its binder argument read as the ANY's own copy of the
+    written predicate, an authored row argument as that row's authored cause."""
+    if isinstance(value, dict):
+        sources = value.get("sources") or []
+        kinds = [source.get("kind") for source in sources]
+        if kinds[:1] == ["relationship_predicate_call"] or (
+            kinds[1:2] == ["relationship_predicate_generated_call"]
+            and kinds[-1] == "relationship_predicate_argument"
+        ):
+            authored = {"kind": "authored_cause", "path": sources[0]["path"]}
+            value = {**value, "sources": [authored]}
+        elif kinds[1:2] == ["relationship_predicate_generated_call"]:
+            value = {**value, "sources": sources[:1]}
+        return {key: _as_written(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_as_written(item) for item in value]
+    return value
+
+
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "semi", "anti"))
 @pytest.mark.parametrize(
-    ("explicit", "inferred"),
-    (
-        (":\n        from lhs\n", "\n"),
-        (":\n        from lhs\n        via link: l -> r\n", ": via link\n"),
-    ),
-    ids=("direct", "via"),
+    ("name", "predicate"),
+    (("rhs", "lhs.id == rhs.id"), ("r", "link(lhs, r)")),
+    ids=("direct", "relationship"),
 )
-def test_an_inferred_join_publishes_its_explicit_form(
-    tmp_path, target, kind, explicit, inferred
+def test_a_direct_or_relationship_join_publishes_its_explicit_form(
+    tmp_path, target, kind, name, predicate
 ):
-    head = f"query result:\n    from lhs\n    {kind} join rhs as r"
+    """A JOIN target named directly instead of with `let`, or matched by a
+    relationship call instead of the predicate the call stands for, publishes
+    the explicit form; the ranges of a call record its expansion."""
+    head = "query result:\n    from lhs\n"
     tail = "    select:\n        a = lhs.id\n"
+    named = "    let r = rhs\n"
+    explicit = named + join_line(kind)
+    spelled = ("" if name == "rhs" else named) + join_line(kind, predicate, name)
     written, found = (
         document(emit(tmp_path / label, target, head + layout + tail, link=True))
-        for label, layout in (("explicit", explicit), ("inferred", inferred))
+        for label, layout in (("explicit", explicit), ("spelled", spelled))
     )
     assert found["status"] == written["status"]
     assert found.get("sql") == written.get("sql")
-    assert _authored_layout_free(found) == _authored_layout_free(written)
+    assert _as_written(_authored_layout_free(found)) == _authored_layout_free(written)
+    call = (
+        "relationship_predicate_generated_call"
+        if kind in MEMBERSHIP
+        else "relationship_predicate_call"
+    )
+    expansion = call in json.dumps(found)
+    assert expansion is ("link(" in predicate and "ranges" in written)
 
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_one_line_relationship_publishes_its_block_form(tmp_path, target):
-    """Its endpoint roles are the relation names."""
-    block = (
-        "relationship link:\n    endpoint lhs: lhs\n    endpoint rhs: rhs\n"
-        "    on lhs.id == rhs.id\n"
-        "query result:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
-        "        via link: lhs -> rhs\n    select:\n        a = lhs.id\n"
-    )
-    one_line = (
-        "relationship link: lhs.id == rhs.id\n"
-        "query result:\n    from lhs\n    inner join rhs as r: via link\n"
+    """Its body may follow the header's ':' on the same line."""
+    join = (
+        "query result:\n    from lhs\n    let r = rhs\n    inner join r on link(lhs, r)\n"
         "    select:\n        a = lhs.id\n"
     )
+    block = "relationship link(l: Row, r: Row):\n    l.id == r.id\n" + join
+    one_line = "relationship link(l: Row, r: Row): l.id == r.id\n" + join
     written, found = (
         document(emit(tmp_path / label, target, body))
         for label, body in (("block", block), ("one_line", one_line))
@@ -921,42 +944,42 @@ def test_a_one_line_relationship_publishes_its_block_form(tmp_path, target):
     ("head", "source"),
     (
         (
-            "    let v:\n        values(id: Int not null):\n            1\n"
-            "    from lhs\n    inner join v as vv:\n        from lhs\n"
-            "        on vv.id == lhs.id\n",
+            "    let v:\n        values(id: Int):\n            1\n"
+            "    from lhs\n    let vv = v\n    inner join vv on vv.id == lhs.id\n",
             "lhs",
         ),
         (
-            "    from generate_series(1, 3, 1) as n\n    inner join lhs as l:\n"
-            "        from n\n        on l.id == n.n\n",
+            "    from generate_series(1, 3, 1) as n\n    let l = lhs\n"
+            "    inner join l on l.id == n.n\n",
             "l",
         ),
     ),
     ids=("values_let", "table_function"),
 )
-def test_an_inferred_join_after_an_unmodelled_input_publishes_its_explicit_form(
+def test_a_relationship_join_after_an_unmodelled_input_publishes_its_explicit_form(
     tmp_path, target, head, source
 ):
-    """A VALUES or table-function binding with no relationship is no candidate."""
+    """After a VALUES or table-function input, which no relationship parameter
+    can take, a call over the rows it names publishes the explicit predicate."""
     tail = "    select:\n        a = r.id\n"
     written, found = (
         document(
             emit(
                 tmp_path / label,
                 target,
-                f"query result:\n{head}    inner join rhs as r{layout}{tail}",
+                f"query result:\n{head}    let r = rhs\n    inner join r on {on}\n{tail}",
                 link=True,
             )
         )
-        for label, layout in (
-            ("explicit", f":\n        from {source}\n"),
-            ("inferred", "\n"),
+        for label, on in (
+            ("explicit", f"{source}.id == r.id"),
+            ("relationship", f"link({source}, r)"),
         )
     )
     assert found["status"] == written["status"]
     assert target == "mysql" or written["status"] == "VERIFIED"
     assert found.get("sql") == written.get("sql")
-    assert _authored_layout_free(found) == _authored_layout_free(written)
+    assert _as_written(_authored_layout_free(found)) == _authored_layout_free(written)
 
 
 # --------------------------------------------------------------------------
@@ -1042,9 +1065,8 @@ def test_dropping_an_unprojected_producer_value_is_rejected(tmp_path):
         marker = 1
 query result:
     from lhs
-    left join prod as r:
-        from lhs
-        on lhs.id == r.pid
+    let r = prod
+    left join r on lhs.id == r.pid
     select:
         a = lhs.id
         b = r.pid
@@ -1218,8 +1240,8 @@ def test_repr_changes_no_field_verification_or_published_byte(tmp_path, target):
 # Bool field as an AND conjunct of its own is BLOCKED at emission on both
 # targets; the same test in WHERE emits.
 NULLABLE_BOOL_ON = (
-    "query result:\n    from rows\n    inner join rows as o:\n        from rows\n"
-    "        on rows.id == o.id{on}\n{where}    select:\n        a = rows.id\n"
+    "query result:\n    from rows\n    let o = rows\n"
+    "    inner join o on rows.id == o.id{on}\n{where}    select:\n        a = rows.id\n"
 )
 
 
@@ -1250,22 +1272,25 @@ def test_a_nullable_bool_on_conjunct_is_blocked_and_its_where_form_emits(
 
 # An enum or shape field is outside the initial representation domain of
 # project SQL emission, so a source declaring one is BLOCKED whether or not a
-# JOIN reads it, whatever the field's nullability modifier.
+# JOIN reads it, whether or not the field's type admits None.
 ENUM_TEXT_DOMAIN = {
     "postgres": ({"kind": "pg_text"}, "UTF8", "C"),
     "mysql": ({"kind": "my_varchar", "length": 64}, "utf8mb4", "utf8mb4_0900_bin"),
 }
 ENUM_STATUS = ("enum Status:\n    active\n    closed\n", "Status")
-SHAPE_PAYLOAD = ("shape Payload:\n    a: Int not null\n", "Payload")
+SHAPE_PAYLOAD = ("shape Payload:\n    a: Int\n", "Payload")
+# The declared `state` field: `T | None` admits None, a bare `T` never does.
+MODIFIERS = (" | None", "")
 
 
 def enum_field_document(directory, target, body, modifier, declared=ENUM_STATUS):
     item = probe.join_witness(target, body)
     declaration, type_name = declared
     source = declaration + item["source"].replace(
-        "    key: Int nullable\n",
-        f"    key: Int nullable\n    state: {type_name}{modifier}\n",
+        "    key: Int | None\n",
+        f"    key: Int | None\n    state: {type_name}{modifier}\n",
     )
+    assert f"    state: {type_name}{modifier}\n" in source
     storage, encoding, collation = ENUM_TEXT_DOMAIN[target]
     contract = json.loads(item["contract"])
     for declared in contract["sources"]:
@@ -1276,7 +1301,7 @@ def enum_field_document(directory, target, body, modifier, declared=ENUM_STATUS)
                 "column": "state",
                 "representation": {
                     "storage": storage,
-                    "nullable": modifier == " nullable",
+                    "nullable": modifier == " | None",
                     "domain": {
                         "kind": "text",
                         "max_characters": 64,
@@ -1293,18 +1318,21 @@ def enum_field_document(directory, target, body, modifier, declared=ENUM_STATUS)
     return document(outcome)
 
 
+def state_field(line, type_name, modifier):
+    """The authored span of the declared `state` field."""
+    end = 5 + len(f"state: {type_name}{modifier}")
+    return {"path": "main.pietto", "line": line, "column": 5} | {
+        "end_line": line,
+        "end_column": end,
+    }
+
+
 @pytest.mark.parametrize("target", TARGETS)
-@pytest.mark.parametrize("modifier", (" nullable", " not null"))
+@pytest.mark.parametrize("modifier", MODIFIERS, ids=("nullable", "not_null"))
 def test_an_enum_field_of_a_join_input_blocks_as_without_the_join(
     tmp_path, target, modifier
 ):
-    field = {
-        "path": "main.pietto",
-        "line": 7,
-        "column": 5,
-        "end_line": 7,
-        "end_column": 27,
-    }
+    field = state_field(7, "Status", modifier)
     join_input = (
         "PIE-B1004",
         {
@@ -1342,9 +1370,8 @@ def test_a_window_value_of_an_enum_field_blocks_as_any_window_of_its_source(
     column, are typed as the enum and blocked as a window over the source that
     reads no enum field is: by the stage input and the enum field's source
     port. Before, their project check crashed with a ValueError."""
-    window = "window:\n            order by:\n                id\n"
-    field = {"path": "main.pietto", "line": 7, "column": 5}
-    field |= {"end_line": 7, "end_column": 27}
+    window = "window(order by id)\n"
+    field = state_field(7, "Status", "")
     blocked = [
         (
             "PIE-B1001",
@@ -1377,7 +1404,7 @@ def test_a_window_value_of_an_enum_field_blocks_as_any_window_of_its_source(
             tmp_path / name,
             target,
             f"{relation}:\n    from lhs\n    select:\n        id\n{body}",
-            " not null",
+            "",
         )
         assert (published["status"], published["diagnostics"]) == ("BLOCKED", [])
         assert [
@@ -1394,9 +1421,8 @@ def test_a_window_value_of_a_shape_field_blocks_as_any_window_of_its_source(
     window over the source that reads no shape field is: by the stage input
     and the shape field's source port. Before, `check --project` refused each
     shape window with PIE-S2104 `value type must be concrete`."""
-    window = "window:\n            order by:\n                id\n"
-    field = {"path": "main.pietto", "line": 6, "column": 5}
-    field |= {"end_line": 6, "end_column": 28}
+    window = "window(order by id)\n"
+    field = state_field(6, "Payload", "")
     blocked = [
         (
             "PIE-B1001",
@@ -1430,7 +1456,7 @@ def test_a_window_value_of_a_shape_field_blocks_as_any_window_of_its_source(
             tmp_path / name,
             target,
             f"{relation}:\n    from lhs\n    select:\n        id\n{body}",
-            " not null",
+            "",
             SHAPE_PAYLOAD,
         )
         assert (published["status"], published["diagnostics"]) == ("BLOCKED", [])
@@ -1442,16 +1468,15 @@ def test_a_window_value_of_a_shape_field_blocks_as_any_window_of_its_source(
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_window_of_a_join_relation_computed_column_emits(tmp_path, target):
     """A later relation's `last_value` and `lag` of a JOIN relation's computed
-    columns, `v = r.id + 1` and `w = k + 1` with `k = r.id`, whose
-    nullability is unknown, emit verified PostgreSQL; MySQL blocks the
-    integer window result, as for any computed integer value. Before,
-    `check --project` refused both windows with PIE-S2104 `value type must
-    be concrete`."""
-    window = "window:\n            order by:\n                id\n"
+    columns, `v = r.id + 1` and `w = k + 1` with `k = r.id`, emit verified
+    PostgreSQL; MySQL blocks the integer window result, as for any computed
+    integer value. Before, `check --project` refused both windows with
+    PIE-S2104 `value type must be concrete`."""
+    window = "window(order by id)\n"
     item = probe.join_witness(
         target,
-        "table joined:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
-        "        on lhs.key == r.key\n    let:\n        k = r.id\n    select:\n"
+        "table joined:\n    from lhs\n    let r = rhs\n"
+        "    inner join r on lhs.key == r.key\n    let k = r.id\n    select:\n"
         "        id = lhs.id\n        v = r.id + 1\n        w = k + 1\n"
         "query result:\n    from joined\n    select:\n        id\n"
         f"        last = last_value(v) {window}"
@@ -1483,7 +1508,8 @@ def test_a_window_of_a_join_relation_computed_column_emits(tmp_path, target):
             (
                 "PIE-B1002",
                 "mysql_window_integer_result_origin_not_supported_in_phase66",
-                21,
+                # The `last = last_value(v) ...` line of the query.
+                19,
             )
         ]
         return

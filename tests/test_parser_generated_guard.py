@@ -315,7 +315,7 @@ def _write_fake_repository(
 
 
 APPROVED_BLOCK_FORMS = (
-    "query orders_since(cutoff: Int not null, label: Text nullable,):\n"
+    "query orders_since(cutoff: Int, label: Text | None,):\n"
     "    let vip:\n"
     "        capture counts\n"
     "        from customers\n"
@@ -323,27 +323,26 @@ APPROVED_BLOCK_FORMS = (
     "        select:\n"
     "            id\n"
     "    let seen:\n"
-    "        values(id: Int not null,):\n"
+    "        values(id: Int,):\n"
     "            1\n"
     "    let both:\n"
     "        union all:\n"
     "            from vip\n"
     "            from seen\n"
     "    from generate_series(1, 31, 1) as counts\n"
-    "    left join vip as v:\n"
-    "        from counts\n"
-    "        on true\n"
+    "    let v = vip\n"
+    "    left join v on True\n"
     "    where n in vip and n not in vip and exists vip\n"
     "    select:\n"
     "        top = scalar vip.id\n"
     "    qualify:\n"
     "        not exists vip or n in vip or scalar vip.id > 1\n"
     "query seed:\n"
-    "    values(id: Int not null, label: Text nullable):\n"
+    "    values(id: Int, label: Text | None):\n"
     '        1, "new"\n'
-    "        2, null\n"
+    "        2, None\n"
     "query empty_seed:\n"
-    "    values(id: Int not null, label: Text nullable)\n"
+    "    values(id: Int, label: Text | None)\n"
 )
 
 

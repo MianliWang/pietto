@@ -4,10 +4,10 @@ dialect mysql
 encoding utf8
 
 shape CompatibilityRow:
-    order: Text not null
-    email: Text not null
+    order: Text
+    email: Text
 
-source Rows: CompatibilityRow is mysql.table("Sales.Compat`ibilityRows")
+source Rows: CompatibilityRow = mysql.table("Sales.Compat`ibilityRows")
 
 table LiteralCompatibility:
     from Rows
@@ -17,9 +17,9 @@ table LiteralCompatibility:
         EscapedText = "\\'; --"
         ControlText = "\b\n\r\t"
         UnicodeText = "你好"
-        Nothing = null
-        Truth = true
-        Falsehood = false
+        Nothing = None
+        Truth = True
+        Falsehood = False
         Count = 42
         Ratio = 1.5
         ReservedName = order

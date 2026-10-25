@@ -263,6 +263,49 @@ class SQLBlockRead:
     kind: str = "exists"
     column: int | None = None
     operands: tuple[Any, ...] = ()
+    predicate: Any = None
+
+
+def any_column(request, target: SQLBlockTarget, position: int) -> StageColumn | None:
+    """Read one actual producer field under this lexical ANY input alias."""
+    if type(position) is not int or position < 0:
+        return None
+    if target.source is None:
+        read = block_column(target, position)
+        if read is None:
+            return None
+        return replace(
+            target.producer.columns[position].column,
+            name=read[0],
+            scope=target.symbol,
+        )
+    definitions = tuple(
+        item
+        for item in request.plan.bindings.definitions
+        if item.ref is target.use.producer
+    )
+    fields = tuple(
+        field for field in target.producer.fields if field.ordinal == position
+    )
+    if (
+        len(definitions) != 1
+        or len(fields) != 1
+        or position >= len(definitions[0].exports)
+    ):
+        return None
+    realization = field_realization(fields[0])
+    if realization is None:
+        return None
+    port = definitions[0].exports[position].ref
+    return StageColumn(
+        position,
+        fields[0].column,
+        port,
+        realization,
+        field=fields[0],
+        source_port=port,
+        scope=target.symbol,
+    )
 
 
 def block_column(target: SQLBlockTarget, column: int) -> tuple[str, Realization] | None:
@@ -730,6 +773,7 @@ CHILD_FIELDS = {
     row.ProjectSQLMembership: ("value", "options"),
     row.ProjectSQLCast: ("value",),
     row.ProjectSQLRelationMembership: ("value",),
+    row.ProjectSQLAny: ("predicate",),
 }
 
 
@@ -991,7 +1035,30 @@ def build_row_value(
             ),
             None,
         )
-    if type(expression) is row.ProjectSQLRelationExists:
+    if type(expression) is row.ProjectSQLAnyReference:
+        if expression.use is None:
+            column = columns.get(expression.port)
+        else:
+            target = columns.get(expression.use)
+            if (
+                type(target) is not SQLBlockTarget
+                or columns.get((expression.use, "any")) is not target.symbol
+                or expression.position is None
+            ):
+                return None, ("PIE-B1001", "any_reference_outside_lexical_scope")
+            column = any_column(request, target, expression.position)
+        if type(column) is not StageColumn:
+            return None, ("PIE-B1001", "any_reference_outside_input_scope")
+        if column.realization.tag != tag or column.realization.nullable != nullable:
+            return None, ("PIE-B1002", "any_reference_logical_type_or_null_drift")
+        return SQLStageReference(
+            expression,
+            expression.port or column.terminal,
+            column,
+            column.realization,
+            column.scope,
+        ), None
+    if type(expression) in (row.ProjectSQLRelationExists, row.ProjectSQLAny):
         # The stage scope carries each readable block target under its own
         # expression block use; existence is never NULL.
         target = columns.get(expression.use)
@@ -999,7 +1066,23 @@ def build_row_value(
             return None, ("PIE-B1001", "expression_block_use_outside_scope")
         if tag != "Bool" or nullable is not False:
             return None, ("PIE-B1002", "existence_result_not_non_null_bool")
-        return SQLBlockRead(expression, target, _bool(family, False)), None
+        predicate = None
+        if type(expression) is row.ProjectSQLAny:
+            scoped = {**columns, (expression.use, "any"): target.symbol}
+            predicate, problem = build_row_value(
+                request,
+                scoped,
+                expression.predicate,
+                uses,
+                reference_type=reference_type,
+            )
+            if problem is not None:
+                return None, problem
+            if realization_of(predicate, family).tag != "Bool":
+                return None, ("PIE-B1003", "any_predicate_requires_bool")
+        return SQLBlockRead(
+            expression, target, _bool(family, False), predicate=predicate
+        ), None
     if type(expression) is row.ProjectSQLRelationScalar:
         # One named output of the read producer; no row reads NULL, and more
         # than one row is the database's own runtime error.
@@ -1805,7 +1888,10 @@ def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
             value,
             *(
                 node
-                for operand in value.operands
+                for operand in (
+                    *value.operands,
+                    *((value.predicate,) if value.predicate is not None else ()),
+                )
                 for node in _value_nodes(operand, render_order=render_order)
             ),
         )
@@ -1826,7 +1912,15 @@ def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
 
 
 def operand_refs(value) -> tuple[Any, ...]:
-    if type(value) in {SQLOperation, SQLBlockRead}:
+    if type(value) is SQLBlockRead:
+        return tuple(
+            root_expression(operand).ref
+            for operand in (
+                *value.operands,
+                *((value.predicate,) if value.predicate is not None else ()),
+            )
+        )
+    if type(value) is SQLOperation:
         return tuple(root_expression(operand).ref for operand in value.operands)
     return ()
 
@@ -1915,6 +2009,7 @@ def demand_rule(plan, entry) -> str | None:
         return "R05"
     if type(expression) in {
         row.ProjectSQLRelationExists,
+        row.ProjectSQLAny,
         row.ProjectSQLRelationScalar,
         row.ProjectSQLRelationMembership,
     }:
@@ -1931,8 +2026,22 @@ def match_applicability(request):
         for site in plan.expression_sites
         if type(site) is row.ProjectSQLMatchSite
     }
+    children = {}
+    for operand in plan.operands:
+        children.setdefault(operand.parent, []).append(operand.child)
+    inside_any = set()
+    pending = [
+        expression.predicate
+        for expression in plan.expressions
+        if type(expression) is row.ProjectSQLAny
+    ]
+    while pending:
+        reference = pending.pop()
+        if reference not in inside_any:
+            inside_any.add(reference)
+            pending.extend(children.get(reference, ()))
     for expression in plan.expressions:
-        if expression.site.ref not in sites:
+        if expression.site.ref not in sites or expression.ref in inside_any:
             continue
         problem = _match_node(plan, expression)
         if problem is not None:
@@ -1941,6 +2050,8 @@ def match_applicability(request):
 
 
 def _match_node(plan, expression):
+    if type(expression) in (row.ProjectSQLAny, row.ProjectSQLAnyReference):
+        return None
     if type(expression) is row.ProjectSQLMatchReference:
         ports = {port.ref: port for port in plan.join_ports}
         port = ports.get(expression.port)

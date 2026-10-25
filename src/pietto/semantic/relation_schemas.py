@@ -88,6 +88,7 @@ def propagate_relation_schemas(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     reported_errors: frozenset[Diagnostic] | None = None,
     joined_input_builder: JoinedInputBuilder | None = None,
+    reserved_let_names: Mapping[DerivedRelation, frozenset[str]] | None = None,
 ) -> tuple[dict[DerivedRelation, RowSchema], list[Diagnostic]]:
     """Propagate stable projection names through table and query relations."""
 
@@ -116,6 +117,7 @@ def propagate_relation_schemas(
                 relation_let_expressions=relation_let_expressions,
                 type_expansions=type_expansions,
                 reported_errors=reported_errors,
+                reserved_let_names=reserved_let_names,
             )
             schemas[definition] = schema
             diagnostics.extend(relation_diagnostics)
@@ -142,6 +144,7 @@ def propagate_relation_schemas(
             relation_let_expressions=relation_let_expressions,
             type_expansions=type_expansions,
             reported_errors=reported_errors,
+            reserved_let_names=reserved_let_names,
         )
         visiting.remove(definition)
         schemas[definition] = schema
@@ -187,6 +190,7 @@ def project_relation_schema(
     expression_value_types: Mapping[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType],
     joined_input_builder: JoinedInputBuilder | None = None,
+    reserved_let_names: Mapping[DerivedRelation, frozenset[str]] | None = None,
 ) -> RowSchema:
     """Project one relation's schema from the schema it reads, as propagation does."""
 
@@ -201,6 +205,7 @@ def project_relation_schema(
         expression_value_types=expression_value_types,
         relation_let_expressions=None,
         type_expansions=type_expansions,
+        reserved_let_names=reserved_let_names,
     )[0]
 
 
@@ -213,6 +218,7 @@ def _project_schema(
     relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]] | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     reported_errors: frozenset[Diagnostic] | None = None,
+    reserved_let_names: Mapping[DerivedRelation, frozenset[str]] | None = None,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build ordered output fields from stable projection names."""
 
@@ -220,6 +226,9 @@ def _project_schema(
         definition,
         input_schema,
         relation_let_expressions=relation_let_expressions,
+        reserved_names=None
+        if reserved_let_names is None
+        else reserved_let_names.get(definition),
     )
     let_names = frozenset(let_expansions or ())
     rejected_lets = rejected_let_names(definition, let_expansions)
@@ -289,7 +298,7 @@ def _project_schema(
                 # none of these is unknown.
                 if (
                     has_bare_field(input_schema, expression.name)
-                    or (item.alias is not None and expression.name in let_names)
+                    or expression.name in let_names
                     or _has_known_expression_type(
                         expression,
                         expression_value_types=expression_value_types,
@@ -330,6 +339,7 @@ def _let_expansions_for_definition(
     input_schema: RowSchema,
     *,
     relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]] | None,
+    reserved_names: frozenset[str] | None = None,
 ) -> Mapping[str, Expression] | None:
     if relation_let_expressions is not None:
         return relation_let_expressions.get(definition)
@@ -337,7 +347,11 @@ def _let_expansions_for_definition(
         definition,
         input_schema,
         reserved_names=(
-            join_reserved_let_names(definition) if input_schema.joined else frozenset()
+            reserved_names
+            if reserved_names is not None
+            else join_reserved_let_names(definition)
+            if input_schema.joined
+            else frozenset()
         ),
     )
 
@@ -565,7 +579,9 @@ def _qualified_projection_input_field(
     """Resolve a two-part projection against the visible input bindings."""
 
     return qualified_field(
-        input_schema, expression.parts, definition.from_clause.source_name
+        input_schema,
+        expression.parts,
+        (definition.from_clause.binding_name or definition.from_clause.source_name),
     )
 
 

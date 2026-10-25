@@ -28,12 +28,12 @@ from pietto.sql.mysql import emit_mysql_sql
 
 BASE_SHAPE = (
     "shape Order:\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    status: Text not null\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    status: Text\n"
 )
 
 
@@ -233,14 +233,16 @@ def test_aggregates_refuse_projection_aliases_and_read_lets_and_type_aliases() -
             "postgres.table",
             "query aggregate_stats:\n"
             "    from orders\n"
-            "    let:\n"
-            "        gross = price + amount\n"
+            "    let gross = price + amount\n"
             "    select:\n"
             "        value = sum(gross)\n",
         )
     )
     let_name = analyze(let_script)
-    let_relation = let_script.definitions[-1]
+    # A modern `let name = expression` line is normalized into the analyzed
+    # relation, so the model's facts describe the analyzed script's definition.
+    assert let_name.script is not None
+    let_relation = let_name.script.definitions[-1]
     assert isinstance(let_relation, QueryDef)
     assert _error_codes(let_name) == []
     _assert_value_type(
@@ -249,10 +251,10 @@ def test_aggregates_refuse_projection_aliases_and_read_lets_and_type_aliases() -
     )
 
     type_alias_script = _parse(
-        "type Money = Decimal(12, 2) not null\n"
+        "type Money = Decimal(12, 2)\n"
         "shape Order:\n"
-        "    money: Money not null\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    money: Money\n"
+        'source orders: Order = postgres.table("orders")\n'
         "table aggregate_stats:\n"
         "    from orders\n"
         "    select:\n"
@@ -277,7 +279,7 @@ def test_decimal_int_mvp_adds_no_public_precision_scale_fields() -> None:
 
 
 def _source(connector: str, relation: str) -> str:
-    return BASE_SHAPE + f'source orders: Order is {connector}("orders")\n' + relation
+    return BASE_SHAPE + f'source orders: Order = {connector}("orders")\n' + relation
 
 
 def _parse(source: str) -> Script:

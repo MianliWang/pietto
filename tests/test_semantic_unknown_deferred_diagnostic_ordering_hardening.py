@@ -99,8 +99,7 @@ def test_unresolved_relation_blocks_private_carriers_without_extra_diagnostics(
             tmp_path,
             "query broken:\n"
             "    from missing_relation\n"
-            "    let:\n"
-            "        total = id + 1\n"
+            "    let total = id + 1\n"
             "    select:\n"
             "        id\n",
         )
@@ -145,14 +144,12 @@ def test_relation_cycle_blocks_private_carriers_without_missing_field_noise(
             tmp_path,
             "query first:\n"
             "    from second\n"
-            "    let:\n"
-            "        total = id + 1\n"
+            "    let total = id + 1\n"
             "    select:\n"
             "        missing\n"
             "query second:\n"
             "    from first\n"
-            "    let:\n"
-            "        other = id + 1\n"
+            "    let other = id + 1\n"
             "    select:\n"
             "        also_missing\n",
             include_source=False,
@@ -283,9 +280,8 @@ def test_invalid_selected_let_helper_diagnostics_stay_private_and_ordered(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = subtotal + bonus\n"
-            "        subtotal = score\n"
+            "    let total = subtotal + bonus\n"
+            "    let subtotal = score\n"
             "    select:\n"
             "        total\n",
         )
@@ -475,14 +471,14 @@ def _project(
     )
     source_prefix = (
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text not null\n"
-        "    score: Int not null\n"
-        "    bonus: Int not null\n"
-        "    status: Text not null\n"
+        "    id: Int\n"
+        "    email: Text\n"
+        "    score: Int\n"
+        "    bonus: Int\n"
+        "    status: Text\n"
     )
     if include_source:
-        source_prefix += 'source users: User is postgres.table("users")\n'
+        source_prefix += 'source users: User = postgres.table("users")\n'
     (root / "models.pietto").write_text(
         source_prefix + relation_source,
         encoding="utf-8",

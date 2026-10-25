@@ -182,10 +182,45 @@ def stage_origins(plan):
 
 def reference_source_ports(plan):
     """Source port each reference expression reads, following retained stage links."""
+    from pietto._project.project_sql_plan_expressions import ProjectSQLAnyReference
+
     sources = projection_sources(plan)
     origins = stage_origins(plan)
+    block_uses = {use.ref: use for use in plan.expression_block_uses}
+    definitions = {
+        definition.ref: definition for definition in plan.bindings.definitions
+    }
+    carried = {
+        port.ref: port.producer_port
+        for port in plan.input_ports
+        if port.producer_port is not None
+    }
+    carried.update(
+        {
+            port.ref: port.source
+            for port in (*plan.stage_ports, *plan.join_ports, *plan.result_ports)
+        }
+    )
     result = {}
     for expression in plan.expressions:
+        if type(expression) is ProjectSQLAnyReference:
+            reference = expression.port
+            if expression.use is not None:
+                assert expression.position is not None
+                use = block_uses[expression.use]
+                reference = definitions[use.producer].exports[expression.position].ref
+            seen = set()
+            while (
+                reference not in sources
+                and reference in carried
+                and reference not in seen
+            ):
+                seen.add(reference)
+                reference = carried[reference]
+            source_port = sources.get(reference)
+            if source_port is not None:
+                result[expression.ref] = (expression, source_port)
+            continue
         port = origins.get(getattr(expression, "port", None))
         if port is None or port.producer_port is None:
             continue

@@ -35,14 +35,14 @@ from pietto.sql.mysql_expressions import render_mysql_expression
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    region: Text\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -59,7 +59,7 @@ def test_no_group_count_expression_arguments_lower_to_aggregate_call_ir() -> Non
         "        lowered = count(lower(status))\n"
         "        trimmed = count(trim(status))\n"
         "        length_status = count(len(status))\n"
-        "        active_count = count(active and true)\n"
+        "        active_count = count(active and True)\n"
     )
     projections = _projections(relation)
 
@@ -224,11 +224,11 @@ def test_direct_lower_expr_for_count_expression_uses_aggregate_call_ir() -> None
     [
         ("value = count(1)", "PIE-S2315"),
         ('value = count("x")', "PIE-S2315"),
-        ("value = count(true)", "PIE-S2315"),
+        ("value = count(True)", "PIE-S2315"),
         ("value = count(1 + 2)", "PIE-S2315"),
         ("value = count(amount > 1)", "PIE-S2315"),
-        ("value = count(amount between 1 and 10)", "PIE-S2315"),
-        ("value = count(amount is null)", "PIE-S2315"),
+        ("value = count(1 <= amount <= 10)", "PIE-S2315"),
+        ("value = count(amount is None)", "PIE-S2315"),
         ('value = count(matches(status, "active"))', "PIE-S2315"),
         ("value = count_distinct(amount + tax)", "PIE-S2315"),
         ("value = min(amount + tax)", "PIE-S2315"),

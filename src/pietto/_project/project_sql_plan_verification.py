@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from pietto._project.existence_values import (
+    ProjectAnyField,
+    ProjectAnyLetValue,
+    ProjectAnyRowBinding,
+)
+
 from pietto._project.project_verification_scope import once
 
 from typing import TYPE_CHECKING, Any
@@ -167,6 +173,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast_nodes.ConditionalExpr,
         ast_nodes.MembershipExpr,
         ast_nodes.RelationExistsExpr,
+        ast_nodes.AnyExpr,
         ast_nodes.RelationScalarExpr,
         ast_nodes.RelationMembershipExpr,
         ast_nodes.CapturedFieldExpr,
@@ -1271,7 +1278,15 @@ def _row_site(
                 or len(occurrence.expression.arguments) != 1
             ):
                 return False
-            if site.expression is not occurrence.expression.arguments[0]:
+            normalized = (
+                evidence.effective_argument
+                if isinstance(evidence, aggregation.ProjectAggregateExpressionAnalysis)
+                and evidence.predicate_expression is not None
+                else evidence.normalized_expression
+                if isinstance(evidence, row.ProjectConcreteJoinedNamespaceExpression)
+                else occurrence.expression.arguments[0]
+            )
+            if site.expression is not normalized:
                 return False
             if isinstance(evidence, aggregation.ProjectAggregateExpressionAnalysis):
                 return (
@@ -1285,7 +1300,7 @@ def _row_site(
                 isinstance(authority, row.ProjectSQLJoinedRowAuthority)
                 and isinstance(evidence, row.ProjectConcreteJoinedNamespaceExpression)
                 and evidence.namespace is authority.namespaces.post_let
-                and evidence.expression is site.expression
+                and evidence.normalized_expression is site.expression
             )
         return (
             role is row.ProjectSQLExpressionRole.SATISFYING
@@ -2726,6 +2741,8 @@ def _capture_ports(edge, incoming) -> tuple | None:
 
 
 def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
+    from pietto._project.project_sql_plan import existence_values, expression_types
+
     position = operand_position = 0
     variants = {
         LiteralExpr: row.ProjectSQLLiteral,
@@ -2739,6 +2756,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         BetweenExpr: row.ProjectSQLBetween,
         ConditionalExpr: row.ProjectSQLConditional,
         MembershipExpr: row.ProjectSQLMembership,
+        ast_nodes.AnyExpr: row.ProjectSQLAny,
         ast_nodes.RelationExistsExpr: row.ProjectSQLRelationExists,
         ast_nodes.RelationScalarExpr: row.ProjectSQLRelationScalar,
         ast_nodes.RelationMembershipExpr: row.ProjectSQLRelationMembership,
@@ -2787,17 +2805,40 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             else row.ProjectSQLScalarCall
         )
         # Traverse actual source independently of the expression allocator.
-        pending, nodes = (
-            [site.expression if aggregate_site else site.occurrence.expression],
-            [],
+        source_expression = (
+            site.expression
+            if aggregate_site
+            else site.evidence.expression
+            if isinstance(site, row.ProjectSQLMatchSite)
+            else site.evidence.normalized_expression
+            if isinstance(
+                site.evidence,
+                (
+                    ProjectNoJoinScalarExpression,
+                    row.ProjectConcreteJoinedNamespaceExpression,
+                ),
+            )
+            else site.evidence.normalized_expression
+            if isinstance(site.evidence, row.ProjectJoinedLetValue)
+            else site.evidence.scope_facts.binding_expressions[
+                site.evidence.binding.name
+            ]
+            if isinstance(site.evidence, ProjectModuleLetBindingFact)
+            else site.occurrence.expression
         )
+        pending, nodes = [source_expression], []
         while pending:
             node = pending.pop()
-            if type(node) not in _KNOWN_EXPRESSIONS | {ParameterRefExpr}:
+            if type(node) not in _KNOWN_EXPRESSIONS | {
+                ParameterRefExpr,
+                ast_nodes.AnyExpr,
+            }:
                 return False
             nodes.append(node)
             if id(node) in atomic:
                 children = ()
+            elif isinstance(node, ast_nodes.AnyExpr):
+                children = (node.predicate,)
             elif isinstance(node, (BinaryExpr, ComparisonExpr)):
                 children = (node.left, node.right)
             elif (
@@ -2848,11 +2889,28 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         local = {id(n): value for n, value in zip(nodes, values, strict=True)}
         if len(local) != len(nodes):
             return False
-        types = {id(n): (n, v) for n, v in row.evidence_types(site.evidence).items()}
+        types = {id(n): (n, v) for n, v in expression_types(site.evidence).items()}
+        checked_values = {
+            id(item.expression): item for item in existence_values(site.evidence)
+        }
+        checked_references = {
+            id(reference.expression): reference
+            for item in checked_values.values()
+            for reference in item.references
+        }
+        checked_bindings = {
+            id(item.input.binding): item for item in checked_values.values()
+        }
         references = iter(site.references)
         environment = {id(port.key): port for port in incoming}
         reference_position = 0
         for node, value in zip(nodes, values, strict=True):
+            null_predicate = any(
+                isinstance(checked.predicate, LiteralExpr)
+                and checked.predicate.value is None
+                and checked.predicate is node
+                for checked in checked_values.values()
+            )
             variants[LiteralExpr] = (
                 row.ProjectSQLBoundLiteral
                 if type(value) is row.ProjectSQLBoundLiteral
@@ -2861,14 +2919,21 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             if (
                 type(value)
                 is not (
-                    reference_type if id(node) in atomic else variants.get(type(node))
+                    row.ProjectSQLAnyReference
+                    if id(node) in checked_references
+                    else reference_type
+                    if id(node) in atomic
+                    else variants.get(type(node))
                 )
                 or value.site is not site
                 or value.expression is not node
                 or id(node) not in types
                 or types[id(node)][0] is not node
                 or value.value_type is not types[id(node)][1]
-                or value.value_type.kind is not ValueTypeKind.KNOWN
+                or (
+                    value.value_type.kind is not ValueTypeKind.KNOWN
+                    and not null_predicate
+                )
             ):
                 return False
             if isinstance(
@@ -3110,6 +3175,102 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 ):
                     return False
                 reference_position += 1
+                children = ()
+            elif isinstance(value, row.ProjectSQLAny):
+                checked = checked_values.get(id(node))
+                uses = tuple(
+                    use
+                    for use in plan.bindings.expression_block_uses
+                    if use.ref is value.use
+                )
+                if (
+                    checked is None
+                    or value.evidence is not checked
+                    or checked.diagnostics
+                    or len(uses) != 1
+                ):
+                    return False
+                use = uses[0]
+                consumers = tuple(
+                    d.ref
+                    for d in plan.bindings.definitions
+                    if d.entry.owner is site.owner
+                )
+                if (
+                    len(consumers) != 1
+                    or use.consumer is not consumers[0]
+                    or use.expression is not checked.input.binding.expression
+                    or use.use.target is not checked.input.binding.target
+                ):
+                    return False
+                if (
+                    value.value_type is not checked.value_type
+                    or value.value_type.resolved_type.name != "Bool"
+                    or value.value_type.nullability is not EffectiveNullability.NON_NULL
+                ):
+                    return False
+                children = (local[id(checked.predicate)].ref,)
+                if value.predicate is not children[0]:
+                    return False
+                read_uses.append(use)
+            elif isinstance(value, row.ProjectSQLAnyReference):
+                checked = checked_references.get(id(node))
+                if (
+                    checked is None
+                    or value.reference is not checked
+                    or checked.target is None
+                ):
+                    return False
+                target = checked.target
+                if isinstance(target, ProjectAnyField) and isinstance(
+                    target.binding, ProjectAnyRowBinding
+                ):
+                    scope = checked_bindings.get(id(target.binding))
+                    uses = tuple(
+                        use
+                        for use in plan.bindings.expression_block_uses
+                        if use.ref is value.use
+                    )
+                    if (
+                        scope is None
+                        or scope.input.schema is None
+                        or len(uses) != 1
+                        or uses[0].expression is not target.binding.expression
+                        or value.port is not None
+                    ):
+                        return False
+                    positions = tuple(
+                        i
+                        for i, field in enumerate(scope.input.schema.fields.values())
+                        if field is target.evidence
+                    )
+                    if (
+                        len(positions) != 1
+                        or type(value.position) is not int
+                        or value.position != positions[0]
+                    ):
+                        return False
+                else:
+                    key = (
+                        target.source_field
+                        if isinstance(target, ProjectAnyField)
+                        else target.authority.occurrence
+                        if isinstance(target, ProjectAnyLetValue)
+                        and isinstance(target.authority, row.ProjectJoinedLetValue)
+                        else target.binding
+                        if isinstance(target, ProjectAnyLetValue)
+                        else None
+                    )
+                    port = environment.get(id(key))
+                    if (
+                        key is None
+                        or port is None
+                        or port.key is not key
+                        or value.port is not port.ref
+                        or value.use is not None
+                        or value.position is not None
+                    ):
+                        return False
                 children = ()
             elif isinstance(value, aggregation.ProjectSQLAggregateArgumentCall):
                 children = tuple(local[id(argument)].ref for argument in node.arguments)
@@ -3416,7 +3577,11 @@ def _row_origins_and_demands(plan):
         )
     for value in plan.expressions:
         dependencies = (
-            (value.port,)
+            (value.use,)
+            if isinstance(value, row.ProjectSQLAnyReference) and value.use is not None
+            else (value.port,)
+            if isinstance(value, row.ProjectSQLAnyReference) and value.port is not None
+            else (value.port,)
             if isinstance(
                 value,
                 (
@@ -3431,6 +3596,7 @@ def _row_origins_and_demands(plan):
             if isinstance(
                 value,
                 (
+                    row.ProjectSQLAny,
                     row.ProjectSQLRelationExists,
                     row.ProjectSQLRelationScalar,
                     row.ProjectSQLRelationMembership,
@@ -5912,6 +6078,7 @@ def _literal_schema(plan, policy):
                 ConditionalExpr,
                 MembershipExpr,
                 ast_nodes.RelationMembershipExpr,
+                ast_nodes.AnyExpr,
                 CastExpr,
             )
             for parent, _ in position.ancestry
@@ -6172,7 +6339,8 @@ def _verify(plan, completed, bundle, selected, policy, envelope):
         return (Issue.STRUCTURE,)
 
 
-@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+# repr=False: a generated repr expands the shared plan graph as a tree.
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False, repr=False)
 class ProjectSQLPlanVerification:
     plan: ProjectSQLPlan | ProjectSQLPlanUnavailable
     completed: ProjectConcreteCompletedSemanticResult
@@ -6679,6 +6847,43 @@ def _verify_compiled_match_inventory(plan: CompiledSQLPlan):
                         (),
                     )
                 )
+        from pietto._project.project_compiled_schema import (
+            predicate_calls,
+            predicate_equalities,
+        )
+
+        equalities = predicate_equalities(records, record)
+        calls = tuple(
+            call
+            for call in predicate_calls(records, record)
+            if call.get("role") == "on"
+        )
+        uses = record.get("inputs")
+        positions = set()
+        for equality in equalities:
+            operands = equality.get("operands")
+            for left, right_read in (operands, operands[::-1]):
+                if left.kind == right_read.kind == "read" and (
+                    records[left].get("use") == uses[0]
+                    and records[right_read].get("use") == uses[1]
+                ):
+                    positions.add(
+                        records[records[right_read].get("port")].get("ordinal")
+                    )
+        matched = tuple(
+            group
+            for group in right.value_classes
+            if any(member.field_position in positions for member in group.members)
+        )
+        grounds.extend(
+            (
+                Kind.MATCHED_KEY,
+                (address,),
+                (record, right_use, key, *calls, *equalities),
+                (),
+            )
+            for key in resolved_matching_keys(right.keys, matched)
+        )
         grounds.extend(
             (kind, (address,), (right_use, *roots), ())
             for kind, roots in _compiled_right_bounds(ir, right_use.get("producer"))

@@ -89,23 +89,24 @@ def _source(
     order_by: tuple[str, ...] = ("id",),
 ) -> str:
     ordering = (
-        "            order by:\n"
-        + "".join(f"                {item}\n" for item in order_by)
+        "            order by\n"
+        + ",\n".join(f"                {item}" for item in order_by)
+        + "\n"
         if order_by
         else ""
     )
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    secondary: Int not null\n"
-        "    value: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    secondary: Int\n"
+        "    value: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query framed:\n"
         "    from rows\n"
         "    select:\n"
-        f"        result = {call} window:\n"
+        f"        result = {call} window(\n"
         f"{ordering}"
-        f"            {frame}\n"
+        f"            {frame})\n"
     )
 
 
@@ -410,7 +411,7 @@ def test_legal_empty_groups_is_not_structural_invalidity() -> None:
     assert interval.empty
 
 
-@pytest.mark.parametrize("offset", ("-1", "true", "1.5", "id"))
+@pytest.mark.parametrize("offset", ("-1", "True", "1.5", "id"))
 def test_groups_offsets_require_nonnegative_integer_literal_evidence(
     offset: str,
 ) -> None:
@@ -540,8 +541,8 @@ def test_groups_is_lazy_and_adds_no_ir_or_sql_renderer() -> None:
 def test_groups_keyword_remains_contextual_outside_frame_clause() -> None:
     source = (
         "shape Row:\n"
-        "    groups: Int not null\n"
-        'source groups: Row is postgres.table("groups")\n'
+        "    groups: Int\n"
+        'source groups: Row = postgres.table("groups")\n'
         "query selected:\n"
         "    from groups\n"
         "    select:\n"

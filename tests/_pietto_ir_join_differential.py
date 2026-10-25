@@ -1,66 +1,105 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
+from collections.abc import Mapping
+from copy import copy
+from dataclasses import asdict, fields as dataclass_fields, replace
 from importlib.metadata import version
 import json
 import os
 from pathlib import Path
 import sys
-from typing import cast
 
+from _pietto_ir_query_block_differential import _portable_records
+from _pietto_ir_project_differential import _relation_value as _base_relation_value
 from pietto._project import check as project_check
 from pietto._project import project_grain
-from pietto._project import project_ir_construction as construction
-from pietto._project import project_ir_joins as joins
-from pietto._project import project_ir_properties as ir_properties
-from pietto._project import project_ir_relational_properties as relational
-from pietto._project import project_multifact as multifact
-from pietto._project import project_phase62_inspection as inspection
-from pietto._project import project_phase62_pure_boundary as pure
-from pietto._project import project_phase62_verification as phase62
-from pietto._project import project_relationship_conditions as conditions
-from pietto._project import project_relationship_match_guarantees as guarantees
-from pietto._project import project_relationship_paths as paths
-from pietto._project import project_relationship_uses as relationship_uses
-from pietto._project import project_relationships, project_row_keys, project_value_fds
+from pietto._project import project_query_block_ir_pure_boundary as pure
 from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
+from pietto._project.project_completed_semantics import (
+    ProjectConcreteCompletedSemanticResult,
+    build_project_completed_semantic_result,
+)
+from pietto._project.project_completion import ProjectEffectiveOutputTerminal
+from pietto._project.project_final_outputs import (
+    ProjectEffectiveOutputCompletionTerminal,
+)
+from pietto._project.project_join_conditions import ProjectJoinCondition
+from pietto._project.project_joined_aggregation import (
+    ProjectNonConcreteJoinedAggregation,
+)
+from pietto._project.project_joined_qualify import (
+    ProjectConcreteJoinedQualify,
+    ProjectNonConcreteJoinedQualify,
+)
+from pietto._project.project_joined_windows import (
+    ProjectConcreteJoinedWindowStage,
+    ProjectNonConcreteJoinedWindowStage,
+)
+from pietto._project.project_ir_joins import ProjectIRNonConcreteJoinRegion
+from pietto._project.project_query_block import ProjectNonConcreteQueryBlock
+from pietto._project.project_relationship_predicates import (
+    ProjectRelationshipPredicateExpression,
+)
+from pietto._project.project_relationship_uses import (
+    ProjectJoinUseIssue,
+    ProjectNonConcreteJoinUse,
+    ProjectRelationBindingOccurrence,
+)
+from pietto._project.project_scalar_namespaces import (
+    ProjectNonConcreteJoinedNamespaceExpression,
+)
+from pietto._project.project_scalar_references import ProjectScalarReferenceResolution
+from pietto._project.row_expression_type_facts import scalar_field_reference_leaves
+from pietto._project.project_current_joins import (
+    ProjectCurrentBinaryJoin,
+    current_forward_at_most_one,
+)
 from pietto._project.project_ir import ProjectIRSnapshotScope
-from pietto._project.project_ir_composition import build_project_ir_project_plan
 from pietto._project.project_ir_construction import ProjectIRAllocationState
-from pietto._project.project_ir_evaluation_context import (
-    build_project_ir_evaluation_context_stage,
+from pietto._project.project_ir_pipeline import build_project_ir_pipeline
+from pietto._project.project_ir_properties import ProjectIRJoinedRowField
+from pietto.ast_nodes import QueryDef
+from pietto._project.project_query_block_ir import (
+    ProjectIRQueryBlockTerminal,
+    build_project_query_block_ir,
 )
-from pietto._project.project_ir_verification import (
-    build_project_ir_analysis_bundle,
-    verify_project_ir_stage,
+from pietto._project.project_query_block_ir_inspection import (
+    ProjectIRQueryBlockInspectionProduct,
+    build_project_query_block_ir_inspection,
+    query_project_query_block_outputs,
+)
+from pietto._project.project_query_block_ir_verification import (
+    ProjectIRQueryBlockAnalysisBundle,
+    ProjectIRQueryBlockVerificationStatus,
+    build_project_query_block_ir_analysis_bundle,
+    verify_project_query_block_ir,
 )
 
-
-OBSERVATION_FORMAT = "pietto.phase62-join-differential.v1"
+OBSERVATION_FORMAT = "pietto.join-differential.v2"
 SEED_ENVIRONMENT = "PIETTO_SLICE15_IRRELEVANT"
 
 PRIMARY_MAIN_SOURCE = """shape CustomerRow:
-    id: Int not null
-    unique customer_key on id
+    id: Int
+    customer_key = unique(id)
 shape OrderRow:
-    id: Int not null
-    customer_id: Int not null
-    product_id: Int not null
-    amount: Int nullable
-    unique order_key on id
+    id: Int
+    customer_id: Int
+    product_id: Int
+    amount: Int | None
+    order_key = unique(id)
 shape ReturnRow:
-    id: Int not null
-    customer_id: Int not null
-    reason_id: Int not null
-    amount: Int nullable
-    unique return_key on id
-source customers: CustomerRow is postgres.table("customers")
-source orders: OrderRow is postgres.table("orders")
-source returns: ReturnRow is postgres.table("returns")
+    id: Int
+    customer_id: Int
+    reason_id: Int
+    amount: Int | None
+    return_key = unique(id)
+source customers: CustomerRow = postgres.table("customers")
+source orders: OrderRow = postgres.table("orders")
+source returns: ReturnRow = postgres.table("returns")
 query orders_by_customer:
     from orders
     group by:
@@ -109,228 +148,186 @@ query global_returns:
     from returns
     select:
         total = count()
-relationship customer_orders_coarse:
-    endpoint customer: customers
-    endpoint orders: orders_by_customer
-    on customer.id == orders.customer_id
-relationship customer_orders_fine:
-    endpoint customer: customers
-    endpoint orders: orders_by_customer_product
-    on customer.id == orders.customer_id
-relationship customer_returns_coarse:
-    endpoint customer: customers
-    endpoint returns: returns_by_customer
-    on customer.id == returns.customer_id
-relationship customer_returns_fine:
-    endpoint customer: customers
-    endpoint returns: returns_by_customer_reason
-    on customer.id == returns.customer_id
-relationship independent_facts:
-    endpoint orders: orders_by_customer_product
-    endpoint returns: returns_by_customer_reason
-    on orders.customer_id == returns.customer_id
-relationship coarse_copy:
-    endpoint original: orders_by_customer
-    endpoint copy: orders_by_customer_copy
-    on original.customer_id == copy.customer_id
-relationship coarse_fine:
-    endpoint coarse: orders_by_customer
-    endpoint fine: orders_by_customer_product
-    on coarse.customer_id == fine.customer_id
-relationship orders_returns_aligned:
-    endpoint orders: orders_by_customer
-    endpoint returns: returns_by_customer
-    on orders.customer_id == returns.customer_id
-relationship parallel_one:
-    endpoint orders: orders_by_customer
-    endpoint returns: returns_by_customer
-    on orders.customer_id == returns.customer_id
-relationship parallel_two:
-    endpoint orders: orders_by_customer
-    endpoint returns: returns_by_customer
-    on orders.customer_id == returns.customer_id
-relationship self_fact:
-    endpoint child: orders_by_customer
-    endpoint parent: orders_by_customer
-    on child.customer_id == parent.customer_id
-relationship globals:
-    endpoint orders: global_orders
-    endpoint returns: global_returns
-    on orders.total == returns.total
-relationship customer_orders_raw:
-    endpoint customer: customers
-    endpoint orders: orders
-    on customer.id == orders.customer_id
-relationship orders_customer_unique_target:
-    endpoint orders: orders
-    endpoint customer: customers
-    on orders.customer_id == customer.id
-relationship nullable_amounts:
-    endpoint orders: orders
-    endpoint returns: returns
-    on orders.amount == returns.amount
-relationship composite_raw:
-    endpoint orders: orders
-    endpoint returns: returns
-    on orders.customer_id == returns.customer_id and orders.product_id == returns.reason_id
+relationship customer_orders_raw(customer: CustomerRow, orders: OrderRow):
+    customer.id == orders.customer_id
+relationship orders_customer_unique_target(orders: OrderRow, customer: CustomerRow):
+    orders.customer_id == customer.id
+relationship nullable_amounts(orders: OrderRow, returns: ReturnRow):
+    orders.amount == returns.amount
+relationship composite_raw(orders: OrderRow, returns: ReturnRow):
+    orders.customer_id == returns.customer_id and orders.product_id == returns.reason_id
 query direct_unique_join:
     from customers
-    inner join orders_by_customer as orders:
-        from customers
+    let coarse_orders = orders_by_customer
+    inner join coarse_orders on customers.id == coarse_orders.customer_id
     select:
         id
 query explicit_one_join:
     from customers
-    inner join orders_by_customer as orders:
-        from customers
-        via customer_orders_coarse: customer -> orders
+    let coarse_orders = orders_by_customer
+    inner join coarse_orders on customers.id == coarse_orders.customer_id
     select:
         id
 query left_one_join:
     from customers
-    left join orders_by_customer as orders:
-        from customers
-        via customer_orders_coarse: customer -> orders
+    let coarse_orders = orders_by_customer
+    left join coarse_orders on customers.id == coarse_orders.customer_id
     select:
         id
 query variant_direct:
     from customers
-    inner join returns_by_customer as returns:
-        from customers
+    let coarse_returns = returns_by_customer
+    inner join coarse_returns on customers.id == coarse_returns.customer_id
     select:
         id
 query variant_explicit:
     from customers
-    inner join returns_by_customer as returns:
-        from customers
-        via customer_returns_coarse: customer -> returns
+    let coarse_returns = returns_by_customer
+    inner join coarse_returns on customers.id == coarse_returns.customer_id
     select:
         id
 query unique_target_inner:
     from orders
-    inner join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
+    let customer = customers
+    inner join customer on orders_customer_unique_target(orders, customer)
     select:
         id
 query unique_target_left:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
     select:
         id
 query fanout_join:
     from customers
-    inner join orders as orders:
-        from customers
-        via customer_orders_raw: customer -> orders
+    inner join orders on customer_orders_raw(customers, orders)
     select:
         id
 query aligned_join:
     from orders_by_customer
-    inner join orders_by_customer_copy as copy:
-        from orders_by_customer
-        via coarse_copy: original -> copy
+    let copy = orders_by_customer_copy
+    inner join copy on orders_by_customer.customer_id == copy.customer_id
     select:
         customer_id
 query comparable_join:
     from orders_by_customer
-    inner join orders_by_customer_product as fine:
-        from orders_by_customer
-        via coarse_fine: coarse -> fine
+    let fine = orders_by_customer_product
+    inner join fine on orders_by_customer.customer_id == fine.customer_id
     select:
         customer_id
 query chasm_join:
     from customers
-    inner join orders_by_customer_product as orders:
-        from customers
-        via customer_orders_fine: customer -> orders
-    inner join returns_by_customer_reason as returns:
-        from customers
-        via customer_returns_fine: customer -> returns
+    let fine_orders = orders_by_customer_product
+    inner join fine_orders on customers.id == fine_orders.customer_id
+    let fine_returns = returns_by_customer_reason
+    inner join fine_returns on customers.id == fine_returns.customer_id
     select:
         id
 query incompatible_join:
     from orders_by_customer_product
-    inner join returns_by_customer_reason as returns:
-        from orders_by_customer_product
-        via independent_facts: orders -> returns
+    let fine_returns = returns_by_customer_reason
+    inner join fine_returns on orders_by_customer_product.customer_id == fine_returns.customer_id
     select:
         customer_id
 query reused_join:
     from customers
-    inner join orders_by_customer as first_orders:
-        from customers
-        via customer_orders_coarse: customer -> orders
-    inner join orders_by_customer as second_orders:
-        from customers
-        via customer_orders_coarse: customer -> orders
+    let first_orders = orders_by_customer
+    inner join first_orders on customers.id == first_orders.customer_id
+    let second_orders = orders_by_customer
+    inner join second_orders on customers.id == second_orders.customer_id
     select:
         id
 query multihop_join:
     from customers
-    inner join returns_by_customer as returns:
-        from customers
-        via customer_orders_coarse: customer -> orders
-        via orders_returns_aligned: orders -> returns
+    let coarse_orders = orders_by_customer
+    inner join coarse_orders on customers.id == coarse_orders.customer_id
+    let coarse_returns = returns_by_customer
+    inner join coarse_returns on coarse_orders.customer_id == coarse_returns.customer_id
     select:
         id
 query self_fact_join:
     from orders_by_customer
-    left join orders_by_customer as parent:
-        from orders_by_customer
-        via self_fact: child -> parent
+    let parent = orders_by_customer
+    left join parent on orders_by_customer.customer_id == parent.customer_id
     select:
         customer_id
 query global_join:
     from global_orders
-    inner join global_returns as returns:
-        from global_orders
-        via globals: orders -> returns
+    let counted_returns = global_returns
+    inner join counted_returns on global_orders.total == counted_returns.total
     select:
         total
 query ambiguous_fact_join:
     from orders_by_customer
-    inner join returns_by_customer as returns:
-        from orders_by_customer
+    let coarse_returns = returns_by_customer
+    inner join coarse_returns on orders_by_customer.customer_id == coarse_returns.customer_id
     select:
         customer_id
 query missing_fact_join:
     from orders_by_customer
-    inner join returns_by_customer_reason as returns:
-        from orders_by_customer
+    let fine_returns = returns_by_customer_reason
+    inner join fine_returns
     select:
         customer_id
 query bad_relationship_join:
     from customers
-    inner join returns_by_customer as returns:
-        from customers
-        via absent_relationship: customer -> returns
+    let coarse_returns = returns_by_customer
+    inner join coarse_returns on absent_relationship(customers, coarse_returns)
     select:
         id
 query bad_role_join:
     from customers
-    inner join returns_by_customer as returns:
-        from customers
-        via customer_returns_coarse: missing -> returns
+    let coarse_returns = returns_by_customer
+    inner join coarse_returns on missing.id == coarse_returns.customer_id
     select:
         id
+query nullable_match_join:
+    from orders
+    let returned = returns
+    inner join returned on nullable_amounts(orders, returned)
+    select:
+        order_id = orders.id
+query composite_match_join:
+    from orders
+    let returned = returns
+    inner join returned on composite_raw(orders, returned)
+    select:
+        order_id = orders.id
+query chasm_aggregate_refusal:
+    from customers
+    let fine_orders = orders_by_customer_product
+    inner join fine_orders on customers.id == fine_orders.customer_id
+    let fine_returns = returns_by_customer_reason
+    inner join fine_returns on customers.id == fine_returns.customer_id
+    select:
+        orders_total = sum(fine_orders.total)
+query predicate_key_inner_outputs:
+    from orders
+    let customer = customers
+    inner join customer on orders_customer_unique_target(orders, customer)
+    select:
+        order_id = orders.id
+        matched_customer_id = customer.id
+query predicate_key_left_outputs:
+    from orders
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    select:
+        order_id = orders.id
+        matched_customer_id = customer.id
 """
 
 DISCONNECTED_SOURCE = """shape AuditRow:
-    id: Int not null
-source audit_rows: AuditRow is postgres.table("audit_rows")
+    id: Int
+source audit_rows: AuditRow = postgres.table("audit_rows")
 query audit_result:
     from audit_rows
     select:
         id
 """
 
-PARALLEL_RELATIONSHIP = """relationship customer_returns_coarse_parallel:
-    endpoint customer: customers
-    endpoint returns: returns_by_customer
-    on customer.id == returns.customer_id
+PARALLEL_RELATIONSHIP = """relationship customer_returns_coarse_parallel(customer: CustomerRow, returns: ReturnRow):
+    customer.id == returns.customer_id
 """
 
 VARIANT_SOURCES = {
@@ -340,139 +337,53 @@ VARIANT_SOURCES = {
         PARALLEL_RELATIONSHIP + "query variant_direct:\n",
         1,
     ),
-    "no_unique": PRIMARY_MAIN_SOURCE.replace(
-        "    unique customer_key on id\n",
-        "",
-        1,
-    ),
+    "no_unique": PRIMARY_MAIN_SOURCE.replace("    customer_key = unique(id)\n", "", 1),
 }
 
 
-def _write_project(
-    root: Path,
-    source: str,
-    *,
-    reverse_creation: bool,
-) -> Path:
+def _write_project(root: Path, source: str, *, reverse_creation: bool) -> Path:
     root.mkdir(parents=True)
     (root / "pietto.toml").write_text(
-        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
-        encoding="utf-8",
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
     )
-    file_items = (
-        ("main.pietto", source),
-        ("z_disconnected.pietto", DISCONNECTED_SOURCE),
-    )
-    for name, text in file_items[::-1] if reverse_creation else file_items:
+    items = (("main.pietto", source), ("z_disconnected.pietto", DISCONNECTED_SOURCE))
+    for name, text in items[::-1] if reverse_creation else items:
         (root / name).write_text(text, encoding="utf-8")
     return root
 
 
-def _semantic_project(root: Path) -> ProjectSemanticResult:
-    parsed = project_check.check_project_parse_only(root)
-    assert parsed.ok, parsed.diagnostics
-    semantic = build_empty_project_semantic_result(parsed)
-    assert semantic.module_semantic_facts is not None
-    assert semantic.module_attribution_facts is not None
-    return semantic
-
-
-def _allocation(
-    coordinates: tuple[int, int, int, int] = (0, 0, 0, 0),
-) -> ProjectIRAllocationState:
-    node, output, slot, use = coordinates
-    return ProjectIRAllocationState(
-        scope=ProjectIRSnapshotScope(),
-        next_plan_node_position=node,
-        next_output_value_position=output,
-        next_input_slot_position=slot,
-        next_use_position=use,
-    )
-
-
 def _build(
-    root: Path,
-    source: str,
-    *,
-    reverse_creation: bool,
-    coordinates: tuple[int, int, int, int] = (0, 0, 0, 0),
+    root: Path, source: str, *, reverse_creation: bool
 ) -> tuple[
     ProjectSemanticResult,
-    multifact.ProjectMultiFactAnalysis,
-    phase62.ProjectPhase62AnalysisBundle,
-    inspection.ProjectPhase62InspectionProduct,
+    ProjectConcreteCompletedSemanticResult,
+    ProjectIRQueryBlockAnalysisBundle,
+    ProjectIRQueryBlockInspectionProduct,
 ]:
-    semantic = _semantic_project(
+    parsed = project_check.check_project_parse_only(
         _write_project(root, source, reverse_creation=reverse_creation)
     )
-    key_set = project_row_keys.build_project_row_keys(semantic)
-    fd_set = project_value_fds.build_project_value_fds(key_set)
-    semantic_facts = semantic.module_semantic_facts
-    attribution = semantic.module_attribution_facts
-    assert semantic_facts is not None and attribution is not None
-    plan = build_project_ir_project_plan(
-        semantic_facts=semantic_facts,
-        attribution=attribution,
-        allocation=_allocation(coordinates),
+    assert parsed.ok, parsed.diagnostics
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(parsed)
     )
-    evaluation = build_project_ir_evaluation_context_stage(plan)
-    origins = project_grain.build_project_grain_origins(fd_set, evaluation)
-    base_verification = verify_project_ir_stage(evaluation)
-    base_properties = relational.build_project_ir_relational_property_stage(
-        origins,
-        build_project_ir_analysis_bundle(base_verification),
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    snapshot = build_project_query_block_ir(completed)
+    verified = verify_project_query_block_ir(snapshot)
+    assert verified.verified, verified.issues
+    bundle = build_project_query_block_ir_analysis_bundle(verified)
+    product = build_project_query_block_ir_inspection(bundle)
+    assert snapshot.completed is completed
+    assert (
+        snapshot.base_plan.semantic_facts
+        is completed.semantic_result.module_semantic_facts
     )
-    relationship_set = project_relationships.build_project_relationships(semantic)
-    condition_set = conditions.build_project_relationship_conditions(relationship_set)
-    guarantee_set = guarantees.build_project_relationship_match_guarantees(
-        condition_set,
-        base_properties,
-    )
-    use_set = relationship_uses.build_project_relationship_uses(
-        relationship_set,
-        paths.build_project_relationship_join_shape_index(guarantee_set),
-    )
-    join_stage = joins.build_project_ir_join_region(
-        base_plan=plan,
-        base_relational=base_properties,
-        uses=use_set,
-        allocation=plan.ending_allocation,
-    )
-    analysis = multifact.build_project_multifact_analysis(
-        evaluation=evaluation,
-        base_relational=base_properties,
-        join_regions=join_stage,
-    )
-    verified = phase62.verify_project_phase62(analysis)
-    bundle = phase62.build_project_phase62_analysis_bundle(verified)
-    product = inspection.build_project_phase62_inspection(bundle)
-    assert key_set.semantic_result is semantic
-    assert fd_set.row_keys is key_set
-    assert plan.semantic_facts is semantic_facts
-    assert evaluation.project_plan is plan
-    assert origins.value_fds is fd_set and origins.evaluation is evaluation
-    assert base_properties.origins is origins
-    assert base_properties.analyses.stage is evaluation
-    assert relationship_set.semantic_result is semantic
-    assert condition_set.relationships is relationship_set
-    assert guarantee_set.conditions is condition_set
-    assert guarantee_set.relational is base_properties
-    assert use_set.relationships is relationship_set
-    assert use_set.index.guarantees is guarantee_set
-    assert join_stage.base_plan is plan
-    assert join_stage.base_relational is base_properties
-    assert join_stage.uses is use_set
-    assert analysis.evaluation is evaluation
-    assert analysis.base_relational is base_properties
-    assert analysis.join_regions is join_stage
-    assert verified.root is analysis
-    assert bundle.verification is verified and bundle.root is analysis
+    assert product.inspection.root is snapshot
     assert product.inspection.analysis_bundle is bundle
-    assert product.inspection.root is analysis
-    return semantic, analysis, bundle, product
+    return completed.semantic_result, completed, bundle, product
 
 
-def _identity_value(identity) -> list[object]:
+def _identity_value(identity):
     nominal = identity.identity
     return [
         nominal.module_path,
@@ -484,138 +395,39 @@ def _identity_value(identity) -> list[object]:
     ]
 
 
-def _relationship_identity_value(identity, name: str) -> list[object]:
+def _owner_value(owner):
+    return [owner.identity.module_path, owner.definition.name]
+
+
+def _span_value(span):
+    return [span.path, span.line, span.column, span.end_line, span.end_column]
+
+
+def _diagnostic_value(diagnostic):
     return [
-        identity.module.path,
-        identity.module_position,
-        identity.relationship_position,
-        name,
+        diagnostic.code,
+        diagnostic.severity.value,
+        diagnostic.message,
+        _span_value(diagnostic.location),
+        diagnostic.suggestion,
     ]
 
 
-def _row_field_identity_value(field) -> list[object]:
-    if type(field) is ir_properties.ProjectIRRowField:
-        identity = field.anchor.identity
-        return [
-            *_identity_value(identity.owner),
-            identity.kind.value,
-            identity.field_position,
-            identity.name,
-        ]
-    assert type(field) is ir_properties.ProjectIRStageRowField
-    return [
-        *_identity_value(field.checkpoint.relation.identity),
-        field.checkpoint.kind.value,
-        field.field_position,
-        field.evidence.name,
-    ]
-
-
-def _ledger(
-    analysis: multifact.ProjectMultiFactAnalysis,
-    owner: str,
-):
-    matches = tuple(
-        item
-        for item in analysis.join_regions.uses.ledgers
-        if item.owner.definition.name == owner
-    )
-    assert len(matches) == 1
-    return matches[0]
-
-
-def _join_region(
-    analysis: multifact.ProjectMultiFactAnalysis,
-    owner: str,
-):
-    matches = tuple(
-        item
-        for item in analysis.join_regions.regions
-        if item.ledger.owner.definition.name == owner
-    )
-    assert len(matches) == 1
-    return matches[0]
-
-
-def _multifact_region(
-    analysis: multifact.ProjectMultiFactAnalysis,
-    owner: str,
-) -> multifact.ProjectMultiFactConcreteRegion:
-    matches = tuple(
-        item
-        for item in analysis.concrete_regions
-        if item.region.ledger.owner.definition.name == owner
-    )
-    assert len(matches) == 1
-    return matches[0]
-
-
-def _relationship_name(
-    analysis: multifact.ProjectMultiFactAnalysis,
-    declaration,
-) -> str:
-    matches = tuple(
-        item.occurrence.name
-        for item in analysis.join_regions.uses.relationships.subjects
-        if item.occurrence.identity is declaration
-    )
-    assert len(matches) == 1
-    return matches[0]
-
-
-def _join_use_value(
-    analysis: multifact.ProjectMultiFactAnalysis,
-    use,
-) -> list[object]:
-    concrete = type(use) is relationship_uses.ProjectConcreteJoinUse
-    return [
-        [*_identity_value(use.identity.owner), use.identity.join_position],
-        use.kind.value,
-        "concrete" if concrete else use.state.value,
-        [] if concrete else [item.kind.value for item in use.issues],
-        []
-        if use.path is None
-        else [
-            [
-                step.position,
-                _relationship_name(analysis, step.guarantee.direction.declaration),
-                step.guarantee.direction.source.identity.endpoint_position,
-                step.guarantee.direction.target.identity.endpoint_position,
-                step.guarantee.minimum.value,
-                step.guarantee.maximum.value,
-            ]
-            for step in use.path.steps
-        ],
-        (
-            None
-            if type(use) is not relationship_uses.ProjectNonConcreteJoinUse
-            or use.direct_result is None
-            else [
-                use.direct_result.status.value,
-                [
-                    _relationship_name(
-                        analysis,
-                        candidate.direction.declaration,
-                    )
-                    for candidate in use.direct_result.candidates
-                ],
-            ]
-        ),
-    ]
-
-
-def _factor_value(identity) -> list[object]:
-    if type(identity) is project_grain.ProjectJoinGrainFactorIdentity:
+def _factor_value(identity):
+    if isinstance(identity, project_grain.ProjectJoinGrainFactorIdentity):
         base = identity.base
         introduction = identity.introduction_use.position
         nulling = [item.position for item in identity.nulling_joins]
+        source = (
+            None
+            if identity.source_factor is None
+            else _factor_value(identity.source_factor)
+        )
     else:
-        base = identity
-        introduction = None
-        nulling = []
+        base, introduction, nulling, source = identity, None, [], None
     operator = (
         base.operator.position
-        if type(base) is project_grain.ProjectGroupedGrainFactorIdentity
+        if isinstance(base, project_grain.ProjectGroupedGrainFactorIdentity)
         else None
     )
     return [
@@ -624,993 +436,1480 @@ def _factor_value(identity) -> list[object]:
         operator,
         introduction,
         nulling,
+        source,
     ]
 
 
-def _relational_value(output) -> list[object]:
-    return [
-        output.output.occurrence.ref.position,
-        [
-            [item.field_position, item.evidence.name, item.effective_nullability.value]
-            for item in output.fields
-        ],
-        [
-            [
-                [
-                    member.field_position
-                    for value_class in item.determinants
-                    for member in value_class.members
-                ],
-                item.strength.value,
-            ]
-            for item in output.keys
-        ],
-        [
-            [
-                [
-                    member.field_position
-                    for value_class in item.determinants
-                    for member in value_class.members
-                ],
-                [
-                    member.field_position
-                    for value_class in item.dependents
-                    for member in value_class.members
-                ],
-                item.strength.value,
-            ]
-            for item in output.fds
-        ],
-        output.grain.state.value,
-        [_factor_value(item.identity) for item in output.grain.factors],
-        [_factor_value(item) for item in output.grain.active],
-        [
-            [
-                [_factor_value(item) for item in dependency.determinants],
-                [_factor_value(item) for item in dependency.dependents],
-            ]
-            for dependency in output.grain.dependencies
-        ],
-    ]
-
-
-def _portable_ref_value(ref) -> list[object]:
-    return [ref.domain.value, ref.position]
-
-
-def _portable_value(value: pure.ProjectPhase62PureValue) -> list[object]:
-    payload: object
-    if value.tag is pure.ProjectPhase62PureTag.TEXT:
-        payload = value.text
-    elif value.tag is pure.ProjectPhase62PureTag.INTEGER:
-        payload = value.integer
-    elif value.tag is pure.ProjectPhase62PureTag.BOOLEAN:
-        payload = value.boolean
-    elif value.tag is pure.ProjectPhase62PureTag.ENUMERATION:
-        payload = value.enumeration
-    elif value.tag is pure.ProjectPhase62PureTag.REF:
-        assert value.ref is not None
-        payload = _portable_ref_value(value.ref)
-    elif value.tag is pure.ProjectPhase62PureTag.REFS:
-        payload = [_portable_ref_value(item) for item in value.refs]
-    elif value.tag is pure.ProjectPhase62PureTag.TEXTS:
-        payload = list(value.texts)
-    elif value.tag is pure.ProjectPhase62PureTag.INTEGERS:
-        payload = list(value.integers)
-    elif value.tag is pure.ProjectPhase62PureTag.ENUMERATIONS:
-        payload = list(value.enumerations)
-    else:
-        assert value.tag is pure.ProjectPhase62PureTag.ABSENT
-        payload = None
-    return [value.tag.value, payload]
-
-
-def _portable_records(
-    document: pure.ProjectPhase62PureDocument,
-) -> list[list[object]]:
-    return [
-        [
-            record.kind.value,
-            [[field.key, _portable_value(field.value)] for field in record.fields],
-        ]
-        for record in document.records
-    ]
-
-
-def _fact_value(fact: multifact.ProjectAggregateFactOccurrence) -> list[object]:
-    return [
-        _identity_value(fact.context.operator.node.anchor.identity),
-        fact.identity.aggregate_node.position,
-        fact.identity.aggregate_result_position,
-        fact.aggregate_result.function,
-        fact.aggregate_result.output_name,
-    ]
-
-
-def _locality_value(locality: multifact.ProjectAggregateFactLocality) -> list[object]:
-    if type(locality) is multifact.ProjectAggregateFactHomeLocality:
-        kind = "home"
-        introduction = None
-        owner = None
-        exposures: list[object] = []
-    else:
-        assert type(locality) is multifact.ProjectAggregateFactJoinLocality
-        kind = locality.side.value
-        introduction = locality.introduction_use.ref.position
-        owner = _identity_value(locality.region.ledger.bindings[0].identity.owner)
-        exposures = [
-            [
-                item.join.node.ref.position,
-                [_factor_value(factor) for factor in item.factor_additions],
-            ]
-            for item in locality.multiplicity_exposures
-        ]
-    return [
-        _fact_value(locality.fact),
-        kind,
-        introduction,
-        owner,
-        [_factor_value(item) for item in locality.contextual_grain.factors],
-        exposures,
-    ]
-
-
-def _binary_value(analysis: multifact.ProjectMultiFactAnalysis, join) -> list[object]:
-    properties = next(
-        item for item in analysis.join_regions.properties.outputs if item.join is join
-    )
-    return [
-        [
-            *_identity_value(join.identity.use.owner),
-            join.identity.use.join_position,
-            join.identity.path_step_position,
-        ],
-        join.node.ref.position,
-        [item.ref.position for item in join.input_slots],
-        [item.ref.position for item in join.input_uses],
-        join.left_input.output.occurrence.ref.position,
-        join.right_input.output.occurrence.ref.position,
-        join.output.occurrence.ref.position,
-        join.kind.value,
-        join.fanout.value,
-        join.survival.value,
-        join.null_extension.value,
-        join.outer_join_barrier.value,
-        [
-            [
-                item.field_position,
-                item.evidence.name,
-                item.introduction_use.ref.position,
-                [ref.position for ref in item.nulling_joins],
-                item.effective_nullability.value,
-            ]
-            for item in join.output.row_shape.fields
-        ],
-        [
-            [
-                item.correspondence.identity.conjunct_position,
-                item.left.field_position,
-                item.right.field_position,
-            ]
-            for item in join.matches
-        ],
-        type(properties.null_extension).__name__,
-        _relational_value(properties.relational),
-    ]
-
-
-def _analysis_observation(
-    analysis: multifact.ProjectMultiFactAnalysis,
-    bundle: phase62.ProjectPhase62AnalysisBundle,
-    product: inspection.ProjectPhase62InspectionProduct,
-    *,
-    query_reverse: bool,
-) -> dict[str, object]:
-    inspected = product.inspection
-    relationship_names = {
-        item.occurrence.identity: item.occurrence.name
-        for item in inspected.relationship_subjects
-    }
-    relationships = [
-        [
-            _relationship_identity_value(
-                item.occurrence.identity,
-                item.occurrence.name,
-            ),
-            item.state.value,
-            [
-                [
-                    endpoint.identity.endpoint_position,
-                    endpoint.authored_role,
-                    endpoint.authored_relation_spelling,
-                ]
-                for endpoint in item.occurrence.endpoints
-            ],
-        ]
-        for item in inspected.relationship_subjects
-    ]
-    directions = [
-        [
-            _relationship_identity_value(
-                item.direction.declaration,
-                relationship_names[item.direction.declaration],
-            ),
-            item.direction.source.identity.endpoint_position,
-            item.direction.target.identity.endpoint_position,
-            item.direction.source.authored_role,
-            item.direction.target.authored_role,
-            item.source_output.output.occurrence.ref.position,
-            item.target_output.output.occurrence.ref.position,
-            item.minimum.value,
-            item.maximum.value,
-        ]
-        for item in inspected.relationship_directions
-    ]
-    conditions_ = [
-        [
-            relationship_names[item.relationship.occurrence.identity],
-            [
-                [
-                    correspondence.identity.conjunct_position,
-                    correspondence.endpoint_zero.authored_endpoint_role,
-                    correspondence.endpoint_zero.authored_field_spelling,
-                    correspondence.endpoint_one.authored_endpoint_role,
-                    correspondence.endpoint_one.authored_field_spelling,
-                    correspondence.semantics.value,
-                ]
-                for correspondence in item.correspondences
-            ],
-        ]
-        for item in inspected.relationship_conditions
-    ]
-    ledgers = [
-        [
-            _identity_value(ledger.bindings[0].identity.owner),
-            [
-                [
-                    binding.identity.binding_position,
-                    binding.name,
-                    binding.relation_name,
-                    binding.state.value,
-                    None
-                    if binding.output is None
-                    else binding.output.output.occurrence.ref.position,
-                ]
-                for binding in ledger.bindings
-            ],
-            [_join_use_value(analysis, use) for use in ledger.uses],
-        ]
-        for ledger in inspected.join_use_ledgers
-    ]
-    join_regions = [
-        [
-            _identity_value(region.ledger.bindings[0].identity.owner),
-            (
-                "concrete"
-                if type(region) is joins.ProjectIRConcreteJoinRegion
-                else cast(joins.ProjectIRNonConcreteJoinRegion, region).state.value
-            ),
-            [
-                _binary_value(analysis, item)
-                for item in (
-                    region.joins
-                    if type(region) is joins.ProjectIRConcreteJoinRegion
-                    else ()
-                )
-            ],
-            [
-                blocker.identity.join_position
-                for blocker in (
-                    region.blockers
-                    if type(region) is joins.ProjectIRNonConcreteJoinRegion
-                    else ()
-                )
-            ],
-            [
-                region.starting_allocation.next_plan_node_position,
-                region.ending_allocation.next_plan_node_position,
-            ],
-        ]
-        for region in analysis.join_regions.regions
-    ]
-    relational_outputs = (
-        *analysis.base_relational.outputs,
-        *(item.relational for item in analysis.join_regions.properties.outputs),
-    )
-    alignments = [
-        [
-            _locality_value(item.left),
-            _locality_value(item.right),
-            item.structural.value,
-            item.common_grain.status.value,
-            [risk.value for risk in item.multiplicity_risks],
-            [requirement.value for requirement in item.requirements],
-            len(item.chasms),
-        ]
-        for item in inspected.alignments
-    ]
-    chasms = [
-        [
-            _identity_value(item.region.ledger.bindings[0].identity.owner),
-            [_locality_value(locality) for locality in item.localities],
-            [join.node.ref.position for join in item.introduction_joins],
-        ]
-        for item in inspected.chasms
-    ]
-    query_keys = (
-        ("direct_unique_join", "join_use"),
-        ("variant_direct", "join_use"),
-        ("ambiguous_fact_join", "join_use"),
-        ("bad_relationship_join", "join_use"),
-        ("bad_role_join", "join_use"),
-    )
-    query_order = query_keys[::-1] if query_reverse else query_keys
-    query_values: dict[str, list[object]] = {}
-    for owner, _kind in query_order:
-        ledger = _ledger(analysis, owner)
-        use = ledger.uses[0]
-        query_values[owner] = [
-            len(inspection.query_project_phase62_join_uses(inspected, use.identity)),
-            _join_use_value(analysis, use),
-        ]
-    for item in inspected.relationship_subjects:
-        assert inspection.query_project_phase62_relationships(
-            inspected,
-            item.occurrence.identity,
-        ) == (item,)
-    for item in inspected.relationship_directions:
-        assert inspection.query_project_phase62_directions(
-            inspected,
-            item.direction,
-        ) == (item,)
-    for item in inspected.binary_joins:
-        assert inspection.query_project_phase62_binary_joins(
-            inspected,
-            item.identity,
-        ) == (item,)
-    for item in inspected.aggregate_facts:
-        queried = inspection.query_project_phase62_fact_localities(
-            inspected,
-            item.identity,
-        )
-        expected = next(
-            entry.localities
-            for entry in inspected.fact_locality_index
-            if entry.fact is item
-        )
-        assert queried == expected
-    for item in inspected.alignments:
-        assert inspection.query_project_phase62_alignment_bucket(
-            inspected,
-            item.left,
-            item.right,
-        ) == (item,)
-        assert inspection.query_project_phase62_common_grains(inspected, item) == (
-            item.common_grain,
-        )
-    locality_alignment_counts = [
-        len(inspection.query_project_phase62_alignments_involving(inspected, item))
-        for item in inspected.fact_localities
-    ]
-    chasm_query_counts = [
-        [
-            len(inspection.query_project_phase62_chasms_containing(inspected, locality))
-            for locality in item.localities
-        ]
-        for item in inspected.chasms
-    ]
-    nulling_query_counts = []
-    for item in inspected.nulling_provenance:
-        queried = inspection.query_project_phase62_nulling(
-            inspected,
-            item.coordinate.output,
-            item.coordinate.field_position,
-        )
-        assert queried == (item,)
-        nulling_query_counts.append(len(queried))
-    non_concrete_multifact = [
-        [
-            _identity_value(item.region.ledger.bindings[0].identity.owner),
-            item.structural.value,
-            [
-                [
-                    blocker.identity.join_position,
-                    blocker.state.value,
-                    [issue.kind.value for issue in blocker.issues],
-                ]
-                for blocker in item.blockers
-            ],
-            [_fact_value(fact) for fact in item.identifiable_facts],
-            [
-                item.region.starting_allocation.next_plan_node_position,
-                item.region.ending_allocation.next_plan_node_position,
-            ],
-        ]
-        for item in inspected.non_concrete_multifact_regions
-    ]
-    summary = inspected.summary
+def _relational_value(properties):
+    classes = properties.value_classes
+    grain = properties.grain
     return {
-        "semantic": _semantic_projection(analysis),
-        "relations": [
+        "output": properties.output.occurrence.ref.position,
+        "fields": [
             [
-                _identity_value(fragment.subject.anchor.identity),
-                fragment.subject.state.value,
-                (
-                    [
-                        _row_field_identity_value(field)
-                        for field in fragment.root_relation_output.row_shape.fields
-                    ]
-                    if type(fragment)
-                    is construction.ProjectIRConcreteSingleRelationFragment
-                    else []
-                ),
+                field.field_position,
+                field.evidence.name,
+                field.effective_nullability.value,
             ]
-            for fragment in analysis.evaluation.project_plan.fragments
+            for field in properties.fields
         ],
-        "relationships": relationships,
-        "directions": directions,
-        "conditions": conditions_,
-        "direct_candidate_buckets": [
+        "classes": [
+            [member.field_position for member in value.members] for value in classes
+        ],
+        "keys": [
             [
-                item[0].source_output.output.occurrence.ref.position,
-                item[0].target_output.output.occurrence.ref.position,
+                [classes.index(value) for value in key.determinants],
+                key.strength.value,
+                [type(support).__name__ for support in key.supports],
+            ]
+            for key in properties.keys
+        ],
+        "fds": [
+            [
+                [classes.index(value) for value in fact.determinants],
+                [classes.index(value) for value in fact.dependents],
+                fact.strength.value,
+                [type(support).__name__ for support in fact.supports],
+            ]
+            for fact in properties.fds
+        ],
+        "grain": {
+            "state": grain.state.value,
+            "factors": [_factor_value(value.identity) for value in grain.factors],
+            "active": [_factor_value(value) for value in grain.active],
+            "dependencies": [
                 [
-                    relationship_names[candidate.direction.declaration]
-                    for candidate in item
+                    [_factor_value(value) for value in fact.determinants],
+                    [_factor_value(value) for value in fact.dependents],
+                ]
+                for fact in grain.dependencies
+            ],
+        },
+    }
+
+
+def _relational_signature(properties):
+    classes = properties.value_classes
+
+    def factor(value):
+        base = (
+            value.base
+            if isinstance(value, project_grain.ProjectJoinGrainFactorIdentity)
+            else value
+        )
+        return [
+            base.kind.value,
+            base.owner.identity.module_path,
+            base.owner.identity.declared_name,
+            bool(value.nulling_joins)
+            if isinstance(value, project_grain.ProjectJoinGrainFactorIdentity)
+            else False,
+        ]
+
+    return {
+        "fields": [
+            [field.evidence.name, field.effective_nullability.value]
+            for field in properties.fields
+        ],
+        "classes": [
+            [member.field_position for member in value.members] for value in classes
+        ],
+        "keys": [
+            [[classes.index(value) for value in key.determinants], key.strength.value]
+            for key in properties.keys
+        ],
+        "fds": [
+            [
+                [classes.index(value) for value in fact.determinants],
+                [classes.index(value) for value in fact.dependents],
+                fact.strength.value,
+            ]
+            for fact in properties.fds
+        ],
+        "grain": [
+            properties.grain.state.value,
+            [factor(value.identity) for value in properties.grain.factors],
+            [factor(value) for value in properties.grain.active],
+            [
+                [
+                    [factor(value) for value in fact.determinants],
+                    [factor(value) for value in fact.dependents],
+                ]
+                for fact in properties.grain.dependencies
+            ],
+        ],
+    }
+
+
+def _binding_value(binding):
+    if binding is None:
+        return None
+    return [
+        binding.identity.binding_position,
+        binding.name,
+        binding.relation_name,
+        binding.state.value,
+    ]
+
+
+def _condition_field_value(field):
+    return [
+        _binding_value(field.binding),
+        field.input_field.field_position,
+        field.input_field.evidence.name,
+        field.nullability.value,
+    ]
+
+
+def _call_value(call):
+    return {
+        "template": call.template.declaration.name,
+        "template_span": _span_value(call.template.declaration.span),
+        "call_span": _span_value(call.call.span),
+        "ordinal": call.ordinal,
+        "arguments": [
+            [
+                argument.parameter.name,
+                argument.relation.name,
+                argument.shape.name,
+                _span_value(argument.shape.span),
+                _span_value(argument.occurrence.span),
+            ]
+            for argument in call.arguments
+        ],
+    }
+
+
+def _condition_value(condition):
+    return {
+        "owner": _owner_value(condition.use.owner),
+        "join_position": condition.use.identity.join_position,
+        "clause": asdict(condition.use.clause),
+        "mode": condition.mode,
+        "state": condition.state.value,
+        "ready": condition.ready,
+        "bindings": [
+            _binding_value(binding) for binding in condition.environment.bindings
+        ],
+        "references": [
+            [
+                reference.position,
+                reference.state.value,
+                [_binding_value(binding) for binding in reference.binding_candidates],
+                [_condition_field_value(field) for field in reference.candidates],
+                asdict(reference.expression),
+            ]
+            for reference in condition.references
+        ],
+        "conjuncts": [
+            [
+                position,
+                type(conjunct).__name__,
+                asdict(conjunct),
+                [
+                    reference.position
+                    for reference in condition.references
+                    if any(
+                        reference.expression is leaf
+                        for leaf in scalar_field_reference_leaves(conjunct)
+                    )
+                ],
+                [
+                    _call_value(call)
+                    for call in (
+                        ()
+                        if condition.environment.predicate_expression is None
+                        else condition.environment.predicate_expression.calls
+                    )
+                    if any(conjunct is item for item in call.mandatory_equalities)
                 ],
             ]
-            for item in inspected.direct_candidate_buckets
+            for position, conjunct in enumerate(condition.conjuncts)
         ],
-        "ledgers": ledgers,
-        "join_regions": join_regions,
-        "relational_outputs": [_relational_value(item) for item in relational_outputs],
-        "facts": [_fact_value(item) for item in inspected.aggregate_facts],
-        "fact_localities": [
+        "equalities": [
             [
-                _fact_value(entry.fact),
-                [_locality_value(item) for item in entry.localities],
+                equality.conjunct_position,
+                _condition_field_value(equality.left),
+                _condition_field_value(equality.right),
+                [_call_value(call) for call in equality.calls],
             ]
-            for entry in inspected.fact_locality_index
+            for equality in condition.mandatory_equalities
         ],
-        "alignments": alignments,
-        "chasms": chasms,
+        "key_matches": [
+            [
+                _binding_value(proof.binding),
+                proof.properties.output.occurrence.ref.position,
+                [
+                    proof.properties.value_classes.index(value)
+                    for value in proof.key.determinants
+                ],
+                proof.key.strength.value,
+                proof.minimum.value,
+                proof.maximum.value,
+                [equality.conjunct_position for equality in proof.equalities],
+            ]
+            for proof in condition.key_matches
+        ],
+        "null_rejections": [
+            [
+                item.conjunct_position,
+                item.reference.position,
+                _condition_field_value(item.field),
+                item.reason,
+            ]
+            for item in condition.null_rejections
+        ],
+        "diagnostics": [_diagnostic_value(item) for item in condition.diagnostics],
+    }
+
+
+def _region(completed, name):
+    matches = tuple(
+        region
+        for region in completed.effective_outputs.current_regions
+        if region.ledger.owner.definition.name == name
+    )
+    assert len(matches) == 1, name
+    return matches[0]
+
+
+def _entry(snapshot, name):
+    matches = tuple(
+        entry for entry in snapshot.entries if entry.owner.definition.name == name
+    )
+    assert len(matches) == 1, name
+    return matches[0]
+
+
+def _region_value(region):
+    joins = []
+    for position, join in enumerate(region.joins):
+        assert isinstance(join, ProjectCurrentBinaryJoin)
+        assert join.condition is region.operative[position]
+        if position:
+            assert join.left_input.output is region.joins[position - 1].output
+        assert all(
+            field.evidence is origin.evidence
+            for field, (_, origin) in zip(
+                join.output.row_shape.fields, join.field_inputs, strict=True
+            )
+        )
+        joins.append(
+            {
+                "position": join.use.identity.join_position,
+                "kind": join.kind.value,
+                "node": join.node.ref.position,
+                "inputs": [
+                    [
+                        use.ref.position,
+                        use.output.ref.position,
+                        use.slot.ref.position,
+                        _identity_value(use.output.producer.anchor.identity),
+                    ]
+                    for use in join.input_uses
+                ],
+                "left": _relational_value(join.left_input),
+                "right": _relational_value(join.right_input),
+                "condition": _condition_value(join.condition),
+                "forward_at_most_one": current_forward_at_most_one(join.condition),
+                "output": _relational_value(join.properties.relational),
+                "field_inputs": [
+                    [
+                        _binding_value(binding),
+                        member.field_position,
+                        member.evidence.name,
+                    ]
+                    for binding, member in join.field_inputs
+                ],
+                "nulling": [
+                    [
+                        field.introduction_use.ref.position,
+                        [ref.position for ref in field.nulling_joins],
+                    ]
+                    for field in join.output.row_shape.fields
+                ],
+                "null_extension": type(join.properties.null_extension).__name__,
+                "ordering": type(join.properties.ordering).__name__,
+            }
+        )
+    assert joins
+    return {
+        "owner": _owner_value(region.ledger.owner),
+        "joins": joins,
+        "binding_introductions": [
+            use.ref.position for use in region.binding_introductions
+        ],
+        "hidden_introductions": [
+            use.ref.position for use in region.hidden_introductions
+        ],
+    }
+
+
+def _region_signature(region):
+    return [
+        [
+            join.kind.value,
+            current_forward_at_most_one(join.condition),
+            _relational_signature(join.left_input),
+            _relational_signature(join.right_input),
+            _relational_signature(join.properties.relational),
+            type(join.properties.null_extension).__name__,
+            type(join.properties.ordering).__name__,
+        ]
+        for join in region.joins
+    ]
+
+
+def _template_inventory(semantic):
+    result = []
+    for module in semantic.modules:
+        assert module.parsed_input is not None
+        for position, template in enumerate(
+            module.parsed_input.script.relationship_templates
+        ):
+            result.append(
+                [
+                    module.path,
+                    position,
+                    template.name,
+                    [
+                        [parameter.name, parameter.shape_name]
+                        for parameter in template.parameters
+                    ],
+                    _span_value(template.span),
+                    [type(template.body).__name__, asdict(template.body)],
+                ]
+            )
+    return result
+
+
+def _aggregation_values(completed):
+    values = []
+    for tail_position, tail in enumerate(completed.effective_outputs.current_tails):
+        for result in tail.window_set.aggregation_set.results:
+            values.append(
+                {
+                    "tail": tail_position,
+                    "owner": _owner_value(result.input_filter.entry.owner),
+                    "variant": type(result).__name__,
+                    "mode": None if result.mode is None else result.mode.value,
+                    "reason": None
+                    if not hasattr(result, "reason")
+                    else result.reason.value,
+                    "diagnostics": [
+                        _diagnostic_value(item) for item in result.diagnostics
+                    ],
+                    "linkages": [
+                        {
+                            "ordinal": link.aggregate.selected_output_ordinal,
+                            "function": link.aggregate.function_name,
+                            "arguments": [
+                                _factor_value(value) for value in link.argument_factors
+                            ],
+                            "group_protection": [
+                                _factor_value(value)
+                                for value in link.group_protection_factors
+                            ],
+                            "computed_keys": [
+                                _factor_value(value)
+                                for value in link.computed_key_factors
+                            ],
+                            "seed": [
+                                _factor_value(value)
+                                for value in link.combined_seed.factors
+                            ],
+                            "closure": [
+                                _factor_value(value) for value in link.closure.factors
+                            ],
+                            "context": [
+                                _factor_value(value)
+                                for value in link.contextual_grain.factors
+                            ],
+                            "final_grain": [
+                                _factor_value(value)
+                                for value in link.final_grain.active
+                            ],
+                            "comparison": link.final_comparison.status.value,
+                            "exposures": [
+                                [
+                                    item.join.node.ref.position,
+                                    [
+                                        _factor_value(value)
+                                        for value in item.factor_additions
+                                    ],
+                                ]
+                                for item in link.multiplicity_exposures
+                            ],
+                            "risks": [risk.value for risk in link.multiplicity_risks],
+                            "requirements": [
+                                requirement.value for requirement in link.requirements
+                            ],
+                        }
+                        for link in result.grain_linkages
+                    ],
+                    "pairs": [
+                        {
+                            "ordinals": [
+                                pair.left.aggregate.selected_output_ordinal,
+                                pair.right.aggregate.selected_output_ordinal,
+                            ],
+                            "structural": pair.structural.value,
+                            "comparison": pair.grain_comparison.status.value,
+                            "common_grain": pair.common_grain.status.value,
+                            "candidates": [
+                                [
+                                    [
+                                        _factor_value(value)
+                                        for value in candidate.candidate.factors.factors
+                                    ],
+                                    [
+                                        authority.kind.value
+                                        for authority in candidate.candidate.authorities
+                                    ],
+                                ]
+                                for candidate in pair.common_grain.candidates
+                            ],
+                            "chasm_candidates": [
+                                pair.common_grain.candidates.index(candidate)
+                                for candidate in pair.chasm_candidates
+                            ],
+                            "risks": [risk.value for risk in pair.multiplicity_risks],
+                            "requirements": [
+                                requirement.value for requirement in pair.requirements
+                            ],
+                        }
+                        for pair in result.pair_linkages
+                    ],
+                }
+            )
+    return values
+
+
+def _input_scope_values(completed):
+    values = []
+    for scope in completed.effective_outputs.input_scopes:
+        bindings = []
+        for item in scope.bindings:
+            authority = item.authority
+            if authority is None:
+                bindings.append(
+                    [_binding_value(item.binding), None, type(item.blocker).__name__]
+                )
+            else:
+                sites = [
+                    index
+                    for index, entry in enumerate(scope.available_entries)
+                    if entry is authority.entry
+                ]
+                assert len(sites) == 1
+                assert (
+                    item.dependency is not None
+                    and item.dependency.target is authority.owner
+                )
+                bindings.append(
+                    [
+                        _binding_value(item.binding),
+                        _owner_value(authority.owner),
+                        sites,
+                        [
+                            [field.field_position, field.evidence.name]
+                            for field in authority.fields
+                        ],
+                    ]
+                )
+        values.append([_owner_value(scope.ledger.owner), bindings])
+    return values
+
+
+# Closed causal readers reject new fields until their authority is reviewed.
+_TERMINAL_FIELDS = {
+    ProjectEffectiveOutputCompletionTerminal: "owner base_entry reason blocker dependencies joined_qualify replay_root upstream_entry diagnostics current_region current_inputs output",
+    ProjectEffectiveOutputTerminal: "owner fragment reason dependencies joined_completion resolution pending_dependencies pending_entries cycle_blocker output",
+    ProjectNonConcreteQueryBlock: "compilation_mode owner_bridge reason relation_fragment verification join_region state row_source",
+    ProjectIRNonConcreteJoinRegion: "ledger starting_allocation ending_allocation state blockers",
+    ProjectNonConcreteJoinUse: "identity owner clause source_binding target_binding state step_uses issues direct_result path",
+    ProjectJoinUseIssue: "kind state site causes",
+    ProjectRelationBindingOccurrence: "identity owner site name relation_name state target output relation_issues",
+    ProjectRelationshipPredicateExpression: "owner context authored expression calls argument_bindings diagnostics failed_calls any_expressions any_bindings parent",
+    ProjectJoinCondition: "root ledger use inputs effective_use environment mode scope expression conjuncts references base_conditions base_guarantee refinement_guarantee base_guarantees mandatory_equalities match_inputs key_matches legacy_matched_fields value_type value_types state ready diagnostics null_rejections",
+    ProjectNonConcreteJoinedNamespaceExpression: "namespace expression resolutions reason blocking_resolutions kernel_value_type value_types diagnostics existence_values predicate_expression value_type",
+    ProjectConcreteJoinedQualify: "window_set window_stage kind qualify_clause references hidden_computations predicate_value_type value_types diagnostics retention_effects preservation post_qualify",
+    ProjectNonConcreteJoinedQualify: "window_set window_stage reason qualify_clause references hidden_attempts kernel_value_type value_types diagnostics preservation post_qualify",
+    ProjectConcreteJoinedWindowStage: "aggregation_set input_aggregation kind named_namespace pre_window computations selected_results post_window preservation diagnostics",
+    ProjectNonConcreteJoinedWindowStage: "aggregation_set input_aggregation reason pre_window named_failure attempts diagnostics post_window selected_results",
+    ProjectNonConcreteJoinedAggregation: "filter_set input_filter reason mode group_key_results aggregate_results stage_outputs selected_output_issues group_protections grain_linkages pair_linkages grain_blocker satisfying diagnostics post_aggregate",
+}
+
+
+def _require_observed_fields(value, expected):
+    actual = tuple(field.name for field in dataclass_fields(value))
+    if len(actual) != len(expected) or set(actual) != set(expected):
+        raise ValueError(f"Unreviewed JOIN blocker fields: {type(value).__name__}")
+
+
+def _require_unused(value, *, absent=(), empty=()):
+    for name in absent:
+        if getattr(value, name) is not None:
+            raise ValueError(
+                f"Unreviewed JOIN blocker state: {type(value).__name__}.{name}"
+            )
+    for name in empty:
+        item = getattr(value, name)
+        if not (type(item) is tuple or isinstance(item, Mapping)) or item:
+            raise ValueError(
+                f"Unreviewed JOIN blocker state: {type(value).__name__}.{name}"
+            )
+
+
+def _authority_site(value, entries):
+    positions = [i for i, item in enumerate(entries) if item is value]
+    if len(positions) != 1:
+        raise ValueError("JOIN blocker lost one exact retained authority.")
+    return positions[0]
+
+
+def _tail_authorities(completed):
+    result = []
+    for tail_position, tail in enumerate(completed.effective_outputs.current_tails):
+        windows = tail.window_set
+        aggregates = windows.aggregation_set
+        for position, (qualify, window, aggregate) in enumerate(
+            zip(tail.results, windows.results, aggregates.results, strict=True)
+        ):
+            assert qualify.window_set is windows and qualify.window_stage is window
+            assert (
+                window.aggregation_set is aggregates
+                and window.input_aggregation is aggregate
+            )
+            result.append((tail_position, position, qualify, window, aggregate))
+    return tuple(result)
+
+
+def _terminal_graph(root, completed):
+    # The tuple edges retain every occurrence, including shared and cyclic causes.
+    retained = []
+    nodes = []
+    aggregations = tuple(
+        result
+        for tail in completed.effective_outputs.current_tails
+        for result in tail.window_set.aggregation_set.results
+    )
+
+    tails = _tail_authorities(completed)
+    completion = completed.effective_outputs.base
+
+    def tail_site(value, column):
+        sites = [row for row in tails if row[column] is value]
+        if len(sites) != 1:
+            raise ValueError("JOIN blocker lost one exact current tail.")
+        return sites[0]
+
+    def visit(value):
+        if value is None:
+            return None
+        for position, item in enumerate(retained):
+            if value is item:
+                return position
+        position = len(retained)
+        retained.append(value)
+        node: dict[str, object] = {"variant": type(value).__name__}
+        nodes.append(node)
+        if type(value) is not tuple:
+            expected = _TERMINAL_FIELDS.get(type(value))
+            if expected is None:
+                raise TypeError(f"Unreviewed JOIN blocker: {type(value).__name__}")
+            _require_observed_fields(value, expected.split())
+        if type(value) is tuple:
+            node["items"] = [visit(item) for item in value]
+        elif type(value) is ProjectEffectiveOutputCompletionTerminal:
+            _require_unused(value, absent=("replay_root", "upstream_entry", "output"))
+            assert value.dependencies is value.base_entry.dependencies
+            regions = completed.effective_outputs.current_regions
+            scopes = completed.effective_outputs.input_scopes
+            region_sites = [
+                i for i, item in enumerate(regions) if item is value.current_region
+            ]
+            scope_sites = [
+                i for i, item in enumerate(scopes) if item is value.current_inputs
+            ]
+            assert len(region_sites) == (value.current_region is not None)
+            assert len(scope_sites) == (value.current_inputs is not None)
+            assert value.base_entry.owner is value.owner
+            node.update(
+                owner=_owner_value(value.owner),
+                identity=_identity_value(value.owner),
+                base_owner=_identity_value(value.base_entry.owner),
+                base_entry_site=_authority_site(value.base_entry, completion.entries),
+                dependencies=[
+                    _authority_site(item, completion.dependencies)
+                    for item in value.dependencies
+                ],
+                joined_qualify=visit(value.joined_qualify),
+                region_sites=region_sites,
+                input_scope_sites=scope_sites,
+                reason=value.reason.value,
+                diagnostics=[_diagnostic_value(item) for item in value.diagnostics],
+                blocker=visit(value.blocker),
+            )
+        elif type(value) is ProjectEffectiveOutputTerminal:
+            _require_unused(value, absent=("resolution", "output"))
+            facts = value.fragment.semantic_facts
+            assert facts.owner is value.owner
+            node.update(
+                owner=_owner_value(value.owner),
+                reason=value.reason.value,
+                semantic_state=[facts.state.status.value, facts.state.reason.value],
+                fragment_site=_authority_site(
+                    value.fragment, completion.plan.fragments
+                ),
+                dependencies=[
+                    _authority_site(item, completion.dependencies)
+                    for item in value.dependencies
+                ],
+                pending_dependencies=[
+                    _authority_site(item, completion.dependencies)
+                    for item in value.pending_dependencies
+                ],
+                helper_diagnostics=[
+                    _diagnostic_value(item) for item in facts.helper_diagnostics
+                ],
+                joined_completion=visit(value.joined_completion),
+                pending_entries=visit(value.pending_entries),
+                cycle_blocker=visit(value.cycle_blocker),
+            )
+        elif type(value) is ProjectNonConcreteQueryBlock:
+            _require_unused(value, absent=("relation_fragment", "row_source"))
+            assert value.verification is not None
+            assert value.verification is completion.verification
+            node.update(
+                compilation_mode=value.compilation_mode.value,
+                verification=value.verification.status.value,
+                owner=_owner_value(value.owner_bridge.owner),
+                reason=value.reason.value,
+                state=value.state.value,
+                join_region=visit(value.join_region),
+            )
+        elif type(value) is ProjectIRNonConcreteJoinRegion:
+            node.update(
+                region_site=_authority_site(
+                    value, completion.verification.root.join_regions.regions
+                ),
+                ledger_site=_authority_site(
+                    value.ledger, completed.roots.join_conditions.uses.ledgers
+                ),
+                owner=_owner_value(value.ledger.owner),
+                state=value.state.value,
+                blockers=visit(value.blockers),
+                zero_allocation=value.starting_allocation is value.ending_allocation,
+            )
+        elif type(value) is ProjectNonConcreteJoinUse:
+            node.update(
+                owner=_owner_value(value.owner),
+                join_position=value.identity.join_position,
+                state=value.state.value,
+                clause=asdict(value.clause),
+                source=_binding_value(value.source_binding),
+                target=_binding_value(value.target_binding),
+                source_ref=visit(value.source_binding),
+                target_ref=visit(value.target_binding),
+                issues=visit(value.issues),
+                steps=visit(value.step_uses),
+                direct_result=visit(value.direct_result),
+                path=visit(value.path),
+            )
+        elif type(value) is ProjectJoinUseIssue:
+            node.update(
+                kind=value.kind.value,
+                state=value.state.value,
+                site=asdict(value.site),
+                causes=visit(value.causes),
+            )
+        elif type(value) is ProjectRelationBindingOccurrence:
+            node.update(
+                owner=_owner_value(value.owner),
+                binding=_binding_value(value),
+                site=asdict(value.site),
+                target=None
+                if value.target is None
+                else _identity_value(value.target.target_occurrence),
+                output=None
+                if value.output is None
+                else _relational_value(value.output),
+                relation_issues=visit(value.relation_issues),
+            )
+        elif type(value) is ProjectJoinCondition:
+            _require_unused(
+                value,
+                absent=("base_guarantee", "refinement_guarantee"),
+                empty=("base_conditions", "base_guarantees", "legacy_matched_fields"),
+            )
+            _require_unused(value.environment, empty=("existence_values",))
+            predicate = value.environment.predicate_expression
+            assert predicate is not None
+            assert predicate.owner is value.use.owner
+            assert predicate.context is value.use.clause.on_clause
+            assert value.use.clause.on_clause is not None
+            assert predicate.authored is value.use.clause.on_clause.expression
+            assert predicate.expression is value.expression
+            assert value.mode == "M3" and not value.ready
+            assert value.effective_use is value.use
+            assert value.environment.root is value.root
+            assert value.environment.ledger is value.ledger
+            assert (
+                value.environment.use is value.use
+                and value.environment.inputs is value.inputs
+            )
+            assert value.inputs is not None
+            node.update(
+                condition=_condition_value(value),
+                predicate_expression=visit(predicate),
+                condition_site=_authority_site(
+                    value, completed.roots.join_conditions.entries
+                ),
+                ledger_site=_authority_site(value.ledger, value.root.uses.ledgers),
+                input_scope_site=_authority_site(
+                    value.inputs.scope, completed.effective_outputs.input_scopes
+                ),
+                scope=None if value.scope is None else value.scope.value,
+                expression=None
+                if value.expression is None
+                else asdict(value.expression),
+                match_inputs=[
+                    [_binding_value(binding), _relational_value(properties)]
+                    for binding, properties in value.match_inputs
+                ],
+                value_type=None
+                if value.value_type is None
+                else asdict(value.value_type),
+                value_types=[
+                    [asdict(expression), asdict(value_type)]
+                    for expression, value_type in value.value_types.items()
+                ],
+            )
+        elif type(value) is ProjectRelationshipPredicateExpression:
+            # No reviewed case rejects a declared call; an empty `failed_calls`
+            # adds nothing to the reviewed observation bytes.
+            _require_unused(
+                value,
+                absent=("parent",),
+                empty=(
+                    "calls",
+                    "argument_bindings",
+                    "failed_calls",
+                    "any_expressions",
+                    "any_bindings",
+                ),
+            )
+            node.update(
+                owner=_owner_value(value.owner),
+                predicate_site=_authority_site(
+                    value, completed.roots.join_conditions.predicate_expressions
+                ),
+                context=asdict(value.context),
+                authored=asdict(value.authored),
+                expression=asdict(value.expression),
+                diagnostics=[_diagnostic_value(item) for item in value.diagnostics],
+                calls=[],
+                argument_bindings=[],
+                any_expressions=[],
+                any_bindings=[],
+                parent=None,
+            )
+        elif type(value) is ProjectNonConcreteJoinedNamespaceExpression:
+            _require_unused(
+                value,
+                absent=("kernel_value_type", "predicate_expression", "value_type"),
+                empty=("value_types", "existence_values"),
+            )
+            environment = value.namespace.binding_environment
+            resolutions = []
+            for resolution in value.resolutions:
+                if type(resolution) is not ProjectScalarReferenceResolution:
+                    raise TypeError("JOIN review requires an exact scalar resolution.")
+                candidates = []
+                for candidate in resolution.candidates:
+                    bindings = [
+                        binding
+                        for binding in environment.bindings
+                        if any(candidate is field for field in binding.fields)
+                    ]
+                    assert len(bindings) == 1
+                    source = candidate.source_field
+                    if type(source) is not ProjectIRJoinedRowField:
+                        raise TypeError("JOIN blocker candidate lost its joined field.")
+                    candidates.append(
+                        {
+                            "position": candidate.position,
+                            "name": candidate.evidence.name,
+                            "binding": _binding_value(bindings[0].binding),
+                            "introduction": source.introduction_use.ref.position,
+                            "nulling": [ref.position for ref in source.nulling_joins],
+                            "nullability": source.effective_nullability.value,
+                        }
+                    )
+                resolutions.append(
+                    {
+                        "reference": asdict(resolution.reference.expression),
+                        "status": resolution.status.value,
+                        "candidates": candidates,
+                        "target": None
+                        if resolution.target is None
+                        else resolution.candidates.index(resolution.target),
+                    }
+                )
+            node.update(
+                owner=_owner_value(environment.ledger.owner),
+                namespace_stage=value.namespace.stage.value,
+                region_site=_authority_site(
+                    environment.region, completed.effective_outputs.current_regions
+                ),
+                reason=value.reason.value,
+                expression=asdict(value.expression),
+                resolutions=resolutions,
+                blocking_resolutions=[
+                    value.resolutions.index(item) for item in value.blocking_resolutions
+                ],
+                diagnostics=[_diagnostic_value(item) for item in value.diagnostics],
+            )
+        elif type(value) is ProjectConcreteJoinedQualify:
+            _require_unused(
+                value,
+                absent=("qualify_clause", "predicate_value_type"),
+                empty=(
+                    "references",
+                    "hidden_computations",
+                    "value_types",
+                    "retention_effects",
+                ),
+            )
+            if value.kind.value != "absent":
+                raise ValueError("JOIN review requires an absent concrete QUALIFY.")
+            row = tail_site(value, 2)
+            window = value.window_stage
+            _require_observed_fields(
+                window, _TERMINAL_FIELDS[ProjectConcreteJoinedWindowStage].split()
+            )
+            _require_unused(window, empty=("computations", "selected_results"))
+            if window.kind.value != "absent":
+                raise ValueError(
+                    "JOIN review requires an absent concrete window stage."
+                )
+            assert window.pre_window.aggregation is row[4]
+            assert window.post_window.pre_window is window.pre_window
+            assert window.post_window.selected_results is window.selected_results
+            assert window.preservation.aggregation is row[4]
+            assert (
+                window.named_namespace.definition
+                is row[4].input_filter.entry.owner.definition
+            )
+            assert (
+                window.named_namespace.query_block
+                is row[
+                    4
+                ].input_filter.namespace.binding_environment.scalar_environment.query_block.owner_bridge.query_block
+            )
+            _require_unused(
+                window.named_namespace,
+                empty=("declarations", "templates", "resolution_order"),
+            )
+            witness = value.preservation
+            post = value.post_qualify
+            assert witness.window_stage is window
+            assert witness.window_preservation is window.preservation
+            assert (
+                witness.input_filter_preservation
+                is window.preservation.input_filter_preservation
+            )
+            assert witness.selected_results is window.selected_results
+            assert post.window_stage is window and post.preservation is witness
+            assert (
+                post.post_window is window.post_window
+                and post.selected_results is window.selected_results
+            )
+            node.update(
+                owner=_owner_value(row[4].input_filter.entry.owner),
+                tail_site=list(row[:2]),
+                window_variant=type(window).__name__,
+                window_kind=window.kind.value,
+                aggregation=_authority_site(row[4], aggregations),
+                kind=value.kind.value,
+                diagnostics=[_diagnostic_value(item) for item in value.diagnostics],
+                window_diagnostics=[
+                    _diagnostic_value(item) for item in window.diagnostics
+                ],
+                preservation=[
+                    witness.filters_rows,
+                    witness.multiplicity.value,
+                    witness.establishes_relation_order,
+                ],
+            )
+        elif type(value) is ProjectNonConcreteJoinedQualify:
+            _require_unused(
+                value,
+                absent=(
+                    "qualify_clause",
+                    "kernel_value_type",
+                    "preservation",
+                    "post_qualify",
+                ),
+                empty=("references", "value_types"),
+            )
+            row = tail_site(value, 2)
+            node.update(
+                owner=_owner_value(row[4].input_filter.entry.owner),
+                tail_site=list(row[:2]),
+                reason=value.reason.value,
+                diagnostics=[_diagnostic_value(item) for item in value.diagnostics],
+                window_stage=visit(value.window_stage),
+                hidden_attempts=visit(value.hidden_attempts),
+            )
+        elif type(value) is ProjectNonConcreteJoinedWindowStage:
+            _require_unused(
+                value, absent=("pre_window", "post_window"), empty=("selected_results",)
+            )
+            row = tail_site(value, 3)
+            node.update(
+                tail_site=list(row[:2]),
+                reason=value.reason.value,
+                diagnostics=[_diagnostic_value(item) for item in value.diagnostics],
+                input_aggregation=visit(value.input_aggregation),
+                attempts=visit(value.attempts),
+                named_failure=visit(value.named_failure),
+            )
+        elif type(value) is ProjectNonConcreteJoinedAggregation:
+            _require_unused(
+                value,
+                absent=("grain_blocker", "post_aggregate"),
+                empty=("group_key_results", "group_protections"),
+            )
+            row = tail_site(value, 4)
+            assert value.filter_set is row[3].aggregation_set.filter_set
+            assert value.input_filter is value.filter_set.results[row[1]]
+            definition = value.input_filter.entry.owner.definition
+            assert type(definition) is QueryDef
+            if value.satisfying is not None or definition.satisfying_clause is not None:
+                raise ValueError("Unreviewed JOIN blocker satisfying authority.")
+            aggregate_sites = [
+                [
+                    i
+                    for i, link in enumerate(value.grain_linkages)
+                    if link.aggregate is aggregate
+                ]
+                for aggregate in value.aggregate_results
+            ]
+            assert all(len(sites) == 1 for sites in aggregate_sites)
+            assert len(aggregate_sites) == len(value.grain_linkages)
+            for item in value.stage_outputs:
+                assert item.input_filter is value.input_filter
+                assert (
+                    item.item is definition.select_items[item.selected_output_ordinal]
+                )
+                _require_unused(item, absent=("group_key",))
+                assert item.aggregate is not None
+                _authority_site(item.aggregate, value.aggregate_results)
+            sites = [i for i, item in enumerate(aggregations) if item is value]
+            assert len(sites) == 1
+            node.update(
+                reason=value.reason.value,
+                diagnostics=[_diagnostic_value(item) for item in value.diagnostics],
+                aggregation=sites[0],
+                tail_site=list(row[:2]),
+                mode=None if value.mode is None else value.mode.value,
+                aggregate_result_linkages=aggregate_sites,
+                stage_outputs=[
+                    [
+                        item.selected_output_ordinal,
+                        item.output_name,
+                        item.role.value,
+                        asdict(item.value_type),
+                        asdict(item.item),
+                        _authority_site(item.aggregate, value.aggregate_results),
+                    ]
+                    for item in value.stage_outputs
+                ],
+                pair_linkages=list(range(len(value.pair_linkages))),
+                selected_output_issues=visit(value.selected_output_issues),
+            )
+        else:
+            raise TypeError(f"Unreviewed JOIN blocker: {type(value).__name__}")
+        return position
+
+    root_position = visit(root)
+    return {"root": root_position, "nodes": nodes}
+
+
+def _analysis_observation(completed, bundle, product):
+    snapshot = bundle.verification.root
+    assert product.inspection.root is snapshot
+    entries = []
+    for entry in snapshot.entries:
+        record = {
+            "owner": _owner_value(entry.owner),
+            "identity": _identity_value(entry.owner),
+            "variant": type(entry).__name__,
+        }
+        if isinstance(entry, ProjectIRQueryBlockTerminal):
+            sites = [
+                index
+                for index, blocker in enumerate(product.inspection.terminal_blockers)
+                if blocker is entry.blocker
+            ]
+            assert sites
+            record.update(
+                reason=entry.reason.value,
+                blocker_kind=type(entry.blocker).__name__,
+                blocker_sites=sites,
+                zero_allocation=entry.starting_allocation is entry.ending_allocation,
+                semantic_terminal=_terminal_graph(entry.blocker, completed),
+                owner_diagnostic_sites=[
+                    index
+                    for index, diagnostic in enumerate(completed.diagnostics)
+                    if diagnostic.location.path == entry.owner.identity.module_path
+                    and entry.owner.definition.span.line
+                    <= diagnostic.location.line
+                    <= entry.owner.definition.span.end_line
+                ],
+            )
+        else:
+            record.update(
+                output=entry.active_output.occurrence.ref.position,
+                properties=_relational_value(entry.active_properties.relational),
+                multiplicity=entry.active_properties.multiplicity.value,
+                ordering=None
+                if entry.active_properties.ordering is None
+                else type(entry.active_properties.ordering).__name__,
+                cardinality=None
+                if entry.active_properties.cardinality is None
+                else type(entry.active_properties.cardinality).__name__,
+                effect=[
+                    entry.active_properties.effect.determinism.value,
+                    entry.active_properties.effect.error_behavior.value,
+                    entry.active_properties.effect.side_effects.value,
+                    entry.active_properties.effect.evaluation_count.value,
+                ],
+            )
+        entries.append(record)
+    regions = completed.effective_outputs.current_regions
+    assert regions
+    return {
+        "templates": _template_inventory(completed.semantic_result),
+        "owners": entries,
+        "dependencies": [
+            [
+                _owner_value(item.consumer),
+                _owner_value(item.target),
+                item.dependency_ordinal,
+                type(item.evidence).__name__,
+            ]
+            for item in snapshot.dependencies
+        ],
+        "schedule": [_owner_value(owner) for owner in snapshot.schedule],
+        "conditions": [
+            _condition_value(item) for item in completed.roots.join_conditions.entries
+        ],
+        "regions": [_region_value(region) for region in regions],
+        "input_scopes": _input_scope_values(completed),
+        "readiness": [
+            [_owner_value(region.ledger.owner), type(ready).__name__]
+            for region, ready in zip(
+                regions, completed.effective_outputs.current_readiness, strict=True
+            )
+        ],
+        "tails": [
+            {
+                "site": list(row[:2]),
+                "owner": _owner_value(row[4].input_filter.entry.owner),
+                "qualify": type(row[2]).__name__,
+                "window": type(row[3]).__name__,
+                "aggregation": position,
+            }
+            for position, row in enumerate(_tail_authorities(completed))
+        ],
+        "aggregations": _aggregation_values(completed),
+        "diagnostics": [_diagnostic_value(item) for item in completed.diagnostics],
         "verification": [
             bundle.verification.status.value,
             [item.kind.value for item in bundle.verification.issues],
-            bundle.verification.base_verification.status.value,
-        ],
-        "analysis_products": [
-            len(bundle.combined_reverse_uses),
-            [item.ref.position for item in bundle.combined_topological_order],
-            len(bundle.nulling_provenance),
-            len(bundle.fact_localities),
-            len(bundle.multifact_alignments.alignments),
-            len(bundle.multifact_alignments.chasms),
-        ],
-        "inspection_counts": [
-            summary.relationship_count,
-            summary.direction_count,
-            summary.condition_count,
-            summary.correspondence_count,
-            summary.guarantee_count,
-            summary.ledger_count,
-            summary.join_use_count,
-            summary.path_step_count,
-            summary.binary_join_count,
-            summary.joined_output_count,
-            summary.joined_field_count,
-            summary.base_relational_output_count,
-            summary.candidate_key_count,
-            summary.value_fd_count,
-            summary.grain_factor_count,
-            summary.grain_dependency_count,
-            summary.aggregate_fact_count,
-            summary.fact_locality_count,
-            summary.common_grain_count,
-            summary.alignment_count,
-            summary.chasm_count,
-            summary.non_concrete_region_count,
-            summary.combined_analysis_entry_count,
-        ],
-        "queries": [[owner, query_values[owner]] for owner, _kind in query_keys],
-        "non_concrete": [
-            len(inspection.query_project_phase62_non_concrete_join_uses(inspected)),
-            len(inspection.query_project_phase62_non_concrete_join_regions(inspected)),
-            len(
-                inspection.query_project_phase62_non_concrete_multifact_regions(
-                    inspected
-                )
-            ),
-        ],
-        "non_concrete_multifact": non_concrete_multifact,
-        "query_closure": [
-            locality_alignment_counts,
-            chasm_query_counts,
-            nulling_query_counts,
         ],
         "portable_records": _portable_records(product.document),
         "canonical_bytes": product.canonical_bytes.decode("utf-8"),
     }
 
 
-def _join_effect_observation(
-    analysis: multifact.ProjectMultiFactAnalysis,
-    owner: str,
-) -> list[object]:
-    use = _ledger(analysis, owner).uses[0]
-    assert type(use) is relationship_uses.ProjectConcreteJoinUse
-    region = _join_region(analysis, owner)
-    assert type(region) is joins.ProjectIRConcreteJoinRegion
-    join = region.joins[-1]
-    properties = next(
-        item for item in analysis.join_regions.properties.outputs if item.join is join
-    )
-    right_start = len(join.left_input.fields)
-    return [
-        _join_use_value(analysis, use),
-        join.guarantee.minimum.value,
-        join.guarantee.maximum.value,
-        join.kind.value,
-        join.fanout.value,
-        join.survival.value,
-        join.null_extension.value,
-        join.outer_join_barrier.value,
-        [
-            item.effective_nullability.value
-            for item in join.output.row_shape.fields[right_start:]
-        ],
-        type(properties.null_extension).__name__,
-        [item.strength.value for item in properties.relational.keys],
-        len(properties.relational.fds),
-        [_factor_value(item) for item in properties.relational.grain.active],
-    ]
-
-
-def _semantic_projection(
-    analysis: multifact.ProjectMultiFactAnalysis,
-) -> dict[str, object]:
-    relationship_names = {
-        item.occurrence.identity: item.occurrence.name
-        for item in analysis.join_regions.uses.relationships.subjects
-    }
-    return {
-        "relationships": [
-            [item.occurrence.name, item.state.value]
-            for item in analysis.join_regions.uses.relationships.subjects
-        ],
-        "directions": [
-            [
-                relationship_names[item.direction.declaration],
-                item.direction.source.authored_role,
-                item.direction.target.authored_role,
-                item.minimum.value,
-                item.maximum.value,
-            ]
-            for item in analysis.join_regions.uses.index.directions
-        ],
-        "join_uses": [
-            [
-                ledger.owner.definition.name,
-                [
-                    [
-                        use.kind.value,
-                        (
-                            "concrete"
-                            if type(use) is relationship_uses.ProjectConcreteJoinUse
-                            else cast(
-                                relationship_uses.ProjectNonConcreteJoinUse,
-                                use,
-                            ).state.value
-                        ),
-                        []
-                        if use.path is None
-                        else [
-                            relationship_names[step.guarantee.direction.declaration]
-                            for step in use.path.steps
-                        ],
-                    ]
-                    for use in ledger.uses
-                ],
-            ]
-            for ledger in analysis.join_regions.uses.ledgers
-        ],
-        "binary": [
-            [
-                region.ledger.owner.definition.name,
-                [
-                    [
-                        item.identity.path_step_position,
-                        item.kind.value,
-                        item.fanout.value,
-                        item.survival.value,
-                        item.null_extension.value,
-                        item.outer_join_barrier.value,
-                    ]
-                    for item in (
-                        region.joins
-                        if type(region) is joins.ProjectIRConcreteJoinRegion
-                        else ()
-                    )
-                ],
-            ]
-            for region in analysis.join_regions.regions
-        ],
-        "facts": [
-            [
-                item.context.semantic_facts.owner.definition.name,
-                item.identity.aggregate_result_position,
-                item.aggregate_result.function,
-                item.aggregate_result.output_name,
-            ]
-            for item in analysis.facts
-        ],
-        "alignments": [
-            [
-                item.left.fact.context.semantic_facts.owner.definition.name,
-                item.left.fact.identity.aggregate_result_position,
-                item.right.fact.context.semantic_facts.owner.definition.name,
-                item.right.fact.identity.aggregate_result_position,
-                item.structural.value,
-                item.common_grain.status.value,
-                [risk.value for risk in item.multiplicity_risks],
-                [requirement.value for requirement in item.requirements],
-            ]
-            for item in analysis.alignments
-        ],
-    }
-
-
-def _metamorphic_observation(
-    primary: multifact.ProjectMultiFactAnalysis,
-    parallel: multifact.ProjectMultiFactAnalysis,
-    no_unique: multifact.ProjectMultiFactAnalysis,
-) -> dict[str, object]:
-    direct = cast(
-        relationship_uses.ProjectConcreteJoinUse,
-        _ledger(primary, "direct_unique_join").uses[0],
-    )
-    explicit = cast(
-        relationship_uses.ProjectConcreteJoinUse,
-        _ledger(primary, "explicit_one_join").uses[0],
-    )
-    assert direct.path.steps[0].guarantee is explicit.path.steps[0].guarantee
-    direct_region = _join_region(primary, "direct_unique_join")
-    explicit_region = _join_region(primary, "explicit_one_join")
-    assert type(direct_region) is joins.ProjectIRConcreteJoinRegion
-    assert type(explicit_region) is joins.ProjectIRConcreteJoinRegion
-    primary_parallel_direct = _ledger(primary, "variant_direct").uses[0]
-    transformed_direct = _ledger(parallel, "variant_direct").uses[0]
-    transformed_explicit = _ledger(parallel, "variant_explicit").uses[0]
-    assert type(primary_parallel_direct) is relationship_uses.ProjectConcreteJoinUse
-    assert type(transformed_direct) is relationship_uses.ProjectNonConcreteJoinUse
-    assert type(transformed_explicit) is relationship_uses.ProjectConcreteJoinUse
-    assert transformed_direct.direct_result is not None
-    multihop = _join_region(primary, "multihop_join")
-    assert type(multihop) is joins.ProjectIRConcreteJoinRegion
-    reused = _join_region(primary, "reused_join")
-    assert type(reused) is joins.ProjectIRConcreteJoinRegion
-    reused_multifact = _multifact_region(primary, "reused_join")
-    self_multifact = _multifact_region(primary, "self_fact_join")
-    chasm_ledger = _ledger(primary, "chasm_join")
-    reused_ledger = _ledger(primary, "reused_join")
-    chasm_branch = chasm_ledger.uses[1]
-    reused_branch = reused_ledger.uses[1]
-    assert type(chasm_branch) is relationship_uses.ProjectConcreteJoinUse
-    assert type(reused_branch) is relationship_uses.ProjectConcreteJoinUse
-    assert chasm_branch.source_binding is not None
-    assert reused_branch.source_binding is not None
-    return {
-        "direct_vs_explicit": [
-            _join_effect_observation(primary, "direct_unique_join"),
-            _join_effect_observation(primary, "explicit_one_join"),
-            direct.identity != explicit.identity,
-            direct_region.joins[0].identity != explicit_region.joins[0].identity,
-            direct.path.steps[0].guarantee is explicit.path.steps[0].guarantee,
-        ],
-        "parallel": [
-            _join_use_value(primary, primary_parallel_direct),
-            _join_use_value(parallel, transformed_direct),
-            _join_use_value(parallel, transformed_explicit),
-            len(transformed_direct.direct_result.candidates),
-            [
-                _relationship_name(parallel, item.direction.declaration)
-                for item in transformed_direct.direct_result.candidates
-            ],
-        ],
-        "unique_transition": [
-            _join_effect_observation(primary, "unique_target_inner"),
-            _join_effect_observation(no_unique, "unique_target_inner"),
-        ],
-        "inner_vs_left": [
-            _join_effect_observation(primary, "explicit_one_join"),
-            _join_effect_observation(primary, "left_one_join"),
-        ],
-        "multi_hop": [
-            len(multihop.joins),
-            [item.identity.path_step_position for item in multihop.joins],
-            all(
-                item.left_input.output is multihop.joins[position - 1].output
-                for position, item in enumerate(multihop.joins)
-                if position > 0
-            ),
-        ],
-        "branching": [
-            chasm_branch.source_binding is chasm_ledger.bindings[0],
-            reused_branch.source_binding is reused_ledger.bindings[0],
-            [
-                chasm_branch.source_binding.identity.binding_position,
-                reused_branch.source_binding.identity.binding_position,
-            ],
-        ],
-        "role_playing": [
-            [item.identity.use.join_position for item in reused.joins],
-            [item.input_uses[1].ref.position for item in reused.joins],
-            [
-                locality.introduction_use.ref.position
-                for locality in reused_multifact.localities
-            ],
-            [
-                [_factor_value(item) for item in locality.contextual_grain.factors]
-                for locality in reused_multifact.localities
-            ],
-            [
-                locality.introduction_use.ref.position
-                for locality in self_multifact.localities
-            ],
-        ],
-        "fanout": _join_effect_observation(primary, "fanout_join"),
-        "chasm": [
-            len(_multifact_region(primary, "chasm_join").chasms),
-            [
-                [
-                    item.structural.value,
-                    [risk.value for risk in item.multiplicity_risks],
-                    [requirement.value for requirement in item.requirements],
-                ]
-                for item in _multifact_region(primary, "chasm_join").alignments
-            ],
-        ],
-        "comparable": [
-            [
-                item.structural.value,
-                item.common_grain.status.value,
-                [requirement.value for requirement in item.requirements],
-            ]
-            for item in _multifact_region(primary, "comparable_join").alignments
-        ],
-    }
-
-
-def _pure_rejections(
-    product: inspection.ProjectPhase62InspectionProduct,
-) -> list[list[object]]:
-    document = product.document
-    unknown = replace(document, format_marker="unknown.phase62.format")
-    reordered = replace(
-        document,
-        records=(
-            document.records[0],
-            document.records[2],
-            document.records[1],
-            *document.records[3:],
-        ),
-    )
-    use_position = next(
-        position
-        for position, record in enumerate(document.records)
-        if record.kind is pure.ProjectPhase62RecordKind.PROJECT_USE
-    )
-    use_record = document.records[use_position]
-    output_position = next(
-        position
-        for position, field in enumerate(use_record.fields)
-        if field.key == "output"
-    )
-    output_field = use_record.fields[output_position]
-    dangling_record = replace(
-        use_record,
-        fields=(
-            *use_record.fields[:output_position],
-            replace(
-                output_field,
-                value=pure.project_phase62_pure_ref(
-                    pure.ProjectPhase62PortableRef(
-                        domain=pure.ProjectPhase62PortableRefDomain.OUTPUT_VALUE,
-                        position=1 << 40,
-                    )
-                ),
-            ),
-            *use_record.fields[output_position + 1 :],
-        ),
-    )
-    dangling = replace(
-        document,
-        records=(
-            *document.records[:use_position],
-            dangling_record,
-            *document.records[use_position + 1 :],
-        ),
+def _allocation(coordinates=(0, 0, 0, 0)):
+    node, output, slot, use = coordinates
+    return ProjectIRAllocationState(
+        scope=ProjectIRSnapshotScope(),
+        next_plan_node_position=node,
+        next_output_value_position=output,
+        next_input_slot_position=slot,
+        next_use_position=use,
     )
 
-    def outcome(value: pure.ProjectPhase62PureDocument) -> list[object]:
-        result = pure.evaluate_project_phase62_document(value)
+
+def _shifted_base(semantic):
+    normal = build_project_ir_pipeline(
+        semantic_result=semantic, allocation=_allocation()
+    )
+    shifted = build_project_ir_pipeline(
+        semantic_result=semantic, allocation=_allocation((7, 11, 5, 5))
+    )
+    assert normal.canonical_bytes is not None and shifted.canonical_bytes is not None
+    left, right = (
+        normal.project_plan.structural_stage,
+        shifted.project_plan.structural_stage,
+    )
+    assert left.scope is not right.scope
+    assert left.nodes[0].ref != right.nodes[0].ref
+    assert normal.canonical_bytes != shifted.canonical_bytes
+
+    def semantics(result):
         return [
-            result.status.value,
-            result.record_position,
-            result.field_position,
+            [
+                _base_relation_value(fragment),
+                [operator.kind.value for operator in fragment.logical_stage.operators],
+            ]
+            for fragment in result.project_plan.fragments
         ]
 
-    return [
-        ["unknown_format", *outcome(unknown)],
-        ["section_order", *outcome(reordered)],
-        ["dangling_ref", *outcome(dangling)],
-    ]
-
-
-def _variant_observation(
-    analysis: multifact.ProjectMultiFactAnalysis,
-    bundle: phase62.ProjectPhase62AnalysisBundle,
-    product: inspection.ProjectPhase62InspectionProduct,
-) -> dict[str, object]:
-    return {
-        "semantic": _semantic_projection(analysis),
-        "verification": bundle.verification.status.value,
-        "portable_records": _portable_records(product.document),
-        "canonical_bytes": product.canonical_bytes.decode("utf-8"),
-    }
-
-
-def _construction(
-    root: Path,
-    *,
-    reverse_operation_order: bool,
-) -> tuple[dict[str, object], tuple[object, ...]]:
-    specifications = (
-        (
-            "primary-normal",
-            VARIANT_SOURCES["primary"],
-            False,
-            (0, 0, 0, 0),
-        ),
-        (
-            "primary-reverse",
-            VARIANT_SOURCES["primary"],
-            True,
-            (0, 0, 0, 0),
-        ),
-        (
-            "parallel",
-            VARIANT_SOURCES["parallel"],
-            False,
-            (0, 0, 0, 0),
-        ),
-        (
-            "no-unique",
-            VARIANT_SOURCES["no_unique"],
-            True,
-            (0, 0, 0, 0),
-        ),
-        (
-            "shifted",
-            VARIANT_SOURCES["primary"],
-            False,
-            (7, 11, 5, 5),
-        ),
-    )
-    order = specifications[::-1] if reverse_operation_order else specifications
-    built: dict[
-        str,
-        tuple[
-            ProjectSemanticResult,
-            multifact.ProjectMultiFactAnalysis,
-            phase62.ProjectPhase62AnalysisBundle,
-            inspection.ProjectPhase62InspectionProduct,
-        ],
-    ] = {}
-    for name, source, reverse_creation, coordinates in order:
-        built[name] = _build(
-            root / name,
-            source,
-            reverse_creation=reverse_creation,
-            coordinates=coordinates,
+    normal_semantic, shifted_semantic = semantics(normal), semantics(shifted)
+    assert normal_semantic == shifted_semantic
+    for before, after in zip(
+        normal.project_plan.fragments, shifted.project_plan.fragments, strict=True
+    ):
+        assert before.semantic_facts is after.semantic_facts
+        assert all(
+            left.evidence is right.evidence
+            for left, right in zip(
+                before.logical_stage.operators,
+                after.logical_stage.operators,
+                strict=True,
+            )
         )
-    _normal_semantic, normal, normal_bundle, normal_product = built["primary-normal"]
-    _reverse_semantic, reverse, reverse_bundle, reverse_product = built[
-        "primary-reverse"
-    ]
-    normal_value = _analysis_observation(
-        normal,
-        normal_bundle,
-        normal_product,
-        query_reverse=reverse_operation_order,
-    )
-    reverse_value = _analysis_observation(
-        reverse,
-        reverse_bundle,
-        reverse_product,
-        query_reverse=not reverse_operation_order,
-    )
-    assert normal_value == reverse_value
-    assert normal.evaluation.project_plan.structural_stage.scope is not (
-        reverse.evaluation.project_plan.structural_stage.scope
-    )
-    assert normal.evaluation.project_plan.structural_stage.nodes[0].ref != (
-        reverse.evaluation.project_plan.structural_stage.nodes[0].ref
-    )
-    assert normal_product.document == reverse_product.document
-    assert normal_product.canonical_bytes == reverse_product.canonical_bytes
-    _parallel_semantic, parallel, parallel_bundle, parallel_product = built["parallel"]
-    _no_unique_semantic, no_unique, no_unique_bundle, no_unique_product = built[
-        "no-unique"
-    ]
-    _shifted_semantic, shifted, shifted_bundle, shifted_product = built["shifted"]
-    assert _semantic_projection(normal) == _semantic_projection(shifted)
-    assert normal.evaluation.project_plan.structural_stage.nodes[0].ref.position != (
-        shifted.evaluation.project_plan.structural_stage.nodes[0].ref.position
-    )
-    assert normal_product.canonical_bytes != shifted_product.canonical_bytes
-    value = {
-        "primary": normal_value,
-        "parallel": _variant_observation(
-            parallel,
-            parallel_bundle,
-            parallel_product,
-        ),
-        "no_unique": _variant_observation(
-            no_unique,
-            no_unique_bundle,
-            no_unique_product,
-        ),
-        "metamorphic": _metamorphic_observation(normal, parallel, no_unique),
-        "shifted": {
-            "starting_coordinates": [7, 11, 5, 5],
-            "first_coordinates": [
-                shifted.evaluation.project_plan.structural_stage.nodes[0].ref.position,
-                shifted.evaluation.project_plan.structural_stage.outputs[
-                    0
-                ].ref.position,
-                shifted.evaluation.project_plan.structural_stage.input_slots[
-                    0
-                ].ref.position,
-                shifted.evaluation.project_plan.structural_stage.uses[0].ref.position,
-            ],
-            "semantic": _semantic_projection(shifted),
-            "verification": shifted_bundle.verification.status.value,
-            "portable_records": _portable_records(shifted_product.document),
-            "canonical_bytes": shifted_product.canonical_bytes.decode("utf-8"),
-        },
-        "pure_rejections": _pure_rejections(normal_product),
+
+    def first(stage):
+        return [
+            stage.nodes[0].ref.position,
+            stage.outputs[0].ref.position,
+            stage.input_slots[0].ref.position,
+            stage.uses[0].ref.position,
+        ]
+
+    return {
+        "kind": "base_plan_allocation",
+        "normal_semantic": normal_semantic,
+        "semantic": shifted_semantic,
+        "starting_coordinates": [7, 11, 5, 5],
+        "normal_first_coordinates": first(left),
+        "first_coordinates": first(right),
+        "normal_canonical_bytes": normal.canonical_bytes.decode("utf-8"),
+        "canonical_bytes": shifted.canonical_bytes.decode("utf-8"),
+        "independent_scopes": True,
+        "verification": [
+            normal.verification.status.value,
+            shifted.verification.status.value,
+        ],
     }
-    roots = (
-        normal.evaluation.project_plan.structural_stage.scope,
-        reverse.evaluation.project_plan.structural_stage.scope,
-        parallel.evaluation.project_plan.structural_stage.scope,
-        no_unique.evaluation.project_plan.structural_stage.scope,
-        shifted.evaluation.project_plan.structural_stage.scope,
+
+
+def _metamorphic_observation(primary, parallel, no_unique):
+    direct = _region(primary, "direct_unique_join")
+    explicit = _region(primary, "explicit_one_join")
+    assert _region_signature(direct) == _region_signature(explicit)
+    assert direct.joins[0].condition is not explicit.joins[0].condition
+    assert direct.joins[0].input_uses[1] is not explicit.joins[0].input_uses[1]
+    before = {
+        region.ledger.owner.definition.name: _region_signature(region)
+        for region in primary.effective_outputs.current_regions
+    }
+    after = {
+        region.ledger.owner.definition.name: _region_signature(region)
+        for region in parallel.effective_outputs.current_regions
+    }
+    assert before == after
+    original = _region(primary, "unique_target_inner").joins[0]
+    removed = _region(no_unique, "unique_target_inner").joins[0]
+    unique_transition = [
+        current_forward_at_most_one(original.condition),
+        current_forward_at_most_one(removed.condition),
+    ]
+    assert unique_transition == [True, False]
+    multi = _region(primary, "multihop_join")
+    assert len(multi.joins) == 2
+    assert multi.joins[1].left_input.output is multi.joins[0].output
+    reused = _region(primary, "reused_join")
+    assert len(reused.joins) == 2
+    assert reused.input_scope is not None
+    assert reused.input_scope.bindings[1].authority is not None
+    assert reused.input_scope.bindings[2].authority is not None
+    assert (
+        reused.input_scope.bindings[1].authority.entry
+        is reused.input_scope.bindings[2].authority.entry
+    )
+    assert reused.joins[0].input_uses[1] is not reused.joins[1].input_uses[1]
+    self_region = _region(primary, "self_fact_join")
+    self_join = self_region.joins[0]
+    assert self_region.input_scope is not None
+    assert self_region.input_scope.bindings[0].authority is not None
+    assert self_region.input_scope.bindings[1].authority is not None
+    assert (
+        self_region.input_scope.bindings[0].authority.entry
+        is self_region.input_scope.bindings[1].authority.entry
+    )
+    assert self_join.input_uses[0] is not self_join.input_uses[1]
+    nullable = _region(primary, "nullable_match_join").joins[0].condition
+    composite = _region(primary, "composite_match_join").joins[0].condition
+    assert len(nullable.mandatory_equalities) == 1
+    assert len(composite.mandatory_equalities) == 2
+    assert all(
+        equality.calls
+        for equality in (
+            *nullable.mandatory_equalities,
+            *composite.mandatory_equalities,
+        )
+    )
+    return {
+        "independent_explicit_joins": [
+            _region_signature(direct),
+            _region_signature(explicit),
+            True,
+            True,
+        ],
+        "parallel_unused_template": {
+            "selected_regions_unchanged": before == after,
+            "primary_templates": len(_template_inventory(primary.semantic_result)),
+            "parallel_templates": len(_template_inventory(parallel.semantic_result)),
+        },
+        "unique_transition": [
+            unique_transition,
+            _relational_value(original.properties.relational),
+            _relational_value(removed.properties.relational),
+        ],
+        "inner_vs_left": [
+            _region_signature(explicit),
+            _region_signature(_region(primary, "left_one_join")),
+        ],
+        "explicit_chain": [
+            len(multi.joins),
+            [join.use.identity.join_position for join in multi.joins],
+            multi.joins[1].left_input.output is multi.joins[0].output,
+        ],
+        "role_playing": {
+            "reused_right_uses": [
+                join.input_uses[1].ref.position for join in reused.joins
+            ],
+            "reused_same_producer": True,
+            "self_uses": [use.ref.position for use in self_join.input_uses],
+        },
+        "unbounded_source_input": _region_signature(_region(primary, "fanout_join")),
+        "independent_grouped_inputs": _region_signature(_region(primary, "chasm_join")),
+        "coarse_fine_inputs": _region_signature(_region(primary, "comparable_join")),
+        "ordered_equalities": [_condition_value(nullable), _condition_value(composite)],
+    }
+
+
+def _terminal_observer_controls(bundle):
+    snapshot = bundle.verification.root
+    completed = snapshot.completed
+    projection = _entry(snapshot, "ambiguous_fact_join").blocker
+    namespace = projection.blocker
+    aggregate_terminal = _entry(snapshot, "chasm_aggregate_refusal").blocker
+    qualify_blocker = aggregate_terminal.joined_qualify
+    shared = _terminal_graph((namespace, namespace), completed)
+    missing = _entry(snapshot, "missing_fact_join").blocker
+    issue = missing.joined_completion.join_region.blockers[0].issues[0]
+    cyclic = copy(issue)
+    object.__setattr__(cyclic, "causes", (cyclic, cyclic))
+    cycle = _terminal_graph(cyclic, completed)
+    rejections = []
+    try:
+        _terminal_graph(object(), completed)
+    except TypeError as error:
+        rejections.append(["unknown_type", type(error).__name__])
+    else:
+        raise AssertionError("JOIN observer admitted an unknown type.")
+    try:
+        _require_observed_fields(
+            projection,
+            [
+                field.name
+                for field in dataclass_fields(projection)
+                if field.name != "joined_qualify"
+            ],
+        )
+    except ValueError as error:
+        rejections.append(["omitted_field", type(error).__name__])
+    else:
+        raise AssertionError("JOIN observer admitted an omitted causal field.")
+    for label, original, field, replacement in (
+        ("terminal_upstream", projection, "upstream_entry", object()),
+        ("namespace_kernel", namespace, "kernel_value_type", object()),
+        ("namespace_types", namespace, "value_types", {object(): object()}),
+        ("namespace_any", namespace, "existence_values", (object(),)),
+        ("namespace_predicate", namespace, "predicate_expression", object()),
+        ("qualify_references", projection.joined_qualify, "references", (object(),)),
+        ("qualify_kernel", projection.joined_qualify, "predicate_value_type", object()),
+        (
+            "qualify_types",
+            projection.joined_qualify,
+            "value_types",
+            {object(): object()},
+        ),
+        ("blocked_qualify_kernel", qualify_blocker, "kernel_value_type", object()),
+        ("blocked_qualify_references", qualify_blocker, "references", (object(),)),
+        ("blocked_qualify_types", qualify_blocker, "value_types", {object(): object()}),
+    ):
+        damaged = copy(original)
+        object.__setattr__(damaged, field, replacement)
+        try:
+            _terminal_graph(damaged, completed)
+        except ValueError as error:
+            rejections.append([label, type(error).__name__])
+        else:
+            raise AssertionError(f"JOIN observer ignored {label}.")
+    return {"shared": shared, "cycle": cycle, "rejections": rejections}
+
+
+def _negative_observation(primary, foreign, bundle):
+    invalid = copy(bundle.verification)
+    object.__setattr__(invalid, "status", ProjectIRQueryBlockVerificationStatus.INVALID)
+    invalid_bundle = copy(bundle)
+    object.__setattr__(invalid_bundle, "verification", invalid)
+    try:
+        build_project_query_block_ir_inspection(invalid_bundle)
+    except ValueError:
+        non_verified = "rejected"
+    else:
+        raise AssertionError("Non-verified current bundle was admitted")
+    try:
+        query_project_query_block_outputs(
+            primary.inspection, foreign.inspection.combined_outputs[0].ref
+        )
+    except ValueError:
+        foreign_ref = "rejected"
+    else:
+        raise AssertionError("Foreign current output reference was admitted")
+    document = primary.document
+    node = next(
+        i
+        for i, record in enumerate(document.records)
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.NODE
+    )
+    owner = next(
+        i
+        for i, record in enumerate(document.records)
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.OWNER_ENTRY
+    )
+    records = list(document.records)
+    records[node], records[owner] = records[owner], records[node]
+    reordered = replace(document, records=tuple(records))
+    use_position = next(
+        i
+        for i, record in enumerate(document.records)
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.USE
+    )
+    use = document.records[use_position]
+    fields = tuple(
+        replace(
+            field,
+            value=pure.project_query_block_ir_pure_ref(
+                pure.ProjectQueryBlockIRPortableRef(
+                    domain=pure.ProjectQueryBlockIRPortableRefDomain.OUTPUT_VALUE,
+                    position=10**6,
+                )
+            ),
+        )
+        if field.key == "output"
+        else field
+        for field in use.fields
+    )
+    changed = replace(use, fields=fields)
+    dangling = replace(
+        document,
+        records=tuple(
+            changed if record is use else record for record in document.records
+        ),
+    )
+    outcomes = []
+    for label, malformed in (
+        ("unknown_format", replace(document, format_marker="untrusted\nformat")),
+        ("section_order", reordered),
+        ("dangling_ref", dangling),
+    ):
+        result = pure.evaluate_project_query_block_ir_document(malformed)
+        assert result.status is not pure.ProjectQueryBlockIRPureStatus.OK
+        assert result.canonical_bytes is None
+        outcomes.append(
+            [label, result.status.value, result.record_position, result.field_position]
+        )
+    return {
+        "non_verified_admission": non_verified,
+        "cross_snapshot_ref": foreign_ref,
+        "pure_rejections": outcomes,
+        "terminal_observer_controls": _terminal_observer_controls(bundle),
+    }
+
+
+def _construction(root: Path, *, reverse_operation_order: bool):
+    specifications = (
+        ("primary-normal", "primary", False),
+        ("primary-reverse", "primary", True),
+        ("parallel", "parallel", False),
+        ("no-unique", "no_unique", True),
+    )
+    built = {}
+    for name, variant, reverse_creation in (
+        specifications[::-1] if reverse_operation_order else specifications
+    ):
+        built[name] = _build(
+            root / name, VARIANT_SOURCES[variant], reverse_creation=reverse_creation
+        )
+    semantic, normal, bundle, product = built["primary-normal"]
+    _, reverse, reverse_bundle, reverse_product = built["primary-reverse"]
+    primary = _analysis_observation(normal, bundle, product)
+    assert primary == _analysis_observation(reverse, reverse_bundle, reverse_product)
+    assert (
+        bundle.verification.root.base_plan.structural_stage.scope
+        is not reverse_bundle.verification.root.base_plan.structural_stage.scope
+    )
+    assert product.document == reverse_product.document
+    assert product.canonical_bytes == reverse_product.canonical_bytes
+    _, parallel, parallel_bundle, parallel_product = built["parallel"]
+    _, no_unique, no_unique_bundle, no_unique_product = built["no-unique"]
+    for name in ("missing_fact_join", "bad_relationship_join", "bad_role_join"):
+        assert isinstance(
+            _entry(bundle.verification.root, name), ProjectIRQueryBlockTerminal
+        ), name
+    value = {
+        "primary": primary,
+        "parallel": _analysis_observation(parallel, parallel_bundle, parallel_product),
+        "no_unique": _analysis_observation(
+            no_unique, no_unique_bundle, no_unique_product
+        ),
+        "shifted": _shifted_base(semantic),
+        "metamorphic": _metamorphic_observation(normal, parallel, no_unique),
+        "negative": _negative_observation(product, reverse_product, bundle),
+    }
+    scopes = tuple(
+        item[2].verification.root.base_plan.structural_stage.scope
+        for item in built.values()
     )
     assert all(
-        left is not right
-        for position, left in enumerate(roots)
-        for right in roots[position + 1 :]
+        left is not right for i, left in enumerate(scopes) for right in scopes[i + 1 :]
     )
-    return value, roots
+    return value, scopes
 
 
 def observation(workspace: Path) -> dict[str, object]:
     workspace.mkdir(parents=True, exist_ok=True)
     first, first_scopes = _construction(
-        workspace / "forward",
-        reverse_operation_order=False,
+        workspace / "forward", reverse_operation_order=False
     )
     second, second_scopes = _construction(
-        workspace / "reverse",
-        reverse_operation_order=True,
+        workspace / "reverse", reverse_operation_order=True
     )
     assert first == second
-    assert all(
-        left is not right
-        for left, right in zip(first_scopes, second_scopes, strict=True)
-    )
+    assert all(left is not right for left in first_scopes for right in second_scopes)
     return {
         "observation_format": OBSERVATION_FORMAT,
         "package_version": version("pietto"),
@@ -1620,15 +1919,9 @@ def observation(workspace: Path) -> dict[str, object]:
 
 
 def render(value: object, workspace: Path) -> bytes:
-    """Encode one observation exactly as the standalone probe emits it."""
-
     document = (
         json.dumps(
-            value,
-            ensure_ascii=False,
-            allow_nan=False,
-            sort_keys=False,
-            separators=(",", ":"),
+            value, ensure_ascii=False, allow_nan=False, separators=(",", ":")
         ).encode("utf-8")
         + b"\n"
     )
@@ -1637,17 +1930,16 @@ def render(value: object, workspace: Path) -> bytes:
     irrelevant = os.environ.get(SEED_ENVIRONMENT)
     if irrelevant is not None:
         assert irrelevant.encode() not in document
-    assert b"0x" not in document
-    assert b".venv" not in document
+    assert b"0x" not in document and b".venv" not in document
     return document
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", type=Path, required=True)
-    namespace = parser.parse_args(argv)
+    arguments = parser.parse_args(argv)
     sys.stdout.buffer.write(
-        render(observation(namespace.workspace), namespace.workspace)
+        render(observation(arguments.workspace), arguments.workspace)
     )
     return 0
 

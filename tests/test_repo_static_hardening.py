@@ -123,9 +123,9 @@ def test_cli_remains_path_based_for_nonstandard_suffix(
     path.write_text(
         """
 shape User:
-    id: Int not null
+    id: Int
 
-source users: User is postgres.table("users")
+source users: User = postgres.table("users")
 
 table all_users:
     from users

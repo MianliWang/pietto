@@ -90,24 +90,25 @@ def _source(
     order_by: tuple[str, ...] = ("id",),
 ) -> str:
     ordering = (
-        "            order by:\n"
-        + "".join(f"                {item}\n" for item in order_by)
+        "            order by\n"
+        + ",\n".join(f"                {item}" for item in order_by)
+        + "\n"
         if order_by
         else ""
     )
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    secondary: Int not null\n"
-        "    value: Int not null\n"
-        "    delta: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    secondary: Int\n"
+        "    value: Int\n"
+        "    delta: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query framed:\n"
         "    from rows\n"
         "    select:\n"
-        f"        result = {call} window:\n"
+        f"        result = {call} window(\n"
         f"{ordering}"
-        f"            {frame}\n"
+        f"            {frame})\n"
     )
 
 
@@ -493,8 +494,8 @@ def test_slice9_uses_shared_frame_ir_without_range_specific_ir() -> None:
 def test_range_keyword_remains_contextual_outside_frame_clause() -> None:
     source = (
         "shape Row:\n"
-        "    range: Int not null\n"
-        'source range: Row is postgres.table("range")\n'
+        "    range: Int\n"
+        'source range: Row = postgres.table("range")\n'
         "query selected:\n"
         "    from range\n"
         "    select:\n"

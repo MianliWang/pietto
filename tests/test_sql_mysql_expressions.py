@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import inspect
 from dataclasses import replace
 from typing import cast
@@ -431,6 +432,15 @@ def test_unsupported_expressions_fail_closed(expression: ExpressionIR) -> None:
 
 def test_mysql_expression_renderer_remains_private_and_isolated() -> None:
     source = inspect.getsource(expression_module)
+    imported = tuple(
+        name
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for name in (
+            *(() if isinstance(node, ast.Import) else (node.module or "",)),
+            *(alias.name for alias in node.names),
+        )
+    )
 
     assert "render_mysql_expression" not in sql_api.__all__
     for dependency in (
@@ -441,7 +451,9 @@ def test_mysql_expression_renderer_remains_private_and_isolated() -> None:
         "pietto.ir.lowering",
         "sqlglot",
         "database",
-        "connector",
         "pietto.cli",
     ):
         assert dependency not in source
+    # Scalar ANY reads the checked `ExistsIR.connector`, as the relation emitter
+    # reads `SourceIR.connector`; importing a connector stays forbidden.
+    assert not any("connector" in name for name in imported)

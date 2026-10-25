@@ -13,17 +13,17 @@ from pietto.sql import emit_postgres_sql
 
 def test_valid_decimal_precision_scale_type_arguments_remain_plain_decimal() -> None:
     script = _parse(
-        "type Money = Decimal(12, 2) not null\n"
-        "constraint valid(amount: Decimal(38, 38) not null) -> Bool not null:\n"
-        "    true\n"
-        "derive keep(amount: Decimal(1, 0) nullable) -> Decimal(10, 2) nullable:\n"
-        "    amount\n"
+        "type Money = Decimal(12, 2)\n"
+        "constraint valid(amount: Decimal(38, 38)) -> Bool:\n"
+        "    return True\n"
+        "derive keep(amount: Decimal(1, 0) | None) -> Decimal(10, 2) | None:\n"
+        "    return amount\n"
         "shape Product:\n"
-        "    price: Decimal(12, 2) not null\n"
-        "    money: Money not null\n"
-        "    plain: Decimal not null\n"
-        "    empty: Decimal() not null\n"
-        "    label: Text(max = 255) not null\n"
+        "    price: Decimal(12, 2)\n"
+        "    money: Money\n"
+        "    plain: Decimal\n"
+        "    empty: Decimal()\n"
+        "    label: Text(max = 255)\n"
     )
 
     semantic_result = analyze(script)
@@ -57,8 +57,8 @@ def test_valid_decimal_precision_scale_type_arguments_remain_plain_decimal() -> 
         ),
         ("Decimal(10.5, 2)", "Decimal precision and scale must be integer literals"),
         ('Decimal("10", 2)', "Decimal precision and scale must be integer literals"),
-        ("Decimal(true, 2)", "Decimal precision and scale must be integer literals"),
-        ("Decimal(null, 2)", "Decimal precision and scale must be integer literals"),
+        ("Decimal(True, 2)", "Decimal precision and scale must be integer literals"),
+        ("Decimal(None, 2)", "Decimal precision and scale must be integer literals"),
         ("Decimal(max, 2)", "Decimal precision and scale must be integer literals"),
         (
             "Decimal(schema.max, 2)",
@@ -86,7 +86,7 @@ def test_invalid_decimal_precision_scale_type_arguments_fail_closed(
     type_expr: str,
     message: str,
 ) -> None:
-    script = _parse(f"shape Product:\n    price: {type_expr} not null\n")
+    script = _parse(f"shape Product:\n    price: {type_expr}\n")
 
     semantic_result = analyze(script)
 
@@ -96,7 +96,7 @@ def test_invalid_decimal_precision_scale_type_arguments_fail_closed(
 
 
 def test_invalid_decimal_argument_diagnostic_uses_type_expression_span() -> None:
-    script = _parse("shape Product:\n    price: Decimal(0, 0) not null\n")
+    script = _parse("shape Product:\n    price: Decimal(0, 0)\n")
 
     diagnostic = analyze(script).diagnostics[0]
 
@@ -111,7 +111,7 @@ def test_invalid_decimal_argument_diagnostic_uses_type_expression_span() -> None
 
 
 def test_empty_decimal_arguments_preserve_plain_decimal_compatibility() -> None:
-    script = _parse("shape Product:\n    amount: Decimal() not null\n")
+    script = _parse("shape Product:\n    amount: Decimal()\n")
     shape = _shape(script)
     type_expr = shape.fields[0].type_expr
 
@@ -126,10 +126,10 @@ def test_empty_decimal_arguments_preserve_plain_decimal_compatibility() -> None:
 
 def test_non_decimal_type_arguments_remain_compatibility_surface() -> None:
     script = _parse(
-        "type Label = Text(max = 32, encoding = utf8) not null\n"
+        "type Label = Text(max = 32, encoding = utf8)\n"
         "shape Product:\n"
-        "    count: Int(max = 5000) not null\n"
-        "    label: Label not null\n"
+        "    count: Int(max = 5000)\n"
+        "    label: Label\n"
     )
 
     assert analyze(script).diagnostics == ()
@@ -140,8 +140,8 @@ def test_decimal_precision_scale_validation_adds_internal_carrier_without_sql_ou
 ):
     source = (
         "shape Product:\n"
-        "    price: Decimal(12, 2) not null\n"
-        'source products: Product is postgres.table("products")\n'
+        "    price: Decimal(12, 2)\n"
+        'source products: Product = postgres.table("products")\n'
         "table projected:\n"
         "    from products\n"
         "    select:\n"
@@ -212,9 +212,7 @@ def _error_diagnostics(
 def test_extended_parameter_domain_keeps_scale_independent_of_producer(
     precision, scale
 ):
-    script = _parse(
-        f"shape Product:\n    price: Decimal({precision}, {scale}) not null\n"
-    )
+    script = _parse(f"shape Product:\n    price: Decimal({precision}, {scale})\n")
     result = analyze(script)
     assert result.diagnostics == ()
     assert result.model.decimal_precision_scale_for(

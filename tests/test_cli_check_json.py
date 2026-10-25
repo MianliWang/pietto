@@ -19,7 +19,7 @@ def test_check_json_valid_file_returns_one_document(
     path = _write(
         tmp_path,
         "valid.pietto",
-        "shape User:\n    email: Text not null\n",
+        "shape User:\n    email: Text\n",
     )
 
     assert cli.main(["check", str(path), "--format", "json"]) == 0
@@ -57,7 +57,11 @@ def test_check_json_warning_is_successful_and_structured(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "warning.pietto", "shape User:\n    email: Text\n")
+    path = _write(
+        tmp_path,
+        "warning.pietto",
+        'shape User:\n    email: Text\nsource raw = postgres.table("raw")\n',
+    )
 
     assert cli.main(["check", str(path), "--format", "json"]) == 0
 
@@ -65,7 +69,9 @@ def test_check_json_warning_is_successful_and_structured(
     result = json.loads(captured.out)
     assert captured.err == ""
     assert result["ok"] is True
-    assert [item["severity"] for item in result["diagnostics"]] == ["warning"]
+    assert [(item["code"], item["severity"]) for item in result["diagnostics"]] == [
+        ("PIE-S2303", "warning")
+    ]
     assert result["diagnostics"][0]["location"]["path"] == str(path)
 
 
@@ -75,7 +81,7 @@ def test_check_json_warning_is_successful_and_structured(
         ("parser.pietto", "shape User {\n", "PIE-P1005"),
         (
             "semantic.pietto",
-            "shape User:\n    email: MissingType not null\n",
+            "shape User:\n    email: MissingType\n",
             "PIE-S2002",
         ),
     ],
@@ -205,7 +211,7 @@ def test_check_and_explain_last_valid_format_wins(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pietto", "shape User:\n    email: Text not null\n")
+    path = _write(tmp_path, "valid.pietto", "shape User:\n    email: Text\n")
 
     exit_code = cli.main([command, str(path), *formats])
 
@@ -316,12 +322,12 @@ def test_check_json_uses_raw_fields_and_json_encoding(
     [
         (
             "huge-integer.pietto",
-            "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
+            "type Huge = Int(max = " + "9" * 5000 + ")\n",
             "maximum supported length",
         ),
         (
             "deep-unary.pietto",
-            "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
+            "derive deep() -> Int:\n    " + "+" * 1500 + "1\n",
             "recursion limit",
         ),
     ],
@@ -348,10 +354,8 @@ def test_check_json_semantic_recursion_has_no_traceback(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    aliases = [
-        f"type Alias{index} = Alias{index + 1} not null\n" for index in range(1399)
-    ]
-    aliases.append("type Alias1399 = Int not null\n")
+    aliases = [f"type Alias{index} = Alias{index + 1}\n" for index in range(1399)]
+    aliases.append("type Alias1399 = Int\n")
     path = _write(tmp_path, "deep-aliases.pietto", "".join(aliases))
 
     assert cli.main(["check", str(path), "--format", "json"]) == 1

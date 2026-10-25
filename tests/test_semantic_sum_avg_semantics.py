@@ -10,11 +10,11 @@ from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    "    score: Float not null\n"
-    "    price: Decimal not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    amount: Int\n"
+    "    score: Float\n"
+    "    price: Decimal\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -106,9 +106,8 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
         ),
         (
             "shape Order:\n"
-            "    amount: Int not null\n"
-            "    check positive_average:\n"
-            "        avg(amount) > 0\n",
+            "    amount: Int\n"
+            "    positive_average = check(avg(amount) > 0)\n",
             (
                 "PIE-S2308",
                 "Aggregate avg() is not allowed in shape check; "
@@ -116,7 +115,7 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             ),
         ),
         (
-            "derive total(amount: Int not null) -> Int not null:\n    sum(amount)\n",
+            "derive total(amount: Int) -> Int:\n    return sum(amount)\n",
             (
                 "PIE-S2308",
                 "Aggregate sum() is not allowed in derive body; "
@@ -124,9 +123,7 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             ),
         ),
         (
-            "shape Order:\n"
-            "    amount: Int not null\n"
-            "    total: Int not null derive avg(amount)\n",
+            "shape Order:\n    amount: Int\n    total: Int derive avg(amount)\n",
             (
                 "PIE-S2308",
                 "Aggregate avg() is not allowed in field derive body; "

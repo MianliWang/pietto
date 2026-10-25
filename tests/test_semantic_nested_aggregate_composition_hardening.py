@@ -8,12 +8,12 @@ from pietto.semantic import analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
     "    customer_id: Text\n"
-    "    status: Text not null\n"
-    "    region: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    region: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -49,7 +49,7 @@ def _aggregate_projection(projection: str) -> str:
         "value = count_distinct(lower(avg(status)))",
         "value = sum(amount) if count(count()) > 0 else 0",
         "value = amount in (count(count()), 1)",
-        "value = cast(count(count()) as Float)",
+        "value = Float(count(count()))",
     ],
 )
 def test_nested_aggregates_remain_rejected_with_existing_diagnostic(
@@ -87,7 +87,7 @@ def test_invalid_aggregate_contexts_keep_existing_diagnostics() -> None:
         "    from orders\n"
         "    select:\n"
         "        total = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        sum(amount) > 0\n"
     )
     grouped_order_source = (

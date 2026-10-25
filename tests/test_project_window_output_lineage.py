@@ -32,6 +32,7 @@ from pietto._project.row_lineage import (
 from pietto._project.window_persistence import ProjectWindowPersistenceBundle
 from pietto._project.window_semantics import WindowResultProjectFact
 from pietto.ast_nodes import NameExpr, QueryDef, Script, TableDef, WindowExpr
+from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import EffectiveNullability, SemanticResult
@@ -49,11 +50,11 @@ IDENTITIES = (
 
 SOURCE_PREFIX = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    category: Text nullable\n"
-    "    amount: Int nullable\n"
-    "    score: Float not null\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    category: Text | None\n"
+    "    amount: Int | None\n"
+    "    score: Float\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 
 UNGROUPED_SOURCE = (
@@ -61,34 +62,14 @@ UNGROUPED_SOURCE = (
     "    from rows\n"
     "    select:\n"
     "        id\n"
-    "        row_position = row_number() window:\n"
-    "            order by:\n"
-    "                id\n"
-    "        ranked = rank() window:\n"
-    "            partition by:\n"
-    "                category\n"
-    "            order by:\n"
-    "                id desc\n"
-    "        dense = dense_rank() window:\n"
-    "            order by:\n"
-    "                id\n"
-    "        percent = percent_rank() window:\n"
-    "            order by:\n"
-    "                id\n"
-    "        cumulative = cume_dist() window:\n"
-    "            order by:\n"
-    "                id\n"
-    "        bucket = ntile(4) window:\n"
-    "            order by:\n"
-    "                id\n"
-    "        prior_amount = lag(amount, 1, amount) window:\n"
-    "            partition by:\n"
-    "                category\n"
-    "            order by:\n"
-    "                id desc\n"
-    "        next_amount = lead(amount, 0, amount) window:\n"
-    "            order by:\n"
-    "                id\n"
+    "        row_position = row_number() window(order by id)\n"
+    "        ranked = rank() window(partition by category order by id desc)\n"
+    "        dense = dense_rank() window(order by id)\n"
+    "        percent = percent_rank() window(order by id)\n"
+    "        cumulative = cume_dist() window(order by id)\n"
+    "        bucket = ntile(4) window(order by id)\n"
+    "        prior_amount = lag(amount, 1, amount) window(partition by category order by id desc)\n"
+    "        next_amount = lead(amount, 0, amount) window(order by id)\n"
     "    order by:\n"
     "        row_position desc\n"
     "        prior_amount\n"
@@ -102,16 +83,8 @@ GROUPED_SOURCE = (
     "    select:\n"
     "        group_name = category\n"
     "        total = sum(amount)\n"
-    "        group_rank = rank() window:\n"
-    "            partition by:\n"
-    "                group_name\n"
-    "            order by:\n"
-    "                total desc\n"
-    "        previous_total = lag(total, 0, total) window:\n"
-    "            partition by:\n"
-    "                group_name\n"
-    "            order by:\n"
-    "                total\n"
+    "        group_rank = rank() window(partition by group_name order by total desc)\n"
+    "        previous_total = lag(total, 0, total) window(partition by group_name order by total)\n"
     "    order by:\n"
     "        group_name\n"
     "        total desc\n"
@@ -145,19 +118,13 @@ def _diagnostic_codes(source: str) -> tuple[str, ...]:
 def _duplicate_source(kind: int) -> str:
     if kind % 4 == 0:
         outputs = (
-            "        duplicate = row_number() window:\n"
-            "            order by:\n"
-            "                id\n"
-            "        duplicate = rank() window:\n"
-            "            order by:\n"
-            "                id\n"
+            "        duplicate = row_number() window(order by id)\n"
+            "        duplicate = rank() window(order by id)\n"
         )
     elif kind % 4 == 1:
         outputs = (
             "        duplicate = id\n"
-            "        duplicate = row_number() window:\n"
-            "            order by:\n"
-            "                id\n"
+            "        duplicate = row_number() window(order by id)\n"
         )
     else:
         return (
@@ -168,9 +135,7 @@ def _duplicate_source(kind: int) -> str:
             "    select:\n"
             "        duplicate = category\n"
             "        total = count()\n"
-            "        duplicate = rank() window:\n"
-            "            order by:\n"
-            "                total\n"
+            "        duplicate = rank() window(order by total)\n"
             "    order by:\n"
             "        duplicate\n"
         )
@@ -212,23 +177,14 @@ def _same_select_source(case: int) -> str:
         "row_number()",
         f"lead({second_name})",
     )[role]
-    partition = (
-        f"            partition by:\n                {second_name}\n"
-        if role == 2
-        else ""
-    )
+    partition = f"partition by {second_name} " if role == 2 else ""
     order = second_name if role == 3 else "id"
     return (
         SOURCE_PREFIX + "query same_select:\n"
         "    from rows\n"
         "    select:\n"
-        f"        {first_name} = {call} window:\n"
-        f"{partition}"
-        "            order by:\n"
-        f"                {order}\n"
-        f"        {second_name} = rank() window:\n"
-        "            order by:\n"
-        "                id\n"
+        f"        {first_name} = {call} window({partition}order by {order})\n"
+        f"        {second_name} = rank() window(order by id)\n"
     )
 
 
@@ -261,9 +217,7 @@ def slice14_project(tmp_path_factory: pytest.TempPathFactory) -> _ProjectFixture
         "    from windows\n"
         "    select:\n"
         "        row_position\n"
-        "        prior_rank = lag(row_position) window:\n"
-        "            order by:\n"
-        "                id\n"
+        "        prior_rank = lag(row_position) window(order by id)\n"
         + GROUPED_SOURCE.removeprefix(SOURCE_PREFIX)
         + "query grouped_downstream:\n"
         "    from grouped\n"
@@ -462,9 +416,7 @@ def test_every_selected_window_output_still_requires_an_explicit_alias(
         SOURCE_PREFIX + "query missing_alias:\n"
         "    from rows\n"
         "    select:\n"
-        f"        {call} window:\n"
-        "            order by:\n"
-        "                id\n"
+        f"        {call} window(order by id)\n"
     )
     parsed = parse_source(source, path="slice14-missing-alias.pietto")
     assert parsed.diagnostics
@@ -483,20 +435,34 @@ def test_window_and_ordinary_output_alias_collisions_emit_pie_s2305() -> None:
     assert len(codes) == 1
 
 
-def test_ungrouped_final_order_input_field_priority_is_preserved() -> None:
+def test_ungrouped_final_order_key_of_an_input_field_and_a_window_output_is_ambiguous() -> (
+    None
+):
     source = (
         UNGROUPED_SOURCE.replace("        id\n", "", 1)
         .replace("row_position = row_number()", "id = row_number()")
         .replace("        row_position desc\n", "        id desc\n")
     )
     _, result, _ = _semantic(source)
-    assert result.diagnostics == ()
+    # Before: the input field `rows.id` silently won over the window output.
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-S2102",
+            "Ambiguous field: id is both the input field rows.id and a SELECT "
+            "output; write rows.id, or give the output another name",
+            19,
+            9,
+        )
+    ]
 
 
 def test_ungrouped_final_order_let_priority_is_preserved() -> None:
     source = UNGROUPED_SOURCE.replace(
         "    select:\n",
-        "    let:\n        row_position = id\n    select:\n",
+        "    let row_position = id\n    select:\n",
         1,
     )
     _, result, _ = _semantic(source)
@@ -576,7 +542,11 @@ def test_downstream_relation_accepts_exact_immediate_upstream_qualifier() -> Non
         "        copied = windows.row_position\n"
     )
     _, result, relation = _semantic(source)
-    assert result.diagnostics == ()
+    # Only the read of a query of the file is warned about (PIE-S2382).
+    assert [
+        (item.code, item.severity, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-S2382", Severity.WARNING, 23, 5)]
     assert "copied" in result.model.relation_row_schemas[relation].fields
 
 
@@ -629,7 +599,11 @@ def test_downstream_group_and_aggregate_consumers_treat_window_as_row_field() ->
         "        seen = count(prior_amount)\n"
     )
     _, result, relation = _semantic(source)
-    assert result.diagnostics == ()
+    # Only the read of a query of the file is warned about (PIE-S2382).
+    assert [
+        (item.code, item.severity, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-S2382", Severity.WARNING, 23, 5)]
     assert tuple(result.model.relation_row_schemas[relation].fields) == (
         "grouped_rank",
         "seen",

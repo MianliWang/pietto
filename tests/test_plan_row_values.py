@@ -28,9 +28,8 @@ from _pietto_plan_row import _source, ROW_BODY
 def test_real_contextual_type_retention(tmp_path: Path) -> None:
     roots = _roots(
         tmp_path,
-        _source("""    let:
-        a = id + 1
-        b = a * 2
+        _source("""    let a = id + 1
+    let b = a * 2
     where b > 0 and flag
     select:
         first = b + a
@@ -86,8 +85,8 @@ def test_real_contextual_type_retention(tmp_path: Path) -> None:
     (
         ("    where id\n    select:\n        id\n", "PIE-S2202"),
         ("    where absent > 0\n    select:\n        id\n", "PIE-S2102"),
-        ("    select:\n        value = id + true\n", "PIE-S2105"),
-        ("    let:\n        id = 1\n    select:\n        value = id\n", "PIE-S2329"),
+        ("    select:\n        value = id + True\n", "PIE-S2105"),
+        ("    let id = 1\n    select:\n        value = id\n", "PIE-S2329"),
     ),
 )
 def test_missed_row_errors_reach_completed(
@@ -115,9 +114,8 @@ def test_scalar_let_where_vertical(tmp_path: Path, kind: str, family: str) -> No
     roots = _roots(
         tmp_path,
         _source(
-            """    let:
-        a = id + 1
-        b = a * 2
+            """    let a = id + 1
+    let b = a * 2
     where b > 0 and flag
     select:
         first = b + a
@@ -186,7 +184,7 @@ def row_plans(tmp_path_factory: pytest.TempPathFactory):
     "expression",
     (
         "1",
-        "true",
+        "True",
         '"😀\\nquoted\\""',
         "1.25",
         "id",
@@ -197,15 +195,15 @@ def row_plans(tmp_path_factory: pytest.TempPathFactory):
         "id - 1",
         "id * 2",
         "id % 2",
-        "flag and true",
-        "flag or false",
+        "flag and True",
+        "flag or False",
         "id == key",
         "id != 0",
         "id <= key",
         "id > key",
-        "key is null",
-        "id is not null",
-        "key between 1 and 9",
+        "key is None",
+        "id is not None",
+        "1 <= key <= 9",
     ),
 )
 def test_closed_scalar_domain_preserves_occurrences(
@@ -294,11 +292,10 @@ def test_let_reuse_crosses_exported_predecessors(row_plans) -> None:
 @pytest.mark.parametrize(
     "body",
     (
-        "    let:\n        a = b + 1\n        b = id\n    select:\n        value = a\n",
-        "    let:\n        a = a + 1\n    select:\n        value = a\n",
-        "    let:\n        a = id\n        a = key\n    select:\n        value = a\n",
-        "    let:\n        rows = id\n    select:\n        value = id\n",
-        "    let:\n        a = id\n    select:\n        a = id\n",
+        "    let a = b + 1\n    let b = id\n    select:\n        value = a\n",
+        "    let a = a + 1\n    select:\n        value = a\n",
+        "    let rows = id\n    select:\n        value = id\n",
+        "    let a = id\n    select:\n        a = id\n",
         "    where later > 0\n    select:\n        later = id\n",
         "    select:\n        first = id\n        second = first + 1\n",
     ),
@@ -311,7 +308,7 @@ def test_existing_visibility_and_collision_rules(tmp_path: Path, body: str) -> N
 
 def test_unaliased_let_output_keeps_existing_exception(tmp_path: Path) -> None:
     _, _, view = _product(
-        tmp_path, _source("    let:\n        a = id + 1\n    select:\n        a\n")
+        tmp_path, _source("    let a = id + 1\n    select:\n        a\n")
     )
     assert view.exports[0].identity.name == "a"
     assert isinstance(
@@ -331,14 +328,13 @@ def test_trim_is_an_admitted_scalar_plan_value(tmp_path: Path) -> None:
 
 def test_named_imported_reexported_scalar_filter_chain(tmp_path: Path) -> None:
     producer = _source(ROW_BODY, kind="table").replace("table result:", "table first:")
-    (tmp_path / "producer.pietto").write_text(producer + "export:\n    table first\n")
+    (tmp_path / "producer.pietto").write_text(producer + "export table first\n")
     (tmp_path / "facade.pietto").write_text(
-        'import "producer.pietto":\n    table first as Public\nexport:\n    table Public\n'
+        'from "producer.pietto" import table first as Public\nexport table Public\n'
     )
     roots, plan, view = _product(
         tmp_path,
-        """import "facade.pietto":
-    table Public as Input
+        """from "facade.pietto" import table Public as Input
 table next:
     from Input
     where again > 2
@@ -347,8 +343,7 @@ table next:
         key = third
 query result:
     from next
-    let:
-        computed = renamed + key
+    let computed = renamed + key
     select:
         final = computed
         repeat = computed
@@ -655,6 +650,7 @@ def test_unknown_row_expression_fails_verification() -> None:
     site = SimpleNamespace(
         ref=object(),
         references=(),
+        evidence=None,
         occurrence=SimpleNamespace(expression=UnknownExpression(span=span)),
     )
     plan = SimpleNamespace(expressions=())
@@ -760,9 +756,8 @@ def test_replay_context_is_retained_separately_with_set_ancestor(
         from rows
 query result:
     from repeated
-    let:
-        a = id + 1
-        b = a * 2
+    let a = id + 1
+    let b = a * 2
     where flag and b > 0
     select:
         value = b + a
@@ -954,10 +949,10 @@ def test_contextual_ordinals_require_ints_in_admission_and_verification(
 
 
 EXISTS_SOURCE = """shape Row:
-    id: Int not null
-    key: Int nullable
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+    key: Int | None
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 query flagged:
     from tags
     select:
@@ -1032,10 +1027,10 @@ def test_expression_block_uses_cannot_be_dropped_forged_or_swapped(
 
 
 SCALAR_SOURCE = """shape Row:
-    id: Int not null
-    key: Int nullable
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+    key: Int | None
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 query result:
     let picked:
         from tags
@@ -1093,10 +1088,10 @@ def test_a_scalar_read_leaf_keeps_its_column_type_and_block_use(
 
 
 MEMBERSHIP_SOURCE = """shape Row:
-    id: Int not null
-    key: Int nullable
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+    key: Int | None
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 query keys:
     from tags
     select:
@@ -1166,10 +1161,10 @@ def test_membership_leaves_cannot_be_swapped_or_retyped(
 
 
 CAPTURE_SOURCE = """shape Row:
-    id: Int not null
-    key: Int nullable
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+    key: Int | None
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 query result:
     let matched:
         capture r
@@ -1179,9 +1174,8 @@ query result:
         select:
             id
     from rows
-    left join tags as r:
-        from rows
-        on rows.id == r.id
+    let r = tags
+    left join r on rows.id == r.id
     where exists matched
     select:
         id = rows.id
@@ -1237,10 +1231,10 @@ def test_capture_records_and_captured_reads_cannot_be_forged(
 # Phase70 S14: a scalar read in SELECT and a NOT IN read in WHERE of two
 # capturing lets; each capture record names its own read, block and ports.
 SCALAR_IN_CAPTURE_SOURCE = """shape Row:
-    id: Int not null
-    key: Int nullable
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+    key: Int | None
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 query result:
     let matched:
         capture rows
@@ -1338,7 +1332,7 @@ def test_an_ordered_capturing_let_keeps_its_result_bounds_in_the_plan(
 # names that input and the JOIN's own left input ports.
 LATERAL_SOURCE = CAPTURE_SOURCE.replace(
     "    where exists matched\n",
-    "    cross join matched as m:\n        from rows\n",
+    "    let m = matched\n    cross join m\n",
 )
 
 

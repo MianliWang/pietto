@@ -38,7 +38,7 @@ def test_analyze_uses_header_mode_and_override_takes_precedence() -> None:
 
 
 def test_analyze_returns_model_and_empty_diagnostics() -> None:
-    result = analyze(_parse("shape User:\n    id: UUID not null\n"))
+    result = analyze(_parse("shape User:\n    id: UUID\n"))
 
     assert isinstance(result, SemanticResult)
     assert isinstance(result.model, SemanticModel)
@@ -77,8 +77,8 @@ def test_semantic_public_objects_do_not_expose_antlr_nodes() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    id: UUID not null\n"
-            'source users: User is postgres.table("public.users")\n'
+            "    id: UUID\n"
+            'source users: User = postgres.table("public.users")\n'
         )
     )
 

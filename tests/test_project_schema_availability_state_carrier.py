@@ -286,7 +286,7 @@ def _row_schema_project(tmp_path: Path) -> Path:
         "models.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"

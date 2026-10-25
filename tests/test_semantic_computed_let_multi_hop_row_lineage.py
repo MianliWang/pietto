@@ -165,8 +165,7 @@ def test_selected_let_output_and_expression_lineage_are_recorded(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n",
         )
@@ -240,9 +239,8 @@ def test_later_let_binding_keeps_earlier_let_segment_and_source_lineage(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        subtotal = score + bonus\n"
-            "        adjusted = subtotal + score\n"
+            "    let subtotal = score + bonus\n"
+            "    let adjusted = subtotal + score\n"
             "    select:\n"
             "        adjusted\n",
         )
@@ -427,8 +425,7 @@ def test_let_expression_over_relation_backed_field_expands_to_source_lineage(
             "        total = score + bonus\n"
             "query projected:\n"
             "    from seed\n"
-            "    let:\n"
-            "        adjusted = total + 1\n"
+            "    let adjusted = total + 1\n"
             "    select:\n"
             "        adjusted\n",
         )
@@ -568,8 +565,7 @@ def test_project_json_v2_keeps_computed_let_multi_hop_lineage_private(
             tmp_path,
             "query seed:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n"
             "query exported:\n"
@@ -673,14 +669,14 @@ def _project(
     )
     source_prefix = (
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
-        "    score: Int not null\n"
-        "    bonus: Int nullable\n"
-        "    status: Text not null\n"
+        "    id: Int\n"
+        "    email: Text | None\n"
+        "    score: Int\n"
+        "    bonus: Int | None\n"
+        "    status: Text\n"
     )
     if include_source:
-        source_prefix += 'source users: User is postgres.table("users")\n'
+        source_prefix += 'source users: User = postgres.table("users")\n'
     (root / "models.pietto").write_text(
         source_prefix + relation_source,
         encoding="utf-8",

@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from pietto._project.check import check_project_parse_only
+from pietto._project.check import (
+    check_legacy_flat_semantics,
+    check_project_parse_only,
+)
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsReason,
@@ -58,8 +61,7 @@ def test_selected_bare_let_output_becomes_private_row_field(tmp_path: Path) -> N
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n",
         )
@@ -90,8 +92,7 @@ def test_aliased_selected_let_reference_is_private_let_derived(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        exported_total = total\n",
         )
@@ -121,8 +122,7 @@ def test_direct_input_field_keeps_priority_and_source_native_field_def(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        score = bonus\n"
+            "    let score = bonus\n"
             "    select:\n"
             "        score\n",
         )
@@ -152,13 +152,18 @@ def test_direct_input_field_keeps_priority_and_source_native_field_def(
 def test_invalid_let_facts_do_not_make_selected_let_outputs_concrete(
     tmp_path: Path,
 ) -> None:
+    # The modern spelling of two bindings of one name is refused while the
+    # names are bound, before the scaffold reads them; `check --project`
+    # reports it after the model's diagnostics.
+    naming = {
+        "duplicate": (("PIE-S2604", "Duplicate query local name: total"),),
+    }
     cases = {
         "duplicate": (
             "query duplicate:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score\n"
-            "        total = bonus\n"
+            "    let total = score\n"
+            "    let total = bonus\n"
             "    select:\n"
             "        total\n",
             "duplicate",
@@ -166,8 +171,7 @@ def test_invalid_let_facts_do_not_make_selected_let_outputs_concrete(
         "self_reference": (
             "query self_reference:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = total + bonus\n"
+            "    let total = total + bonus\n"
             "    select:\n"
             "        total\n",
             "self_reference",
@@ -175,9 +179,8 @@ def test_invalid_let_facts_do_not_make_selected_let_outputs_concrete(
         "later_reference": (
             "query later_reference:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = subtotal + bonus\n"
-            "        subtotal = score\n"
+            "    let total = subtotal + bonus\n"
+            "    let subtotal = score\n"
             "    select:\n"
             "        total\n",
             "later_reference",
@@ -185,8 +188,7 @@ def test_invalid_let_facts_do_not_make_selected_let_outputs_concrete(
         "aggregate_let": (
             "query aggregate_let:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = sum(score)\n"
+            "    let total = sum(score)\n"
             "    select:\n"
             "        total\n",
             "aggregate_let",
@@ -206,10 +208,14 @@ def test_invalid_let_facts_do_not_make_selected_let_outputs_concrete(
         assert facts.reason is ProjectLetScopeFactsReason.LET_DIAGNOSTICS_SUPPRESSED
         assert semantic_result.model.relation_row_schemas[definition].is_unknown
         assert _diagnostics(semantic_result) == [("PIE-S2102", "Unknown field: total")]
+        checked, _ = check_legacy_flat_semantics(semantic_result)
+        assert tuple(
+            (item.code, item.message) for item in checked if item.code == "PIE-S2604"
+        ) == naming.get(relation_name, ())
 
 
 def test_a_binding_of_unknown_type_leaves_the_others_typed(tmp_path: Path) -> None:
-    """Beside a binding of unknown type, here `k = null`, every binding keeps
+    """Beside a binding of unknown type, here `let k = None`, every binding keeps
     its type, so a selected read of one whose type is known is a typed
     let-derived output; the scope stays non-concrete and a read of `k` is
     still the only refusal. Before, the whole scope lost its types and
@@ -219,16 +225,14 @@ def test_a_binding_of_unknown_type_leaves_the_others_typed(tmp_path: Path) -> No
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        k = null\n"
-            "        f = score\n"
-            "        h = f\n"
+            "    let k = None\n"
+            "    let f = score\n"
+            "    let h = f\n"
             "    select:\n"
             "        v = h\n"
             "query unread:\n"
             "    from users\n"
-            "    let:\n"
-            "        k = null\n"
+            "    let k = None\n"
             "    select:\n"
             "        w = k\n",
         )
@@ -254,8 +258,7 @@ def test_alias_conflict_remains_non_concrete_let_fact(tmp_path: Path) -> None:
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total = id\n",
         )
@@ -281,8 +284,7 @@ def test_qualified_let_reference_does_not_become_concrete(tmp_path: Path) -> Non
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        exported_total = users.total\n",
         )
@@ -305,14 +307,12 @@ def test_unresolved_upstream_is_blocked_and_invalid_grouped_let_output_is_unknow
             tmp_path,
             "query missing_upstream:\n"
             "    from missing\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n"
             "query grouped:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    group by:\n"
             "        email\n"
             "    select:\n"
@@ -370,8 +370,7 @@ def test_multi_hop_projection_preserves_non_source_native_field_def(
             tmp_path,
             "query seed:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n"
             "query exported:\n"
@@ -429,8 +428,7 @@ def test_project_json_v2_keeps_selected_let_schema_facts_private(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    select:\n"
             "        total\n",
         )
@@ -513,11 +511,11 @@ def _project(tmp_path: Path, relation_source: str) -> Path:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text not null\n"
-        "    score: Int not null\n"
-        "    bonus: Int nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        "    email: Text\n"
+        "    score: Int\n"
+        "    bonus: Int | None\n"
+        'source users: User = postgres.table("users")\n'
         f"{relation_source}",
     )
     return root

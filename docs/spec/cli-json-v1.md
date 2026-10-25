@@ -13,6 +13,13 @@ JSON schema version 1 remains exclusively single-file. Explicit project checks
 use the separate JSON schema version 2 contract in
 `docs/spec/project-cli-json-v2.md`; that contract does not change this one.
 
+Source syntax and JSON schema version are independent. Commands parse the
+modern language described in [Language](../language.md); its `None`, `True` and
+`False` tokens do not change JSON's `null`, `true` and `false` values. Source
+`pietto NUMBER` metadata does not select a syntax or this envelope version.
+Modern JOIN, relationship and ANY facts use the existing diagnostic, artifact
+and location fields; this change adds no public JSON key or diagnostic shape.
+
 ## Scope And Non-Goals
 
 JSON mode provides structured command results for tools that invoke Pietto. It
@@ -36,6 +43,13 @@ and never this v1 envelope; its own error kinds are not v1 kinds.
 
 `emit-sql` generates SQL artifacts only. Even when `--output` is used, Pietto
 writes SQL text to a local file and does not execute it.
+
+`pietto migrate PATH` is outside this JSON contract. It has no `--format json`
+mode: success writes one complete migrated UTF-8 source to stdout, while a
+refusal emits diagnostics without partial source. It never edits the input.
+The migration-specific PIE-P1011 and modern parser rewrite suggestions are
+specified in [Diagnostics](diagnostics.md) and
+[Source migration](../language.md#migrating-old-source).
 
 ## Invocation
 
@@ -243,9 +257,9 @@ Every compiler diagnostic uses:
 
 ```json
 {
-  "code": "PIE-S2005",
+  "code": "PIE-S2304",
   "severity": "warning",
-  "message": "Implicit nullability",
+  "message": "Computed projection requires an explicit alias",
   "location": {
     "path": "example.pietto",
     "line": 2,
@@ -268,8 +282,12 @@ Every compiler diagnostic uses:
 Severity spelling and lowercase casing are stable in v1. Current producers emit
 error and warning diagnostics; `"info"` is reserved by the v1 contract.
 
-Diagnostics preserve compiler order. Pietto does not invent `0:0` coordinates
-for a location-less diagnostic.
+Diagnostics preserve compiler order. Modern spelling admission may report
+several located PIE-P1000 rewrite suggestions from one declaration before AST
+normalization; parser-recovery errors retain their separate ordering rules.
+Relationship and ANY errors use the same diagnostic object, without adding
+binder or template fields. Pietto does not invent `0:0` coordinates for a
+location-less diagnostic.
 
 ## Location Object
 

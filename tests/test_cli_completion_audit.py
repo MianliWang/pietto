@@ -15,6 +15,15 @@ SQL_EXAMPLES = (
     (Path("examples/tables/active_users.pietto"), 1),
     (Path("examples/queries/active_user_emails.pietto"), 2),
 )
+# The query example reads a table of its own file (PIE-S2382).
+SQL_EXAMPLE_STDERR = {
+    Path("examples/queries/active_user_emails.pietto"): (
+        "examples/queries/active_user_emails.pietto:18:5 PIE-S2382 warning: "
+        "`active_users` is a table of this file; single-file SQL reads it by name, "
+        "so the SQL runs only where the database already has a relation named "
+        "active_users (an EXPLICIT_MODULES project emits it as a CTE)\n"
+    ),
+}
 
 
 def test_public_cli_main_help_and_version_are_available(
@@ -60,7 +69,7 @@ def test_cli_check_reports_parser_and_semantic_errors(
     semantic_error = _write(
         tmp_path,
         "semantic-error.pietto",
-        "shape User:\n    email: MissingType not null\n",
+        "shape User:\n    email: MissingType\n",
     )
     assert cli.main(["check", str(semantic_error)]) == 1
     semantic_output = capsys.readouterr()
@@ -77,11 +86,11 @@ def test_cli_rejects_malformed_dotted_table_name_before_sql(
     source = _write(
         tmp_path,
         "dotted.pietto",
-        "shape Doc:\n    id: Int not null\n"
-        f'source docs: Doc is {dialect}.table("a.b.c")\n'
+        "shape Doc:\n    id: Int\n"
+        f'source docs: Doc = {dialect}.table("a.b.c")\n'
         "table recent:\n    from docs\n    select:\n        id\n",
     )
-    column = len(f"source docs: Doc is {dialect}.table(") + 1
+    column = len(f"source docs: Doc = {dialect}.table(") + 1
     for argv in (
         ["check", str(source)],
         ["emit-sql", str(source), "--dialect", dialect],
@@ -104,7 +113,7 @@ def test_supported_committed_examples_emit_sql_to_stdout(
     captured = capsys.readouterr()
     assert captured.out.count("SELECT\n") == select_count
     assert captured.out.endswith("\n")
-    assert captured.err == ""
+    assert captured.err == SQL_EXAMPLE_STDERR.get(path, "")
 
 
 def test_committed_query_example_emits_ordered_sql_to_file(
@@ -131,7 +140,7 @@ def test_committed_query_example_emits_ordered_sql_to_file(
     captured = capsys.readouterr()
     sql = output.read_text(encoding="utf-8")
     assert captured.out == ""
-    assert captured.err == ""
+    assert captured.err == SQL_EXAMPLE_STDERR[source]
     assert sql.count("SELECT\n") == 2
     assert sql.index('FROM "public"."users"') < sql.index('FROM "active_users"')
     assert "\n\nSELECT\n" in sql

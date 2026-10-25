@@ -36,7 +36,7 @@ def built(tmp_path_factory):
     root = tmp_path_factory.mktemp("s11-templates")
     return {
         seed: compiled_template(root / str(i), seed=seed)
-        for i, seed in enumerate(("true", "1", "1.5", '"seed"'))
+        for i, seed in enumerate(("True", "1", "1.5", '"seed"'))
     }
 
 
@@ -114,7 +114,7 @@ def test_live_and_loaded_entries_store_the_same_pinned_bytes_as_distinct_jobs(
         assert root.expected_pin == built.pin and root is not root_of(live)
 
 
-@pytest.mark.parametrize("seed", ("true", "1", "1.5", '"seed"'))
+@pytest.mark.parametrize("seed", ("True", "1", "1.5", '"seed"'))
 def test_typed_vectors_round_trip_a_b_a_with_fresh_bindings(built, tmp_path, seed):
     if not qualified(tmp_path):
         return
@@ -194,7 +194,7 @@ def test_signed_zero_and_bool_int_are_distinct_vectors(built, workspace):
     int_template, _ = built["1"]
     with pytest.raises(BindingError):
         bind_values(int_template, values_for(int_template, {**A, "Int": True}, A))
-    bool_template, _ = built["true"]
+    bool_template, _ = built["True"]
     with pytest.raises(BindingError):
         bind_values(bool_template, values_for(bool_template, A, {**A, "Bool": 1}))
 
@@ -203,7 +203,7 @@ def test_illegal_or_foreign_bindings_do_not_mutate_the_job(built, tmp_path, work
     if workspace is None:
         return
     template, _ = built["1"]
-    other, _ = built["true"]
+    other, _ = built["True"]
     job, publisher, binding, record, generation = job_with_generation(
         workspace, template
     )
@@ -432,7 +432,7 @@ def test_operation_identity_replay_conflict_and_query(built, workspace):
     queried = s.query_operation(workspace, operation)
     assert queried is not None and queried.observation == "QUERIED"
     assert (queried.job, queried.result) == (first.job, first.result)
-    other, _ = built["true"]
+    other, _ = built["True"]
     with pytest.raises(JobStoreError, match="OPERATION_CONFLICT"):
         s.register_job(workspace, other, operation=operation)
     publisher = s.claim_publisher(workspace, first.job, operation=op())

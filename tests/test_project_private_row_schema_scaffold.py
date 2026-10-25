@@ -134,7 +134,8 @@ def test_project_semantic_build_populates_source_and_direct_relation_row_schemas
     assert field.name == "id"
     assert field.field_def is not None
     assert field.field_def.name == "id"
-    assert field.nullability is ProjectRowFieldNullability.UNKNOWN
+    # The bare declared `id: Int` is never None.
+    assert field.nullability is ProjectRowFieldNullability.NON_NULL
     assert field.provenance is not None
     assert field.provenance.kind is ProjectRowFieldProvenanceKind.SOURCE_FIELD
     assert (
@@ -222,7 +223,7 @@ def _row_schema_project(tmp_path: Path) -> Path:
         "models.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"

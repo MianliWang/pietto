@@ -460,8 +460,7 @@ def test_computed_alias_let_and_aggregate_are_concrete_while_pure_grouping_stays
             "        total = id + 1\n"
             "query with_let:\n"
             "    from seed\n"
-            "    let:\n"
-            "        total = id + 1\n"
+            "    let total = id + 1\n"
             "    select:\n"
             "        id\n"
             "query aggregate:\n"
@@ -624,10 +623,10 @@ def _project(
     if include_source:
         source_text = (
             "shape User:\n"
-            "    id: Int not null\n"
-            "    email: Text nullable\n"
+            "    id: Int\n"
+            "    email: Text | None\n"
             "    score: Int\n"
-            'source users: User is postgres.table("users")\n'
+            'source users: User = postgres.table("users")\n'
         )
     _write(root, "models.pietto", f"{source_text}{relation_body}")
     return root

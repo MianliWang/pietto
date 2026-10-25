@@ -16,15 +16,15 @@ from pietto.sql import SqlArtifact, SqlArtifactKind, SqlResult
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
 )
 RELATION = (
     SOURCE + "table active_users:\n"
     "    from users\n"
-    "    where active == true\n"
+    "    where active == True\n"
     "    select:\n"
     "        id\n"
     "        email\n"
@@ -85,7 +85,9 @@ def test_emit_sql_json_warning_writes_output_and_stays_ok(
         "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
+        # A source without a shape is a PIE-S2303 warning in the default mode.
+        'source raw = postgres.table("raw")\n'
         "table user_emails:\n"
         "    from users\n"
         "    select:\n"
@@ -109,7 +111,7 @@ def test_emit_sql_json_warning_writes_output_and_stays_ok(
         ("parser.pietto", "shape User {\n", "PIE-P1005"),
         (
             "semantic.pietto",
-            "shape User:\n    email: MissingType not null\n",
+            "shape User:\n    email: MissingType\n",
             "PIE-S2002",
         ),
     ],
@@ -495,8 +497,9 @@ def test_output_parent_link_loop_is_an_output_write_error_after_compilation(
     _write(
         tmp_path,
         "input.pietto",
-        # The warning shows that compilation ran before the write failed.
-        RELATION.replace("    active: Bool not null\n", "    active: Bool\n"),
+        # The PIE-S2303 warning of a source without a shape shows that
+        # compilation ran before the write failed.
+        RELATION + 'source raw = postgres.table("raw")\n',
     )
     (tmp_path / "loop-a").symlink_to("loop-b")
     (tmp_path / "loop-b").symlink_to("loop-a")
@@ -519,7 +522,7 @@ def test_output_parent_link_loop_is_an_output_write_error_after_compilation(
         assert [
             diagnostic["code"]
             for diagnostic in cast(list[dict[str, object]], result["diagnostics"])
-        ] == ["PIE-S2005"]
+        ] == ["PIE-S2303"]
         assert cast(list[dict[str, object]], result["artifacts"])[0]["sql"] == (
             EXPECTED_SQL.removesuffix("\n")
         )
@@ -527,7 +530,7 @@ def test_output_parent_link_loop_is_an_output_write_error_after_compilation(
     else:
         assert captured.out == ""
         warning, write_error = captured.err.splitlines()
-        assert "PIE-S2005 warning:" in warning
+        assert "PIE-S2303 warning:" in warning
         assert write_error == f"{output}: error: {reason}"
 
 

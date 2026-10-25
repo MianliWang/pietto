@@ -79,6 +79,7 @@ from pietto._project.row_expression_type_facts import (
     reports_unfit_def_argument,
 )
 from pietto.ast_nodes import (
+    AnyExpr,
     DottedNameExpr,
     FromClause,
     NameExpr,
@@ -215,6 +216,8 @@ _CLAUSE_FIELDS = frozenset(
         "order_by_clause",
         "limit_clause",
         "distinct_clause",
+        "naming_declarations",
+        "join_filters",
     }
 )
 
@@ -228,6 +231,12 @@ def _expression_read_containers(
         names.discard("parameters")
     if names != _CLAUSE_FIELDS:
         raise ValueError("Expression reads require a closed relation body shape.")
+    if definition.naming_declarations:
+        raise ValueError(
+            "Expression reads require normalized query naming declarations."
+        )
+    if definition.join_filters:
+        raise ValueError("Expression reads require normalized JOIN-prefix filters.")
     P = ProjectExpressionBlockPosition
     containers: list[tuple[ProjectExpressionBlockPosition, int, Node]] = [
         (P.FROM, 0, definition.from_clause)
@@ -284,18 +293,16 @@ def expression_block_reads(
     for position, container_ordinal, container in _expression_read_containers(
         cast(TableDef | QueryDef, definition)
     ):
-        found = relation_read_expressions(container)
-        base = len(reads)
-        reads.extend(
-            ProjectExpressionBlockRead(
-                owner=owner,
-                expression=expression,
-                position=position,
-                container_ordinal=container_ordinal,
-                ordinal=base + index,
+        for expression in relation_read_expressions(container):
+            reads.append(
+                ProjectExpressionBlockRead(
+                    owner=owner,
+                    expression=expression,
+                    position=position,
+                    container_ordinal=container_ordinal,
+                    ordinal=len(reads),
+                )
             )
-            for index, expression in enumerate(found)
-        )
     return tuple(reads)
 
 
@@ -1690,6 +1697,8 @@ def _resolve_expression_reads(
     at that read, and resolves to nothing.
     """
 
+    from pietto.semantic.modern_inputs import _lexical_any_scopes
+
     def local(name: str, owner: ProjectDeclarationOccurrence):
         symbol = _resolve_scoped_name(
             draft, owner, name, symbols_by_name, lets_by_scope
@@ -1720,9 +1729,22 @@ def _resolve_expression_reads(
             target = local(name, owner)
             if target is not None:
                 graph.setdefault(owner, []).append(target)
+    parsed = draft.module.parsed_input
+    # Each ANY's iterable name as written, before a let alias was replaced.
+    authored = {
+        id(value.expression): value.authored_expression.relation_name
+        for value in (() if parsed is None else parsed.existence_values)
+    }
+    # A WHERE ANY lowered to a hidden SEMI/ANTI input still binds its row
+    # name over that input's ON condition.
+    lowered = {
+        id(use.clause.on_clause): use.expression
+        for use in (() if parsed is None else parsed.existence_generators)
+    }
     for owner in draft.catalog.relation_owners:
         reads = expression_block_reads(owner)
         refused = _refused_read_positions(owner, reads)
+        scopes = _lexical_any_scopes(owner.definition, lowered) if reads else {}
         for read in reads:
             where = refused.get(id(read.expression))
             if where is not None:
@@ -1731,8 +1753,15 @@ def _resolve_expression_reads(
                     ProjectResolvedExpressionBlockRead(read=read)
                 )
                 continue
+            # An enclosing ANY binder of the name as written hides every
+            # relation of that name from an ANY, as in a single file.
+            shadowed = type(read.expression) is AnyExpr and any(
+                scope.binding_name
+                == authored.get(id(read.expression), read.relation_name)
+                for scope in scopes.get(id(read.expression), ())
+            )
             symbol = _resolve_expression_read(
-                draft, read, symbols_by_name, lets_by_scope
+                draft, read, symbols_by_name, lets_by_scope, shadowed=shadowed
             )
             target = None if symbol is None else symbol.target_occurrence
             if target is not None and target.identity.module_path == draft.module.path:
@@ -1750,6 +1779,7 @@ def _resolve_expression_reads(
 # Each read family keeps its own code: a read is available only in WHERE and
 # in the SELECT of an ungrouped query (D70.04); every other place is refused.
 _READ_POSITION_DIAGNOSTICS: Mapping[type, tuple[str, str]] = {
+    AnyExpr: ("PIE-S2334", "ANY relation reference"),
     RelationExistsExpr: ("PIE-S2349", "EXISTS relation reference"),
     RelationScalarExpr: ("PIE-S2348", "Scalar relation read"),
     RelationMembershipExpr: ("PIE-S2350", "IN relation reference"),
@@ -1783,6 +1813,13 @@ def _refused_read_positions(
     refused: dict[int, str] = {}
     for read in reads:
         position = read.position
+        if type(read.expression) is AnyExpr and position in {
+            ProjectExpressionBlockPosition.JOIN_ON,
+            ProjectExpressionBlockPosition.WHERE,
+            ProjectExpressionBlockPosition.SELECT,
+            ProjectExpressionBlockPosition.LET,
+        }:
+            continue
         if position is ProjectExpressionBlockPosition.WHERE:
             continue
         if position is ProjectExpressionBlockPosition.SELECT:
@@ -1828,6 +1865,12 @@ def _append_expression_position_issue(
 ) -> None:
     code, label = _READ_POSITION_DIAGNOSTICS[type(read.expression)]
     location = _location(read.expression.span, fallback_path=draft.module.path)
+    message = (
+        f"{label} is available only in JOIN ON, WHERE, SELECT and scalar LET, not in {where}."
+        if type(read.expression) is AnyExpr
+        else f"{label} is available only in WHERE and in the SELECT of "
+        f"an ungrouped query, not in {where}."
+    )
     draft.issues.append(
         ProjectModuleRelationResolutionIssue(
             status=ProjectModuleRelationResolutionIssueStatus.RELATION_EXPRESSION_READ_POSITION,
@@ -1836,10 +1879,7 @@ def _append_expression_position_issue(
             location=location,
             diagnostic=_diagnostic(
                 code=code,
-                message=(
-                    f"{label} is available only in WHERE and in the SELECT of "
-                    f"an ungrouped query, not in {where}."
-                ),
+                message=message,
                 location=location,
             ),
             occurrences=(read.owner,),
@@ -1933,20 +1973,24 @@ def _resolve_expression_read(
     read: ProjectExpressionBlockRead,
     symbols_by_name: Mapping[str, ProjectResolvedModuleRelationSymbol],
     lets_by_scope: Mapping[tuple[int, str], ProjectResolvedModuleRelationSymbol],
+    *,
+    shadowed: bool,
 ) -> ProjectResolvedModuleRelationSymbol | None:
-    """The same scoped lookup a FROM name uses; an unknown name is an issue."""
+    """The same scoped lookup a FROM name uses; an unknown or shadowed name is
+    an issue."""
 
     name = read.relation_name
-    symbol = _resolve_scoped_name(
-        draft, read.owner, name, symbols_by_name, lets_by_scope
-    )
-    if (
-        symbol is not None
-        or (read.owner.declaration_position, name) in draft.blocked_let_scopes
-        or name in draft.blocked_names
-        or name in draft.ambiguous_names
-    ):
-        return symbol
+    if not shadowed:
+        symbol = _resolve_scoped_name(
+            draft, read.owner, name, symbols_by_name, lets_by_scope
+        )
+        if (
+            symbol is not None
+            or (read.owner.declaration_position, name) in draft.blocked_let_scopes
+            or name in draft.blocked_names
+            or name in draft.ambiguous_names
+        ):
+            return symbol
     location = _location(read.expression.span, fallback_path=draft.module.path)
     draft.issues.append(
         ProjectModuleRelationResolutionIssue(

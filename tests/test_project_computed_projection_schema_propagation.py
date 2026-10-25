@@ -30,11 +30,11 @@ from pietto.sql.mysql import emit_mysql_sql
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PREFIX = (
     "shape Row:\n"
-    "    text: Text not null\n"
-    "    count: Int not null\n"
-    "    active: Bool not null\n"
-    'source rows: Row is postgres.table("rows")\n'
-    'source mysql_rows: Row is mysql.table("rows")\n'
+    "    text: Text\n"
+    "    count: Int\n"
+    "    active: Bool\n"
+    'source rows: Row = postgres.table("rows")\n'
+    'source mysql_rows: Row = mysql.table("rows")\n'
 )
 
 
@@ -175,7 +175,7 @@ def test_deferred_null_alias_remains_unknown_without_poisoning_schema() -> None:
         SOURCE_PREFIX + "table enriched:\n"
         "    from rows\n"
         "    select:\n"
-        "        value = null\n"
+        "        value = None\n"
     )
     relation = _relation(script, "enriched")
     expression = _select_expression(relation, 0)
@@ -293,8 +293,8 @@ def test_projection_alias_does_not_enter_same_relation_where_scope() -> None:
     )
 
 
-def test_projection_alias_does_not_enter_same_relation_order_by_scope() -> None:
-    script = _parse(
+def test_projection_alias_order_by_key_reads_the_same_relation_output() -> None:
+    script, semantic, script_ir = _compile(
         SOURCE_PREFIX + "table enriched:\n"
         "    from rows\n"
         "    select:\n"
@@ -303,21 +303,16 @@ def test_projection_alias_does_not_enter_same_relation_order_by_scope() -> None:
         "        value\n"
     )
     relation = _relation(script, "enriched")
+    relation_ir = _relation_ir(script_ir, "enriched")
 
-    semantic = analyze(script)
-
-    assert _errors(semantic) == [
-        (
-            "PIE-S2102",
-            "Unknown field: value; outside a grouped query an ORDER BY key "
-            "cannot name a SELECT output (restate its expression or bind it in "
-            "`let:`)",
-        )
-    ]
+    # Before: PIE-S2102 said an ORDER BY key outside a grouped query cannot
+    # name a SELECT output. The key now reads the output's expression.
+    assert _errors(semantic) == []
     assert (
         semantic.model.relation_row_schemas[relation].fields["value"].resolved_type.name
         == "Int"
     )
+    assert relation_ir.order_by[0].expression is relation_ir.projections[0].expression
 
 
 def test_qualified_projection_behavior_remains_stable() -> None:
@@ -337,9 +332,8 @@ def test_qualified_projection_behavior_remains_stable() -> None:
 
 def test_relationship_metadata_remains_ignored_by_schema_binding() -> None:
     script, semantic, _ = _compile(
-        SOURCE_PREFIX + "relationship membership:\n"
-        "    endpoint member: rows\n"
-        "    endpoint group: rows\n"
+        SOURCE_PREFIX + "relationship membership(member: Row, group: Row):\n"
+        "    member.count == group.count\n"
         "table enriched:\n"
         "    from rows\n"
         "    select:\n"
@@ -347,7 +341,7 @@ def test_relationship_metadata_remains_ignored_by_schema_binding() -> None:
     )
     relation = _relation(script, "enriched")
 
-    assert len(semantic.model.relationships) == 1
+    assert len(semantic.model.relationship_templates) == 1
     assert (
         semantic.model.relation_row_schemas[relation].fields["value"].resolved_type.name
         == "Int"
@@ -367,7 +361,7 @@ def test_existing_sql_bytes_remain_stable() -> None:
     _, _, qualified_ir = _compile(
         SOURCE_PREFIX + "table selected:\n"
         "    from rows\n"
-        "    where rows.active == true\n"
+        "    where rows.active == True\n"
         "    select:\n"
         "        rows.text\n"
     )

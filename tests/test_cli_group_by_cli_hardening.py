@@ -372,7 +372,25 @@ def test_downstream_from_grouped_cli_json_uses_relation_name_without_expansion(
     downstream_sql = cast(str, artifacts[1]["sql"])
 
     assert result["ok"] is True
-    assert result["diagnostics"] == []
+    # Reading the file's own table by name is the PIE-S2382 warning.
+    assert result["diagnostics"] == [
+        {
+            "code": "PIE-S2382",
+            "severity": "warning",
+            "message": "`grouped_orders` is a table of this file; single-file SQL "
+            "reads it by name, so the SQL runs only where the database already has "
+            "a relation named grouped_orders (an EXPLICIT_MODULES project emits it "
+            "as a CTE)",
+            "location": {
+                "path": str(path),
+                "line": 13,
+                "column": 5,
+                "end_line": 13,
+                "end_column": 24,
+            },
+            "suggestion": None,
+        }
+    ]
     assert [artifact["name"] for artifact in artifacts] == [
         "grouped_orders",
         "downstream",
@@ -544,10 +562,10 @@ def _field(name: str, value_type: TypeRefIR) -> FieldRefIR:
 def _invalid_grouped_source(connector: str, body: str) -> str:
     return (
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    customer_id: Text not null\n"
-        "    amount: Int not null\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    status: Text\n"
+        "    customer_id: Text\n"
+        "    amount: Int\n"
+        f'source orders: Order = {connector}("orders")\n'
         "table grouped_orders:\n"
         "    from orders\n"
         f"{body}"
@@ -557,9 +575,9 @@ def _invalid_grouped_source(connector: str, body: str) -> str:
 def _grouped_chain_source(connector: str) -> str:
     return (
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    amount: Int not null\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    status: Text\n"
+        "    amount: Int\n"
+        f'source orders: Order = {connector}("orders")\n'
         "table grouped_orders:\n"
         "    from orders\n"
         "    group by:\n"

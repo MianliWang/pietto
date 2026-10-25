@@ -8,9 +8,8 @@ import _pietto_sql_emission as emission
 
 DIRECT = """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    inner join r on lhs.id == r.id
     select:
         left_id = lhs.id
         right_key = r.key
@@ -36,7 +35,6 @@ def planned(
     from pietto._project.project_single_match import (
         ProjectSingleMatchRequest,
         ProjectSingleMatchAssessment,
-        ProjectSingleMatchScope,
     )
     from pietto._project.project_query_block_ir import build_project_query_block_ir
     from pietto._project.project_query_block_ir_verification import (
@@ -55,7 +53,7 @@ def planned(
     )
     if wide_text:
         fixture["source"] = fixture["source"].replace(
-            "key: Int nullable", "key: Text nullable"
+            "key: Int | None", "key: Text | None"
         )
         contract = json.loads(fixture["contract"])
         for source in contract["sources"]:
@@ -79,9 +77,13 @@ def planned(
             fixture["source"]
             .replace(
                 "source lhs:",
-                "shape RightRow:\n    id: Int not null\n    key: Int nullable\n    unique right_id on id\nsource lhs:",
+                "shape RightRow:\n    id: Int\n    key: Int | None\n    right_id = unique(id)\nsource lhs:",
             )
             .replace("source rhs: Row", "source rhs: RightRow")
+            .replace(
+                "relationship link(l: Row, r: Row):",
+                "relationship link(l: Row, r: RightRow):",
+            )
         )
     checked, _ = emission.build_case(
         directory, fixture["source"], fixture["contract"], policy
@@ -90,23 +92,24 @@ def planned(
         return checked, fixture["contract"].encode()
     completed = checked.completed
     requests = []
-    for condition in completed.roots.join_conditions.entries:
+    conditions = completed.roots.join_conditions.entries
+    if scope in {"whole", "hop0", "hop1"}:
+        if len(conditions) != 2 or any(
+            condition.use.owner.definition.name != "result"
+            or condition.use.identity.join_position != position
+            for position, condition in enumerate(conditions)
+        ):
+            raise ValueError("guard fixture requires two ordered direct boundaries")
+        if scope != "whole":
+            position = int(scope[-1])
+            conditions = conditions[position : position + 1]
+    elif scope != "direct":
+        raise ValueError("unknown guard fixture scope")
+    for condition in conditions:
         for _ in range(copies):
             request = ProjectSingleMatchRequest(
                 owner=condition.use.owner, use=condition.use, condition=condition
             )
-            if scope != "direct":
-                path = condition.effective_use.path
-                if path is None:
-                    raise ValueError("guard fixture missing original path")
-                request = replace(
-                    request,
-                    scope=ProjectSingleMatchScope.WHOLE_PATH
-                    if scope == "whole"
-                    else ProjectSingleMatchScope.PATH_HOP,
-                    path=path,
-                    hop=None if scope == "whole" else path.steps[int(scope[-1])],
-                )
             assessment = ProjectSingleMatchAssessment(
                 root=completed.effective_outputs, request=request
             )
@@ -134,10 +137,10 @@ ONE = ((1, None),)
 TWO = ((1, None), (1, None))
 PATH = """query result:
     from lhs
-    inner join lhs as r:
-        from lhs
-        via link: l -> r
-        via link: r -> l
+    let mid = rhs
+    inner join mid on link(lhs, mid)
+    let r = lhs
+    inner join r on link(r, mid)
     select:
         left_id = lhs.id
         right_key = r.key
@@ -195,14 +198,9 @@ def manifest():
         rows=((1, None), (None, None)),
         postgres_only=True,
     )
-    for kind in ("semi", "anti"):
-        body = DIRECT.replace("inner join", kind + " join").replace(
-            "        right_key = r.key\n", ""
-        )
-        add(kind + "_does_not_prove", body, rhs=TWO, rows=(), states=("VIOLATED",))
     add(
         "predicate_false",
-        DIRECT.replace("on lhs.id == r.id", "on lhs.id == r.id and false"),
+        DIRECT.replace("on lhs.id == r.id", "on lhs.id == r.id and False"),
         rhs=TWO,
         rows=(),
     )
@@ -226,7 +224,7 @@ def manifest():
             "table right_named:\n    from rhs\n    select:\n        id\n        key\n    limit "
             + str(limit)
             + "\n"
-            + DIRECT.replace("join rhs as r", "join right_named as r")
+            + DIRECT.replace("let r = rhs", "let r = right_named")
         )
         add(
             "right_limit_" + str(limit),
@@ -266,9 +264,7 @@ def manifest():
             states=states,
             rows=rows,
         )
-    relation = DIRECT.replace(
-        "        on lhs.id == r.id\n", "        via link: l -> r\n"
-    )
+    relation = DIRECT.replace("on lhs.id == r.id", "on link(lhs, r)")
     add("relationship_fact", relation, link=True, right_unique=True)
     add(
         "relationship_fact_false",
@@ -333,7 +329,7 @@ def manifest():
     )
     global_right = (
         "table right_named:\n    from rhs\n    select:\n        id = count()\n        key = min(key)\n"
-        + DIRECT.replace("join rhs as r", "join right_named as r")
+        + DIRECT.replace("let r = rhs", "let r = right_named")
     )
     add(
         "right_global",
@@ -343,28 +339,25 @@ def manifest():
         states=("STATIC",),
         allow=False,
     )
-    qualify = (
-        DIRECT
-        + "    qualify:\n        row_number() window:\n            order by:\n                lhs.id\n        <= 0\n"
-    )
+    qualify = DIRECT + "    qualify row_number() window(order by lhs.id) <= 0\n"
     add("hidden_qualify", qualify, rhs=TWO, rows=(), states=("VIOLATED",))
     set_right = (
         "table right_named:\n    union all:\n        from rhs\n        from rhs\n"
-        + DIRECT.replace("join rhs as r", "join right_named as r")
+        + DIRECT.replace("let r = rhs", "let r = right_named")
     )
     add("set_right_multiplicity", set_right, rows=(), states=("VIOLATED",))
-    earlier = "table earlier:\n    from lhs\n    inner join rhs as r:\n        from lhs\n        on lhs.id == r.id\n    select:\n        id = lhs.id\n        key = r.key\n"
-    later = "query result:\n    from earlier\n    anti join rhs as r:\n        from earlier\n        on earlier.id == r.id\n    select:\n        left_id = earlier.id\n        right_key = earlier.key\n"
+    earlier = "table earlier:\n    from lhs\n    let r = rhs\n    inner join r on lhs.id == r.id\n    select:\n        id = lhs.id\n        key = r.key\n"
+    later = "query result:\n    from earlier\n    let r = rhs\n    where not any(earlier.id == r.id for r in r)\n    select:\n        left_id = earlier.id\n        right_key = earlier.key\n"
     add(
         "earlier_join_hidden_by_anti",
         earlier + later,
         rhs=TWO,
         rows=(),
-        states=("VIOLATED", "VIOLATED"),
+        states=("VIOLATED",),
     )
     tied = (
         "table chosen:\n    from rhs\n    select:\n        id\n        key\n    order by:\n        key\n    limit 2\n"
-        + DIRECT.replace("join rhs as r", "join chosen as r")
+        + DIRECT.replace("let r = rhs", "let r = chosen")
     )
     add(
         "ordinary_tied_subject",
@@ -406,7 +399,7 @@ def manifest():
         )
     four = (
         DIRECT.replace("on lhs.id == r.id", "on lhs.id == r.id and lhs.id > 0")
-        + '        flag = true\n        ratio = 0.0\n        note = "v"\n'
+        + '        flag = True\n        ratio = 0.0\n        note = "v"\n'
     )
     four_rows = ((1, None, True, 0.0, "v"), (1, None, True, 0.0, "v"))
     add("bound_four", four, rows=four_rows, policy="bind_safe_literals")
@@ -419,9 +412,9 @@ def manifest():
     )
     null_right = (
         "table null_right:\n    from rhs\n    select:\n        id = key\n        key\n"
-        + DIRECT.replace("inner join rhs", "left join null_right").replace(
-            "on lhs.id == r.id", "on true"
-        )
+        + DIRECT.replace("let r = rhs", "let r = null_right")
+        .replace("inner join r", "left join r")
+        .replace("on lhs.id == r.id", "on True")
     )
     add("all_null_actual_matches", null_right, rhs=TWO, rows=(), states=("VIOLATED",))
     add(
@@ -452,9 +445,9 @@ def manifest():
         )
     imported = {
         "a.pietto": emission.JOIN_WITNESS_HEADER.format(target="{target}")
-        + "table prod:\n    from rhs\n    select:\n        id\n        key\ntable base:\n    from lhs\n    select:\n        id\nexport:\n    table prod\n    table base\n",
-        "b.pietto": 'import "a.pietto":\n    table prod as Mid\n    table base as Root\nexport:\n    table Mid\n    table Root\n',
-        "main.pietto": 'import "b.pietto":\n    table Mid as Public\n    table Root as Left\nquery result:\n    from Left\n    inner join Public as r:\n        from Left\n        on Left.id == r.id\n    select:\n        left_id = Left.id\n        right_key = r.key\n',
+        + "table prod:\n    from rhs\n    select:\n        id\n        key\ntable base:\n    from lhs\n    select:\n        id\nexport table prod, table base\n",
+        "b.pietto": 'from "a.pietto" import table prod as Mid, table base as Root\nexport table Mid, table Root\n',
+        "main.pietto": 'from "b.pietto" import table Mid as Public, table Root as Left\nquery result:\n    from Left\n    let r = Public\n    inner join r on Left.id == r.id\n    select:\n        left_id = Left.id\n        right_key = r.key\n',
     }
     add("imported_reexport", imported)
     add("imported_reexport_violation", imported, rhs=TWO, rows=(), states=("VIOLATED",))

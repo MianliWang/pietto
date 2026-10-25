@@ -13,9 +13,9 @@ from pietto._project.project_query_block_ir_verification import (
 
 def _source(kind: str = "query", family: str = "postgres") -> str:
     return f"""shape Row:
-    id: Int not null
-    name: Text nullable
-source rows: Row is {family}.table("public.users")
+    id: Int
+    name: Text | None
+source rows: Row = {family}.table("public.users")
 {kind} result:
     from rows
     select:

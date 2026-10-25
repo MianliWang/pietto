@@ -213,11 +213,12 @@ def test_live_refinement_requires_a_source_read_only_inside_a_let(tmp_path):
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        + 'source tags: Item = postgres.table("fixture.tags")\n'
         "table tagged_items:\n    let tagged:\n        from tags\n"
         "        select:\n            tag_id = id\n    from items\n"
-        "    inner join tagged as t:\n        from items\n"
-        "        on items.id == t.tag_id\n    select:\n        id = items.id\n",
+        "    let t = tagged\n"
+        "    inner join t on items.id == t.tag_id\n"
+        "    select:\n        id = items.id\n",
         encoding="utf-8",
     )
     contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
@@ -264,7 +265,7 @@ def test_live_refinement_requires_a_source_read_only_inside_a_let(tmp_path):
 
 
 def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypatch):
-    """A query that groups by its own `let:` value is not an R2 shape yet."""
+    """A query that groups by its own `let` value is not an R2 shape yet."""
     import sys
 
     import _pietto_execution_api as api
@@ -284,25 +285,24 @@ def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypa
     premise = execution.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
     computed = "    group by:\n        big\n    select:\n        flag = big\n"
     for name, body, refused in (
-        ("computed", "    let:\n        big = id > 5\n" + computed, True),
+        ("computed", "    let big = id > 5\n" + computed, True),
         # A later stage carries the key on by a read; it is still computed.
         (
             "let_where",
-            "    let:\n        big = id > 5\n    where id > 0\n" + computed,
+            "    let big = id > 5\n    where id > 0\n" + computed,
             True,
         ),
         (
             "two_lets",
-            "    let:\n        big = id > 5\n        other = id + 0\n" + computed,
+            "    let big = id > 5\n    let other = id + 0\n" + computed,
             True,
         ),
         # S05j: the JOIN key's own LET unit comes before the one for `level`.
         (
             "joined",
-            "    inner join items as r:\n        from items\n"
-            "        on items.id == r.id\n    let:\n"
-            "        later = items.id > r.id or r.id > 12\n"
-            "        level = r.id + items.id * 0\n    group by:\n        later\n"
+            "    let r = items\n    inner join r on items.id == r.id\n"
+            "    let later = items.id > r.id or r.id > 12\n"
+            "    let level = r.id + items.id * 0\n    group by:\n        later\n"
             "    select:\n        b = later\n        top = max(level)\n",
             True,
         ),
@@ -314,7 +314,7 @@ def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypa
         # A WHERE stage between the let and the grouping only carries the key.
         (
             "computed_where",
-            "    let:\n        big = id > 5\n    where id > 1\n" + computed,
+            "    let big = id > 5\n    where id > 1\n" + computed,
             True,
         ),
         (
@@ -540,7 +540,7 @@ def test_live_refinement_refuses_a_let_read_after_its_source_closure(
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        + 'source tags: Item = postgres.table("fixture.tags")\n'
         "table flagged_items:\n    let tagged:\n"
         + EXISTS_LETS[let]
         + "        select:\n            tag_id = id\n"
@@ -655,7 +655,7 @@ def test_live_refinement_refuses_a_scalar_read_after_its_source_closure(tmp_path
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        + 'source tags: Item = postgres.table("fixture.tags")\n'
         "table priced_items:\n    let top:\n        from tags\n"
         "        select:\n            n = count()\n    from items\n"
         "    where id <= scalar top.n\n    select:\n        id = items.id\n",
@@ -723,7 +723,7 @@ def test_a_membership_read_is_refused_after_its_source_closure_before_any_worksp
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        + 'source tags: Item = postgres.table("fixture.tags")\n'
         "table flagged_items:\n    let tagged:\n        from tags\n"
         "        select:\n            tag_id = id\n    from items\n"
         "    where id not in tagged\n    select:\n        id = items.id\n",
@@ -821,11 +821,11 @@ def test_a_membership_read_is_refused_after_its_source_closure_before_any_worksp
     "text",
     (
         # The statement groups by its own computed key and reads a block.
-        "table refused:\n    from items\n    let:\n        big = id > 2\n"
+        "table refused:\n    from items\n    let big = id > 2\n"
         "    where exists tags\n    group by:\n        big\n    select:\n"
         "        big\n        n = count()\n",
         # The block it reads groups by that block's own computed key.
-        "table grouped_tags:\n    from tags\n    let:\n        big = id > 2\n"
+        "table grouped_tags:\n    from tags\n    let big = id > 2\n"
         "    group by:\n        big\n    select:\n        flag = big\n"
         "        n = count()\n"
         "table refused:\n    from items\n    where exists grouped_tags\n"
@@ -842,7 +842,7 @@ def test_r2_refusals_keep_their_order_closure_group_key_then_block_read(tmp_path
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        + 'source tags: Item = postgres.table("fixture.tags")\n'
         + text,
         encoding="utf-8",
     )
@@ -908,13 +908,14 @@ def test_live_refinement_refuses_a_lateral_join_after_its_source_closure(
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + 'source tags: Item is postgres.table("fixture.tags")\n'
+        + 'source tags: Item = postgres.table("fixture.tags")\n'
         "table lateral_items:\n    let later:\n        capture items\n"
         "        from tags\n        where tags.id > items.id\n"
         "        select:\n            tag_id = id\n"
         + ("        order by:\n            id desc\n        limit 2\n" if top_k else "")
         + "    from items\n"
-        "    cross join later as t:\n        from items\n"
+        "    let t = later\n"
+        "    cross join t\n"
         "    select:\n        id = items.id\n        tag_id = t.tag_id\n",
         encoding="utf-8",
     )

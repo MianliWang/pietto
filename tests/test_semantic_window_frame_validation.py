@@ -700,13 +700,19 @@ def _located_window_diagnostics(
     """Code, message, line and column of each `_checked_window` diagnostic."""
 
     source = (
-        "shape Row:\n    id: Int not null\n    value: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n    id: Int\n    value: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query q:\n    from rows\n"
-        + (f"    let:\n        {lets}\n" if lets else "")
-        + f"    select:\n        result = {call} window:\n"
-        "            order by:\n                id\n"
-        + (f"            {frame}\n" if frame else "")
+        + (
+            "\n"
+            + "".join(f"    let {binding.strip()}\n" for binding in lets.splitlines())
+            if lets
+            else ""
+        )
+        + f"    select:\n        result = {call} window(\n"
+        "            order by\n                id"
+        + (f"\n            {frame}" if frame else "")
+        + ")\n"
     )
     parsed = parse_source(source, path="frame.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
@@ -731,7 +737,7 @@ def _located_window_diagnostics(
         ('"x"', "", False),
         ("-1", "", False),
         ("1.5", "", False),
-        ("null", "", False),
+        ("None", "", False),
         ("id", "", False),
         ("(1 + 1)", "", False),
         (str(_SIGNED64_MAX + 1), "", False),
@@ -813,7 +819,7 @@ def test_field_frame_offset_named_like_a_refused_let_is_still_refused() -> None:
     )
 
     assert diagnostics == [
-        ("PIE-S2329", "Let binding cannot shadow input field: value", 8, 9),
+        ("PIE-S2329", "Let binding cannot shadow input field: value", 8, 5),
         (
             "PIE-S2104",
             "Invalid window frame for function first_value: ROWS offsets must be "

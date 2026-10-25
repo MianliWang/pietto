@@ -174,8 +174,15 @@ def test_project_default_json_preserve_is_the_installed_api_artifact(
 
 
 def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
+    # The input's query reads a table of its own file (PIE-S2382).
+    warning = (
+        f"{LEGACY_INPUT}:33:5 PIE-S2382 warning: `FirstRelation` is a table of "
+        "this file; single-file SQL reads it by name, so the SQL runs only where "
+        "the database already has a relation named FirstRelation (an "
+        "EXPLICIT_MODULES project emits it as a CTE)\n"
+    )
     code, out, err = run(["emit-sql", str(LEGACY_INPUT), "--dialect", "postgres"])
-    assert (code, err) == (0, "") and out == LEGACY_GOLDEN.read_bytes()
+    assert (code, err) == (0, warning) and out == LEGACY_GOLDEN.read_bytes()
     code, out, err = run(
         ["emit-sql", str(MYSQL_LEGACY_INPUT), "--dialect", "mysql", "--format", "json"]
     )
@@ -204,7 +211,7 @@ def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
             str(output),
         ]
     )
-    assert (code, out, err) == (0, b"", "")
+    assert (code, out, err) == (0, b"", warning)
     assert output.read_bytes() == LEGACY_GOLDEN.read_bytes()
     # A positional value that merely contains an option-like string is legacy.
     code, out, err = run(["emit-sql", "--dialect", "postgres", "--", "--project"])
@@ -442,7 +449,7 @@ def test_a_lateral_join_emits_through_the_project_command(
         target,
         "query result:\n    let m:\n        capture lhs\n        from rhs\n"
         "        where rhs.key == lhs.key and rhs.id > 0\n        select:\n"
-        "            id\n    from lhs\n    cross join m as m1:\n        from lhs\n"
+        "            id\n    from lhs\n    let m1 = m\n    cross join m1\n"
         "    select:\n        a = lhs.id\n        b = m1.id\n",
         policy="bind_safe_literals",
     )
@@ -892,7 +899,7 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
         (
             "unadmitted_sibling_header_beside_table_function",
             "table result:\n    from rows\n    select:\n        id\n"
-            "query other(k: Int not null):\n    let l:\n"
+            "query other(k: Int):\n    let l:\n"
             "        from generate_series(1, 3, 1) as n\n"
             "        select:\n            n\n    from l\n    select:\n        n\n",
             "PIE-S2346",
@@ -930,7 +937,7 @@ def test_the_recursion_limit_blocks_emission_with_one_diagnostic(
     if stage == "semantics":
         condition = " and ".join(["id == 1"] * 3000)
     elif stage == "def":
-        source = "def one(x: Int not null) -> Bool nullable: return x == 1\n" + source
+        source = "def one(x: Int) -> Bool | None: return x == 1\n" + source
         condition = " and ".join(["one(id)"] * 3000)
     else:
         condition = "id == 1"
@@ -1406,7 +1413,7 @@ def test_protected_inputs_and_their_aliases_are_never_replaced(
 ) -> None:
     root, item = project(tmp_path, target, "N_imported_chain", "bag")
     (root / "unrelated.pietto").write_text(
-        "shape Extra:\n    id: Int not null\n", encoding="utf-8"
+        "shape Extra:\n    id: Int\n", encoding="utf-8"
     )
     os.symlink(root, tmp_path / "alias")
     (tmp_path / "hard-main.pietto").hardlink_to(root / "main.pietto")

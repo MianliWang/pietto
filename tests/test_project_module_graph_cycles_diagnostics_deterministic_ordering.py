@@ -74,9 +74,9 @@ def _required_diagnostics(
 
 
 def _module_source(name: str, imports: tuple[tuple[str, str], ...] = ()) -> str:
-    source = f"shape {name}:\n    id: Int\nexport:\n    shape {name}\n"
+    source = f"shape {name}:\n    id: Int\nexport (\n    shape {name})\n"
     return source + "".join(
-        f'import "{target}":\n    shape {target_name}\n'
+        f'from "{target}" import (\n    shape {target_name})\n'
         for target, target_name in imports
     )
 
@@ -401,10 +401,11 @@ def test_unresolved_targets_create_no_edges_and_group_statement_evidence(
     tmp_path: Path,
 ) -> None:
     source = (
-        "shape A:\n    id: Int\n"
-        'import "missing.pietto":\n'
-        "    shape Missing\n"
-        "    type MissingType\n"
+        "shape A:\n"
+        "    id: Int\n"
+        'from "missing.pietto" import (\n'
+        "    shape Missing,\n"
+        "    type MissingType)\n"
     )
     _, semantic = _semantic_project(tmp_path, {"a.pietto": source})
     graph = _required_graph(semantic)
@@ -424,9 +425,12 @@ def test_repeated_requests_retain_evidence_but_share_one_canonical_edge(
     tmp_path: Path,
 ) -> None:
     source = (
-        "shape A:\n    id: Int\n"
-        'import "b.pietto":\n    shape B\n'
-        'import "b.pietto":\n    shape B as OtherB\n'
+        "shape A:\n"
+        "    id: Int\n"
+        'from "b.pietto" import (\n'
+        "    shape B)\n"
+        'from "b.pietto" import (\n'
+        "    shape B as OtherB)\n"
     )
     _, semantic = _semantic_project(
         tmp_path,
@@ -556,7 +560,7 @@ def test_repeated_cycle_requests_do_not_duplicate_cycles_or_witness_edges(
 ) -> None:
     a_source = (
         _module_source("A", (("b.pietto", "B"),))
-        + 'import "b.pietto":\n    shape B as OtherB\n'
+        + 'from "b.pietto" import (\n    shape B as OtherB)\n'
     )
     _, semantic = _semantic_project(
         tmp_path,
@@ -648,11 +652,11 @@ def test_graph_value_equality_hash_and_evidence_sensitivity_are_exact(
 
     _, first_nonempty = _semantic_project(
         tmp_path / "first-nonempty",
-        {"a.pietto": 'import "missing.pietto":\n    shape Missing\n'},
+        {"a.pietto": 'from "missing.pietto" import (\n    shape Missing)\n'},
     )
     _, second_nonempty = _semantic_project(
         tmp_path / "second-nonempty",
-        {"a.pietto": 'import "missing.pietto":\n    shape Missing\n'},
+        {"a.pietto": 'from "missing.pietto" import (\n    shape Missing)\n'},
     )
     first_nonempty_diagnostics = _required_diagnostics(first_nonempty)
     second_nonempty_diagnostics = _required_diagnostics(second_nonempty)
@@ -676,7 +680,7 @@ def test_graph_value_equality_hash_and_evidence_sensitivity_are_exact(
         {
             "a.pietto": (
                 _module_source("A", (("b.pietto", "B"),))
-                + 'import "b.pietto":\n    shape B as OtherB\n'
+                + 'from "b.pietto" import (\n    shape B as OtherB)\n'
             ),
             "b.pietto": _module_source("B"),
         },
@@ -712,10 +716,11 @@ def test_pie_s2701_mapping_message_span_and_statement_deduplication(
     tmp_path: Path,
 ) -> None:
     source = (
-        "shape A:\n    id: Int\n"
-        'import "missing.pietto":\n'
-        "    shape Missing\n"
-        "    type MissingType\n"
+        "shape A:\n"
+        "    id: Int\n"
+        'from "missing.pietto" import (\n'
+        "    shape Missing,\n"
+        "    type MissingType)\n"
     )
     _, semantic = _semantic_project(tmp_path, {"a.pietto": source})
     assert _diagnostic_pairs(semantic) == (
@@ -788,14 +793,17 @@ def test_pie_s2704_export_issue_mappings_and_duplicate_precedence(
         tmp_path,
         {
             "a.pietto": (
-                "shape D:\n    id: Int\n"
-                "shape Ambiguous:\n    id: Int\n"
-                "shape Ambiguous:\n    id: Int\n"
-                "export:\n"
-                "    shape Missing\n"
-                "    shape Ambiguous\n"
-                "    shape D\n"
-                "    shape D\n"
+                "shape D:\n"
+                "    id: Int\n"
+                "shape Ambiguous:\n"
+                "    id: Int\n"
+                "shape Ambiguous:\n"
+                "    id: Int\n"
+                "export (\n"
+                "    shape Missing,\n"
+                "    shape Ambiguous,\n"
+                "    shape D,\n"
+                "    shape D)\n"
             )
         },
     )
@@ -812,8 +820,8 @@ def test_pie_s2704_export_issue_mappings_and_duplicate_precedence(
 @pytest.mark.parametrize(
     ("twice", "exported", "position"),
     (
-        ('source sa: A is postgres.table("sa2")\n', "source sa", (9, 12)),
-        ("shape A:\n    id: Int not null\n", "shape A", (9, 11)),
+        ('source sa: A = postgres.table("sa2")\n', "source sa", (9, 12)),
+        ("shape A:\n    id: Int\n", "shape A", (9, 11)),
         (
             "query q:\n    from sb\n    select:\n        id\n"
             "query q:\n    from sb\n    select:\n        id\n",
@@ -839,15 +847,27 @@ def test_an_ambiguous_export_in_an_import_cycle_reports_both_errors(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    source sb\nshape A:\n    id: Int not null\n'
-                'source sa: A is postgres.table("sa")\n'
+                'from "b.pietto" import (\n'
+                "    source sb)\n"
+                "shape A:\n"
+                "    id: Int\n"
+                'source sa: A = postgres.table("sa")\n'
                 + twice
-                + "export:\n    shape A\n    source sa\n"
-                + ("" if exported in {"source sa", "shape A"} else f"    {exported}\n")
+                + "export (\n    shape A,\n    source sa"
+                + (
+                    ")\n"
+                    if exported in {"source sa", "shape A"}
+                    else f",\n    {exported})\n"
+                )
             ),
             "b.pietto": (
-                'import "a.pietto":\n    source sa\nshape B:\n    id: Int not null\n'
-                'source sb: B is postgres.table("sb")\nexport:\n    source sb\n'
+                'from "a.pietto" import (\n'
+                "    source sa)\n"
+                "shape B:\n"
+                "    id: Int\n"
+                'source sb: B = postgres.table("sb")\n'
+                "export (\n"
+                "    source sb)\n"
             ),
         },
     )
@@ -868,7 +888,7 @@ def test_an_ambiguous_export_in_an_import_cycle_reports_both_errors(
             "Module import cycle detected: a.pietto -> b.pietto -> a.pietto",
             "b.pietto",
             1,
-            8,
+            6,
         ),
         (
             "PIE-S2704",
@@ -879,11 +899,76 @@ def test_an_ambiguous_export_in_an_import_cycle_reports_both_errors(
     ]
 
 
+_UNKNOWN_NOPE = ("PIE-S2102", "Unknown field: nope", "c.pietto", 3)
+
+
+@pytest.mark.parametrize(
+    ("table", "expected"),
+    (
+        (
+            "0 < nope < 3",
+            [
+                (*_UNKNOWN_NOPE, 39),
+                (
+                    "PIE-S2306",
+                    "Invalid source connector arguments for postgres.table",
+                    "c.pietto",
+                    3,
+                    20,
+                ),
+            ],
+        ),
+        ("nope", [(*_UNKNOWN_NOPE, 35)]),
+    ),
+    ids=("chain", "no_chain"),
+)
+def test_an_import_cycle_check_reports_an_equal_diagnostic_once(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    table: str,
+    expected: list[tuple[str, str, str, int, int]],
+) -> None:
+    """An import cycle stops a check before the relations, but each module's
+    source connectors are still checked. An error in a comparison chain's
+    inner operand there, read once per comparison, is reported once, as the
+    project JSON v2 contract states for an explicit-module check; before,
+    twice."""
+
+    root = _configured_project(
+        tmp_path,
+        {
+            "a.pietto": _module_source("A", (("b.pietto", "B"),)),
+            "b.pietto": _module_source("B", (("a.pietto", "A"),)),
+            "c.pietto": (
+                f"shape Row:\n    id: Int\nsource rows: Row = postgres.table({table})\n"
+            ),
+        },
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    document = json.loads(capsys.readouterr().out)
+    cycle = document["diagnostics"][0]
+    assert cycle["code"] == "PIE-S2703"
+    assert [
+        (
+            item["code"],
+            item["message"],
+            item["location"]["path"],
+            item["location"]["line"],
+            item["location"]["column"],
+        )
+        for item in document["diagnostics"][1:]
+    ] == expected
+    assert cli.main(["check", "--project", str(root)]) == 1
+    assert capsys.readouterr().err.count("PIE-S2102") == 1
+
+
 def test_pie_s2705_unknown_private_import_mappings_are_exact(tmp_path: Path) -> None:
     _, semantic = _semantic_project(
         tmp_path,
         {
-            "a.pietto": ('import "b.pietto":\n    shape Missing\n    shape Private\n'),
+            "a.pietto": (
+                'from "b.pietto" import (\n    shape Missing,\n    shape Private)\n'
+            ),
             "b.pietto": "shape Private:\n    id: Int\n",
         },
     )
@@ -907,17 +992,24 @@ def test_pie_s2706_collision_mapping_is_one_per_local_name_bucket(
         tmp_path,
         {
             "a.pietto": (
-                "shape Local:\n    id: Int\n"
-                'import "b.pietto":\n'
-                "    shape B as Local\n"
-                "    shape C as Shared\n"
-                "    shape D as Shared\n"
+                "shape Local:\n"
+                "    id: Int\n"
+                'from "b.pietto" import (\n'
+                "    shape B as Local,\n"
+                "    shape C as Shared,\n"
+                "    shape D as Shared)\n"
             ),
             "b.pietto": (
-                "shape B:\n    id: Int\n"
-                "shape C:\n    id: Int\n"
-                "shape D:\n    id: Int\n"
-                "export:\n    shape B\n    shape C\n    shape D\n"
+                "shape B:\n"
+                "    id: Int\n"
+                "shape C:\n"
+                "    id: Int\n"
+                "shape D:\n"
+                "    id: Int\n"
+                "export (\n"
+                "    shape B,\n"
+                "    shape C,\n"
+                "    shape D)\n"
             ),
         },
     )
@@ -939,11 +1031,16 @@ def test_pie_s2707_facade_and_unsupported_adapter_mappings_are_exact(
     _, semantic = _semantic_project(
         tmp_path,
         {
-            "a.pietto": 'import "b.pietto":\n    shape Shared\n',
+            "a.pietto": 'from "b.pietto" import (\n    shape Shared)\n',
             "b.pietto": (
-                "shape Shared:\n    id: Int\n"
-                "query Shared:\n    from missing\n    select:\n        id\n"
-                "export:\n    query Shared\n"
+                "shape Shared:\n"
+                "    id: Int\n"
+                "query Shared:\n"
+                "    from missing\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    query Shared)\n"
             ),
         },
     )
@@ -976,8 +1073,10 @@ def test_unresolved_target_and_import_export_cascades_are_suppressed(
         tmp_path,
         {
             "a.pietto": (
-                'import "missing.pietto":\n    shape Missing as Shared\n'
-                "export:\n    shape Shared\n"
+                'from "missing.pietto" import (\n'
+                "    shape Missing as Shared)\n"
+                "export (\n"
+                "    shape Shared)\n"
             )
         },
     )
@@ -996,10 +1095,13 @@ def test_target_export_root_suppresses_downstream_facade_diagnostic(
     _, semantic = _semantic_project(
         tmp_path,
         {
-            "a.pietto": 'import "b.pietto":\n    shape Shared\n',
+            "a.pietto": 'from "b.pietto" import (\n    shape Shared)\n',
             "b.pietto": (
-                "shape Shared:\n    id: Int\n"
-                "export:\n    shape Shared\n    shape Shared\n"
+                "shape Shared:\n"
+                "    id: Int\n"
+                "export (\n"
+                "    shape Shared,\n"
+                "    shape Shared)\n"
             ),
         },
     )
@@ -1021,12 +1123,17 @@ def test_diagnostic_order_text_cli_and_project_json_v2_are_exact(
         tmp_path,
         {
             "a.pietto": (
-                "shape Local:\n    id: Int\n"
-                'import "missing.pietto":\n    shape Missing\n'
-                'import "b.pietto":\n    shape Private\n    shape B as Local\n'
-                "export:\n    shape Unknown\n"
+                "shape Local:\n"
+                "    id: Int\n"
+                'from "missing.pietto" import (\n'
+                "    shape Missing)\n"
+                'from "b.pietto" import (\n'
+                "    shape Private,\n"
+                "    shape B as Local)\n"
+                "export (\n"
+                "    shape Unknown)\n"
             ),
-            "b.pietto": "shape Private:\n    id: Int\nshape B:\n    id: Int\nexport:\n    shape B\n",
+            "b.pietto": "shape Private:\n    id: Int\nshape B:\n    id: Int\nexport (\n    shape B)\n",
         },
     )
     parse_result = project_check.check_project_parse_only(root)

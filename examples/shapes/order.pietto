@@ -1,5 +1,4 @@
 shape Order:
-    amount: Decimal not null
+    amount: Decimal
 
-    check valid_amount:
-        amount >= 0
+    valid_amount = check(amount >= 0)

@@ -22,6 +22,7 @@ from pietto._project.model import (
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
+    ProjectConcreteCompletedSemanticResult,
 )
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
@@ -195,13 +196,15 @@ def test_local_imported_and_reexported_nominal_identities_remain_distinct(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Mid as Local\n'
-                "shape Uses:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Mid as Local)\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    type Base as Mid\nexport:\n    type Mid\n'
+                'from "c.pietto" import (\n    type Base as Mid)\nexport (\n    type Mid)\n'
             ),
-            "c.pietto": "type Base = Text\nexport:\n    type Base\n",
+            "c.pietto": "type Base = Text\nexport (\n    type Base)\n",
         },
     )
     a_symbol = _environment(semantic, "a.pietto").find_type_name("Local")[0]
@@ -228,8 +231,9 @@ def test_environment_lookups_are_complete_tuple_backed_and_immutable(
         {
             "a.pietto": (
                 "type Label = Text\n"
-                "shape Row:\n    label: Label\n"
-                'source rows: Row is postgres.table("rows")\n'
+                "shape Row:\n"
+                "    label: Label\n"
+                'source rows: Row = postgres.table("rows")\n'
             )
         },
     )
@@ -256,7 +260,7 @@ def test_dependency_order_uses_selected_position_for_ready_ties(
         {
             "a.pietto": "shape A:\n    id: Int\n",
             "b.pietto": "enum B:\n    ONE\n",
-            "c.pietto": 'source c is postgres.table("c")\n',
+            "c.pietto": 'source c = postgres.table("c")\n',
         },
     )
     assert tuple(item.path for item in _required_set(semantic).dependency_order) == (
@@ -270,8 +274,10 @@ def test_dependency_order_places_targets_before_importers(tmp_path: Path) -> Non
     _, semantic = _semantic_project(
         tmp_path,
         {
-            "a.pietto": ('import "z.pietto":\n    shape Z\nshape A:\n    z: Z\n'),
-            "z.pietto": "shape Z:\n    id: Int\nexport:\n    shape Z\n",
+            "a.pietto": (
+                'from "z.pietto" import (\n    shape Z)\nshape A:\n    z: Z\n'
+            ),
+            "z.pietto": "shape Z:\n    id: Int\nexport (\n    shape Z)\n",
         },
     )
     assert tuple(item.path for item in _required_set(semantic).dependency_order) == (
@@ -285,17 +291,25 @@ def test_dependency_order_is_deterministic_for_a_diamond(tmp_path: Path) -> None
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape B\nimport "c.pietto":\n    shape C\n'
+                'from "b.pietto" import (\n    shape B)\nfrom "c.pietto" import (\n    shape C)\n'
             ),
             "b.pietto": (
-                'import "d.pietto":\n    shape D\n'
-                "shape B:\n    d: D\nexport:\n    shape B\n"
+                'from "d.pietto" import (\n'
+                "    shape D)\n"
+                "shape B:\n"
+                "    d: D\n"
+                "export (\n"
+                "    shape B)\n"
             ),
             "c.pietto": (
-                'import "d.pietto":\n    shape D\n'
-                "shape C:\n    d: D\nexport:\n    shape C\n"
+                'from "d.pietto" import (\n'
+                "    shape D)\n"
+                "shape C:\n"
+                "    d: D\n"
+                "export (\n"
+                "    shape C)\n"
             ),
-            "d.pietto": "shape D:\n    id: Int\nexport:\n    shape D\n",
+            "d.pietto": "shape D:\n    id: Int\nexport (\n    shape D)\n",
         },
     )
     assert tuple(item.path for item in _required_set(semantic).dependency_order) == (
@@ -313,12 +327,20 @@ def test_cycle_members_are_excluded_and_retain_one_block_issue_each(
         tmp_path,
         {
             "a.pietto": (
-                "shape A:\n    id: Int\nexport:\n    shape A\n"
-                'import "b.pietto":\n    shape B\n'
+                "shape A:\n"
+                "    id: Int\n"
+                "export (\n"
+                "    shape A)\n"
+                'from "b.pietto" import (\n'
+                "    shape B)\n"
             ),
             "b.pietto": (
-                "shape B:\n    id: Int\nexport:\n    shape B\n"
-                'import "a.pietto":\n    shape A\n'
+                "shape B:\n"
+                "    id: Int\n"
+                "export (\n"
+                "    shape B)\n"
+                'from "a.pietto" import (\n'
+                "    shape A)\n"
             ),
         },
     )
@@ -343,12 +365,20 @@ def test_independent_acyclic_local_errors_remain_visible_with_a_cycle(
         {
             "a.pietto": "shape Bad:\n    value: Missing\n",
             "b.pietto": (
-                "shape B:\n    id: Int\nexport:\n    shape B\n"
-                'import "c.pietto":\n    shape C\n'
+                "shape B:\n"
+                "    id: Int\n"
+                "export (\n"
+                "    shape B)\n"
+                'from "c.pietto" import (\n'
+                "    shape C)\n"
             ),
             "c.pietto": (
-                "shape C:\n    id: Int\nexport:\n    shape C\n"
-                'import "b.pietto":\n    shape B\n'
+                "shape C:\n"
+                "    id: Int\n"
+                "export (\n"
+                "    shape C)\n"
+                'from "b.pietto" import (\n'
+                "    shape B)\n"
             ),
         },
     )
@@ -408,13 +438,16 @@ def test_cross_module_alias_chain_expands_by_target_identity(tmp_path: Path) -> 
         tmp_path,
         {
             "a.pietto": (
-                'import "z.pietto":\n    type WorkEmail\n'
-                "shape User:\n    email: WorkEmail\n"
+                'from "z.pietto" import (\n'
+                "    type WorkEmail)\n"
+                "shape User:\n"
+                "    email: WorkEmail\n"
             ),
             "z.pietto": (
                 "type Email = Text\n"
                 "type WorkEmail = Email\n"
-                "export:\n    type WorkEmail\n"
+                "export (\n"
+                "    type WorkEmail)\n"
             ),
         },
     )
@@ -441,14 +474,18 @@ def test_explicit_reexport_alias_chain_keeps_original_target_identity(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Public as Local\n'
-                "shape Uses:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Public as Local)\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    type Base as Public\n'
-                "export:\n    type Public\n"
+                'from "c.pietto" import (\n'
+                "    type Base as Public)\n"
+                "export (\n"
+                "    type Public)\n"
             ),
-            "c.pietto": "type Base = UUID\nexport:\n    type Base\n",
+            "c.pietto": "type Base = UUID\nexport (\n    type Base)\n",
         },
     )
     resolution = _type_resolution(
@@ -475,8 +512,8 @@ def test_cyclic_direct_facade_reexports_are_no_winner_for_all_slice9_kinds(
         elif kind == "shape":
             declaration = "shape Base:\n    id: Int\n"
         else:
-            declaration = 'source Base is postgres.table("base")\n'
-        return declaration + f"export:\n    {kind} Base\n"
+            declaration = 'source Base = postgres.table("base")\n'
+        return declaration + f"export (\n    {kind} Base)\n"
 
     for kind in ("type", "enum", "shape", "source"):
         for nominal_owner_first in (False, True):
@@ -488,16 +525,14 @@ def test_cyclic_direct_facade_reexports_are_no_winner_for_all_slice9_kinds(
                 {
                     nominal_owner: owner_definition(kind),
                     "b.pietto": (
-                        f'import "{nominal_owner}":\n    {kind} Base as Public\n'
-                        'import "d.pietto":\n    type D\n'
-                        f"export:\n    {kind} Public\n"
+                        f'from "{nominal_owner}" import (\n    {kind} Base as Public)\nfrom "d.pietto" import (\n    type D)\nexport (\n    {kind} Public)\n'
                     ),
                     "d.pietto": (
-                        "type D = Int\nexport:\n    type D\n"
-                        f'import "b.pietto":\n    {kind} Public\n'
+                        f'type D = Int\nexport (\n    type D)\nfrom "b.pietto" import (\n    {kind} Public)\n'
                     ),
                     importer: (
-                        f'import "b.pietto":\n    {kind} Public as Local\n' + consumer
+                        f'from "b.pietto" import (\n    {kind} Public as Local)\n'
+                        + consumer
                     ),
                 },
             )
@@ -549,19 +584,26 @@ def test_direct_facade_cycle_precedes_nominal_owner_cycle_and_owner_fallback_rem
         tmp_path / "owner-fallback",
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Public as Local\n'
-                "shape Uses:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Public as Local)\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    type Base as Public\n'
-                "export:\n    type Public\n"
+                'from "c.pietto" import (\n'
+                "    type Base as Public)\n"
+                "export (\n"
+                "    type Public)\n"
             ),
             "c.pietto": (
-                "type Base = Text\nexport:\n    type Base\n"
-                'import "d.pietto":\n    type D\n'
+                "type Base = Text\n"
+                "export (\n"
+                "    type Base)\n"
+                'from "d.pietto" import (\n'
+                "    type D)\n"
             ),
             "d.pietto": (
-                'type D = Int\nexport:\n    type D\nimport "c.pietto":\n    type Base\n'
+                'type D = Int\nexport (\n    type D)\nfrom "c.pietto" import (\n    type Base)\n'
             ),
         },
     )
@@ -590,24 +632,35 @@ def test_direct_facade_cycle_precedes_nominal_owner_cycle_and_owner_fallback_rem
         tmp_path / "both-cyclic",
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Public as Local\n'
-                "shape Uses:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Public as Local)\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    type Base as Public\n'
-                'import "d.pietto":\n    type D\n'
-                "export:\n    type Public\n"
+                'from "c.pietto" import (\n'
+                "    type Base as Public)\n"
+                'from "d.pietto" import (\n'
+                "    type D)\n"
+                "export (\n"
+                "    type Public)\n"
             ),
             "c.pietto": (
-                "type Base = Text\nexport:\n    type Base\n"
-                'import "e.pietto":\n    type E\n'
+                "type Base = Text\n"
+                "export (\n"
+                "    type Base)\n"
+                'from "e.pietto" import (\n'
+                "    type E)\n"
             ),
             "d.pietto": (
-                "type D = Int\nexport:\n    type D\n"
-                'import "b.pietto":\n    type Public\n'
+                "type D = Int\n"
+                "export (\n"
+                "    type D)\n"
+                'from "b.pietto" import (\n'
+                "    type Public)\n"
             ),
             "e.pietto": (
-                'type E = Int\nexport:\n    type E\nimport "c.pietto":\n    type Base\n'
+                'type E = Int\nexport (\n    type E)\nfrom "c.pietto" import (\n    type Base)\n'
             ),
         },
     )
@@ -649,12 +702,16 @@ def test_imported_enums_are_nominal_and_not_flattened(tmp_path: Path) -> None:
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    enum Status as BStatus\n'
-                'import "c.pietto":\n    enum Status as CStatus\n'
-                "shape Row:\n    left: BStatus\n    right: CStatus\n"
+                'from "b.pietto" import (\n'
+                "    enum Status as BStatus)\n"
+                'from "c.pietto" import (\n'
+                "    enum Status as CStatus)\n"
+                "shape Row:\n"
+                "    left: BStatus\n"
+                "    right: CStatus\n"
             ),
-            "b.pietto": "enum Status:\n    ACTIVE\nexport:\n    enum Status\n",
-            "c.pietto": "enum Status:\n    ACTIVE\nexport:\n    enum Status\n",
+            "b.pietto": "enum Status:\n    ACTIVE\nexport (\n    enum Status)\n",
+            "c.pietto": "enum Status:\n    ACTIVE\nexport (\n    enum Status)\n",
         },
     )
     environment = _environment(semantic, "a.pietto")
@@ -673,10 +730,11 @@ def test_imported_shapes_are_nominal_and_field_types_resolve(tmp_path: Path) -> 
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape User as RemoteUser\n'
+                'from "b.pietto" import (\n'
+                "    shape User as RemoteUser)\n"
                 "type UserAlias = RemoteUser\n"
             ),
-            "b.pietto": ("shape User:\n    id: UUID\nexport:\n    shape User\n"),
+            "b.pietto": ("shape User:\n    id: UUID\nexport (\n    shape User)\n"),
         },
     )
     imported = _type_resolution(
@@ -744,8 +802,8 @@ def test_duplicate_local_source_name_is_one_pie_s2001_no_winner(
         tmp_path,
         {
             "a.pietto": (
-                'source rows is postgres.table("first")\n'
-                'source rows is postgres.table("second")\n'
+                'source rows = postgres.table("first")\n'
+                'source rows = postgres.table("second")\n'
             )
         },
     )
@@ -758,16 +816,28 @@ def test_duplicate_local_source_name_is_one_pie_s2001_no_winner(
 
 _REPEATED_ENUM_MEMBER_SOURCES = {
     "a.pietto": (
-        "enum Status:\n    active\n    held\n    active\n    held\n    active\n"
-        "shape C:\n    id: Int not null\n    status: Status not null\n"
-        "    unique k on nosuch\n"
-        'source cs: C is postgres.table("cs")\n'
-        "relationship r:\n    endpoint a: nowhere\n    endpoint b: cs\n"
+        "enum Status:\n"
+        "    active\n"
+        "    held\n"
+        "    active\n"
+        "    held\n"
+        "    active\n"
+        "shape C:\n"
+        "    id: Int\n"
+        "    status: Status\n"
+        "    k = unique(nosuch)\n"
+        'source cs: C = postgres.table("cs")\n'
     ),
     "b.pietto": (
-        "enum Kind:\n    x\n    x\n"
-        "enum Kind:\n    y\n    y\n"
-        "shape D:\n    id: Int not null\n    unique k on id, id\n"
+        "enum Kind:\n"
+        "    x\n"
+        "    x\n"
+        "enum Kind:\n"
+        "    y\n"
+        "    y\n"
+        "shape D:\n"
+        "    id: Int\n"
+        "    k = unique(id, id)\n"
     ),
 }
 
@@ -782,7 +852,7 @@ def test_project_check_reports_repeated_enum_members_like_a_single_file(
     diagnostics = build_project_completed_semantic_result(explicit).diagnostics
 
     # Per module in selected-module order, after the semantic analysis
-    # diagnostics and before the shape item and relationship diagnostics.
+    # diagnostics and before the shape item diagnostics.
     assert [
         (
             item.code,
@@ -806,13 +876,6 @@ def test_project_check_reports_repeated_enum_members_like_a_single_file(
         ("PIE-S2001", "Duplicate member name in enum Kind: y", "b.pietto", 4, 1),
         ("PIE-S2502", "Unknown target field in shape C: nosuch", "a.pietto", 10, 5),
         ("PIE-S2503", "Duplicate target field in unique k: id", "b.pietto", 9, 5),
-        (
-            "PIE-S2601",
-            "Unknown relationship endpoint relation: nowhere",
-            "a.pietto",
-            13,
-            5,
-        ),
     ]
     for path, source in _REPEATED_ENUM_MEMBER_SOURCES.items():
         parsed = parse_source(source, path=path)
@@ -829,8 +892,8 @@ def test_project_check_reports_repeated_enum_members_like_a_single_file(
             and item.message.startswith("Duplicate member name")
         ]
 
-    # A LEGACY_FLAT check reports them, the shape item and the relationship
-    # errors with the single-file checks of its files, after its project
+    # A LEGACY_FLAT check reports them and the shape item errors with the
+    # single-file checks of its files, after its project
     # model's one diagnostic.
     _, legacy = _semantic_project(
         tmp_path / "legacy", _REPEATED_ENUM_MEMBER_SOURCES, schema_version=1
@@ -862,13 +925,6 @@ def test_project_check_reports_repeated_enum_members_like_a_single_file(
         ("PIE-S2001", "Duplicate member name in enum Status: active", "a.pietto", 1, 1),
         ("PIE-S2001", "Duplicate member name in enum Status: held", "a.pietto", 1, 1),
         ("PIE-S2502", "Unknown target field in shape C: nosuch", "a.pietto", 10, 5),
-        (
-            "PIE-S2601",
-            "Unknown relationship endpoint relation: nowhere",
-            "a.pietto",
-            13,
-            5,
-        ),
         ("PIE-S2001", "Duplicate member name in enum Kind: x", "b.pietto", 1, 1),
         ("PIE-S2001", "Duplicate member name in enum Kind: y", "b.pietto", 4, 1),
         ("PIE-S2503", "Duplicate target field in unique k: id", "b.pietto", 9, 5),
@@ -887,17 +943,27 @@ def test_a_project_types_an_imported_enum_field_and_its_alias_as_the_enum(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    enum Status as BStatus\n'
+                'from "b.pietto" import (\n'
+                "    enum Status as BStatus)\n"
                 "type St = BStatus\n"
-                "shape U:\n    id: Int not null\n    st: BStatus not null\n"
-                "    sa: St nullable\n"
-                'source us: U is postgres.table("us")\n'
-                "def tn(x: Text not null) -> Text not null: return x\n"
-                "query q:\n    from us\n    where st\n    select:\n        id\n"
-                '        a = st in ("active")\n        b = tn(sa)\n'
-                '        c = lower(st)\n        d = st == "active"\n        e = sa\n'
+                "shape U:\n"
+                "    id: Int\n"
+                "    st: BStatus\n"
+                "    sa: St | None\n"
+                'source us: U = postgres.table("us")\n'
+                "def tn(x: Text) -> Text: return x\n"
+                "query q:\n"
+                "    from us\n"
+                "    where st\n"
+                "    select:\n"
+                "        id\n"
+                '        a = st in ("active")\n'
+                "        b = tn(sa)\n"
+                "        c = lower(st)\n"
+                '        d = st == "active"\n'
+                "        e = sa\n"
             ),
-            "b.pietto": "enum Status:\n    active\n    held\nexport:\n    enum Status\n",
+            "b.pietto": "enum Status:\n    active\n    held\nexport (\n    enum Status)\n",
         },
     )
     assert [
@@ -914,8 +980,8 @@ def test_a_project_types_an_imported_enum_field_and_its_alias_as_the_enum(
         ),
         (
             "PIE-S2395",
-            "Invalid argument for def tn at position 1 (x): expected Text not null, "
-            "got Status nullable",
+            "Invalid argument for def tn at position 1 (x): expected Text, "
+            "got Status | None",
             16,
             13,
         ),
@@ -996,8 +1062,10 @@ def test_unresolved_import_root_suppresses_derived_type_error(
         tmp_path,
         {
             "a.pietto": (
-                'import "missing.pietto":\n    type Missing as Local\n'
-                "shape Row:\n    value: Local\n"
+                'from "missing.pietto" import (\n'
+                "    type Missing as Local)\n"
+                "shape Row:\n"
+                "    value: Local\n"
             )
         },
     )
@@ -1018,8 +1086,10 @@ def test_private_import_root_suppresses_derived_type_error(tmp_path: Path) -> No
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Hidden as Local\n'
-                "shape Row:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Hidden as Local)\n"
+                "shape Row:\n"
+                "    value: Local\n"
             ),
             "b.pietto": "type Hidden = Text\n",
         },
@@ -1042,10 +1112,12 @@ def test_import_collision_is_no_winner_and_suppresses_consumers(
         {
             "a.pietto": (
                 "type Local = Text\n"
-                'import "b.pietto":\n    type B as Local\n'
-                "shape Row:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type B as Local)\n"
+                "shape Row:\n"
+                "    value: Local\n"
             ),
-            "b.pietto": "type B = Int\nexport:\n    type B\n",
+            "b.pietto": "type B = Int\nexport (\n    type B)\n",
         },
     )
     assert [item.code for item in semantic.diagnostics] == ["PIE-S2706"]
@@ -1065,13 +1137,13 @@ def test_all_import_kind_local_candidate_collisions_are_no_winner(
     tmp_path: Path,
 ) -> None:
     library_source = (
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    active\n"
         "    inactive\n"
         "shape Customer:\n"
-        "    id: UUID not null\n"
-        'source customers: Customer is postgres.table("public.customers")\n'
+        "    id: UUID\n"
+        'source customers: Customer = postgres.table("public.customers")\n'
         "table CustomerTable:\n"
         "    from customers\n"
         "    select:\n"
@@ -1080,13 +1152,13 @@ def test_all_import_kind_local_candidate_collisions_are_no_winner(
         "    from CustomerTable\n"
         "    select:\n"
         "        id\n"
-        "export:\n"
-        "    type Email\n"
-        "    enum Status\n"
-        "    shape Customer\n"
-        "    source customers\n"
-        "    table CustomerTable\n"
-        "    query CustomerQuery\n"
+        "export (\n"
+        "    type Email,\n"
+        "    enum Status,\n"
+        "    shape Customer,\n"
+        "    source customers,\n"
+        "    table CustomerTable,\n"
+        "    query CustomerQuery)\n"
     )
     import_targets = (
         ("type", "Email"),
@@ -1103,7 +1175,7 @@ def test_all_import_kind_local_candidate_collisions_are_no_winner(
         "source": (
             "shape LocalRow:\n"
             "    value: Text\n"
-            'source X: LocalRow is postgres.table("local")\n'
+            'source X: LocalRow = postgres.table("local")\n'
         ),
     }
 
@@ -1114,8 +1186,7 @@ def test_all_import_kind_local_candidate_collisions_are_no_winner(
                 {
                     "a.pietto": (
                         local_source
-                        + 'import "library.pietto":\n'
-                        + f"    {import_kind} {exported_name} as X\n"
+                        + f'from "library.pietto" import {import_kind} {exported_name} as X\n'
                     ),
                     "library.pietto": library_source,
                 },
@@ -1156,11 +1227,14 @@ def test_export_and_inconsistent_facade_roots_suppress_consumers(
         tmp_path / "duplicate",
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape Shared\nshape Row:\n    value: Shared\n'
+                'from "b.pietto" import (\n    shape Shared)\nshape Row:\n    value: Shared\n'
             ),
             "b.pietto": (
-                "shape Shared:\n    id: Int\n"
-                "export:\n    shape Shared\n    shape Shared\n"
+                "shape Shared:\n"
+                "    id: Int\n"
+                "export (\n"
+                "    shape Shared,\n"
+                "    shape Shared)\n"
             ),
         },
     )
@@ -1170,11 +1244,15 @@ def test_export_and_inconsistent_facade_roots_suppress_consumers(
         tmp_path / "inconsistent",
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape Shared\nshape Row:\n    value: Shared\n'
+                'from "b.pietto" import (\n    shape Shared)\nshape Row:\n    value: Shared\n'
             ),
             "b.pietto": (
-                "query Shared:\n    from missing\n    select:\n        id\n"
-                "export:\n    query Shared\n"
+                "query Shared:\n"
+                "    from missing\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    query Shared)\n"
             ),
         },
     )
@@ -1189,7 +1267,7 @@ def test_local_source_shape_resolves_direct_shape(tmp_path: Path) -> None:
         tmp_path,
         {
             "a.pietto": (
-                'shape Row:\n    id: Int\nsource rows: Row is postgres.table("rows")\n'
+                'shape Row:\n    id: Int\nsource rows: Row = postgres.table("rows")\n'
             )
         },
     )
@@ -1210,15 +1288,18 @@ def test_imported_source_and_shape_keep_both_local_and_target_identity(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n'
-                "    shape Row as RemoteRow\n"
-                "    source rows as remote_rows\n"
-                'source local_rows: RemoteRow is postgres.table("local")\n'
+                'from "b.pietto" import (\n'
+                "    shape Row as RemoteRow,\n"
+                "    source rows as remote_rows)\n"
+                'source local_rows: RemoteRow = postgres.table("local")\n'
             ),
             "b.pietto": (
-                "shape Row:\n    id: UUID\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "export:\n    shape Row\n    source rows\n"
+                "shape Row:\n"
+                "    id: UUID\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "export (\n"
+                "    shape Row,\n"
+                "    source rows)\n"
             ),
         },
     )
@@ -1240,11 +1321,12 @@ def test_source_unknown_and_wrong_kind_emit_exact_pie_s2303(tmp_path: Path) -> N
         {
             "a.pietto": (
                 "type Alias = Text\n"
-                "enum Status:\n    ACTIVE\n"
-                'source missing: Missing is postgres.table("missing")\n'
-                'source alias_rows: Alias is postgres.table("alias")\n'
-                'source status_rows: Status is postgres.table("status")\n'
-                'source int_rows: Int is postgres.table("ints")\n'
+                "enum Status:\n"
+                "    ACTIVE\n"
+                'source missing: Missing = postgres.table("missing")\n'
+                'source alias_rows: Alias = postgres.table("alias")\n'
+                'source status_rows: Status = postgres.table("status")\n'
+                'source int_rows: Int = postgres.table("ints")\n'
             )
         },
     )
@@ -1276,11 +1358,16 @@ def test_schema_v1_deferred_surfaces_and_public_privacy_are_exact(
         tmp_path / "explicit",
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Shared\n'
-                "constraint accepts(value: Shared) -> Bool:\n    true\n"
-                "table deferred:\n    from missing\n    select:\n        value\n"
+                'from "b.pietto" import (\n'
+                "    type Shared)\n"
+                "constraint accepts(value: Shared) -> Bool:\n"
+                "    return True\n"
+                "table deferred:\n"
+                "    from missing\n"
+                "    select:\n"
+                "        value\n"
             ),
-            "b.pietto": "type Shared = Text\nexport:\n    type Shared\n",
+            "b.pietto": "type Shared = Text\nexport (\n    type Shared)\n",
         },
     )
     environment = _environment(explicit, "a.pietto")
@@ -1305,9 +1392,11 @@ def test_text_json_cli_remains_exact(
         tmp_path,
         {
             "a.pietto": (
-                'import "missing.pietto":\n    type Missing as Blocked\n'
-                "shape Bad:\n    value: Unknown\n"
-                'source rows: MissingShape is postgres.table("rows")\n'
+                'from "missing.pietto" import (\n'
+                "    type Missing as Blocked)\n"
+                "shape Bad:\n"
+                "    value: Unknown\n"
+                'source rows: MissingShape = postgres.table("rows")\n'
             )
         },
     )
@@ -1343,3 +1432,798 @@ def test_text_json_cli_remains_exact(
         "PIE-S2333",
     ]
     assert "module_type_source_resolutions" not in json.dumps(document)
+
+
+def test_relationship_predicate_shapes_follow_declaring_modules_and_import_aliases(
+    tmp_path: Path,
+) -> None:
+    from pietto._project.project_relationship_predicates import (
+        ProjectRelationshipPredicateCatalog,
+        declared_source_shape,
+    )
+    from pietto.ast_nodes import ShapeDef, SourceDef
+
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "shapes.pietto": ("shape Row:\n    id: Int\nexport shape Row\n"),
+            "data.pietto": (
+                'from "shapes.pietto" import shape Row as Declared\n'
+                'source records: Declared = postgres.table("records")\n'
+                "export source records\n"
+            ),
+            "main.pietto": (
+                'from "shapes.pietto" import shape Row as Expected\n'
+                'from "data.pietto" import source records as actual\n'
+                "shape Row:\n    id: Text\n"
+                "relationship Same(a: Expected, b: Expected):\n"
+                "    a.id == b.id\n"
+                "query result:\n    from actual\n    select actual.id\n"
+            ),
+        },
+    )
+    assert semantic.diagnostics == ()
+    assert semantic.module_catalogs is not None
+    data = semantic.module_catalogs.find_module_path("data.pietto")[0]
+    source = next(
+        item for item in data.occurrences if type(item.definition) is SourceDef
+    )
+    shape = declared_source_shape(semantic, source)
+    catalog = ProjectRelationshipPredicateCatalog(semantic_result=semantic)
+    (template,) = catalog.templates["main.pietto"]
+    local = semantic.module_catalogs.find_module_path("main.pietto")[0]
+    decoy = next(
+        item.definition
+        for item in local.occurrences
+        if type(item.definition) is ShapeDef
+    )
+
+    assert catalog.diagnostics == ()
+    assert shape is not None and shape is not decoy
+    assert template.parameter_shapes[0] is template.parameter_shapes[1] is shape
+    assert shape.span.path == "shapes.pietto"
+    assert source.identity.module_path == "data.pietto"
+
+
+def test_relationship_source_shape_rejects_an_equal_foreign_declaration(
+    tmp_path: Path,
+) -> None:
+    from pietto._project.project_relationship_predicates import declared_source_shape
+    from pietto.ast_nodes import SourceDef
+
+    sources = {
+        "main.pietto": (
+            'shape Row:\n    id: Int\nsource records: Row = postgres.table("records")\n'
+        )
+    }
+    _, local = _semantic_project(tmp_path / "local", sources)
+    _, foreign = _semantic_project(tmp_path / "foreign", sources)
+    assert foreign.module_catalogs is not None
+    owner = next(
+        item
+        for item in foreign.module_catalogs.catalogs[0].occurrences
+        if type(item.definition) is SourceDef
+    )
+    with pytest.raises(ValueError, match="exact declaration occurrence"):
+        declared_source_shape(local, owner)
+
+
+def test_project_predicate_local_owners_require_exact_retained_membership(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    from pietto._project.project_relationship_predicates import (
+        ProjectRelationshipPredicateCatalog,
+        _bind_project_predicates,
+        bind_project_no_join_relationship_predicates,
+        declared_source_shape,
+    )
+
+    sources = {
+        "main.pietto": """shape Row:
+    id: Int
+source records: Row = postgres.table("records")
+relationship Positive(row: Row):
+    row.id > 0
+query output:
+    let local:
+        from records
+        where Positive(records)
+        select id
+    let nested:
+        from local
+        select id
+    from nested
+    select id
+"""
+    }
+    _, semantic = _semantic_project(tmp_path / "local", sources)
+    _, foreign = _semantic_project(tmp_path / "foreign", sources)
+    assert semantic.diagnostics == foreign.diagnostics == ()
+    assert semantic.module_catalogs is not None
+    assert foreign.module_catalogs is not None
+    (module,) = semantic.module_catalogs.catalogs
+    (foreign_module,) = foreign.module_catalogs.catalogs
+    owners = (*module.lets, module.occurrences[-1])
+    foreign_owners = (*foreign_module.lets, foreign_module.occurrences[-1])
+    assert [owner.definition.name for owner in owners] == ["local", "nested", "output"]
+    catalog = ProjectRelationshipPredicateCatalog(semantic_result=semantic)
+    for owner, foreign_owner in zip(owners, foreign_owners, strict=True):
+        records = bind_project_no_join_relationship_predicates(catalog, owner)
+        assert records and all(record.owner is owner for record in records)
+        assert sum(len(record.calls) for record in records) == (
+            1 if owner.let_position == 0 else 0
+        )
+        assert declared_source_shape(semantic, owner) is None
+        copied = replace(owner)
+        assert copied == owner and copied is not owner
+        assert foreign_owner.identity == owner.identity and foreign_owner is not owner
+        for counterfeit in (copied, foreign_owner):
+            with pytest.raises(ValueError, match="exact module catalog membership"):
+                _bind_project_predicates(catalog, counterfeit, [])
+            with pytest.raises(ValueError, match="exact declaration occurrence"):
+                declared_source_shape(semantic, counterfeit)
+
+
+def test_project_predicate_no_join_tail_reuses_one_exact_source_occurrence(
+    tmp_path: Path,
+) -> None:
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedEffectiveOutput,
+        ProjectConcreteNoJoinReplay,
+        ProjectNoJoinScalarExpression,
+    )
+    from pietto.semantic.model import EffectiveNullability
+
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": (
+                "shape Row:\n"
+                "    id: Int\n"
+                "    active: Bool | None\n"
+                'source records: Row = postgres.table("records")\n'
+                "relationship Same(a: Row, b: Row):\n"
+                "    a.id == b.id and a.active\n"
+                "query output:\n"
+                "    let row = records\n"
+                "    from row\n"
+                "    where Same(row, row) or not Same(row, row)\n"
+                "    select outcome = not Same(row, row)\n"
+            )
+        },
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    entry = next(
+        item
+        for item in completed.roots.effective_outputs.entries
+        if item.owner.definition.name == "output"
+    )
+    assert isinstance(entry, ProjectCompletedEffectiveOutput)
+    assert isinstance(entry.root, ProjectConcreteNoJoinReplay)
+    assert len(entry.root.predicate_expressions) == 2
+    assert [len(record.calls) for record in entry.root.predicate_expressions] == [2, 1]
+    for record in entry.root.predicate_expressions:
+        for call, arguments in zip(record.calls, record.argument_bindings, strict=True):
+            assert arguments[0] is arguments[1]
+            assert call.arguments[0].occurrence is call.arguments[1].occurrence
+            assert call.mandatory_equalities == ()
+    value = entry.fields[0].source
+    assert isinstance(value, ProjectNoJoinScalarExpression)
+    assert value.expression is not value.normalized_expression
+    assert value.predicate_expression is entry.root.predicate_expressions[1]
+    assert value.value_type is not None
+    assert value.value_type.resolved_type.name == "Bool"
+    # The existing Bool operator kernel conservatively retains UNKNOWN.
+    assert value.value_type.nullability is EffectiveNullability.UNKNOWN
+    from pietto.ast_nodes import DottedNameExpr
+
+    active_reads = tuple(
+        value_type
+        for expression, value_type in value.value_types.items()
+        if isinstance(expression, DottedNameExpr)
+        and expression.parts == ("row", "active")
+    )
+    assert active_reads
+    assert all(
+        item.nullability is EffectiveNullability.NULLABLE for item in active_reads
+    )
+
+    from pietto._project.row_expression_type_facts import scalar_field_reference_leaves
+
+    (references,) = tuple(
+        item for item in completed.roots.row_references if item.entry is entry
+    )
+    where_analysis = entry.root.where.expression_analysis
+    assert where_analysis is not None
+    for actual, normalized in (
+        (references.selections[0], value.normalized_expression),
+        (references.where, where_analysis.normalized_expression),
+    ):
+        expected = scalar_field_reference_leaves(normalized)
+        assert len(actual) == len(expected)
+        assert all(
+            reference.expression is leaf
+            for reference, leaf in zip(actual, expected, strict=True)
+        )
+        assert all(reference.status.value == "concrete" for reference in actual)
+        assert all(
+            reference.input_field
+            is entry.root.input_schema.fields[reference.local_name]
+            for reference in actual
+        )
+
+
+def test_project_imported_source_aliases_bind_distinct_predicate_inputs(
+    tmp_path: Path,
+) -> None:
+    from pietto._project.project_final_outputs import ProjectCompletedEffectiveOutput
+    from pietto._project.project_scalar_namespaces import (
+        ProjectConcreteJoinedNamespaceExpression,
+    )
+
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "data.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source records: Row = postgres.table("records")\n'
+                "export shape Row, source records\n"
+            ),
+            "main.pietto": (
+                'from "data.pietto" import shape Row as Expected, source records as actual\n'
+                "relationship Same(a: Expected, b: Expected):\n"
+                "    a.id == b.id\n"
+                "query output:\n"
+                "    let one = actual\n"
+                "    let other = actual\n"
+                "    from one\n"
+                "    inner join other on Same(one, other)\n"
+                "    where not Same(one, other) or Same(other, one)\n"
+                "    select matched = not Same(one, other)\n"
+            ),
+        },
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    condition = completed.roots.join_conditions.entries[0]
+    assert [binding.name for binding in condition.ledger.bindings] == ["one", "other"]
+    assert condition.ledger.bindings[0].target is not None
+    assert condition.ledger.bindings[1].target is not None
+    assert (
+        condition.ledger.bindings[0].target.target_occurrence
+        is condition.ledger.bindings[1].target.target_occurrence
+    )
+    record = condition.environment.predicate_expression
+    assert record is not None
+    assert record.argument_bindings[0][0] is not record.argument_bindings[0][1]
+    entry = next(
+        item
+        for item in completed.roots.effective_outputs.entries
+        if item.owner.definition.name == "output"
+    )
+    assert isinstance(entry, ProjectCompletedEffectiveOutput)
+    value = entry.fields[0].source
+    assert isinstance(value, ProjectConcreteJoinedNamespaceExpression)
+    assert value.predicate_expression is not None
+    assert value.normalized_expression is value.predicate_expression.expression
+    assert value.value_type.resolved_type.name == "Bool"
+
+
+@pytest.mark.parametrize(
+    ("body", "supported"),
+    (("a.active and b.active", True), ("a.id == b.id and a.active", False)),
+    ids=("admitted_bool_fields", "comparison_keeps_existing_refusal"),
+)
+def test_project_predicate_boolean_argument_keeps_existing_count_semantics(
+    tmp_path: Path,
+    body: str,
+    supported: bool,
+) -> None:
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedEffectiveOutput,
+        ProjectConcreteNoJoinReplay,
+    )
+
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": (
+                "shape Row:\n    id: Int\n    active: Bool | None\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "relationship Same(a: Row, b: Row):\n"
+                f"    {body}\n"
+                "query output:\n    from rows\n"
+                "    select total = count(Same(rows, rows))\n"
+            )
+        },
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    if not supported:
+        assert not completed.ok
+        assert any(item.code == "PIE-S2333" for item in completed.diagnostics)
+        _, expanded = _semantic_project(
+            tmp_path / "expanded",
+            {
+                "main.pietto": (
+                    "shape Row:\n    id: Int\n    active: Bool | None\n"
+                    'source rows: Row = postgres.table("rows")\n'
+                    "query output:\n    from rows\n"
+                    "    select total = count(rows.id == rows.id and rows.active)\n"
+                )
+            },
+        )
+        expanded_result = build_project_completed_semantic_result(expanded)
+        assert isinstance(expanded_result, ProjectConcreteCompletedSemanticResult)
+        assert not expanded_result.ok
+        return
+    assert completed.ok, completed.diagnostics
+    entry = next(
+        item
+        for item in completed.roots.effective_outputs.entries
+        if item.owner.definition.name == "output"
+    )
+    assert isinstance(entry, ProjectCompletedEffectiveOutput)
+    assert isinstance(entry.root, ProjectConcreteNoJoinReplay)
+    assert entry.root.aggregate_readiness is not None
+    (analysis,) = entry.root.aggregate_readiness.finalization.analyses
+    assert analysis.predicate_expression is not None
+    assert analysis.effective_argument is analysis.predicate_expression.expression
+    assert entry.fields[0].field.resolved_type.name == "Int"
+    assert entry.fields[0].field.nullability.value == "non_null"
+    assert analysis.predicate_expression.calls[0].mandatory_equalities == ()
+
+    from pietto._project.row_expression_type_facts import scalar_field_reference_leaves
+
+    assert analysis.effective_argument is not None
+    (references,) = tuple(
+        item for item in completed.roots.row_references if item.entry is entry
+    )
+    expected = scalar_field_reference_leaves(analysis.effective_argument)
+    assert len(references.selections[0]) == len(expected)
+    assert all(
+        reference.expression is leaf
+        for reference, leaf in zip(references.selections[0], expected, strict=True)
+    )
+
+
+def test_project_retains_scalar_candidates_for_ambiguous_row_predicate_calls(
+    tmp_path: Path,
+) -> None:
+    parsed, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": (
+                "shape Row:\n    id: Int\n    rows: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "def Same(a: Int, b: Int) -> Bool: return a == b\n"
+                "relationship Same(a: Row, b: Row):\n    a.id == b.id\n"
+                "query output:\n    from rows\n"
+                "    where Same(rows, rows)\n"
+                "    select rows.id\n"
+            )
+        },
+    )
+    (original,) = parsed.parsed_inputs[0].scalar_callables
+    assert original.name == "Same"
+    completed = build_project_completed_semantic_result(semantic)
+    assert not completed.ok
+    assert (
+        "PIE-S2604",
+        "Ambiguous scalar or relationship call: Same",
+        10,
+        11,
+    ) in [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in completed.diagnostics
+    ]
+
+
+def test_project_body_views_preserve_names_and_require_normalization() -> None:
+    from dataclasses import dataclass, replace
+
+    from pietto._project.module_catalog import _relation_block_view
+    from pietto._project.module_relation_resolution import _expression_read_containers
+    from pietto._project.query_parameters import _header_bodies
+    from pietto.ast_nodes import (
+        BlockRelationDef,
+        Expression,
+        ModuleDeclarationKind,
+        QueryDef,
+        SelectBody,
+    )
+
+    parsed = parse_source(
+        "query output(n: Int):\n"
+        "    let local = rows\n"
+        "    from local\n"
+        "    select local.id\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    query = parsed.ast.definitions[0]
+    assert isinstance(query, QueryDef)
+    assert query.naming_declarations
+    body = SelectBody(
+        span=query.span,
+        from_clause=query.from_clause,
+        where_clause=query.where_clause,
+        group_by_clause=query.group_by_clause,
+        select_items=query.select_items,
+        naming_declarations=query.naming_declarations,
+    )
+    block = BlockRelationDef(
+        span=query.span,
+        name=query.name,
+        kind=ModuleDeclarationKind.QUERY,
+        parameters=query.parameters,
+        let_relations=(),
+        body=body,
+    )
+    view = _relation_block_view(
+        span=block.span,
+        name=block.name,
+        kind=block.kind,
+        body=body,
+        parameters=block.parameters,
+    )
+    assert isinstance(view, QueryDef)
+    (header_view,) = _header_bodies(block)
+    assert view.naming_declarations is body.naming_declarations
+    assert header_view.naming_declarations is body.naming_declarations
+    with pytest.raises(ValueError, match="normalized query naming declarations"):
+        _expression_read_containers(view)
+    normalized = replace(view, naming_declarations=())
+    containers = _expression_read_containers(normalized)
+    assert [node for _, _, node in containers] == [
+        query.from_clause,
+        *query.select_items,
+    ]
+
+    @dataclass(frozen=True, slots=True, kw_only=True)
+    class FutureQuery(QueryDef):
+        unhandled_expression: Expression | None = None
+
+    future = FutureQuery(
+        **{item.name: getattr(normalized, item.name) for item in fields(normalized)}
+    )
+    with pytest.raises(ValueError, match="closed relation body shape"):
+        _expression_read_containers(future)
+
+
+@pytest.mark.parametrize("kind", ("right", "full"))
+@pytest.mark.parametrize("negative", (False, True))
+def test_project_any_filter_retains_its_prefix_before_outer_join(
+    tmp_path: Path,
+    kind: str,
+    negative: bool,
+) -> None:
+    from pietto.ast_nodes import AuthoredJoinKind, JoinFilterClause
+
+    parsed, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source orders: Row = postgres.table("orders")\n'
+                'source customers: Row = postgres.table("customers")\n'
+                'source regions: Row = postgres.table("regions")\n'
+                "relationship Same(a: Row, b: Row):\n    a.id == b.id\n"
+                "query output:\n    from orders\n"
+                f"    where {'not ' if negative else ''}any(Same(orders, buyer) for buyer in customers)\n"
+                f"    {kind} join regions on orders.id == regions.id\n"
+                "    select order_id = orders.id, region_id = regions.id\n"
+            )
+        },
+    )
+    (use,) = parsed.parsed_inputs[0].existence_generators
+    assert isinstance(use.context, JoinFilterClause)
+    assert use.preceding_join_count == 0 and use.input_ordinal == 1
+    assert use.owner.join_clauses[0] is use.clause
+    assert use.clause.kind is (
+        AuthoredJoinKind.ANTI if negative else AuthoredJoinKind.SEMI
+    )
+    assert use.owner.join_filters == ()
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    conditions = completed.roots.join_conditions.entries
+    assert [item.use.clause.kind for item in conditions] == [
+        use.clause.kind,
+        AuthoredJoinKind(kind),
+    ]
+    assert conditions[1].inputs is not None
+    assert conditions[1].inputs.prefix[0].use.clause is use.clause
+
+
+def test_project_any_binder_reuse_stays_local_across_import_aliases(
+    tmp_path: Path,
+) -> None:
+    from pietto.ast_nodes import AuthoredJoinKind
+
+    parsed, semantic = _semantic_project(
+        tmp_path,
+        {
+            "data.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "export shape Row, source rows\n"
+            ),
+            "main.pietto": (
+                'from "data.pietto" import shape Row, source rows as imported\n'
+                "relationship Same(a: Row, b: Row):\n    a.id == b.id\n"
+                "query output:\n"
+                "    let buyer = imported\n"
+                "    from imported\n"
+                "    where any(Same(imported, buyer) for buyer in imported)\n"
+                "    inner join buyer on imported.id == buyer.id\n"
+                "    where not any(Same(imported, buyer) for buyer in imported)\n"
+                "    select id = buyer.id\n"
+            ),
+        },
+    )
+    module = next(
+        source for source in parsed.parsed_inputs if source.path == "main.pietto"
+    )
+    (first,) = module.existence_generators
+    (last,) = module.existence_values
+    assert first.expression.binding_name == last.expression.binding_name == "buyer"
+    assert first.expression is not last.expression
+    assert first.clause.target_binding_name != "buyer"
+    assert first.owner is last.owner
+    assert [join.kind for join in first.owner.join_clauses] == [
+        AuthoredJoinKind.SEMI,
+        AuthoredJoinKind.INNER,
+    ]
+    assert first.owner.join_clauses[1].target_binding_name == "buyer"
+    assert first.owner.join_clauses[1].target_relation_name == "imported"
+    assert first.input_ordinal == 1 and first.preceding_join_count == 0
+    assert last.join_prefix_count == 2
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    assert all(condition.ready for condition in completed.roots.join_conditions.entries)
+
+
+def test_project_float_constructor_scope_stays_local_to_its_module(
+    tmp_path: Path,
+) -> None:
+    from pietto.ast_nodes import CastExpr, QueryDef
+    from pietto._project.project_completion import ProjectExistingEffectiveOutput
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedEffectiveOutput,
+        _entry_schema,
+    )
+
+    parsed, semantic = _semantic_project(
+        tmp_path,
+        {
+            "defs.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "def Float(x: Int) -> Int: return x\n"
+                "query local:\n    from rows\n    select value = Float(1)\n"
+                "export shape Row, source rows\n"
+            ),
+            "main.pietto": (
+                'from "defs.pietto" import source rows\n'
+                "query output:\n    from rows\n    select value = Float(1)\n"
+            ),
+        },
+    )
+    first, second = parsed.parsed_inputs
+    assert first.scalar_callables[0].name == "Float"
+    local = next(
+        item for item in first.script.definitions if isinstance(item, QueryDef)
+    )
+    output = next(
+        item for item in second.script.definitions if isinstance(item, QueryDef)
+    )
+    assert not isinstance(local.select_items[0].expression, CastExpr)
+    assert isinstance(output.select_items[0].expression, CastExpr)
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    schemas = {
+        entry.owner.definition.name: entry
+        for entry in completed.roots.effective_outputs.entries
+        if entry.owner.definition.name in {"local", "output"}
+    }
+    local_fields = _environment(semantic, "defs.pietto")
+    assert local_fields.module.parsed_input is first
+    assert set(schemas) == {"local", "output"}
+    for name, expected in (("local", "Int"), ("output", "Float")):
+        entry = schemas[name]
+        assert isinstance(
+            entry, (ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput)
+        )
+        assert _entry_schema(entry).fields["value"].resolved_type.name == expected
+
+
+def test_project_relationship_float_body_and_call_copies_use_imported_rows(
+    tmp_path: Path,
+) -> None:
+    from pietto.ast_nodes import CastExpr, ComparisonExpr
+
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "data.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "export shape Row, source rows\n"
+            ),
+            "main.pietto": (
+                'from "data.pietto" import shape Row, source rows\n'
+                "relationship EqualFloat(a: Row, b: Row):\n"
+                "    Float(a.id) == Float(b.id)\n"
+                "query output:\n    let peer = rows\n    from rows\n"
+                "    inner join peer on EqualFloat(rows, peer)\n"
+                "    select id = rows.id\n"
+            ),
+        },
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    condition = completed.roots.join_conditions.entries[0]
+    record = condition.environment.predicate_expression
+    assert record is not None
+    (call,) = record.calls
+    template = call.template.declaration.body
+    expanded = condition.expression
+    assert isinstance(template, ComparisonExpr) and isinstance(expanded, ComparisonExpr)
+    for original, copied in (
+        (template.left, expanded.left),
+        (template.right, expanded.right),
+    ):
+        assert isinstance(original, CastExpr) and isinstance(copied, CastExpr)
+        assert copied.target is not original.target
+        assert copied.target.name == "Float"
+        assert condition.value_types[copied].resolved_type.name == "Float"
+
+
+def test_project_scalar_any_keeps_alias_origin_and_derived_iterator_dependency(
+    tmp_path: Path,
+) -> None:
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedEffectiveOutput,
+        ProjectNoJoinScalarExpression,
+    )
+
+    parsed, semantic = _semantic_project(
+        tmp_path,
+        {
+            "data.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "export shape Row, source rows\n"
+            ),
+            "main.pietto": (
+                'from "data.pietto" import source rows as orders\n'
+                "query candidates:\n    from orders\n"
+                "    where orders.id > 0\n    select id = orders.id\n"
+                "query output:\n    let local_rows = candidates\n    from orders\n"
+                "    where any(buyer.id == orders.id for buyer in local_rows) or orders.id > 5\n"
+                "    select matched = any(buyer.id == orders.id for buyer in local_rows)\n"
+            ),
+        },
+    )
+    source = next(item for item in parsed.parsed_inputs if item.path == "main.pietto")
+    assert len(source.existence_values) == 2
+    assert all(
+        value.authored_expression.relation_name == "local_rows"
+        and value.expression.relation_name == "candidates"
+        for value in source.existence_values
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    entry = next(
+        item
+        for item in completed.effective_outputs.entries
+        if item.owner.definition.name == "output"
+    )
+    assert isinstance(entry, ProjectCompletedEffectiveOutput)
+    analysis = entry.fields[0].source
+    assert isinstance(analysis, ProjectNoJoinScalarExpression)
+    (value,) = analysis.existence_values
+    assert value.input.entry is not None
+    assert value.input.entry.owner is value.input.binding.target
+    assert value.input.binding.origin is source.existence_values[1]
+    assert (
+        value.input.binding.resolution.read.expression is value.input.binding.expression
+    )
+    assert value.authored_expression is source.existence_values[1].authored_expression
+    schedule = completed.effective_outputs.schedule
+    assert schedule.index(value.input.entry.owner) < schedule.index(entry.owner)
+
+
+def test_project_unused_scalar_let_any_still_checks_its_predicate(
+    tmp_path: Path,
+) -> None:
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source orders: Row = postgres.table("orders")\n'
+                "query output:\n    from orders\n"
+                "    let unused = any(buyer.missing == orders.id for buyer in orders)\n"
+                "    select id = orders.id\n"
+            )
+        },
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert not completed.ok
+    assert any(
+        diagnostic.code == "PIE-S2334"
+        and "ANY predicate reference is unavailable" in diagnostic.message
+        for diagnostic in completed.diagnostics
+    )
+
+
+def test_project_unused_function_parameter_rejects_any_argument_before_expansion(
+    tmp_path: Path,
+) -> None:
+    root = _configured_project(
+        tmp_path,
+        {
+            "main.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source orders: Row = postgres.table("orders")\n'
+                "def choose(value: Bool) -> Bool: return True\n"
+                "query output:\n    from orders\n"
+                "    select matched = choose(any(buyer.missing == orders.id for buyer in orders))\n"
+            )
+        },
+    )
+    parsed = project_check.check_project_parse_only(root)
+    assert not parsed.ok
+    assert any(
+        diagnostic.code == "PIE-S2397"
+        and "parameter value is not used" in diagnostic.message
+        for diagnostic in parsed.diagnostics
+    )
+
+
+def test_project_scalar_any_none_predicate_has_bool_context(tmp_path: Path) -> None:
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedEffectiveOutput,
+        ProjectNoJoinScalarExpression,
+    )
+    from pietto.semantic.model import EffectiveNullability, ValueTypeKind
+
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "main.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source orders: Row = postgres.table("orders")\n'
+                "query output:\n    from orders\n"
+                "    select matched = any(None for buyer in orders)\n"
+            )
+        },
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    entry = next(
+        item
+        for item in completed.effective_outputs.entries
+        if item.owner.definition.name == "output"
+    )
+    assert isinstance(entry, ProjectCompletedEffectiveOutput)
+    analysis = entry.fields[0].source
+    assert isinstance(analysis, ProjectNoJoinScalarExpression)
+    (value,) = analysis.existence_values
+    predicate_type = value.value_types[value.predicate]
+    assert predicate_type.kind is ValueTypeKind.KNOWN
+    assert predicate_type.resolved_type.name == "Bool"
+    assert predicate_type.nullability is EffectiveNullability.NULLABLE
+    assert value.value_type.nullability is EffectiveNullability.NON_NULL

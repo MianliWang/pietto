@@ -24,11 +24,11 @@ from pietto.sql.mysql import emit_mysql_sql
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
@@ -37,8 +37,7 @@ def test_ir_inline_expands_let_in_where_select_and_order_by() -> None:
     relation = _relation_ir(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    select:\n"
         "        gross_value = gross\n"
@@ -58,8 +57,7 @@ def test_ir_inline_expands_grouped_where_without_aggregate_let_visibility() -> N
     relation = _relation_ir(
         "query grouped_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    group by:\n"
         "        status\n"
@@ -78,9 +76,8 @@ def test_ir_recursively_expands_earlier_let_dependencies() -> None:
     relation = _relation_ir(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "        net = gross - 5\n"
+        "    let gross = amount + tax\n"
+        "    let net = gross - 5\n"
         "    select:\n"
         "        net_value = net\n"
     )
@@ -97,8 +94,7 @@ def test_source_qualified_fields_inside_let_lower_to_qualified_field_refs() -> N
     relation = _relation_ir(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = orders.amount + orders.tax\n"
+        "    let gross = orders.amount + orders.tax\n"
         "    select:\n"
         "        gross_value = gross\n"
     )
@@ -116,8 +112,7 @@ def test_no_let_or_layer_ir_surface_is_introduced() -> None:
     script_ir = _script_ir(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        gross_value = gross\n"
     )
@@ -131,8 +126,7 @@ def test_postgres_emit_sql_inlines_supported_let_expressions() -> None:
     sql = _postgres_sql(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    select:\n"
         "        gross_value = gross\n"
@@ -152,8 +146,7 @@ def test_mysql_emit_sql_inlines_supported_let_expressions_without_sql_changes() 
     sql = _mysql_sql(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    select:\n"
         "        gross_value = gross\n"
@@ -178,8 +171,7 @@ def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
         "supported.pietto",
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        gross_value = gross\n",
     )
@@ -224,16 +216,14 @@ def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -243,21 +233,19 @@ def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
@@ -269,8 +257,7 @@ def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -278,52 +265,45 @@ def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        net = orders.gross\n"
+            "    let gross = amount + tax\n"
+            "    let net = orders.gross\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2102",
         ),
         (
+            # Two `let` of one name: the modern query-name normalizer refuses
+            # the second before any semantic check runs.
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        gross = amount - tax\n"
+            "    let gross = amount + tax\n"
+            "    let gross = amount - tax\n"
             "    select:\n"
             "        amount\n",
+            "PIE-S2604",
+        ),
+        (
+            "    from orders\n    let amount = tax\n    select:\n        amount\n",
             "PIE-S2329",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        amount = tax\n"
-            "    select:\n"
-            "        amount\n",
-            "PIE-S2329",
-        ),
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        gross = gross + tax\n"
+            "    let gross = gross + tax\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = net + tax\n"
-            "        net = amount\n"
+            "    let gross = net + tax\n"
+            "    let net = amount\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = net\n"
-            "        net = gross\n"
+            "    let gross = net\n"
+            "    let net = gross\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
@@ -372,7 +352,7 @@ def test_one_deep_let_binding_emits_the_sql_of_its_inline_form() -> None:
     expression = "amount" + " + 1" * 300
     inline = "query flat:\n    from orders\n    select:\n        y = " + expression
     through_let = (
-        "query flat:\n    from orders\n    let:\n        v = " + expression + "\n"
+        "query flat:\n    from orders\n    let v = " + expression + "\n"
         "    select:\n        y = v"
     )
 
@@ -384,13 +364,13 @@ def test_one_deep_let_binding_emits_the_sql_of_its_inline_form() -> None:
 
 def test_a_let_name_bound_through_null_emits_the_sql_of_its_inline_form() -> None:
     through_let = (
-        "query q:\n    from orders\n    let:\n        k = null\n"
-        "        j = coalesce(k, amount)\n    select:\n        o = j / 2\n"
-        "        f = cast(j as Float)\n"
+        "query q:\n    from orders\n    let k = None\n"
+        "    let j = coalesce(k, amount)\n    select:\n        o = j / 2\n"
+        "        f = Float(j)\n"
     )
     inline = (
-        "query q:\n    from orders\n    select:\n        o = coalesce(null, amount) / 2\n"
-        "        f = cast(coalesce(null, amount) as Float)\n"
+        "query q:\n    from orders\n    select:\n        o = coalesce(None, amount) / 2\n"
+        "        f = Float(coalesce(None, amount))\n"
     )
 
     # Before: `j` was untyped, so MySQL divided with `/` (a DECIMAL result)
@@ -417,15 +397,16 @@ def test_a_let_name_over_an_unknown_row_emits_the_mysql_of_its_inline_form() -> 
     # Before: `u` was untyped over the shapeless source, so MySQL divided it
     # with `/`, a DECIMAL result, where `7 / 2` written inline is `7 DIV 2`.
     result = parse_source(
-        'source raw is mysql.table("raw")\n'
-        "query q:\n    from raw\n    let:\n        u = 7\n    select:\n"
+        'source raw = mysql.table("raw")\n'
+        "query q:\n    from raw\n    let u = 7\n    select:\n"
         "        o = u / 2\n        p = 7 / 2\n",
         path="let_ir_sql.pietto",
     )
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert [diagnostic.code for diagnostic in semantic.diagnostics] == ["PIE-S2303"]
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.ir is not None
     emitted = emit_mysql_sql(ir_result.ir)
     assert emitted.diagnostics == ()
@@ -445,14 +426,13 @@ def test_a_let_name_over_an_unknown_row_emits_the_mysql_of_its_inline_form() -> 
 )
 def test_let_chains_at_the_inline_expansion_limit_emit(count: int, step: str) -> None:
     lines = [
-        f"        v{i} = {step.format(previous=f'v{i - 1}')}" for i in range(1, count)
+        f"    let v{i} = {step.format(previous=f'v{i - 1}')}" for i in range(1, count)
     ]
     source = "\n".join(
         (
             "query chained:",
             "    from orders",
-            "    let:",
-            "        v0 = amount",
+            "    let v0 = amount",
             *lines,
             "    select:",
             f"        y = v{count - 1}",
@@ -472,7 +452,8 @@ def _script_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> ScriptIR:
     assert result.ast is not None
     semantic = analyze(result.ast)
     assert semantic.diagnostics == ()
-    ir_result = build_ir(result.ast, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir

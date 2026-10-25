@@ -51,23 +51,22 @@ SPEC_HEADINGS = (
 
 def _library_source() -> str:
     return """shape Row:
-    id: Int not null
-    amount: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+    amount: Int
+source rows: Row = postgres.table("rows")
 table projected:
     from rows
     select:
         id
         amount
-export:
-    table projected
+export table projected
 """
 
 
 def _project_files() -> dict[str, str]:
     return {
         "a.pietto": (
-            'import "b.pietto":\n    table Public as Input\n'
+            'from "b.pietto" import table Public as Input\n'
             "query final:\n"
             "    from consumer\n"
             "    select:\n"
@@ -82,15 +81,13 @@ def _project_files() -> dict[str, str]:
             "        id\n"
         ),
         "b.pietto": (
-            'import "c.pietto":\n    table projected as Public\n'
-            "export:\n"
-            "    table Public\n"
+            'from "c.pietto" import table projected as Public\nexport table Public\n'
         ),
         "c.pietto": _library_source(),
         "d.pietto": (
             "shape Other:\n"
-            "    key: Int not null\n"
-            'source other: Other is postgres.table("other")\n'
+            "    key: Int\n"
+            'source other: Other = postgres.table("other")\n'
             "query other_result:\n"
             "    from other\n"
             "    select:\n"
@@ -488,8 +485,8 @@ def test_non_concrete_cycles_remain_terminals_and_do_not_erase_concrete_componen
         {
             "main.pietto": (
                 "shape Row:\n"
-                "    id: Int not null\n"
-                'source rows: Row is postgres.table("rows")\n'
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
                 "query okay:\n"
                 "    from rows\n"
                 "    select:\n"

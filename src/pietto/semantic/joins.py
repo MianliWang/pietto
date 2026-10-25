@@ -15,6 +15,11 @@ at each read that fails.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pietto.semantic.relationship_predicates import RelationshipCallFailure
+
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -23,8 +28,10 @@ from pietto._flat_relational_admission import (
     availability_diagnostic,
 )
 from pietto.ast_nodes import (
+    AnyExpr,
     AuthoredJoinKind,
     BinaryExpr,
+    CallExpr,
     ComparisonExpr,
     Definition,
     DottedNameExpr,
@@ -46,7 +53,11 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     first_semantic_aggregate_call,
 )
-from pietto.semantic.expressions import _UNKNOWN_VALUE_TYPE, infer_row_expression
+from pietto.semantic.expressions import (
+    _FailedRelationshipTypes,
+    _UNKNOWN_VALUE_TYPE,
+    infer_row_expression,
+)
 from pietto.semantic.join_relationships import (
     JoinBindingView,
     JoinRelationshipContext,
@@ -199,8 +210,10 @@ def _structure(
     """Check each JOIN of one relation into ``found`` and each target it
     resolves into ``targets``; its structure when every JOIN resolved."""
 
-    from_name = definition.from_clause.source_name
-    from_relation = relation_symbols.get(from_name)
+    from_name = (
+        definition.from_clause.binding_name or definition.from_clause.source_name
+    )
+    from_relation = relation_symbols.get(definition.from_clause.source_name)
     # A FROM input that names no relation already has its own error.
     inputs: list[JoinInputInfo | None] = [
         JoinInputInfo(
@@ -250,10 +263,16 @@ def _structure(
         found.extend(item for item in (named, combined) if item is not None)
         if isinstance(target, Diagnostic):
             continue
+        # Modern JOIN reads the accumulated row rooted at the explicit FROM;
+        # the authored clause still has no fabricated source-binding spelling.
         written = (
-            None
-            if clause.source_binding_name is None
-            else written_join_source(definition, ordinal - 1, hidden_bindings=True)
+            0
+            if clause.uses_named_input
+            else (
+                None
+                if clause.source_binding_name is None
+                else written_join_source(definition, ordinal - 1, hidden_bindings=True)
+            )
         )
         if isinstance(written, Diagnostic):
             found.append(written)
@@ -406,7 +425,9 @@ def _binding_name_diagnostic(
 
     clause = definition.join_clauses[ordinal - 1]
     name = clause.target_binding_name
-    if name == definition.from_clause.source_name:
+    if name == (
+        definition.from_clause.binding_name or definition.from_clause.source_name
+    ):
         message = f"JOIN binding cannot have the FROM input's name: {name}"
     elif any(
         item.target_binding_name == name
@@ -733,6 +754,7 @@ def check_join_semantics(
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
     expression_value_types: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType],
+    failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
 ) -> JoinChecks:
     """Resolve the reads and type the `on` of each JOIN relation.
 
@@ -792,6 +814,7 @@ def check_join_semantics(
             type_expansions=type_expansions,
             diagnostics=diagnostics,
             reads=reads,
+            failed_relationship_calls=failed_relationship_calls,
         )
         if info is not None:
             facts[definition] = info
@@ -814,6 +837,7 @@ def _relation_joins(
     type_expansions: Mapping[TypeExpr, ResolvedType],
     diagnostics: list[Diagnostic],
     reads: dict[SourceLocation, Diagnostic],
+    failed_relationship_calls: Sequence[RelationshipCallFailure],
 ) -> RelationJoinsInfo | None:
     """Resolve one structured relation's reads and type its `on` conditions;
     its facts when no read fails and no `on` has an error."""
@@ -824,6 +848,7 @@ def _relation_joins(
     )
     field_reads: dict[Expression, JoinFieldRef] = {}
     clean = True
+    failed_ids = {id(failure.expression) for failure in failed_relationship_calls}
 
     def fail(leaf: NameExpr | DottedNameExpr, code: str, message: str) -> None:
         nonlocal clean
@@ -836,7 +861,7 @@ def _relation_joins(
             ),
         )
 
-    for leaf in _leaves(_tail_expressions(definition)):
+    for leaf in _leaves(_tail_expressions(definition), failed_ids):
         read = _read(leaf, found_inputs, None)
         if isinstance(read, JoinFieldRef):
             field_reads[leaf] = read
@@ -873,8 +898,13 @@ def _relation_joins(
         on_clause = join.clause.on_clause
         if on_clause is not None:
             on_reads: dict[Expression, str] = {}
-            failed = False
-            for leaf in _leaves((on_clause.expression,)):
+            failed = bool(failed_ids) and any(
+                id(node) in failed_ids
+                for node in _expression_nodes(on_clause.expression)
+            )
+            if failed:
+                clean = False
+            for leaf in _leaves((on_clause.expression,), failed_ids):
                 read = _read(leaf, found_inputs, join.ordinal)
                 if isinstance(read, JoinFieldRef):
                     field_reads[leaf] = read
@@ -902,6 +932,7 @@ def _relation_joins(
                 field_qualifier=inputs[0].binding,
                 expression_value_types=expression_value_types,
                 type_expansions=type_expansions,
+                failed_relationship_calls=failed_relationship_calls,
             )
             diagnostics.extend(found)
             clean = clean and not any(
@@ -933,6 +964,7 @@ def _type_join_on(
     field_qualifier: str,
     expression_value_types: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType],
+    failed_relationship_calls: Sequence[RelationshipCallFailure],
 ) -> list[Diagnostic]:
     """Type one JOIN-local `on` against its `on` row; its diagnostics.
 
@@ -958,15 +990,26 @@ def _type_join_on(
         expression_value_types[leaf] = read_type
         reads_unknown = reads_unknown or read_type.kind is ValueTypeKind.UNKNOWN
     found: list[Diagnostic] = []
+    local_types = expression_value_types
+    if failed_relationship_calls:
+        local_types = _FailedRelationshipTypes(failed_relationship_calls)
+        local_types.update(expression_value_types)
     value_type = infer_row_expression(
         expression,
         on_row,
-        expression_value_types,
+        local_types,
         found,
         report_unknown_name=False,
         field_qualifier=field_qualifier,
         type_expansions=type_expansions,
     )
+    if local_types is not expression_value_types:
+        expression_value_types.update(local_types)
+        # The binder reports each rejected call's errors itself.
+        failure_diagnostics = {
+            id(d) for failure in failed_relationship_calls for d in failure.diagnostics
+        }
+        found[:] = [d for d in found if id(d) not in failure_diagnostics]
     not_bool = _check_bool_expression(
         expression,
         context="JOIN ON",
@@ -1088,7 +1131,19 @@ def _tail_expressions(definition: DerivedRelation) -> tuple[Expression, ...]:
     )
 
 
-def _leaves(roots: Sequence[Expression]) -> Iterator[NameExpr | DottedNameExpr]:
+def _expression_nodes(root: Expression) -> Iterator[Expression]:
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        yield node
+        pending.extend(
+            (node.predicate,) if isinstance(node, AnyExpr) else child_expressions(node)
+        )
+
+
+def _leaves(
+    roots: Sequence[Expression], failed_ids: set[int]
+) -> Iterator[NameExpr | DottedNameExpr]:
     """The name and dotted name reads below ``roots``, in source order; a
     call's callee is no read and a window is not entered."""
 
@@ -1097,6 +1152,14 @@ def _leaves(roots: Sequence[Expression]) -> Iterator[NameExpr | DottedNameExpr]:
         node = pending.pop()
         if isinstance(node, (NameExpr, DottedNameExpr)):
             yield node
+        elif id(node) in failed_ids and isinstance(node, CallExpr):
+            pending.extend(
+                reversed(
+                    tuple(
+                        arg for arg in node.arguments if not isinstance(arg, NameExpr)
+                    )
+                )
+            )
         else:
             pending.extend(reversed(child_expressions(node)))
 

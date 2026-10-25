@@ -14,13 +14,13 @@ from pietto.semantic import EffectiveNullability, SemanticResult, TypeKind, anal
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    region: Text nullable\n"
-    "    customer_id: Text not null\n"
-    "    amount: Int not null\n"
-    "    score: Float not null\n"
-    "    price: Decimal not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    region: Text | None\n"
+    "    customer_id: Text\n"
+    "    amount: Int\n"
+    "    score: Float\n"
+    "    price: Decimal\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -276,10 +276,10 @@ def test_grouped_relation_over_a_source_without_a_shape_checks_by_field_name(
 ) -> None:
     result = analyze(
         _parse(
-            'source items is postgres.table("shop.items")\n'
+            'source items = postgres.table("shop.items")\n'
             "query q:\n"
             "    from items\n"
-            "    group by: kind\n" + body
+            "    group by kind\n" + body
         )
     )
 
@@ -303,12 +303,12 @@ def test_grouped_order_by_over_a_source_without_a_shape_is_refused_whole(
 ) -> None:
     result = analyze(
         _parse(
-            'source items is postgres.table("shop.items")\n'
+            'source items = postgres.table("shop.items")\n'
             "query q:\n"
             "    from items\n"
-            "    group by: kind\n"
+            "    group by kind\n"
             "    select:\n        kind\n        n = count()\n"
-            f"    order by: {key}\n"
+            f"    order by {key}\n"
         )
     )
 
@@ -336,7 +336,7 @@ def test_grouped_order_by_over_a_source_without_a_shape_is_refused_whole(
 def test_duplicate_group_key_over_a_source_without_a_shape_is_refused() -> None:
     result = analyze(
         _parse(
-            'source items is postgres.table("shop.items")\n'
+            'source items = postgres.table("shop.items")\n'
             "query q:\n"
             "    from items\n"
             "    group by:\n"
@@ -486,7 +486,25 @@ def test_downstream_relation_from_grouped_relation_emits_by_relation_name(
 
     result = _read_json(capsys)
     assert result["ok"] is True
-    assert result["diagnostics"] == []
+    # Single-file SQL reads the same-file table by name (PIE-S2382, at FROM).
+    assert result["diagnostics"] == [
+        {
+            "code": "PIE-S2382",
+            "severity": "warning",
+            "message": "`grouped_orders` is a table of this file; single-file SQL "
+            "reads it by name, so the SQL runs only where the database already has "
+            "a relation named grouped_orders (an EXPLICIT_MODULES project emits it "
+            "as a CTE)",
+            "location": {
+                "path": str(path),
+                "line": 17,
+                "column": 5,
+                "end_line": 17,
+                "end_column": 24,
+            },
+            "suggestion": None,
+        }
+    ]
     artifacts = cast(list[dict[str, object]], result["artifacts"])
     assert [artifact["name"] for artifact in artifacts] == [
         "grouped_orders",
@@ -560,9 +578,9 @@ def test_join_group_keys_keep_self_join_occurrences_distinct(use_let: bool) -> N
     script = _parse(
         SOURCE_PREFIX + "query grouped_orders:\n"
         "    from orders\n"
-        "    cross join orders as peer:\n"
-        "        from orders\n"
-        + ("    let:\n        peer_key = peer.status\n" if use_let else "")
+        "    let peer = orders\n"
+        "    cross join peer\n"
+        + ("    let peer_key = peer.status\n" if use_let else "")
         + "    group by:\n"
         "        orders.status\n"
         + ("        peer_key\n" if use_let else "        peer.status\n")
@@ -574,7 +592,9 @@ def test_join_group_keys_keep_self_join_occurrences_distinct(use_let: bool) -> N
         "        peer_status\n"
     )
     result = analyze(script)
-    schema = result.model.relation_row_schemas[_relation(script)]
+    # The model keeps the relation whose `let` input names are resolved.
+    relation = cast(QueryDef, result.model.relation_symbols["grouped_orders"])
+    schema = result.model.relation_row_schemas[relation]
 
     assert result.diagnostics == ()
     assert list(schema.fields) == ["original_status", "peer_status", "total"]
@@ -589,12 +609,12 @@ def test_join_group_keys_keep_self_join_occurrences_distinct(use_let: bool) -> N
 def test_join_group_key_bare_and_qualified_reads_share_one_identity() -> None:
     script = _parse(
         SOURCE_PREFIX + "shape Label:\n"
-        "    label: Text not null\n"
-        'source labels: Label is postgres.table("labels")\n'
+        "    label: Text\n"
+        'source labels: Label = postgres.table("labels")\n'
         "query grouped_orders:\n"
         "    from orders\n"
-        "    cross join labels as peer:\n"
-        "        from orders\n"
+        "    let peer = labels\n"
+        "    cross join peer\n"
         "    group by:\n"
         "        label\n"
         "        peer.label\n"

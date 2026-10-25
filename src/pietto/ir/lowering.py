@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from pietto._window_identity import WindowFunctionRole
 from pietto.ast_nodes import (
+    AnyExpr,
+    SourceDef,
     AuthoredWindowFrameExclusion,
     AuthoredWindowFrame,
     AuthoredWindowFrameKind,
@@ -34,6 +36,9 @@ from pietto.ast_nodes import (
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.model import (
     AggregateCallIR,
+    AnyFieldIR,
+    ExistsIR,
+    ConnectorIR,
     BetweenIR,
     BinaryIR,
     CastIR,
@@ -95,6 +100,7 @@ from pietto.semantic import (
     ValueType,
     ValueTypeKind,
 )
+from pietto.semantic.model import AnyFieldReadInfo, AnyValueSemanticInfo
 from pietto.semantic.window_semantics import (
     FrameValueWindowSemanticFact,
     NavigationWindowSemanticFact,
@@ -635,6 +641,149 @@ def lower_named_window_declarations(
     )
 
 
+class _AnyReads:
+    """Checked local and outer reads of one scalar ANY predicate."""
+
+    def __init__(
+        self,
+        info: AnyValueSemanticInfo,
+        model: SemanticModel,
+        parent: JoinReads | _AnyReads | None,
+        field_qualifier: str | None,
+    ) -> None:
+        self.info = info
+        self.model = model
+        self.parent = parent
+        if isinstance(parent, _AnyReads):
+            self.aliases = parent.aliases
+            self.outer = parent.outer
+        else:
+            self.outer = parent
+            occupied = {
+                read.binding
+                for value in model.any_values.values()
+                for read in value.field_reads.values()
+            }
+            if parent is not None:
+                occupied.update(item.binding for item in parent.inputs)
+            if field_qualifier is not None:
+                occupied.add(field_qualifier)
+            occupied.update(
+                binding.name
+                for value in model.any_values.values()
+                if value.use.owner.let_clause is not None
+                for binding in value.use.owner.let_clause.bindings
+            )
+            self.aliases = {}
+            counter = 0
+            for any_expression in model.any_values:
+                while True:
+                    counter += 1
+                    alias = f"_pietto_value_{counter}"
+                    if alias not in occupied:
+                        occupied.add(alias)
+                        break
+                self.aliases[id(any_expression)] = alias
+
+    def field_ref(
+        self,
+        expression: NameExpr | DottedNameExpr,
+        *,
+        span: SourceSpan,
+        value_type: TypeRefIR,
+    ) -> FieldRefIR | AnyFieldIR:
+        read = self.info.field_reads.get(expression)
+        if read is None:
+            raise _LetExpansionLoweringError(
+                expression, "resolved ANY field occurrence"
+            )
+        return self.capture_ref(expression, read, span=span)
+
+    def capture_ref(
+        self,
+        expression: Expression,
+        read: AnyFieldReadInfo,
+        *,
+        span: SourceSpan,
+    ) -> FieldRefIR | AnyFieldIR:
+        value_type = lower_value_type(read.value_type, self.model)
+        relation = SymbolId(SymbolNamespace.RELATION, read.relation.name)
+        if isinstance(read.occurrence, AnyExpr):
+            scope: JoinReads | _AnyReads | None = self
+            while (
+                isinstance(scope, _AnyReads)
+                and scope.info.use.expression is not read.occurrence
+            ):
+                scope = scope.parent
+            binding = (
+                self.aliases.get(id(read.occurrence))
+                if isinstance(scope, _AnyReads)
+                else None
+            )
+            if binding is None:
+                raise _LetExpansionLoweringError(expression, "visible ANY binder")
+            return AnyFieldIR(
+                span=span,
+                value_type=value_type,
+                binding=binding,
+                source_binding=read.binding,
+                name=read.field_name,
+                relation=relation,
+            )
+        owner = self.info.use.owner
+        if read.occurrence is owner.from_clause:
+            ordinal = 0
+        else:
+            positions = tuple(
+                i
+                for i, clause in enumerate(owner.join_clauses, 1)
+                if clause is read.occurrence
+            )
+            if len(positions) != 1:
+                raise _LetExpansionLoweringError(
+                    expression, "visible outer input occurrence"
+                )
+            ordinal = positions[0]
+        if self.outer is None:
+            if ordinal != 0:
+                raise _LetExpansionLoweringError(expression, "outer JOIN input")
+            field = FieldId(owner=relation, name=read.field_name)
+        else:
+            if ordinal >= len(self.outer.inputs):
+                raise _LetExpansionLoweringError(expression, "outer JOIN input ordinal")
+            input_value = self.outer.inputs[ordinal]
+            if input_value.binding != read.binding or input_value.target != relation:
+                raise _LetExpansionLoweringError(expression, "exact outer JOIN input")
+            field = FieldId(owner=relation, name=read.field_name, input=ordinal)
+        return FieldRefIR(
+            span=span,
+            value_type=value_type,
+            name=read.field_name,
+            qualifier=(read.binding,),
+            field=field,
+        )
+
+
+def _any_connector(iterator: SourceDef) -> ConnectorIR:
+    connector = iterator.connector
+    if not isinstance(connector, CallExpr):
+        raise _LetExpansionLoweringError(
+            iterator.connector, "static ANY source connector"
+        )
+    arguments: list[str | int | float | bool | None] = []
+    for item in connector.arguments:
+        if not isinstance(item, LiteralExpr):
+            raise _LetExpansionLoweringError(
+                item, "static ANY source connector argument"
+            )
+        arguments.append(item.value)
+    return ConnectorIR(
+        name=_callee_name(connector),
+        arguments=tuple(arguments),
+        span=lower_span(connector.span),
+    )
+
+
 def _lower_expr_node(
     expression: Expression,
     semantic_model: SemanticModel,
@@ -644,7 +793,7 @@ def _lower_expr_node(
     field_qualifier: str | None,
     let_expansions: Mapping[str, Expression],
     let_stack: frozenset[str],
-    join_reads: JoinReads | None = None,
+    join_reads: JoinReads | _AnyReads | None = None,
 ) -> ExpressionIR:
     """Recursively copy one expression into parser-independent IR."""
 
@@ -660,8 +809,72 @@ def _lower_expr_node(
         "value_type": value_type,
     }
 
+    if isinstance(expression, AnyExpr):
+        info = semantic_model.any_values.get(expression)
+        if info is None:
+            raise _LetExpansionLoweringError(expression, "resolved ANY value facts")
+        if info.use.expression is not expression:
+            raise _LetExpansionLoweringError(expression, "exact ANY occurrence")
+        reads = _AnyReads(info, semantic_model, join_reads, field_qualifier)
+        iterator = info.iterator
+        connector = (
+            _any_connector(iterator) if isinstance(iterator, SourceDef) else None
+        )
+        predicate = _lower_expr_node(
+            info.predicate,
+            semantic_model,
+            fields=fields,
+            field_owner=field_owner,
+            field_qualifier=field_qualifier,
+            let_expansions=let_expansions,
+            let_stack=let_stack,
+            join_reads=reads,
+        )
+        captures = []
+        for read in info.captures:
+            matches = tuple(
+                occurrence
+                for value in semantic_model.any_values.values()
+                for occurrence, candidate in value.field_reads.items()
+                if candidate is read
+            )
+            if len(matches) != 1:
+                raise _LetExpansionLoweringError(
+                    expression, "exact ANY capture occurrence"
+                )
+            captures.append(
+                reads.capture_ref(matches[0], read, span=lower_span(matches[0].span))
+            )
+        try:
+            return ExistsIR(
+                target=SymbolId(SymbolNamespace.RELATION, iterator.name),
+                binding=reads.aliases[id(expression)],
+                connector=connector,
+                authored_span=lower_span(info.use.authored_expression.span),
+                authored_occurrence=info.use.authored_expression.span.occurrence,
+                current_occurrence=expression.span.occurrence,
+                authored_context_span=lower_span(info.use.authored_context.span),
+                context_span=lower_span(info.use.context.span),
+                owner=SymbolId(SymbolNamespace.RELATION, info.use.owner.name),
+                authored_join_count=info.use.authored_join_count,
+                join_prefix_count=info.use.join_prefix_count,
+                predicate=predicate,
+                captures=tuple(captures),
+                **common,
+            )
+        except ValueError as error:
+            raise _LetExpansionLoweringError(
+                expression, "checked ANY Bool value"
+            ) from error
     if isinstance(expression, LiteralExpr):
         return LiteralIR(value=expression.value, **common)
+    if isinstance(expression, (NameExpr, DottedNameExpr)) and isinstance(
+        join_reads, _AnyReads
+    ):
+        if expression in join_reads.info.field_reads:
+            return join_reads.field_ref(
+                expression, span=lower_span(expression.span), value_type=value_type
+            )
     if isinstance(expression, NameExpr):
         if expression.name in let_expansions:
             if expression.name in let_stack:

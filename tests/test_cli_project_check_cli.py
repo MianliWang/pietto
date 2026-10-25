@@ -11,13 +11,13 @@ import pietto.cli as cli
 
 _RELATION_SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
     "table active_users:\n"
     "    from users\n"
-    "    where active == true\n"
+    "    where active == True\n"
     "    select:\n"
     "        id\n"
     "        email\n"
@@ -232,7 +232,7 @@ def test_project_check_json_reports_gate_diagnostics_beside_parse_errors(
     _write(
         root,
         "b.pietto",
-        "query q(a: Int not null):\n    from rows\n    select:\n        id\n"
+        "query q(a: Int):\n    from rows\n    select:\n        id\n"
         "query r:\n    from rows\n    where exists t and id == scalar t.c\n"
         "    select:\n        id\n"
         "type Age = Int:\n    ensure self > scalar t.c\n",
@@ -268,14 +268,14 @@ def test_project_check_counts_lf_crlf_and_lone_cr_as_one_line_end_per_module(
     )
     lines = [
         "shape User:",
-        "    id: UUID not null",
-        "    deleted_at: Timestamp nullable",
+        "    id: UUID",
+        "    deleted_at: Timestamp | None",
         "",
-        'source users: User is postgres.table("public.users")',
+        'source users: User = postgres.table("public.users")',
         "",
         "query q:",
         "    from users",
-        "    where missing_field is null",
+        "    where missing_field is None",
         "    select:",
         "        id",
     ]
@@ -339,8 +339,8 @@ def test_project_check_reports_the_recursion_limit_at_the_most_nested_module(
     _write(
         root,
         "b.pietto",
-        "shape Row:\n    id: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table deep:\n    from rows\n"
         f"    where {' and '.join(['id == 1'] * 3000)}\n"
         "    select:\n        id\n",
@@ -387,9 +387,9 @@ def test_project_check_reports_the_recursion_limit_through_def_calls(
     _write(
         root,
         "b.pietto",
-        "def one(x: Int not null) -> Bool nullable: return x == 1\n"
-        "shape Row:\n    id: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "def one(x: Int) -> Bool | None: return x == 1\n"
+        "shape Row:\n    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table deep:\n    from rows\n"
         f"    where {' and '.join(['one(id)'] * 3000)}\n"
         "    select:\n        id\n",
@@ -413,28 +413,28 @@ def test_project_check_reports_the_recursion_limit_through_def_calls(
     ],
     ids=["and_equalities", "or_chain", "deep_operand"],
 )
-def test_project_check_reports_the_recursion_limit_past_a_long_relationship_on(
+def test_project_check_reports_the_recursion_limit_in_a_long_relationship_predicate(
     condition: str,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # a.pietto alone checks: each conjunct of its 3,000-term `on` is read one
-    # at a time and only at its top, so the `on` adds no depth and the
-    # shallower WHERE of b.pietto, which exceeds the limit, is reported.
+    # A typed relationship predicate is an ordinary Bool expression: its
+    # 3,000 terms nest as written, deeper than the WHERE of b.pietto, and are
+    # held to the recursion limit. Only the retired source-bound `on` was read
+    # one conjunct at a time, adding no depth.
     root = _project_root(
         tmp_path,
         config_text='schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n',
     )
     header = (
-        "shape Row:\n    id: Int not null\n"
-        'source xs: Row is postgres.table("xs")\n'
-        'source ys: Row is postgres.table("ys")\n'
+        "shape Row:\n    id: Int\n"
+        'source xs: Row = postgres.table("xs")\n'
+        'source ys: Row = postgres.table("ys")\n'
     )
     _write(
         root,
         "a.pietto",
-        header + "relationship r:\n    endpoint a: xs\n    endpoint b: ys\n"
-        f"    on {condition}\n",
+        header + f"relationship r(a: Row, b: Row):\n    {condition}\n",
     )
     _write(
         root,
@@ -449,11 +449,15 @@ def test_project_check_reports_the_recursion_limit_past_a_long_relationship_on(
     captured = capsys.readouterr()
     assert (captured.out, captured.err) == (
         "",
-        f"b.pietto:1:1 PIE-S2006 error: {_RECURSION_LIMIT}\n",
+        f"a.pietto:1:1 PIE-S2006 error: {_RECURSION_LIMIT}\n",
     )
     (root / "b.pietto").unlink()
-    assert cli.main(["check", "--project", str(root)]) == 0
-    assert capsys.readouterr().err == ""
+    assert cli.main(["check", "--project", str(root)]) == 1
+    captured = capsys.readouterr()
+    assert (captured.out, captured.err) == (
+        "",
+        f"a.pietto:1:1 PIE-S2006 error: {_RECURSION_LIMIT}\n",
+    )
 
 
 def test_project_check_rejects_path_and_project_together(
@@ -527,7 +531,7 @@ def test_single_file_check_text_and_json_v1_remain_available(
     source_path = _write(
         tmp_path,
         "valid.pietto",
-        "shape User:\n    email: Text not null\n",
+        "shape User:\n    email: Text\n",
     )
 
     assert cli.main(["check", str(source_path)]) == 0

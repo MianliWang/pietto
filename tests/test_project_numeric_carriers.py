@@ -114,9 +114,8 @@ def test_narrow_source_range_cannot_bypass_alias_let_or_compiled_replay(
         header
         + """table result:
     from rows
-    let:
-        alias = id
-        plus_zero = alias + 0
+    let alias = id
+    let plus_zero = alias + 0
     select:
         result = plus_zero + 0
 """
@@ -139,8 +138,7 @@ def test_narrow_source_range_cannot_bypass_alias_let_or_compiled_replay(
         header
         + """table result:
     from rows
-    let:
-        alias = id
+    let alias = id
     select:
         result = alias + alias
 """

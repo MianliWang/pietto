@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from copy import copy
+from dataclasses import replace
 import json
 import os
 from pathlib import Path
@@ -13,14 +14,22 @@ import pytest
 from pietto._project import project_bag_null_oracle as oracle
 from pietto._project import project_phase62_verification as verification
 from pietto._project.model import ProjectRowFieldNullability
-from pietto._project.project_ir import ProjectIRPlanNodeRef, ProjectIRSnapshotScope
-from pietto._project.project_ir_joins import ProjectIRConcreteJoinRegion
+from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
 from pietto._project.project_multifact import (
     ProjectCommonGrainStatus,
-    ProjectMultiFactAnalysis,
     ProjectMultiFactMultiplicityRisk,
-    ProjectMultiFactStructuralAlignment,
 )
+from pietto._project.project_ir import ProjectIRPlanNodeRef, ProjectIRSnapshotScope
+from pietto._project.project_query_block_ir import ProjectIRCompletedQueryBlockOutput
+from pietto._project.project_query_block_ir_verification import (
+    ProjectIRQueryBlockAnalysisKind,
+    ProjectIRQueryBlockOverlayRequirement,
+    ProjectIRQueryBlockVerificationIssueKind,
+    assess_project_query_block_ir_invalidation,
+    build_project_query_block_ir_analysis_bundle,
+    verify_project_query_block_ir,
+)
+from pietto._project.project_ir_verification import ProjectIRChangeDomain
 from _pietto_project_aggregate import (
     _build,
 )
@@ -28,10 +37,6 @@ from _pietto_project_aggregate import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERIFIER_SOURCE = REPO_ROOT / "src/pietto/_project/project_phase62_verification.py"
 ORACLE_SOURCE = REPO_ROOT / "src/pietto/_project/project_bag_null_oracle.py"
-SPEC = (
-    REPO_ROOT
-    / "docs/spec/phase62-slice13-integrity-verifier-analysis-invalidation-bounded-bag-null-semantic-oracle-v1.md"
-)
 
 
 def test_slice13_owners_are_private() -> None:
@@ -40,8 +45,8 @@ def test_slice13_owners_are_private() -> None:
 
 
 @pytest.fixture(scope="module")
-def root(tmp_path_factory: pytest.TempPathFactory) -> ProjectMultiFactAnalysis:
-    return _build(tmp_path_factory.mktemp("p62s13"))
+def built(tmp_path_factory: pytest.TempPathFactory):
+    return _build(tmp_path_factory.mktemp("integrity"))
 
 
 def _unsafe[Value](value: Value, **changes: object) -> Value:
@@ -51,31 +56,26 @@ def _unsafe[Value](value: Value, **changes: object) -> Value:
     return copied
 
 
-def _fresh(tmp_path: Path, name: str) -> ProjectMultiFactAnalysis:
+def _fresh(tmp_path: Path, name: str):
     return _build(tmp_path / name)
 
 
-def _join(root: ProjectMultiFactAnalysis, owner: str, position: int = 0):
-    region = next(
-        region
-        for region in root.join_regions.regions
-        if region.ledger.owner.definition.name == owner
+def _entry(snapshot, owner: str):
+    entry = next(
+        item for item in snapshot.entries if item.owner.definition.name == owner
     )
-    assert type(region) is ProjectIRConcreteJoinRegion
-    return region.joins[position]
+    assert isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+    assert entry.join_prefix is not None
+    return entry
 
 
-def _wrapper(root: ProjectMultiFactAnalysis, owner: str):
-    return next(
-        item
-        for item in root.concrete_regions
-        if item.region.ledger.owner.definition.name == owner
-    )
+def _join(snapshot, owner: str, position: int = 0):
+    entry = _entry(snapshot, owner)
+    assert entry.join_prefix is not None
+    return entry.join_prefix.joins[position]
 
 
-def _kinds(
-    root: ProjectMultiFactAnalysis,
-) -> tuple[verification.ProjectPhase62VerificationIssueKind, ...]:
+def _kinds(root):
     return tuple(
         issue.kind for issue in verification.verify_project_phase62(root).issues
     )
@@ -279,8 +279,12 @@ def test_oracle_rejects_inputs_beyond_its_small_reference_boundary() -> None:
 
 
 def test_valid_phase62_root_verifies_with_fixed_empty_issue_order(
-    root: ProjectMultiFactAnalysis,
+    built,
 ) -> None:
+    _, completed, bundle, _ = built
+    root = completed.verification.root
+    assert completed.effective_outputs.current_regions
+    assert verify_project_query_block_ir(bundle.verification.root).verified
     result = verification.verify_project_phase62(root)
     assert result.status is verification.ProjectPhase62VerificationStatus.VERIFIED
     assert result.verified
@@ -304,24 +308,27 @@ def test_valid_phase62_root_verifies_with_fixed_empty_issue_order(
     )
 
 
-def test_verified_bundle_freshly_covers_all_five_phase62_analyses(
-    root: ProjectMultiFactAnalysis,
-) -> None:
-    result = verification.verify_project_phase62(root)
-    first = verification.build_project_phase62_analysis_bundle(result)
-    second = verification.build_project_phase62_analysis_bundle(result)
-    base = root.evaluation.project_plan.structural_stage
-    joins = root.join_regions.structural
-    assert len(first.combined_reverse_uses) == len(base.outputs) + len(joins.outputs)
-    assert len(first.combined_topological_order) == len(base.nodes) + len(joins.nodes)
-    assert len(first.nulling_provenance) == sum(
-        len(item.join.output.row_shape.fields)
-        for item in root.join_regions.properties.outputs
+def test_verified_bundle_freshly_covers_base_and_current_analyses(built) -> None:
+    _, completed, bundle, product = built
+    root = completed.verification.root
+    base = verification.build_project_phase62_analysis_bundle(
+        verification.verify_project_phase62(root)
     )
-    assert len(first.fact_localities) == len(root.facts)
-    assert first.multifact_alignments.alignments == root.alignments
-    assert first.combined_reverse_uses is not second.combined_reverse_uses
-    assert first.combined_topological_order is not second.combined_topological_order
+    structural = root.evaluation.project_plan.structural_stage
+    historical_joins = root.join_regions.structural
+    assert len(base.combined_reverse_uses) == len(structural.outputs) + len(
+        historical_joins.outputs
+    )
+    assert len(base.combined_topological_order) == len(structural.nodes) + len(
+        historical_joins.nodes
+    )
+    assert len(base.nulling_provenance) == sum(
+        len(properties.join.output.row_shape.fields)
+        for properties in root.join_regions.properties.outputs
+    )
+    assert base.multifact_alignments.alignments == root.alignments
+    assert len(base.fact_localities) == len(root.facts)
+    assert len(root.home_localities) == len(root.facts)
     assert all(
         entry.localities
         == (
@@ -329,31 +336,36 @@ def test_verified_bundle_freshly_covers_all_five_phase62_analyses(
             *(locality for locality in root.join_localities if locality.fact is fact),
         )
         for position, (entry, fact) in enumerate(
-            zip(first.fact_localities, root.facts, strict=True)
+            zip(base.fact_localities, root.facts, strict=True)
         )
     )
-
-    nulled_position = next(
-        position
-        for position, entry in enumerate(first.nulling_provenance)
-        if entry.nulling_joins
+    observed = product.inspection
+    nulled = next(
+        field for field in observed.query_block_row_fields if field.nulling_joins
     )
-    stale = _unsafe(
-        first.nulling_provenance[nulled_position],
-        nulling_joins=(),
-    )
-    with pytest.raises(ValueError, match="fresh canonical"):
-        verification.ProjectPhase62AnalysisBundle(
-            verification=first.verification,
-            combined_reverse_uses=first.combined_reverse_uses,
-            combined_topological_order=first.combined_topological_order,
-            nulling_provenance=(
-                *first.nulling_provenance[:nulled_position],
-                stale,
-                *first.nulling_provenance[nulled_position + 1 :],
+    stale = _unsafe(nulled, nulling_joins=())
+    with pytest.raises(ValueError, match="query_block_row_fields"):
+        replace(
+            observed,
+            query_block_row_fields=tuple(
+                stale if field is nulled else field
+                for field in observed.query_block_row_fields
             ),
-            fact_localities=first.fact_localities,
-            multifact_alignments=first.multifact_alignments,
+        )
+    snapshot = bundle.verification.root
+    result = verify_project_query_block_ir(snapshot)
+    first = build_project_query_block_ir_analysis_bundle(result)
+    second = build_project_query_block_ir_analysis_bundle(result)
+    assert first.combined_reverse_uses
+    assert first.combined_topological_order
+    assert first.combined_reverse_uses is not second.combined_reverse_uses
+    assert first.combined_topological_order is not second.combined_topological_order
+    with pytest.raises(ValueError, match="fresh graph products"):
+        type(first)(
+            verification=result,
+            combined_reverse_uses=(),
+            combined_topological_order=first.combined_topological_order,
+            combined_reachability=first.combined_reachability,
         )
 
 
@@ -400,376 +412,305 @@ def test_phase62_change_domains_derive_exact_invalidation_matrix() -> None:
         verification.assess_project_phase62_analysis_invalidation(())
 
 
+def test_current_invalidation_uses_real_overlay_domains() -> None:
+    for domain in (
+        ProjectIRChangeDomain.TOPOLOGY,
+        ProjectIRChangeDomain.PROVENANCE,
+        ProjectIRChangeDomain.PROPERTIES,
+    ):
+        result = assess_project_query_block_ir_invalidation((domain,))
+        assert result.overlay is ProjectIRQueryBlockOverlayRequirement.REBUILD_REQUIRED
+        assert result.verification.value == "rerun_required"
+        assert result.invalidated == (
+            tuple(ProjectIRQueryBlockAnalysisKind)
+            if domain is ProjectIRChangeDomain.TOPOLOGY
+            else ()
+        )
+        assert assess_project_query_block_ir_invalidation(
+            (domain,), completed_semantic_root_changed=True
+        ).invalidated == tuple(ProjectIRQueryBlockAnalysisKind)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("foreign_scope", "gap", "slot", "copy_use", "detached", "accumulated", "partial"),
+)
 def test_join_scope_slot_use_accumulation_and_region_corruptions_are_independent(
     tmp_path: Path,
+    mutation: str,
 ) -> None:
-    foreign = _fresh(tmp_path, "foreign")
-    foreign_join = _join(foreign, "aligned_join")
-    object.__setattr__(
-        foreign_join.node,
-        "ref",
-        ProjectIRPlanNodeRef(
-            scope=ProjectIRSnapshotScope(),
-            position=foreign_join.node.ref.position,
-        ),
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_SCOPE_COORDINATE
-        in _kinds(foreign)
-    )
-
-    gapped = _fresh(tmp_path, "gapped")
-    gapped_join = _join(gapped, "aligned_join")
-    object.__setattr__(
-        gapped_join.node,
-        "ref",
-        ProjectIRPlanNodeRef(
-            scope=gapped_join.node.ref.scope,
-            position=gapped_join.node.ref.position + 1,
-        ),
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_SCOPE_COORDINATE
-        in _kinds(gapped)
-    )
-
-    ordinal = _fresh(tmp_path, "ordinal")
-    ordinal_join = _join(ordinal, "aligned_join")
-    object.__setattr__(ordinal_join.input_slots[0], "input_ordinal", 1)
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_STRUCTURAL_ENDPOINT
-        in _kinds(ordinal)
-    )
-
-    equal_copy = _fresh(tmp_path, "equal-use-copy")
-    copied_join = _join(equal_copy, "aligned_join")
-    object.__setattr__(
-        copied_join,
-        "input_uses",
-        (_unsafe(copied_join.input_uses[0]), copied_join.input_uses[1]),
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_STRUCTURAL_ENDPOINT
-        in _kinds(equal_copy)
-    )
-
-    detached = _fresh(tmp_path, "detached")
-    detached_join = _join(detached, "aligned_join")
-    object.__setattr__(
-        detached_join.input_uses[0],
-        "output",
-        detached.evaluation.project_plan.structural_stage.outputs[0],
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_STRUCTURAL_ENDPOINT
-        in _kinds(detached)
-    )
-
-    accumulated = _fresh(tmp_path, "accumulated")
-    second = _join(accumulated, "multihop_join", 1)
-    object.__setattr__(
-        second.input_uses[0],
-        "output",
-        accumulated.evaluation.project_plan.structural_stage.outputs[0],
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_STRUCTURAL_ENDPOINT
-        in _kinds(accumulated)
-    )
-
-    partial = _fresh(tmp_path, "partial")
-    partial_region = next(
-        region
-        for region in partial.join_regions.regions
-        if region.ledger.owner.definition.name == "multihop_join"
-    )
-    assert type(partial_region) is ProjectIRConcreteJoinRegion
-    object.__setattr__(partial_region, "joins", partial_region.joins[:-1])
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_REGION_COMPLETENESS
-        in _kinds(partial)
-    )
+    _, _, bundle, _ = _fresh(tmp_path, mutation)
+    snapshot = bundle.verification.root
+    entry = _entry(snapshot, "multihop_join")
+    prefix = entry.join_prefix
+    assert prefix is not None
+    first, second = prefix.joins
+    if mutation in ("foreign_scope", "gap"):
+        ref = first.node.ref
+        object.__setattr__(
+            first.node,
+            "ref",
+            ProjectIRPlanNodeRef(
+                scope=ProjectIRSnapshotScope()
+                if mutation == "foreign_scope"
+                else ref.scope,
+                position=ref.position
+                if mutation == "foreign_scope"
+                else ref.position + 1,
+            ),
+        )
+    elif mutation == "slot":
+        object.__setattr__(first.input_uses[0].slot, "input_ordinal", 1)
+    elif mutation == "copy_use":
+        object.__setattr__(first.inputs[0], "use", _unsafe(first.input_uses[0]))
+    elif mutation == "detached":
+        object.__setattr__(first.input_uses[0], "output", first.input_uses[1].output)
+    elif mutation == "accumulated":
+        object.__setattr__(second.input_uses[0], "output", first.input_uses[0].output)
+    else:
+        object.__setattr__(prefix, "joins", prefix.joins[:-1])
+    assert not verify_project_query_block_ir(snapshot).verified
 
 
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "condition",
+        "nulling",
+        "nullability",
+        "null_property",
+        "keys",
+        "fds",
+        "value_class",
+        "grain",
+    ),
+)
 def test_join_condition_nulling_property_key_fd_and_grain_corruptions_are_independent(
     tmp_path: Path,
+    mutation: str,
 ) -> None:
-    condition = _fresh(tmp_path, "condition")
-    object.__setattr__(
-        _join(condition, "aligned_join"),
-        "condition",
-        _join(condition, "comparable_join").condition,
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_CONDITION_MAPPING
-        in _kinds(condition)
-    )
+    _, _, bundle, _ = _fresh(tmp_path, mutation)
+    snapshot = bundle.verification.root
+    entry = _entry(snapshot, "aggregate_left_outputs")
+    assert entry.join_prefix is not None
+    join = entry.join_prefix.final_join
+    properties = entry.join_properties[-1].relational
+    if mutation == "condition":
+        object.__setattr__(
+            join, "condition", _join(snapshot, "multihop_join").condition
+        )
+    elif mutation in ("nulling", "nullability"):
+        field = next(
+            field for field in join.output.row_shape.fields if field.nulling_joins
+        )
+        if mutation == "nulling":
+            object.__setattr__(field, "nulling_joins", ())
+        else:
+            object.__setattr__(
+                field, "effective_nullability", ProjectRowFieldNullability.NON_NULL
+            )
+    elif mutation == "null_property":
+        source = join.source
+        other = _join(snapshot, "multihop_join").source
+        assert isinstance(source, ProjectCurrentBinaryJoin)
+        assert isinstance(other, ProjectCurrentBinaryJoin)
+        object.__setattr__(
+            source.properties, "null_extension", other.properties.null_extension
+        )
+    elif mutation == "keys":
+        assert properties.keys
+        object.__setattr__(properties, "keys", ())
+    elif mutation == "fds":
+        assert properties.fds
+        object.__setattr__(properties, "fds", ())
+    elif mutation == "value_class":
+        first = properties.value_classes[0]
+        object.__setattr__(
+            first, "members", (_unsafe(first.members[0]), *first.members[1:])
+        )
+    else:
+        assert properties.grain.active
+        object.__setattr__(properties.grain, "active", ())
+    assert not verify_project_query_block_ir(snapshot).verified
 
-    nulling = _fresh(tmp_path, "nulling")
-    nulling_join = _join(nulling, "self_fact_join")
-    nulled_field = next(
-        field for field in nulling_join.output.row_shape.fields if field.nulling_joins
-    )
-    object.__setattr__(nulled_field, "nulling_joins", ())
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_EFFECT_NULLING
-        in _kinds(nulling)
-    )
 
-    nullability = _fresh(tmp_path, "nullability")
-    nullability_join = _join(nullability, "self_fact_join")
-    nullable_field = next(
-        field
-        for field in nullability_join.output.row_shape.fields
-        if field.nulling_joins
-    )
-    object.__setattr__(
-        nullable_field,
-        "effective_nullability",
-        ProjectRowFieldNullability.NON_NULL,
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_EFFECT_NULLING
-        in _kinds(nullability)
-    )
-
-    null_property = _fresh(tmp_path, "null-property")
-    target_output = next(
-        item
-        for item in null_property.join_regions.properties.outputs
-        if item.join.use.owner.definition.name == "self_fact_join"
-    )
-    unrelated_property = next(
-        item.null_extension
-        for item in null_property.join_regions.properties.outputs
-        if not any(field.nulling_joins for field in item.join.output.row_shape.fields)
-    )
-    object.__setattr__(target_output, "null_extension", unrelated_property)
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_EFFECT_NULLING
-        in _kinds(null_property)
-    )
-
-    key = _fresh(tmp_path, "key")
-    keyed = next(
-        item.relational
-        for item in key.join_regions.properties.outputs
-        if item.relational.keys
-    )
-    object.__setattr__(keyed, "keys", ())
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_PROPERTY_TRANSFER
-        in _kinds(key)
-    )
-
-    fd = _fresh(tmp_path, "fd")
-    with_fds = next(
-        item.relational
-        for item in fd.join_regions.properties.outputs
-        if item.relational.fds
-    )
-    object.__setattr__(with_fds, "fds", ())
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_PROPERTY_TRANSFER
-        in _kinds(fd)
-    )
-
-    value_class = _fresh(tmp_path, "value-class")
-    relational = value_class.join_regions.properties.outputs[0].relational
-    first_class = relational.value_classes[0]
-    object.__setattr__(
-        first_class,
-        "members",
-        (_unsafe(first_class.members[0]), *first_class.members[1:]),
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.JOIN_PROPERTY_TRANSFER
-        in _kinds(value_class)
-    )
-
-    grain = _fresh(tmp_path, "grain")
-    grain_output = grain.join_regions.properties.outputs[0].relational.grain
-    object.__setattr__(grain_output, "active", ())
-    assert verification.ProjectPhase62VerificationIssueKind.JOIN_KEY_FD_GRAIN in _kinds(
-        grain
+@pytest.mark.parametrize("mutation", ("removed", "duplicated", "index"))
+def test_base_fact_catalog_corruptions_are_independent(
+    tmp_path: Path, mutation: str
+) -> None:
+    _, completed, _, _ = _fresh(tmp_path, mutation)
+    root = completed.verification.root
+    assert root.facts
+    if mutation == "removed":
+        object.__setattr__(root, "facts", root.facts[:-1])
+    elif mutation == "duplicated":
+        object.__setattr__(root, "facts", (*root.facts, root.facts[0]))
+    else:
+        object.__setattr__(root, "facts_by_context", {})
+    assert verification.ProjectPhase62VerificationIssueKind.MULTIFACT_CATALOG in _kinds(
+        root
     )
 
 
-def test_multifact_catalog_locality_alignment_and_chasm_corruptions_are_independent(
+def _pair_result(completed, owner_name="aggregate_pair_outputs"):
+    matches = tuple(
+        result
+        for tail in completed.effective_outputs.current_tails
+        for result in tail.window_set.aggregation_set.results
+        if result.input_filter.entry.owner.definition.name == owner_name
+    )
+    assert len(matches) == 1
+    result = matches[0]
+    assert len(result.grain_linkages) == 2
+    assert len(result.pair_linkages) == 1
+    return result
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "introduction",
+        "context_factors",
+        "context_copy",
+        "actual_missing",
+        "actual_duplicate",
+        "actual_copy",
+        "authority_missing",
+        "common_actual_missing",
+        "common_missing",
+        "candidate_missing",
+        "candidate_winner",
+        "candidate_copy",
+        "pair_participant",
+        "chasm_missing",
+        "exposure_join",
+        "exposure_factors",
+        "risk",
+    ),
+)
+def test_current_aggregate_identity_candidates_and_chasm_corruptions_are_independent(
     tmp_path: Path,
+    mutation: str,
 ) -> None:
-    removed = _fresh(tmp_path, "fact-removed")
-    object.__setattr__(removed, "facts", removed.facts[:-1])
-    assert verification.ProjectPhase62VerificationIssueKind.MULTIFACT_CATALOG in _kinds(
-        removed
-    )
-
-    duplicated = _fresh(tmp_path, "fact-duplicated")
-    object.__setattr__(duplicated, "facts", (*duplicated.facts, duplicated.facts[0]))
-    assert verification.ProjectPhase62VerificationIssueKind.MULTIFACT_CATALOG in _kinds(
-        duplicated
-    )
-
-    catalog_index = _fresh(tmp_path, "catalog-index")
-    object.__setattr__(catalog_index, "facts_by_context", {})
-    assert verification.ProjectPhase62VerificationIssueKind.MULTIFACT_CATALOG in _kinds(
-        catalog_index
-    )
-
-    introduction = _fresh(tmp_path, "introduction")
-    reused = _wrapper(introduction, "reused_join").localities
-    object.__setattr__(reused[0], "introduction_use", reused[1].introduction_use)
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.MULTIFACT_LOCALITY
-        in _kinds(introduction)
-    )
-
-    contextual = _fresh(tmp_path, "contextual")
-    locality = _wrapper(contextual, "chasm_join").localities[0]
-    object.__setattr__(locality.contextual_grain, "factors", ())
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.MULTIFACT_LOCALITY
-        in _kinds(contextual)
-    )
-
-    blocker = _fresh(tmp_path, "blocker")
-    ambiguous_subject = next(
-        item
-        for item in blocker.non_concrete_regions
-        if item.region.ledger.owner.definition.name == "ambiguous_fact_join"
-    )
-    object.__setattr__(
-        ambiguous_subject,
-        "structural",
-        ProjectMultiFactStructuralAlignment.INSUFFICIENT_EVIDENCE,
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.MULTIFACT_LOCALITY
-        in _kinds(blocker)
-    )
-
-    bucket = _fresh(tmp_path, "fact-bucket")
-    bucket_region = _wrapper(bucket, "chasm_join")
-    first_candidate = bucket_region.actual_candidates[0]
-    corrupted_buckets = dict(bucket_region.fact_buckets)
-    corrupted_buckets[first_candidate] = ()
-    object.__setattr__(bucket_region, "fact_buckets", corrupted_buckets)
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.MULTIFACT_ALIGNMENT
-        in _kinds(bucket)
-    )
-
-    dropped = _fresh(tmp_path, "dropped-candidate")
-    dropped_alignment = _wrapper(dropped, "chasm_join").alignments[0]
-    object.__setattr__(dropped_alignment.common_grain, "candidates", ())
-    object.__setattr__(
-        dropped_alignment.common_grain,
-        "status",
-        ProjectCommonGrainStatus.NONE,
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.MULTIFACT_ALIGNMENT
-        in _kinds(dropped)
-    )
-
-    winner = _fresh(tmp_path, "first-winner")
-    winner_alignment = next(
-        item
-        for item in _wrapper(winner, "aligned_join").alignments
-        if item.common_grain.status is ProjectCommonGrainStatus.AMBIGUOUS
-    )
-    object.__setattr__(
-        winner_alignment.common_grain,
-        "candidates",
-        (winner_alignment.common_grain.candidates[0],),
-    )
-    object.__setattr__(
-        winner_alignment.common_grain,
-        "status",
-        ProjectCommonGrainStatus.UNIQUE,
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.MULTIFACT_ALIGNMENT
-        in _kinds(winner)
-    )
-
-    copied_candidate = _fresh(tmp_path, "copied-candidate")
-    copied_alignment = _wrapper(copied_candidate, "chasm_join").alignments[0]
-    object.__setattr__(
-        copied_alignment.common_grain.candidates[0],
-        "candidate",
-        _unsafe(copied_alignment.common_grain.candidates[0].candidate),
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.MULTIFACT_ALIGNMENT
-        in _kinds(copied_candidate)
-    )
-
-    copied_context = _fresh(tmp_path, "copied-context")
-    context_alignment = _wrapper(copied_context, "aligned_join").alignments[0]
-    assert context_alignment.grain_comparison is not None
-    object.__setattr__(
-        context_alignment.grain_comparison,
-        "left",
-        _unsafe(context_alignment.left.contextual_grain),
-    )
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.MULTIFACT_ALIGNMENT
-        in _kinds(copied_context)
-    )
-
-    participant = _fresh(tmp_path, "participant")
-    chasm = _wrapper(participant, "chasm_join").chasms[0]
-    object.__setattr__(chasm, "localities", chasm.localities[:1])
-    assert verification.ProjectPhase62VerificationIssueKind.CHASM_RISK in _kinds(
-        participant
-    )
-
-    chasm_join = _fresh(tmp_path, "chasm-join")
-    detached_chasm = _wrapper(chasm_join, "chasm_join").chasms[0]
-    object.__setattr__(detached_chasm, "introduction_joins", ())
-    assert verification.ProjectPhase62VerificationIssueKind.CHASM_RISK in _kinds(
-        chasm_join
-    )
-
-    risk = _fresh(tmp_path, "risk")
-    risk_alignment = _wrapper(risk, "incompatible_join").alignments[0]
-    object.__setattr__(
-        risk_alignment,
-        "multiplicity_risks",
-        (
-            *risk_alignment.multiplicity_risks,
-            ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION,
-        ),
-    )
-    assert verification.ProjectPhase62VerificationIssueKind.CHASM_RISK in _kinds(risk)
+    _, completed, bundle, _ = _fresh(tmp_path, mutation)
+    snapshot = bundle.verification.root
+    owner_name = {
+        "common_missing": "aggregate_pair_same_input",
+        "candidate_missing": "aggregate_pair_keyed",
+        "candidate_winner": "aggregate_pair_keyed",
+        "candidate_copy": "aggregate_pair_keyed",
+        "chasm_missing": "aggregate_pair_shared_inputs",
+    }.get(mutation, "aggregate_pair_outputs")
+    result = _pair_result(completed, owner_name)
+    left, right = result.grain_linkages
+    pair = result.pair_linkages[0]
+    region = left.multifact_region
+    common = pair.common_grain
+    assert right.multifact_region is region
+    assert region.actual_candidates
+    if mutation == "introduction":
+        first = left.aggregate.field_dependencies[0].field_semantics
+        other = right.aggregate.field_dependencies[0].field_semantics
+        assert first.introduction_use is not other.introduction_use
+        object.__setattr__(
+            first.joined_field, "introduction_use", other.introduction_use
+        )
+    elif mutation == "context_factors":
+        assert left.contextual_grain.factors
+        object.__setattr__(left.contextual_grain, "factors", ())
+    elif mutation == "context_copy":
+        object.__setattr__(
+            pair.grain_comparison, "left", _unsafe(left.contextual_grain)
+        )
+    elif mutation == "actual_missing":
+        object.__setattr__(region, "actual_candidates", region.actual_candidates[:-1])
+    elif mutation == "actual_duplicate":
+        object.__setattr__(
+            region,
+            "actual_candidates",
+            (*region.actual_candidates, region.actual_candidates[0]),
+        )
+    elif mutation == "actual_copy":
+        object.__setattr__(
+            region,
+            "actual_candidates",
+            (_unsafe(region.actual_candidates[0]), *region.actual_candidates[1:]),
+        )
+    elif mutation == "authority_missing":
+        candidate = region.actual_candidates[0]
+        assert candidate.authorities
+        object.__setattr__(candidate, "authorities", candidate.authorities[:-1])
+    elif mutation == "common_actual_missing":
+        assert common.actual_candidates
+        object.__setattr__(common, "actual_candidates", common.actual_candidates[:-1])
+    elif mutation == "common_missing":
+        assert common.common_candidates
+        object.__setattr__(common, "common_candidates", common.common_candidates[:-1])
+    elif mutation == "candidate_missing":
+        assert common.candidates
+        object.__setattr__(common, "candidates", common.candidates[:-1])
+    elif mutation == "candidate_winner":
+        assert len(common.candidates) >= 2
+        object.__setattr__(common, "candidates", common.candidates[:1])
+        object.__setattr__(common, "status", ProjectCommonGrainStatus.UNIQUE)
+    elif mutation == "candidate_copy":
+        assert common.candidates
+        candidate = common.candidates[0]
+        object.__setattr__(candidate, "candidate", _unsafe(candidate.candidate))
+    elif mutation == "pair_participant":
+        object.__setattr__(pair, "right", left)
+    elif mutation == "chasm_missing":
+        assert pair.chasm_candidates
+        object.__setattr__(pair, "chasm_candidates", pair.chasm_candidates[:-1])
+    elif mutation in ("exposure_join", "exposure_factors"):
+        exposures = (*left.multiplicity_exposures, *right.multiplicity_exposures)
+        assert exposures
+        exposure = exposures[0]
+        if mutation == "exposure_join":
+            other = next(
+                join for join in region.region.joins if join is not exposure.join
+            )
+            object.__setattr__(exposure, "join", other)
+        else:
+            assert exposure.factor_additions
+            object.__setattr__(exposure, "factor_additions", ())
+    else:
+        object.__setattr__(
+            pair,
+            "multiplicity_risks",
+            (
+                *pair.multiplicity_risks,
+                ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION,
+            ),
+        )
+    assert not verify_project_query_block_ir(snapshot).verified
 
 
 def test_combined_cycle_is_invalid_and_invalid_result_cannot_form_bundle(
     tmp_path: Path,
 ) -> None:
-    root = _fresh(tmp_path, "cycle")
-    first = _join(root, "multihop_join", 0)
-    second = _join(root, "multihop_join", 1)
+    _, _, bundle, _ = _fresh(tmp_path, "cycle")
+    snapshot = bundle.verification.root
+    first = _join(snapshot, "multihop_join")
+    second = _join(snapshot, "multihop_join", 1)
     object.__setattr__(first.input_uses[0], "output", second.output.occurrence)
-    result = verification.verify_project_phase62(root)
-    kinds = tuple(issue.kind for issue in result.issues)
-    assert result.status is verification.ProjectPhase62VerificationStatus.INVALID
-    assert (
-        verification.ProjectPhase62VerificationIssueKind.COMBINED_ACTUAL_USE_CYCLE
-        in kinds
-    )
-    order = tuple(verification.ProjectPhase62VerificationIssueKind)
-    assert tuple(order.index(kind) for kind in kinds) == tuple(
-        sorted(order.index(kind) for kind in kinds)
+    result = verify_project_query_block_ir(snapshot)
+    assert not result.verified
+    assert ProjectIRQueryBlockVerificationIssueKind.COMBINED_ACTUAL_USE_CYCLE in (
+        issue.kind for issue in result.issues
     )
     with pytest.raises(ValueError, match="Only VERIFIED"):
-        verification.build_project_phase62_analysis_bundle(result)
+        build_project_query_block_ir_analysis_bundle(result)
 
 
 def test_verifier_and_oracle_are_statically_separate_private_boundaries() -> None:
     verifier_source = VERIFIER_SOURCE.read_text(encoding="utf-8")
     oracle_source = ORACLE_SOURCE.read_text(encoding="utf-8")
+    current_verifier = (
+        REPO_ROOT / "src/pietto/_project/project_query_block_ir_verification.py"
+    ).read_text(encoding="utf-8")
+    assert "project_bag_null_oracle" not in current_verifier
+    assert "evaluate_project_bag_null" not in current_verifier
     oracle_tree = ast.parse(oracle_source, filename=str(ORACLE_SOURCE))
     imported_modules = tuple(
         node.module for node in oracle_tree.body if isinstance(node, ast.ImportFrom)
@@ -804,32 +745,65 @@ _DETERMINISM_SCRIPT = r"""
 import json
 from pathlib import Path
 import sys
-
 from _pietto_project_aggregate import _build
-from pietto._project import project_phase62_verification as verification
-
-root = _build(Path(sys.argv[1]))
+from pietto._project.project_query_block_ir_verification import (
+    verify_project_query_block_ir, build_project_query_block_ir_analysis_bundle,
+    assess_project_query_block_ir_invalidation,
+)
+from pietto._project.project_ir_verification import ProjectIRChangeDomain
+_, completed, initial, _ = _build(Path(sys.argv[1]))
+snapshot = initial.verification.root
 if sys.argv[2] == "reverse":
-    invalidation = verification.assess_project_phase62_analysis_invalidation(
-        (verification.ProjectPhase62ChangeDomain.ESTIMATES,)
-    )
-    result = verification.verify_project_phase62(root)
-    bundle = verification.build_project_phase62_analysis_bundle(result)
+    invalidation = assess_project_query_block_ir_invalidation((ProjectIRChangeDomain.TOPOLOGY,))
+    result = verify_project_query_block_ir(snapshot)
+    bundle = build_project_query_block_ir_analysis_bundle(result)
 else:
-    result = verification.verify_project_phase62(root)
-    bundle = verification.build_project_phase62_analysis_bundle(result)
-    invalidation = verification.assess_project_phase62_analysis_invalidation(
-        (verification.ProjectPhase62ChangeDomain.ESTIMATES,)
-    )
+    result = verify_project_query_block_ir(snapshot)
+    bundle = build_project_query_block_ir_analysis_bundle(result)
+    invalidation = assess_project_query_block_ir_invalidation((ProjectIRChangeDomain.TOPOLOGY,))
+regions = completed.effective_outputs.current_regions
+joins = [join for region in regions for join in region.joins]
+assert joins
+nulls = [field for join in joins for field in join.output.row_shape.fields if field.nulling_joins]
+assert nulls
+pair_names = (
+    "aggregate_pair_outputs", "aggregate_pair_same_input",
+    "aggregate_pair_keyed", "aggregate_pair_shared_inputs",
+)
+pair_results = [result for tail in completed.effective_outputs.current_tails
+                for result in tail.window_set.aggregation_set.results
+                if result.input_filter.entry.owner.definition.name in pair_names]
+assert tuple(result.input_filter.entry.owner.definition.name for result in pair_results) == pair_names
+pairs = []
+for pair_result in pair_results:
+    assert len(pair_result.grain_linkages) == 2 and len(pair_result.pair_linkages) == 1
+    pair = pair_result.pair_linkages[0]
+    common = pair.common_grain
+    assert common.actual_candidates
+    index = pair.left.multifact_region.grain_index
+    def factors(values):
+        return [index.positions[value] for value in values]
+    pairs.append({
+        "owner": pair_result.input_filter.entry.owner.definition.name,
+        "variant": type(pair_result).__name__,
+        "contexts": [factors(link.contextual_grain.factors) for link in pair_result.grain_linkages],
+        "actual": [[factors(candidate.factors.factors), [authority.kind.value for authority in candidate.authorities]] for candidate in common.actual_candidates],
+        "common": [common.actual_candidates.index(candidate.candidate) for candidate in common.common_candidates],
+        "retained": [common.common_candidates.index(candidate) for candidate in common.candidates],
+        "chasm": [common.candidates.index(candidate) for candidate in pair.chasm_candidates],
+        "status": common.status.value,
+        "risks": [risk.value for risk in pair.multiplicity_risks],
+    })
 print(json.dumps({
     "status": result.status.value,
-    "issues": [(item.kind.value, None if item.coordinate is None else item.coordinate.__class__.__name__) for item in result.issues],
+    "issues": [item.kind.value for item in result.issues],
     "topology": [item.ref.position for item in bundle.combined_topological_order],
     "reverse": [(item.output.ref.position, [use.ref.position for use in item.uses]) for item in bundle.combined_reverse_uses],
-    "nulling": [(item.coordinate.output.position, item.coordinate.field_position, [ref.position for ref in item.nulling_joins]) for item in bundle.nulling_provenance],
-    "facts": [(item.identity.aggregate_node.position, item.identity.aggregate_result_position, len(item.localities)) for item in bundle.fact_localities],
-    "alignments": [(item.structural.value, [risk.value for risk in item.multiplicity_risks]) for item in bundle.multifact_alignments.alignments],
-    "preserved": [item.value for item in invalidation.preserved],
+    "joins": [(join.node.ref.position, len(join.input_uses), len(join.output.row_shape.fields)) for join in joins],
+    "nulls": [(field.effective_nullability.value, len(field.nulling_joins)) for field in nulls],
+    "properties": [(len(region.final_properties.relational.keys), len(region.final_properties.relational.fds), len(region.final_properties.relational.grain.active)) for region in regions],
+    "pairs": pairs,
+    "invalidated": [item.value for item in invalidation.invalidated],
 }, separators=(",", ":")))
 """
 
@@ -864,20 +838,3 @@ def test_hash_seed_cwd_and_operation_order_do_not_change_phase62_results(
         assert completed.stderr == ""
         observations.append(json.loads(completed.stdout))
     assert observations[1:] == observations[:-1]
-
-
-def test_slice13_contract_records_exact_boundaries_and_pass_title() -> None:
-    document = " ".join(SPEC.read_text(encoding="utf-8").split())
-    for evidence in (
-        "constructor validity != independent verification",
-        "verification != oracle proof",
-        "verification = RERUN_REQUIRED",
-        "bounded oracle != complete theorem prover",
-        "The verifier neither imports nor invokes the oracle",
-        "A4/M5/D0",
-        "INDEPENDENT_VERIFIER_REPLAY_DOES_NOT_CLOSE_EXACT_IDENTITY_AND_INDEX_EVIDENCE",
-        "Slice 13 repair batches: 1/1",
-        "Phase 62 Slice 14 = NEXT / NOT IMPLEMENTED",
-        "PASS — PHASE62_SLICE13_INTEGRITY_VERIFIER_ANALYSIS_INVALIDATION_BOUNDED_BAG_NULL_SEMANTIC_ORACLE_END_TO_END",
-    ):
-        assert evidence in document

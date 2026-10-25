@@ -17,10 +17,10 @@ from pietto.sql import SqlArtifactKind, emit_postgres_sql
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text nullable\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text | None\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
 )
 
 
@@ -121,13 +121,13 @@ def _chain_ir() -> ScriptIR:
     return _compile_ir(
         SOURCE + "table active_users:\n"
         "    from users\n"
-        "    where active == true\n"
+        "    where active == True\n"
         "    select:\n"
         "        id\n"
         "        email\n"
         "query active_user_emails:\n"
         "    from active_users\n"
-        "    where email is not null\n"
+        "    where email is not None\n"
         "    select:\n"
         "        normalized_email = lower(email)\n"
     )

@@ -49,13 +49,13 @@ from pietto.semantic.window_input_analysis import (
 
 SOURCE_PREFIX = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    category: Text nullable\n"
-    "    amount: Int nullable\n"
-    "    score: Float not null\n"
-    "    exact: Decimal nullable\n"
-    "    happened: Date nullable\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    category: Text | None\n"
+    "    amount: Int | None\n"
+    "    score: Float\n"
+    "    exact: Decimal | None\n"
+    "    happened: Date | None\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 
 
@@ -84,19 +84,12 @@ def _grouped_source(
     selected = (
         "        group_name = category\n"
         "        total = sum(amount)\n"
-        f"        window_value = {window_call or _window_call(case)} window:\n"
-        "            partition by:\n"
-        f"                {partition}\n"
-        "            order by:\n"
-        f"                {order}\n"
+        f"        window_value = {window_call or _window_call(case)} "
+        f"window(partition by {partition} order by {order})\n"
     )
     if second_window:
-        selected += (
-            "        second_window = rank() window:\n"
-            "            order by:\n"
-            "                total\n"
-        )
-    suffix = "    satisfying:\n        total > 0\n" if satisfying else ""
+        selected += "        second_window = rank() window(order by total)\n"
+    suffix = "    having:\n        total > 0\n" if satisfying else ""
     return (
         SOURCE_PREFIX + "query grouped:\n"
         "    from rows\n"
@@ -111,16 +104,11 @@ def _ungrouped_let_source(case: int = 0) -> str:
     return (
         SOURCE_PREFIX + "query local_window:\n"
         "    from rows\n"
-        "    let:\n"
-        "        direct = category\n"
-        "        qualified = rows.amount\n"
-        "        chain = direct\n"
+        "    let direct = category\n"
+        "    let qualified = rows.amount\n"
+        "    let chain = direct\n"
         "    select:\n"
-        f"        window_value = {call} window:\n"
-        "            partition by:\n"
-        "                chain\n"
-        "            order by:\n"
-        "                direct\n"
+        f"        window_value = {call} window(partition by chain order by direct)\n"
     )
 
 
@@ -129,19 +117,14 @@ def _grouped_let_source(case: int = 0) -> str:
     return (
         SOURCE_PREFIX + "query grouped_let:\n"
         "    from rows\n"
-        "    let:\n"
-        "        key = category\n"
-        "        chain = key\n"
+        "    let key = category\n"
+        "    let chain = key\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
         "        group_name = category\n"
         "        total = count()\n"
-        f"        window_value = {call} window:\n"
-        "            partition by:\n"
-        "                chain\n"
-        "            order by:\n"
-        "                total\n"
+        f"        window_value = {call} window(partition by chain order by total)\n"
     )
 
 
@@ -173,9 +156,7 @@ def _assert_negative(case: int) -> None:
             "    from rows\n"
             "    select:\n"
             "        total = count()\n"
-            "        w = row_number() window:\n"
-            "            order by:\n"
-            "                id\n"
+            "        w = row_number() window(order by id)\n"
         )
         assert _diagnostics(source) == ("PIE-S2312",)
         return
@@ -259,19 +240,21 @@ def _project_fact(grouped: bool, use_let: bool = False) -> WindowResultProjectFa
         location=SourceLocation(path="slice13.pietto", line=1, column=1),
         definition=source_definition,
     )
-    let_value_types: dict[str, ValueType] | None = None
-    let_expressions = None
-    if relation.let_clause is not None:
-        let_value_types = {
-            binding.name: ValueType(
-                resolved_type=ResolvedType(name="Text", kind=TypeKind.BUILTIN),
-                nullability=EffectiveNullability.NULLABLE,
-            )
-            for binding in relation.let_clause.bindings
-        }
-        let_expressions = {
-            binding.name: binding.expression for binding in relation.let_clause.bindings
-        }
+    let_bindings = (
+        relation.let_clause.bindings
+        if relation.let_clause is not None
+        else relation.naming_declarations
+    )
+    # The local-name facts are supplied even when empty: a grouped window
+    # requires canonical input-scope facts, not their absence.
+    let_value_types: dict[str, ValueType] = {
+        binding.name: ValueType(
+            resolved_type=ResolvedType(name="Text", kind=TypeKind.BUILTIN),
+            nullability=EffectiveNullability.NULLABLE,
+        )
+        for binding in let_bindings
+    }
+    let_expressions = {binding.name: binding.expression for binding in let_bindings}
     result = build_window_result_project_fact(
         definition=relation,
         item=relation.select_items[-1],
@@ -358,8 +341,8 @@ def test_window_input_scope_carrier_shape_privacy_and_failure_rules_are_exact() 
 
 def test_grouped_scope_duplicate_output_names_have_no_winner() -> None:
     source = _grouped_source(second_window=True).replace(
-        "second_window = rank() window:",
-        "window_value = rank() window:",
+        "second_window = rank() window",
+        "window_value = rank() window",
     )
     assert _diagnostics(source).count("PIE-S2305") == 1
 
@@ -420,19 +403,18 @@ def test_grouped_direct_and_chained_field_lets_match_selected_group_key_outputs(
 
 
 def _computed_let_window(
-    lets: tuple[str, ...], spec: str, *, call: str = "row_number()", tail: str = ""
+    lets: tuple[str, ...], spec: str, *, call: str = "row_number()"
 ) -> str:
     return (
         SOURCE_PREFIX
-        + "query local_window:\n    from rows\n    let:\n"
-        + "".join(f"        {line}\n" for line in lets)
+        + "query local_window:\n    from rows\n"
+        + "".join(f"    let {line}\n" for line in lets)
         + f"    select:\n        id\n        window_value = {call} window"
         + spec
-        + tail
     )
 
 
-_KEY_ORDER = ":\n            order by:\n                key\n"
+_KEY_ORDER = "(order by key)\n"
 _COMPUTED_ORDER = "window order expression must be a direct field"
 
 
@@ -441,18 +423,17 @@ _COMPUTED_ORDER = "window order expression must be a direct field"
     (
         pytest.param(
             _computed_let_window(("key = lower(category)",), _KEY_ORDER),
-            ("PIE-S2103", 15, 24, f"row_number: {_COMPUTED_ORDER}"),
+            ("PIE-S2103", 14, 24, f"row_number: {_COMPUTED_ORDER}"),
             id="order",
         ),
         pytest.param(
             _computed_let_window(
                 ("key = lower(category)",),
-                ":\n            partition by:\n                key\n"
-                "            order by:\n                id\n",
+                "(partition by key order by id)\n",
             ),
             (
                 "PIE-S2103",
-                15,
+                14,
                 24,
                 "row_number: window partition expression must be a direct field",
             ),
@@ -460,31 +441,29 @@ _COMPUTED_ORDER = "window order expression must be a direct field"
         ),
         pytest.param(
             _computed_let_window(("base = amount + 1", "key = base"), _KEY_ORDER),
-            ("PIE-S2103", 16, 24, f"row_number: {_COMPUTED_ORDER}"),
+            ("PIE-S2103", 15, 24, f"row_number: {_COMPUTED_ORDER}"),
             id="through_another_binding",
         ),
         pytest.param(
             _computed_let_window(("key = 3",), _KEY_ORDER, call="rank()"),
-            ("PIE-S2103", 15, 24, f"rank: {_COMPUTED_ORDER}"),
+            ("PIE-S2103", 14, 24, f"rank: {_COMPUTED_ORDER}"),
             id="literal",
         ),
         pytest.param(
             _computed_let_window(
-                ("key = lower(category)",),
+                ("key = lower(category)", "ordered = window(order by key)"),
                 " ordered\n",
                 call="rank()",
-                tail="    window ordered:\n        order by:\n            key\n",
             ),
             ("PIE-S2103", 15, 24, f"rank: {_COMPUTED_ORDER}"),
             id="named_window",
         ),
         pytest.param(
-            SOURCE_PREFIX + "query grouped_let:\n    from rows\n    let:\n"
-            "        key = lower(category)\n    group by:\n        category\n"
+            SOURCE_PREFIX + "query grouped_let:\n    from rows\n"
+            "    let key = lower(category)\n    group by:\n        category\n"
             "    select:\n        category\n        total = count()\n"
-            "        window_value = rank() window:\n            order by:\n"
-            "                key\n",
-            ("PIE-S2103", 18, 24, f"rank: {_COMPUTED_ORDER}"),
+            "        window_value = rank() window(order by key)\n",
+            ("PIE-S2103", 17, 24, f"rank: {_COMPUTED_ORDER}"),
             id="grouped",
         ),
     ),
@@ -493,7 +472,7 @@ def test_a_computed_let_in_a_window_specification_is_no_direct_field(
     source: str,
     expected: tuple[str, int, int, str],
 ) -> None:
-    """A PARTITION BY or ORDER BY name of a `let:` binding whose value is not
+    """A PARTITION BY or ORDER BY name of a `let` binding whose value is not
     a field is refused as that value written in its place is, at the window
     call (before: PIE-S2102 `Unknown field: key` at the name)."""
 

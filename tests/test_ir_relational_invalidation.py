@@ -19,6 +19,10 @@ from pietto._project.project_query_block_ir_verification import (
 )
 from pietto._project.project_ir_verification import ProjectIRChangeDomain
 from pietto._project.project_ir import ProjectIRStageFieldAnchor
+from pietto._project.project_join_conditions import (
+    ProjectJoinCondition,
+    ProjectJoinConditionKeyMatch,
+)
 from _pietto_project_join import (
     _completed,
     _source,
@@ -36,7 +40,7 @@ def _unsafe(value, **changes):
 def test_swapped_same_schema_active_producer_is_not_a_valid_input_image(
     tmp_path: Path,
 ) -> None:
-    root = build_project_query_block_ir(_completed(tmp_path, _source("true")))
+    root = build_project_query_block_ir(_completed(tmp_path, _source("True")))
     entry = next(
         entry for entry in root.entries if entry.owner.definition.name == "result"
     )
@@ -56,7 +60,7 @@ def test_swapped_same_schema_active_producer_is_not_a_valid_input_image(
 def test_stage_anchor_cannot_replace_a_canonical_join_producer_anchor(
     tmp_path: Path,
 ) -> None:
-    root = build_project_query_block_ir(_completed(tmp_path, _source("true")))
+    root = build_project_query_block_ir(_completed(tmp_path, _source("True")))
     assert verify_project_query_block_ir(root).verified
     entry = next(
         entry for entry in root.entries if entry.owner.definition.name == "result"
@@ -77,7 +81,7 @@ def test_stage_anchor_cannot_replace_a_canonical_join_producer_anchor(
 def test_coherent_loss_of_grain_images_is_rejected_against_semantic_authority(
     tmp_path: Path,
 ) -> None:
-    root = build_project_query_block_ir(_completed(tmp_path, _source("true")))
+    root = build_project_query_block_ir(_completed(tmp_path, _source("True")))
     entry = next(
         entry for entry in root.entries if entry.owner.definition.name == "result"
     )
@@ -139,7 +143,26 @@ def test_single_match_obligations_and_proofs_cannot_be_replaced(
     original = _completed(tmp_path, _asymmetric_source(target_unique=True))
     completed = with_project_single_match_requests(original, (_request(original),))
     root = build_project_query_block_ir(completed)
+    assert verify_project_query_block_ir(root).verified
     retained = root.requirements[0]
+    from pietto._project.project_single_match import ProjectSingleMatchProofKind
+
+    assert len(retained.boundaries) == len(retained.proofs) == 1
+    image = retained.proofs[0]
+    source_proof = retained.assessment.proofs[0]
+    assert image.source is source_proof
+    assert source_proof.kind is ProjectSingleMatchProofKind.MATCHED_KEY
+    condition, match, key, *equalities = source_proof.roots
+    assert type(condition) is ProjectJoinCondition
+    assert type(match) is ProjectJoinConditionKeyMatch
+    assert (
+        condition is retained.assessment.condition and condition.base_guarantee is None
+    )
+    assert condition.environment.predicate_expression is not None
+    assert match.condition is condition
+    assert match.binding is retained.assessment.request.use.target_binding
+    assert key is match.key and tuple(equalities) == match.equalities
+    assert image.boundaries == retained.boundaries
     if mutation == "missing":
         object.__setattr__(root, "requirements", ())
     elif mutation == "extra":
@@ -209,13 +232,20 @@ def test_all_except_membership_and_repeated_uses_reach_the_consumer(
 @pytest.mark.parametrize(
     "member", ("condition", "source_properties", "input_properties", "producer")
 )
-def test_historical_match_views_cannot_graft_evidence(
-    tmp_path: Path, member: str
-) -> None:
-    root = build_project_query_block_ir(_completed(tmp_path, _source(None)))
+def test_current_match_views_cannot_graft_evidence(tmp_path: Path, member: str) -> None:
+    root = build_project_query_block_ir(_completed(tmp_path, _source("Link(lhs, r)")))
     assert verify_project_query_block_ir(root).verified
-    assert root.retained_joins
-    joined = root.retained_joins[0]
+    entry = next(
+        entry for entry in root.entries if entry.owner.definition.name == "result"
+    )
+    assert (
+        isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+        and entry.join_prefix is not None
+    )
+    joined = entry.join_prefix.final_join
+    assert joined.condition.base_guarantee is None
+    predicate = joined.condition.environment.predicate_expression
+    assert predicate is not None and len(predicate.calls) == 1
     if member in {"condition", "source_properties"}:
         original = (
             joined.condition if member == "condition" else joined.source_properties
@@ -233,14 +263,24 @@ def test_historical_match_views_cannot_graft_evidence(
 
 
 @pytest.mark.parametrize("variant", ("one", "zero", "two", "absent"))
-def test_historical_view_requires_exact_condition_singleton(
+def test_current_view_requires_exact_condition_singleton(
     tmp_path: Path, variant: str
 ) -> None:
-    root = build_project_query_block_ir(_completed(tmp_path, _source(None)))
+    root = build_project_query_block_ir(_completed(tmp_path, _source("Link(lhs, r)")))
     assert verify_project_query_block_ir(root).verified
-    assert root.retained_joins
+    entry = next(
+        entry for entry in root.entries if entry.owner.definition.name == "result"
+    )
+    assert (
+        isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+        and entry.join_prefix is not None
+    )
+    joined = entry.join_prefix.final_join
     operative = root.completed.effective_outputs.operative_conditions
-    assert operative is not None
+    assert operative is not None and operative.entries == (joined.condition,)
+    assert joined.condition.base_guarantee is None
+    predicate = joined.condition.environment.predicate_expression
+    assert predicate is not None and len(predicate.calls) == 1
     if variant == "zero":
         object.__setattr__(operative, "entries", ())
     elif variant == "two":

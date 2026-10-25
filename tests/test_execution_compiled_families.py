@@ -6,7 +6,7 @@ import _pietto_sql_emission as emission
 from _pietto_execution_binding import proof_artifact
 from _pietto_execution_compiled import retained_unmapped_source
 from _pietto_execution_refinement import capabilities
-from _pietto_execution_rows_cases import CASES, build
+from _pietto_execution_rows_cases import BLOCK_READS, CASES, build
 from _pietto_execution_guard_cases import manifest, case_preparation
 from pietto._project.project_compiled_build import CompiledBuild, build_compiled
 from pietto._project.project_compiled_loading import load_compiled
@@ -25,18 +25,18 @@ def test_original_named_family_closure(tmp_path, target, case, variant):
         with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
             build_compiled(original.artifact)
         return
-    _compare(original.artifact)
+    _compare(original.artifact, refinement=(case, variant) not in BLOCK_READS)
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-@pytest.mark.parametrize("operator", ("is null", "is not null"))
+@pytest.mark.parametrize("operator", ("is None", "is not None"))
 def test_loaded_null_test_rehydrates_non_null_bool(tmp_path, target, operator):
     item = emission.fixture(target, "T_row_direct", "query_bind")
     source = (
         item["source"]
-        if operator == "is null"
+        if operator == "is None"
         else item["source"].replace(
-            "missing = flag is null", "missing = flag " + operator
+            "missing = flag is None", "missing = flag " + operator
         )
     )
     checked, original = emission.build_case(
@@ -58,7 +58,7 @@ def test_loaded_null_test_rehydrates_non_null_bool(tmp_path, target, operator):
         loaded, tuple(value.value for value in original.artifact.fixed_values)
     )
     assert candidate.rendered.sql == original.artifact.rendered.sql
-    assert (" IS NOT NULL" if operator == "is not null" else " IS NULL") in (
+    assert (" IS NOT NULL" if operator == "is not None" else " IS NULL") in (
         candidate.rendered.sql.decode()
     )
 
@@ -109,8 +109,8 @@ def test_computed_comparison_determinant_refines_from_compiled_input(
         target, "Y_aggregate_satisfying", "bind" if bound else "retained"
     )
     source = emission.AGGREGATE_HEADER.format(target=target) + (
-        "query result:\n    from agg\n    let:\n        big = value > 5\n"
-        "        level = 3\n    group by:\n        big\n    select:\n        big\n"
+        "query result:\n    from agg\n    let big = value > 5\n"
+        "    let level = 3\n    group by:\n        big\n    select:\n        big\n"
         "        total = count()\n        top = max(level)\n"
     )
     checked, original = emission.build_case(
@@ -127,9 +127,9 @@ def test_computed_comparison_determinant_refines_from_compiled_input(
     "value",
     (
         "1 if key > 1 else 0",
-        "key between 1 and 3",
+        "1 <= key <= 3",
         "key in (1, 2)",
-        "cast(key as Float)",
+        "Float(key)",
     ),
 )
 def test_row_let_operation_keeps_its_requirement_rules_on_replay(
@@ -138,7 +138,7 @@ def test_row_let_operation_keeps_its_requirement_rules_on_replay(
     """The compiled input attributes each retained demand as the source did."""
     item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
     source = emission.AGGREGATE_HEADER.format(target=target) + (
-        f"query result:\n    from agg\n    let:\n        w = {value}\n"
+        f"query result:\n    from agg\n    let w = {value}\n"
         "    select:\n        w\n        rid\n"
     )
     checked, original = emission.build_case(
@@ -152,9 +152,36 @@ def test_row_let_operation_keeps_its_requirement_rules_on_replay(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "case,variant",
+    (
+        ("L_relation_exists", "kept"),
+        ("L_relation_exists", "correlated"),
+        ("L_relation_scalar", "kept"),
+        ("L_relation_membership", "correlated"),
+    ),
+)
+def test_block_read_keeps_its_requirement_rules_on_replay(
+    tmp_path, target, case, variant
+):
+    """An `exists`, `scalar` or `in` read keeps its R11 demand in the compiled
+    input, as the source attributes it (an `any` read: the named families)."""
+    item = emission.fixture(target, case, variant)
+    checked, original = emission.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    assert original.artifact is not None
+    assert "R11" in {r.rule for r in original.artifact.original_requirements}
+    emission.decode_public(serialize_project_sql_emission(original))
+    # R2 refines no expression block read yet (fails closed).
+    _compare(original.artifact, refinement=False)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("bound", (False, True))
 @pytest.mark.parametrize(
-    "tail", ("", "    satisfying:\n        b\n    order by:\n        b desc\n")
+    "tail", ("", "    having:\n        b\n    order by:\n        b desc\n")
 )
 def test_joined_computed_determinant_replays_from_compiled_input(
     tmp_path, target, bound, tail
@@ -189,8 +216,8 @@ def test_joined_field_free_let_extrema_replay_from_compiled_input(
         target, "Y_aggregate_satisfying", "bind" if bound else "retained"
     )
     source = emission.AGGREGATE_HEADER.format(target=target) + (
-        "query result:\n    from agg\n    inner join agg as r:\n        from agg\n"
-        "        on agg.key == r.key\n    let:\n        level = 3 * 2\n"
+        "query result:\n    from agg\n    let r = agg\n"
+        "    inner join r on agg.key == r.key\n    let level = 3 * 2\n"
         "    group by:\n        agg.rid\n        r.rid\n    select:\n"
         "        rid = agg.rid\n        low = min(level)\n        top = max(level)\n"
     )
@@ -204,10 +231,9 @@ def test_joined_field_free_let_extrema_replay_from_compiled_input(
 
 
 _RIGHT_R = (
-    "relationship link:\n    endpoint many: agg\n    endpoint one: agg\n"
-    "    on many.key == one.rid\n"
-    "query result:\n    from agg\n    right join agg as r:\n        from agg\n"
-    "        via link: many -> one\n"
+    "relationship link(many: Agg, one: Agg):\n    many.key == one.rid\n"
+    "query result:\n    from agg\n    let r = agg\n"
+    "    right join r on link(agg, r)\n"
 )
 
 
@@ -232,7 +258,7 @@ def _right_case(tmp_path, target, body):
     "body",
     (
         "    select:\n        n = count(agg.rid)\n",
-        "    inner join agg as p:\n        from agg\n        via link: one -> many\n"
+        "    let p = agg\n    inner join p on link(p, agg)\n"
         "    select:\n        n = count(p.rid)\n",
     ),
     ids=("left_argument", "matched_input"),
@@ -268,15 +294,20 @@ def test_correlated_match_and_non_null_group_key_replay(tmp_path, target, nullab
     body = _RIGHT_R
     if nullable_key:
         header = header.replace(
-            "    unique agg_row on rid",
-            "    unique agg_match on key\n    unique agg_row on rid",
+            "    agg_row = unique(rid)",
+            "    agg_match = unique(key)\n    agg_row = unique(rid)",
         )
-        body += "        on r.flag\n"
+        body = body.removesuffix("\n") + " and r.flag\n"
+    match = "link(p, r) and p.rid > 0"
     body += (
-        f"    {'inner' if nullable_key else 'semi'} join agg as p:\n"
-        "        from r\n        via link: one -> many\n        on p.rid > 0\n"
-        "    cross join agg as x: from agg\n"
-        "    group by: agg.rid"
+        "    let p = agg\n"
+        + (
+            f"    inner join p on {match}\n"
+            if nullable_key
+            else f"    where any({match} for p in p)\n"
+        )
+        + "    let x = agg\n    cross join x\n"
+        "    group by agg.rid"
         + (", p.key" if nullable_key else "")
         + "\n    select:\n        n = count(x.rid)\n"
     )
@@ -333,27 +364,143 @@ def test_correlated_match_and_non_null_group_key_replay(tmp_path, target, nullab
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("retained", (False, True), ids=("selected", "retained"))
+@pytest.mark.parametrize(
+    "variant",
+    ("reordered", "duplicates", "wrong_pair", "missing_duplicate", "extra_on"),
+)
 def test_reordered_composite_reverse_match_replays_with_authored_order(
-    tmp_path, target
+    tmp_path, monkeypatch, target, retained, variant
 ):
+    from pietto._project import project_compiled_verification as verification
+    from pietto._project.project_joined_aggregation import (
+        ProjectConcreteJoinedAggregation,
+        compiled_orphan_free_dependencies,
+        orphan_free_dependencies,
+    )
+
     item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
+    forward = "many.key == one.rid and many.value == one.rid"
+    reverse = "one.rid == many.value and one.rid == many.key"
+    if variant in {"duplicates", "missing_duplicate"}:
+        forward += " and many.key == one.rid"
+    if variant == "duplicates":
+        reverse += " and one.rid == many.key"
+    elif variant == "wrong_pair":
+        reverse = "one.rid == many.value and one.rid == many.rid"
+    proved = variant in {"reordered", "duplicates"}
+    extra_on = " and r.flag" if variant == "extra_on" else ""
+    # Independent grouping keeps the negative controls valid without this proof.
+    group = "agg.rid" if proved else "agg.rid, r.rid"
     source = emission.AGGREGATE_HEADER.format(target=target) + (
-        "relationship forward_match:\n    endpoint many: agg\n    endpoint one: agg\n"
-        "    on many.key == one.rid and many.value == one.rid\n"
-        "relationship reverse_match:\n    endpoint one: agg\n    endpoint many: agg\n"
-        "    on one.rid == many.value and one.rid == many.key\n"
-        "query result:\n    from agg\n    right join agg as r:\n"
-        "        from agg\n        via forward_match: many -> one\n"
-        "    semi join agg as p:\n        from r\n        via reverse_match: one -> many\n"
-        "    cross join agg as x: from agg\n    group by: agg.rid\n"
+        f"relationship forward_match(many: Agg, one: Agg):\n    {forward}\n"
+        f"relationship reverse_match(one: Agg, many: Agg):\n    {reverse}\n"
+        "query result:\n    from agg\n    let r = agg\n"
+        f"    right join r on forward_match(agg, r){extra_on}\n"
+        "    let p = agg\n    where any(reverse_match(r, p) for p in p)\n"
+        f"    let x = agg\n    cross join x\n    group by {group}\n"
         "    select:\n        n = count(x.rid)\n"
     )
-    checked, original = emission.build_case(
-        tmp_path, source, item["contract"], item["policy"]
+    logical = []
+    if retained:
+        # The request fixture needs a matching boundary; INNER TRUE keeps the product.
+        source = (
+            source.replace("query result:", "query unused:").replace(
+                "cross join x", "inner join x on True"
+            )
+            + "query result:\n    from agg\n    select:\n        rid\n"
+        )
+
+        def witness(*args, **kwargs):
+            return {**item, "source": source}
+
+        monkeypatch.setattr(emission, "join_witness", witness)
+        original = proof_artifact(tmp_path, retained=True)
+        checker = verification.verify_logical_export
+
+        def capture(description, checked, correspondence):
+            checker(description, checked, correspondence)
+            logical.append(checked.plan)
+
+        monkeypatch.setattr(verification, "verify_logical_export", capture)
+    else:
+        checked, original = emission.build_case(
+            tmp_path, source, item["contract"], item["policy"]
+        )
+        assert checked.verified
+    assert original.status == "VERIFIED"
+    artifact = original.artifact
+    assert artifact is not None
+    built = build_compiled(artifact)
+    if retained:
+        loaded = load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+        replay = emit_compiled(loaded, tuple(v.value for v in artifact.fixed_values))
+        assert replay.rendered.sql == artifact.rendered.sql
+        assert len(replay.parameter_uses) == len(artifact.parameter_uses)
+        (reference,) = logical
+        assert not replay.request.plan.single_matches
+        assert replay.request.plan.all_single_matches
+        _compare_aggregate_evidence(reference, replay.request.plan)
+    else:
+        replay = _compare(artifact, built=built)
+        reference = artifact.request.plan
+    (source_aggregate,) = (
+        a.authority.source
+        for a in reference.aggregations
+        if type(a.authority.source) is ProjectConcreteJoinedAggregation
     )
-    assert checked.verified and original.status == "VERIFIED"
-    assert original.artifact is not None
-    _compare(original.artifact)
+    (evidence,) = replay.request.plan.aggregate_evidence
+    if retained:
+        (source_request,) = (
+            a
+            for a in artifact.request.verification.completed.single_matches.entries
+            if a.request.use.identity.join_position == 2
+        )
+        (compiled_request,) = (
+            o.assessment
+            for o in replay.request.plan.all_single_matches
+            if o.request.use.get("boundaries")
+            == (evidence.region.joins[-1].record.address,)
+        )
+        for assessment in (source_request, compiled_request):
+            assert assessment.state.value == "legal_unproved"
+            assert not assessment.proofs
+            assert assessment.downstream_enforcement_required
+    (source_occurrence,) = source_aggregate.aggregates
+    (aggregate_address,) = evidence.stage.record.get("values")
+    arguments = replay.request.plan.ir.completed.root.records[aggregate_address].get(
+        "arguments"
+    )
+    old_dependencies = orphan_free_dependencies(source_occurrence)
+    new_dependencies = compiled_orphan_free_dependencies(
+        replay.request.plan.ir, evidence.region, evidence.stage, arguments
+    )
+
+    def signature(dependencies, grain):
+        positions = {factor.identity: i for i, factor in enumerate(grain.factors)}
+        return tuple(
+            (
+                tuple(positions[f] for f in dependency.determinants),
+                tuple(positions[f] for f in dependency.dependents),
+            )
+            for dependency in dependencies
+        )
+
+    source_region = source_aggregate.input_filter.joined_semantics.multifact_region
+    expected = (((0,), (1,)),) if proved else ()
+    assert (
+        signature(old_dependencies, source_region.final_properties.relational.grain)
+        == signature(new_dependencies, evidence.region.final_properties.grain)
+        == expected
+    )
+    (linkage,) = evidence.grain_linkages
+    assert linkage.closure.factors == evidence.region.final_properties.grain.active
+    assert not linkage.multiplicity_exposures
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -369,8 +516,8 @@ def test_joined_single_read_computed_key_replays_as_computed(tmp_path, target):
 
     item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
     source = emission.AGGREGATE_HEADER.format(target=target) + (
-        "query result:\n    from agg\n    inner join agg as r:\n        from agg\n"
-        "        on agg.key == r.key\n    let:\n        k = r.rid + 0\n"
+        "query result:\n    from agg\n    let r = agg\n"
+        "    inner join r on agg.key == r.key\n    let k = r.rid + 0\n"
         "    group by:\n        k\n        agg.rid\n    select:\n        k\n"
         "        rid = agg.rid\n        total = count()\n"
     )
@@ -519,6 +666,7 @@ def _compare(artifact, *, refinement=True, built: CompiledBuild | None = None):
             candidate.request.sources, artifact.request.sources, strict=True
         )
     )
+    return candidate
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -548,6 +696,363 @@ def test_original_seven_scalar_templates(tmp_path, target, precision, state):
         tmp_path / "seven-build", target, precision=precision, state=state
     )
     _compare(original)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "case,left_key,right_key,kind,match,expected",
+    (
+        ("forward", False, True, "inner", "call", (((0,), (1,)),)),
+        ("reverse", True, False, "inner", "call", (((1,), (0,)),)),
+        ("both", True, True, "inner", "call", (((0,), (1,)), ((1,), (0,)))),
+        ("swapped", True, True, "inner", "swapped", (((0,), (1,)), ((1,), (0,)))),
+        ("left", True, True, "left", "call", (((0,), (1,)),)),
+        ("right", True, True, "right", "call", (((1,), (0,)),)),
+        ("handwritten", True, True, "inner", "handwritten", ()),
+        ("nonmandatory", True, True, "inner", "or", ()),
+        ("same_side", True, True, "inner", "same_side", ()),
+        (
+            "chain",
+            True,
+            True,
+            "inner",
+            "call",
+            (((0,), (1,)), ((1,), (0,)), ((0, 1), (2,)), ((2,), (0, 1))),
+        ),
+    ),
+    ids=(
+        "forward",
+        "reverse",
+        "both",
+        "swapped",
+        "left",
+        "right",
+        "handwritten",
+        "nonmandatory",
+        "same_side",
+        "chain",
+    ),
+)
+def test_compiled_predicate_keys_preserve_complete_grain_dependencies(
+    tmp_path, target, case, left_key, right_key, kind, match, expected
+):
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_grain import ProjectGrainDependencyFact
+    from pietto._project.project_query_block_ir import build_compiled_query_block_ir
+    from pietto._project.project_query_block_ir_verification import (
+        verify_compiled_join_grain,
+    )
+
+    key = "    row_id = unique(id)\n"
+    equality = (
+        "r.id == l.id and r.key == l.key"
+        if match == "swapped"
+        else "l.id == r.id and l.key == r.key"
+    )
+    predicate = (
+        "lhs.id == r.id and lhs.key == r.key"
+        if match == "handwritten"
+        else "Link(lhs, r) or True"
+        if match == "or"
+        else "LeftOnly(lhs) and r.id > 0"
+        if match == "same_side"
+        else "Link(lhs, r)"
+    )
+    later = (
+        "    let again = rhs\n    inner join again on Link(lhs, again)\n"
+        if case == "chain"
+        else ""
+    )
+    source = f"""shape LeftRow:
+    id: Int
+    key: Int | None
+{key if left_key else ""}shape RightRow:
+    id: Int
+    key: Int | None
+{key if right_key else ""}source lhs: LeftRow = {target}.table("lhs")
+source rhs: RightRow = {target}.table("rhs")
+relationship Link(l: LeftRow, r: RightRow):
+    {equality}
+relationship LeftOnly(l: LeftRow):
+    l.id == l.id
+query result:
+    from lhs
+    let r = rhs
+    {kind} join r on {predicate}
+{later}    select:
+        left_id = lhs.id
+        right_key = r.key
+"""
+    fixture = emission.join_witness(target, "")
+    verified, outcome = emission.build_case(
+        tmp_path / case, source, fixture["contract"]
+    )
+    assert verified.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    replay = emit_compiled(loaded, ())
+    assert replay.rendered.sql == outcome.artifact.rendered.sql
+    ir = replay.request.plan.ir
+    joins = tuple(operator for operator in ir.operators if operator.kind == "join")
+    operator = joins[-1]
+    properties = operator.properties.relational
+    grain = properties.grain
+    positions = {factor.identity: i for i, factor in enumerate(grain.factors)}
+    observed = tuple(
+        (
+            tuple(positions[f] for f in d.determinants),
+            tuple(positions[f] for f in d.dependents),
+        )
+        for d in grain.dependencies
+    )
+    assert observed == expected
+    assert operator.record.get("equalities") == ()
+    parents = {item.record.address: item for item in ir.operators}
+    verify_compiled_join_grain(ir, operator, parents)
+    extra = ProjectGrainDependencyFact(
+        determinants=(grain.active[0],), dependents=(grain.active[-1],)
+    )
+    damages = [(*grain.dependencies, extra)]
+    if grain.dependencies:
+        first = grain.dependencies[0]
+        damages.extend(
+            (
+                grain.dependencies[1:],
+                (*grain.dependencies, first),
+                (
+                    replace(
+                        first,
+                        determinants=first.dependents,
+                        dependents=first.determinants,
+                    ),
+                    *grain.dependencies[1:],
+                ),
+            )
+        )
+        foreign = build_compiled_query_block_ir(ir.completed)
+        foreign_operator = next(
+            item
+            for item in foreign.operators
+            if item.record.address == operator.record.address
+        )
+        foreign_first = foreign_operator.properties.relational.grain.dependencies[0]
+        damages.append((foreign_first, *grain.dependencies[1:]))
+    if len(grain.dependencies) > 1:
+        damages.append(tuple(reversed(grain.dependencies)))
+    for dependencies in damages:
+        forged = replace(
+            operator,
+            properties=replace(
+                operator.properties,
+                relational=replace(
+                    properties, grain=replace(grain, dependencies=dependencies)
+                ),
+            ),
+        )
+        with pytest.raises(
+            CompiledError, match="^COMPILED_PROPERTY_JOIN_DEPENDENCIES$"
+        ):
+            verify_compiled_join_grain(ir, forged, parents)
+
+
+@pytest.mark.parametrize(
+    "target,case,kind,predicate,local_factors",
+    [
+        pytest.param(target, case, kind, predicate, factors, id=f"{target}-{case}")
+        for target in ("postgres", "mysql")
+        for case, kind, predicate, factors in (
+            ("inner", "inner", "Many(dimension, signal)", (1,)),
+            ("right", "right", "Many(dimension, signal)", (1,)),
+            ("left", "left", "Many(dimension, signal)", ()),
+            ("full", "full", "Many(dimension, signal)", ()),
+            ("or", "inner", "Many(dimension, signal) or True", ()),
+            ("not", "inner", "not Many(dimension, signal)", ()),
+            ("missing_composite", "inner", "Partial(dimension, signal)", ()),
+            (
+                "multiple_bindings",
+                "inner",
+                "Many(dimension, signal) and Many(agg, signal)",
+                (0, 1),
+            ),
+        )
+        if target == "postgres" or kind != "full"
+    ],
+)
+def test_compiled_local_key_grain_does_not_bound_accumulated_left(
+    tmp_path, target, case, kind, predicate, local_factors
+):
+    """An event-expanded left row keeps each independently proved local edge."""
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
+    from pietto._project.project_grain import (
+        CompiledGrainFactorIdentity,
+        ProjectGrainDependencyFact,
+        ProjectJoinGrainFactorIdentity,
+    )
+    from pietto._project.project_query_block_ir_verification import (
+        verify_compiled_join_grain,
+    )
+
+    item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
+    header = emission.AGGREGATE_HEADER.format(target=target)
+    composite = case == "missing_composite"
+    suffix = " and a.label == b.label" if composite else ""
+    if composite:
+        header = header.replace("unique(rid)", "unique(rid, label)")
+    source = header + (
+        f"relationship Same(a: Agg, b: Agg):\n    a.rid == b.rid{suffix}\n"
+        f"relationship Many(a: Agg, b: Agg):\n    a.rid == b.key{suffix}\n"
+        "relationship Partial(a: Agg, b: Agg):\n    a.rid == b.key\n"
+        "query result:\n    from agg\n    let dimension = agg\n"
+        "    inner join dimension on Same(agg, dimension)\n"
+        "    let event = agg\n    inner join event on Many(agg, event)\n"
+        f"    let signal = agg\n    {kind} join signal on {predicate}\n"
+        "    select:\n        account_id = agg.rid\n"
+        "        dimension_id = dimension.rid\n        event_id = event.rid\n"
+        "        signal_id = signal.rid\n"
+    )
+    checked, outcome = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    replay = _compare(artifact, refinement=False)
+    (region,) = (
+        artifact.request.verification.completed.effective_outputs.current_regions
+    )
+    original = region.joins[-1]
+    assert isinstance(original, ProjectCurrentBinaryJoin)
+    ir = replay.request.plan.ir
+    joins = tuple(item for item in ir.operators if item.kind == "join")
+    operator = joins[-1]
+    properties = operator.properties.relational
+    grain = properties.grain
+    parents = {item.record.address: item for item in ir.operators}
+    left_use = ir.completed.root.records[operator.record.get("inputs")[0]]
+    left = parents[left_use.get("producer")].properties.relational
+    expected = (
+        ((0,), (1,)),
+        ((1,), (0,)),
+        ((2,), (0, 1)),
+        *(((3,), (factor,)) for factor in local_factors),
+    )
+    columns = tuple(name for name, _ in emission.AGGREGATE_COLUMNS)
+    key = tuple(
+        i
+        for i, name in enumerate(columns)
+        if name == "rid" or composite and name == "label"
+    )
+    event_key = tuple(2 * len(columns) + i for i in key)
+    signal_key = tuple(3 * len(columns) + i for i in key)
+    for incoming, current, node, introductions in (
+        (
+            original.left_input,
+            original.properties.relational,
+            original.node.ref,
+            (
+                region.joins[0].input_uses[0].ref,
+                *(join.input_uses[1].ref for join in region.joins),
+            ),
+        ),
+        (
+            left,
+            properties,
+            operator.ref,
+            (
+                ir.references[joins[0].record.get("inputs")[0]],
+                *(ir.references[j.record.get("inputs")[1]] for j in joins),
+            ),
+        ),
+    ):
+        # The only accumulated key belongs to event, not the matched dimension.
+        for value, positions in (
+            (incoming, event_key),
+            (current, (*event_key, *signal_key)),
+        ):
+            assert tuple(
+                tuple(m.field_position for c in k.determinants for m in c.members)
+                for k in value.keys
+            ) == (positions,)
+        current_grain = current.grain
+        positions = {f.identity: i for i, f in enumerate(current_grain.factors)}
+        assert (
+            tuple(
+                (
+                    tuple(positions[f] for f in d.determinants),
+                    tuple(positions[f] for f in d.dependents),
+                )
+                for d in current_grain.dependencies
+            )
+            == expected
+        )
+        identities = tuple(
+            f.identity
+            for f in current_grain.factors
+            if isinstance(
+                f.identity,
+                (ProjectJoinGrainFactorIdentity, CompiledGrainFactorIdentity),
+            )
+        )
+        assert len(identities) == len(current_grain.factors)
+        assert len({f.base for f in identities}) == 1
+        assert len({f.introduction_use for f in identities}) == 4
+        assert tuple(positions[f] for f in current_grain.active) == (0, 1, 2, 3)
+        for factor, use in zip(current_grain.active, introductions, strict=True):
+            assert isinstance(
+                factor, (ProjectJoinGrainFactorIdentity, CompiledGrainFactorIdentity)
+            )
+            assert factor.introduction_use is use
+            assert factor.kind.value == "source_domain"
+        left_nulling = (node,) if kind in {"right", "full"} else ()
+        right_nulling = (node,) if kind in {"left", "full"} else ()
+        assert tuple(f.nulling_joins for f in identities) == (
+            left_nulling,
+            left_nulling,
+            left_nulling,
+            right_nulling,
+        )
+    verify_compiled_join_grain(ir, operator, parents)
+    # A local match cannot determine the unmatched event or the whole left row.
+    damages = []
+    for dependents in ((grain.active[2],), grain.active[:3]):
+        extra = ProjectGrainDependencyFact(
+            determinants=(grain.active[3],), dependents=dependents
+        )
+        damages.append((*grain.dependencies, extra))
+    if case == "multiple_bindings":
+        prefix = grain.dependencies[:-2]
+        account, dimension = grain.dependencies[-2:]
+        damages.extend(
+            (
+                (*prefix, dimension),
+                (*prefix, account),
+                (*prefix, dimension, account),
+            )
+        )
+    for dependencies in damages:
+        forged = replace(
+            operator,
+            properties=replace(
+                operator.properties,
+                relational=replace(
+                    properties,
+                    grain=replace(grain, dependencies=dependencies),
+                ),
+            ),
+        )
+        with pytest.raises(
+            CompiledError, match="^COMPILED_PROPERTY_JOIN_DEPENDENCIES$"
+        ):
+            verify_compiled_join_grain(ir, forged, parents)
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -1967,13 +2472,13 @@ LATERAL_LET = """    let {name}:
 TWO_LATERAL = (
     "table a:\n"
     + LATERAL_LET.format(name="m", field="key", tail="")
-    + "    cross join m as m1:\n        from lhs\n"
+    + "    let m1 = m\n    cross join m1\n"
     + "    select:\n        id = lhs.id\n        t = m1.id\n"
     + "table b:\n"
     + LATERAL_LET.format(name="n", field="id", tail="")
-    + "    inner join n as n1:\n        from lhs\n        on true\n"
+    + "    let n1 = n\n    inner join n1 on True\n"
     + "    select:\n        id = lhs.id\n        t = n1.id\n"
-    + "query result:\n    from a\n    cross join b as y:\n        from a\n"
+    + "query result:\n    from a\n    let y = b\n    cross join y\n"
     + "    select:\n        x = a.t\n        z = y.t\n"
 )
 TOP_K_LATERAL = (
@@ -1984,7 +2489,7 @@ TOP_K_LATERAL = (
         tail="            v = rhs.key\n        order by:\n            key desc\n"
         "            id\n        limit 2\n",
     )
-    + "    {kind} join m as m1:\n        from lhs\n{on}"
+    + "    let m1 = m\n    {kind} join m1{on}\n"
     + "    select:\n        a = lhs.id\n        b = m1.v\n"
 )
 
@@ -2180,7 +2685,7 @@ def test_a_compiled_lateral_join_keeps_a_kind_that_extends_each_left_row(
     )
     from pietto._project.project_compiled_verification import verify_description
 
-    source = TOP_K_LATERAL.format(kind="left", on="        on m1.id > 3\n")
+    source = TOP_K_LATERAL.format(kind="left", on=" on m1.id > 3")
     _, built, _ = _compiled_lateral(tmp_path, "postgres", source)
     description = built.root.description
     (join,) = (r for r in description.records if r.address.kind == "join")
@@ -2214,7 +2719,7 @@ def test_a_lateral_top_k_replays_from_compiled_input(tmp_path, target, kind):
         verify_export,
     )
 
-    on = {"cross": "", "inner": "        on true\n", "left": "        on m1.id > 3\n"}
+    on = {"cross": "", "inner": " on True", "left": " on m1.id > 3"}
     artifact, built, candidate = _compiled_lateral(
         tmp_path, target, TOP_K_LATERAL.format(kind=kind, on=on[kind])
     )

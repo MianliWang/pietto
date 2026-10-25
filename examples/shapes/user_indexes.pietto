@@ -1,8 +1,8 @@
 shape User:
-    tenant_id: UUID not null
-    email: Text(max = 255) not null
-    deleted_at: Timestamp nullable
+    tenant_id: UUID
+    email: Text(max = 255)
+    deleted_at: Timestamp | None
 
-    index user_email_idx on email
-    index tenant_email_idx on tenant_id, email
-    index active_user_email_idx on email when deleted_at is null
+    user_email_idx = index(email)
+    tenant_email_idx = index(tenant_id, email)
+    active_user_email_idx = index(email) when deleted_at is None

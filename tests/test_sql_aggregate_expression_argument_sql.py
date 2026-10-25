@@ -88,13 +88,13 @@ TEXT_UNKNOWN = replace(TEXT_NON_NULL, nullability=NullabilityIR.UNKNOWN)
 
 BASE_SHAPE = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    region: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    "    price: Decimal not null\n"
+    "    status: Text\n"
+    "    region: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
 )
 
 
@@ -580,21 +580,20 @@ def test_cli_json_output_writes_supported_expression_argument_sql(
 
 
 DECIMAL_PRODUCT_SOURCE = (
-    "type Money = Decimal(12, 2) not null\n"
-    "type Cash = Money not null\n"
+    "type Money = Decimal(12, 2)\n"
+    "type Cash = Money\n"
     "shape Line:\n"
-    "    region: Text not null\n"
-    "    price: Decimal(12, 2) not null\n"
-    "    rate: Decimal(10, 4) nullable\n"
-    "    fee: Money not null\n"
-    "    cash: Cash not null\n"
-    "    qty: Int not null\n"
-    'source lines: Line is {connector}("lines")\n'
+    "    region: Text\n"
+    "    price: Decimal(12, 2)\n"
+    "    rate: Decimal(10, 4) | None\n"
+    "    fee: Money\n"
+    "    cash: Cash\n"
+    "    qty: Int\n"
+    'source lines: Line = {connector}("lines")\n'
     "query decimal_products:\n"
     "    from lines\n"
-    "    let:\n"
-    "        gross = price * rate\n"
-    "        gross_again = gross\n"
+    "    let gross = price * rate\n"
+    "    let gross_again = gross\n"
     "    group by:\n"
     "        region\n"
     "    select:\n"
@@ -605,7 +604,7 @@ DECIMAL_PRODUCT_SOURCE = (
     "        nested = avg(price * rate + qty)\n"
     "        bound = sum(gross)\n"
     "        chained = avg(gross_again)\n"
-    "    satisfying:\n"
+    "    having:\n"
     "        direct > 0\n"
 )
 
@@ -774,17 +773,17 @@ def _source(
     satisfying: str | None = None,
 ) -> str:
     group_block = "    group by:\n        region\n" if grouped else ""
-    satisfying_block = (
-        f"    satisfying:\n        {satisfying}\n" if satisfying is not None else ""
+    having_block = (
+        f"    having:\n        {satisfying}\n" if satisfying is not None else ""
     )
     return (
-        BASE_SHAPE + f'source orders: Order is {connector}("{table_name}")\n'
+        BASE_SHAPE + f'source orders: Order = {connector}("{table_name}")\n'
         "table aggregate_stats:\n"
         "    from orders\n"
         f"{group_block}"
         "    select:\n"
         f"        {select_body}\n"
-        f"{satisfying_block}"
+        f"{having_block}"
     )
 
 

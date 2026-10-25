@@ -49,10 +49,10 @@ SPEC_HEADINGS = (
 
 def _source() -> str:
     return """shape Row:
-    id: Int not null
-    amount: Int nullable
-    category: Text nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    amount: Int | None
+    category: Text | None
+source rows: Row = postgres.table("rows")
 query aggregate_only:
     from rows
     select:
@@ -79,22 +79,19 @@ query satisfying:
     select:
         category
         total = sum(amount)
-    satisfying:
+    having:
         total > 0
 query windowed:
     from rows
     select:
         id
-        ranking = row_number() window:
-            order by:
-                id
-        ranked = rank() window:
-            order by:
-                id
+        ranking = row_number() window(order by id)
+        ranked = rank() window(order by id)
 query full:
     from rows
-    let:
-        adjusted = amount + id
+    let adjusted = amount + id
+    let child = window base
+    let base = window(partition by category order by total desc)
     where id > 0
     group by:
         category
@@ -102,13 +99,7 @@ query full:
         category
         total = sum(adjusted)
         ranking = row_number() window child
-    window child = base
-    window base:
-        partition by:
-            category
-        order by:
-            total desc
-    satisfying:
+    having:
         sum(adjusted) > 0
 query broken:
     from rows

@@ -249,8 +249,8 @@ def test_invalid_count_shape_stops_before_sql_without_artifacts(
     path = tmp_path / "invalid-count.pietto"
     path.write_text(
         "shape Order:\n"
-        "    status: Text not null\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    status: Text\n"
+        'source orders: Order = postgres.table("orders")\n'
         "table paid_order_stats:\n"
         "    from orders\n"
         "    select:\n"

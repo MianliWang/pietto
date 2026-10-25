@@ -34,6 +34,7 @@ from pietto._project.project_ir_joins import (
     _all_non_null,
     _classes_for_output,
     _grain,
+    _is_join_factor,
     _image_fd,
     _image_key,
     _ordered_classes,
@@ -63,6 +64,7 @@ from pietto._project.project_join_conditions import (
 )
 from pietto._project.project_relationship_match_guarantees import (
     ProjectRelationshipMaximumBound,
+    resolved_matching_keys,
 )
 from pietto._project.project_relationship_uses import (
     ProjectConcreteJoinUse,
@@ -335,31 +337,10 @@ class ProjectCurrentBinaryJoin:
             (id(proof.field.binding), id(proof.field.input_field))
             for proof in condition.null_rejections
         }
-        base = condition.base_guarantee
-        candidates = condition.environment.source_candidates
-        if (
-            base is not None
-            and len(candidates) == 1
-            and len(condition.base_conditions) == 1
-        ):
-            for binding, endpoint in (
-                (candidates[0], base.direction.source),
-                (condition.use.target_binding, base.direction.target),
-            ):
-                rejected.update(
-                    (id(binding), id(original))
-                    for correspondence in condition.base_conditions[0].correspondences
-                    for reference in (
-                        correspondence.endpoint_zero,
-                        correspondence.endpoint_one,
-                    )
-                    if reference.endpoint is endpoint
-                    for own, original in origins
-                    if own is binding
-                    and original.evidence is reference.semantic_field
-                    and original.field_position
-                    == reference.field_identity.field_position
-                )
+        rejected.update(
+            (id(field.binding), id(field.input_field))
+            for field in condition.legacy_matched_fields
+        )
         fields: list[ProjectIRJoinedRowField] = []
         left_nulling = kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
         right_nulling = kind in {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
@@ -490,11 +471,13 @@ def resolved_join_field_nullability(kind, incoming, null_extended, rejected):
 
 
 def current_forward_at_most_one(condition: ProjectJoinCondition) -> bool:
-    """Whether each left row matches at most one right row (refinement first)."""
-    base, refined = condition.base_guarantee, condition.refinement_guarantee
-    bound = refined if refined is not None else base
-    return bound is not None and (
-        bound.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+    """Each left row has at most one RHS match; keep all applicable proofs."""
+    return any(
+        bound is not None
+        and bound.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+        for bound in (condition.refinement_guarantee, condition.base_guarantee)
+    ) or any(
+        proof.binding is condition.use.target_binding for proof in condition.key_matches
     )
 
 
@@ -572,6 +555,41 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
             and _reverse_guarantee(join.condition.root.uses, base).maximum
             is ProjectRelationshipMaximumBound.AT_MOST_ONE
         )
+    # Bound the accumulated left row, not one named input inside that row.
+    matched_left_positions = {
+        position
+        for equality in join.condition.mandatory_equalities
+        for own, other in (
+            (equality.left, equality.right),
+            (equality.right, equality.left),
+        )
+        if own.binding is not join.condition.use.target_binding
+        and other.binding is join.condition.use.target_binding
+        for position, (binding, original) in enumerate(join.left_fields)
+        if binding is own.binding and original is own.input_field
+    }
+    matched_left_classes = tuple(
+        group
+        for group in left.value_classes
+        if any(
+            member.field_position in matched_left_positions for member in group.members
+        )
+    )
+    reverse_at_most_one |= bool(resolved_matching_keys(left.keys, matched_left_classes))
+    local_reverse_sources = ()
+    if (
+        not reverse_at_most_one
+        and kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.RIGHT}
+        and type(left.output) is ProjectIRJoinRowOutput
+    ):
+        introductions = {
+            current.introduction_use.ref
+            for (binding, _original), current in zip(
+                join.left_fields, left.output.row_shape.fields, strict=True
+            )
+            if any(proof.binding is binding for proof in join.condition.key_matches)
+        }
+        local_reverse_sources = _local_reverse_factor_groups(left.grain, introductions)
     return resolved_join_properties(
         kind=kind,
         left=left,
@@ -596,6 +614,7 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
         ),
         named_left_input=type(left.output) is not ProjectIRJoinRowOutput,
         prepared=(fields, classes, left_images, right_images, left_keys, right_keys),
+        local_reverse_sources=local_reverse_sources,
     )
 
 
@@ -614,6 +633,7 @@ def resolved_join_properties(
     origin_set,
     named_left_input,
     prepared=None,
+    local_reverse_sources=(),
 ) -> ProjectIROutputRelationalProperties:
     """Original current JOIN key/FD/grain algebra over resolved input images."""
     left_nulling = kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
@@ -717,6 +737,7 @@ def resolved_join_properties(
         left_nulling=(node_ref,) if left_nulling else (),
         forward_at_most_one=forward_at_most_one,
         reverse_at_most_one=reverse_at_most_one,
+        local_reverse_sources=local_reverse_sources,
         witness=grain_witness,
         origin_set=origin_set,
         preserve_nested_inputs=True,
@@ -1111,6 +1132,27 @@ def _compiled_matched_classes(records, record, incoming, side):
     )
 
 
+def _compiled_predicate_matched_classes(records, record, incoming, side):
+    """Project exact validated call-scoped comparisons onto one current JOIN side."""
+    from pietto._project.project_compiled_schema import predicate_equalities
+
+    uses = record.get("inputs")
+    positions = set()
+    for equality in predicate_equalities(records, record):
+        operands = equality.get("operands")
+        for own, other in (operands, operands[::-1]):
+            if own.kind == other.kind == "read" and (
+                records[own].get("use") == uses[side]
+                and records[other].get("use") == uses[1 - side]
+            ):
+                positions.add(records[records[own].get("port")].get("ordinal"))
+    return tuple(
+        group
+        for group in incoming.value_classes
+        if any(member.field_position in positions for member in group.members)
+    )
+
+
 def compiled_forward_at_most_one(records, record, right) -> bool:
     """`current_forward_at_most_one` for a compiled JOIN: a key of its right
     input is matched by the JOIN's equalities."""
@@ -1119,7 +1161,59 @@ def compiled_forward_at_most_one(records, record, right) -> bool:
     )
 
     matched = _compiled_matched_classes(records, record, right, 1)
-    return bool(matched) and bool(resolved_matching_keys(right.keys, matched))
+    predicate_matched = _compiled_predicate_matched_classes(records, record, right, 1)
+    return bool(resolved_matching_keys(right.keys, matched)) or bool(
+        resolved_matching_keys(right.keys, predicate_matched)
+    )
+
+
+def _local_reverse_factor_groups(grain, introductions):
+    """Every matched input's complete active factor group, in grain order."""
+    groups = {}
+    for factor in grain.active:
+        if _is_join_factor(factor) and factor.introduction_use in introductions:
+            groups.setdefault(factor.introduction_use, []).append(factor)
+    return tuple(tuple(factors) for factors in groups.values())
+
+
+def compiled_local_reverse_sources(records, record, left, built, references):
+    """Re-derive local input keys without bounding the accumulated left row."""
+    from pietto._project.project_compiled_schema import _carried, predicate_equalities
+
+    if record.get("law") != "current" or record.get("kind") not in {"inner", "right"}:
+        return ()
+    left_use, right_use = record.get("inputs")
+    fields = {}
+    for equality in predicate_equalities(records, record):
+        operands = equality.get("operands")
+        for own, other in (operands, operands[::-1]):
+            if (
+                own.kind != "read"
+                or other.kind != "read"
+                or (
+                    records[own].get("use") != left_use
+                    or records[other].get("use") != right_use
+                )
+            ):
+                continue
+            binding, chain = _carried(
+                records, record.get("owner"), records[own].get("port")
+            )
+            if chain:
+                fields.setdefault(left_use if binding is None else binding, set()).add(
+                    chain[-1].get("ordinal")
+                )
+    introductions = set()
+    for use, positions in fields.items():
+        properties = built[records[use].get("producer")].properties.relational
+        matched = tuple(
+            group
+            for group in properties.value_classes
+            if any(member.field_position in positions for member in group.members)
+        )
+        if resolved_matching_keys(properties.keys, matched):
+            introductions.add(references[use])
+    return _local_reverse_factor_groups(left.grain, introductions)
 
 
 def compiled_join_properties(completed, record, output, built, origin, references):
@@ -1209,6 +1303,12 @@ def compiled_join_properties(completed, record, output, built, origin, reference
     source_is_key = bool(matched_left) and any(
         set(k.determinants) == set(matched_left) for k in left.keys
     )
+    predicate_forward_keys = resolved_matching_keys(
+        right.keys, _compiled_predicate_matched_classes(records, record, right, 1)
+    )
+    predicate_reverse_keys = resolved_matching_keys(
+        left.keys, _compiled_predicate_matched_classes(records, record, left, 0)
+    )
     return resolved_join_properties(
         kind=kind,
         left=left,
@@ -1217,11 +1317,16 @@ def compiled_join_properties(completed, record, output, built, origin, reference
         input_uses=input_uses,
         node_ref=references[record.address],
         forward_at_most_one=bool(forward_keys)
+        or bool(predicate_forward_keys)
         or right.grain.state is ProjectGrainBasisState.GLOBAL,
         reverse_at_most_one=(source_is_key and bool(reverse_keys))
+        or bool(predicate_reverse_keys)
         or left.grain.state is ProjectGrainBasisState.GLOBAL,
         witness=record,
         grain_witness=record,
         origin_set=origin,
         named_left_input=named_left,
+        local_reverse_sources=compiled_local_reverse_sources(
+            records, record, left, built, references
+        ),
     )

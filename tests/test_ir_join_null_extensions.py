@@ -43,6 +43,7 @@ from _pietto_project_join_output import (
 )
 from _pietto_project_join import (
     _completed,
+    _prefix_existence_source,
     _source,
 )
 from _pietto_project_join_full import _two_current_globals_full, _unique_source
@@ -116,17 +117,17 @@ def test_minimal_new_kinds_complete_exact_rows(
 
 
 @pytest.mark.parametrize(
-    "kind,predicate,via",
+    "kind,predicate",
     (
-        ("inner", "lhs.id == r.id", ""),
-        ("left", "lhs.id == r.id", ""),
-        ("left", "r.key is not null", "        via link: l -> r\n"),
+        ("inner", "lhs.id == r.id"),
+        ("left", "lhs.id == r.id"),
+        ("left", "Link(lhs, r) and r.key is not None"),
     ),
 )
 def test_existing_inner_left_and_refinement_controls_remain_green(
-    tmp_path: Path, kind: str, predicate: str, via: str
+    tmp_path: Path, kind: str, predicate: str
 ) -> None:
-    assert _completed(tmp_path, _source(predicate, kind=kind, via=via)).ok
+    assert _completed(tmp_path, _source(predicate, kind=kind)).ok
 
 
 type _BagRow = tuple[int | None, int | None, int | None, int | None]
@@ -211,59 +212,53 @@ def test_independent_finite_bag_reference_covers_duplicates_nulls_and_empty_side
     )
 
 
+@pytest.mark.parametrize("kind", ("right", "full"))
 @pytest.mark.parametrize(
-    "kind,predicate,via,mode",
-    (
-        ("right", None, "", "M1"),
-        ("full", None, "        via link: l -> r\n", "M2"),
-        ("right", "false", "        via link: l -> r\n", "M4"),
-        ("full", "r.id > 0", "        via link: l -> r\n", "M4"),
-    ),
+    "predicate", ("Link(lhs, r)", "Link(lhs, r) and False", "Link(lhs, r) and r.id > 0")
 )
-def test_direct_relationship_and_single_via_forms_keep_exact_base_authority(
-    tmp_path: Path, kind: str, predicate: str | None, via: str, mode: str
+def test_predicate_and_filter_forms_keep_exact_condition_authority(
+    tmp_path: Path, kind: str, predicate: str
 ) -> None:
-    completed = _completed(tmp_path, _source(predicate, kind=kind, via=via))
+    completed = _completed(tmp_path, _source(predicate, kind=kind))
     assert completed.ok, completed.diagnostics
     condition = completed.roots.join_conditions.entries[0]
     join = completed.effective_outputs.current_regions[0].joins[0]
     assert isinstance(join, ProjectCurrentBinaryJoin)
     assert join.condition is condition and join.kind is AuthoredJoinKind(kind)
-    assert condition.mode == mode
-    assert condition.base_guarantee is not None
-    assert len(condition.base_conditions) == 1
-    if mode == "M4":
-        assert condition.refinement_guarantee is not None
-        assert condition.refinement_guarantee.base is condition.base_guarantee
-    else:
-        assert condition.refinement_guarantee is None
+    assert condition.mode == "M3"
+    assert (
+        condition.base_conditions == ()
+        and condition.base_guarantee is condition.refinement_guarantee is None
+    )
+    assert len(condition.mandatory_equalities) == 1
+    predicate_fact = condition.environment.predicate_expression
+    assert (
+        predicate_fact is not None
+        and condition.mandatory_equalities[0].calls == predicate_fact.calls
+    )
 
 
-def test_full_nulls_entire_multihop_prefix_and_following_on_sees_it(
+def test_full_nulls_every_authored_prefix_binding_and_following_on_sees_it(
     tmp_path: Path,
 ) -> None:
-    source = _source(
-        None,
-        via="        via link: l -> r\n        via link: r -> l\n",
-    ).replace("inner join rhs as r:", "inner join lhs as r:")
-    source = source.replace(
-        "    select:\n",
-        """    full join rhs as c:
-        from r
-        on r.id == c.id
-    inner join rhs as d:
-        from c
-        on lhs.id == d.id
-    select:
-""",
+    source = (
+        _source("Link(lhs, r)")
+        .replace(
+            "    let r = rhs\n    inner join r on Link(lhs, r)\n",
+            "    let mid = rhs\n    inner join mid on Link(lhs, mid)\n"
+            "    let r = lhs\n    inner join r on Link(r, mid)\n",
+        )
+        .replace(
+            "    select:\n",
+            "    let c = rhs\n    full join c on r.id == c.id\n    let d = rhs\n    inner join d on lhs.id == d.id\n    select:\n",
+        )
     )
     source += "        c_id = c.id\n        d_id = d.id\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     region = completed.effective_outputs.current_regions[0]
-    assert len(region.joins) == 4 and len(region.hidden_introductions) == 1
-    full = region.joins[2]
-    following = region.joins[3]
+    assert len(region.joins) == 4 and not region.hidden_introductions
+    full, following = region.joins[2:]
     assert isinstance(full, ProjectCurrentBinaryJoin)
     assert isinstance(following, ProjectCurrentBinaryJoin)
     assert full.kind is AuthoredJoinKind.FULL
@@ -277,13 +272,15 @@ def test_full_nulls_entire_multihop_prefix_and_following_on_sees_it(
         field.nulling_joins == (full.node.ref,)
         for field in full.output.row_shape.fields[left_count:]
     )
-    hidden = tuple(
+    middle = tuple(
         field
         for field in full.output.row_shape.fields[:left_count]
-        if field.introduction_use is region.hidden_introductions[0]
+        if field.introduction_use is region.joins[0].input_uses[1]
     )
-    assert hidden and all(field.nulling_joins[-1] is full.node.ref for field in hidden)
-    following_condition = completed.roots.join_conditions.entries[2]
+    assert len(middle) == 3 and all(
+        field.nulling_joins[-1] is full.node.ref for field in middle
+    )
+    following_condition = completed.roots.join_conditions.entries[3]
     lhs_reference = following_condition.references[0]
     assert lhs_reference.target is not None
     assert lhs_reference.target.nullability is ProjectRowFieldNullability.NULLABLE
@@ -297,9 +294,8 @@ def test_outer_append_preserves_prior_left_nulling_history(
     source = _source("lhs.id == r.id", kind="left")
     source = source.replace(
         "    select:\n",
-        f"""    {kind} join rhs as last:
-        from r
-        on r.id == last.id
+        f"""    let last = rhs
+    {kind} join last on r.id == last.id
     select:
 """,
     )
@@ -364,7 +360,7 @@ def test_generic_products_keep_only_sound_composite_keys_and_no_cross_classes(
 def test_relationship_bounds_transfer_keys_with_exact_side_strength(
     tmp_path: Path, kind: str
 ) -> None:
-    completed = _completed(tmp_path, _unique_source(kind, None))
+    completed = _completed(tmp_path, _unique_source(kind, "Link(lhs, r)"))
     properties = completed.effective_outputs.current_regions[
         0
     ].final_properties.relational
@@ -395,15 +391,18 @@ def test_left_nulling_match_gives_no_left_to_right_grain_dependency(
     at-most-one match keeps its keys but gives no left-to-right grain
     dependency. RIGHT keeps the reverse one, which FULL never had."""
 
-    completed = _completed(tmp_path, _unique_source(kind, None))
+    completed = _completed(tmp_path, _unique_source(kind, "Link(lhs, r)"))
     assert completed.ok, completed.diagnostics
     (join,) = completed.effective_outputs.current_regions[0].joins
     assert isinstance(join, ProjectCurrentBinaryJoin)
-    assert join.condition.base_guarantee is not None
-    assert (
-        join.condition.base_guarantee.maximum
-        is ProjectRelationshipMaximumBound.AT_MOST_ONE
+    assert join.condition.base_guarantee is None
+    matches = tuple(
+        m
+        for m in join.condition.key_matches
+        if m.binding is join.condition.use.target_binding
     )
+    assert len(matches) == 1
+    assert matches[0].maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
     grain = join.properties.relational.grain
     left, right = (
         tuple(
@@ -424,13 +423,12 @@ def test_source_entity_reverse_bound_does_not_cover_duplicated_accumulated_left(
     tmp_path: Path,
 ) -> None:
     source = _unique_source("cross", None).replace(
-        "cross join rhs as r:", "cross join lhs as duplicate:"
+        "let r = rhs\n    cross join r", "let duplicate = lhs\n    cross join duplicate"
     )
     source = source.replace(
         "    select:\n",
-        """    right join rhs as r:
-        from lhs
-        via link: l -> r
+        """    let r = rhs
+    right join r on Link(lhs, r)
     select:
 """,
     )
@@ -532,15 +530,15 @@ def test_unknown_full_grain_propagates_through_replay_and_both_join_roles(
         right_total
 query chained_left:
     from replay
-    cross join lhs as extra:
-        from replay
+    let extra = lhs
+    cross join extra
     select:
         left_total = replay.left_total
         extra = extra.id
 query chained_right:
     from lhs
-    cross join replay as extra:
-        from lhs
+    let extra = replay
+    cross join extra
     select:
         id = lhs.id
         extra = extra.left_total
@@ -572,30 +570,30 @@ query chained_right:
 def test_completed_inputs_in_both_roles_replay_and_feed_a_following_join(
     tmp_path: Path, kind: str, producer: str, side: str
 ) -> None:
-    parent = _source("lhs.id == r.id" if producer == "joined" else None)
+    parent = _source("lhs.id == r.id" if producer == "joined" else "Link(lhs, r)")
     parent = parent.replace("query result:", "table upstream:")
     if producer == "grouped":
         parent = parent.replace(
             "    select:\n", "    group by:\n        lhs.id\n    select:\n"
         )
         parent += "        total = count()\n"
-    on = "" if kind == "cross" else "        on lhs.id == u.id\n"
+    on = "" if kind == "cross" else " on lhs.id == u.id"
     if side == "right":
         child = f"""query result:
     from lhs
-    {kind} join upstream as u:
-        from lhs
-{on}    select:
+    let u = upstream
+    {kind} join u{on}
+    select:
         id = lhs.id
         incoming = u.id
 """
     else:
-        on = "" if kind == "cross" else "        on upstream.id == u.id\n"
+        on = "" if kind == "cross" else " on upstream.id == u.id"
         child = f"""query result:
     from upstream
-    {kind} join rhs as u:
-        from upstream
-{on}    select:
+    let u = rhs
+    {kind} join u{on}
+    select:
         id = upstream.id
         incoming = u.id
 """
@@ -605,9 +603,8 @@ def test_completed_inputs_in_both_roles_replay_and_feed_a_following_join(
         echoed = incoming
 query chained:
     from replay
-    inner join rhs as r:
-        from replay
-        on replay.echoed == r.id
+    let r = rhs
+    inner join r on replay.echoed == r.id
     select:
         echoed = replay.echoed
 """
@@ -645,9 +642,11 @@ def test_new_kinds_use_the_existing_tail_builders(
     tmp_path: Path, kind: str, tail: str
 ) -> None:
     source, field_name = _tail_source(tail)
-    source = source.replace("inner join rhs as r:", f"{kind} join rhs as r:")
+    source = source.replace(
+        "let r = rhs\n    inner join r", f"let r = rhs\n    {kind} join r"
+    )
     if kind == "cross":
-        source = source.replace("        on lhs.id == r.id\n", "")
+        source = source.replace(" on lhs.id == r.id", "")
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     output = _output(completed, "upstream")
@@ -673,12 +672,12 @@ def test_completed_order_limit_window_and_qualify_outputs_are_new_kind_inputs(
     tmp_path: Path, kind: str, tail: str
 ) -> None:
     source, field_name = _tail_source(tail)
-    condition = "" if kind == "cross" else f"        on u.{field_name} > 0\n"
+    condition = "" if kind == "cross" else f" on u.{field_name} > 0"
     source += f"""query result:
     from lhs
-    {kind} join upstream as u:
-        from lhs
-{condition}    select:
+    let u = upstream
+    {kind} join u{condition}
+    select:
         id = lhs.id
         incoming = u.{field_name}
 """
@@ -735,9 +734,10 @@ def test_single_file_and_combined_ir_retain_current_joins(
     parsed = parse_source(source)
     assert parsed.ast is not None and not parsed.diagnostics
     semantic = analyze(parsed.ast)
-    assert not semantic.diagnostics
-    lowered = build_ir(parsed.ast, semantic.model)
-    assert lowered.ir is not None and not lowered.diagnostics
+    assert semantic.diagnostics == ()
+    assert semantic.script is not None
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and lowered.diagnostics == ()
     relation = lowered.ir.definitions[-1]
     assert isinstance(relation, RelationIR)
     assert len(relation.inputs) == 2
@@ -770,7 +770,7 @@ def test_single_file_and_combined_ir_retain_current_joins(
 def test_invalid_existence_conditions_remain_precisely_unavailable(
     tmp_path: Path, kind: str
 ) -> None:
-    completed = _completed(tmp_path, _source("1", kind=kind))
+    completed = _completed(tmp_path, _prefix_existence_source("1", kind))
     assert not completed.ok
     facts = completed.semantic_result.module_semantic_facts
     assert facts is not None
@@ -778,18 +778,30 @@ def test_invalid_existence_conditions_remain_precisely_unavailable(
     semantic = facts.find_owner(owner)
     assert len(semantic) == 1
     diagnostics = semantic[0].helper_diagnostics
-    assert len(diagnostics) == 2
+    # The hidden SEMI/ANTI JOIN of the `any`, its ON and the later JOIN's ON.
+    assert len(diagnostics) == 3
     assert all(diagnostic.code == "PIE-S2334" for diagnostic in diagnostics)
-    assert all(
-        any(diagnostic is retained for retained in completed.diagnostics)
-        for diagnostic in diagnostics
+    hidden, later = completed.roots.join_conditions.entries
+    assert [(d.code, d.message) for d in hidden.diagnostics] == [
+        ("PIE-S2202", "Expected Bool expression in JOIN ON")
+    ]
+    # The typed ON's own error replaces only that ON's gate: the published
+    # objects are the kind gate, the later JOIN's ON gate and the errors of
+    # both conditions.
+    published = (
+        diagnostics[0],
+        diagnostics[2],
+        *hidden.diagnostics,
+        *later.diagnostics,
     )
+    assert len(completed.diagnostics) == len(published)
+    assert all(a is b for a, b in zip(completed.diagnostics, published, strict=True))
     assert not completed.effective_outputs.current_regions
 
 
 def test_success_retires_only_its_exact_temporary_diagnostics(tmp_path: Path) -> None:
     supported = _source("lhs.id == r.id", kind="full")
-    unsupported = _source("1", kind="semi").split("query result:", 1)[1]
+    unsupported = _prefix_existence_source("1", "semi").split("query result:", 1)[1]
     completed = _completed(tmp_path, supported + "query unsupported:" + unsupported)
     assert not completed.ok
     admissions = completed.effective_outputs.join_admissions
@@ -808,21 +820,24 @@ def test_success_retires_only_its_exact_temporary_diagnostics(tmp_path: Path) ->
     assert facts is not None
     unsupported_facts = facts.find_owner(entries["unsupported"].owner)
     assert len(unsupported_facts) == 1
-    assert all(
-        any(diagnostic is retained for retained in completed.diagnostics)
-        for diagnostic in unsupported_facts[0].helper_diagnostics
+    kind_gate, _, later_gate = unsupported_facts[0].helper_diagnostics
+    hidden, later = (
+        condition
+        for condition in completed.roots.join_conditions.entries
+        if condition.ledger.owner is entries["unsupported"].owner
     )
+    # Its typed ON error replaces only its own ON gate; its same-code kind
+    # gate, the later JOIN's ON gate and the conditions' errors stay the
+    # published objects.
+    published = (kind_gate, later_gate, *hidden.diagnostics, *later.diagnostics)
+    assert len(completed.diagnostics) == len(published)
+    assert all(a is b for a, b in zip(completed.diagnostics, published, strict=True))
 
 
 @pytest.mark.parametrize(
     "source",
     (
-        _source("true", kind="cross"),
-        _source(
-            None,
-            kind="right",
-            via="        via link: l -> r\n        via link: r -> l\n",
-        ).replace("right join rhs as r:", "right join lhs as r:"),
+        _source("True", kind="cross"),
         _source("1", kind="full"),
     ),
 )
@@ -868,9 +883,8 @@ def test_cycles_block_members_and_dependents_without_blocking_independent_full(
     )
     source += """table a:
     from b
-    right join lhs as extra:
-        from b
-        on b.id == extra.id
+    let extra = lhs
+    right join extra on b.id == extra.id
     select:
         id = b.id
 table b:
@@ -943,7 +957,7 @@ def test_nullable_or_condition_produces_no_unconditional_cross_side_fact(
 def test_null_extended_local_fds_keep_only_sound_strength(
     tmp_path: Path, kind: str
 ) -> None:
-    completed = _completed(tmp_path, _unique_source(kind, None))
+    completed = _completed(tmp_path, _unique_source(kind, "Link(lhs, r)"))
     join = completed.effective_outputs.current_regions[0].joins[0]
     assert isinstance(join, ProjectCurrentBinaryJoin)
     split = len(join.left_input.fields)
@@ -979,17 +993,19 @@ def test_null_extended_local_fds_keep_only_sound_strength(
     assert all(fact.determinants for fact in join.properties.relational.fds)
 
 
-def test_full_refinement_keeps_upper_bound_but_not_minimum_coverage(
+def test_full_filtered_predicate_keeps_key_upper_bound_without_coverage(
     tmp_path: Path,
 ) -> None:
-    source = _unique_source("full", "false", via="        via link: l -> r\n")
-    completed = _completed(tmp_path, source)
+    completed = _completed(tmp_path, _unique_source("full", "Link(lhs, r) and False"))
     assert completed.ok, completed.diagnostics
     condition = completed.roots.join_conditions.entries[0]
-    assert condition.base_guarantee is not None
-    assert condition.refinement_guarantee is not None
-    assert condition.refinement_guarantee.maximum is condition.base_guarantee.maximum
-    assert condition.refinement_guarantee.minimum.value == "zero_allowed"
+    assert condition.base_guarantee is condition.refinement_guarantee is None
+    matches = tuple(
+        m for m in condition.key_matches if m.binding is condition.use.target_binding
+    )
+    assert len(matches) == 1
+    assert matches[0].maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
+    assert matches[0].minimum.value == "zero_allowed"
     join = completed.effective_outputs.current_regions[0].joins[0]
     assert isinstance(join, ProjectCurrentBinaryJoin)
     assert all(
@@ -999,7 +1015,7 @@ def test_full_refinement_keeps_upper_bound_but_not_minimum_coverage(
 
 
 def test_join_on_and_later_where_keep_separate_authority(tmp_path: Path) -> None:
-    source = _source("false", kind="full").replace(
+    source = _source("False", kind="full").replace(
         "    select:\n", "    where lhs.id > 0\n    select:\n"
     )
     completed = _completed(tmp_path, source)
@@ -1043,14 +1059,14 @@ def test_repeated_completed_self_use_keeps_distinct_input_occurrences(
     tmp_path: Path, kind: str
 ) -> None:
     parent = _source("lhs.id == r.id").replace("query result:", "table upstream:")
-    condition = "" if kind == "cross" else "        on false\n"
+    condition = "" if kind == "cross" else " on False"
     source = (
         parent
         + f"""query result:
     from upstream
-    {kind} join upstream as again:
-        from upstream
-{condition}    select:
+    let again = upstream
+    {kind} join again{condition}
+    select:
         id = upstream.id
         repeated = again.id
 """
@@ -1082,20 +1098,18 @@ def test_import_and_reexport_keep_exact_completed_input_dependency(
     tmp_path: Path,
 ) -> None:
     parent = _source("lhs.id == r.id").replace("query result:", "table upstream:")
-    (tmp_path / "a.pietto").write_text(parent + "export:\n    table upstream\n")
+    (tmp_path / "a.pietto").write_text(parent + "export table upstream\n")
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table upstream as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import table upstream as Public\nexport table Public\n'
     )
-    main = """import "b.pietto":
-    table Public as Imported
+    main = """from "b.pietto" import table Public as Imported
 shape Local:
-    id: Int not null
-source local_rows: Local is postgres.table("local")
+    id: Int
+source local_rows: Local = postgres.table("local")
 query result:
     from local_rows
-    full join Imported as incoming:
-        from local_rows
-        on local_rows.id == incoming.id
+    let incoming = Imported
+    full join incoming on local_rows.id == incoming.id
     select:
         id = local_rows.id
         imported = incoming.id
@@ -1120,7 +1134,7 @@ query result:
     assert binding.authority is not None and binding.authority.entry is upstream
 
 
-@pytest.mark.parametrize("value,ok", (("true", True), ("1", False)))
+@pytest.mark.parametrize("value,ok", (("True", True), ("1", False)))
 def test_changed_completed_input_type_rebuilds_right_condition(
     tmp_path: Path, value: str, ok: bool
 ) -> None:
@@ -1131,9 +1145,8 @@ def test_changed_completed_input_type_rebuilds_right_condition(
     )
     source += """query result:
     from lhs
-    right join upstream as incoming:
-        from lhs
-        on incoming.flag
+    let incoming = upstream
+    right join incoming on incoming.flag
     select:
         id = lhs.id
 """
@@ -1155,7 +1168,7 @@ def test_changed_completed_input_type_rebuilds_right_condition(
 def test_project_explain_keeps_schema4_and_does_not_observe_new_current_ir(
     tmp_path: Path, capsys
 ) -> None:
-    assert _completed(tmp_path, _source("false", kind="full")).ok
+    assert _completed(tmp_path, _source("False", kind="full")).ok
     assert cli.main(["explain", "--project", str(tmp_path)]) == 2
     captured = capsys.readouterr()
     assert "schema version 4" in captured.err
@@ -1166,15 +1179,13 @@ def test_inner_relationship_with_extra_on_retains_complete_non_null_facts(
     tmp_path: Path, outer_after: bool
 ) -> None:
     source = (
-        "shape Row:\n    id: Int not null\n    key: Int nullable\n    unique row_key on id\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "relationship link:\n    endpoint many: rows\n    endpoint one: rows\n"
-        "    on many.key == one.id\n"
-        "query result:\n    from rows\n    inner join rows as matched:\n"
-        "        from rows\n        via link: one -> many\n        on matched.id > 0\n"
+        "shape Row:\n    id: Int\n    key: Int | None\n    row_key = unique(id)\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "relationship Link(many: Row, one: Row):\n    many.key == one.id\n"
+        "query result:\n    from rows\n    let matched = rows\n    inner join matched on Link(matched, rows) and matched.id > 0\n"
     )
     if outer_after:
-        source += "    right join rows as later:\n        from matched\n        via link: many -> one\n"
+        source += "    let later = rows\n    right join later on Link(matched, later)\n"
     source += "    select:\n        value = matched.key\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
@@ -1197,17 +1208,14 @@ def test_inner_relationship_with_extra_on_retains_complete_non_null_facts(
     )
 
 
-def test_relationship_non_null_facts_keep_exact_equivalent_field_occurrences(
+def test_match_non_null_facts_keep_exact_equivalent_field_occurrences(
     tmp_path: Path,
 ) -> None:
     source = (
-        "shape Row:\n    id: Int not null\n    key: Int nullable\n    unique row_key on id\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n    id: Int\n    key: Int | None\n    row_key = unique(id)\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query aliased:\n    from rows\n    select:\n        id\n        key\n        sibling = key\n"
-        "relationship link:\n    endpoint many: aliased\n    endpoint one: rows\n"
-        "    on many.key == one.id\n"
-        "query result:\n    from rows\n    inner join aliased as matched:\n"
-        "        from rows\n        via link: one -> many\n        on matched.id > 0\n"
+        "query result:\n    from rows\n    let matched = aliased\n    inner join matched on matched.key == rows.id and matched.id > 0\n"
         "    select:\n        value = matched.key\n        sibling = matched.sibling\n"
     )
     completed = _completed(tmp_path, source)
@@ -1231,16 +1239,13 @@ def test_self_relationship_reverse_grain_uses_endpoint_identity(
     tmp_path: Path, unique_match: bool
 ) -> None:
     source = (
-        "shape Row:\n    id: Int not null\n    key: Int nullable\n    flag: Bool not null\n"
-        "    unique row_key on id\n"
-        + ("    unique match_key on key\n" if unique_match else "")
-        + 'source agg: Row is postgres.table("agg")\n'
-        + "relationship link:\n    endpoint many: agg\n    endpoint one: agg\n"
-        "    on many.key == one.id\n"
-        "query result:\n    from agg\n    right join agg as r:\n"
-        "        from agg\n        via link: many -> one\n        on r.flag\n"
-        "    inner join agg as p:\n        from r\n        via link: one -> many\n"
-        "        on p.id > 0\n    select:\n        n = count()\n"
+        "shape Row:\n    id: Int\n    key: Int | None\n    flag: Bool\n"
+        "    row_key = unique(id)\n"
+        + ("    match_key = unique(key)\n" if unique_match else "")
+        + 'source agg: Row = postgres.table("agg")\n'
+        + "relationship Link(many: Row, one: Row):\n    many.key == one.id\n"
+        "query result:\n    from agg\n    let r = agg\n    right join r on Link(agg, r) and r.flag\n"
+        "    let p = agg\n    inner join p on Link(p, r) and p.id > 0\n    select:\n        n = count()\n"
     )
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
@@ -1248,9 +1253,11 @@ def test_self_relationship_reverse_grain_uses_endpoint_identity(
     right, inner = region.joins
     assert isinstance(right, ProjectCurrentBinaryJoin)
     assert isinstance(inner, ProjectCurrentBinaryJoin)
-    for join, expected in (
-        (right, (((1,), (0,)),)),
-        (inner, (((1,), (0,)), ((0, 1), (2,)), ((2,), (0, 1)))),
+    # Without match_key only the inner join keeps the local p -> r dependency
+    # proved by r's own key (row_key); nothing reaches the right join's left.
+    for join, expected, expected_without_match_key in (
+        (right, (((1,), (0,)),), ()),
+        (inner, (((1,), (0,)), ((0, 1), (2,)), ((2,), (0, 1))), (((2,), (1,)),)),
     ):
         grain = join.properties.relational.grain
         positions = {factor.identity: i for i, factor in enumerate(grain.factors)}
@@ -1260,4 +1267,4 @@ def test_self_relationship_reverse_grain_uses_endpoint_identity(
                 tuple(positions[f] for f in fact.dependents),
             )
             for fact in grain.dependencies
-        ) == (expected if unique_match else ())
+        ) == (expected if unique_match else expected_without_match_key)

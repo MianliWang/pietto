@@ -46,6 +46,7 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import SourceLocation
+from pietto.semantic.modern_inputs import normalize_query_names
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
@@ -242,10 +243,9 @@ def test_direct_and_chained_let_keys_preserve_clause_and_selected_identity(
         tmp_path,
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = status\n"
-        "        region_key = users.region\n"
-        "        bucket = region_key\n"
+        "    let key = status\n"
+        "    let region_key = users.region\n"
+        "    let bucket = region_key\n"
         "    group by:\n"
         "        key\n"
         "        bucket\n"
@@ -282,8 +282,7 @@ def test_selecting_let_name_is_not_selected_underlying_group_key(
         tmp_path,
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = status\n"
+        "    let key = status\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -321,8 +320,7 @@ def test_selecting_let_name_is_not_selected_underlying_group_key(
         "        total = count()\n",
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = status + status\n"
+        "    let key = status + status\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -330,8 +328,7 @@ def test_selecting_let_name_is_not_selected_underlying_group_key(
         "        total = count()\n",
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = lower(status)\n"
+        "    let key = lower(status)\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -339,8 +336,7 @@ def test_selecting_let_name_is_not_selected_underlying_group_key(
         "        total = count()\n",
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = 1\n"
+        "    let key = 1\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -348,8 +344,7 @@ def test_selecting_let_name_is_not_selected_underlying_group_key(
         "        total = count()\n",
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = status\n"
+        "    let key = status\n"
         "    group by:\n"
         "        users.key\n"
         "    select:\n"
@@ -406,8 +401,7 @@ def test_duplicate_equivalent_group_keys_have_no_first_winner(
         tmp_path,
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = status\n"
+        "    let key = status\n"
         "    group by:\n"
         f"        {group_keys[0]}\n"
         f"        {group_keys[1]}\n"
@@ -434,8 +428,7 @@ def test_explicit_module_law_admits_one_computed_let_binding_determinant(
         tmp_path,
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        bucket = score * 2\n"
+        "    let bucket = score * 2\n"
         "    group by:\n"
         "        bucket\n"
         "        status\n"
@@ -495,8 +488,7 @@ def test_computed_group_key_carrier_fails_closed(tmp_path: Path) -> None:
         tmp_path,
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        bucket = score * 2\n"
+        "    let bucket = score * 2\n"
         "    group by:\n"
         "        bucket\n"
         "    select:\n"
@@ -552,9 +544,8 @@ def test_computed_group_key_carrier_fails_closed(tmp_path: Path) -> None:
     ("relation_body", "reason"),
     (
         (
-            "    let:\n"
-            "        bucket = score * 2\n"
-            "        alias = bucket\n"
+            "    let bucket = score * 2\n"
+            "    let alias = bucket\n"
             "    group by:\n"
             "        alias\n"
             "    select:\n"
@@ -562,8 +553,7 @@ def test_computed_group_key_carrier_fails_closed(tmp_path: Path) -> None:
             ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
         ),
         (
-            "    let:\n"
-            "        bucket = score * 2\n"
+            "    let bucket = score * 2\n"
             "    group by:\n"
             "        users.bucket\n"
             "    select:\n"
@@ -571,9 +561,8 @@ def test_computed_group_key_carrier_fails_closed(tmp_path: Path) -> None:
             ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
         ),
         (
-            "    let:\n"
-            "        bucket = score * 2\n"
-            "        other = score + 1\n"
+            "    let bucket = score * 2\n"
+            "    let other = score + 1\n"
             "    group by:\n"
             "        bucket\n"
             "    select:\n"
@@ -582,8 +571,7 @@ def test_computed_group_key_carrier_fails_closed(tmp_path: Path) -> None:
             ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
         ),
         (
-            "    let:\n"
-            "        bucket = score * 2\n"
+            "    let bucket = score * 2\n"
             "    group by:\n"
             "        bucket\n"
             "        bucket\n"
@@ -850,6 +838,15 @@ def _project_semantic_result(
 ) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
     parse_result = check_project_parse_only(root)
     assert parse_result.ok
+    # Modern `let name = expression` lines arrive as naming declarations; the
+    # semantic normalizer turns them into the same relation LET scope the
+    # legacy `let:` block produced.
+    normalized_inputs = []
+    for parsed_input in parse_result.parsed_inputs:
+        script, naming_diagnostics = normalize_query_names(parsed_input.script)
+        assert naming_diagnostics == ()
+        normalized_inputs.append(replace(parsed_input, script=script))
+    parse_result = replace(parse_result, parsed_inputs=tuple(normalized_inputs))
     return parse_result, build_empty_project_semantic_result(parse_result)
 
 
@@ -861,11 +858,11 @@ def _project(root: Path, relations: str) -> Path:
     )
     (root / "models.pietto").write_text(
         "shape User:\n"
-        "    id: Int not null\n"
-        "    status: Text not null\n"
-        "    region: Text nullable\n"
-        "    score: Int not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        "    status: Text\n"
+        "    region: Text | None\n"
+        "    score: Int\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )

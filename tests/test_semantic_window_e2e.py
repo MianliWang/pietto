@@ -67,16 +67,19 @@ from pietto.sql.window_strategy import (
 
 
 PREFIX = """shape Row:
-    id: Int not null
-    value: Int nullable
-    category: Text nullable
+    id: Int
+    value: Int | None
+    category: Text | None
 """
 
 POSTGRES_NATIVE = (
     PREFIX
-    + """source rows: Row is postgres.table("rows")
+    + """source rows: Row = postgres.table("rows")
 query result:
     from rows
+    let child = window base
+    let unused = window(order by id)
+    let base = window(partition by group_name order by total desc)
     group by:
         category
     select:
@@ -86,16 +89,7 @@ query result:
         first = first_value(group_name) respect nulls window child
         nth = nth_value(group_name, 2) from first respect nulls window child
         previous = lag(group_name, 1, group_name) respect nulls window child
-    window child = base
-    window unused:
-        order by:
-            id
-    window base:
-        partition by:
-            group_name
-        order by:
-            total desc
-    satisfying:
+    having:
         total > 0
     order by:
         ranking
@@ -105,70 +99,47 @@ query result:
 
 POSTGRES_FALLBACK = (
     PREFIX
-    + """source rows: Row is postgres.table("rows")
+    + """source rows: Row = postgres.table("rows")
 query result:
     from rows
+    let derived = window framed
+    let framed = window(partition by category order by id desc groups between 1 preceding and current row exclude ties)
     select:
         result = nth_value(value, 2) from first respect nulls window derived
-    window derived = framed
-    window framed:
-        partition by:
-            category
-        order by:
-            id desc
-        groups between 1 preceding and current row exclude ties
 """
 )
 
 POSTGRES_FALLBACK_INLINE = (
     PREFIX
-    + """source rows: Row is postgres.table("rows")
+    + """source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
-        result = nth_value(value, 2) from first respect nulls window:
-            partition by:
-                category
-            order by:
-                id desc
-            groups between 1 preceding and current row exclude ties
+        result = nth_value(value, 2) from first respect nulls window(partition by category order by id desc groups between 1 preceding and current row exclude ties)
 """
 )
 
 POSTGRES_FRAMES = (
     PREFIX
-    + """source rows: Row is postgres.table("rows")
+    + """source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
-        rows_value = last_value(value) respect nulls window:
-            order by:
-                id
-            rows between 1 preceding and current row exclude current row
-        range_value = first_value(value) window:
-            order by:
-                id
-            range current row exclude group
+        rows_value = last_value(value) respect nulls window(order by id rows between 1 preceding and current row exclude current row)
+        range_value = first_value(value) window(order by id range current row exclude group)
 """
 )
 
 MYSQL_NATIVE = (
     PREFIX
-    + """source rows: Row is mysql.table("rows")
+    + """source rows: Row = mysql.table("rows")
 query result:
     from rows
+    let child = window base
+    let unused = window(order by value)
+    let base = window(partition by category order by id desc)
     select:
-        result = nth_value(value, 2) from first respect nulls window child:
-            rows between 1 preceding and current row
-    window child = base
-    window unused:
-        order by:
-            value
-    window base:
-        partition by:
-            category
-        order by:
-            id desc
+        result = nth_value(value, 2) from first respect nulls window child(rows between 1 preceding and current row)
 """
 )
 

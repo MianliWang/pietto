@@ -7,13 +7,22 @@ from pathlib import Path
 
 import pytest
 
+from _pietto_semantic_identity import (
+    _SHAPE_PREFIX,
+    _build_layered,
+    _cycle_sources,
+    _declaration,
+    _layered,
+    _module_asset,
+    _query_module,
+    _semantic_project,
+)
+
 import pietto._project.check as project_check
 import pietto._project.module_package_neutral_identity as layering
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
-    ProjectParseCheckResult,
     ProjectRelationRowSchemaStatus,
-    ProjectSemanticResult,
     ProjectSymbolNamespace,
     build_empty_project_semantic_result,
 )
@@ -34,118 +43,6 @@ from pietto._project.module_semantic_fact_preservation import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/_project/module_package_neutral_identity.py"
 TEST_REL = "tests/test_project_package_neutral_identity_layering.py"
-
-
-_SHAPE_PREFIX = (
-    "shape Row:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    category: Text nullable\n"
-    'source rows: Row is postgres.table("rows")\n'
-)
-
-
-def _configured_project(
-    root: Path,
-    sources: dict[str, str],
-    *,
-    schema_version: int = 2,
-) -> Path:
-    root.mkdir(parents=True, exist_ok=True)
-    (root / "pietto.toml").write_text(
-        f'schema_version = {schema_version}\n\n[sources]\ninclude = ["*.pietto"]\n',
-        encoding="utf-8",
-    )
-    for relative, source in sources.items():
-        path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(source, encoding="utf-8")
-    return root
-
-
-def _semantic_project(
-    root: Path,
-    sources: dict[str, str],
-    *,
-    schema_version: int = 2,
-) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
-    parse_result = project_check.check_project_parse_only(
-        _configured_project(root, sources, schema_version=schema_version)
-    )
-    assert parse_result.ok
-    return parse_result, build_empty_project_semantic_result(parse_result)
-
-
-def _layered(
-    semantic: ProjectSemanticResult,
-) -> layering.ProjectModulePackageNeutralIdentityFactSet:
-    facts = semantic.module_package_identity_facts
-    assert facts is not None
-    return facts
-
-
-def _declaration(
-    semantic: ProjectSemanticResult,
-    module_path: str,
-    declared_name: str,
-) -> layering.ProjectLayeredDeclarationAsset:
-    matches = tuple(
-        asset
-        for asset in _layered(semantic).declaration_assets
-        if asset.identity.module_path == module_path
-        and asset.identity.declared_name == declared_name
-    )
-    assert len(matches) == 1
-    return matches[0]
-
-
-def _module_asset(
-    semantic: ProjectSemanticResult,
-    module_path: str,
-) -> layering.ProjectLayeredModuleAsset:
-    matches = _layered(semantic).find_module(ProjectModuleIdentity(path=module_path))
-    assert len(matches) == 1
-    return matches[0]
-
-
-def _build_layered(
-    result: ProjectSemanticResult,
-    **overrides: object,
-) -> layering.ProjectModulePackageNeutralIdentityFactSet:
-    parse_roots: dict[str, object] = {
-        "selected_input_index": result.selected_input_index,
-        "trusted_source_snapshots": result.trusted_source_snapshots,
-        "modules": result.modules,
-        "catalogs": result.module_catalogs,
-        "attribution": result.module_attribution_facts,
-        "semantic": result.module_semantic_facts,
-    }
-    parse_roots.update(overrides)
-    return layering._build_project_module_package_neutral_identity_fact_set(
-        parse_roots["selected_input_index"],  # pyright: ignore[reportArgumentType]
-        parse_roots["trusted_source_snapshots"],  # pyright: ignore[reportArgumentType]
-        parse_roots["modules"],  # pyright: ignore[reportArgumentType]
-        parse_roots["catalogs"],  # pyright: ignore[reportArgumentType]
-        parse_roots["attribution"],  # pyright: ignore[reportArgumentType]
-        parse_roots["semantic"],  # pyright: ignore[reportArgumentType]
-    )
-
-
-def _query_module(body: str) -> str:
-    return _SHAPE_PREFIX + "query result:\n    from rows\n" + body
-
-
-def _cycle_sources() -> dict[str, str]:
-    return {
-        "a.pietto": (
-            'import "b.pietto":\n    shape S\nexport:\n    shape T\nshape T:\n'
-            "    id: Int\n"
-        ),
-        "b.pietto": (
-            'import "a.pietto":\n    shape T\nexport:\n    shape S\nshape S:\n'
-            "    id: Int\n"
-        ),
-    }
 
 
 def test_package_neutral_vocabulary_carriers_fields_and_privacy_are_exact() -> None:
@@ -725,19 +622,19 @@ def test_module_cycle_publishes_blocked_readiness_with_exact_issue_roots(
         tmp_path / "disjoint",
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape S\nexport:\n    shape T\n'
+                'from "b.pietto" import shape S\nexport shape T\n'
                 "shape T:\n    id: Int\n"
             ),
             "b.pietto": (
-                'import "a.pietto":\n    shape T\nexport:\n    shape S\n'
+                'from "a.pietto" import shape T\nexport shape S\n'
                 "shape S:\n    id: Int\n"
             ),
             "c.pietto": (
-                'import "d.pietto":\n    shape V\nexport:\n    shape U\n'
+                'from "d.pietto" import shape V\nexport shape U\n'
                 "shape U:\n    id: Int\n"
             ),
             "d.pietto": (
-                'import "c.pietto":\n    shape U\nexport:\n    shape V\n'
+                'from "c.pietto" import shape U\nexport shape V\n'
                 "shape V:\n    id: Int\n"
             ),
         },
@@ -767,23 +664,23 @@ def test_module_cycle_publishes_blocked_readiness_with_exact_issue_roots(
         tmp_path / "referencing",
         {
             "a.pietto": (
-                'import "b.pietto":\n    table Public as Local\n'
+                'from "b.pietto" import table Public as Local\n'
                 "query result:\n    from Local\n    select:\n        id\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    table projected as Public\n'
-                'import "d.pietto":\n    query D\n'
-                "export:\n    table Public\n"
+                'from "c.pietto" import table projected as Public\n'
+                'from "d.pietto" import query D\n'
+                "export table Public\n"
             ),
             "c.pietto": (
                 _SHAPE_PREFIX
                 + "table projected:\n    from rows\n    select:\n        id\n"
-                "export:\n    table projected\n"
+                "export table projected\n"
             ),
             "d.pietto": (
                 "query D:\n    from missing\n    select:\n        id\n"
-                "export:\n    query D\n"
-                'import "b.pietto":\n    table Public\n'
+                "export query D\n"
+                'from "b.pietto" import table Public\n'
             ),
         },
     )
@@ -921,7 +818,7 @@ def test_deferred_relation_declaration_propagates_without_concretization(
         {
             "main.pietto": (
                 _SHAPE_PREFIX + "query pending:\n    from rows\n    select:\n"
-                "        unset = null\n"
+                "        unset = None\n"
                 "query result:\n    from pending\n    select:\n        unset\n"
             )
         },
@@ -1083,8 +980,8 @@ def test_module_and_declaration_cardinalities_zero_one_two_three_are_complete(
             tmp_path / f"count{count}",
             {
                 f"m{index}.pietto": (
-                    "shape Row:\n    id: Int not null\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    "shape Row:\n    id: Int\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 )
                 for index in range(count)
             },

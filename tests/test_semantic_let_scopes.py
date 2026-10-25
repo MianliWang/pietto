@@ -9,29 +9,24 @@ import pytest
 
 from _pietto_ir_join_differential import PRIMARY_MAIN_SOURCE, _build
 from _pietto_repository_facts import REPOSITORY_FACTS
-from pietto._project import project_query_block as query_blocks
-from pietto._project import project_scalar_bindings as scalar_bindings
+from _pietto_project_join import _parsed
 from pietto._project import project_scalar_namespaces as scalar_namespaces
 from pietto._project import project_scalar_references as scalar_references
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
-from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
 )
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
-)
-from pietto._project.project_ir_joins import ProjectIRConcreteJoinRegion
-from pietto._project.project_multifact import ProjectMultiFactAnalysis
-from pietto._project.project_phase62_verification import (
-    ProjectPhase62VerificationResult,
+    ProjectConcreteCompletedSemanticResult,
 )
 from pietto.ast_nodes import (
     BinaryExpr,
     DottedNameExpr,
     NameExpr,
     QueryDef,
+    Script,
     SourceDef,
     Span,
 )
@@ -42,6 +37,7 @@ from pietto.semantic.let_bindings import (
     analyze_relation_let_bindings,
     join_reserved_let_names,
 )
+from pietto.semantic.modern_inputs import normalize_query_names
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -53,265 +49,221 @@ from pietto.semantic.model import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION = REPO_ROOT / "src/pietto/_project/project_scalar_namespaces.py"
-LET_SOURCE = """
+LET_PREFIX = """
 shape ProfileRow:
-    id: Int not null
-    label: Text not null
-    unique profile_key on id
-source profiles: ProfileRow is postgres.table("profiles")
-relationship customer_profiles:
-    endpoint customer: customers
-    endpoint profile: profiles
-    on customer.id == profile.id
-query let_chain_join:
+    id: Int
+    label: Text
+    profile_key = unique(id)
+source profiles: ProfileRow = postgres.table("profiles")
+relationship customer_profiles(customer: CustomerRow, profile: ProfileRow):
+    customer.id == profile.id
+"""
+
+LET_SOURCE = (
+    LET_PREFIX
+    + """query let_chain_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        subtotal = amount + 1
-        doubled = subtotal + customer.id
-        maybe_customer = customer.id
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let subtotal = amount + 1
+    let doubled = subtotal + customer.id
+    let maybe_customer = customer.id
     select:
         doubled_value = doubled
 query let_call_join:
     from customers
-    inner join profiles as profile:
-        from customers
-        via customer_profiles: customer -> profile
-    let:
-        normalized = lower(profile.label)
-        size = len(normalized)
+    let profile = profiles
+    inner join profile on customer_profiles(customers, profile)
+    let normalized = lower(profile.label)
+    let size = len(normalized)
     select:
         normalized_value = normalized
 query no_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    select:
-        amount
-query duplicate_let_join:
-    from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = amount + 1
-        gross = amount - 1
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
     select:
         amount
 query self_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = gross + amount
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = gross + amount
     select:
         amount
 query self_field_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        amount = amount + 1
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let amount = amount + 1
     select:
         product_id
 query forward_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = net + amount
-        net = amount
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = net + amount
+    let net = amount
     select:
         amount
 query field_shadow_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        amount = product_id
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let amount = product_id
     select:
         product_id
 query ambiguous_field_shadow_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        id = amount
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let id = amount
     select:
         product_id
-query binding_shadow_let_join:
-    from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        customer = amount
-    select:
-        amount
 query relation_shadow_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        customers = amount
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let customers = amount
     select:
         amount
 query base_relation_shadow_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        orders = amount
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let orders = amount
     select:
         amount
 query projection_collision_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = amount + 1
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = amount + 1
     select:
         gross = amount
 query direct_selected_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = amount + 1
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = amount + 1
     select:
         gross
 query projection_alias_leak_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = later_alias + amount
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = later_alias + amount
     select:
         later_alias = amount
 query qualified_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = amount + 1
-        net = orders.gross
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = amount + 1
+    let net = orders.gross
     select:
         amount
 query aggregate_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = sum(amount)
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = sum(amount)
     select:
         amount
 query unknown_function_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        gross = not_a_builtin(amount)
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = not_a_builtin(amount)
     select:
         amount
 query unknown_then_reference_let_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        bad = not_a_builtin(amount)
-        later = bad + 1
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let bad = not_a_builtin(amount)
+    let later = bad + 1
     select:
         amount
 query invalid_operator_let_join:
     from customers
-    inner join profiles as profile:
-        from customers
-        via customer_profiles: customer -> profile
-    let:
-        bad = profile.label + 1
+    let profile = profiles
+    inner join profile on customer_profiles(customers, profile)
+    let bad = profile.label + 1
     select:
         id
 query hidden_name_let_join:
     from customers
-    inner join returns_by_customer as returns:
-        from customers
-        via customer_orders_coarse: customer -> orders
-        via orders_returns_aligned: orders -> returns
-    let:
-        order_count = 1
+    let coarse_orders = orders_by_customer
+    inner join coarse_orders on customers.id == coarse_orders.customer_id
+    let coarse_returns = returns_by_customer
+    inner join coarse_returns on coarse_orders.customer_id == coarse_returns.customer_id
+    let order_count = 1
     select:
         order_count
 query hidden_lookup_let_join:
     from customers
-    inner join returns_by_customer as returns:
-        from customers
-        via customer_orders_coarse: customer -> orders
-        via orders_returns_aligned: orders -> returns
-    let:
-        leaked = orders_by_customer.order_count
+    let coarse_orders = orders_by_customer
+    inner join coarse_orders on customers.id == coarse_orders.customer_id
+    let coarse_returns = returns_by_customer
+    inner join coarse_returns on coarse_orders.customer_id == coarse_returns.customer_id
+    let leaked = orders_by_customer.order_count
     select:
         id
 """
+)
+
+EARLY_LET_SOURCES = {
+    "duplicate_let_join": """query duplicate_let_join:
+    from orders
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let gross = amount + 1
+    let gross = amount - 1
+    select:
+        amount
+""",
+    "binding_shadow_let_join": """query binding_shadow_let_join:
+    from orders
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let customer = amount
+    select:
+        amount
+""",
+}
 SINGLE_INPUT_PREFIX = """shape Order:
-    id: Int not null
-    amount: Int nullable
-    product_id: Int not null
-source orders: Order is postgres.table("orders")
+    id: Int
+    amount: Int | None
+    product_id: Int
+source orders: Order = postgres.table("orders")
 """
 
 
-def _joined_environment(
-    analysis: ProjectMultiFactAnalysis,
-    verification: ProjectPhase62VerificationResult,
+def _joined_namespaces(
+    completed: ProjectConcreteCompletedSemanticResult,
     name: str,
-) -> scalar_bindings.ProjectJoinedScalarBindingEnvironment:
+) -> scalar_namespaces.ProjectJoinedLetNamespaceResult:
     matches = tuple(
-        region
-        for region in analysis.join_regions.regions
-        if type(region) is ProjectIRConcreteJoinRegion
-        and region.ledger.owner.definition.name == name
+        readiness.namespaces
+        for readiness in completed.effective_outputs.current_readiness
+        if readiness.namespaces.binding_environment.ledger.owner.definition.name == name
     )
     assert len(matches) == 1
-    region = matches[0]
-    query_block = query_blocks.build_project_query_block_from_join_region(
-        compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
-        owner=region.ledger.owner,
-        verification=verification,
-        region=region,
+    result = matches[0]
+    assert any(
+        result.binding_environment.region is region
+        for region in completed.effective_outputs.current_regions
     )
-    assert type(query_block) is query_blocks.ProjectConcreteQueryBlock
-    scalar_environment = scalar_references.build_project_scalar_environment(query_block)
-    assert (
-        type(scalar_environment) is scalar_references.ProjectConcreteScalarEnvironment
-    )
-    return scalar_bindings.build_project_joined_scalar_binding_environment(
-        scalar_environment
-    )
+    return result
 
 
 @pytest.fixture(scope="module")
 def environments(
     tmp_path_factory: pytest.TempPathFactory,
-) -> dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment]:
-    _, analysis, bundle, _ = _build(
-        tmp_path_factory.mktemp("p63s5") / "project",
+) -> dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult]:
+    _, completed, _, _ = _build(
+        tmp_path_factory.mktemp("joined-let-scopes") / "project",
         PRIMARY_MAIN_SOURCE + LET_SOURCE,
         reverse_creation=False,
     )
@@ -320,16 +272,14 @@ def environments(
         for line in LET_SOURCE.splitlines()
         if line.startswith("query ")
     )
-    return {
-        name: _joined_environment(analysis, bundle.verification, name) for name in names
-    }
+    return {name: _joined_namespaces(completed, name) for name in names}
 
 
 def _analyze(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
     name: str,
 ) -> scalar_namespaces.ProjectJoinedLetNamespaceResult:
-    return scalar_namespaces.build_project_joined_let_namespaces(environments[name])
+    return environments[name]
 
 
 def _reference(
@@ -364,9 +314,9 @@ def _error_codes(diagnostics: tuple[Diagnostic, ...]) -> tuple[str, ...]:
 
 
 def test_namespace_chain_retains_exact_root_occurrences_and_prefixes(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
 ) -> None:
-    environment = environments["let_chain_join"]
+    environment = environments["let_chain_join"].binding_environment
     result = _analyze(environments, "let_chain_join")
     assert type(result) is scalar_namespaces.ProjectConcreteJoinedLetNamespaces
     definition = cast(QueryDef, environment.ledger.owner.definition)
@@ -438,7 +388,7 @@ def test_namespace_chain_retains_exact_root_occurrences_and_prefixes(
 
 
 def test_retained_let_resolutions_are_complete_and_validation_does_not_resolve(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     result = _analyze(environments, "let_chain_join")
@@ -467,7 +417,7 @@ def test_retained_let_resolutions_are_complete_and_validation_does_not_resolve(
 
 
 def test_post_let_lookup_keeps_bare_let_and_qualified_field_domains_distinct(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
 ) -> None:
     result = _analyze(environments, "let_chain_join")
     assert type(result) is scalar_namespaces.ProjectConcreteJoinedLetNamespaces
@@ -512,7 +462,7 @@ def test_post_let_lookup_keeps_bare_let_and_qualified_field_domains_distinct(
 
 
 def test_type_kernel_reuse_covers_chains_calls_and_left_null_extension(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
 ) -> None:
     chain = _analyze(environments, "let_chain_join")
     call = _analyze(environments, "let_call_join")
@@ -531,20 +481,112 @@ def test_type_kernel_reuse_covers_chains_calls_and_left_null_extension(
     assert all(value.diagnostics == () for value in (*chain.values, *call.values))
 
 
-def test_dependency_and_duplicate_failures_publish_no_post_let_or_winner(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+def test_duplicate_let_and_input_names_reject_before_join_namespaces(
+    tmp_path: Path,
 ) -> None:
-    duplicate = _analyze(environments, "duplicate_let_join")
+    source = PRIMARY_MAIN_SOURCE + LET_PREFIX + "".join(EARLY_LET_SOURCES.values())
+    authored = parse_source(source, path="main.pietto")
+    assert authored.ast is not None and authored.diagnostics == ()
+    queries = tuple(
+        item
+        for item in authored.ast.definitions
+        if isinstance(item, QueryDef) and item.name in EARLY_LET_SOURCES
+    )
+    assert tuple(query.name for query in queries) == tuple(EARLY_LET_SOURCES)
+    duplicate, shadowed = queries
+    assert tuple(item.name for item in duplicate.naming_declarations) == (
+        "customer",
+        "gross",
+        "gross",
+    )
+    assert duplicate.naming_declarations[1] is not duplicate.naming_declarations[2]
+    assert tuple(item.name for item in shadowed.naming_declarations) == (
+        "customer",
+        "customer",
+    )
+    assert shadowed.naming_declarations[0] is not shadowed.naming_declarations[1]
+    parsed = _parsed(tmp_path, source)
+    assert not parsed.ok and parsed.errors == ()
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in parsed.diagnostics
+    ] == [
+        (
+            "PIE-S2604",
+            "Duplicate query local name: gross",
+            duplicate.naming_declarations[2].span.line,
+            duplicate.naming_declarations[2].span.column,
+        ),
+        (
+            "PIE-S2604",
+            "Duplicate query local name: customer",
+            shadowed.naming_declarations[1].span.line,
+            shadowed.naming_declarations[1].span.column,
+        ),
+    ]
+    single = parse_source(
+        SINGLE_INPUT_PREFIX
+        + "query comparison:\n    from orders\n    let gross = amount + 1\n    let gross = amount - 1\n    select amount\n"
+    )
+    assert single.ast is not None and single.diagnostics == ()
+    _, diagnostics = normalize_query_names(single.ast)
+    assert [(item.code, item.message) for item in diagnostics] == [
+        ("PIE-S2604", "Duplicate query local name: gross")
+    ]
+
+    duplicate_row = _parsed(
+        tmp_path / "duplicate-row-local",
+        """shape Row:
+    id: Int
+    key: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
+query result:
+    from rows
+    let a = id
+    let a = key
+    select:
+        value = a
+""",
+    )
+    assert not duplicate_row.ok and duplicate_row.errors == ()
+    assert [
+        (
+            item.code,
+            item.severity,
+            item.message,
+            item.location.path,
+            item.location.line,
+            item.location.column,
+            item.location.end_line,
+            item.location.end_column,
+            item.suggestion,
+        )
+        for item in duplicate_row.diagnostics
+    ] == [
+        (
+            "PIE-S2604",
+            Severity.ERROR,
+            "Duplicate query local name: a",
+            "main.pietto",
+            9,
+            5,
+            9,
+            16,
+            None,
+        )
+    ]
+
+
+def test_dependency_failures_publish_no_post_let_or_winner(
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
+) -> None:
     self_reference = _analyze(environments, "self_let_join")
     forward = _analyze(environments, "forward_let_join")
     self_field = _analyze(environments, "self_field_let_join")
-    for result in (duplicate, self_reference, forward, self_field):
+    for result in (self_reference, forward, self_field):
         assert type(result) is scalar_namespaces.ProjectNonConcreteJoinedLetNamespaces
         assert result.post_let is None
-    duplicate = cast(
-        scalar_namespaces.ProjectNonConcreteJoinedLetNamespaces,
-        duplicate,
-    )
     self_reference = cast(
         scalar_namespaces.ProjectNonConcreteJoinedLetNamespaces,
         self_reference,
@@ -557,18 +599,13 @@ def test_dependency_and_duplicate_failures_publish_no_post_let_or_winner(
         scalar_namespaces.ProjectNonConcreteJoinedLetNamespaces,
         self_field,
     )
-    assert tuple(
-        occurrence.source_ordinal for occurrence in duplicate.inadmissible_occurrences
-    ) == (0, 1)
-    assert all(namespace.let_values == () for namespace in duplicate.binding_namespaces)
-    assert _error_codes(duplicate.diagnostics) == ("PIE-S2329",)
     assert _error_codes(self_reference.diagnostics) == ("PIE-S2330",)
     assert _error_codes(forward.diagnostics) == ("PIE-S2330",)
     assert _error_codes(self_field.diagnostics) == ("PIE-S2329", "PIE-S2330")
     assert self_field.blocking_resolutions == ()
     definition = cast(
         QueryDef,
-        environments["self_field_let_join"].ledger.owner.definition,
+        environments["self_field_let_join"].binding_environment.ledger.owner.definition,
     )
     assert definition.let_clause is not None
     expression = definition.let_clause.bindings[0].expression
@@ -581,13 +618,12 @@ def test_dependency_and_duplicate_failures_publish_no_post_let_or_winner(
     (
         "field_shadow_let_join",
         "ambiguous_field_shadow_let_join",
-        "binding_shadow_let_join",
         "relation_shadow_let_join",
         "base_relation_shadow_let_join",
     ),
 )
 def test_visible_fields_bindings_and_relation_names_all_block_shadowing(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
     name: str,
 ) -> None:
     result = _analyze(environments, name)
@@ -597,31 +633,41 @@ def test_visible_fields_bindings_and_relation_names_all_block_shadowing(
     assert result.post_let is None
 
 
-def test_hidden_intermediate_names_remain_non_fields_but_may_name_a_let(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+def test_explicit_intermediate_fields_block_shadowing_and_raw_relation_qualifiers(
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
 ) -> None:
-    admitted = _analyze(environments, "hidden_name_let_join")
+    shadowed = _analyze(environments, "hidden_name_let_join")
     blocked = _analyze(environments, "hidden_lookup_let_join")
-    assert type(admitted) is scalar_namespaces.ProjectConcreteJoinedLetNamespaces
-    assert tuple(item.evidence.name for item in admitted.post_let.hidden_fields) == (
+    assert type(shadowed) is scalar_namespaces.ProjectNonConcreteJoinedLetNamespaces
+    assert shadowed.post_join_input.hidden_fields == ()
+    middle = tuple(
+        binding
+        for binding in shadowed.binding_environment.bindings
+        if binding.binding.name == "coarse_orders"
+    )
+    assert len(middle) == 1
+    assert tuple(item.evidence.name for item in middle[0].fields) == (
         "customer_id",
         "total",
         "order_count",
     )
-    assert tuple(value.occurrence.binding.name for value in admitted.values) == (
+    assert tuple(item.binding.name for item in shadowed.inadmissible_occurrences) == (
         "order_count",
     )
+    assert _error_codes(shadowed.diagnostics) == ("PIE-S2329",)
+    assert shadowed.post_let is None
     assert type(blocked) is scalar_namespaces.ProjectNonConcreteJoinedLetNamespaces
     assert len(blocked.blocking_resolutions) == 1
     assert (
         blocked.blocking_resolutions[0].status
         is ProjectModuleCandidateBucketStatus.ABSENT
     )
+    assert blocked.blocking_resolutions[0].candidates == ()
     assert blocked.post_let is None
 
 
 def test_projection_collision_alias_visibility_and_direct_selection_laws(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
 ) -> None:
     collision = _analyze(environments, "projection_collision_let_join")
     direct = _analyze(environments, "direct_selected_let_join")
@@ -645,7 +691,7 @@ def test_projection_collision_alias_visibility_and_direct_selection_laws(
 
 
 def test_existing_aggregate_and_kernel_diagnostics_are_retained(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
 ) -> None:
     aggregate = _analyze(environments, "aggregate_let_join")
     unknown_function = _analyze(environments, "unknown_function_let_join")
@@ -665,7 +711,7 @@ def test_existing_aggregate_and_kernel_diagnostics_are_retained(
 
 
 def test_prior_unknown_type_is_not_misclassified_as_forward_dependency(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
 ) -> None:
     result = _analyze(environments, "unknown_then_reference_let_join")
     assert type(result) is scalar_namespaces.ProjectNonConcreteJoinedLetNamespaces
@@ -677,7 +723,9 @@ def test_prior_unknown_type_is_not_misclassified_as_forward_dependency(
     assert len(result.blocking_resolutions) == 1
     definition = cast(
         QueryDef,
-        environments["unknown_then_reference_let_join"].ledger.owner.definition,
+        environments[
+            "unknown_then_reference_let_join"
+        ].binding_environment.ledger.owner.definition,
     )
     assert definition.let_clause is not None
     expression = definition.let_clause.bindings[1].expression
@@ -686,18 +734,18 @@ def test_prior_unknown_type_is_not_misclassified_as_forward_dependency(
 
 
 _JOINED_LET_SOURCE = """shape T:
-    id: Int not null
-    t: Text not null
-    unique t_key on id
+    id: Int
+    t: Text
+    t_key = unique(id)
 shape O:
-    oid: Int not null
-    tid: Int not null
-    unique o_key on oid
-source src: T is postgres.table("src")
-source oth: O is postgres.table("oth")
-def lk(x: Text not null, p: Text not null) -> Bool nullable: return x like p
-def tnn(x: Text not null) -> Text not null: return x
-def inl(x: Int nullable) -> Int nullable: return x
+    oid: Int
+    tid: Int
+    o_key = unique(oid)
+source src: T = postgres.table("src")
+source oth: O = postgres.table("oth")
+def lk(x: Text, p: Text) -> Bool | None: return x like p
+def tnn(x: Text) -> Text: return x
+def inl(x: Int | None) -> Int | None: return x
 """
 
 
@@ -710,8 +758,8 @@ def _joined_let_diagnostics(
     (root / "main.pietto").write_text(
         _JOINED_LET_SOURCE
         + "".join(
-            f"query {name}:\n    from src\n    inner join oth as o:\n"
-            f"        from src\n        on o.tid == src.id\n{body}"
+            f"query {name}:\n    from src\n    let o = oth\n"
+            f"    inner join o on o.tid == src.id\n{body}"
             for name, body in queries
         ),
         encoding="utf-8",
@@ -745,35 +793,30 @@ def test_a_joined_let_name_bound_to_a_pattern_is_checked_as_the_pattern(
         (
             (
                 "in_let",
-                '    let:\n        pp = "a!"\n        m = src.t like pp\n'
-                "    select:\n        id = src.id\n",
+                '    let pp = "a!"\n    let m = src.t like pp\n    select:\n        id = src.id\n',
             ),
             (
                 "in_where",
-                '    let:\n        pp = "a!"\n    where src.t like pp\n'
-                "    select:\n        id = src.id\n",
+                '    let pp = "a!"\n    where src.t like pp\n    select:\n        id = src.id\n',
             ),
             (
                 "in_select",
-                '    let:\n        pp = "a!"\n    select:\n'
-                "        id = src.id\n        m = src.t like pp\n",
+                '    let pp = "a!"\n    select:\n        id = src.id\n        m = src.t like pp\n',
             ),
             (
                 "in_def",
-                '    let:\n        pp = "a!"\n    where lk(src.t, pp)\n'
-                "    select:\n        id = src.id\n",
+                '    let pp = "a!"\n    where lk(src.t, pp)\n    select:\n        id = src.id\n',
             ),
             (
                 "paired",
-                '    let:\n        pp = "a!!"\n    where src.t like pp\n'
-                "    select:\n        id = src.id\n",
+                '    let pp = "a!!"\n    where src.t like pp\n    select:\n        id = src.id\n',
             ),
         ),
     ) == [
-        ("PIE-S2105", _ESCAPE, 8, 13),
-        ("PIE-S2105", _ESCAPE, 18, 11),
-        ("PIE-S2105", _ESCAPE, 30, 13),
-        ("PIE-S2105", _ESCAPE, 38, 11),
+        ("PIE-S2105", _ESCAPE, 6, 13),
+        ("PIE-S2105", _ESCAPE, 14, 11),
+        ("PIE-S2105", _ESCAPE, 24, 13),
+        ("PIE-S2105", _ESCAPE, 30, 11),
     ]
 
 
@@ -786,33 +829,32 @@ def test_a_joined_null_binding_is_written_into_later_bindings(
     reported; the relation stays non-concrete, so it fails closed with
     PIE-S2333 when no binding has an error. Before, every relation here was
     PIE-S2333."""
-    lets = "    let:\n        k = null\n        w = coalesce(k, o.oid)\n"
+    lets = "    let k = None\n    let w = coalesce(k, o.oid)\n"
     assert _joined_let_diagnostics(
         tmp_path,
         (
-            ("unfit", f"{lets}        v = tnn(w)\n    select:\n        x = v\n"),
-            ("never", f"{lets}        v = o.oid == k\n    select:\n        x = v\n"),
+            ("unfit", f"{lets}    let v = tnn(w)\n    select:\n        x = v\n"),
+            ("never", f"{lets}    let v = o.oid == k\n    select:\n        x = v\n"),
             ("closed", f"{lets}    select:\n        x = w\n"),
         ),
     ) == [
         (
             "PIE-S2395",
-            "Invalid argument for def tnn at position 1 (x): "
-            "expected Text not null, got Int not null",
-            9,
+            "Invalid argument for def tnn at position 1 (x): expected Text, got Int",
+            7,
             13,
         ),
         (
             "PIE-S2105",
             "Invalid operands for operator ==: comparison with null is never "
-            "true; write `is null` instead",
-            20,
+            "true; write `is None` instead",
+            16,
             13,
         ),
         (
             "PIE-S2333",
             "Project relation semantic completion is unavailable: closed",
-            23,
+            19,
             1,
         ),
     ]
@@ -824,11 +866,11 @@ def test_a_joined_def_argument_reads_let_values_with_their_join_fields(
     """With JOIN inputs, a def argument that reads a `let:` binding whose value
     reads a JOIN field and another binding is checked with the value written
     in, typed with the types of the fields it reads, as without JOIN inputs:
-    in a SELECT item, a WHERE or a later binding it fits its `Int nullable`
-    parameter, and passed to a `Text not null` parameter it is PIE-S2395.
+    in a SELECT item, a WHERE or a later binding it fits its `Int | None`
+    parameter, and passed to a `Text` parameter it is PIE-S2395.
     Before, the value written in had no type for its JOIN field, so it was of
     unknown type and the relations but the WHERE one were PIE-S2333."""
-    lets = "    let:\n        a = src.id\n        c = a + o.oid\n"
+    lets = "    let a = src.id\n    let c = a + o.oid\n"
     assert _joined_let_diagnostics(
         tmp_path,
         (
@@ -837,15 +879,15 @@ def test_a_joined_def_argument_reads_let_values_with_their_join_fields(
                 "filtered",
                 f"{lets}    where inl(c) > 0\n    select:\n        x = o.oid\n",
             ),
-            ("bound", f"{lets}        d = inl(c)\n    select:\n        x = d\n"),
+            ("bound", f"{lets}    let d = inl(c)\n    select:\n        x = d\n"),
             ("unfit", f"{lets}    select:\n        x = tnn(c)\n"),
         ),
     ) == [
         (
             "PIE-S2395",
-            "Invalid argument for def tnn at position 1 (x): expected Text not "
-            "null, got Int of unknown nullability",
-            42,
+            "Invalid argument for def tnn at position 1 (x): expected Text, "
+            "got Int of unknown nullability",
+            34,
             13,
         )
     ]
@@ -857,45 +899,45 @@ def test_a_joined_def_argument_reads_join_fields_at_any_depth(
     """A JOIN field the value of a `let:` binding reads below a part that is
     written as it is, as in `-o.oid`, `o.oid * 2`, `len(src.t)`, a condition
     or an `in` test, types that value as without JOIN inputs: a def argument
-    that reads the binding fits its `Int nullable` parameter, and passed to a
-    `Text not null` parameter in a WHERE it is PIE-S2395. Before, such a value
+    that reads the binding fits its `Int | None` parameter, and passed to a
+    `Text` parameter in a WHERE it is PIE-S2395. Before, such a value
     had no type: the relations whose argument fits but the WHERE one were
     PIE-S2333, and the unfit argument passed."""
-    lets = "    let:\n        a = src.id\n"
+    lets = "    let a = src.id\n"
     assert _joined_let_diagnostics(
         tmp_path,
         (
             (
                 "negated",
-                f"{lets}        c = a + (-o.oid)\n    select:\n        x = inl(c)\n",
+                f"{lets}    let c = a + (-o.oid)\n    select:\n        x = inl(c)\n",
             ),
             (
                 "scaled",
-                f"{lets}        c = a + o.oid * 2\n        d = inl(c)\n"
+                f"{lets}    let c = a + o.oid * 2\n    let d = inl(c)\n"
                 "    select:\n        x = d\n",
             ),
             (
                 "called",
-                f"{lets}        c = a + len(src.t)\n    where inl(c) > 0\n"
+                f"{lets}    let c = a + len(src.t)\n    where inl(c) > 0\n"
                 "    select:\n        x = o.oid\n",
             ),
             (
                 "tested",
-                f"{lets}        c = a if not (o.oid in (1, 2)) else 0\n"
+                f"{lets}    let c = a if not (o.oid in (1, 2)) else 0\n"
                 "    select:\n        x = inl(c)\n",
             ),
             (
                 "unfit",
-                f"{lets}        c = a + (-o.oid)\n    where tnn(c) is not null\n"
+                f"{lets}    let c = a + (-o.oid)\n    where tnn(c) is not None\n"
                 "    select:\n        x = o.oid\n",
             ),
         ),
     ) == [
         (
             "PIE-S2395",
-            "Invalid argument for def tnn at position 1 (x): expected Text not "
-            "null, got Int of unknown nullability",
-            51,
+            "Invalid argument for def tnn at position 1 (x): expected Text, "
+            "got Int of unknown nullability",
+            41,
             11,
         )
     ]
@@ -910,16 +952,15 @@ def test_a_joined_read_of_a_null_binding_is_typed_where_it_stands(
     or WHERE that is ill-typed with those types reports its error: with
     `k = null` and `j = coalesce(k, 1)`, `d = len(j)` and `x = lower(j)` are
     PIE-S2104. Before, each relation here was a bare PIE-S2333."""
-    lets = "    let:\n        k = null\n        j = coalesce(k, 1)\n"
+    lets = "    let k = None\n    let j = coalesce(k, 1)\n"
     assert _joined_let_diagnostics(
         tmp_path,
         (
-            ("binding", f"{lets}        d = len(j)\n    select:\n        x = o.oid\n"),
+            ("binding", f"{lets}    let d = len(j)\n    select:\n        x = o.oid\n"),
             ("selected", f"{lets}    select:\n        x = lower(j)\n"),
             (
                 "filtered",
-                "    let:\n        k = null\n"
-                '    where coalesce(k, o.oid) == "a"\n    select:\n        x = o.oid\n',
+                '    let k = None\n    where coalesce(k, o.oid) == "a"\n    select:\n        x = o.oid\n',
             ),
         ),
     ) == [
@@ -927,20 +968,20 @@ def test_a_joined_read_of_a_null_binding_is_typed_where_it_stands(
             "PIE-S2104",
             "Invalid argument type for function len at position 1: expected Text, "
             "got Int",
-            9,
+            7,
             13,
         ),
         (
             "PIE-S2104",
             "Invalid argument type for function lower at position 1: expected "
             "Text, got Int",
-            21,
+            17,
             13,
         ),
         (
             "PIE-S2105",
             "Invalid operands for operator ==: expected comparable operands",
-            29,
+            23,
             11,
         ),
     ]
@@ -952,8 +993,10 @@ def _single_input_decision(body: str) -> tuple[bool, tuple[str, ...]]:
         path="single-input-let.pietto",
     )
     assert parsed.ast is not None and parsed.diagnostics == ()
-    source = cast(SourceDef, parsed.ast.definitions[-2])
-    definition = cast(QueryDef, parsed.ast.definitions[-1])
+    script, naming_diagnostics = normalize_query_names(parsed.ast)
+    assert naming_diagnostics == ()
+    source = cast(SourceDef, script.definitions[-2])
+    definition = cast(QueryDef, script.definitions[-1])
     int_type = ResolvedType(name="Int", kind=TypeKind.BUILTIN)
     row_schema = RowSchema(
         fields={
@@ -970,7 +1013,7 @@ def _single_input_decision(body: str) -> tuple[bool, tuple[str, ...]]:
         }
     )
     scopes, _, diagnostics = analyze_relation_let_bindings(
-        parsed.ast.definitions,
+        script.definitions,
         from_resolutions={definition.from_clause: source},
         source_row_schemas={source: row_schema},
         relation_row_schemas={},
@@ -988,76 +1031,37 @@ def _single_input_decision(body: str) -> tuple[bool, tuple[str, ...]]:
     ("joined_name", "single_body"),
     (
         (
-            "duplicate_let_join",
-            "    from orders\n"
-            "    let:\n"
-            "        gross = amount + 1\n"
-            "        gross = amount - 1\n"
-            "    select:\n"
-            "        amount\n",
-        ),
-        (
             "self_let_join",
-            "    from orders\n"
-            "    let:\n"
-            "        gross = gross + amount\n"
-            "    select:\n"
-            "        amount\n",
+            "    from orders\n    let gross = gross + amount\n    select:\n        amount\n",
         ),
         (
             "forward_let_join",
-            "    from orders\n"
-            "    let:\n"
-            "        gross = net + amount\n"
-            "        net = amount\n"
-            "    select:\n"
-            "        amount\n",
+            "    from orders\n    let gross = net + amount\n    let net = amount\n    select:\n        amount\n",
         ),
         (
             "field_shadow_let_join",
-            "    from orders\n"
-            "    let:\n"
-            "        amount = product_id\n"
-            "    select:\n"
-            "        product_id\n",
+            "    from orders\n    let amount = product_id\n    select:\n        product_id\n",
         ),
         (
             "base_relation_shadow_let_join",
-            "    from orders\n"
-            "    let:\n"
-            "        orders = amount\n"
-            "    select:\n"
-            "        amount\n",
+            "    from orders\n    let orders = amount\n    select:\n        amount\n",
         ),
         (
             "projection_collision_let_join",
-            "    from orders\n"
-            "    let:\n"
-            "        gross = amount + 1\n"
-            "    select:\n"
-            "        gross = amount\n",
+            "    from orders\n    let gross = amount + 1\n    select:\n        gross = amount\n",
         ),
         (
             "direct_selected_let_join",
-            "    from orders\n"
-            "    let:\n"
-            "        gross = amount + 1\n"
-            "    select:\n"
-            "        gross\n",
+            "    from orders\n    let gross = amount + 1\n    select:\n        gross\n",
         ),
         (
             "unknown_then_reference_let_join",
-            "    from orders\n"
-            "    let:\n"
-            "        bad = not_a_builtin(amount)\n"
-            "        later = bad + 1\n"
-            "    select:\n"
-            "        amount\n",
+            "    from orders\n    let bad = not_a_builtin(amount)\n    let later = bad + 1\n    select:\n        amount\n",
         ),
     ),
 )
 def test_single_input_let_decisions_match_existing_semantics(
-    environments: dict[str, scalar_bindings.ProjectJoinedScalarBindingEnvironment],
+    environments: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult],
     joined_name: str,
     single_body: str,
 ) -> None:
@@ -1110,39 +1114,50 @@ def test_slice5_scope_dependency_and_contract_are_exact() -> None:
 
 JOIN_LET_SOURCE = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    customer_id: Int nullable\n"
+    "    id: Int\n"
+    "    customer_id: Int | None\n"
     "shape Customer:\n"
-    "    id: Int not null\n"
-    "    name: Text not null\n"
+    "    id: Int\n"
+    "    name: Text\n"
     "shape Region:\n"
-    "    id: Int not null\n"
-    "    label: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
-    'source customers: Customer is postgres.table("customers")\n'
-    'source regions: Region is postgres.table("regions")\n'
+    "    id: Int\n"
+    "    label: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
+    'source customers: Customer = postgres.table("customers")\n'
+    'source regions: Region = postgres.table("regions")\n'
     "query joined:\n"
     "    from orders\n"
-    "    left join customers as customer:\n"
-    "        from orders\n"
-    "        on orders.customer_id == customer.id\n"
-    "    semi join regions as region:\n"
-    "        from customer\n"
-    "        on customer.id == region.id\n"
-    "    anti join customers as lost\n"
-    "    let:\n"
-    "        name = 1\n"
-    "        id = 2\n"
-    "        customer = 3\n"
-    "        customers = 4\n"
-    "        region = 5\n"
-    "        regions = 6\n"
-    "        lost = 7\n"
-    "        label = 8\n"
-    "        total = 9\n"
+    "    let customer = customers\n"
+    "    left join customer on orders.customer_id == customer.id\n"
+    "    let name = 1\n"
+    "    let id = 2\n"
+    "    let customer = 3\n"
+    "    let customers = 4\n"
+    "    let region = 5\n"
+    "    let regions = 6\n"
+    "    let lost = 7\n"
+    "    let label = 8\n"
+    "    let total = 9\n"
+    "    where any(customer.id == region.id for region in regions)"
+    " and not any(orders.customer_id == lost.id for lost in customers)\n"
     "    select:\n"
     "        order_id = orders.id\n"
 )
+
+
+def _join_let_script() -> Script:
+    """JOIN_LET_SOURCE with its names resolved: the value `let` named like the
+    JOIN input is a duplicate query local name, and stays a value binding; the
+    names bound only inside `any(...)` are no query local names."""
+
+    parsed = parse_source(JOIN_LET_SOURCE, path="join-lets.pietto")
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    script, naming_diagnostics = normalize_query_names(parsed.ast)
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in naming_diagnostics
+    ] == [("PIE-S2604", "Duplicate query local name: customer", 19, 5)]
+    return script
 
 
 def _join_let_row(*fields: tuple[str, str], joined: bool = False) -> RowSchema:
@@ -1162,11 +1177,10 @@ def _join_let_row(*fields: tuple[str, str], joined: bool = False) -> RowSchema:
 def _join_let_analysis(
     *, joined: bool
 ) -> tuple[QueryDef, list[str], list[tuple[str, str, int, int]]]:
-    parsed = parse_source(JOIN_LET_SOURCE, path="join-lets.pietto")
-    assert parsed.ast is not None and parsed.diagnostics == ()
-    orders = cast(SourceDef, parsed.ast.definitions[-4])
-    definition = cast(QueryDef, parsed.ast.definitions[-1])
-    # The tail row: FROM and the LEFT JOIN binding; SEMI and ANTI ones are hidden.
+    script = _join_let_script()
+    orders = cast(SourceDef, script.definitions[-4])
+    definition = cast(QueryDef, script.definitions[-1])
+    # The tail row: FROM and the LEFT JOIN binding; an `any` row is not in it.
     tail_row = _join_let_row(
         ("orders.id", "Int"),
         ("orders.customer_id", "Int"),
@@ -1175,7 +1189,7 @@ def _join_let_analysis(
         joined=True,
     )
     scopes, _, diagnostics = analyze_relation_let_bindings(
-        parsed.ast.definitions,
+        script.definitions,
         from_resolutions={definition.from_clause: orders},
         source_row_schemas={
             orders: _join_let_row(("id", "Int"), ("customer_id", "Int"))
@@ -1204,24 +1218,15 @@ def _join_let_analysis(
 def test_join_let_names_cannot_shadow_a_visible_field_binding_or_relation() -> None:
     definition, admitted, diagnostics = _join_let_analysis(joined=True)
 
-    assert join_reserved_let_names(definition) == {
-        "orders",
-        "customer",
-        "customers",
-        "region",
-        "regions",
-        "lost",
-    }
-    # `label` is a field of the hidden SEMI binding only, so it stays free.
-    assert admitted == ["label", "total"]
+    assert join_reserved_let_names(definition) == {"orders", "customer", "customers"}
+    # `region`, `lost` and `regions` are bound only inside `any(...)`, and
+    # `label` is a field of an `any` row only, so they stay free.
+    assert admitted == ["region", "regions", "lost", "label", "total"]
     assert diagnostics == [
-        ("PIE-S2329", "Let binding cannot shadow input field: name", 23, 9),
-        ("PIE-S2329", "Let binding cannot shadow input field: id", 24, 9),
-        ("PIE-S2329", "Let binding cannot shadow input relation: customer", 25, 9),
-        ("PIE-S2329", "Let binding cannot shadow input relation: customers", 26, 9),
-        ("PIE-S2329", "Let binding cannot shadow input relation: region", 27, 9),
-        ("PIE-S2329", "Let binding cannot shadow input relation: regions", 28, 9),
-        ("PIE-S2329", "Let binding cannot shadow input relation: lost", 29, 9),
+        ("PIE-S2329", "Let binding cannot shadow input field: name", 17, 5),
+        ("PIE-S2329", "Let binding cannot shadow input field: id", 18, 5),
+        ("PIE-S2329", "Let binding cannot shadow input relation: customer", 19, 5),
+        ("PIE-S2329", "Let binding cannot shadow input relation: customers", 20, 5),
     ]
 
 
@@ -1239,14 +1244,12 @@ def test_join_let_names_keep_the_from_input_rules_without_the_join_keywords() ->
         "total",
     ]
     assert diagnostics == [
-        ("PIE-S2329", "Let binding cannot shadow input field: id", 24, 9),
+        ("PIE-S2329", "Let binding cannot shadow input field: id", 18, 5),
     ]
 
 
 def test_admitted_join_lets_leave_out_the_reserved_names() -> None:
-    parsed = parse_source(JOIN_LET_SOURCE, path="join-lets.pietto")
-    assert parsed.ast is not None and parsed.diagnostics == ()
-    definition = cast(QueryDef, parsed.ast.definitions[-1])
+    definition = cast(QueryDef, _join_let_script().definitions[-1])
     tail_row = _join_let_row(("customer.name", "Text"), joined=True)
 
     assert list(
@@ -1255,7 +1258,7 @@ def test_admitted_join_lets_leave_out_the_reserved_names() -> None:
             tail_row,
             reserved_names=join_reserved_let_names(definition),
         )
-    ) == ["id", "label", "total"]
+    ) == ["id", "region", "regions", "lost", "label", "total"]
     assert list(admitted_relation_let_expressions(definition, tail_row)) == [
         "id",
         "customer",

@@ -25,6 +25,7 @@ from pietto._project.module_carrier import (
     ProjectModuleIdentity,
 )
 from pietto.ast_nodes import (
+    AnyExpr,
     BlockRelationDef,
     ConstraintDef,
     Definition,
@@ -101,6 +102,8 @@ _SELECT_FIELDS = (
     "named_windows",
     "join_clauses",
     "distinct_clause",
+    "naming_declarations",
+    "join_filters",
 )
 
 
@@ -229,15 +232,15 @@ def _block_view_of(
 
 
 type RelationReadExpression = (
-    RelationExistsExpr | RelationMembershipExpr | RelationScalarExpr
+    AnyExpr | RelationExistsExpr | RelationMembershipExpr | RelationScalarExpr
 )
 RELATION_READ_EXPRESSIONS = frozenset(
-    {RelationExistsExpr, RelationMembershipExpr, RelationScalarExpr}
+    {AnyExpr, RelationExistsExpr, RelationMembershipExpr, RelationScalarExpr}
 )
 
 
 def relation_read_expressions(node: object) -> tuple[RelationReadExpression, ...]:
-    """Every `exists`, `scalar` and `in` relation read under one AST value.
+    """Every ANY, `exists`, `scalar` and `in` relation read under one AST value.
 
     Reads come in source order, a read before the reads nested in it.
     """

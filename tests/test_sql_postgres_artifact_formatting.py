@@ -16,10 +16,10 @@ assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 
 BASE_SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text nullable\n"
-    "    active: Bool not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text | None\n"
+    "    active: Bool\n"
+    'source users: User = postgres.table("users")\n'
 )
 
 
@@ -27,7 +27,7 @@ def test_minimal_relation_sql_has_stable_multiline_format() -> None:
     result = _emit(
         BASE_SOURCE + "table active_users:\n"
         "    from users\n"
-        "    where active == true\n"
+        "    where active == True\n"
         "    select:\n"
         "        id\n"
         "        email_norm = lower(trim(email))\n"
@@ -62,7 +62,7 @@ def test_relation_with_filter_has_exactly_one_where_clause() -> None:
     result = _emit(
         BASE_SOURCE + "query active_user_emails:\n"
         "    from users\n"
-        "    where active == true\n"
+        "    where active == True\n"
         "    select:\n"
         "        email\n"
     )
@@ -98,13 +98,13 @@ def test_metadata_does_not_change_artifact_text_or_add_diagnostics() -> None:
         BASE_SOURCE + "table user_emails:\n    from users\n    select:\n        email\n"
     )
     with_metadata = _emit(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    active\n"
-        "constraint valid_email(email: Text not null) -> Bool not null:\n"
-        "    email is not null\n"
-        "derive normalize_email(email: Text not null) -> Text not null:\n"
-        "    trim(email)\n" + BASE_SOURCE + "table user_emails:\n"
+        "constraint valid_email(email: Text) -> Bool:\n"
+        "    return email is not None\n"
+        "derive normalize_email(email: Text) -> Text:\n"
+        "    return trim(email)\n" + BASE_SOURCE + "table user_emails:\n"
         "    from users\n"
         "    select:\n"
         "        email\n"
@@ -116,7 +116,7 @@ def test_metadata_does_not_change_artifact_text_or_add_diagnostics() -> None:
 
 def test_artifacts_and_diagnostics_coexist_in_source_order() -> None:
     script_ir = _compile_ir(
-        BASE_SOURCE + 'source backup: User is postgres.table("backup")\n'
+        BASE_SOURCE + 'source backup: User = postgres.table("backup")\n'
         "table first_ok:\n"
         "    from users\n"
         "    select:\n"

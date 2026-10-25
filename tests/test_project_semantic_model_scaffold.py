@@ -105,21 +105,21 @@ def test_project_semantic_catalog_populates_symbols_in_deterministic_order(
     _write(
         root,
         "models/a.pietto",
-        "type Age = Int not null\n"
+        "type Age = Int\n"
         "enum Status:\n"
         "    ACTIVE\n"
         "    PAUSED\n"
         "shape User:\n"
         "    id: Int\n"
-        "constraint usable(value: Text not null) -> Bool not null:\n"
-        "    value is not null\n",
+        "constraint usable(value: Text) -> Bool:\n"
+        "    return value is not None\n",
     )
     _write(
         root,
         "models/b.pietto",
-        "derive normalize(value: Text not null) -> Text not null:\n"
-        "    lower(value)\n"
-        'source users: User is postgres.table("users")\n'
+        "derive normalize(value: Text) -> Text:\n"
+        "    return lower(value)\n"
+        'source users: User = postgres.table("users")\n'
         "table active_users:\n"
         "    from users\n"
         "    select:\n"
@@ -151,7 +151,7 @@ def test_project_semantic_catalog_populates_symbols_in_deterministic_order(
         line=1,
         column=1,
         end_line=1,
-        end_column=24,
+        end_column=15,
     )
     assert isinstance(age.definition, TypeDef)
     assert age.definition.name == "Age"
@@ -190,9 +190,9 @@ def test_same_name_across_project_namespaces_is_allowed(tmp_path: Path) -> None:
         "shared.pietto",
         "shape Shared:\n"
         "    id: Int\n"
-        "derive Shared(value: Text not null) -> Text not null:\n"
-        "    value\n"
-        'source Shared: Shared is postgres.table("shared")\n',
+        "derive Shared(value: Text) -> Text:\n"
+        "    return value\n"
+        'source Shared: Shared = postgres.table("shared")\n',
     )
 
     parse_result = check_project_parse_only(root)
@@ -217,17 +217,17 @@ def test_project_duplicate_symbols_fail_closed_and_keep_first_symbol(
         "models/a.pietto",
         "shape Shared:\n"
         "    id: Int\n"
-        "derive normalize(value: Text not null) -> Text not null:\n"
-        "    value\n",
+        "derive normalize(value: Text) -> Text:\n"
+        "    return value\n",
     )
     _write(
         root,
         "models/b.pietto",
         "enum Shared:\n"
         "    ACTIVE\n"
-        "constraint normalize(value: Text not null) -> Bool not null:\n"
-        "    value is not null\n"
-        'source rows: Shared is postgres.table("rows")\n',
+        "constraint normalize(value: Text) -> Bool:\n"
+        "    return value is not None\n"
+        'source rows: Shared = postgres.table("rows")\n',
     )
     _write(
         root,
@@ -301,7 +301,7 @@ def test_relation_body_semantics_remain_deferred_after_resolution(
         "body_deferred.pietto",
         "shape Raw:\n"
         "    id: Int\n"
-        'source raw: Raw is postgres.table("raw")\n'
+        'source raw: Raw = postgres.table("raw")\n'
         "table projected:\n"
         "    from raw\n"
         "    select:\n"
@@ -468,19 +468,19 @@ def test_project_text_output_remains_parse_only(
 
 DEF_HEAD = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    n: Int nullable\n"
-    "    text: Text not null\n"
-    "    unique row_key on id\n"
+    "    id: Int\n"
+    "    n: Int | None\n"
+    "    text: Text\n"
+    "    row_key = unique(id)\n"
     "shape Other:\n"
-    "    id: Int not null\n"
-    "    row_id: Int not null\n"
-    "    label: Text nullable\n"
-    'source rows: Row is postgres.table("rows")\n'
-    'source others: Other is postgres.table("others")\n'
-    "def pos(x: Int not null) -> Bool nullable: return x > 0\n"
-    "def idi(x: Int not null) -> Int not null: return x\n"
-    "def idt(x: Text not null) -> Text not null: return x\n"
+    "    id: Int\n"
+    "    row_id: Int\n"
+    "    label: Text | None\n"
+    'source rows: Row = postgres.table("rows")\n'
+    'source others: Other = postgres.table("others")\n'
+    "def pos(x: Int) -> Bool | None: return x > 0\n"
+    "def idi(x: Int) -> Int: return x\n"
+    "def idt(x: Text) -> Text: return x\n"
 )
 # The first line written after DEF_HEAD.
 DEF_LINE = 15
@@ -513,9 +513,9 @@ def _def_check(
 def test_a_def_belongs_to_its_module(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    exported = DEF_HEAD + "export:\n    source rows\n    table pos\n"
+    exported = DEF_HEAD + "export (\n    source rows,\n    table pos)\n"
     caller = (
-        'import "a.pietto":\n    source rows\n'
+        'from "a.pietto" import (\n    source rows)\n'
         "table t:\n    from rows\n    where pos(id)\n    select:\n        id\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": exported, "b.pietto": caller}) == [
@@ -545,15 +545,17 @@ def test_a_call_of_a_modules_own_constraint_or_derive_says_it_cannot_be_called(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     declared = DEF_HEAD + (
-        'constraint valid(x: Text not null) -> Bool not null:\n    x like "%a%"\n'
-        "derive normalized(x: Text not null) -> Text not null:\n    lower(x)\n"
-        "export:\n    source rows\n"
+        "constraint valid(x: Text) -> Bool:\n"
+        '    return x like "%a%"\n'
+        "derive normalized(x: Text) -> Text:\n"
+        "    return lower(x)\n"
+        "export (\n    source rows)\n"
         "query q:\n    from rows\n    where valid(text)\n    select:\n        id\n"
         "        m = normalized(text)\n"
     )
     # Another module does not declare the name, so it is only unknown there.
     caller = (
-        'import "a.pietto":\n    source rows\n'
+        'from "a.pietto" import (\n    source rows)\n'
         "query t:\n    from rows\n    where valid(text)\n    select:\n        id\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": declared, "b.pietto": caller}) == [
@@ -567,11 +569,12 @@ def test_a_def_body_call_of_a_derive_says_it_cannot_be_called(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     source = DEF_HEAD + (
-        "derive normalized(x: Text not null) -> Text not null:\n    lower(x)\n"
-        "def f(x: Text not null) -> Text not null: return normalized(x)\n"
+        "derive normalized(x: Text) -> Text:\n"
+        "    return lower(x)\n"
+        "def f(x: Text) -> Text: return normalized(x)\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        _uncallable("a.pietto", DEF_LINE + 2, 50, "normalized", "derive")
+        _uncallable("a.pietto", DEF_LINE + 2, 32, "normalized", "derive")
     ]
 
 
@@ -590,21 +593,21 @@ def test_a_project_checks_def_arguments_in_its_typed_positions(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     source = DEF_HEAD + (
-        "query q(k: Int not null, m: Int nullable):\n    from rows\n"
+        "query q(k: Int, m: Int | None):\n    from rows\n"
         "    where pos(k) and pos(m)\n    select:\n        id\n"
         "        bare = idi(n)\n"
         "query c:\n    let l:\n        capture rows\n        from others\n"
         "        where pos(rows.n)\n        select:\n            id\n"
         "    from rows\n    where exists l\n    select:\n        id\n"
-        "query j:\n    from rows\n    inner join others as o:\n        from rows\n"
-        "        on o.row_id == rows.id\n    select:\n        a = rows.id\n"
+        "query j:\n    from rows\n    let o = others\n"
+        "    inner join o on o.row_id == rows.id\n    select:\n        a = rows.id\n"
         "        p = idt(o.label)\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        _mismatch("pos", DEF_LINE + 2, 22, "Int not null", "Int nullable"),
-        _mismatch("idi", DEF_LINE + 5, 16, "Int not null", "Int nullable"),
-        _mismatch("pos", DEF_LINE + 10, 15, "Int not null", "Int nullable"),
-        _mismatch("idt", DEF_LINE + 24, 13, "Text not null", "Text nullable"),
+        _mismatch("pos", DEF_LINE + 2, 22, "Int", "Int | None"),
+        _mismatch("idi", DEF_LINE + 5, 16, "Int", "Int | None"),
+        _mismatch("pos", DEF_LINE + 10, 15, "Int", "Int | None"),
+        _mismatch("idt", DEF_LINE + 23, 13, "Text", "Text | None"),
     ]
 
 
@@ -616,14 +619,14 @@ def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
     argument, and a null argument that does not fit is only PIE-S2395, also
     where the body casts it."""
     source = DEF_HEAD + (
-        "type Money = Int not null\n"
-        "def bump(x: Money nullable) -> Money nullable: return x + 1\n"
-        "def flag(b: Bool not null) -> Bool nullable: return b or b\n"
-        "def low(x: Int nullable) -> Bool nullable: return x < 3\n"
-        "def fl(x: Int not null) -> Float nullable: return cast(x as Float)\n"
+        "type Money = Int\n"
+        "def bump(x: Money | None) -> Money | None: return x + 1\n"
+        "def flag(b: Bool) -> Bool | None: return b or b\n"
+        "def low(x: Int | None) -> Bool | None: return x < 3\n"
+        "def fl(x: Int) -> Float | None: return Float(x)\n"
         "query q:\n    from rows\n"
-        "    where flag(n == null) and low(null) and pos(null)\n"
-        "    select:\n        id\n        v = bump(id)\n        w = fl(null)\n"
+        "    where flag(n == None) and low(None) and pos(None)\n"
+        "    select:\n        id\n        v = bump(id)\n        w = fl(None)\n"
     )
     never = "comparison with null is never true"
     line = DEF_LINE + 7
@@ -633,7 +636,7 @@ def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
             "a.pietto",
             line,
             16,
-            f"Invalid operands for operator ==: {never}; write `is null` instead",
+            f"Invalid operands for operator ==: {never}; write `is None` instead",
         ),
         (
             "PIE-S2105",
@@ -642,8 +645,8 @@ def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
             31,
             f"Invalid operands for operator <: {never}",
         ),
-        _mismatch("pos", line, 45, "Int not null", "null"),
-        _mismatch("fl", line + 4, 13, "Int not null", "null"),
+        _mismatch("pos", line, 45, "Int", "null"),
+        _mismatch("fl", line + 4, 13, "Int", "null"),
     ]
 
 
@@ -654,17 +657,17 @@ def test_a_project_def_reads_a_let_bound_to_null_as_null(
     argument as in a single file: PIE-S2395 alone, also where the body casts
     it, and the relation then needs no PIE-S2333."""
     source = DEF_HEAD + (
-        "def fl(x: Int not null) -> Float nullable: return cast(x as Float)\n"
-        "query q:\n    from rows\n    let:\n        k = null\n        k2 = k\n"
-        "        k3 = k2\n    select:\n        id\n        a = idi(k)\n"
+        "def fl(x: Int) -> Float | None: return Float(x)\n"
+        "query q:\n    from rows\n    let k = None\n    let k2 = k\n"
+        "    let k3 = k2\n    select:\n        id\n        a = idi(k)\n"
         "        b = idt(k2)\n        c = idi(k3)\n        d = fl(k)\n"
     )
-    line = DEF_LINE + 9
+    line = DEF_LINE + 8
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        _mismatch("idi", line, 13, "Int not null", "null"),
-        _mismatch("idt", line + 1, 13, "Text not null", "null"),
-        _mismatch("idi", line + 2, 13, "Int not null", "null"),
-        _mismatch("fl", line + 3, 13, "Int not null", "null"),
+        _mismatch("idi", line, 13, "Int", "null"),
+        _mismatch("idt", line + 1, 13, "Text", "null"),
+        _mismatch("idi", line + 2, 13, "Int", "null"),
+        _mismatch("fl", line + 3, 13, "Int", "null"),
     ]
 
 
@@ -675,16 +678,16 @@ def test_a_project_def_reads_a_let_that_stands_for_null_as_written(
     out, the literal taking its type from where it stands; a name bound to
     another always-null value is null, as in a single file."""
     source = DEF_HEAD + (
-        "query q:\n    from rows\n    let:\n        k = null\n        m = id + null\n"
+        "query q:\n    from rows\n    let k = None\n    let m = id + None\n"
         "    select:\n        id\n        a = idt(lower(k))\n"
         "        b = idi(coalesce(k, n))\n        c = idi(m)\n        d = idi(m + 1)\n"
     )
-    line = DEF_LINE + 7
+    line = DEF_LINE + 6
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        _mismatch("idt", line, 13, "Text not null", "Text nullable"),
-        _mismatch("idi", line + 1, 13, "Int not null", "Int nullable"),
-        _mismatch("idi", line + 2, 13, "Int not null", "null"),
-        _mismatch("idi", line + 3, 13, "Int not null", "null"),
+        _mismatch("idt", line, 13, "Text", "Text | None"),
+        _mismatch("idi", line + 1, 13, "Int", "Int | None"),
+        _mismatch("idi", line + 2, 13, "Int", "null"),
+        _mismatch("idi", line + 3, 13, "Int", "null"),
     ]
 
 
@@ -698,31 +701,31 @@ def test_a_project_def_checks_an_argument_with_its_let_values_written_in(
     checks it so too, in its lets, WHERE, select and ORDER BY, as it checks
     the value written by hand."""
     joined = (
-        "    from rows\n    inner join others as p:\n        from rows\n"
-        "        on p.row_id == rows.id\n    let:\n        m = p.id + null > 1\n"
-        "        m2 = m\n"
+        "    from rows\n    let p = others\n"
+        "    inner join p on p.row_id == rows.id\n"
+        "    let m = p.id + None > 1\n    let m2 = m\n"
     )
     source = DEF_HEAD + (
-        "def bb(x: Bool not null) -> Bool not null: return x is null\n"
-        "query w:\n    from rows\n    let:\n        b2 = id + null > 1\n"
+        "def bb(x: Bool) -> Bool: return x is None\n"
+        "query w:\n    from rows\n    let b2 = id + None > 1\n"
         "    where bb(b2)\n    select:\n        id\n"
-        "query s:\n    from rows\n    let:\n        nill = null\n"
-        "        j = coalesce(nill, n)\n    select:\n        id\n        a = idi(j)\n"
-        f"query jl:\n{joined}        c = bb(m2)\n    select:\n        k = rows.id\n"
+        "query s:\n    from rows\n    let nill = None\n"
+        "    let j = coalesce(nill, n)\n    select:\n        id\n        a = idi(j)\n"
+        f"query jl:\n{joined}    let c = bb(m2)\n    select:\n        k = rows.id\n"
         f"query jw:\n{joined}    where bb(m)\n    select:\n        k = rows.id\n"
         f"query js:\n{joined}    select:\n        k = rows.id\n        a = bb(m2)\n"
-        f"query jo:\n{joined}    select:\n        k = rows.id\n    order by: bb(not m)\n"
+        f"query jo:\n{joined}    select:\n        k = rows.id\n    order by bb(not m)\n"
         f"query jt:\n{joined}    select:\n        k = rows.id\n"
-        "        a = bb(p.id + null > 1)\n"
+        "        a = bb(p.id + None > 1)\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        _mismatch("bb", DEF_LINE + 5, 11, "Bool not null", "null"),
-        _mismatch("idi", DEF_LINE + 15, 13, "Int not null", "Int nullable"),
-        _mismatch("bb", DEF_LINE + 24, 13, "Bool not null", "null"),
-        _mismatch("bb", DEF_LINE + 35, 11, "Bool not null", "null"),
-        _mismatch("bb", DEF_LINE + 48, 13, "Bool not null", "null"),
-        _mismatch("bb", DEF_LINE + 59, 15, "Bool not null", "null"),
-        _mismatch("bb", DEF_LINE + 70, 13, "Bool not null", "null"),
+        _mismatch("bb", DEF_LINE + 4, 11, "Bool", "null"),
+        _mismatch("idi", DEF_LINE + 13, 13, "Int", "Int | None"),
+        _mismatch("bb", DEF_LINE + 20, 13, "Bool", "null"),
+        _mismatch("bb", DEF_LINE + 29, 11, "Bool", "null"),
+        _mismatch("bb", DEF_LINE + 40, 13, "Bool", "null"),
+        _mismatch("bb", DEF_LINE + 49, 14, "Bool", "null"),
+        _mismatch("bb", DEF_LINE + 58, 13, "Bool", "null"),
     ]
 
 
@@ -731,9 +734,9 @@ def test_a_project_def_checks_an_argument_with_its_let_values_written_in(
     [
         {"I1": "i1", "I2": "i2", "I8": "i8"},
         {
-            "I1": "coalesce(null, 1)",
-            "I2": "upper(null) + 1",
-            "I8": "lower(coalesce(null, 1))",
+            "I1": "coalesce(None, 1)",
+            "I2": "upper(None) + 1",
+            "I8": "lower(coalesce(None, 1))",
         },
     ],
     ids=["let_names", "values_written_in"],
@@ -747,9 +750,9 @@ def test_a_project_let_value_ill_typed_once_the_null_it_reads_has_a_type_is_an_e
     hand reports it where it is written, also as the whole argument, and its
     parameter adds nothing."""
     source = DEF_HEAD + (
-        "query q:\n    from rows\n    let:\n        nill = null\n"
-        "        i1 = coalesce(nill, 1)\n        i2 = upper(nill) + 1\n"
-        "        i8 = lower(i1)\n        z = pos({I2})\n    select:\n        id\n"
+        "query q:\n    from rows\n    let nill = None\n"
+        "    let i1 = coalesce(nill, 1)\n    let i2 = upper(nill) + 1\n"
+        "    let i8 = lower(i1)\n    let z = pos({I2})\n    select:\n        id\n"
         "        a = idt(lower({I1}))\n        b = pos({I2})\n        c = idt({I8})\n"
     ).format(**spelling)
     lower_of_int = (
@@ -761,18 +764,18 @@ def test_a_project_let_value_ill_typed_once_the_null_it_reads_has_a_type_is_an_e
     )
     written_in = spelling["I1"] != "i1"
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        ("PIE-S2105", "a.pietto", DEF_LINE + 5, 14, not_numeric),
-        ("PIE-S2104", "a.pietto", DEF_LINE + 6, 14, lower_of_int),
+        ("PIE-S2105", "a.pietto", DEF_LINE + 4, 14, not_numeric),
+        ("PIE-S2104", "a.pietto", DEF_LINE + 5, 14, lower_of_int),
         *(
-            [("PIE-S2105", "a.pietto", DEF_LINE + 7, 17, not_numeric)]
+            [("PIE-S2105", "a.pietto", DEF_LINE + 6, 17, not_numeric)]
             if written_in
             else []
         ),
-        ("PIE-S2104", "a.pietto", DEF_LINE + 10, 17, lower_of_int),
+        ("PIE-S2104", "a.pietto", DEF_LINE + 9, 17, lower_of_int),
         *(
             [
-                ("PIE-S2105", "a.pietto", DEF_LINE + 11, 17, not_numeric),
-                ("PIE-S2104", "a.pietto", DEF_LINE + 12, 17, lower_of_int),
+                ("PIE-S2105", "a.pietto", DEF_LINE + 10, 17, not_numeric),
+                ("PIE-S2104", "a.pietto", DEF_LINE + 11, 17, lower_of_int),
             ]
             if written_in
             else []
@@ -785,10 +788,10 @@ def test_a_project_let_value_ill_typed_once_the_null_it_reads_has_a_type_is_an_e
     [
         {"H": "h", "G": "g", "W": "w", "NILL": "nill"},
         {
-            "H": "coalesce(null, id)",
-            "G": "text if true else null",
-            "W": "lower(coalesce(null, 1)) is null",
-            "NILL": "null",
+            "H": "coalesce(None, id)",
+            "G": "text if True else None",
+            "W": "lower(coalesce(None, 1)) is None",
+            "NILL": "None",
         },
     ],
     ids=["let_names", "values_written_in"],
@@ -804,14 +807,14 @@ def test_a_project_def_argument_reports_what_its_written_form_reports(
     type it still has (`w`); and an argument with an error of its own is not
     checked against its parameter."""
     source = DEF_HEAD + (
-        "query q:\n    from rows\n    let:\n        nill = null\n        f = id\n"
-        "        h = coalesce(nill, f)\n        tt = true\n"
-        "        g = text if tt else nill\n        j = coalesce(nill, 1)\n"
-        "        e = lower(j)\n        w = e is null\n    select:\n        id\n"
+        "query q:\n    from rows\n    let nill = None\n    let f = id\n"
+        "    let h = coalesce(nill, f)\n    let tt = True\n"
+        "    let g = text if tt else nill\n    let j = coalesce(nill, 1)\n"
+        "    let e = lower(j)\n    let w = e is None\n    select:\n        id\n"
         "        a = idi(len({H}))\n        b = pos(len({G}))\n        c = idi({W})\n"
         "        d = idi({NILL} + zz)\n"
     ).format(**spelling)
-    line = DEF_LINE + 13
+    line = DEF_LINE + 12
     lower_of_int = (
         "Invalid argument type for function lower at position 1: expected Text, got Int"
     )
@@ -825,13 +828,13 @@ def test_a_project_def_argument_reports_what_its_written_form_reports(
             "Invalid argument type for function len at position 1: "
             "expected Text, got Int",
         ),
-        _mismatch("pos", line + 1, 13, "Int not null", "Int nullable"),
+        _mismatch("pos", line + 1, 13, "Int", "Int | None"),
         *(
             [("PIE-S2104", "a.pietto", line + 2, 17, lower_of_int)]
             if spelling["W"] != "w"
             else []
         ),
-        _mismatch("idi", line + 2, 13, "Int not null", "Bool not null"),
+        _mismatch("idi", line + 2, 13, "Int", "Bool"),
         ("PIE-S2102", "a.pietto", line + 3, 24, "Unknown field: zz"),
     ]
 
@@ -844,19 +847,19 @@ def test_a_project_def_checks_a_let_that_an_aggregate_reads(
     PIE-S2333 at the relation, as for `count(idi(n))`, grouped or not, and
     PIE-S2395 at the call in a JOIN relation, which reports its own errors."""
     source = DEF_HEAD + (
-        "query g:\n    from rows\n    let:\n        f = n\n    group by: id\n"
+        "query g:\n    from rows\n    let f = n\n    group by id\n"
         "    select:\n        id\n        c = count(idi(f))\n"
-        "query a:\n    from rows\n    let:\n        f = n\n    select:\n"
+        "query a:\n    from rows\n    let f = n\n    select:\n"
         "        s = sum(idi(f))\n"
-        "query m:\n    from rows\n    let:\n        g = id\n    group by: id\n"
+        "query m:\n    from rows\n    let g = id\n    group by id\n"
         "    select:\n        id\n        x = max(idt(g))\n"
-        "query s:\n    from rows\n    let:\n        f = n\n    group by: id\n"
+        "query s:\n    from rows\n    let f = n\n    group by id\n"
         "    select:\n        id\n        c = count(f)\n"
-        "    satisfying: count(idi(f)) > 0\n"
-        "query j:\n    from rows\n    inner join others as o:\n        from rows\n"
-        "        on o.row_id == rows.id\n    let:\n        f = o.label\n"
-        "    group by: rows.id\n    select:\n        k = rows.id\n        c = count(f)\n"
-        "    satisfying: count(idt(f)) > 0\n"
+        "    having count(idi(f)) > 0\n"
+        "query j:\n    from rows\n    let o = others\n"
+        "    inner join o on o.row_id == rows.id\n    let f = o.label\n"
+        "    group by rows.id\n    select:\n        k = rows.id\n        c = count(f)\n"
+        "    having count(idt(f)) > 0\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
         (
@@ -866,8 +869,8 @@ def test_a_project_def_checks_a_let_that_an_aggregate_reads(
             1,
             f"Project relation semantic completion is unavailable: {name}",
         )
-        for name, line in (("g", 0), ("a", 8), ("m", 14), ("s", 22))
-    ] + [_mismatch("idt", DEF_LINE + 42, 23, "Text not null", "Text nullable")]
+        for name, line in (("g", 0), ("a", 7), ("m", 12), ("s", 19))
+    ] + [_mismatch("idt", DEF_LINE + 36, 18, "Text", "Text | None")]
 
 
 def test_a_project_def_checks_an_aggregate_or_group_key_passed_to_it(
@@ -876,25 +879,24 @@ def test_a_project_def_checks_an_aggregate_or_group_key_passed_to_it(
     """An aggregate passed to a def is its result, and a group key passed to
     one is that key, which must fit the parameter as in a single file:
     PIE-S2395 at the call, grouped or not, with JOIN inputs or without, while
-    a `count` fits a `not null` parameter."""
+    a `count` fits a parameter of a bare type, which is never None."""
     joined = (
-        "    from others\n    inner join rows as r:\n        from others\n"
-        "        on r.id == others.row_id\n"
+        "    from others\n    let r = rows\n    inner join r on r.id == others.row_id\n"
     )
     source = DEF_HEAD + (
-        "query g:\n    from rows\n    group by: id\n    select:\n        id\n"
+        "query g:\n    from rows\n    group by id\n    select:\n        id\n"
         "        a = idt(max(n))\n        b = idi(count(n))\n"
         "query a:\n    from rows\n    select:\n        a = idi(max(n))\n"
-        f"query jg:\n{joined}    group by: others.id\n    select:\n"
+        f"query jg:\n{joined}    group by others.id\n    select:\n"
         "        k = others.id\n        a = idi(max(r.n))\n        b = idi(count(r.n))\n"
-        f"query jk:\n{joined}    group by: r.n\n    select:\n        k = idi(r.n)\n"
+        f"query jk:\n{joined}    group by r.n\n    select:\n        k = idi(r.n)\n"
         "        c = count()\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        _mismatch("idt", DEF_LINE + 5, 13, "Text not null", "Int nullable"),
-        _mismatch("idi", DEF_LINE + 10, 13, "Int not null", "Int nullable"),
-        _mismatch("idi", DEF_LINE + 19, 13, "Int not null", "Int nullable"),
-        _mismatch("idi", DEF_LINE + 28, 13, "Int not null", "Int nullable"),
+        _mismatch("idt", DEF_LINE + 5, 13, "Text", "Int | None"),
+        _mismatch("idi", DEF_LINE + 10, 13, "Int", "Int | None"),
+        _mismatch("idi", DEF_LINE + 18, 13, "Int", "Int | None"),
+        _mismatch("idi", DEF_LINE + 26, 13, "Int", "Int | None"),
     ]
 
 
@@ -907,7 +909,7 @@ def test_a_project_relation_selecting_an_unfit_def_argument_has_no_known_columns
     it, which report PIE-S2333 as when a computed output has an error, never
     the field's or the let's type. One that fits keeps the field's type."""
     source = DEF_HEAD + (
-        "query q1:\n    from rows\n    let:\n        u = true\n    select:\n"
+        "query q1:\n    from rows\n    let u = True\n    select:\n"
         "        id\n        f = idi(n)\n        t = idi(text)\n        b = idi(u)\n"
         "query q2:\n    from q1\n    select:\n        id\n        x = lower(f)\n"
         "        y = t + 1\n        z = not b\n"
@@ -916,36 +918,36 @@ def test_a_project_relation_selecting_an_unfit_def_argument_has_no_known_columns
         "        id\n"
         "query fit:\n    from rows\n    select:\n        o = idi(id)\n"
         "query reader:\n    from fit\n    select:\n        x = lower(o)\n"
-        "export:\n    query q1\n"
+        "export (\n    query q1)\n"
     )
     files = {
         "a.pietto": source,
-        "b.pietto": 'import "a.pietto":\n    query q1\n'
+        "b.pietto": 'from "a.pietto" import (\n    query q1)\n'
         "query q4:\n    from q1\n    select:\n        id\n",
     }
     assert _def_check(tmp_path, capsys, files) == [
-        _mismatch("idi", DEF_LINE + 6, 13, "Int not null", "Int nullable"),
-        _mismatch("idi", DEF_LINE + 7, 13, "Int not null", "Text not null"),
-        _mismatch("idi", DEF_LINE + 8, 13, "Int not null", "Bool not null"),
+        _mismatch("idi", DEF_LINE + 5, 13, "Int", "Int | None"),
+        _mismatch("idi", DEF_LINE + 6, 13, "Int", "Text"),
+        _mismatch("idi", DEF_LINE + 7, 13, "Int", "Bool"),
         (
             "PIE-S2333",
             "a.pietto",
-            DEF_LINE + 9,
+            DEF_LINE + 8,
             1,
             "Project relation semantic completion is unavailable: q2",
         ),
-        _mismatch("idt", DEF_LINE + 21, 17, "Text not null", "Int nullable"),
+        _mismatch("idt", DEF_LINE + 20, 17, "Text", "Int | None"),
         (
             "PIE-S2333",
             "a.pietto",
-            DEF_LINE + 16,
+            DEF_LINE + 15,
             1,
             "Project relation semantic completion is unavailable: q3",
         ),
         (
             "PIE-S2104",
             "a.pietto",
-            DEF_LINE + 32,
+            DEF_LINE + 31,
             13,
             "Invalid argument type for function lower at position 1: "
             "expected Text, got Int",
@@ -969,13 +971,13 @@ def test_a_grouped_project_relation_selecting_an_unfit_def_key_has_no_known_colu
     of another body, never the key's type (before: PIE-S2104 at `lower`). A
     key that fits keeps its type."""
     source = DEF_HEAD + (
-        "query g1:\n    from rows\n    group by: n\n    select:\n        k = idi(n)\n"
+        "query g1:\n    from rows\n    group by n\n    select:\n        k = idi(n)\n"
         "        c = count()\n"
-        "query g2:\n    from rows\n    let:\n        w = n + 1\n    group by: w\n"
+        "query g2:\n    from rows\n    let w = n + 1\n    group by w\n"
         "    select:\n        k = idi(w)\n        c = count()\n"
-        "query g3:\n    from rows\n    group by: rows.n\n    select:\n"
+        "query g3:\n    from rows\n    group by rows.n\n    select:\n"
         "        idi(rows.n)\n        c = count()\n"
-        "query fit:\n    from rows\n    group by: id\n    select:\n        k = idi(id)\n"
+        "query fit:\n    from rows\n    group by id\n    select:\n        k = idi(id)\n"
         "        c = count()\n"
         "query r1:\n    from g1\n    select:\n        x = lower(k)\n"
         "query r2:\n    from g2\n    select:\n        x = lower(k)\n"
@@ -983,11 +985,9 @@ def test_a_grouped_project_relation_selecting_an_unfit_def_key_has_no_known_colu
         "query r4:\n    from fit\n    select:\n        x = lower(k)\n"
     )
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        _mismatch("idi", DEF_LINE + 4, 13, "Int not null", "Int nullable"),
-        _mismatch(
-            "idi", DEF_LINE + 12, 13, "Int not null", "Int of unknown nullability"
-        ),
-        _mismatch("idi", DEF_LINE + 18, 9, "Int not null", "Int nullable"),
+        _mismatch("idi", DEF_LINE + 4, 13, "Int", "Int | None"),
+        _mismatch("idi", DEF_LINE + 11, 13, "Int", "Int of unknown nullability"),
+        _mismatch("idi", DEF_LINE + 17, 9, "Int", "Int | None"),
         *(
             (
                 "PIE-S2333",
@@ -996,12 +996,12 @@ def test_a_grouped_project_relation_selecting_an_unfit_def_key_has_no_known_colu
                 1,
                 f"Project relation semantic completion is unavailable: {name}",
             )
-            for name, line in (("r1", 26), ("r2", 30), ("r3", 34))
+            for name, line in (("r1", 25), ("r2", 29), ("r3", 33))
         ),
         (
             "PIE-S2104",
             "a.pietto",
-            DEF_LINE + 41,
+            DEF_LINE + 40,
             13,
             "Invalid argument type for function lower at position 1: "
             "expected Text, got Int",
@@ -1034,14 +1034,14 @@ def test_a_project_relation_builds_its_def_argument_check_once(
 
     def check(size: int, item: str) -> dict[str, int]:
         calls.clear()
-        lets = "".join(f"        j{index} = n + {index}\n" for index in range(size))
+        lets = "".join(f"    let j{index} = n + {index}\n" for index in range(size))
         items = "".join(
             f"        v{index} = {item.format(f'j{index}')}\n" for index in range(size)
         )
         source = (
             DEF_HEAD
-            + "def idn(x: Int nullable) -> Int nullable: return x\n"
-            + f"query q:\n    from rows\n    let:\n{lets}    select:\n        id\n{items}"
+            + "def idn(x: Int | None) -> Int | None: return x\n"
+            + f"query q:\n    from rows\n{lets}    select:\n        id\n{items}"
         )
         root = tmp_path / f"{size}-{'def' if '(' in item else 'defless'}"
         assert _def_check(root, capsys, {"a.pietto": source}) == []
@@ -1064,9 +1064,9 @@ def test_a_project_def_refuses_an_imported_alias(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     files = {
-        "t.pietto": "type Cash = Int not null\nexport:\n    type Cash\n",
-        "a.pietto": 'import "t.pietto":\n    type Cash\n'
-        "def c(x: Cash nullable) -> Int nullable: return x\n",
+        "t.pietto": "type Cash = Int\nexport (\n    type Cash)\n",
+        "a.pietto": 'from "t.pietto" import (\n    type Cash)\n'
+        "def c(x: Cash | None) -> Int | None: return x\n",
     }
     assert _def_check(tmp_path, capsys, files) == [
         (
@@ -1083,55 +1083,53 @@ def test_a_project_def_refuses_an_imported_alias(
 
 
 REPEATED_DEFS = (
-    "def blank(x: Text nullable) -> Bool nullable: return x is null or x == ''\n"
-    "def same(x: Bool nullable) -> Bool nullable: return x\n"
-    "def twice(x: Int not null) -> Bool nullable: return x <= 2 and x <= 3\n"
+    "def blank(x: Text | None) -> Bool | None: return x is None or x == ''\n"
+    "def same(x: Bool | None) -> Bool | None: return x\n"
+    "def twice(x: Int) -> Bool | None: return x <= 2 and x <= 3\n"
 )
-WINDOWED = (
-    "(row_number() window:\n            order by:\n                {}\n        )\n"
-)
+WINDOWED = "(row_number() window(order by {}))\n"
 JOINED = (
-    "query j:\n    from rows\n    inner join others as o:\n        from rows\n"
-    "        on o.row_id == rows.id\n"
+    "query j:\n    from rows\n    let o = others\n"
+    "    inner join o on o.row_id == rows.id\n"
 )
 REPEATED = {
     "qualify": (
         "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
         "        blank" + WINDOWED.format("id"),
-        [("blank", 6, 9, "Text nullable", "Int not null")],
+        [("blank", 6, 9, "Text | None", "Int")],
     ),
     "qualify_whole": (
         "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
         "        same" + WINDOWED.format("id"),
-        [("same", 6, 9, "Bool nullable", "Int not null")],
+        [("same", 6, 9, "Bool | None", "Int")],
     ),
     "joined_qualify": (
         JOINED + "    select:\n        a = rows.id\n    qualify:\n"
         "        blank" + WINDOWED.format("rows.id"),
-        [("blank", 9, 9, "Text nullable", "Int not null")],
+        [("blank", 8, 9, "Text | None", "Int")],
     ),
     "joined_select": (
         JOINED + "    select:\n        a = rows.id\n        p = blank(o.row_id)\n",
-        [("blank", 8, 13, "Text nullable", "Int not null")],
+        [("blank", 7, 13, "Text | None", "Int")],
     ),
     "where": (
         "query m:\n    from rows\n    where blank(n)\n    select:\n        id\n",
-        [("blank", 3, 11, "Text nullable", "Int nullable")],
+        [("blank", 3, 11, "Text | None", "Int | None")],
     ),
     "captured_whole": (
         "query c:\n    let l:\n        capture rows\n        from others\n"
         "        where same(rows.id)\n        select:\n            id\n"
         "    from rows\n    where exists l\n    select:\n        id\n",
-        [("same", 5, 15, "Bool nullable", "Int not null")],
+        [("same", 5, 15, "Bool | None", "Int")],
     ),
     "inner_call_in_where": (
         "query m:\n    from rows\n    where blank(idt(n))\n    select:\n        id\n",
-        [("idt", 3, 17, "Text not null", "Int nullable")],
+        [("idt", 3, 17, "Text", "Int | None")],
     ),
     "inner_call_in_qualify": (
         "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
         "        blank(idt" + WINDOWED.format("id").rstrip("\n") + ")\n",
-        [("idt", 6, 15, "Text not null", "Int not null")],
+        [("idt", 6, 15, "Text", "Int")],
     ),
     "window_argument_used_twice": (
         "query q:\n    from rows\n    select:\n        id\n    qualify:\n"
@@ -1163,7 +1161,7 @@ def test_a_project_reports_a_def_argument_mismatch_once(
 IDENTITY_SELECTS = {
     "ungrouped": "query u:\n    from rows\n    select:\n        id\n        u = {}\n",
     "grouped": (
-        "query u:\n    from rows\n    group by: id\n    select:\n        id\n"
+        "query u:\n    from rows\n    group by id\n    select:\n        id\n"
         "        u = {}\n"
     ),
 }

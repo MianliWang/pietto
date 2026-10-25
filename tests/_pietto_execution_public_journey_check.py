@@ -541,7 +541,9 @@ def check(report: Any) -> dict[str, str]:
         order = facts.get("source_order")
         _need(
             type(facts.get("source")) is str
-            and facts["source"].count("cross join rows as ") == 1
+            and facts["source"].count("\n    from rows\n") == 1
+            and facts["source"].count("    let second = rows\n    cross join second\n")
+            == 1
             and type(order) is list
             and len(order) == 1
             and facts.get("source_occurrences") == 2

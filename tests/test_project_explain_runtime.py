@@ -596,14 +596,14 @@ def test_spec_inventory_and_slice14_handoff_are_exact() -> None:
 
 # Every gated relation-block form; explain never reads relation bodies.
 RELATION_BLOCK_MODULE = (
-    "query q(a: Int not null,):\n"
+    "query q(a: Int,):\n"
     "    let l:\n"
     "        capture rows\n"
     "        from generate_series(1, 2, 1) as n\n"
     "        select:\n"
     "            n\n"
     "    let inner:\n"
-    "        values(id: Int not null)\n"
+    "        values(id: Int)\n"
     "    from rows\n"
     "    where scalar l.n in l and exists inner\n"
     "    select:\n"
@@ -616,9 +616,9 @@ def test_package_root_explain_keeps_its_boundary_without_reading_bodies(
 ) -> None:
     source = (
         "shape Row:\n    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         + RELATION_BLOCK_MODULE
-        + "export:\n    query q\n"
+        + "export query q\n"
     )
     root = _write_project(
         tmp_path,

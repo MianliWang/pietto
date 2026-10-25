@@ -714,6 +714,119 @@ def _block_column_name(doc, target, column) -> str | None:
     return doc[columns[column]]["name"] if 0 <= column < len(columns) else None
 
 
+def _value_tag(doc, value):
+    while value.kind == "sql_unary":
+        value = doc[value]["operand"]
+    if value.kind in {
+        "sql_stage_reference",
+        "sql_any_reference",
+        "sql_operation",
+        "sql_block_read",
+        "sql_any_read",
+        "sql_captured_reference",
+    }:
+        return doc[doc[value]["realization"]]["tag"]
+    return doc[value]["tag"]
+
+
+def _validate_any_scopes(doc):
+    kinds = (
+        "sql_anchor",
+        "sql_unary",
+        "sql_null",
+        "sql_operation",
+        "sql_stage_reference",
+        "sql_block_read",
+        "sql_captured_reference",
+        "sql_any_read",
+        "sql_any_reference",
+    )
+    nodes = tuple(ref for kind in kinds for ref in doc.all(kind))
+    if not any(ref.kind in {"sql_any_read", "sql_any_reference"} for ref in nodes):
+        return
+
+    def children(ref):
+        value = doc[ref]
+        if ref.kind == "sql_any_read":
+            return (*value["operands"], value["predicate"])
+        if ref.kind in {"sql_operation", "sql_block_read"}:
+            return value["operands"]
+        if ref.kind == "sql_unary":
+            return (value["operand"],)
+        return ()
+
+    child_nodes = {child for ref in nodes for child in children(ref)}
+    external_roots = []
+    for kind, fields in schema.RECORDS.items():
+        if kind in kinds:
+            continue
+        for ref in doc.all(kind):
+            for name, spec in fields:
+                if spec.lstrip("?*") != schema._VALUE:
+                    continue
+                value = doc[ref][name]
+                if value is not None:
+                    external_roots.extend(value if spec.startswith("*") else (value,))
+    roots = (*external_roots, *(ref for ref in nodes if ref not in child_nodes))
+    pending: list[tuple[Ref, tuple[tuple[PlanRef, Ref], ...], frozenset[Ref]]] = [
+        (ref, (), frozenset()) for ref in roots
+    ]
+    seen = set()
+    while pending:
+        ref, active, path = pending.pop()
+        _require(ref not in path, "ANY expression cycle")
+        seen.add(ref)
+        value = doc[ref]
+        path = path | {ref}
+        if ref.kind == "sql_any_reference":
+            targets = tuple(target for use, target in active if use == value["use"])
+            _require(len(targets) == 1, "ANY reference lexical scope")
+            target = doc[targets[0]]
+            column = doc[value["column"]]
+            position = value["position"]
+            _require(
+                value["scope"] == target["symbol"]
+                and value["port"] == column["terminal"]
+                and column["scope"] == target["symbol"]
+                and column["position"] == position
+                and column["name"] == _block_column_name(doc, target, position)
+                and doc[value["realization"]] == doc[column["realization"]],
+                "ANY reference target column",
+            )
+            producer = target["producer"]
+            if producer.kind == "bound_source":
+                fields = tuple(
+                    field
+                    for field in doc[producer]["fields"]
+                    if doc[field]["ordinal"] == position
+                )
+                _require(
+                    len(fields) == 1 and column["field"] == fields[0],
+                    "ANY source field",
+                )
+            else:
+                outputs = doc[producer]["columns"]
+                _require(position < len(outputs), "ANY output field")
+                actual = doc[doc[outputs[position]]["column"]]
+                _require(
+                    column["terminal"] == actual["terminal"]
+                    and column["realization"] == actual["realization"],
+                    "ANY output field",
+                )
+        elif ref.kind == "sql_any_read":
+            target = value["target"]
+            use = doc[target]["use"]
+            _require(
+                all(old_use != use for old_use, _ in active),
+                "ANY duplicate lexical input",
+            )
+            pending.extend((item, active, path) for item in value["operands"])
+            pending.append((value["predicate"], (*active, (use, target)), path))
+        else:
+            pending.extend((item, active, path) for item in children(ref))
+    _require(all(ref in seen for ref in nodes), "ANY expression inventory")
+
+
 def _inline_producer(doc, producer) -> bool:
     """A read target's producer that is a capturing let's inline body."""
     return (
@@ -986,8 +1099,15 @@ class _Check:
     # values, fixed literals and parameters
     def values(self) -> None:
         doc, family = self.doc, self.family
-        for ref in doc.all("sql_block_read"):
+        _validate_any_scopes(doc)
+        for ref in (*doc.all("sql_block_read"), *doc.all("sql_any_read")):
             read = doc[ref]
+            if ref.kind == "sql_any_read":
+                _require(
+                    read["kind"] == "exists"
+                    and _value_tag(doc, read["predicate"]) == "Bool",
+                    "ANY predicate",
+                )
             target = doc[read["target"]]
             realization = doc[read["realization"]]
             producer = doc[target["producer"]]
@@ -1592,6 +1712,9 @@ class _Tokens:
                     doc[doc[producer]["symbol"]]["name"]
                 )
         block_reads = self.index("sql_block_read", "original")
+        for key, values in self.index("sql_any_read", "original").items():
+            block_reads.setdefault(key, []).extend(values)
+        any_references = self.index("sql_any_reference", "port")
         block_aliases = {
             doc[ref]["use"]: doc[doc[ref]["symbol"]]["name"]
             for ref in doc.all("sql_block_target")
@@ -1636,8 +1759,32 @@ class _Tokens:
             frames: list[tuple[Ref, set[str], list[str]]] = [
                 (unit, self.aliases(unit), [])
             ]
+            active_any: list[tuple[Mapping[str, Any], PlanRef, bool]] = []
             for i in range(start, end):
                 event, text = self.events[i], self.texts[i]
+                if event["role"] == "exists_open":
+                    values = block_reads.get(event["subject"])
+                    if values is None or len(values) != 1:
+                        raise _Reject(Status.INVALID_RELATION, "ANY token subject")
+                    active_any.append((values[0], event["subject"], False))
+                elif event["role"] == "exists_where":
+                    _require(bool(active_any), "ANY WHERE scope")
+                    entry = active_any[-1]
+                    _require(
+                        entry[1] == event["subject"]
+                        and entry[0].get("predicate") is not None
+                        and not entry[2],
+                        "ANY WHERE subject",
+                    )
+                    active_any[-1] = (entry[0], entry[1], True)
+                elif event["role"] == "exists_close":
+                    _require(bool(active_any), "ANY token scope")
+                    entry = active_any.pop()
+                    _require(
+                        entry[1] == event["subject"]
+                        and entry[2] == (entry[0].get("predicate") is not None),
+                        "ANY token closure",
+                    )
                 role, subject, kind = event["role"], event["subject"], event["kind"]
                 _require(role not in PREAMBLE_ROLES, "token role placement")
                 if role == "inline_open":
@@ -1668,7 +1815,19 @@ class _Tokens:
                             "capture scope",
                         )
                     elif role in SCOPE_ROLES:
-                        _require(name in aliases, "scope alias")
+                        local = (
+                            any_references.get(subject, ())
+                            if role == "value_scope"
+                            else ()
+                        )
+                        local_allowed = any(
+                            entry[2]
+                            and doc[entry[0]["target"]]["use"] == item["use"]
+                            and doc[item["scope"]]["name"] == name
+                            for entry in active_any
+                            for item in local
+                        )
+                        _require(name in aliases or local_allowed, "scope alias")
                     elif role in COLUMN_ROLES:
                         _require(name in names.get(subject, ()), "column name")
                     elif role in RELATION_ROLES:
@@ -1780,6 +1939,7 @@ class _Tokens:
                         order_items,
                         specifications,
                     )
+            _require(not active_any, "ANY token scope")
             _require(len(frames) == 1, "inline unit")
             _require(frames[0][2] == self.labels(unit), "output labels")
         _require(opened == set(self.check.inline), "inline unit")
@@ -2109,6 +2269,7 @@ class _Tokens:
         }
         for kind, role, key, port, read in (
             ("sql_stage_reference", "reference", "original", "port", "column"),
+            ("sql_any_reference", "reference", "original", "port", "column"),
             ("sql_captured_reference", "capture", "original", "capture", "column"),
             ("aggregate_key_column", "grouping", "key", "input_port", "read"),
             ("result_order_item", "order_item", "item", "port", "read"),
@@ -2233,8 +2394,10 @@ class _Requirements:
         doc = self.doc
         if value.kind in (
             "sql_stage_reference",
+            "sql_any_reference",
             "sql_operation",
             "sql_block_read",
+            "sql_any_read",
             "sql_captured_reference",
         ):
             return doc[doc[value]["realization"]]["tag"]
@@ -2293,7 +2456,7 @@ class _Requirements:
 
     def value(self, value: Ref) -> None:
         doc = self.doc
-        if value.kind == "sql_block_read":
+        if value.kind in ("sql_block_read", "sql_any_read"):
             fields = doc[value]
             _require(
                 fields["kind"] in ("exists", "scalar", "in", "not_in"),
@@ -2333,6 +2496,8 @@ class _Requirements:
                 self.inline(target["producer"])
             for operand in fields["operands"]:
                 self.value(operand)
+            if value.kind == "sql_any_read":
+                self.value(fields["predicate"])
             return
         if value.kind == "sql_captured_reference":
             self.add(
@@ -2342,7 +2507,7 @@ class _Requirements:
                 self.node_premises(self.tag(value), (), "capture"),
             )
             return
-        if value.kind == "sql_stage_reference":
+        if value.kind in ("sql_stage_reference", "sql_any_reference"):
             fields = doc[value]
             self.add(
                 "reference",
@@ -2419,6 +2584,7 @@ class _Requirements:
         for kind in (
             "sql_operation",
             "sql_stage_reference",
+            "sql_any_reference",
             "sql_captured_reference",
             "sql_unary",
             "sql_anchor",

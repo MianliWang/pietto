@@ -26,10 +26,10 @@ from pietto.parser_api import ParseResult, parse_file, parse_source
 def test_shape_check_parses_one_expression() -> None:
     result = parse_source(
         "shape Order:\n"
-        "    amount: Decimal not null\n"
+        "    amount: Decimal\n"
         "\n"
-        "    check valid_amount:\n"
-        "        amount >= 0\n"
+        "    valid_amount = check(\n"
+        "        amount >= 0)\n"
     )
 
     assert result.diagnostics == ()
@@ -52,10 +52,10 @@ def test_shape_check_parses_one_expression() -> None:
 def test_shape_check_is_parse_only_without_semantic_checks() -> None:
     result = parse_source(
         "shape External:\n"
-        "    check duplicate:\n"
-        "        missing_value\n"
-        "    check duplicate:\n"
-        "        unknown_function(missing_value)\n"
+        "    duplicate = check(\n"
+        "        missing_value)\n"
+        "    duplicate = check(\n"
+        "        unknown_function(missing_value))\n"
     )
 
     assert result.diagnostics == ()
@@ -68,13 +68,13 @@ def test_shape_check_is_parse_only_without_semantic_checks() -> None:
 def test_shape_check_allows_blank_lines_comments_and_eof() -> None:
     result = parse_source(
         "shape Order:\n"
-        "    amount: Decimal not null\n"
+        "    amount: Decimal\n"
         "\n"
         "    # Validate the row contract.\n"
-        "    check valid_amount:\n"
+        "    valid_amount = check(\n"
         "\n"
         "        # The body remains one expression.\n"
-        "        amount >= 0"
+        "        amount >= 0)"
     )
 
     assert result.diagnostics == ()
@@ -83,18 +83,18 @@ def test_shape_check_allows_blank_lines_comments_and_eof() -> None:
     assert isinstance(definition, ShapeDef)
     check = definition.checks[0]
     assert check.span.end_line == 8
-    assert check.span.end_column == 20
+    assert check.span.end_column == 21
 
 
 def test_shape_preserves_mixed_field_and_check_order() -> None:
     result = parse_source(
         "shape Order:\n"
-        "    check has_amount:\n"
-        "        amount is not null\n"
-        "    amount: Decimal not null\n"
-        "    check valid_amount:\n"
-        "        amount >= 0\n"
-        "    status: Text nullable\n"
+        "    has_amount = check(\n"
+        "        amount is not None)\n"
+        "    amount: Decimal\n"
+        "    valid_amount = check(\n"
+        "        amount >= 0)\n"
+        "    status: Text | None\n"
     )
 
     assert result.diagnostics == ()
@@ -124,9 +124,9 @@ def test_shape_check_preserves_top_level_definition_order() -> None:
     result = parse_source(
         "type Amount = Decimal\n"
         "shape Order:\n"
-        "    amount: Amount not null\n"
-        "    check valid_amount:\n"
-        "        amount >= 0\n"
+        "    amount: Amount\n"
+        "    valid_amount = check(\n"
+        "        amount >= 0)\n"
         "enum Status:\n"
         "    ready\n"
     )
@@ -144,10 +144,10 @@ def test_shape_check_spans_are_one_based_half_open() -> None:
     path = Path("examples/shapes/check_span.pietto")
     result = parse_source(
         "shape Order:\n"
-        "    amount: Decimal not null\n"
-        "    check valid_amount:\n"
-        "        amount >= 0\n"
-        "    status: Text nullable\n",
+        "    amount: Decimal\n"
+        "    valid_amount = check(\n"
+        "        amount >= 0)\n"
+        "    status: Text | None\n",
         path=path,
     )
 
@@ -160,7 +160,7 @@ def test_shape_check_spans_are_one_based_half_open() -> None:
         line=1,
         column=1,
         end_line=5,
-        end_column=26,
+        end_column=24,
     )
     check = definition.checks[0]
     assert check.span == Span(
@@ -168,7 +168,7 @@ def test_shape_check_spans_are_one_based_half_open() -> None:
         line=3,
         column=5,
         end_line=4,
-        end_column=20,
+        end_column=21,
     )
     assert check.expression.span == Span(
         path=str(path),
@@ -193,9 +193,9 @@ def test_shape_check_example_fixture_parses() -> None:
 def test_shape_check_ast_does_not_expose_antlr_nodes() -> None:
     result = parse_source(
         "shape Order:\n"
-        "    amount: Decimal not null\n"
-        "    check valid_amount:\n"
-        "        amount >= 0\n"
+        "    amount: Decimal\n"
+        "    valid_amount = check(\n"
+        "        amount >= 0)\n"
     )
 
     assert result.diagnostics == ()
@@ -222,7 +222,7 @@ def test_malformed_shape_checks_return_syntax_diagnostic(source: str) -> None:
 def test_shape_check_brace_block_reports_unsupported_brace() -> None:
     result = parse_source(
         "shape Order:\n"
-        "    amount: Decimal not null\n"
+        "    amount: Decimal\n"
         "    check valid_amount {\n"
         "        amount >= 0\n"
         "    }\n"
@@ -253,9 +253,11 @@ def _has_code(result: ParseResult, code: str) -> bool:
 
 
 def test_shape_check_header_line_and_condition_lines_match_the_long_form() -> None:
-    header = parse_source("shape Order:\n    check sane: quantity > 0 and price >= 0\n")
+    header = parse_source(
+        "shape Order:\n    sane = check(quantity > 0 and price >= 0)\n"
+    )
     lines = parse_source(
-        "shape Order:\n    check sane:\n        quantity > 0\n        price >= 0\n"
+        "shape Order:\n    sane = check(\n        (quantity > 0) and\n        (price >= 0))\n"
     )
     for result in (header, lines):
         assert result.diagnostics == ()
@@ -271,5 +273,5 @@ def test_shape_check_header_line_and_condition_lines_match_the_long_form() -> No
     assert (second.span.line, second.span.end_line, second.span.end_column) == (
         2,
         4,
-        19,
+        22,
     )

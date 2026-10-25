@@ -91,15 +91,14 @@ def test_plan_joined_hidden_group_has_private_key_port(tmp_path: Path):
 
 
 def test_plan_let_where_satisfying_references_reuse_results(tmp_path: Path):
-    source = _ordinary("""    let:
-        key = id
-        amount = value + 1
-    where false
+    source = _ordinary("""    let key = id
+    let amount = value + 1
+    where False
     group by:
         key
     select:
         total = sum(amount)
-    satisfying:
+    having:
         total > 0 and sum(amount) > 1 and total < 10
 """)
     _, plan, view = _plan_product(tmp_path, source)
@@ -339,8 +338,8 @@ def test_joined_forms_null_extension_repeated_results_and_risks(
 )
 def test_admitted_argument_expressions_keep_actual_nodes(tmp_path: Path, call):
     source = _ordinary(f"    select:\n        total = {call}\n").replace(
-        "    value: Int nullable\n",
-        "    value: Int nullable\n    label: Text nullable\n",
+        "    value: Int | None\n",
+        "    value: Int | None\n    label: Text | None\n",
     )
     _, _, view = _plan_product(tmp_path, source)
     (value,) = view.aggregates
@@ -385,7 +384,7 @@ def test_existing_numeric_and_temporal_result_types(tmp_path: Path, call, type_n
 
 def test_false_input_filter_does_not_erase_global_stage(tmp_path: Path):
     _, plan, view = _plan_product(
-        tmp_path, _ordinary("    where false\n    select:\n        total = count()\n")
+        tmp_path, _ordinary("    where False\n    select:\n        total = count()\n")
     )
     assert [b.kind.value for b in plan.blocks] == ["where", "aggregate", "projection"]
     (stage,) = view.aggregations
@@ -400,7 +399,7 @@ def test_named_hidden_group_feeds_immediate_consumers(tmp_path: Path, consumer):
     source += {
         "row": "query result:\n    from grouped\n    where total > 0\n    select:\n        adjusted = total + 1\n",
         "aggregate": "query result:\n    from grouped\n    select:\n        total = sum(total)\n",
-        "join": "query result:\n    from grouped\n    inner join grouped as repeated:\n        from grouped\n        on grouped.total == repeated.total\n    select:\n        first = grouped.total\n        second = repeated.total\n",
+        "join": "query result:\n    from grouped\n    let repeated = grouped\n    inner join repeated on grouped.total == repeated.total\n    select:\n        first = grouped.total\n        second = repeated.total\n",
     }[consumer]
     roots, plan, view = _plan_product(tmp_path, source)
     grouped = next(
@@ -421,15 +420,14 @@ def test_named_hidden_group_feeds_immediate_consumers(tmp_path: Path, consumer):
 def test_imported_hidden_group_keeps_defining_origin(tmp_path: Path):
     (tmp_path / "a.pietto").write_text(
         _group_source(kind="table").replace("table result:", "table grouped:")
-        + "export:\n    table grouped\n"
+        + "export table grouped\n"
     )
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table grouped as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import table grouped as Public\nexport table Public\n'
     )
     roots, _, view = _plan_product(
         tmp_path,
-        """import "b.pietto":
-    table Public as Alias
+        """from "b.pietto" import table Public as Alias
 query result:
     from Alias
     select:
@@ -597,8 +595,8 @@ def test_aggregate_inspection_uses_exact_refs(aggregation_plans):
         "    select:\n        total = sum(sum(value))\n",
         "    select:\n        total = sum(value) + 1\n",
         "    select:\n        id\n        total = sum(value)\n",
-        "    select:\n        total = count()\n    satisfying:\n        total > 0\n",
-        "    group by:\n        id\n    select:\n        total = count()\n    satisfying:\n        value > 0\n",
+        "    select:\n        total = count()\n    having:\n        total > 0\n",
+        "    group by:\n        id\n    select:\n        total = count()\n    having:\n        value > 0\n",
     ),
 )
 def test_invalid_aggregate_combinations_remain_unavailable(tmp_path: Path, body):
@@ -613,9 +611,8 @@ def test_invalid_aggregate_combinations_remain_unavailable(tmp_path: Path, body)
 def test_plan_computed_let_determinant_reads_only_its_own_let_port(tmp_path: Path):
     roots, plan, view = _plan_product(
         tmp_path,
-        _ordinary("""    let:
-        computed = id + 1
-        other = id + 2
+        _ordinary("""    let computed = id + 1
+    let other = id + 2
     group by:
         computed
     select:
@@ -663,16 +660,15 @@ def test_computed_determinant_never_supplies_the_reverse_grain_dependency(
     """Grouping a unique field fixes each source row; its LET image never does."""
     distinct = " distinct" if replayed else ""
     source = _ordinary(
-        f"""    let:
-        same = id + 0
+        f"""    let same = id + 0
     group by:
         {key}
     select{distinct}:
         total = count()
 """
     ).replace(
-        "    value: Int nullable\n",
-        "    value: Int nullable\n    unique row_id on id\n",
+        "    value: Int | None\n",
+        "    value: Int | None\n    row_id = unique(id)\n",
     )
     _, _, view = _plan_product(tmp_path, source)
     (stage,) = view.aggregations
@@ -688,7 +684,7 @@ def test_computed_determinant_never_supplies_the_reverse_grain_dependency(
 
 
 def _joined_let(source: str, lets: str) -> str:
-    return source.replace("    group by:\n", f"    let:\n{lets}    group by:\n")
+    return source.replace("    group by:\n", f"{lets}    group by:\n")
 
 
 def test_plan_joined_computed_determinant_reads_only_its_own_let_port(
@@ -699,7 +695,7 @@ def test_plan_joined_computed_determinant_reads_only_its_own_let_port(
         tmp_path,
         _joined_let(
             _group_source(visible=(("b", "later"),), keys=("later",)),
-            "        later = lhs.id > r.key\n",
+            "    let later = lhs.id > r.key\n",
         ),
     )
     (stage,) = view.aggregations
@@ -733,11 +729,11 @@ def test_joined_computed_determinant_never_supplies_the_reverse_grain_dependency
     source = _joined_let(
         _group_source(keys=("lhs.id", key))
         .replace(
-            "    key: Int nullable\n",
-            "    key: Int nullable\n    unique row_key on id\n",
+            "    key: Int | None\n",
+            "    key: Int | None\n    row_key = unique(id)\n",
         )
         .replace("left join", "inner join"),
-        "        r_same = r.id + 0\n",
+        "    let r_same = r.id + 0\n",
     )
     _, _, view = _plan_product(tmp_path, source)
     (stage,) = view.aggregations
@@ -793,7 +789,7 @@ def test_semantic_group_ordinal_is_not_bool(tmp_path: Path, joined):
 
 @pytest.mark.parametrize("joined", (False, True))
 def test_satisfying_target_requires_original_output_object(tmp_path: Path, joined):
-    body = "    group by:\n        id\n    select:\n        total = sum(value)\n    satisfying:\n        total > 0\n"
+    body = "    group by:\n        id\n    select:\n        total = sum(value)\n    having:\n        total > 0\n"
     source = _joined_aggregates() if joined else _ordinary(body)
     roots, plan, view = _plan_product(tmp_path / "local", source)
     _, _, other = _plan_product(tmp_path / "foreign", source)
@@ -887,7 +883,7 @@ def test_ir_self_join_determinants_keep_input_occurrence_identity(
     tmp_path: Path, visible
 ):
     source = _group_source(keys=("lhs.id", "r.id"), visible=visible).replace(
-        "left join rhs as r:", "left join lhs as r:"
+        "let r = rhs", "let r = lhs"
     )
     _, _, entry = _ir_product(tmp_path, source)
     assert bool(entry.active_properties.relational.keys) is (len(visible) == 2)
@@ -904,9 +900,7 @@ def test_ir_rebound_group_projection_retains_complete_determinant(
         """    select:
         id
         value
-        ranked = row_number() window:
-            order by:
-                id
+        ranked = row_number() window(order by id)
     qualify:
         ranked <= 3
 """,
@@ -1015,9 +1009,8 @@ def test_joined_global_aggregates_keep_existing_relationship_premises(tmp_path: 
         PROJECT_SOURCE.split("query absent_stage:", 1)[0]
         + """query result:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         rows = count()
         total = sum(event.metric)
@@ -1062,8 +1055,8 @@ def test_aggregate_argument_lower_is_an_admitted_scalar_call(tmp_path: Path):
     from pietto._project.project_sql_plan import ProjectSQLPlan
 
     source = _ordinary("    select:\n        normalized = lower(label)\n").replace(
-        "    value: Int nullable\n",
-        "    value: Int nullable\n    label: Text nullable\n",
+        "    value: Int | None\n",
+        "    value: Int | None\n    label: Text | None\n",
     )
     roots = _roots(tmp_path, source)
     assert roots[0].ok

@@ -111,16 +111,14 @@ def test_grouped_window_over_a_source_without_a_shape_fails_closed_as_before(
     order_key: str,
 ) -> None:
     parse_result = parse_source(
-        'source items is postgres.table("shop.items")\n'
+        'source items = postgres.table("shop.items")\n'
         "query q:\n"
         "    from items\n"
-        "    group by: kind\n"
+        "    group by kind\n"
         "    select:\n"
         "        kind\n"
         "        n = count()\n"
-        "        r = rank() window:\n"
-        "            order by:\n"
-        f"                {order_key}\n"
+        f"        r = rank() window(order by {order_key})\n"
     )
     assert parse_result.ast is not None
     semantic_result = analyze(parse_result.ast)
@@ -327,11 +325,11 @@ def _grouped_source(
 def _prefix(connector: str) -> str:
     return (
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    region: Text nullable\n"
-        "    amount: Int not null\n"
-        "    score: Float not null\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    status: Text\n"
+        "    region: Text | None\n"
+        "    amount: Int\n"
+        "    score: Float\n"
+        f'source orders: Order = {connector}("orders")\n'
     )
 
 

@@ -80,7 +80,7 @@ def test_token_budget_stops_at_first_excess_non_eof_token() -> None:
 
 
 _BLANK_LINES = 1_000
-_ROWS = 'shape R:\n    a: Int not null\nsource r: R is postgres.table("r")\n'
+_ROWS = 'shape R:\n    a: Int\nsource r: R = postgres.table("r")\n'
 _QUERY = _ROWS + "query q:\n    from r\n"
 _UNKNOWN_FOO = "Unexpected 'foo'; expected a declaration, end of file or end of line."
 
@@ -88,29 +88,29 @@ _UNKNOWN_FOO = "Unexpected 'foo'; expected a declaration, end of file or end of 
 @pytest.mark.parametrize(
     ("before", "after", "expected"),
     [
-        ("", "type A = Int not null\n", []),
-        ("", "pietto 1\ntype A = Int not null\n", []),
+        ("", "type A = Int\n", []),
+        ("", "pietto 1\ntype A = Int\n", []),
         ("", "foo\n", [("PIE-P1000", _BLANK_LINES + 1, 1, _UNKNOWN_FOO)]),
         (
-            _ROWS + "relationship rel:\n    endpoint a: R\n    endpoint b: R\n",
-            "    on a.a == b.a\n",
+            _ROWS + "relationship rel(a: R, b: R):\n",
+            "    a.a == b.a\n",
             [],
         ),
         (
-            _QUERY + "    inner join r as x:\n        via rel\n",
-            "        on x.a == r.a\n    select: a\n",
+            _QUERY + "    let x = r\n    inner join x on x.a == r.a\n",
+            "    select a\n",
             [],
         ),
         (
-            _QUERY + "    select: a\n    window w:\n        partition by: a\n",
-            "        order by: a\n",
+            _QUERY,
+            "    let w = window(partition by a order by a)\n    select a\n",
             [],
         ),
-        (_ROWS + "table t:\n    from r\n", "    select: a\n", []),
-        (_QUERY + "    select: a\n", "    order by: a\n    limit 1\n", []),
+        (_ROWS + "table t:\n    from r\n", "    select a\n", []),
+        (_QUERY + "    select a\n", "    order by a\n    limit 1\n", []),
         (
             _ROWS + "query q:\n    let l:\n        capture c\n",
-            "        from r\n        select: a\n    from l\n    select: a\n",
+            "        from r\n        select a\n    from l\n    select a\n",
             [],
         ),
     ],

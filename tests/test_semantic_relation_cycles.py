@@ -23,16 +23,24 @@ from pietto.semantic import SemanticResult, analyze
 from pietto.semantic.analyzer import analyze_project_namespace
 from pietto.semantic.relation_cycles import check_relation_cycles
 
-SOURCE = (
-    'shape Row:\n    id: UUID not null\nsource rows: Row is postgres.table("rows")\n'
-)
+SOURCE = 'shape Row:\n    id: UUID\nsource rows: Row = postgres.table("rows")\n'
+
+
+def _same_file_read(name: str, kind: str = "table") -> str:
+    """The PIE-S2382 warning at a read of a table or query of the file."""
+    return (
+        f"`{name}` is a {kind} of this file; single-file SQL reads it by name, so "
+        "the SQL runs only where the database already has a relation named "
+        f"{name} (an EXPLICIT_MODULES project emits it as a CTE)"
+    )
 
 
 def test_table_self_cycle_reports_p2302() -> None:
     result = analyze(_parse("table loop:\n    from loop\n    select:\n        id\n"))
 
     assert _diagnostics(result) == [
-        ("PIE-S2302", Severity.ERROR, "Relation cycle detected: loop -> loop")
+        ("PIE-S2302", Severity.ERROR, "Relation cycle detected: loop -> loop"),
+        ("PIE-S2382", Severity.WARNING, _same_file_read("loop")),
     ]
 
 
@@ -51,11 +59,13 @@ def test_table_table_cycle_reports_one_p2302() -> None:
     )
 
     assert _diagnostics(result) == [
+        ("PIE-S2382", Severity.WARNING, _same_file_read("second")),
         (
             "PIE-S2302",
             Severity.ERROR,
             "Relation cycle detected: first -> second -> first",
-        )
+        ),
+        ("PIE-S2382", Severity.WARNING, _same_file_read("first")),
     ]
 
 
@@ -73,10 +83,15 @@ def test_query_table_mixed_cycle_reports_p2302() -> None:
         )
     )
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
-    assert result.diagnostics[0].message == (
-        "Relation cycle detected: output -> projected -> output"
-    )
+    assert _diagnostics(result) == [
+        ("PIE-S2382", Severity.WARNING, _same_file_read("projected")),
+        (
+            "PIE-S2302",
+            Severity.ERROR,
+            "Relation cycle detected: output -> projected -> output",
+        ),
+        ("PIE-S2382", Severity.WARNING, _same_file_read("output", "query")),
+    ]
 
 
 def test_source_dependency_is_not_a_cycle() -> None:
@@ -105,7 +120,10 @@ def test_acyclic_relation_chain_has_no_cycle_diagnostic() -> None:
         )
     )
 
-    assert result.diagnostics == ()
+    assert _diagnostics(result) == [
+        ("PIE-S2382", Severity.WARNING, _same_file_read("first")),
+        ("PIE-S2382", Severity.WARNING, _same_file_read("second", "query")),
+    ]
 
 
 def test_cyclic_relations_have_unknown_row_schemas() -> None:
@@ -156,11 +174,14 @@ def test_cycle_diagnostics_are_deterministic_and_use_closing_from_spans() -> Non
         (diagnostic.location.line, diagnostic.code, diagnostic.message)
         for diagnostic in diagnostics
     ] == [
+        (2, "PIE-S2382", _same_file_read("second")),
         (6, "PIE-S2302", "Relation cycle detected: first -> second -> first"),
+        (6, "PIE-S2382", _same_file_read("first")),
         (10, "PIE-S2302", "Relation cycle detected: self_cycle -> self_cycle"),
+        (10, "PIE-S2382", _same_file_read("self_cycle", "query")),
     ]
-    _assert_location_matches(diagnostics[0], first_cycle_closer)
-    _assert_location_matches(diagnostics[1], second_cycle_closer)
+    _assert_location_matches(diagnostics[1], first_cycle_closer)
+    _assert_location_matches(diagnostics[3], second_cycle_closer)
 
 
 def test_unknown_relation_still_reports_only_p2301() -> None:
@@ -191,8 +212,10 @@ def test_cycle_suppresses_field_diagnostics_but_not_an_unknown_function() -> Non
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics
     ] == [
+        ("PIE-S2382", _same_file_read("second"), 2, 5),
         ("PIE-S2103", "Unknown function: unknown_predicate", 3, 11),
         ("PIE-S2302", "Relation cycle detected: first -> second -> first", 7, 5),
+        ("PIE-S2382", _same_file_read("first"), 7, 5),
     ]
 
 
@@ -227,6 +250,15 @@ def _parse(source: str, *, path: Path | None = None) -> Script:
     assert result.diagnostics == ()
     assert result.ast is not None
     return result.ast
+
+
+def _named(source: str) -> Script:
+    """The script with each `let name = relation` JOIN target resolved to its
+    relation, as the analyzer checks cycles over it."""
+
+    script = analyze(_parse(source)).script
+    assert script is not None
+    return script
 
 
 def _relation[RelationT: (SourceDef, TableDef, QueryDef)](
@@ -277,14 +309,15 @@ def _assert_no_antlr_nodes(value: object) -> None:
 
 
 def test_a_join_target_closes_a_cycle_at_the_join_only_with_join_edges() -> None:
-    script = _parse(
+    script = _named(
         SOURCE + "table second:\n"
         "    from first\n"
         "    select:\n"
         "        id\n"
         "table first:\n"
         "    from rows\n"
-        "    inner join second as peer\n"
+        "    let peer = second\n"
+        "    inner join peer on peer.id == rows.id\n"
         "    select:\n"
         "        id\n"
     )
@@ -301,21 +334,22 @@ def test_a_join_target_closes_a_cycle_at_the_join_only_with_join_edges() -> None
             "PIE-S2302",
             Severity.ERROR,
             "Relation cycle detected: second -> first -> second",
-            (10, 5, 10, 30),
+            (11, 5, 11, 42),
         )
     ]
 
 
 def test_every_join_that_closes_a_cycle_reports_it_in_join_order() -> None:
-    script = _parse(
+    script = _named(
         SOURCE + "table loop:\n"
         "    from rows\n"
-        "    inner join loop as again:\n"
-        "        from rows\n"
-        "        on rows.id == again.id\n"
-        "    left join rows as other: from loop\n"
-        "    cross join missing as gone: from loop\n"
-        "    semi join loop as twice\n"
+        "    let again = loop\n"
+        "    inner join again on rows.id == again.id\n"
+        "    let other = rows\n"
+        "    left join other on other.id == rows.id\n"
+        "    cross join missing\n"
+        "    let twice = loop\n"
+        "    left join twice on twice.id == rows.id\n"
         "    select:\n"
         "        id\n"
     )
@@ -329,15 +363,16 @@ def test_every_join_that_closes_a_cycle_reports_it_in_join_order() -> None:
     assert cyclic == {script.definitions[2]}
     assert _located(diagnostics) == [
         ("PIE-S2302", Severity.ERROR, "Relation cycle detected: loop -> loop", span)
-        for span in ((6, 5, 8, 31), (11, 5, 11, 28))
+        for span in ((7, 5, 7, 44), (12, 5, 12, 43))
     ]
 
 
 def test_join_edges_are_followed_after_the_from_edge() -> None:
-    script = _parse(
+    script = _named(
         SOURCE + "table hub:\n"
         "    from back_from\n"
-        "    inner join back_join as peer\n"
+        "    let peer = back_join\n"
+        "    inner join peer on peer.id == back_from.id\n"
         "    select:\n"
         "        id\n"
         "table back_from:\n"
@@ -361,21 +396,21 @@ def test_join_edges_are_followed_after_the_from_edge() -> None:
             "PIE-S2302",
             Severity.ERROR,
             "Relation cycle detected: hub -> back_from -> hub",
-            (10, 5, 10, 13),
+            (11, 5, 11, 13),
         ),
         (
             "PIE-S2302",
             Severity.ERROR,
             "Relation cycle detected: hub -> back_join -> hub",
-            (14, 5, 14, 13),
+            (15, 5, 15, 13),
         ),
     ]
 
 
 FIGURE_EIGHT = {
-    "a": "table a:\n    from b\n    cross join c as x: from b\n    select:\n        id\n",
+    "a": "table a:\n    from b\n    let x = c\n    cross join x\n    select:\n        id\n",
     "b": "table b:\n    from a\n    select:\n        id\n",
-    "c": "query c:\n    from rows\n    cross join b as y: from rows\n"
+    "c": "query c:\n    from rows\n    let y = b\n    cross join y\n"
     "    select:\n        id\n",
     "d": "table d:\n    from c\n    select:\n        id\n",
 }
@@ -384,17 +419,17 @@ FIGURE_EIGHT = {
 @pytest.mark.parametrize(
     ("order", "cycles"),
     [
-        ("abcd", [("a -> b -> a", (10, 5, 10, 11))]),
+        ("abcd", [("a -> b -> a", (11, 5, 11, 11))]),
         (
             "cabd",
-            [("b -> a -> b", (10, 5, 10, 11)), ("c -> b -> a -> c", (11, 5, 11, 30))],
+            [("b -> a -> b", (11, 5, 11, 11)), ("c -> b -> a -> c", (13, 5, 13, 17))],
         ),
     ],
 )
 def test_every_relation_on_a_cycle_is_cyclic_whatever_the_definition_order(
     order: str, cycles: list[tuple[str, tuple[int, int, int, int]]]
 ) -> None:
-    script = _parse(SOURCE + "".join(FIGURE_EIGHT[name] for name in order))
+    script = _named(SOURCE + "".join(FIGURE_EIGHT[name] for name in order))
     from_resolutions, join_resolutions = _resolutions(script)
 
     cyclic, diagnostics = check_relation_cycles(
@@ -413,15 +448,15 @@ def test_every_relation_on_a_cycle_is_cyclic_whatever_the_definition_order(
 @pytest.mark.parametrize(
     ("order", "path", "span"),
     [
-        ("abcd", "a -> b -> a", (10, 5, 10, 11)),
-        ("cabd", "a -> b -> a", (15, 5, 15, 11)),
-        ("dcba", "b -> a -> b", (18, 5, 18, 11)),
+        ("abcd", "a -> b -> a", (11, 5, 11, 11)),
+        ("cabd", "a -> b -> a", (17, 5, 17, 11)),
+        ("dcba", "b -> a -> b", (19, 5, 19, 11)),
     ],
 )
 def test_without_join_edges_every_cycle_is_reported_with_all_its_relations(
     order: str, path: str, span: tuple[int, int, int, int]
 ) -> None:
-    script = _parse(SOURCE + "".join(FIGURE_EIGHT[name] for name in order))
+    script = _named(SOURCE + "".join(FIGURE_EIGHT[name] for name in order))
     from_resolutions, _ = _resolutions(script)
 
     cyclic, diagnostics = check_relation_cycles(script, from_resolutions)
@@ -436,14 +471,15 @@ def test_without_join_edges_every_cycle_is_reported_with_all_its_relations(
 
 
 INNER_EIGHT = {
-    "a": "table a:\n    from b\n    inner join c as x\n    select:\n        id\n",
+    "a": "table a:\n    from b\n    let x = c\n    inner join x\n    select:\n        id\n",
     "b": "table b:\n    from a\n    select:\n        id\n",
-    "c": "query c:\n    from rows\n    inner join b as y\n    select:\n        id\n",
+    "c": "query c:\n    from rows\n    let y = b\n    inner join y\n"
+    "    select:\n        id\n",
 }
 
 
 @pytest.mark.parametrize(
-    ("order", "span"), [("abc", (10, 5, 10, 11)), ("cab", (15, 5, 15, 11))]
+    ("order", "span"), [("abc", (11, 5, 11, 11)), ("cab", (17, 5, 17, 11))]
 )
 def test_a_project_namespace_analysis_reports_only_the_from_cycle(
     order: str, span: tuple[int, int, int, int]
@@ -451,7 +487,8 @@ def test_a_project_namespace_analysis_reports_only_the_from_cycle(
     script = _parse(SOURCE + "".join(INNER_EIGHT[name] for name in order))
 
     # A LEGACY_FLAT check passes no JOIN edges, so of the cycles a -> b -> a
-    # and a -> c -> b -> a it reports only the one that FROM closes.
+    # and a -> c -> b -> a it reports only the one that FROM closes; the
+    # project model refuses each JOIN, as that project mode has none.
     assert _located(list(analyze_project_namespace(script).diagnostics)) == [
         ("PIE-S2302", Severity.ERROR, "Relation cycle detected: a -> b -> a", span)
     ]

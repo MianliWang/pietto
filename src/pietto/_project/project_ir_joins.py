@@ -1019,6 +1019,7 @@ def _grain(
     named_left_input: bool = False,
     left_only: bool = False,
     empty_state: ProjectGrainBasisState = ProjectGrainBasisState.GLOBAL,
+    local_reverse_sources: tuple[tuple[ProjectGrainFactorIdentity, ...], ...] = (),
 ) -> tuple[ProjectIRProvidedIntrinsicGrain, tuple[ProjectGrainFactorIdentity, ...]]:
     if not left_only and origin_set is None and left.origin_set is not right.origin_set:
         raise ValueError("JOIN grain transfer requires one exact origin set.")
@@ -1125,6 +1126,15 @@ def _grain(
                 dependents=effective_source_factors,
             )
         )
+    if not reverse_at_most_one and not nulling and right_active:
+        for source in local_reverse_sources:
+            if source:
+                dependencies.append(
+                    ProjectGrainDependencyFact(
+                        determinants=right_active,
+                        dependents=tuple(left_images[item] for item in source),
+                    )
+                )
     if left_only:
         state = left.state
     elif ProjectGrainBasisState.UNKNOWN in {left.state, right.state}:

@@ -30,7 +30,7 @@ def test_table_satisfying_after_select_preserves_predicate_ast() -> None:
         "    select:\n"
         "        region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total_amount > 1000\n"
     )
 
@@ -54,7 +54,7 @@ def test_query_satisfying_after_select_preserves_predicate_ast() -> None:
         "    select:\n"
         "        region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total_amount > 1000\n"
     )
 
@@ -72,7 +72,7 @@ def test_satisfying_parses_before_order_by_and_limit() -> None:
         "    select:\n"
         "        region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total_amount > 1000\n"
         "    order by:\n"
         "        total_amount desc\n"
@@ -92,7 +92,7 @@ def test_satisfying_allows_blank_lines_and_comments_around_predicate() -> None:
         "        total_amount = sum(amount)\n"
         "\n"
         "    # Result predicate.\n"
-        "    satisfying:\n"
+        "    having:\n"
         "\n"
         "        # Later semantic slices resolve this output name.\n"
         "        total_amount >= 1000\n"
@@ -122,7 +122,7 @@ def test_relations_without_satisfying_keep_none_field(source: str) -> None:
     [
         (
             "    from orders\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        total_amount > 1000\n"
             "    select:\n"
             "        total_amount = sum(amount)\n"
@@ -131,19 +131,12 @@ def test_relations_without_satisfying_keep_none_field(source: str) -> None:
             "    from orders\n"
             "    select:\n"
             "        total_amount = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        total_amount > 1000\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        total_amount < 5000\n"
         ),
-        "    from orders\n    select:\n        total_amount\n    satisfying:\n",
-        (
-            "    from orders\n"
-            "    select:\n"
-            "        region\n"
-            "    having:\n"
-            '        region == "US"\n'
-        ),
+        "    from orders\n    select:\n        total_amount\n    having:\n",
     ],
 )
 def test_invalid_satisfying_shapes_are_parser_errors(body: str) -> None:
@@ -153,6 +146,23 @@ def test_invalid_satisfying_shapes_are_parser_errors(body: str) -> None:
     assert _has_code(result, "PIE-P1000")
 
 
+def test_having_without_group_by_retains_the_authored_predicate() -> None:
+    relation = _parse_relation(
+        "query region_rows:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        region\n"
+        "    having:\n"
+        '        region == "US"\n'
+    )
+    assert relation.group_by_clause is None
+    assert isinstance(relation.satisfying_clause, SatisfyingClause)
+    expression = relation.satisfying_clause.expression
+    assert isinstance(expression, ComparisonExpr) and expression.operator == "=="
+    assert isinstance(expression.left, NameExpr) and expression.left.name == "region"
+    assert isinstance(expression.right, LiteralExpr) and expression.right.value == "US"
+
+
 def test_satisfying_remains_soft_identifier_and_name_part() -> None:
     relation = _parse_relation(
         "query satisfying:\n"
@@ -160,7 +170,7 @@ def test_satisfying_remains_soft_identifier_and_name_part() -> None:
         "    select:\n"
         "        satisfying\n"
         "        satisfying = satisfying.satisfying\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        satisfying.satisfying == satisfying\n"
     )
 
@@ -189,7 +199,7 @@ def test_satisfying_ast_does_not_expose_antlr_nodes() -> None:
         "    from orders\n"
         "    select:\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total_amount > 1000\n"
     )
 

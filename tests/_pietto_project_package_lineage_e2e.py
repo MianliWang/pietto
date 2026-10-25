@@ -54,11 +54,11 @@ SPEC = (
 
 MODULE_SOURCE = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    quantity: Int not null\n"
-    "    category: Text nullable\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    quantity: Int\n"
+    "    category: Text | None\n"
+    'source rows: Row = postgres.table("rows")\n'
     "query projections:\n"
     "    from rows\n"
     "    select:\n"
@@ -66,8 +66,7 @@ MODULE_SOURCE = (
     "        renamed = amount\n"
     "query calculations:\n"
     "    from rows\n"
-    "    let:\n"
-    "        gross = amount * quantity\n"
+    "    let gross = amount * quantity\n"
     "    select:\n"
     "        doubled = amount + amount\n"
     "        gross\n"
@@ -79,11 +78,7 @@ MODULE_SOURCE = (
     "    from rows\n"
     "    select:\n"
     "        id\n"
-    "        previous = lag(amount, 2, amount) window:\n"
-    "            partition by:\n"
-    "                category\n"
-    "            order by:\n"
-    "                id desc\n"
+    "        previous = lag(amount, 2, amount) window(partition by category order by id desc)\n"
 ).encode()
 
 

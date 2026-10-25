@@ -279,8 +279,9 @@ def test_mysql_materialized_computed_group_keys_report_int(tmp_path):
     _, outcome = emission.build_case(
         tmp_path,
         emission.AGGREGATE_HEADER.format(target="mysql")
-        + "query result:\n    from agg\n    let:\n        big = rid > 5\n"
-        "        small = key + key\n        wide = rid + 0\n    group by:\n"
+        + "query result:\n    from agg\n"
+        "    let big = rid > 5\n    let small = key + key\n    let wide = rid + 0\n"
+        "    group by:\n"
         "        big\n        small\n        flag\n        wide\n    select:\n"
         "        b = big\n        s = small\n        f = flag\n        w = wide\n"
         "        total = count()\n",

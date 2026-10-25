@@ -23,6 +23,13 @@ from pietto._project.let_scope_facts import (
     build_project_relation_let_scope_facts,
     checked_let_values,
 )
+from pietto._project.project_relationship_predicates import (
+    ProjectRelationshipPredicateCatalog,
+    ProjectRelationshipPredicateExpression,
+    bind_project_no_join_relationship_predicates,
+    project_owner_has_relationship_calls,
+    select_project_predicate_expression,
+)
 from pietto._project.model import (
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaState,
@@ -67,6 +74,15 @@ from pietto._project.project_completion import (
     ProjectEffectiveOutputTerminalReason,
     ProjectExistingEffectiveOutput,
     build_project_joined_completion,
+)
+from pietto._project.existence_values import (
+    any_value_origins,
+    expression_has_any_values,
+    ProjectAnyField,
+    ProjectAnyLetValue,
+    ProjectAnyValue,
+    analyze_any_values,
+    validate_any_values,
 )
 from pietto._project.project_current_joins import ProjectCurrentJoinRegion
 from pietto._project.project_join_conditions import (
@@ -190,6 +206,7 @@ from pietto._project.project_scalar_bindings import (
 from pietto._project.project_scalar_namespaces import (
     ProjectConcreteJoinedNamespaceExpression,
     ProjectJoinedLetReferenceResolution,
+    ProjectJoinedScalarNamespace,
     ProjectNonConcreteJoinedLetNamespaces,
     ProjectNonConcreteJoinedNamespaceExpression,
     analyze_project_joined_namespace_expression,
@@ -209,6 +226,7 @@ from pietto._project.row_expression_type_facts import (
     project_row_schema_to_semantic_row_schema,
 )
 from pietto.ast_nodes import (
+    CallExpr,
     CapturedFieldExpr,
     DistinctClause,
     SetRelationDef,
@@ -242,9 +260,11 @@ from pietto.semantic.aggregates import (
     invalid_context_diagnostic,
 )
 from pietto.semantic.expressions import (
-    _order_by_output_name_diagnostic,
     _window_literal_range_diagnostics,
     infer_row_expression,
+    let_value,
+    order_output_ambiguity,
+    order_output_ambiguity_diagnostic,
     unknown_explained,
 )
 from pietto._project.row_expression_type_facts import scalar_read_types_within
@@ -558,8 +578,26 @@ class ProjectNoJoinScalarExpression:
         hash=False,
     )
     diagnostics: tuple[Diagnostic, ...] = ()
+    existence_values: tuple[ProjectAnyValue, ...] = ()
+    predicate_expression: ProjectRelationshipPredicateExpression | None = field(
+        default=None, repr=False
+    )
+
+    @property
+    def normalized_expression(self) -> Expression:
+        record = self.predicate_expression
+        if record is None:
+            return self.expression
+        if record.owner is not self.owner or record.authored is not self.expression:
+            raise ValueError(
+                "No-JOIN predicate normalization requires exact authored ownership."
+            )
+        return record.expression
 
     def __post_init__(self) -> None:
+        validate_any_values(
+            self.owner, self.normalized_expression, self.existence_values
+        )
         if (
             type(self.owner) is not ProjectDeclarationOccurrence
             or type(self.input_schema) is not ProjectRowSchema
@@ -575,6 +613,7 @@ class ProjectNoJoinScalarExpression:
             type(diagnostic) is not Diagnostic for diagnostic in self.diagnostics
         ):
             raise TypeError("No-JOIN scalar diagnostics must be exact.")
+        normalized = self.normalized_expression
         value_types = MappingProxyType(dict(self.value_types))
         object.__setattr__(self, "value_types", value_types)
         if self.status is ProjectNoJoinScalarStatus.CONCRETE:
@@ -582,6 +621,7 @@ class ProjectNoJoinScalarExpression:
                 type(self.value_type) is ValueType
                 and self.value_type.kind is ValueTypeKind.KNOWN
                 and value_types.get(self.expression) is self.value_type
+                and value_types.get(normalized) is self.value_type
                 and not any(
                     diagnostic.severity is Severity.ERROR
                     for diagnostic in self.diagnostics
@@ -1296,6 +1336,9 @@ class ProjectRelationOrderingNonConcreteReason(StrEnum):
     GROUPED_ORDER_UNSUPPORTED = "grouped_order_unsupported"
     GLOBAL_ORDER_UNSUPPORTED = "global_order_unsupported"
     DISTINCT_ORDER_NOT_DETERMINED = "distinct_order_not_determined"
+    # A key named alone that is both an input field and a SELECT output of
+    # another value; also reported where no other ORDER result is checked.
+    OUTPUT_NAME_AMBIGUOUS = "output_name_ambiguous"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1479,9 +1522,37 @@ class ProjectConcreteNoJoinReplay:
     window_scope: WindowInputScope
     clause_dependencies: tuple[ProjectModuleClauseDependencyFact, ...]
     qualify: ProjectNoJoinQualify
+    predicate_expressions: tuple[ProjectRelationshipPredicateExpression, ...] = ()
 
     def __post_init__(self) -> None:
         definition = _derived_definition(self.owner)
+        contexts = (
+            *(
+                definition.let_clause.bindings
+                if definition.let_clause is not None
+                else ()
+            ),
+            *(
+                (definition.where_clause,)
+                if definition.where_clause is not None
+                else ()
+            ),
+            *definition.select_items,
+        )
+        if self.predicate_expressions and (
+            len(self.predicate_expressions) != len(contexts)
+            or any(
+                record.owner is not self.owner
+                or record.context is not context
+                or record.authored is not context.expression
+                for record, context in zip(
+                    self.predicate_expressions, contexts, strict=True
+                )
+            )
+        ):
+            raise ValueError(
+                "No-JOIN predicate inventory requires complete exact clause ownership."
+            )
         if (
             type(self.replay_root) is not ProjectNoJoinReplayRoot
             or self.replay_root.owner is not self.owner
@@ -1514,6 +1585,38 @@ class ProjectConcreteNoJoinReplay:
             or not self.qualify.concrete
         ):
             raise ValueError("Concrete no-JOIN replay requires every closed stage.")
+        bindings = (
+            () if definition.let_clause is None else definition.let_clause.bindings
+        )
+        normalized = (
+            tuple(
+                record.expression
+                for record in self.predicate_expressions[: len(bindings)]
+            )
+            if self.predicate_expressions
+            else tuple(binding.expression for binding in bindings)
+        )
+        if (
+            self.let_scope.definition is not definition
+            or self.let_scope.clause is not definition.let_clause
+            or self.let_scope.input_schema is not self.input_schema
+            or len(self.let_scope.bindings) != len(bindings)
+            or any(
+                actual is not authored
+                for actual, authored in zip(
+                    self.let_scope.bindings, bindings, strict=True
+                )
+            )
+            or tuple(self.let_scope.binding_expressions)
+            != tuple(binding.name for binding in bindings)
+            or any(
+                self.let_scope.binding_expressions[binding.name] is not expression
+                for binding, expression in zip(bindings, normalized, strict=True)
+            )
+        ):
+            raise ValueError(
+                "No-JOIN replay requires complete exact LET normalization."
+            )
         expected_windows = tuple(
             item
             for item in definition.select_items
@@ -3394,28 +3497,75 @@ def _completed_field(
 def _analyze_no_join_scalar(
     *,
     owner: ProjectDeclarationOccurrence,
+    completion: ProjectCompletion | None = None,
+    available: tuple[ProjectEffectiveOutputCompletionEntry, ...] = (),
     input_schema: ProjectRowSchema,
     let_scope: ProjectRelationLetScopeFacts,
     let_values: Mapping[str, Expression],
     expression: Expression,
     read_types: Mapping[Expression, ValueType] | None = None,
     captures: Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None = None,
+    predicate_expressions: tuple[ProjectRelationshipPredicateExpression, ...] = (),
 ) -> ProjectNoJoinScalarExpression:
     definition = _derived_definition(owner)
-    value_types = scalar_read_types_within(expression, read_types)
-    diagnostics: list[Diagnostic] = []
+    record = select_project_predicate_expression(
+        predicate_expressions, owner, expression
+    )
+    normalized = expression if record is None else record.expression
+    any_values: tuple[ProjectAnyValue, ...] = ()
+    if completion is not None:
+        root = (
+            completion.verification.root.join_regions.uses.relationships.semantic_result
+        )
+        resolution = _semantic_facts(completion, owner).resolution
+        any_values = analyze_any_values(
+            root=root,
+            owner=owner,
+            authored=expression,
+            expression=normalized,
+            normalized_any=() if record is None else record.any_expressions,
+            retained_bindings=None if record is None else record.any_bindings,
+            failed_relationship_calls=() if record is None else record.failed_calls,
+            outer_fields=()
+            if resolution is None
+            else tuple(
+                ProjectAnyField(binding=resolution, source_field=field)
+                for field in input_schema.fields.values()
+            ),
+            let_values=tuple(
+                ProjectAnyLetValue(
+                    binding=binding,
+                    expression=let_values[binding.name],
+                    value_type=let_scope.value_types[binding.name],
+                    authority=let_scope,
+                )
+                for binding in let_scope.bindings
+                if binding.name in let_scope.value_types
+            ),
+            available=available,
+        )
+    value_types = scalar_read_types_within(normalized, read_types)
+    for value in any_values:
+        value_types.update(value.value_types)
+    diagnostics: list[Diagnostic] = list(
+        record.diagnostics if record is not None else ()
+    )
+    diagnostics.extend(item for value in any_values for item in value.diagnostics)
     value_type = infer_row_expression(
-        expression,
+        normalized,
         project_row_schema_to_semantic_row_schema(input_schema),
         value_types,
         diagnostics,
         report_unknown_name=True,
-        field_qualifier=definition.from_clause.source_name,
+        field_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
         bare_value_types=let_scope.value_types,
         bare_value_expressions=let_values,
         relation_columns=read_types,
         captured_value_types=captures,
+        failed_relationship_calls=() if record is None else record.failed_calls,
     )
+    value_types[expression] = value_type
     retained_diagnostics = tuple(diagnostics)
     status = (
         ProjectNoJoinScalarStatus.TYPE_NON_CONCRETE
@@ -3428,6 +3578,8 @@ def _analyze_no_join_scalar(
         input_schema=input_schema,
         let_scope=let_scope,
         expression=expression,
+        predicate_expression=record,
+        existence_values=any_values,
         status=status,
         value_type=value_type,
         value_types=value_types,
@@ -3438,10 +3590,13 @@ def _analyze_no_join_scalar(
 def _no_join_where(
     *,
     owner: ProjectDeclarationOccurrence,
+    completion: ProjectCompletion | None = None,
+    available: tuple[ProjectEffectiveOutputCompletionEntry, ...] = (),
     input_schema: ProjectRowSchema,
     let_scope: ProjectRelationLetScopeFacts,
     read_types: Mapping[Expression, ValueType] | None = None,
     captures: Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None = None,
+    predicate_expressions: tuple[ProjectRelationshipPredicateExpression, ...] = (),
 ) -> ProjectConcreteNoJoinWhere | ProjectNoJoinScalarExpression:
     definition = _derived_definition(owner)
     clause = definition.where_clause
@@ -3452,6 +3607,8 @@ def _no_join_where(
         )
     let_values = checked_let_values(let_scope, let_scope.binding_expressions)
     analysis = _analyze_no_join_scalar(
+        completion=completion,
+        available=available,
         owner=owner,
         input_schema=input_schema,
         let_scope=let_scope,
@@ -3459,6 +3616,7 @@ def _no_join_where(
         expression=clause.expression,
         read_types=read_types,
         captures=captures,
+        predicate_expressions=predicate_expressions,
     )
     diagnostics = list(analysis.diagnostics)
     if contains_semantic_aggregate(clause.expression):
@@ -3472,6 +3630,8 @@ def _no_join_where(
             input_schema=input_schema,
             let_scope=let_scope,
             expression=analysis.expression,
+            predicate_expression=analysis.predicate_expression,
+            existence_values=analysis.existence_values,
             status=ProjectNoJoinScalarStatus.TYPE_NON_CONCRETE,
             value_type=analysis.value_type,
             value_types=analysis.value_types,
@@ -3505,6 +3665,8 @@ def _no_join_where(
             input_schema=input_schema,
             let_scope=let_scope,
             expression=analysis.expression,
+            predicate_expression=analysis.predicate_expression,
+            existence_values=analysis.existence_values,
             status=ProjectNoJoinScalarStatus.TYPE_NON_CONCRETE,
             value_type=analysis.value_type,
             value_types=analysis.value_types,
@@ -3762,6 +3924,17 @@ def _joined_let_unreached_diagnostics(
     outputs: set[str] = set()
     found: list[Diagnostic] = []
     for expression, selected in clauses:
+        region = namespaces.binding_environment.region
+        record = select_project_predicate_expression(
+            region.conditions.predicate_expressions
+            if isinstance(region, ProjectCurrentJoinRegion)
+            else (),
+            owner,
+            expression,
+        )
+        if record is not None:
+            expression = record.expression
+            found.extend(record.diagnostics)
         where = selected is None
         if selected is not None:
             found.extend(_repeated_output_name(selected, outputs))
@@ -3779,7 +3952,12 @@ def _joined_let_unreached_diagnostics(
             continue
         value_types = scalar_read_types_within(expression, read_types)
         unresolved = False
-        for leaf in scalar_field_reference_leaves(expression):
+        leaves = (
+            scalar_field_reference_leaves(expression)
+            if record is None
+            else record.scalar_references
+        )
+        for leaf in leaves:
             if type(leaf) is NameExpr and leaf.name in names:
                 continue
             resolution = resolve_project_joined_scalar_reference(
@@ -3808,8 +3986,12 @@ def _joined_let_unreached_diagnostics(
                 bare_value_expressions=namespaces.written_lets,
                 suppressed_unknown_names=names - set(known),
                 relation_columns=read_types,
+                failed_relationship_calls=() if record is None else record.failed_calls,
             )
-            found.extend(local)
+            owned = {id(d) for d in (() if record is None else record.diagnostics)}
+            found.extend(
+                diagnostic for diagnostic in local if id(diagnostic) not in owned
+            )
             if (
                 where
                 and not any(item.severity is Severity.ERROR for item in local)
@@ -3956,6 +4138,93 @@ def _prepare_relation_order_inputs(
     )
 
 
+def _joined_order_output_ambiguity(
+    namespace: ProjectJoinedScalarNamespace,
+    definition: _DerivedRelation,
+    key: Expression,
+) -> Diagnostic | None:
+    """Refuse an ungrouped ORDER BY key, named alone, that is both an input
+    field and a SELECT output of another value, as a single file does.
+
+    An output of that same field, also through `let` names, reads the same
+    value; a `let` name is never an input field.
+    """
+
+    if type(key) is not NameExpr or any(
+        value.occurrence.binding.name == key.name for value in namespace.let_values
+    ):
+        return None
+    environment = namespace.binding_environment
+
+    def field(expression: Expression) -> ProjectScalarEnvironmentField | None:
+        if type(expression) is not NameExpr and type(expression) is not DottedNameExpr:
+            return None
+        return resolve_project_joined_scalar_reference(
+            environment,
+            ProjectScalarReferenceOccurrence(
+                environment=environment.scalar_environment, expression=expression
+            ),
+        ).target
+
+    target = field(key)
+    if target is None or all(
+        type(selected.expression) is not WindowExpr
+        and field(let_value(selected.expression, RowSchema(), namespace.written_lets))
+        is target
+        for selected in definition.select_items
+        if _projection_output_name(selected) == key.name
+    ):
+        return None
+    binding = next(
+        item.binding.name
+        for item in environment.bindings
+        if any(candidate is target for candidate in item.fields)
+    )
+    return order_output_ambiguity_diagnostic(key, f"{binding}.{key.name}")
+
+
+def _no_join_order_output_ambiguity(
+    definition: _DerivedRelation,
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts,
+    key: Expression,
+) -> Diagnostic | None:
+    """The ORDER BY output-name ambiguity of a no-JOIN relation, as a single
+    file reports it."""
+
+    if type(key) is not NameExpr:
+        return None
+    return order_output_ambiguity(
+        key,
+        definition,
+        project_row_schema_to_semantic_row_schema(input_schema),
+        let_scope.binding_expressions,
+        let_names={binding.name for binding in let_scope.bindings},
+    )
+
+
+def _joined_order_output_name_diagnostic(expression: NameExpr) -> Diagnostic:
+    """PIE-S2102 for a JOIN relation key that names a SELECT output alone."""
+
+    span = expression.span
+    return Diagnostic(
+        code="PIE-S2102",
+        severity=Severity.ERROR,
+        message=(
+            f"Unknown field: {expression.name}; a project relation with JOIN "
+            "inputs cannot order by a SELECT output yet (restate its expression, "
+            "or bind it with `let` and order by that name)"
+        ),
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
 def _joined_fallback_is_absent(
     analysis: ProjectNonConcreteJoinedNamespaceExpression,
 ) -> bool:
@@ -4021,6 +4290,19 @@ def _joined_relation_ordering(
                     diagnostics=(diagnostic,),
                 )
         else:
+            ambiguity = _joined_order_output_ambiguity(
+                aggregation.input_filter.namespace, definition, expression
+            )
+            if ambiguity is not None:
+                return ProjectNonConcreteRelationOrdering(
+                    owner=owner,
+                    clause=clause,
+                    reason=(
+                        ProjectRelationOrderingNonConcreteReason.EXPRESSION_NON_CONCRETE
+                    ),
+                    blocker=item,
+                    diagnostics=(ambiguity,),
+                )
             analysis = analyze_project_joined_namespace_expression(
                 aggregation.input_filter.namespace,
                 expression,
@@ -4038,29 +4320,21 @@ def _joined_relation_ordering(
                     else ()
                 )
                 if len(selected_candidates) != 1:
-                    # A key that names only a SELECT output, not a window
-                    # result, is reported as a single file reports it.
-                    outputs = tuple(
-                        selected.expression
-                        for selected in definition.select_items
-                        if type(expression) is NameExpr
-                        and _projection_output_name(selected) == expression.name
-                    )
+                    # Project SQL has no ordering by a SELECT output other
+                    # than a window result yet.
                     if (
                         type(expression) is NameExpr
-                        and outputs
                         and not selected_candidates
                         and _joined_fallback_is_absent(analysis)
+                        and any(
+                            _projection_output_name(selected) == expression.name
+                            for selected in definition.select_items
+                        )
                     ):
                         analysis = replace(
                             analysis,
                             diagnostics=(
-                                _order_by_output_name_diagnostic(
-                                    expression,
-                                    outputs,
-                                    RowSchema(),
-                                    aggregation.input_filter.namespace.written_lets,
-                                ),
+                                _joined_order_output_name_diagnostic(expression),
                             ),
                         )
                     return ProjectNonConcreteRelationOrdering(
@@ -4507,6 +4781,8 @@ def _no_join_final_fields(
     base_schema: ProjectRowSchema,
     window_outputs: tuple[ProjectModuleWindowOutputFact, ...],
     names: tuple[str, ...],
+    pretyped_expressions: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
 ) -> tuple[
     tuple[ProjectCompletedOutputField, ...] | None,
     object | None,
@@ -4534,15 +4810,18 @@ def _no_join_final_fields(
                 location=_source_location(item.expression),
             )
         elif mode is ProjectJoinedAggregationMode.ABSENT:
-            analysis = _analyze_no_join_scalar(
-                owner=owner,
-                input_schema=input_schema,
-                let_scope=let_scope,
-                let_values=let_values,
-                expression=item.expression,
-                read_types=_semantic_facts(completion, owner).scalar_read_types,
-                captures=_semantic_facts(completion, owner).captured_value_types,
-            )
+            analysis = (pretyped_expressions or {}).get(item.expression)
+            if analysis is None:
+                analysis = _analyze_no_join_scalar(
+                    completion=completion,
+                    owner=owner,
+                    input_schema=input_schema,
+                    let_scope=let_scope,
+                    let_values=let_values,
+                    expression=item.expression,
+                    read_types=_semantic_facts(completion, owner).scalar_read_types,
+                    captures=_semantic_facts(completion, owner).captured_value_types,
+                )
             if analysis.status is not ProjectNoJoinScalarStatus.CONCRETE:
                 return None, analysis, analysis.diagnostics
             source = analysis
@@ -4654,6 +4933,19 @@ def _no_join_relation_ordering(
                     target_field.nullability,
                 )
         else:
+            ambiguity = _no_join_order_output_ambiguity(
+                definition, input_schema, let_scope, expression
+            )
+            if ambiguity is not None:
+                return ProjectNonConcreteRelationOrdering(
+                    owner=owner,
+                    clause=clause,
+                    reason=(
+                        ProjectRelationOrderingNonConcreteReason.OUTPUT_NAME_AMBIGUOUS
+                    ),
+                    blocker=item,
+                    diagnostics=(ambiguity,),
+                )
             if contains_semantic_aggregate(expression):
                 diagnostic = invalid_context_diagnostic(
                     expression,
@@ -5538,6 +5830,7 @@ def _complete_no_join_output(
     completion: ProjectCompletion,
     base_entry: ProjectEffectiveOutputEntry,
     upstream_entry: ProjectConcreteEffectiveOutputEntry,
+    available: tuple[ProjectEffectiveOutputCompletionEntry, ...] = (),
 ) -> ProjectCompletedEffectiveOutput | ProjectEffectiveOutputCompletionTerminal:
     owner = base_entry.owner
     definition = _derived_definition(owner)
@@ -5577,9 +5870,27 @@ def _complete_no_join_output(
         TableFunctionRelationDef,
     }:
         raise TypeError("No-JOIN replay upstream must produce rows.")
+    predicate_catalog = ProjectRelationshipPredicateCatalog(
+        semantic_result=completion.verification.root.join_regions.uses.relationships.semantic_result
+    )
+    predicate_expressions = bind_project_no_join_relationship_predicates(
+        predicate_catalog, owner
+    )
     let_scope = build_project_relation_let_scope_facts(
         definition=definition,
         input_schema=input_schema,
+        normalized_bindings={
+            record.context: record.expression
+            for record in predicate_expressions
+            if type(record.context) is LetBinding
+        }
+        or None,
+        failed_relationship_calls=tuple(
+            failure
+            for record in predicate_expressions
+            if type(record.context) is LetBinding
+            for failure in record.failed_calls
+        ),
         upstream_definition=cast(
             SourceDef
             | TableDef
@@ -5590,6 +5901,82 @@ def _complete_no_join_output(
             upstream_definition,
         ),
     )
+    let_any_values: list[ProjectAnyValue] = []
+    earlier_lets: list[ProjectAnyLetValue] = []
+    for binding in let_scope.bindings:
+        record = select_project_predicate_expression(
+            predicate_expressions, owner, binding.expression
+        )
+        normalized = binding.expression if record is None else record.expression
+        checked = analyze_any_values(
+            root=predicate_catalog.semantic_result,
+            owner=owner,
+            authored=binding.expression,
+            expression=normalized,
+            normalized_any=() if record is None else record.any_expressions,
+            retained_bindings=None if record is None else record.any_bindings,
+            failed_relationship_calls=() if record is None else record.failed_calls,
+            outer_fields=tuple(
+                ProjectAnyField(binding=resolution, source_field=field)
+                for field in input_schema.fields.values()
+            ),
+            let_values=tuple(earlier_lets),
+            available=available,
+        )
+        let_any_values.extend(checked)
+        # A typed ANY restates its rejected calls' errors, which the record owns.
+        restated = {id(item) for item in (() if record is None else record.diagnostics)}
+        errors = (
+            *(record.diagnostics if record is not None else ()),
+            *(
+                item
+                for value in checked
+                for item in value.diagnostics
+                if id(item) not in restated
+            ),
+        )
+        if errors:
+            retained = errors
+            if record is not None and record.failed_calls:
+                # A rejected call keeps the errors the LET scope scanned around
+                # it; any other LET error keeps only its own diagnostics.
+                owned = {id(diagnostic) for diagnostic in errors}
+                retained += tuple(
+                    diagnostic
+                    for diagnostic in let_scope.diagnostics
+                    if id(diagnostic) not in owned
+                )
+            return _no_join_terminal(
+                semantic_facts=semantic,
+                base_entry=base_entry,
+                reason=ProjectEffectiveOutputCompletionTerminalReason.LET_NON_CONCRETE,
+                blocker=checked,
+                diagnostics=retained,
+                upstream_entry=upstream_entry,
+            )
+        if checked:
+            let_scope = replace(
+                let_scope,
+                existence_values=tuple(let_any_values),
+                expression_value_types={
+                    **let_scope.expression_value_types,
+                    **{
+                        expression: value_type
+                        for value in checked
+                        for expression, value_type in value.value_types.items()
+                    },
+                },
+            )
+        value_type = let_scope.value_types.get(binding.name)
+        if value_type is not None:
+            earlier_lets.append(
+                ProjectAnyLetValue(
+                    binding=binding,
+                    expression=normalized,
+                    value_type=value_type,
+                    authority=let_scope,
+                )
+            )
     if let_scope.status not in {
         ProjectLetScopeFactsStatus.ABSENT,
         ProjectLetScopeFactsStatus.CONCRETE,
@@ -5602,11 +5989,14 @@ def _complete_no_join_output(
             upstream_entry=upstream_entry,
         )
     where = _no_join_where(
+        completion=completion,
+        available=available,
         owner=owner,
         input_schema=input_schema,
         let_scope=let_scope,
         read_types=semantic.scalar_read_types,
         captures=semantic.captured_value_types,
+        predicate_expressions=predicate_expressions,
     )
     if type(where) is ProjectNoJoinScalarExpression:
         return _no_join_terminal(
@@ -5634,7 +6024,74 @@ def _complete_no_join_output(
     mode = _mode(definition)
     limit = _relation_limit(owner)
     aggregate_readiness: ProjectAggregateGroupedClauseReadiness | None = None
+    pretyped_expressions: dict[Expression, ProjectNoJoinScalarExpression] = {}
+    pretyped_arguments: dict[Expression, ProjectNoJoinScalarExpression] = {}
+    if mode is not ProjectJoinedAggregationMode.ABSENT:
+        for item in definition.select_items:
+            call = item.expression
+            if not isinstance(call, CallExpr) or len(call.arguments) != 1:
+                continue
+            argument = call.arguments[0]
+            record = select_project_predicate_expression(
+                predicate_expressions, owner, argument
+            )
+            if record is None and not expression_has_any_values(
+                predicate_catalog.semantic_result, owner, argument
+            ):
+                continue
+            analysis = _analyze_no_join_scalar(
+                completion=completion,
+                available=available,
+                owner=owner,
+                input_schema=input_schema,
+                let_scope=let_scope,
+                let_values=checked_let_values(let_scope, let_scope.binding_expressions),
+                expression=argument,
+                read_types=semantic.scalar_read_types,
+                captures=semantic.captured_value_types,
+                predicate_expressions=predicate_expressions,
+            )
+            if analysis.status is not ProjectNoJoinScalarStatus.CONCRETE:
+                return _no_join_terminal(
+                    semantic_facts=semantic,
+                    base_entry=base_entry,
+                    reason=ProjectEffectiveOutputCompletionTerminalReason.AGGREGATION_NON_CONCRETE,
+                    blocker=analysis,
+                    diagnostics=analysis.diagnostics,
+                    upstream_entry=upstream_entry,
+                )
+            pretyped_arguments[argument] = analysis
     if mode is ProjectJoinedAggregationMode.ABSENT:
+        for item in definition.select_items:
+            record = select_project_predicate_expression(
+                predicate_expressions, owner, item.expression
+            )
+            if record is None and not expression_has_any_values(
+                predicate_catalog.semantic_result, owner, item.expression
+            ):
+                continue
+            analysis = _analyze_no_join_scalar(
+                completion=completion,
+                available=available,
+                owner=owner,
+                input_schema=input_schema,
+                let_scope=let_scope,
+                let_values=checked_let_values(let_scope, let_scope.binding_expressions),
+                expression=item.expression,
+                read_types=semantic.scalar_read_types,
+                captures=semantic.captured_value_types,
+                predicate_expressions=predicate_expressions,
+            )
+            if analysis.status is not ProjectNoJoinScalarStatus.CONCRETE:
+                return _no_join_terminal(
+                    semantic_facts=semantic,
+                    base_entry=base_entry,
+                    reason=ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
+                    blocker=analysis,
+                    diagnostics=analysis.diagnostics,
+                    upstream_entry=upstream_entry,
+                )
+            pretyped_expressions[item.expression] = analysis
         schema_result = _project_direct_relation_row_schema(
             definition,
             source_schema=input_schema,
@@ -5652,6 +6109,7 @@ def _complete_no_join_output(
             let_scope_facts=let_scope,
             read_types=semantic.scalar_read_types,
             captured_value_types=semantic.captured_value_types,
+            pretyped_expressions=pretyped_expressions,
         )
         base_state = _project_relation_row_schema_state_from_result(
             schema_result,
@@ -5675,6 +6133,7 @@ def _complete_no_join_output(
         aggregate_result_facts = ()
     else:
         aggregate_readiness = build_project_aggregate_grouped_clause_readiness(
+            pretyped_arguments=pretyped_arguments,
             definition=definition,
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
@@ -5826,6 +6285,7 @@ def _complete_no_join_output(
         base_schema=base_schema,
         window_outputs=window_outputs,
         names=names,
+        pretyped_expressions=pretyped_expressions,
     )
     if fields is None:
         return _no_join_terminal(
@@ -5887,6 +6347,7 @@ def _complete_no_join_output(
         window_scope=window_scope,
         clause_dependencies=clause_dependencies,
         qualify=qualify,
+        predicate_expressions=predicate_expressions,
     )
     schema = ProjectRowSchema(
         fields={output.output_name: output.field for output in fields}
@@ -6532,14 +6993,73 @@ class _CurrentJoinBuild:
             )
         failures = tuple(item for item in rebuilt if not item.ready)
         if failures:
+            facts = _semantic_facts(self.completion, base_entry.owner)
+            typed_ons: set[SourceLocation] = set()
+            for position, condition in enumerate(rebuilt):
+                clause, environment = condition.use.clause, condition.environment
+                if (
+                    not clause.uses_named_input
+                    or condition.mode != "M3"
+                    or clause.on_clause is None
+                    or condition.value_type is None
+                    or any(not prior.ready for prior in rebuilt[:position])
+                    or environment.blocked_bindings
+                    or not _same_objects(
+                        environment.source_candidates, (ledger.bindings[0],)
+                    )
+                    or any(
+                        reference.target is None for reference in condition.references
+                    )
+                ):
+                    continue
+                predicate = environment.predicate_expression
+                prior_diagnostics = {
+                    id(diagnostic)
+                    for diagnostic in (
+                        *(() if predicate is None else predicate.diagnostics),
+                        *(
+                            diagnostic
+                            for value in environment.existence_values
+                            for diagnostic in value.diagnostics
+                        ),
+                    )
+                }
+                # Exact rejected calls own this ON error; no successful admission follows.
+                if not (predicate is not None and predicate.failed_calls) and not any(
+                    diagnostic.severity is Severity.ERROR
+                    and diagnostic.code != "PIE-S2335"
+                    and id(diagnostic) not in prior_diagnostics
+                    for diagnostic in condition.diagnostics
+                ):
+                    continue
+                span = clause.on_clause.span
+                typed_ons.add(
+                    SourceLocation(
+                        path=span.path,
+                        line=span.line,
+                        column=span.column,
+                        end_line=span.end_line,
+                        end_column=span.end_column,
+                    )
+                )
+            # Retire only this owner's canonical ON gates, preserving all causes.
+            retired = tuple(
+                diagnostic
+                for diagnostic in syntax_diagnostics(
+                    _derived_definition(facts.owner), allow_distinct=True
+                )
+                if diagnostic.location in typed_ons
+            )
             return _terminal(
                 base_entry=base_entry,
                 reason=ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_CONDITION_NON_CONCRETE,
                 blocker=failures,
                 current_inputs=scope,
-                diagnostics=_semantic_facts(
-                    self.completion, base_entry.owner
-                ).helper_diagnostics,
+                diagnostics=tuple(
+                    diagnostic
+                    for diagnostic in facts.helper_diagnostics
+                    if diagnostic not in retired
+                ),
             )
         if not supported:
             return base_entry
@@ -6713,6 +7233,25 @@ def build_project_effective_output_completion(
         or isinstance(owner.definition, (TableDef, QueryDef))
         and owner.definition.distinct_clause is not None
     }
+    predicate_owners = {
+        id(owner)
+        for owner in completion.owners
+        if isinstance(owner.definition, (TableDef, QueryDef))
+        and not owner.definition.join_clauses
+        and (
+            bool(
+                any_value_origins(
+                    completion.verification.root.join_regions.uses.relationships.semantic_result,
+                    owner,
+                )
+            )
+            or project_owner_has_relationship_calls(
+                completion.verification.root.join_regions.uses.relationships.semantic_result,
+                owner,
+            )
+        )
+    }
+    required_current.update(predicate_owners)
     optional_current: set[int] = set()
     if join_conditions is not None:
         required_current |= {
@@ -6805,6 +7344,7 @@ def build_project_effective_output_completion(
                 ).qualify_clause
                 is None
                 and not changed_upstream
+                and id(owner) not in predicate_owners
                 and cast(_DerivedRelation, definition).distinct_clause is None
                 # An invalid LIMIT has no IR operator; the replay's LIMIT stage
                 # owns its PIE-S2307.
@@ -6834,6 +7374,7 @@ def build_project_effective_output_completion(
                     ProjectCompletedValuesOutput,
                 }:
                     entry = _complete_no_join_output(
+                        available=tuple(built_by_owner.values()),
                         completion=completion,
                         base_entry=base_entry,
                         upstream_entry=cast(
@@ -6874,6 +7415,7 @@ def build_project_effective_output_completion(
                 is base_entry.dependencies[0].evidence
                 and (
                     definition.distinct_clause is not None
+                    or id(owner) in predicate_owners
                     or built_by_owner[id(base_entry.dependencies[0].target)]
                     is not base_by_owner[id(base_entry.dependencies[0].target)]
                 )
@@ -6891,6 +7433,7 @@ def build_project_effective_output_completion(
                 ProjectCompletedValuesOutput,
             }:
                 entry = _complete_no_join_output(
+                    available=tuple(built_by_owner.values()),
                     completion=completion,
                     base_entry=base_entry,
                     upstream_entry=cast(ProjectConcreteEffectiveOutputEntry, upstream),

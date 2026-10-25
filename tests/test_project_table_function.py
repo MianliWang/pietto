@@ -2,7 +2,7 @@
 
 `from generate_series(start, stop, step) as n` is its own zero-input relation.
 Its call, binding, one-column row schema, closed function identity and effects
-evidence are kept apart: `n` names the rows and their only `Int not null`
+evidence are kept apart: `n` names the rows and their only `Int`
 column inside the body that wrote it and is never looked up as a relation name.
 The three arguments are fixed int64 literals, the step is not zero and the
 static row count is at most 1,048,576; every rejected shape has its own
@@ -35,8 +35,8 @@ from pietto._project.project_final_outputs import ProjectCompletedValuesOutput
 from pietto.ast_nodes import TableFunctionRelationDef
 
 HEAD = """shape Row:
-    id: Int not null
-source lhs: Row is postgres.table("lhs")
+    id: Int
+source lhs: Row = postgres.table("lhs")
 """
 NOT_A_FIXED_INTEGER = (
     "generate_series arguments are fixed non-null Int literals within the signed "
@@ -195,7 +195,7 @@ DIAGNOSTICS = {
     ),
     # NULL, a Float overload, a name or parameter: each argument at its span.
     "null_float_name": (
-        _series("null, 1.5, x"),
+        _series("None, 1.5, x"),
         [
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 26, 5, 30),
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 32, 5, 35),
@@ -204,7 +204,7 @@ DIAGNOSTICS = {
         ],
     ),
     "expressions": (
-        _series('1 + 1, true, "3"'),
+        _series('1 + 1, True, "3"'),
         [
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 26, 5, 31),
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 33, 5, 37),
@@ -221,7 +221,7 @@ DIAGNOSTICS = {
     ),
     # The step and the bound are derived only from three valid arguments.
     "invalid_argument_and_zero_step": (
-        _series("null, 3, 0"),
+        _series("None, 3, 0"),
         [
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 26, 5, 30),
             (*FOLLOW_ON, 4, 1, 7, 10),
@@ -330,8 +330,8 @@ def test_a_binding_is_not_a_relation_name_in_any_scope(tmp_path: Path) -> None:
         "query n:\n    from generate_series(1, 3, 1) as n\n    select:\n        n\n"
         "query q:\n    let a:\n        from generate_series(1, 3, 1) as n\n"
         "        select:\n            n\n"
-        "    from generate_series(1, 2, 1) as n\n    inner join a as t:\n"
-        "        from n\n        on n.n == t.n\n    select:\n        x = n.n\n"
+        "    from generate_series(1, 2, 1) as n\n    let t = a\n"
+        "    inner join t on n.n == t.n\n    select:\n        x = n.n\n"
     )
     assert _check(tmp_path, body) == (0, [])
     completed = _completed(tmp_path / "facts", body)

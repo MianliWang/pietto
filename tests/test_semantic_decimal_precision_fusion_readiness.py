@@ -32,10 +32,10 @@ from pietto.sql.mysql import emit_mysql_sql
 
 BASE_SHAPE = (
     "shape Order:\n"
-    "    price: Decimal(12, 2) not null\n"
-    "    tax: Decimal(10, 4) not null\n"
-    "    amount: Int not null\n"
-    "    score: Float not null\n"
+    "    price: Decimal(12, 2)\n"
+    "    tax: Decimal(10, 4)\n"
+    "    amount: Int\n"
+    "    score: Float\n"
 )
 
 
@@ -299,7 +299,7 @@ def test_public_type_surfaces_have_no_precision_scale_fields() -> None:
 
 
 def _source(connector: str, relation: str) -> str:
-    return BASE_SHAPE + f'source orders: Order is {connector}("orders")\n' + relation
+    return BASE_SHAPE + f'source orders: Order = {connector}("orders")\n' + relation
 
 
 def _parse(source: str) -> Script:

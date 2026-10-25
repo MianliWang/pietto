@@ -19,15 +19,16 @@ from pietto.ast_nodes import (
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import SemanticResult, ValueTypeKind, analyze
+from pietto.semantic.modern_inputs import normalize_query_names
 
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int nullable\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int | None\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -38,8 +39,7 @@ def test_valid_table_and_query_let_validate_row_scope_and_succeed(
     relation, semantic = _analyze_relation(
         f"{keyword} enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    where gross > 0\n"
         "    select:\n"
         "        gross_value = gross\n"
@@ -67,8 +67,7 @@ def test_source_qualified_input_fields_work_inside_let_expression() -> None:
     relation, semantic = _analyze_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = orders.amount + orders.tax\n"
+        "    let gross = orders.amount + orders.tax\n"
         "    select:\n"
         "        gross_value = gross\n"
     )
@@ -85,9 +84,8 @@ def test_function_calls_and_earlier_let_references_type_in_binding_order() -> No
     relation, semantic = _analyze_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        normalized = lower(trim(status))\n"
-        "        status_len = len(normalized)\n"
+        "    let normalized = lower(trim(status))\n"
+        "    let status_len = len(normalized)\n"
         "    select:\n"
         "        normalized_value = normalized\n"
         "        status_length = status_len\n"
@@ -106,11 +104,10 @@ def test_unary_binary_comparison_and_is_null_value_types_are_preserved() -> None
     relation, semantic = _analyze_relation(
         "query enriched_orders:\n"
         "    from orders\n"
-        "    let:\n"
-        "        negative = -amount\n"
-        "        gross = amount + tax\n"
-        "        is_large = gross > 10\n"
-        "        tax_missing = tax is null\n"
+        "    let negative = -amount\n"
+        "    let gross = amount + tax\n"
+        "    let is_large = gross > 10\n"
+        "    let tax_missing = tax is None\n"
         "    select:\n"
         "        negative_value = negative\n"
         "        gross_value = gross\n"
@@ -135,119 +132,92 @@ def test_unary_binary_comparison_and_is_null_value_types_are_preserved() -> None
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        gross = amount - tax\n"
+            "    let gross = amount + tax\n"
+            "    let gross = amount - tax\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2329",
         ),
         (
-            "    from orders\n"
-            "    let:\n"
-            "        amount = tax\n"
-            "    select:\n"
-            "        amount\n",
+            "    from orders\n    let amount = tax\n    select:\n        amount\n",
+            "PIE-S2329",
+        ),
+        (
+            "    from orders\n    let orders = amount\n    select:\n        amount\n",
             "PIE-S2329",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        orders = amount\n"
-            "    select:\n"
-            "        amount\n",
-            "PIE-S2329",
-        ),
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "    select:\n"
-            "        gross\n",
-            "PIE-S2329",
-        ),
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        gross = amount\n",
             "PIE-S2329",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = net + tax\n"
-            "        net = amount\n"
+            "    let gross = net + tax\n"
+            "    let net = amount\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount if true else net\n"
-            "        net = amount\n"
+            "    let gross = amount if True else net\n"
+            "    let net = amount\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount in (net,)\n"
-            "        net = amount\n"
+            "    let gross = amount in (net,)\n"
+            "    let net = amount\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = cast(net as Float)\n"
-            "        net = amount\n"
+            "    let gross = Float(net)\n"
+            "    let net = amount\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = gross + tax\n"
+            "    let gross = gross + tax\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = net\n"
-            "        net = gross\n"
+            "    let gross = net\n"
+            "    let net = gross\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2330",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = sum(amount)\n"
+            "    let gross = sum(amount)\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2308",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "        net = orders.gross\n"
+            "    let gross = amount + tax\n"
+            "    let net = orders.gross\n"
             "    select:\n"
             "        amount\n",
             "PIE-S2102",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        flagged = total > 0\n"
+            "    let flagged = total > 0\n"
             "    select:\n"
             "        total = amount\n",
             "PIE-S2102",
@@ -267,20 +237,21 @@ def test_invalid_let_binding_cases_fail_closed(
 @pytest.mark.parametrize(
     "body",
     [
+        # Before: `gross` selected alone was the refused output; it is now
+        # the binding's own output (see the test below), so another value
+        # takes the name.
         (
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    where gross > 0\n"
             "    select:\n"
             "        id\n"
-            "        gross\n"
+            "        gross = amount\n"
             "        twice = gross * 2\n"
             "    order by:\n"
             "        gross asc\n"
         ),
         (
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        id\n"
             "    select:\n"
@@ -288,36 +259,20 @@ def test_invalid_let_binding_cases_fail_closed(
             "        gross\n"
             "        n = count()\n"
         ),
-        # Before: each window read below also reported PIE-S2102.
+        # Before: each window read below also reported PIE-S2102, and
+        # `gross` selected alone was the refused output.
         (
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
+            "    let w = window(partition by gross order by id)\n"
             "    select:\n"
             "        id\n"
-            "        gross\n"
-            "        p = row_number() window:\n"
-            "            partition by:\n"
-            "                gross\n"
-            "            order by:\n"
-            "                id\n"
-            "        o = row_number() window:\n"
-            "            order by:\n"
-            "                gross\n"
-            "        f = first_value(gross) window:\n"
-            "            order by:\n"
-            "                id\n"
-            "        v = lag(gross) window:\n"
-            "            order by:\n"
-            "                id\n"
-            "        d = lag(id, 1, gross) window:\n"
-            "            order by:\n"
-            "                id\n"
+            "        gross = amount\n"
+            "        p = row_number() window(partition by gross order by id)\n"
+            "        o = row_number() window(order by gross)\n"
+            "        f = first_value(gross) window(order by id)\n"
+            "        v = lag(gross) window(order by id)\n"
+            "        d = lag(id, 1, gross) window(order by id)\n"
             "        n = row_number() window w\n"
-            "    window w:\n"
-            "        partition by:\n"
-            "            gross\n"
-            "        order by:\n"
-            "            id\n"
         ),
     ],
 )
@@ -335,11 +290,34 @@ def test_reads_of_a_refused_let_name_report_only_the_refusal(body: str) -> None:
     assert (location.line, location.column) == (binding.span.line, binding.span.column)
 
 
+def test_a_let_name_selected_alone_is_the_binding_output() -> None:
+    """Without GROUP BY, a `let` name selected alone is an output of the
+    binding's value that WHERE, later outputs and ORDER BY read (before:
+    PIE-S2329 `Let binding conflicts with projection output name: gross`)."""
+    relation, semantic = _analyze_relation(
+        "query enriched_orders:\n    from orders\n"
+        "    let gross = amount + tax\n"
+        "    where gross > 0\n"
+        "    select:\n"
+        "        id\n"
+        "        gross\n"
+        "        twice = gross * 2\n"
+        "    order by:\n"
+        "        gross asc\n"
+    )
+
+    assert semantic.diagnostics == ()
+    schema = semantic.model.relation_row_schemas[relation]
+    assert list(schema.fields) == ["id", "gross", "twice"]
+    assert schema.fields["gross"].resolved_type.name == "Int"
+    assert _value_type_name(semantic, relation.select_items[1].expression) == "Int"
+
+
 def _let_chain(count: int, step: str) -> str:
     lines = [
-        f"        v{i} = {step.format(previous=f'v{i - 1}')}" for i in range(1, count)
+        f"    let v{i} = {step.format(previous=f'v{i - 1}')}" for i in range(1, count)
     ]
-    return "\n".join(("    let:", "        v0 = amount", *lines)) + "\n"
+    return "\n".join(("    let v0 = amount", *lines)) + "\n"
 
 
 @pytest.mark.parametrize(
@@ -399,7 +377,7 @@ def test_an_aggregate_argument_reads_bindings_inlined_up_to_the_limit(
     terms = " + ".join(["amount"] * 449)
     relation, semantic = _analyze_relation(
         "query totals:\n    from orders\n"
-        f"    let:\n        v0 = {terms}\n        v1 = v0{' + 1' * ones}\n"
+        f"    let v0 = {terms}\n    let v1 = v0{' + 1' * ones}\n"
         "    group by:\n        status\n"
         "    select:\n        status\n        total = sum(v1)\n"
     )
@@ -431,9 +409,8 @@ def test_let_inline_expansion_names_a_binding_past_the_limit_by_itself(
     monkeypatch.setattr(let_bindings, "_MAX_INLINE_LEVELS", 8)
     _relation, semantic = _analyze_relation(
         "query chained:\n    from orders\n"
-        "    let:\n"
-        "        c = amount + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1\n"
-        "        d = c + 1\n"
+        "    let c = amount + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1\n"
+        "    let d = c + 1\n"
         "    select:\n        y = d\n"
     )
 
@@ -454,8 +431,7 @@ def test_let_inline_expansion_names_a_binding_past_the_limit_by_itself(
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -465,29 +441,26 @@ def test_let_inline_expansion_names_a_binding_past_the_limit_by_itself(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        total_amount = min(gross)\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total_amount = sum(amount)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
@@ -499,8 +472,7 @@ def test_let_inline_expansion_names_a_binding_past_the_limit_by_itself(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -519,32 +491,32 @@ def test_non_row_level_consumers_do_not_see_let_names(
 
 
 def test_a_let_name_bound_through_null_is_typed_as_its_value_written_there() -> None:
-    """A `let:` name whose value is `null` takes its type from where it is
-    read, as `null` does, so each binding and read has the type and errors
+    """A `let` name whose value is `None` takes its type from where it is
+    read, as `None` does, so each binding and read has the type and errors
     of its value written by hand, at their own positions (before: `j`, `c`
     and every read of them were unknown and none of these was reported)."""
     relation, semantic = _analyze_relation(
-        "table t:\n    from orders\n    let:\n        k = null\n"
-        "        j = coalesce(k, 1)\n        d = len(j) + len(j)\n"
-        '        c = status if k else "x"\n    select:\n        v = lower(j)\n'
+        "table t:\n    from orders\n    let k = None\n"
+        "    let j = coalesce(k, 1)\n    let d = len(j) + len(j)\n"
+        '    let c = status if k else "x"\n    select:\n        v = lower(j)\n'
         "        w = c == 1\n        q = j / 2\n"
     )
     len_of_int = (
         "Invalid argument type for function len at position 1: expected Text, got Int"
     )
     assert _errors(semantic) == [
-        ("PIE-S2104", 12, 13, len_of_int),
-        ("PIE-S2104", 12, 22, len_of_int),
+        ("PIE-S2104", 11, 13, len_of_int),
+        ("PIE-S2104", 11, 22, len_of_int),
         (
             "PIE-S2104",
-            15,
+            14,
             13,
             "Invalid argument type for function lower at position 1: "
             "expected Text, got Int",
         ),
         (
             "PIE-S2105",
-            16,
+            15,
             13,
             "Invalid operands for operator ==: expected comparable operands",
         ),
@@ -553,12 +525,12 @@ def test_a_let_name_bound_through_null_is_typed_as_its_value_written_there() -> 
 
 
 def test_a_let_name_over_an_unknown_row_is_typed_as_its_binding() -> None:
-    """Over a source without a shape, a `let:` name is read as its value, as
+    """Over a source without a shape, a `let` name is read as its value, as
     emission inlines it, with the binding's type (before: unknown, so `-w`
     and `coalesce(w, 0)` passed and emission wrote them)."""
     relation, semantic = _analyze_relation(
-        'source raw is postgres.table("raw")\n'
-        "table c:\n    from raw\n    let:\n        w = n is null\n        u = 7\n"
+        'source raw = postgres.table("raw")\n'
+        "table c:\n    from raw\n    let w = n is None\n    let u = 7\n"
         "    select:\n        id\n        o = -w\n        p = coalesce(w, 0)\n"
         "        q = u / 2\n"
     )
@@ -566,13 +538,13 @@ def test_a_let_name_over_an_unknown_row_is_typed_as_its_binding() -> None:
         ("PIE-S2303", 7, 1, "Source raw has no bound shape; row schema is unknown"),
         (
             "PIE-S2105",
-            15,
+            14,
             13,
             "Invalid operands for operator -: expected numeric operand",
         ),
         (
             "PIE-S2104",
-            16,
+            15,
             13,
             "Invalid argument types for function coalesce: "
             "expected same canonical type",
@@ -582,18 +554,19 @@ def test_a_let_name_over_an_unknown_row_is_typed_as_its_binding() -> None:
 
 
 def test_a_cast_of_a_let_with_an_error_of_its_own_adds_nothing() -> None:
-    """A cast whose operand reads a `let:` binding with an error of its own is
+    """A cast whose operand reads a `let` binding with an error of its own is
     explained by that error, as the value written by hand in its place is
-    (before: also PIE-S2105 `cast(unknown as ...)` at each cast)."""
+    (before: also PIE-S2105 `cast(unknown as ...)` at each cast). `Float(...)`
+    is the one modern conversion; `cast(... as T)` is a parser refusal."""
     _, semantic = _analyze_relation(
-        "table t:\n    from orders\n    let:\n        w = status like tax\n"
-        "        w2 = cast(w as Text)\n    select:\n        o = cast(w as Int)\n"
-        "        f = cast(w as Float)\n"
+        "table t:\n    from orders\n    let w = status like tax\n"
+        "    let w2 = Float(w)\n    select:\n        o = Float(w)\n"
+        "        f = Float(w2)\n"
     )
     assert _errors(semantic) == [
         (
             "PIE-S2105",
-            10,
+            9,
             13,
             "Invalid operands for operator like: expected Text operands",
         ),
@@ -660,8 +633,19 @@ def _analyze_relation(source: str) -> tuple[TableDef | QueryDef, SemanticResult]
     result = parse_source(SOURCE_PREFIX + source, path="let_semantics.pietto")
     assert result.diagnostics == ()
     assert result.ast is not None
-    relation = cast(TableDef | QueryDef, result.ast.definitions[-1])
-    return relation, analyze(result.ast)
+    # The modern `let name = value` declarations become the let clause that
+    # this module's semantic-layer checks read. A duplicate name is one of the
+    # fail-closed cases below, checked here by the semantic layer's PIE-S2329,
+    # so the normalizer's duplicate-name report is expected; any other naming
+    # refusal is a fixture mistake.
+    script, naming_diagnostics = normalize_query_names(result.ast)
+    assert all(
+        diagnostic.code == "PIE-S2604"
+        and diagnostic.message.startswith("Duplicate query local name: ")
+        for diagnostic in naming_diagnostics
+    )
+    relation = cast(TableDef | QueryDef, script.definitions[-1])
+    return relation, analyze(script)
 
 
 def _errors(semantic: SemanticResult) -> list[tuple[str, int, int, str]]:
@@ -691,8 +675,7 @@ def _write_source(tmp_path: Path) -> Path:
         SOURCE_PREFIX
         + "query enriched_orders:\n"
         + "    from orders\n"
-        + "    let:\n"
-        + "        gross = amount + tax\n"
+        + "    let gross = amount + tax\n"
         + "    select:\n"
         + "        gross_value = gross\n",
         encoding="utf-8",

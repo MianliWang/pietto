@@ -33,14 +33,13 @@ from pietto.semantic import SemanticModel, analyze
 
 SHAPE_SOURCE = (
     "shape User:\n"
-    "    check has_email:\n"
-    "        email is not null\n"
-    "    email: Text nullable\n"
-    "    unique user_email on email\n"
-    "    deleted_at: Timestamp nullable\n"
-    "    index active_email_idx on email when deleted_at is null\n"
-    "    email_norm: Text nullable derive lower(trim(email)) @sensitive\n"
-    "    index all_email_idx on email\n"
+    "    has_email = check(email is not None)\n"
+    "    email: Text | None\n"
+    "    user_email = unique(email)\n"
+    "    deleted_at: Timestamp | None\n"
+    "    active_email_idx = index(email) when deleted_at is None\n"
+    "    email_norm: Text | None derive lower(trim(email)) @sensitive\n"
+    "    all_email_idx = index(email)\n"
 )
 
 

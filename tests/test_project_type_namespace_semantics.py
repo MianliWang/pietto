@@ -99,11 +99,7 @@ def test_cross_file_type_namespace_references_resolve(tmp_path: Path) -> None:
     _write(
         root,
         "models/types.pietto",
-        "type Email = Text not null\n"
-        "enum Status:\n"
-        "    ACTIVE\n"
-        "shape User:\n"
-        "    id: Int\n",
+        "type Email = Text\nenum Status:\n    ACTIVE\nshape User:\n    id: Int\n",
     )
     _write(
         root,
@@ -112,11 +108,11 @@ def test_cross_file_type_namespace_references_resolve(tmp_path: Path) -> None:
         "    owner: User\n"
         "    status: Status\n"
         "    email: Email\n"
-        "constraint accepts_status(value: Status) -> Bool not null:\n"
-        "    value is not null\n"
+        "constraint accepts_status(value: Status) -> Bool:\n"
+        "    return value is not None\n"
         "derive normalize_email(value: Email) -> Email:\n"
-        "    value\n"
-        'source accounts: Account is postgres.table("accounts")\n',
+        "    return value\n"
+        'source accounts: Account = postgres.table("accounts")\n',
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
@@ -163,7 +159,7 @@ def test_missing_type_expr_names_emit_project_relative_diagnostics(
         "shape Bad:\n"
         "    field: MissingField\n"
         "constraint bad(value: MissingParam) -> MissingReturn:\n"
-        "    value is not null\n",
+        "    return value is not None\n",
     )
 
     _, semantic_result = _project_semantic_result(root)
@@ -199,7 +195,7 @@ def test_missing_source_shape_names_emit_project_relative_diagnostics(
     _write(
         root,
         "missing_shape.pietto",
-        'source rows: MissingShape is postgres.table("rows")\n',
+        'source rows: MissingShape = postgres.table("rows")\n',
     )
 
     _, semantic_result = _project_semantic_result(root)
@@ -220,11 +216,11 @@ def test_source_shape_names_must_resolve_to_shape_symbols(tmp_path: Path) -> Non
     _write(
         root,
         "non_shape_sources.pietto",
-        "type Alias = Text not null\n"
+        "type Alias = Text\n"
         "enum Status:\n"
         "    ACTIVE\n"
-        'source alias_rows: Alias is postgres.table("alias_rows")\n'
-        'source status_rows: Status is postgres.table("status_rows")\n',
+        'source alias_rows: Alias = postgres.table("alias_rows")\n'
+        'source status_rows: Status = postgres.table("status_rows")\n',
     )
 
     _, semantic_result = _project_semantic_result(root)
@@ -261,7 +257,7 @@ def test_duplicate_type_namespace_short_circuits_type_resolution(
         "    ACTIVE\n"
         "shape UsesMissing:\n"
         "    field: MissingType\n"
-        'source rows: Shared is postgres.table("rows")\n',
+        'source rows: Shared = postgres.table("rows")\n',
     )
 
     _, semantic_result = _project_semantic_result(root)
@@ -287,7 +283,7 @@ def test_type_namespace_behavior_remains_stable_with_valid_relation(
         "type_namespace_with_relation.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"
@@ -328,7 +324,7 @@ def test_project_json_v2_does_not_expose_type_resolution_facts(
     _write(
         root,
         "good.pietto",
-        'shape Row:\n    id: Int\nsource rows: Row is postgres.table("rows")\n',
+        'shape Row:\n    id: Int\nsource rows: Row = postgres.table("rows")\n',
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
@@ -355,7 +351,7 @@ def test_project_text_check_output_remains_parse_only(
     _write(
         root,
         "good.pietto",
-        'shape Row:\n    id: Int\nsource rows: Row is postgres.table("rows")\n',
+        'shape Row:\n    id: Int\nsource rows: Row = postgres.table("rows")\n',
     )
 
     assert cli.main(["check", "--project", str(root)]) == 0

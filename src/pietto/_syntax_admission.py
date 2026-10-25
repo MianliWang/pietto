@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
-from typing import cast
+from pathlib import Path
+from threading import Event
+from typing import Any, cast
 
 from pietto.ast_nodes import (
     AuthoredJoinKind,
@@ -28,7 +30,7 @@ from pietto.ast_nodes import (
     TypeExpr,
     ValuesBody,
 )
-from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.errors import Diagnostic, ParseCancelled, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
 
@@ -78,8 +80,8 @@ _UNADMITTED: dict[type[Node], tuple[str, str]] = {
         f"{_EXPLICIT_MODULES}.",
     ),
 }
-# Semantics infer an omitted `from` only from relationships: a JOIN with
-# `on` and a CROSS JOIN keep naming their source in every mode.
+# Legacy JOINs infer an omitted `from` only from relationships. Modern JOINs
+# explicitly name their input and bind its source in semantic resolution.
 _SOURCE_REQUIRED = (
     "PIE-S2378",
     "A JOIN with `on`, or a CROSS JOIN, must name its source binding with `from`.",
@@ -207,8 +209,10 @@ def unadmitted_syntax_diagnostics(
             found.append(_diagnostic(*family, cast(Node, value).span))
         if kind is JoinClause:
             join = cast(JoinClause, value)
-            if join.source_binding_name is None and (
-                join.on_clause is not None or join.kind is AuthoredJoinKind.CROSS
+            if (
+                not join.uses_named_input
+                and join.source_binding_name is None
+                and (join.on_clause is not None or join.kind is AuthoredJoinKind.CROSS)
             ):
                 found.append(_diagnostic(*_SOURCE_REQUIRED, join.span))
         if explicit_modules and kind is BlockRelationDef:
@@ -238,3 +242,216 @@ def unadmitted_syntax_diagnostics(
                 )
             pending.append((child, body))
     return tuple(sorted(found, key=source_order))
+
+
+def _follows_select(declaration: Any) -> bool:
+    """Whether a named-window declaration comes after its body's select.
+
+    The lets after FROM hold their windows as relation steps, so a window
+    straight in the body is the one written after select.
+    """
+
+    return type(declaration.parentCtx).__name__ == "TableBodyContext"
+
+
+def modern_spelling_diagnostics(
+    tree: object, *, path: str | Path | None = None, cancel: Event | None = None
+) -> tuple[Diagnostic, ...]:
+    """Reject retired spelling before the shared builder normalizes it away."""
+
+    from antlr4 import ParserRuleContext
+    from antlr4.tree.Tree import TerminalNodeImpl
+
+    from pietto.errors import source_path
+
+    diagnostics: list[Diagnostic] = []
+    pending = [tree]
+    while pending:
+        if cancel is not None and cancel.is_set():
+            raise ParseCancelled
+        node = pending.pop()
+        if not isinstance(node, ParserRuleContext):
+            continue
+        context: Any = node  # its generated rule accessors
+        kind = type(node).__name__
+        terminals = [
+            child.getSymbol()
+            for child in node.children or ()
+            if isinstance(child, TerminalNodeImpl)
+        ]
+        text = [token.text for token in terminals]
+        token = None
+        suggestion = None
+        if kind == "SourceDefinitionContext" and "is" in text:
+            token = terminals[text.index("is")]
+            suggestion = "Bind the source with '=' instead of 'is'."
+        elif kind == "NullabilityModifierContext":
+            # The modifier's type expression belongs to an alias, a field, ...
+            owner = getattr(node.parentCtx, "parentCtx", None)
+            if "not" in text:
+                token = terminals[0]
+                suggestion = (
+                    "Write 'T' instead of 'T not null'; a bare type is never None."
+                )
+            elif type(owner).__name__ == "TypeDefinitionContext":
+                # An alias names a non-null type; each value states `| None`.
+                token = terminals[0]
+                suggestion = "Declare 'type Name = T' and write 'Name | None' where a value may be None."
+            elif "nullable" in text:
+                token = terminals[0]
+                suggestion = "Write 'T | None' instead of 'T nullable'."
+        elif kind == "LiteralContext" and text and text[0] in {"true", "false", "null"}:
+            token = terminals[0]
+            suggestion = (
+                "Use "
+                + {"true": "True", "false": "False", "null": "None"}[text[0]]
+                + "."
+            )
+        elif kind in {
+            "ComparisonExpressionContext",
+            "QualifyComparisonExpressionContext",
+        }:
+            if "between" in text:
+                token = terminals[text.index("between")]
+                suggestion = "Write 'lower <= value <= upper' instead of 'value between lower and upper'."
+            elif "null" in text:
+                token = terminals[text.index("null")]
+                suggestion = "Write 'is None' or 'is not None'."
+        elif (
+            kind in {"PrimaryExpressionContext", "QualifyPrimaryExpressionContext"}
+            and "cast" in text
+        ):
+            token = terminals[text.index("cast")]
+            suggestion = "Use 'Float(value)' for the supported Int-to-Float conversion; other conversions remain unsupported."
+        elif (
+            kind in {"ConstraintBodyContext", "DeriveBodyContext"}
+            and "return" not in text
+        ):
+            token = node.start
+            suggestion = "Add 'return' before the body expression."
+        elif (
+            kind
+            in {
+                "UniqueDefinitionContext",
+                "IndexDefinitionContext",
+                "CheckDefinitionContext",
+            }
+            and "=" not in text
+        ):
+            token = node.start
+            suggestion = "Use 'name = unique(fields)', 'name = index(fields)', or 'name = check(predicate)'."
+        elif kind == "ImportStatementContext" and text and text[0] == "import":
+            token = node.start
+            suggestion = 'Write from "path" import kind Name, retaining each explicit declaration kind.'
+        elif kind == "ExportStatementContext" and ":" in text:
+            token = terminals[text.index(":")]
+            suggestion = (
+                "Write 'export kind Name' or a parenthesized list with explicit kinds."
+            )
+        elif kind == "RelationshipDefinitionContext":
+            token = node.start
+            suggestion = "Declare a shape-typed 'relationship Name(role: Shape, ...):' predicate; source-bound metadata requires an explicit migration review."
+        elif kind == "JoinClauseContext" and context.start.text in {"semi", "anti"}:
+            # Every semi/anti JOIN becomes an any() filter, never a left join.
+            join = context.start.text
+            target = context.identifier(0).getText()
+            negation = "not " if join == "anti" else ""
+            if "as" in text:
+                token = terminals[text.index("as")]
+                alias = context.identifier(1).getText()
+                suggestion = (
+                    f"Write 'where {negation}any(predicate for {alias} in {target})' "
+                    f"instead of '{join} join {target} as {alias}'; relationship "
+                    "traversal requires an explicit migration review."
+                )
+            else:
+                token = context.start
+                suggestion = (
+                    f"Write 'where {negation}any(predicate for {target} in {target})' "
+                    f"instead of '{join} join {target} on predicate'."
+                )
+        elif kind == "JoinClauseContext" and "as" in text:
+            token = terminals[text.index("as")]
+            suggestion = "Name the input with 'let alias = relation', then write 'left join alias on predicate'; relationship traversal requires an explicit migration review."
+        elif kind == "EnumDefinitionContext" and ":" not in text:
+            token = context.enumLine().start
+            suggestion = (
+                "Write ':' after the enum name, as in 'enum Status: active, suspended'."
+            )
+        elif kind == "LetClauseContext":
+            token = node.start
+            suggestion = "Write each new query name as 'let name = expression'."
+        elif kind == "SatisfyingClauseContext" and "satisfying" in text:
+            token = node.start
+            suggestion = (
+                "Use 'having predicate', or 'having:' followed by an indented block."
+            )
+        elif kind == "NamedWindowDeclarationContext" and (not text or text[0] != "let"):
+            token = node.start
+            suggestion = (
+                "Name the window with 'let name = window(...)' among the lets "
+                "after FROM and every JOIN, before 'where', 'group by' and 'select'."
+            )
+        elif kind == "NamedWindowDeclarationContext" and _follows_select(node):
+            token = node.start
+            suggestion = (
+                "Move the window before 'select', among the lets after FROM and "
+                "every JOIN, before 'where' and 'group by'."
+            )
+        elif (
+            kind in {"WindowSpecContext", "QualifyInlineWindowSpecContext"}
+            and ":" in text
+        ):
+            token = terminals[text.index(":")]
+            suggestion = "Use 'window(partition by ... order by ...)' with parentheses."
+        elif (
+            kind
+            in {
+                "GroupByClauseContext",
+                "SelectClauseContext",
+                "OrderByClauseContext",
+                "PartitionByClauseContext",
+                "WhereClauseContext",
+                "SatisfyingClauseContext",
+            }
+            and ":" in text
+        ):
+            colon = terminals[text.index(":")]
+            following_start = next(
+                (
+                    child.start
+                    for child in node.children or ()
+                    if isinstance(child, ParserRuleContext)
+                    and child.start is not None
+                    and child.start.start > colon.start
+                ),
+                None,
+            )
+            if (
+                following_start is not None
+                and following_start.line == colon.line
+                and (following_start.text or "").strip()
+            ):
+                token = colon
+                suggestion = "Omit ':' for a single-line clause; keep ':' before an indented block."
+        elif kind == "VersionDeclContext" and any("_" in (item or "") for item in text):
+            token = next(item for item in terminals if "_" in (item.text or ""))
+            suggestion = "Keep the existing numeric version metadata spelling without digit separators."
+        if token is not None:
+            # Text output prints only the message, so it states the fix too.
+            diagnostics.append(
+                Diagnostic(
+                    code="PIE-P1000",
+                    severity=Severity.ERROR,
+                    message="This spelling is not accepted by the modern syntax. "
+                    f"{suggestion}",
+                    location=SourceLocation(
+                        path=source_path(path), line=token.line, column=token.column + 1
+                    ),
+                    suggestion=suggestion,
+                )
+            )
+        pending.extend(reversed(node.children or ()))
+    return tuple(
+        sorted(diagnostics, key=lambda item: (item.location.line, item.location.column))
+    )

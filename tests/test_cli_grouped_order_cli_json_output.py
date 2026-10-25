@@ -23,12 +23,12 @@ EMIT_SQL_KEYS = {
 
 SOURCE_SHAPE = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
+    "    region: Text\n"
+    "    status: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
 )
 
 POSTGRES_SQL = (
@@ -331,7 +331,7 @@ def test_invalid_grouped_order_json_output_does_not_replace_existing_file(
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
-def test_no_group_projection_alias_order_still_fails_before_sql(
+def test_no_group_projection_alias_order_emits_the_output_expression(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -346,11 +346,20 @@ def test_no_group_projection_alias_order_still_fails_before_sql(
         "        sort_key\n",
     )
 
-    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
+    # Before: PIE-S2102 said an ORDER BY key outside a grouped query cannot
+    # name a SELECT output. The key now reads the output and the SQL restates
+    # its expression.
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "PIE-S2102 error: Unknown field: sort_key" in captured.err
+    assert captured.err == ""
+    assert captured.out == (
+        "SELECT\n"
+        '    lower("status") AS "sort_key"\n'
+        'FROM "orders"\n'
+        "ORDER BY\n"
+        '    lower("status") ASC\n'
+    )
 
 
 def test_public_mysql_api_remains_private() -> None:
@@ -372,7 +381,7 @@ def _accepted_source(connector: str) -> str:
         "    select:\n"
         "        region\n"
         "        total = sum(amount + tax)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total > 1000\n"
         "    order by:\n"
         "        total desc\n"
@@ -396,7 +405,7 @@ def _unsupported_grouped_order_source(connector: str) -> str:
 
 
 def _source_prefix(connector: str) -> str:
-    return SOURCE_SHAPE + f'source orders: Order is {connector}("orders")\n'
+    return SOURCE_SHAPE + f'source orders: Order = {connector}("orders")\n'
 
 
 def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

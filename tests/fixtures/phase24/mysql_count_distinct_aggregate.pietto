@@ -1,9 +1,9 @@
 shape Order:
-    status: Text not null
-    customer_id: UUID not null
-    region: Text nullable
+    status: Text
+    customer_id: UUID
+    region: Text | None
 
-source orders: Order is mysql.table("orders")
+source orders: Order = mysql.table("orders")
 
 table unique_order_values:
     from orders

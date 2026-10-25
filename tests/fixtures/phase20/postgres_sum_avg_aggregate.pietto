@@ -1,9 +1,9 @@
 shape Order:
-    status: Text not null
-    amount: Int not null
-    score: Float not null
+    status: Text
+    amount: Int
+    score: Float
 
-source orders: Order is postgres.table("orders")
+source orders: Order = postgres.table("orders")
 
 table paid_order_stats:
     from orders

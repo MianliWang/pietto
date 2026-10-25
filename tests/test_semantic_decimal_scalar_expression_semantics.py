@@ -29,11 +29,11 @@ PLAN_PATH = (
 )
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    price: Decimal not null\n"
-    "    amount: Int not null\n"
-    "    score: Float not null\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    price: Decimal\n"
+    "    amount: Int\n"
+    "    score: Float\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -245,7 +245,7 @@ def test_direct_aggregate_inside_satisfying_still_uses_s2308() -> None:
             "    select:\n"
             "        status\n"
             "        total = sum(price)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        sum(price + price) > 1000\n"
         )
     )
@@ -253,7 +253,7 @@ def test_direct_aggregate_inside_satisfying_still_uses_s2308() -> None:
     assert _errors(result) == [
         (
             "PIE-S2308",
-            "Aggregate sum() is not allowed in satisfying clause; "
+            "Aggregate sum() is not allowed in having clause; "
             "use it only as a direct aliased select projection",
         )
     ]

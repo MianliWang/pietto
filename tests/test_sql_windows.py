@@ -149,14 +149,10 @@ GROUPED_WINDOWS_FIRST = """table result:
     group by:
         text
     select:
-        w = rank() window:
-            order by:
-                total desc
+        w = rank() window(order by total desc)
         text
         total = max(id)
-        n = row_number() window:
-            order by:
-                text
+        n = row_number() window(order by text)
         c = count()
 """
 GROUPED_WINDOWS_LAST = """table result:
@@ -167,12 +163,8 @@ GROUPED_WINDOWS_LAST = """table result:
         text
         total = max(id)
         c = count()
-        w = rank() window:
-            order by:
-                total desc
-        n = row_number() window:
-            order by:
-                text
+        w = rank() window(order by total desc)
+        n = row_number() window(order by text)
 """
 GROUPED_WINDOWS_FIRST_SQL = {
     "postgres": (
@@ -346,13 +338,11 @@ def test_full_width_range_key_with_narrow_declared_domain_is_rejected(target):
 
 NAMED_BODY = """table result:
     from rows
+    let named = window(order by id)
     select:
         id
         w = rank() window named
         w2 = dense_rank() window named
-    window named:
-        order by:
-            id
 """
 
 
@@ -378,9 +368,7 @@ QUALIFY_SELECTED = """table result:
     from rows
     select:
         id
-        w = row_number() window:
-            order by:
-                id
+        w = row_number() window(order by id)
     qualify:
         w <= 2
 """
@@ -389,23 +377,15 @@ QUALIFY_HIDDEN = """table result:
     select:
         id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 2
+        row_number() window(order by id) <= 2
 """
 QUALIFY_BOTH = """table result:
     from rows
     select:
         id
-        w = row_number() window:
-            order by:
-                id
+        w = row_number() window(order by id)
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3 and w <= 2
+        row_number() window(order by id) <= 3 and w <= 2
 """
 
 
@@ -513,7 +493,7 @@ def test_structural_window_argument_target_boundary(target, function, value):
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("function", STRUCTURAL_FUNCTIONS)
-@pytest.mark.parametrize("value", ("-1", "true", "1.5"))
+@pytest.mark.parametrize("value", ("-1", "True", "1.5"))
 def test_structural_window_existing_invalid_values_stay_semantic_rejections(
     target, function, value
 ):
@@ -578,9 +558,7 @@ def test_frame_offsets_above_int32_remain_the_existing_separate_domain(target, u
     from rows
     select:
         id
-        w = nth_value(id, 2147483648) window:
-            order by:
-                id
+        w = nth_value(id, 2147483648) window(order by id)
 table result:
     from producer
     select:

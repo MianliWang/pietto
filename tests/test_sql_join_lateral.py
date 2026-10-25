@@ -5,7 +5,7 @@ capture lines reads it LATERAL. The let is never a CTE: it is the derived
 relation of that JOIN's right input, `<KIND> JOIN LATERAL (<let>) AS m<n>`,
 whose correlated references name the JOIN's own left input alias and column.
 Every capture-free block stays a top-level CTE and an INNER JOIN keeps its
-authored ON (`on true` for a pure LATERAL); a LEFT JOIN (S13) keeps every left
+authored ON (`on True` for a pure LATERAL); a LEFT JOIN (S13) keeps every left
 row and null-extends the let's columns. Each artifact below is produced by the
 installed emission path from an ordinary authored project.
 """
@@ -46,10 +46,10 @@ LET = """query result:
 """
 SHAPES = {
     "cross": LET
-    + "    cross join m as m1:\n        from lhs\n"
+    + "    let m1 = m\n    cross join m1\n"
     + "    select:\n        a = lhs.id\n        b = m1.v\n",
     "inner": LET
-    + "    inner join m as m1:\n        from lhs\n        on true\n"
+    + "    let m1 = m\n    inner join m1 on True\n"
     + "    select:\n        a = lhs.id\n        b = m1.v\n",
     # The lateral JOIN reads the row of a LEFT JOIN (r is null-extended) and
     # is followed by another JOIN and a WHERE; its literals render between
@@ -64,14 +64,12 @@ SHAPES = {
             id
             w = r.key
     from lhs
-    left join rhs as r:
-        from lhs
-        on lhs.id == r.id
-    inner join m as m1:
-        from lhs
-        on m1.id > 7
-    cross join rhs as z:
-        from lhs
+    let r = rhs
+    left join r on lhs.id == r.id
+    let m1 = m
+    inner join m1 on m1.id > 7
+    let z = rhs
+    cross join z
     where m1.id > 9
     select:
         a = lhs.id
@@ -413,13 +411,13 @@ PARAMETER_OVER_LATERAL = """table t:
         select:
             id
     from lhs
-    cross join later as l:
-        from lhs
+    let l = later
+    cross join l
     where exists matched
     select:
         id = lhs.id
         later_id = l.later_id
-query result(cut: Int not null):
+query result(cut: Int):
     from t
     where id > cut and later_id != cut
     select:
@@ -511,8 +509,8 @@ LATERAL_CHAINS = {
             id
             key
     from lhs
-    cross join m as x:
-        from lhs
+    let x = m
+    cross join x
     where exists base and lhs.id > 3
     select:
         a = lhs.id
@@ -527,17 +525,15 @@ LATERAL_CHAINS = {
             big
     let buckets:
         from rhs
-        let:
-            big = id > 1
+        let big = id > 1
         group by:
             big
         select:
             big
             n = count()
     from lhs
-    inner join m as x:
-        from lhs
-        on true
+    let x = m
+    inner join x on True
     select:
         a = lhs.id
         b = x.big
@@ -636,7 +632,7 @@ def test_a_lateral_let_reads_lets_that_read_lets(
 LATERAL_OWN_FROM = {
     "own_from_values": """query result:
     let s:
-        values(n: Int not null):
+        values(n: Int):
             1
             2
     let m:
@@ -647,8 +643,8 @@ LATERAL_OWN_FROM = {
             n
             k = lhs.key
     from lhs
-    cross join m as x:
-        from lhs
+    let x = m
+    cross join x
     select:
         a = lhs.id
         b = x.n
@@ -665,9 +661,8 @@ LATERAL_OWN_FROM = {
         select:
             id
     from lhs
-    inner join m as x:
-        from lhs
-        on x.id > 3
+    let x = m
+    inner join x on x.id > 3
     select:
         a = lhs.id
         b = x.id
@@ -745,7 +740,7 @@ def test_a_lateral_let_reads_a_relation_known_after_completion(
 # chooses pairs, and every later reader sees the let's fields null-extended.
 LEFT_SHAPES = {
     "left": LET
-    + "    left join m as m1:\n        from lhs\n        on m1.id > 3\n"
+    + "    let m1 = m\n    left join m1 on m1.id > 3\n"
     + "    select:\n        a = lhs.id\n        b = m1.v\n        c = m1.id\n",
     # A later EXISTS let captures the null-extended m1 and a WHERE tests it.
     "downstream": LET.replace(
@@ -754,8 +749,8 @@ LEFT_SHAPES = {
         "        where rhs.id == m1.id\n        select:\n            id\n"
         "    from lhs\n",
     )
-    + "    left join m as m1:\n        from lhs\n        on true\n"
-    + "    where exists e or m1.id is null\n"
+    + "    let m1 = m\n    left join m1 on True\n"
+    + "    where exists e or m1.id is None\n"
     + "    select:\n        a = lhs.id\n        c = m1.id\n",
 }
 _PG_LEFT = (
@@ -883,13 +878,13 @@ TOP_K = LET.replace(
 )
 TOP_K_SHAPES = {
     "cross": TOP_K
-    + "    cross join m as m1:\n        from lhs\n"
+    + "    let m1 = m\n    cross join m1\n"
     + "    select:\n        a = lhs.id\n        b = m1.v\n",
     "inner": TOP_K
-    + "    inner join m as m1:\n        from lhs\n        on true\n"
+    + "    let m1 = m\n    inner join m1 on True\n"
     + "    select:\n        a = lhs.id\n        b = m1.v\n",
     "left": TOP_K
-    + "    left join m as m1:\n        from lhs\n        on m1.id > 3\n"
+    + "    let m1 = m\n    left join m1 on m1.id > 3\n"
     + "    select:\n        a = lhs.id\n        b = m1.v\n        c = m1.id\n",
 }
 TOP_K_PRESERVED = {"cross": (), "inner": ("TRUE",), "left": ("3",)}
@@ -1104,7 +1099,7 @@ def test_a_computed_lateral_order_key_keeps_its_result_body_refusal(
 # written, in rendering order with the bind-safe slots: PostgreSQL reuses one
 # `$n` per parameter, MySQL writes one `?` per read.
 HEADER_IN_LATERAL = {
-    "top_k_cross": """query result(cut: Int not null, hi: Int nullable):
+    "top_k_cross": """query result(cut: Int, hi: Int | None):
     let m:
         capture lhs
         from rhs
@@ -1115,14 +1110,14 @@ HEADER_IN_LATERAL = {
             id desc
         limit 2
     from lhs
-    cross join m as x:
-        from lhs
+    let x = m
+    cross join x
     where lhs.id > cut
     select:
         a = lhs.id
         b = x.id
 """,
-    "left_on": """query result(cut: Int not null, hi: Int nullable):
+    "left_on": """query result(cut: Int, hi: Int | None):
     let m:
         capture lhs
         from rhs
@@ -1130,9 +1125,8 @@ HEADER_IN_LATERAL = {
         select:
             id
     from lhs
-    left join m as x:
-        from lhs
-        on x.id > cut and x.id != 100
+    let x = m
+    left join x on x.id > cut and x.id != 100
     where lhs.id > cut
     select:
         a = lhs.id
@@ -1253,9 +1247,8 @@ GROUPED_LEFT = """query result:
         select:
             later_id = id
     from lhs
-    left join later as l:
-        from lhs
-        on true
+    let l = later
+    left join l on True
     group by:
         l.later_id
     select:

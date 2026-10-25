@@ -92,22 +92,23 @@ def _source(
     order_by: tuple[str, ...] = ("id",),
 ) -> str:
     ordering = (
-        "            order by:\n"
-        + "".join(f"                {item}\n" for item in order_by)
+        "            order by\n"
+        + ",\n".join(f"                {item}" for item in order_by)
+        + "\n"
         if order_by
         else ""
     )
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    value: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    value: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query framed:\n"
         "    from rows\n"
         "    select:\n"
-        f"        result = {call} window:\n"
+        f"        result = {call} window(\n"
         f"{ordering}"
-        f"            {frame}\n"
+        f"            {frame})\n"
     )
 
 
@@ -248,11 +249,11 @@ def test_standalone_exclude_is_rejected_and_new_words_remain_contextual() -> Non
 
     contextual = parse_source(
         "shape Row:\n"
-        "    exclude: Int not null\n"
-        "    no: Int not null\n"
-        "    others: Int not null\n"
-        "    ties: Int not null\n"
-        'source ties: Row is postgres.table("ties")\n'
+        "    exclude: Int\n"
+        "    no: Int\n"
+        "    others: Int\n"
+        "    ties: Int\n"
+        'source ties: Row = postgres.table("ties")\n'
         "query others:\n"
         "    from ties\n"
         "    select:\n"

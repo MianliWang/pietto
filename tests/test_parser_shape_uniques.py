@@ -22,11 +22,11 @@ from pietto.parser_api import ParseResult, parse_file, parse_source
 def test_shape_unique_parses_single_and_multiple_fields() -> None:
     result = parse_source(
         "shape User:\n"
-        "    tenant_id: UUID not null\n"
-        "    email: Email not null\n"
+        "    tenant_id: UUID\n"
+        "    email: Email\n"
         "\n"
-        "    unique user_email on email\n"
-        "    unique tenant_user_email on tenant_id, email\n"
+        "    user_email = unique(email)\n"
+        "    tenant_user_email = unique(tenant_id, email)\n"
     )
 
     assert result.diagnostics == ()
@@ -45,8 +45,8 @@ def test_shape_unique_is_parse_only_without_name_or_field_checks() -> None:
     result = parse_source(
         "shape External:\n"
         "    duplicate: Text\n"
-        "    unique duplicate on missing, missing\n"
-        "    unique duplicate on missing\n"
+        "    duplicate = unique(missing, missing)\n"
+        "    duplicate = unique(missing)\n"
     )
 
     assert result.diagnostics == ()
@@ -63,10 +63,10 @@ def test_shape_unique_is_parse_only_without_name_or_field_checks() -> None:
 def test_shape_unique_allows_blank_lines_comments_and_eof() -> None:
     result = parse_source(
         "shape User:\n"
-        "    email: Email not null\n"
+        "    email: Email\n"
         "\n"
         "    # Keep emails unique.\n"
-        "    unique user_email on email"
+        "    user_email = unique(email)"
     )
 
     assert result.diagnostics == ()
@@ -81,12 +81,12 @@ def test_shape_unique_allows_blank_lines_comments_and_eof() -> None:
 def test_shape_preserves_mixed_field_check_and_unique_order() -> None:
     result = parse_source(
         "shape User:\n"
-        "    check has_email:\n"
-        "        email is not null\n"
-        "    tenant_id: UUID not null\n"
-        "    unique tenant_user_email on tenant_id, email\n"
-        "    email: Email not null\n"
-        "    unique user_email on email\n"
+        "    has_email = check(\n"
+        "        email is not None)\n"
+        "    tenant_id: UUID\n"
+        "    tenant_user_email = unique(tenant_id, email)\n"
+        "    email: Email\n"
+        "    user_email = unique(email)\n"
     )
 
     assert result.diagnostics == ()
@@ -119,8 +119,8 @@ def test_shape_unique_preserves_top_level_definition_order() -> None:
     result = parse_source(
         "type Email = Text\n"
         "shape User:\n"
-        "    email: Email not null\n"
-        "    unique user_email on email\n"
+        "    email: Email\n"
+        "    user_email = unique(email)\n"
         "enum Status:\n"
         "    ready\n"
     )
@@ -137,9 +137,9 @@ def test_shape_unique_preserves_top_level_definition_order() -> None:
 def test_unique_and_on_remain_available_in_dotted_expressions() -> None:
     result = parse_source(
         "shape User:\n"
-        "    email: Email not null\n"
-        "    check keyword_calls:\n"
-        "        validator.unique(email) is not null and row.on is not null\n"
+        "    email: Email\n"
+        "    keyword_calls = check(\n"
+        "        validator.unique(email) is not None and row.on is not None)\n"
     )
 
     assert result.diagnostics == ()
@@ -150,10 +150,10 @@ def test_shape_unique_span_is_one_based_half_open() -> None:
     path = Path("examples/shapes/unique_span.pietto")
     result = parse_source(
         "shape User:\n"
-        "    tenant_id: UUID not null\n"
-        "    email: Email not null\n"
-        "    unique tenant_user_email on tenant_id, email\n"
-        "    status: Text nullable\n",
+        "    tenant_id: UUID\n"
+        "    email: Email\n"
+        "    tenant_user_email = unique(tenant_id, email)\n"
+        "    status: Text | None\n",
         path=path,
     )
 
@@ -166,7 +166,7 @@ def test_shape_unique_span_is_one_based_half_open() -> None:
         line=1,
         column=1,
         end_line=5,
-        end_column=26,
+        end_column=24,
     )
     assert definition.uniques[0].span == Span(
         path=str(path),
@@ -194,9 +194,9 @@ def test_shape_unique_example_fixture_parses() -> None:
 def test_shape_unique_ast_does_not_expose_antlr_nodes() -> None:
     result = parse_source(
         "shape User:\n"
-        "    tenant_id: UUID not null\n"
-        "    email: Email not null\n"
-        "    unique tenant_user_email on tenant_id, email\n"
+        "    tenant_id: UUID\n"
+        "    email: Email\n"
+        "    tenant_user_email = unique(tenant_id, email)\n"
     )
 
     assert result.diagnostics == ()
@@ -210,10 +210,10 @@ def test_shape_unique_ast_does_not_expose_antlr_nodes() -> None:
         "shape User:\n    unique on email\n",
         "shape User:\n    unique user_email email\n",
         "shape User:\n    unique user_email on\n",
-        "shape User:\n    unique user_email on , email\n",
-        "shape User:\n    unique user_email on email,\n",
-        "shape User:\n    unique user_email on email,, tenant_id\n",
-        "shape User:\n    unique user_email on email tenant_id\n",
+        "shape User:\n    user_email = unique(, email)\n",
+        "shape User:\n    user_email = unique(email,)\n",
+        "shape User:\n    user_email = unique(email,, tenant_id)\n",
+        "shape User:\n    user_email = unique(email tenant_id)\n",
         "shape User:\n    unique email\n",
     ],
 )
@@ -226,7 +226,7 @@ def test_malformed_shape_uniques_return_syntax_diagnostic(source: str) -> None:
 
 def test_shape_unique_rejects_old_postfix_nullability() -> None:
     result = parse_source(
-        "shape User:\n    email: Email?\n    unique user_email on email\n"
+        "shape User:\n    email: Email?\n    user_email = unique(email)\n"
     )
 
     assert result.ast is None
@@ -235,10 +235,7 @@ def test_shape_unique_rejects_old_postfix_nullability() -> None:
 
 def test_shape_unique_brace_block_reports_unsupported_brace() -> None:
     result = parse_source(
-        "shape User:\n"
-        "    email: Email not null\n"
-        "    unique user_email on email {\n"
-        "    }\n"
+        "shape User:\n    email: Email\n    user_email = unique(email) {\n    }\n"
     )
 
     assert result.ast is None
@@ -263,3 +260,25 @@ def _assert_no_antlr_nodes(value: object) -> None:
 
 def _has_code(result: ParseResult, code: str) -> bool:
     return any(diagnostic.code == code for diagnostic in result.diagnostics)
+
+
+def test_modern_named_shape_calls_preserve_field_order() -> None:
+    from pietto.ast_nodes import CheckDef, IndexDef
+
+    result = parse_source(
+        "shape Row:\n"
+        "    id: Int\n"
+        "    tag: Text | None\n"
+        "    key = unique(id, tag)\n"
+        "    valid = check(id > 0)\n"
+        "    lookup = index(tag, id) when id > 2\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    shape = result.ast.definitions[0]
+    assert isinstance(shape, ShapeDef)
+    unique, check, index = shape.items[2:]
+    assert isinstance(unique, UniqueDef) and unique.field_names == ("id", "tag")
+    assert isinstance(check, CheckDef) and check.name == "valid"
+    assert isinstance(index, IndexDef) and index.field_names == ("tag", "id")
+    assert index.predicate is not None

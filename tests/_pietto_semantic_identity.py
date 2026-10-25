@@ -20,10 +20,10 @@ TEST_REL = "tests/_pietto_semantic_identity.py"
 
 _SHAPE_PREFIX = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    category: Text nullable\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    category: Text | None\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 
 
@@ -120,11 +120,9 @@ def _query_module(body: str) -> str:
 def _cycle_sources() -> dict[str, str]:
     return {
         "a.pietto": (
-            'import "b.pietto":\n    shape S\nexport:\n    shape T\nshape T:\n'
-            "    id: Int\n"
+            'from "b.pietto" import shape S\nexport shape T\nshape T:\n    id: Int\n'
         ),
         "b.pietto": (
-            'import "a.pietto":\n    shape T\nexport:\n    shape S\nshape S:\n'
-            "    id: Int\n"
+            'from "a.pietto" import shape T\nexport shape S\nshape S:\n    id: Int\n'
         ),
     }

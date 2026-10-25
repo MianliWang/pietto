@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import fields, replace
 from typing import Any
 
 import pytest
@@ -11,13 +12,14 @@ from antlr4.tree.Tree import TerminalNodeImpl
 from pietto.ast_builder import AstBuilder
 
 from pietto.ast_nodes import (
+    BetweenExpr,
     BinaryExpr,
     BlockRelationDef,
     CallExpr,
-    CastExpr,
     ComparisonExpr,
     ConditionalExpr,
     DottedNameExpr,
+    Expression,
     MembershipExpr,
     NameExpr,
     QueryDef,
@@ -67,6 +69,78 @@ def test_not_wraps_a_comparison_and_not_like_retains_its_operator() -> None:
     assert expression.operand.operator == "not like"
 
 
+def _expression_nodes(root: Expression) -> list[Expression]:
+    nodes: list[Expression] = []
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        nodes.append(node)
+        pending.extend(
+            value
+            for value in (getattr(node, item.name) for item in fields(node))
+            if isinstance(value, Expression)
+        )
+    return nodes
+
+
+def _as_written(node: Expression) -> Expression:
+    """``node`` with every span at its written occurrence 0."""
+
+    changes: dict[str, Any] = {
+        item.name: _as_written(value)
+        for item in fields(node)
+        if isinstance(value := getattr(node, item.name), Expression)
+    }
+    return replace(node, span=replace(node.span, occurrence=0), **changes)
+
+
+def test_a_comparison_chain_copies_each_inner_operand_as_a_new_occurrence() -> None:
+    expression = _ensure_expression("0 < low + 1 <= high < 10")
+
+    assert isinstance(expression, BinaryExpr)
+    assert isinstance(expression.left, BinaryExpr)
+    comparisons: list[ComparisonExpr] = []
+    for item in (expression.left.left, expression.left.right, expression.right):
+        assert isinstance(item, ComparisonExpr)
+        comparisons.append(item)
+    assert [item.operator for item in comparisons] == ["<", "<=", "<"]
+    # Each later comparison reads its own copy of the operand before it: the
+    # same text, told apart only by its span occurrence.
+    for before, after in zip(comparisons, comparisons[1:]):
+        assert after.left != before.right
+        assert _as_written(after.left) == before.right
+    assert [
+        (item.left.span.column, item.left.span.occurrence, item.right.span.column)
+        for item in comparisons
+    ] == [(27, 0, 31), (31, 1, 42), (42, 2, 49)]
+    copy = _expression_nodes(comparisons[1].left)
+    assert [node.span.occurrence for node in copy] == [1, 1, 1]
+    nodes = _expression_nodes(expression)
+    assert len(set(nodes)) == len(nodes) == 15
+
+
+def test_a_chain_in_an_inner_operand_copies_its_own_operand_again() -> None:
+    expression = _ensure_expression("True == (0 < x < 10) == True")
+
+    nodes = _expression_nodes(expression)
+    assert sorted(
+        (node.span.column, node.span.occurrence)
+        for node in nodes
+        if type(node) is NameExpr
+    ) == [(40, 0), (40, 1), (40, 2), (40, 3)]
+    assert len(set(nodes)) == len(nodes) == 19
+
+
+def test_an_inclusive_range_chain_stays_one_between_of_written_operands() -> None:
+    expression = _ensure_expression("0 <= x <= 10")
+
+    assert isinstance(expression, BetweenExpr)
+    assert isinstance(expression.value, NameExpr)
+    assert expression.value.name == "x"
+    nodes = _expression_nodes(expression)
+    assert [node.span.occurrence for node in nodes] == [0, 0, 0, 0]
+
+
 def test_membership_preserves_order_empty_list_and_negation() -> None:
     expression = _ensure_expression("id in (first, second,)")
 
@@ -86,15 +160,16 @@ def test_membership_preserves_order_empty_list_and_negation() -> None:
     assert empty.options == ()
 
 
-def test_cast_retains_the_value_and_target_type_spans() -> None:
-    expression = _ensure_expression("cast(value as Float)")
+def test_float_call_retains_the_value_and_callee_spans() -> None:
+    expression = _ensure_expression("Float(value)")
 
-    assert isinstance(expression, CastExpr)
-    assert isinstance(expression.value, NameExpr)
-    assert expression.value.name == "value"
-    assert expression.target.name == "Float"
-    assert expression.target.span.line == 1
-    assert expression.target.span.column == 41
+    assert isinstance(expression, CallExpr)
+    assert isinstance(expression.arguments[0], NameExpr)
+    assert expression.arguments[0].name == "value"
+    assert isinstance(expression.callee, NameExpr)
+    assert expression.callee.name == "Float"
+    assert expression.callee.span.line == 1
+    assert expression.callee.span.column == 27
 
 
 def test_new_expression_keywords_remain_compatible_identifier_and_call_names() -> None:
@@ -210,10 +285,10 @@ def test_scalar_reads_a_soft_keyword_column_in_select_and_qualify() -> None:
     result = parse_source(
         "query q:\n"
         "    let m:\n"
-        "        values (select: Int not null):\n"
+        "        values (select: Int):\n"
         "            1\n"
         "    from m\n"
-        "    select: x = scalar m.select\n"
+        "    select x = scalar m.select\n"
         "    qualify:\n"
         "        scalar m.select > 0\n"
     )
@@ -222,7 +297,7 @@ def test_scalar_reads_a_soft_keyword_column_in_select_and_qualify() -> None:
     query = result.ast.definitions[0]
     assert type(query) is BlockRelationDef and type(query.body) is SelectBody
     assert query.body.select_items[0].expression == RelationScalarExpr(
-        span=Span(path=None, line=6, column=17, end_line=6, end_column=32),
+        span=Span(path=None, line=6, column=16, end_line=6, end_column=31),
         relation_name="m",
         column_name="select",
     )
@@ -296,7 +371,7 @@ def test_a_flat_operator_chain_computes_its_span_once(
 
     monkeypatch.setattr(AstBuilder, "_span", counted)
     terms = " + ".join(["1"] * 2000)
-    result = parse_source(f"derive total() -> Int not null:\n    {terms}\n")
+    result = parse_source(f"derive total() -> Int:\n    return {terms}\n")
 
     assert result.diagnostics == () and result.ast is not None
     assert contexts.count("AdditiveExpressionContext") == 1
@@ -332,3 +407,41 @@ def test_the_last_significant_token_search_touches_only_trailing_nodes() -> None
 
     assert AstBuilder._last_significant_token(_Node(children)) is token
     assert children.touched == 1
+
+
+def test_modern_scalar_float_spelling_keeps_callable_resolution_open() -> None:
+    from pietto.ast_nodes import CallExpr, FunctionDef
+
+    result = parse_source(
+        "def Float(value: Int) -> Float:\n"
+        "    return value + 1\n"
+        "type Sample = Float ensure Float(value) > 1\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    assert isinstance(result.ast.definitions[0], FunctionDef)
+    definition = result.ast.definitions[1]
+    assert isinstance(definition, TypeDef)
+    expression = definition.ensures[0].expression
+    assert isinstance(expression, ComparisonExpr)
+    assert isinstance(expression.left, CallExpr)
+
+
+def test_modern_constraint_and_derive_bodies_require_explicit_return() -> None:
+    from pietto.ast_nodes import ConstraintDef, DeriveDef
+
+    result = parse_source(
+        "constraint Positive(value: Int) -> Bool:\n"
+        "    return value > 0\n"
+        "derive Increment(value: Int) -> Int:\n"
+        "    return value + 1\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    assert isinstance(result.ast.definitions[0], ConstraintDef)
+    assert isinstance(result.ast.definitions[1], DeriveDef)
+    retired = parse_source("constraint Positive(value: Int) -> Bool:\n    value > 0\n")
+    assert retired.ast is None
+    assert (
+        retired.diagnostics[0].suggestion == "Add 'return' before the body expression."
+    )

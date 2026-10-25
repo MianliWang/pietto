@@ -378,13 +378,13 @@ def test_r03_repeated_union_and_two_facades_execute_through_the_pipeline(target)
     "variant,marker",
     (
         ("semi_except", "EXISTS ("),
-        ("anti_except", "NOT EXISTS ("),
+        ("anti_except", "(NOT EXISTS ("),
         ("semi_intersect", "EXISTS ("),
-        ("anti_intersect", "NOT EXISTS ("),
+        ("anti_intersect", "(NOT EXISTS ("),
     ),
 )
 def test_membership_wraps_the_complete_right_set_terminal(target, variant, marker):
-    """R11/C09: EXISTS/NOT EXISTS read the SET CTE, never an operand or a scan."""
+    """R11/C09: `[not] any` reads the SET CTE, never an operand or a scan."""
     outcome = emit(target, "S_set_membership", variant)
     assert outcome.status == "VERIFIED", blockers(outcome)
     sql = sql_of(outcome)
@@ -398,41 +398,31 @@ def test_membership_wraps_the_complete_right_set_terminal(target, variant, marke
     kinds = {
         r["kind"] for r in document["requirements"] if r["denominator"] == "generated"
     }
-    assert {"complete_right_terminal", "membership", "set_row_equivalence"} <= kinds
+    assert {"exists", "set_row_equivalence"} <= kinds
     assert [c["label"] for c in document["columns"]] == ["a"]
     (unit,) = set_units(outcome)
-    (join,) = [u for u in artifact_of(outcome).ast.units if hasattr(u, "membership")]
-    assert join.inputs[1].producer is unit
+    (read,) = probe.block_reads(artifact_of(outcome).ast)
+    assert read.predicate is not None and read.target.producer is unit
 
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_right_operand_substitution_is_rejected(target):
-    """The right side bound to an operand's producer instead of the SET terminal
-    is a terminal drift, and LIMIT 0 on the left never erases it."""
+    """The `any` read bound to an operand's producer instead of the SET terminal
+    is a terminal drift."""
     outcome = emit(target, "S_set_membership", "semi_except")
     artifact = artifact_of(outcome)
     query = artifact.ast
-    units = list(query.units)
-    (unit,) = [u for u in units if type(u) is setting.SetBody]
-    (join,) = [u for u in units if hasattr(u, "membership")]
-    right = join.inputs[1]
+    (unit,) = [u for u in query.units if type(u) is setting.SetBody]
+    (read,) = probe.block_reads(query)
     operand = unit.operands[0]
-    shortcut = replace(
-        join,
-        inputs=(
-            join.inputs[0],
-            replace(
-                right,
-                producer=operand.producer,
-                columns=tuple(
-                    replace(column, terminal=read.terminal)
-                    for column, read in zip(right.columns, operand.columns, strict=True)
-                ),
-            ),
-        ),
-    )
-    units[units.index(join)] = shortcut
-    assert not verify_row_query(artifact.request, replace(query, units=tuple(units)))
+    assert read.target.producer is unit
+    original = read.target.producer
+    try:
+        object.__setattr__(read.target, "producer", operand.producer)
+        assert not verify_row_query(artifact.request, query)
+    finally:
+        object.__setattr__(read.target, "producer", original)
+    assert verify_row_query(artifact.request, query)
 
 
 @pytest.mark.parametrize("target", TARGETS)

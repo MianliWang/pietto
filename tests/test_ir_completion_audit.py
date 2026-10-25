@@ -46,26 +46,25 @@ EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert EXAMPLE_PATHS, "Expected committed Pietto examples."
 
 ALL_DEFINITIONS_SOURCE = (
-    "type Email = Text not null\n"
+    "type Email = Text\n"
     "enum Status:\n"
     "    active\n"
     "    archived\n"
-    "constraint valid_email(email: Text not null) -> Bool not null:\n"
-    '    matches(email, ".+@.+")\n'
-    "derive normalize_email(email: Text not null) -> Text not null:\n"
-    "    lower(trim(email))\n"
+    "constraint valid_email(email: Text) -> Bool:\n"
+    '    return matches(email, ".+@.+")\n'
+    "derive normalize_email(email: Text) -> Text:\n"
+    "    return lower(trim(email))\n"
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text nullable\n"
-    "    email_norm: Text nullable derive lower(trim(email))\n"
-    "    check has_id:\n"
-    "        id is not null\n"
-    "    unique user_email on email\n"
-    "    index active_email_idx on email when email is not null\n"
-    'source users: User is postgres.table("public.users")\n'
+    "    id: UUID\n"
+    "    email: Text | None\n"
+    "    email_norm: Text | None derive lower(trim(email))\n"
+    "    has_id = check(id is not None)\n"
+    "    user_email = unique(email)\n"
+    "    active_email_idx = index(email) when email is not None\n"
+    'source users: User = postgres.table("public.users")\n'
     "table active_users:\n"
     "    from users\n"
-    "    where email is not null\n"
+    "    where email is not None\n"
     "    select:\n"
     "        id\n"
     "        email\n"
@@ -162,10 +161,10 @@ def test_complete_public_ir_graph_is_immutable_and_frontend_independent() -> Non
 
 def test_parser_only_contract_metadata_remains_explicitly_deferred() -> None:
     result, _, _ = _build(
-        "type Percent = Float not null ensure self between 0 and 1\n"
+        "type Percent = Float ensure 0 <= self <= 1\n"
         "shape User:\n"
-        "    age: Int nullable @sensitive "
-        "ensure self is null or self between 0 and 130\n"
+        "    age: Int | None @sensitive "
+        "ensure self is None or 0 <= self <= 130\n"
     )
     assert result.ir is not None
     type_ir = next(

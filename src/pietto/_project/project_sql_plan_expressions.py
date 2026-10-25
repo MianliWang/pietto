@@ -8,6 +8,7 @@ from types import MappingProxyType
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from pietto._project.existence_values import ProjectAnyReference, ProjectAnyValue
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as windows
 from pietto import ast_nodes as ast
@@ -93,6 +94,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.ConditionalExpr,
         ast.MembershipExpr,
         ast.RelationExistsExpr,
+        ast.AnyExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
         ast.CastExpr,
@@ -308,6 +310,44 @@ class ProjectSQLMembership(ProjectSQLExpressionBase):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLAny(ProjectSQLExpressionBase):
+    """One checked correlated predicate over its actual iterator producer."""
+
+    expression: ast.AnyExpr
+    use: ProjectSQLPlanRef
+    predicate: ProjectSQLPlanRef
+    evidence: ProjectAnyValue
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLAnyReference(ProjectSQLExpressionBase):
+    """An exact lexical ANY field or an actual enclosing row-stage value."""
+
+    expression: NameExpr | DottedNameExpr
+    reference: ProjectAnyReference
+    use: ProjectSQLPlanRef | None
+    position: int | None
+    port: ProjectSQLPlanRef | None
+
+    def __post_init__(self) -> None:
+        local = (
+            self.use is not None and type(self.position) is int and self.position >= 0
+        )
+        if (
+            self.reference.expression is not self.expression
+            or self.reference.target is None
+        ):
+            raise ValueError("ANY reference requires its unique checked occurrence.")
+        if not (
+            (local and self.port is None)
+            or (self.use is None and self.position is None and self.port is not None)
+        ):
+            raise ValueError(
+                "ANY reference requires exactly one lexical input or outer port."
+            )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSQLRelationExists(ProjectSQLExpressionBase):
     """An existence read of one whole block through its expression block use."""
 
@@ -373,6 +413,8 @@ type ProjectSQLExpression = (
     | ProjectSQLBetween
     | ProjectSQLConditional
     | ProjectSQLMembership
+    | ProjectSQLAny
+    | ProjectSQLAnyReference
     | ProjectSQLRelationExists
     | ProjectSQLRelationScalar
     | ProjectSQLRelationMembership
@@ -769,6 +811,8 @@ def stage_key_label(key):
 def scalar_children(expression: Expression) -> tuple[Expression, ...]:
     if type(expression) not in _KNOWN_EXPRESSIONS:
         raise ValueError(f"Unsupported scalar expression: {type(expression).__name__}")
+    if isinstance(expression, ast.AnyExpr):
+        return (expression.predicate,)
     if isinstance(expression, (BinaryExpr, ComparisonExpr)):
         return expression.left, expression.right
     if isinstance(expression, UnaryExpr):

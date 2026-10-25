@@ -382,10 +382,10 @@ def _project(tmp_path: Path, relation_body: str) -> tuple[Path, str]:
     root = _project_root(tmp_path, include=("*.pietto",))
     source = (
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
+        "    id: Int\n"
+        "    email: Text | None\n"
         "    score: Int\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         f"{relation_body}"
     )
     _write(root, "models.pietto", source)

@@ -134,9 +134,9 @@ def _identity(
 def _base_source() -> str:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query first:\n"
         "    from rows\n"
         "    select:\n"
@@ -593,7 +593,7 @@ def test_concrete_and_typed_non_concrete_subjects_prevent_mixed_states(
     semantic = _semantic_project(
         tmp_path,
         _base_source()
-        + 'source unknown is postgres.table("unknown")\n'
+        + 'source unknown = postgres.table("unknown")\n'
         + "query pending:\n    from unknown\n    select:\n        id\n",
     )
     first = _relation_fact(semantic, "first")
@@ -655,17 +655,17 @@ def test_all_non_concrete_states_require_matching_exact_evidence(
 ) -> None:
     unknown = _semantic_project(
         tmp_path / "unknown",
-        'source unknown is postgres.table("unknown")\n'
+        'source unknown = postgres.table("unknown")\n'
         "query result:\n    from unknown\n    select:\n        id\n",
     )
     deferred = _semantic_project(
         tmp_path / "deferred",
         "shape Row:\n    amount: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "query pending:\n"
         "    from rows\n"
         "    select:\n"
-        "        unset = null\n"
+        "        unset = None\n"
         "query result:\n"
         "    from pending\n"
         "    select:\n"
@@ -678,7 +678,7 @@ def test_all_non_concrete_states_require_matching_exact_evidence(
     ambiguous = _semantic_project(
         tmp_path / "ambiguous",
         "shape Row:\n    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "query duplicate:\n    from rows\n    select:\n        id\n"
         "query duplicate:\n    from rows\n    select:\n        id\n"
         "query result:\n    from duplicate\n    select:\n        id\n",

@@ -79,8 +79,8 @@ SQL = {
     ),
 }
 ONE = """shape One:
-    id: Int not null
-source ones: One is {target}.table("ones")
+    id: Int
+source ones: One = {target}.table("ones")
 query result:
     from lhs
     where id not in ones
@@ -240,8 +240,8 @@ def test_a_null_left_value_takes_the_read_column_type(
     _, outcome = _emit(
         tmp_path,
         target,
-        IDS + "query result:\n    from lhs\n    where null in ids\n    select:\n"
-        "        a = lhs.id\n        f = null not in ids\n",
+        IDS + "query result:\n    from lhs\n    where None in ids\n    select:\n"
+        "        a = lhs.id\n        f = None not in ids\n",
     )
     document = json.loads(serialize_project_sql_emission(outcome))
     assert document["status"] == "VERIFIED", document
@@ -347,7 +347,7 @@ def test_a_source_read_only_through_membership_is_a_statement_source(
         (
             "query u:\n    union all:\n        from ids\n        from ids\n"
             + IDS
-            + "query result:\n    from lhs\n    where null in u\n"
+            + "query result:\n    from lhs\n    where None in u\n"
             "    select:\n        a = lhs.id\n",
             [("PIE-B1003", "expression_evidence_unavailable", 14, 1)],
         ),
@@ -431,7 +431,7 @@ COMBINED = {
     "computed_group_key": (
         IDS
         + "query top:\n    from rhs\n    select:\n        n = count()\n"
-        + "query result:\n    from lhs\n    let:\n        big = id > 5\n"
+        + "query result:\n    from lhs\n    let big = id > 5\n"
         + "    where id in ids and exists ids and id <= scalar top.n\n"
         + "    group by:\n        big\n    select:\n        big\n        n = count()\n",
         [
@@ -443,10 +443,10 @@ COMBINED = {
     # Typed VALUES lets, one of them with no row, read by all three kinds.
     "values": (
         "query result:\n"
-        + "    let seed:\n        values(rid: Int not null):\n            1\n"
+        + "    let seed:\n        values(rid: Int):\n            1\n"
         + "            2\n"
-        + "    let top:\n        values(n: Int not null):\n            5\n"
-        + "    let none:\n        values(rid: Int not null)\n"
+        + "    let top:\n        values(n: Int):\n            5\n"
+        + "    let none:\n        values(rid: Int)\n"
         + "    from lhs\n"
         + "    where id in seed and not exists none and id <= scalar top.n\n"
         + "    select:\n        a = lhs.id\n",
@@ -485,7 +485,7 @@ def test_read_kinds_combine_in_one_statement_let_bodies_and_grouped_queries(
 PARAMETERIZED = (
     "query ids:\n    from rows\n    select:\n        id\n"
     "query top:\n    from rows\n    select:\n        n = count()\n"
-    "query result(cutoff: Int not null):\n    from rows\n"
+    "query result(cutoff: Int):\n    from rows\n"
     "    where id >= cutoff and 3 in ids and exists ids and id <= scalar top.n\n"
     "    select:\n        record_id = id\n"
 )
@@ -745,9 +745,9 @@ OWN_FROM_MEMBERSHIP = {
 """,
     "values_in": """query result:
     let s:
-        values(id: Int not null, key: Int nullable):
+        values(id: Int, key: Int | None):
             1, 2
-            3, null
+            3, None
     let m:
         capture lhs
         from s
@@ -808,9 +808,9 @@ OWN_FROM_MEMBERSHIP_SQL = {
 OWN_FROM_ORDERED = {
     "values_in_ordered": """query result:
     let s:
-        values(id: Int not null, key: Int nullable):
+        values(id: Int, key: Int | None):
             1, 2
-            3, null
+            3, None
     let m:
         capture lhs
         from s
@@ -821,9 +821,8 @@ OWN_FROM_ORDERED = {
             id desc
         limit 1
     from lhs
-    inner join rhs as r:
-        from lhs
-        on r.id == lhs.id
+    let r = rhs
+    inner join r on r.id == lhs.id
     where lhs.id in m
     select:
         a = lhs.id
@@ -880,7 +879,7 @@ def test_an_ordered_membership_of_a_join_reader_reads_a_relation_known_later(
         assert [
             (b["code"], b["subject"]["detail"], b["location"]["line"])
             for b in document["blockers"]
-        ] == [("PIE-B1003", "mysql_correlated_order_or_limit_read_not_admitted", 24)]
+        ] == [("PIE-B1003", "mysql_correlated_order_or_limit_read_not_admitted", 23)]
         return
     assert document["status"] == "VERIFIED", document
     assert document["sql"] == OWN_FROM_ORDERED_SQL["values_in_ordered", target]
@@ -1053,7 +1052,7 @@ def test_a_forged_ordered_membership_fails_the_verifiers(
 # Phase70 S11 x S14: a let read by a correlated IN reads the entry query's
 # header like any other let of it; its literal slot and reads take their
 # placeholders in rendering order.
-HEADER_IN_MEMBERSHIP = """query result(cut: Int not null, hi: Int nullable):
+HEADER_IN_MEMBERSHIP = """query result(cut: Int, hi: Int | None):
     let m:
         capture lhs
         from rhs
@@ -1138,9 +1137,8 @@ ORDERED_OVER_JOIN = """query result:
             id
         limit 1
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    inner join r on lhs.id == r.id
     where lhs.id in tops
     select:
         a = lhs.id

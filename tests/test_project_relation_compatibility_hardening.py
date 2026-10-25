@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from typing import cast
@@ -27,9 +28,9 @@ PROJECT_JSON_TOP_LEVEL_KEYS = (
 
 VALID_RELATION_SOURCE = (
     "shape User:\n"
-    "    id: Int not null\n"
-    "    email: Text not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: Int\n"
+    "    email: Text\n"
+    'source users: User = postgres.table("users")\n'
     "table active_users:\n"
     "    from users\n"
     "    select:\n"
@@ -77,7 +78,7 @@ def test_single_file_surfaces_remain_separate_from_project_cycle_semantics(
     check_source = _write(
         tmp_path,
         "shape_only.pietto",
-        "shape Row:\n    id: Int not null\n",
+        "shape Row:\n    id: Int\n",
     )
     relation_source = _write(tmp_path, "relation.pietto", VALID_RELATION_SOURCE)
 
@@ -170,9 +171,21 @@ def test_project_json_v2_cycle_output_shape_and_private_facts_are_locked(
     _assert_private_cycle_facts_absent(serialized)
 
 
+class _WithoutImports(ast.NodeTransformer):
+    def visit_Import(self, node: ast.Import) -> None:
+        return None
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        return None
+
+
 def test_public_project_paths_do_not_serialize_private_cycle_internals() -> None:
+    # Comments and imported module paths (such as `pietto.ast_nodes`) serialize
+    # nothing; every other statement of the public paths is checked.
     public_surface_source = "\n".join(
-        path.read_text(encoding="utf-8")
+        ast.unparse(
+            _WithoutImports().visit(ast.parse(path.read_text(encoding="utf-8")))
+        )
         for path in (PROJECT_JSON_V2_PATH, PROJECT_CHECK_PATH, CLI_PATH)
     )
 

@@ -8,7 +8,9 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Mapping, TypeVar
 
 from pietto.ast_nodes import (
+    AnyExpr,
     AuthoredJoinKind,
+    CallExpr,
     ComparisonExpr,
     Definition,
     DottedNameExpr,
@@ -21,6 +23,9 @@ from pietto.ast_nodes import (
     LetClause,
     Node,
     QueryDef,
+    RelationshipParameter,
+    RelationshipTemplate,
+    ShapeDef,
     SatisfyingClause,
     Script,
     SourceDef,
@@ -29,6 +34,7 @@ from pietto.ast_nodes import (
     WindowExpr,
     WindowUseKind,
 )
+from pietto.semantic.existence_generators import AnyUseInfo, AnyValueInfo
 from pietto.errors import Diagnostic
 
 if TYPE_CHECKING:
@@ -157,6 +163,39 @@ class RelationshipSemanticInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class RelationshipTemplateInfo:
+    """One checked predicate and the exact declared shapes of its parameters."""
+
+    declaration: RelationshipTemplate
+    parameter_shapes: tuple[ShapeDef, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipArgumentInfo:
+    """One formal parameter bound to an exact existing query input occurrence."""
+
+    parameter: RelationshipParameter
+    argument: Expression
+    occurrence: Node
+    relation: SourceDef | TableDef | QueryDef
+    shape: ShapeDef
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipCallInfo:
+    """One predicate use, retained separately from its ordinary scalar expansion."""
+
+    template: RelationshipTemplateInfo
+    call: CallExpr
+    owner: TableDef | QueryDef
+    context: Node
+    ordinal: int
+    arguments: tuple[RelationshipArgumentInfo, ...]
+    expanded: Expression
+    mandatory_equalities: tuple[ComparisonExpr, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class SatisfyingResultPredicateInfo:
     """Validated result-predicate facts for one relation ``satisfying:`` clause."""
 
@@ -261,6 +300,33 @@ class RelationJoinsInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class AnyFieldReadInfo:
+    """One read bound to its exact local or captured input occurrence."""
+
+    occurrence: FromClause | JoinClause | AnyExpr
+    relation: SourceDef | TableDef | QueryDef
+    binding: str
+    field_name: str
+    value_type: ValueType
+
+
+@dataclass(frozen=True, slots=True)
+class AnyValueSemanticInfo:
+    """A checked correlated EXISTS value; it introduces no outer row factor."""
+
+    use: AnyValueInfo
+    iterator: SourceDef | TableDef | QueryDef
+    input_schema: RowSchema
+    predicate: Expression
+    field_reads: Mapping[Expression, AnyFieldReadInfo]
+    captures: tuple[AnyFieldReadInfo, ...]
+    nested_values: tuple[AnyExpr, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "field_reads", _readonly_mapping(self.field_reads))
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
@@ -324,6 +390,12 @@ class SemanticModel:
         RelationJoinsInfo,
     ] = field(default_factory=lambda: _readonly_mapping())
     relationships: tuple[RelationshipSemanticInfo, ...] = ()
+    relationship_templates: tuple[RelationshipTemplateInfo, ...] = ()
+    relationship_calls: tuple[RelationshipCallInfo, ...] = ()
+    existence_generators: tuple[AnyUseInfo, ...] = ()
+    any_values: Mapping[AnyExpr, AnyValueSemanticInfo] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
 
     def __post_init__(self) -> None:
         """Copy public mapping inputs into immutable mappings."""
@@ -470,6 +542,7 @@ class SemanticModel:
             _readonly_mapping(self.result_predicates),
         )
         object.__setattr__(self, "let_scopes", _readonly_mapping(self.let_scopes))
+        object.__setattr__(self, "any_values", _readonly_mapping(self.any_values))
         object.__setattr__(
             self,
             "relation_joins",

@@ -13,14 +13,14 @@ from pietto.semantic import SemanticResult, analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    customer_id: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    region: Text\n"
+    "    status: Text\n"
+    "    customer_id: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -261,7 +261,7 @@ def _grouped_relation(
 ) -> str:
     projection_block = "".join(f"        {projection}\n" for projection in projections)
     satisfying_block = (
-        "" if satisfying is None else f"    satisfying:\n        {satisfying}\n"
+        "" if satisfying is None else f"    having:\n        {satisfying}\n"
     )
     order_block = "".join(f"        {item}\n" for item in order_items)
     return (

@@ -1,2 +1,2 @@
-constraint valid_email(x: Text nullable) -> Bool not null:
-    x is not null and x like "%@%"
+constraint valid_email(x: Text | None) -> Bool:
+    return x is not None and x like "%@%"

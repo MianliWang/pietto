@@ -8,6 +8,7 @@ ordinary expressions and the SQL equals that of the call written out by hand.
 from __future__ import annotations
 
 import itertools
+from bisect import bisect_right
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import fields, is_dataclass, replace
 from types import MappingProxyType
@@ -35,6 +36,7 @@ from pietto.ast_nodes import (
     RelationMembershipExpr,
     RelationScalarExpr,
     RelationshipMetadata,
+    RelationshipTemplate,
     Script,
     SelectBody,
     ShapeDef,
@@ -114,13 +116,26 @@ _NULLABILITY = MappingProxyType(
 )
 
 
-def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
+def inline_functions(
+    script: Script,
+    *,
+    occurrence_observer: Callable[[object, object], None] | None = None,
+) -> tuple[Script, tuple[Diagnostic, ...]]:
     """Check every ``def`` and replace every call to one by its expansion.
 
-    The result drops the ``def`` declarations. A script without one is
-    returned as is; any error leaves the script unusable for later readers.
+    The result normalizes unshadowed ``Float`` calls and drops the ``def``
+    declarations; any error leaves it unusable for later readers.
     """
 
+    from pietto.semantic.constructor_calls import normalize_float_calls
+    from pietto.semantic.relationship_predicates import deferred_row_calls
+
+    script, constructor_diagnostics = normalize_float_calls(
+        script, occurrence_observer=occurrence_observer
+    )
+    if constructor_diagnostics:
+        return script, constructor_diagnostics
+    deferred = deferred_row_calls(script)
     if not any(type(item) is FunctionDef for item in script.definitions):
         return script, ()
     found: list[Diagnostic] = []
@@ -163,9 +178,17 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
     }
 
     templates: dict[str, tuple[Expression, _Size]] = {}
-    occurrences = itertools.count(1)
+    # Above every occurrence the script holds already, such as a comparison
+    # chain's copy of an inner operand, so each copy made here is a new node.
+    occurrences = itertools.count(1 + _last_occurrence(script))
     for function in _callee_order(defined):
-        expansion = _Expansion(defined, templates, found, occurrences)
+        expansion = _Expansion(
+            defined,
+            templates,
+            found,
+            occurrences,
+            occurrence_observer=occurrence_observer,
+        )
         body = expansion.expand(function.body)
         if expansion.failed:
             continue
@@ -185,11 +208,22 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
         # unchecked.
         raise AssertionError("Every def is checked before it is inlined.")
     others = tuple(item for item in script.definitions if type(item) is not FunctionDef)
-    found.extend(_position_diagnostics((*others, *script.relationships), defined))
+    found.extend(
+        _position_diagnostics(
+            (*others, *script.relationships, *script.relationship_templates), defined
+        )
+    )
     if found:
         return script, _ordered(found)
 
-    expansion = _Expansion(defined, templates, found, occurrences)
+    expansion = _Expansion(
+        defined,
+        templates,
+        found,
+        occurrences,
+        deferred=deferred,
+        occurrence_observer=occurrence_observer,
+    )
     definitions = tuple(
         cast(Definition, expansion.expand_tree(item))
         for item in script.definitions
@@ -198,94 +232,117 @@ def inline_functions(script: Script) -> tuple[Script, tuple[Diagnostic, ...]]:
     relationships = cast(
         tuple[RelationshipMetadata, ...], expansion.expand_tree(script.relationships)
     )
+    relationship_templates = expansion.expand_tree(script.relationship_templates)
     if found:
         return script, _ordered(found)
-    return replace(script, definitions=definitions, relationships=relationships), ()
+    return replace(
+        script,
+        definitions=definitions,
+        relationships=relationships,
+        relationship_templates=cast(
+            tuple[RelationshipTemplate, ...], relationship_templates
+        ),
+    ), ()
 
 
 def drop_repeated_call_diagnostics(
     script: Script, diagnostics: Sequence[Diagnostic]
 ) -> tuple[Diagnostic, ...]:
-    """Keep only the first of equal diagnostics located in a def call.
+    """Keep only the first of equal diagnostics located in a def call or in
+    a comparison chain's inner operand.
 
     ``script`` is the parsed script. Its expansion types the body at the call
     and each use of an argument at the argument's own text, so one written
     call can report one error more than once: in an argument the body uses n
-    times, or in body nodes that its arguments make fail alike. That text is
-    written once, so each such error is reported once. Dropping repeats after
-    typing, not during it, keeps every copy's error in view of the rule that
-    does not check an argument with an error of its own against its parameter.
-    A repeat outside a call stays.
-
-    ``diagnostics`` are in source order within each file, as analysis returns
-    them, so one pass over each file's calls in source order places them all.
+    times, or in body nodes that its arguments make fail alike. A chain such
+    as ``a < b < c`` holds its inner operand ``b`` once per comparison, each
+    copy typed on its own. That text is written once, so each such error is
+    reported once. Dropping repeats after typing, not during it, keeps every
+    copy's error in view of the rule that does not check an argument with an
+    error of its own against its parameter. A repeat outside that text stays.
     """
 
+    return _drop_repeats(script, diagnostics, calls=True)
+
+
+def drop_repeated_operand_diagnostics(
+    script: Script, diagnostics: Sequence[Diagnostic]
+) -> tuple[Diagnostic, ...]:
+    """Keep only the first of equal diagnostics located in a comparison
+    chain's inner operand, for the checks that refuse a script before
+    analysis. They check a def body at the def, where an error in a call's
+    argument is reported at each use that the expansion makes, so the text of
+    a def call keeps its repeats there."""
+
+    return _drop_repeats(script, diagnostics, calls=False)
+
+
+def _drop_repeats(
+    script: Script, diagnostics: Sequence[Diagnostic], *, calls: bool
+) -> tuple[Diagnostic, ...]:
     if len(set(diagnostics)) == len(diagnostics):
         return tuple(diagnostics)
-    defined = {
-        item.name: item for item in script.definitions if type(item) is FunctionDef
+    defined = (
+        {item.name: item for item in script.definitions if type(item) is FunctionDef}
+        if calls
+        else {}
+    )
+    # A chain operand's copies are the parsed nodes of a nonzero occurrence;
+    # the operand itself is the node of the same text that comes first.
+    copied = {
+        _text(node.span)
+        for node in _tree_nodes(script)
+        if isinstance(node, Node) and node.span.occurrence
     }
-    # The text of each outermost call, in source order; calls do not overlap.
+    # The outermost repeated text of each file; any two do not overlap or are
+    # the same text.
     ranges: dict[str | None, list[tuple[tuple[int, int], tuple[int, int]]]] = {}
     pending: list[object] = [script]
     while pending:
         value = pending.pop()
-        if _def_call_name(value, defined) is None:
-            pending.extend(reversed(_in_text_order(value)))
+        if _def_call_name(value, defined) is None and (
+            not isinstance(value, Node) or _text(value.span) not in copied
+        ):
+            pending.extend(_children(value) or ())
             continue
-        span = cast(CallExpr, value).span
+        span = cast(Node, value).span
         ranges.setdefault(span.path, []).append(
             ((span.line, span.column), (span.end_line, span.end_column))
         )
-    # Per file, the first call that does not end before the last diagnostic.
-    passed: dict[str | None, int] = {}
+    # Analysis does not return diagnostics in source order (a later duplicate
+    # local name comes before an earlier ANY input error, for one), so each
+    # repeat is placed on its own, by a binary search over the starts.
+    for spans in ranges.values():
+        spans.sort()
+    starts = {path: [start for start, _ in spans] for path, spans in ranges.items()}
     seen: set[Diagnostic] = set()
     kept: list[Diagnostic] = []
     for diagnostic in diagnostics:
-        location = diagnostic.location
-        spans = ranges.get(location.path, [])
-        at = (location.line, location.column)
-        index = passed.get(location.path, 0)
-        while index < len(spans) and spans[index][1] <= at:
-            index += 1
-        passed[location.path] = index
-        if diagnostic in seen and index < len(spans) and spans[index][0] <= at:
-            continue
+        if diagnostic in seen:
+            location = diagnostic.location
+            at = (location.line, location.column)
+            # The last repeated text that starts at or before the diagnostic.
+            index = bisect_right(starts.get(location.path, ()), at)
+            if index and at < ranges[location.path][index - 1][1]:
+                continue
         seen.add(diagnostic)
         kept.append(diagnostic)
     return tuple(kept)
 
 
-def _in_text_order(value: object) -> tuple[object, ...]:
-    """The AST values below ``value`` in the order of their text: a tuple's
-    items as written, and a node's fields by where their text starts. A field
-    without text holds no call and is left out. Only a script's fields
-    interleave, and of them only its definitions hold calls once analysis
-    runs: a call in a relationship is PIE-S2397 before it."""
+def _text(span: Span) -> tuple[str | None, int, int, int, int]:
+    """The source text ``span`` covers, the same for each of its occurrences."""
 
-    children = _children(value) or ()
-    if type(value) is tuple:
-        return children
-    starts = [
-        (start, child)
-        for child in children
-        if (start := _text_start(child)) is not None
-    ]
-    # A node has a fixed number of fields, so sorting them is constant work.
-    return tuple(child for _, child in sorted(starts, key=lambda item: item[0]))
+    return (span.path, span.line, span.column, span.end_line, span.end_column)
 
 
-def _text_start(value: object) -> tuple[int, int] | None:
-    """Where the first node in ``value`` starts, if it holds one."""
+def _last_occurrence(root: object) -> int:
+    """The greatest span occurrence of a node in ``root``, 0 for none."""
 
-    pending = [value]
-    while pending:
-        item = pending.pop()
-        if isinstance(item, Node):
-            return (item.span.line, item.span.column)
-        pending.extend(reversed(_children(item) or ()))
-    return None
+    return max(
+        (node.span.occurrence for node in _tree_nodes(root) if isinstance(node, Node)),
+        default=0,
+    )
 
 
 class _Expansion:
@@ -297,7 +354,12 @@ class _Expansion:
         templates: dict[str, tuple[Expression, _Size]],
         found: list[Diagnostic],
         occurrences: Iterator[int],
+        *,
+        deferred: frozenset[int] = frozenset(),
+        occurrence_observer: Callable[[object, object], None] | None = None,
     ) -> None:
+        self.deferred = deferred
+        self.occurrence_observer = occurrence_observer
         self.defined = defined
         self.templates = templates
         self.found = found
@@ -311,7 +373,9 @@ class _Expansion:
         return cast(Expression, self.expand_tree(expression))
 
     def expand_tree(self, value: object) -> object:
-        return _rebuild(value, self._visit)
+        return _rebuild(
+            value, self._visit, occurrence_observer=self.occurrence_observer
+        )
 
     def _visit(self, original: object, rebuilt: object) -> object:
         result = self._expand_call(original, rebuilt)
@@ -335,6 +399,8 @@ class _Expansion:
         return call
 
     def _expand_call(self, original: object, rebuilt: object) -> object:
+        if id(original) in self.deferred:
+            return rebuilt
         if (
             type(rebuilt) is not CallExpr
             or type(cast(CallExpr, rebuilt).callee) is not NameExpr
@@ -387,8 +453,11 @@ class _Expansion:
             return call
         # Each argument carries the parameter it must fit, so wherever its
         # expansion is typed, the argument is checked against it.
-        arguments = {
-            parameter.name: with_inlined_argument(
+        arguments = {}
+        for position, (parameter, argument) in enumerate(
+            zip(function.parameters, call.arguments), start=1
+        ):
+            annotated = with_inlined_argument(
                 argument,
                 InlinedArgument(
                     call=call.span,
@@ -399,10 +468,9 @@ class _Expansion:
                     nullable=parameter.type.nullability is Nullability.NULLABLE,
                 ),
             )
-            for position, (parameter, argument) in enumerate(
-                zip(function.parameters, call.arguments), start=1
-            )
-        }
+            if self.occurrence_observer is not None:
+                self.occurrence_observer(argument, annotated)
+            arguments[parameter.name] = annotated
         nodes, depth = size.nodes, size.depth
         for name, argument in arguments.items():
             uses, deepest = size.names.get(name, (0, 0))
@@ -417,7 +485,14 @@ class _Expansion:
             Expression,
             _rebuild(
                 template,
-                _substitution(arguments, template, call.span, self.occurrences),
+                _substitution(
+                    arguments,
+                    template,
+                    call.span,
+                    self.occurrences,
+                    self.occurrence_observer,
+                ),
+                occurrence_observer=self.occurrence_observer,
             ),
         )
 
@@ -439,6 +514,7 @@ def _substitution(
     template: Expression,
     call: Span,
     occurrences: Iterator[int],
+    occurrence_observer: Callable[[object, object], None] | None = None,
 ) -> Callable[[object, object], object]:
     """Put each argument in place of its parameter.
 
@@ -477,7 +553,9 @@ def _substitution(
                 if name not in used:
                     used.add(name)
                     return argument
-                return _rebuild(argument, copied)
+                return _rebuild(
+                    argument, copied, occurrence_observer=occurrence_observer
+                )
         if original is template and isinstance(rebuilt, Expression):
             return replace(rebuilt, span=call)
         return occurrence(rebuilt, call) if isinstance(rebuilt, Node) else rebuilt
@@ -485,7 +563,12 @@ def _substitution(
     return substitute
 
 
-def _rebuild(root: object, visit: Callable[[object, object], object]) -> object:
+def _rebuild(
+    root: object,
+    visit: Callable[[object, object], object],
+    *,
+    occurrence_observer: Callable[[object, object], None] | None = None,
+) -> object:
     """Rebuild an AST bottom up without recursion; ``visit(original, rebuilt)``
     may replace each AST value. Unchanged subtrees keep their identity."""
 
@@ -519,7 +602,10 @@ def _rebuild(root: object, visit: Callable[[object, object], object]) -> object:
                     if new is not old
                 },
             )
-        done.append(visit(value, rebuilt) if type(value) is not tuple else rebuilt)
+        result = visit(value, rebuilt) if type(value) is not tuple else rebuilt
+        if occurrence_observer is not None:
+            occurrence_observer(value, result)
+        done.append(result)
     (result,) = done
     return result
 
@@ -1053,7 +1139,7 @@ def _check_body(
             # Unknown nullability: the checker does not prove it either way.
             message = (
                 f"Def {function.name} body is not proven non-null, but its "
-                "declared return type is not null; declare the result `nullable`"
+                "declared return type is not null; add `| None` to the result type"
             )
         message += (
             "; a body is proven non-null when every value it reads is non-null, "

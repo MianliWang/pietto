@@ -72,35 +72,34 @@ def emit(tmp_path, target, body, policy="preserve_literals"):
 
 Q1_BODY = """table result:
     from rows
-    let:
-        lowered = lower(text)
-        uppered = upper(text)
-        trimmed = trim(text)
-        sized = len(text)
-        piece = substr(text, 1, 2)
-        replaced = replace(text, text, text)
-        contained = contains(text, text)
-        prefixed = starts_with(text, text)
-        suffixed = ends_with(text, text)
-        selected = id in (id, id)
-        text_membership = text in (text)
-        decimal_membership = money in (money)
-        float_membership = ratio in (ratio)
-        empty_selected = flag in ()
-        empty_excluded = flag not in ()
-        unknown_excluded = flag not in (flag)
-        fallback = coalesce(nullif(text, text), text)
-        null_fallback = coalesce(null, text)
-        null_checked = nullif(text, null)
-        nullable_membership = id in (id, null)
-        branch = text if flag else text
-        negated = not flag
-        widened = cast(id as Float)
-        magnitude = abs(money)
-        direction = sign(money)
-        ranged = id between id and id
-        matched = text like text
-        unmatched = text not like text
+    let lowered = lower(text)
+    let uppered = upper(text)
+    let trimmed = trim(text)
+    let sized = len(text)
+    let piece = substr(text, 1, 2)
+    let replaced = replace(text, text, text)
+    let contained = contains(text, text)
+    let prefixed = starts_with(text, text)
+    let suffixed = ends_with(text, text)
+    let selected = id in (id, id)
+    let text_membership = text in (text)
+    let decimal_membership = money in (money)
+    let float_membership = ratio in (ratio)
+    let empty_selected = flag in ()
+    let empty_excluded = flag not in ()
+    let unknown_excluded = flag not in (flag)
+    let fallback = coalesce(nullif(text, text), text)
+    let null_fallback = coalesce(None, text)
+    let null_checked = nullif(text, None)
+    let nullable_membership = id in (id, None)
+    let branch = text if flag else text
+    let negated = not flag
+    let widened = Float(id)
+    let magnitude = abs(money)
+    let direction = sign(money)
+    let ranged = id <= id <= id
+    let matched = text like text
+    let unmatched = text not like text
     select:
         lowered
         uppered
@@ -155,14 +154,14 @@ HIDDEN_ORDER_BODY = """query result:
 NULL_BIND_BODY = """table result:
     from rows
     select:
-        nullable_membership = id in (1, null)
+        nullable_membership = id in (1, None)
 """
 
 
 ALL_NULL_BODY = """table result:
     from rows
     select:
-        unknown = coalesce(null, null)
+        unknown = coalesce(None, None)
 """
 
 
@@ -414,10 +413,9 @@ def test_date_of_derives_the_date_result_carrier_and_civil_parts(tmp_path, targe
         temporal_probe.temporal_source(target).split("table result:", 1)[0]
         + """table result:
     from rows
-    let:
-        civil_date = date_of(stamp)
-        nullable_date = date_of(optional_stamp)
-        null_date = date_of(null)
+    let civil_date = date_of(stamp)
+    let nullable_date = date_of(optional_stamp)
+    let null_date = date_of(None)
     select:
         civil_date
         nullable_date
@@ -498,8 +496,8 @@ def test_date_of_derives_the_date_result_carrier_and_civil_parts(tmp_path, targe
 @pytest.mark.parametrize("target", TARGETS)
 def test_date_has_no_independent_selected_project_source(tmp_path, target):
     source = f"""shape Row:
-    event_date: Date nullable
-source rows: Row is {target}.table("opaque.result.fixture")
+    event_date: Date | None
+source rows: Row = {target}.table("opaque.result.fixture")
 table result:
     from rows
     select:
@@ -686,15 +684,14 @@ def test_q1_scalar_ast_and_bytes_tampering_are_rejected(tmp_path, target, mutati
 
 TEXT_CARRIER_BODY = """table result:
     from rows
-    let:
-        coalesced = coalesce(text, "x")
-        null_checked = nullif(text, "x")
-        fallback = coalesce(nullif(trim(text), ""), text, "anonymous")
-        null_fallback = coalesce(null, "x", text)
-        branch = text if flag else "x"
-        nested = "unknown" if flag else ("adult" if flag else "minor")
-        text_member = text in ("x")
-        bool_member = flag in (true)
+    let coalesced = coalesce(text, "x")
+    let null_checked = nullif(text, "x")
+    let fallback = coalesce(nullif(trim(text), ""), text, "anonymous")
+    let null_fallback = coalesce(None, "x", text)
+    let branch = text if flag else "x"
+    let nested = "unknown" if flag else ("adult" if flag else "minor")
+    let text_member = text in ("x")
+    let bool_member = flag in (True)
     select:
         coalesced
         null_checked
@@ -709,13 +706,12 @@ TEXT_CARRIER_BODY = """table result:
 
 SCALAR_CARRIER_BODY = """table result:
     from rows
-    let:
-        coalesced = coalesce(id, 1)
-        null_checked = nullif(id, 1)
-        branch = id if flag else 1
-        bool_coalesced = coalesce(flag, true)
-        bool_checked = nullif(flag, true)
-        bool_branch = flag if flag else true
+    let coalesced = coalesce(id, 1)
+    let null_checked = nullif(id, 1)
+    let branch = id if flag else 1
+    let bool_coalesced = coalesce(flag, True)
+    let bool_checked = nullif(flag, True)
+    let bool_branch = flag if flag else True
     select:
         coalesced
         null_checked
@@ -903,7 +899,7 @@ table result:
     from rows
     where id in (id, 0) and id not in ids
     select:
-        listed = id in (1, null)
+        listed = id in (1, None)
         read = id in ids
 """
 COEXISTING_SQL = {
@@ -993,7 +989,7 @@ query monies:
             ("membership_type_pair_not_admitted", 12, 9),
         ),
         (
-            "table result:\n    from rows\n    where money in (1, null)\n"
+            "table result:\n    from rows\n    where money in (1, None)\n"
             "    select:\n        id\n",
             ("membership_type_pair_not_admitted", 10, 5),
         ),
@@ -1032,18 +1028,18 @@ def test_decimal_int_membership_checks_and_is_refused_like_its_comparison(
 
 # A project that calls defs, and the same project with each call written out
 # by hand: fixture, variant, defs, edits for the calls, edits written out.
-ROW_NUMBER = "row_number() window:\n            order by:\n                id\n"
-RANK = "rank() window:\n            order by:\n                id\n"
+ROW_NUMBER = "row_number() window(order by id)\n"
+RANK = "rank() window(order by id)\n"
 DEF_PROJECTS = {
     "row_body": (
         "T_row_direct",
         "table_preserve",
-        "def small(n: Int not null) -> Bool nullable: return n > 0 and n < 1000\n"
-        "def both(a: Int not null, b: Int not null) -> Bool nullable: "
+        "def small(n: Int) -> Bool | None: return n > 0 and n < 1000\n"
+        "def both(a: Int, b: Int) -> Bool | None: "
         "return small(a) and small(b)\n"
-        "def label(t: Text not null, f: Bool nullable) -> Text not null: "
-        'return "on" if f is null else lower(t)\n'
-        "def next_of(n: Int not null) -> Int nullable: return n + 1\n",
+        "def label(t: Text, f: Bool | None) -> Text: "
+        'return "on" if f is None else lower(t)\n'
+        "def next_of(n: Int) -> Int | None: return n + 1\n",
         [
             ("bumped = id + 1", "bumped = next_of(id)"),
             ("where id > 0", "where both(id, id) and small(id)"),
@@ -1058,29 +1054,28 @@ DEF_PROJECTS = {
             ),
             (
                 "positive = id > 0",
-                'positive = ("on" if flag is null else lower(text)) == '
-                '("on" if flag is null else lower(text))',
+                'positive = ("on" if flag is None else lower(text)) == '
+                '("on" if flag is None else lower(text))',
             ),
         ],
     ),
     "parameter_named_like_a_function": (
         "T_row_direct",
         "table_preserve",
-        "def f(upper: Text not null) -> Text not null: return upper(upper)\n",
+        "def f(upper: Text) -> Text: return upper(upper)\n",
         [
-            ("doubled = bumped * 2", "doubled = bumped * 2\n        lower = text"),
+            ("doubled = bumped * 2", "doubled = bumped * 2\n    let lower = text"),
             ("same_text = text == text", "same_text = f(lower) == text"),
         ],
         [
-            ("doubled = bumped * 2", "doubled = bumped * 2\n        lower = text"),
+            ("doubled = bumped * 2", "doubled = bumped * 2\n    let lower = text"),
             ("same_text = text == text", "same_text = (upper(lower)) == text"),
         ],
     ),
     "reordered_bound_literals": (
         "T_row_direct",
         "query_bind",
-        "def btw(lo: Int not null, hi: Int not null, n: Int not null) -> "
-        "Bool nullable: return n < hi and n > lo\n",
+        "def btw(lo: Int, hi: Int, n: Int) -> Bool | None: return n < hi and n > lo\n",
         [("where id > 0", "where btw(0, 1000, id) and btw(0, 1000, id)")],
         [
             (
@@ -1092,28 +1087,28 @@ DEF_PROJECTS = {
     "grouped_let_key": (
         "Y_aggregate_computed",
         "let_key",
-        "def bucket_of(k: Int nullable) -> Int not null: return 1 if k > 1 else 0\n",
+        "def bucket_of(k: Int | None) -> Int: return 1 if k > 1 else 0\n",
         [("bucket = 1 if key > 1 else 0", "bucket = bucket_of(key)")],
         [("bucket = 1 if key > 1 else 0", "bucket = (1 if key > 1 else 0)")],
     ),
     "satisfying": (
         "Y_aggregate_satisfying",
         "retained",
-        "def small(t: Int not null) -> Bool nullable: return t < 2\n",
+        "def small(t: Int) -> Bool | None: return t < 2\n",
         [("total < 2 and lo > 5", "small(total) and lo > 5")],
         [("total < 2 and lo > 5", "(total < 2) and lo > 5")],
     ),
     "qualify": (
         "A_window_qualify",
         "selected",
-        "def top(n: Int not null) -> Bool nullable: return n <= 2\n",
+        "def top(n: Int) -> Bool | None: return n <= 2\n",
         [("numbered <= 2", "top(numbered)")],
         [("numbered <= 2", "(numbered <= 2)")],
     ),
     "qualify_window_argument_used_twice": (
         "A_window_qualify",
         "selected",
-        "def both(x: Int not null) -> Bool nullable: return x <= 2 and x <= 3\n",
+        "def both(x: Int) -> Bool | None: return x <= 2 and x <= 3\n",
         [("        numbered <= 2\n", "        both(" + ROW_NUMBER + "        )\n")],
         [
             (
@@ -1129,8 +1124,7 @@ DEF_PROJECTS = {
     "qualify_window_arguments_reordered": (
         "A_window_qualify",
         "selected",
-        "def swap(a: Int not null, b: Int not null) -> Bool nullable: "
-        "return b <= 2 and a <= 3\n",
+        "def swap(a: Int, b: Int) -> Bool | None: return b <= 2 and a <= 3\n",
         [
             (
                 "        numbered <= 2\n",
@@ -1151,7 +1145,7 @@ DEF_PROJECTS = {
     "join_on": (
         "W_join_values",
         "left_marker",
-        "def same(a: Int not null, b: Int not null) -> Bool nullable: return a == b\n",
+        "def same(a: Int, b: Int) -> Bool | None: return a == b\n",
         [("on rows.id == r.pid", "on same(rows.id, r.pid)")],
         [("on rows.id == r.pid", "on (rows.id == r.pid)")],
     ),
@@ -1181,3 +1175,94 @@ def test_def_calls_emit_the_project_sql_of_the_calls_written_out(
     assert documents[0]["status"] == documents[1]["status"] == "VERIFIED"
     for key in ("sql", "columns", "fixed_values", "parameter_uses", "requirements"):
         assert documents[0][key] == documents[1][key], key
+
+
+_CHAIN_SELECT = "query result:\n    from lhs\n{join}    select:\n        a = lhs.id\n"
+_CHAIN_JOIN = _CHAIN_SELECT.format(join="    cross join rhs\n")
+_CHAIN_PLAIN = _CHAIN_SELECT.format(join="")
+_CHAIN_QUALIFY = "    qualify:\n        {}\n"
+_ROW_NUMBER = "row_number() window(order by lhs.id)"
+_CLAMP = "def clamp(v: Int) -> Int | None: return v if v < 10 else 10\n"
+CHAIN_PROJECTS = {
+    "select": (
+        _CHAIN_PLAIN + "        inside = 0 < lhs.id < 10\n",
+        _CHAIN_PLAIN + "        inside = 0 < lhs.id and lhs.id < 10\n",
+    ),
+    "join_select": (
+        _CHAIN_JOIN + "        inside = 0 < lhs.id < rhs.id\n",
+        _CHAIN_JOIN + "        inside = 0 < lhs.id and lhs.id < rhs.id\n",
+    ),
+    "join_four_operands": (
+        _CHAIN_JOIN + "        inside = 0 < lhs.id < 10 < rhs.id\n",
+        _CHAIN_JOIN + "        inside = 0 < lhs.id and lhs.id < 10 and 10 < rhs.id\n",
+    ),
+    "join_where": (
+        _CHAIN_JOIN.replace(
+            "    select:", "    where 0 < lhs.id < rhs.id\n    select:"
+        ),
+        _CHAIN_JOIN.replace(
+            "    select:", "    where 0 < lhs.id and lhs.id < rhs.id\n    select:"
+        ),
+    ),
+    "join_on": (
+        _CHAIN_SELECT.format(join="    inner join rhs on lhs.id < rhs.id < 10\n"),
+        _CHAIN_SELECT.format(
+            join="    inner join rhs on lhs.id < rhs.id and rhs.id < 10\n"
+        ),
+    ),
+    "outer_nullable_operand": (
+        _CHAIN_SELECT.format(join="    left join rhs on lhs.id == rhs.id\n")
+        + "        inside = 0 < rhs.key < lhs.id\n",
+        _CHAIN_SELECT.format(join="    left join rhs on lhs.id == rhs.id\n")
+        + "        inside = 0 < rhs.key and rhs.key < lhs.id\n",
+    ),
+    "qualify": (
+        _CHAIN_PLAIN + _CHAIN_QUALIFY.format(f"0 < {_ROW_NUMBER} < 3"),
+        _CHAIN_PLAIN
+        + _CHAIN_QUALIFY.format(f"0 < {_ROW_NUMBER} and {_ROW_NUMBER} < 3"),
+    ),
+    "join_qualify": (
+        _CHAIN_JOIN + _CHAIN_QUALIFY.format(f"0 < {_ROW_NUMBER} < 3"),
+        _CHAIN_JOIN + _CHAIN_QUALIFY.format(f"0 < {_ROW_NUMBER} and {_ROW_NUMBER} < 3"),
+    ),
+    # The body uses its parameter twice in each copy of the operand.
+    "def_call_operand": (
+        _CLAMP + _CHAIN_PLAIN + "        inside = 0 < clamp(lhs.id) < 5\n",
+        _CLAMP
+        + _CHAIN_PLAIN
+        + "        inside = 0 < clamp(lhs.id) and clamp(lhs.id) < 5\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("chain", "written"), CHAIN_PROJECTS.values(), ids=CHAIN_PROJECTS
+)
+def test_comparison_chains_emit_the_project_sql_of_their_comparisons_written_out(
+    tmp_path, target, chain, written
+):
+    """``a < b < c`` is ``a < b and b < c``: each comparison reads its own
+    occurrence of ``b``, so a chain emits exactly the SQL of that form."""
+    documents = []
+    for name, body in (("chain", chain), ("written", written)):
+        item = probe.join_witness(target, body)
+        _, outcome = probe.build_case(
+            tmp_path / name, item["source"], item["contract"], item["policy"]
+        )
+        documents.append(json.loads(serialize_project_sql_emission(outcome)))
+    assert documents[0]["status"] == documents[1]["status"] == "VERIFIED"
+    for key in ("sql", "columns", "fixed_values", "parameter_uses", "requirements"):
+        assert documents[0][key] == documents[1][key], key
+    if chain == CHAIN_PROJECTS["select"][0]:
+        integer, quote, relation = (
+            ("pg_catalog.int8", '"', '"public"."phase66 lhs é"')
+            if target == "postgres"
+            else ("SIGNED", "`", "`phase66`.`phase66 lhs é`")
+        )
+        field = f"{quote}s0{quote}.{quote}order.id{quote}"
+        assert documents[0]["sql"] == (
+            f"SELECT {field} AS {quote}a{quote}, ((CAST(0 AS {integer}) < {field}) "
+            f"AND ({field} < CAST(10 AS {integer}))) AS {quote}inside{quote} "
+            f"FROM {relation} AS {quote}s0{quote}"
+        )

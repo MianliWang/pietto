@@ -110,6 +110,18 @@ def resolve_join_relationship(
             "relationship resolution needs an M1, M2 or M4 JOIN with at most "
             "one VIA step and its visible earlier bindings"
         )
+    if clause.uses_named_input:
+        # A modern JOIN without `on` infers no relationship: it only lacks its
+        # `on`, also when an input is a table or query, which the legacy
+        # lookup below refuses as a relationship JOIN through it.
+        source = visible[0] if written_source is None else written_source
+        return (
+            _error(
+                clause,
+                f"JOIN {clause.target_binding_name}: write `on` with the condition "
+                f"that matches {source.name} to {clause.target_relation_name}",
+            ),
+        )
     relationships = _relationships(context)
     if steps:
         return _through_step(clause, steps[0], visible, written_source, relationships)
@@ -398,11 +410,12 @@ def _direct(
                 ),
             ),
         )
+    # A declared relationship never joins by itself (it is called in `on`).
     return (
         _error(
             clause,
-            f"{join}: no relationship joins {source.name} to "
-            f"{clause.target_relation_name}; declare one, or write `on`",
+            f"{join}: write `on` with the condition that matches {source.name} "
+            f"to {clause.target_relation_name}",
         ),
     )
 

@@ -23,8 +23,14 @@ from pietto._project.project_relationship_match_guarantees import (
     ProjectDirectionalRelationshipMatchGuarantee,
     ProjectRefinedMatchBounds,
     ProjectRelationshipMinimumBound,
+    ProjectRelationshipMaximumBound,
+    resolved_matching_keys,
 )
 from pietto._project.project_relationship_paths import ProjectRelationshipPathStep
+from pietto._project.project_ir_relational_properties import (
+    ProjectIROutputCandidateKey,
+    ProjectIROutputRelationalProperties,
+)
 from pietto._project.project_relationship_uses import (
     ProjectConcreteJoinUse,
     ProjectJoinUse,
@@ -40,6 +46,17 @@ from pietto._project.project_relationship_uses import (
     project_join_binding_visible,
     validate_project_join_input_bindings,
     rebuild_available_relationship_use,
+)
+from pietto._project.existence_values import (
+    ProjectAnyField,
+    ProjectAnyValue,
+    analyze_any_values,
+    validate_any_values,
+)
+from pietto._project.project_relationship_predicates import (
+    ProjectRelationshipPredicateCatalog,
+    ProjectRelationshipPredicateExpression,
+    bind_project_relationship_predicates,
 )
 from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
@@ -57,7 +74,12 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity
 from pietto.semantic.aggregates import contains_semantic_aggregate
 from pietto.semantic.expressions import infer_row_expression
-from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
+from pietto.semantic.model import (
+    RelationshipCallInfo,
+    RowSchema,
+    ValueType,
+    ValueTypeKind,
+)
 from pietto.semantic.predicate_checks import _check_bool_expression
 
 __all__: tuple[str, ...] = ()
@@ -200,6 +222,12 @@ class ProjectJoinConditionEnvironment:
     blocked_bindings: tuple[ProjectRelationBindingOccurrence, ...] = field(init=False)
     fields: tuple[ProjectJoinConditionField, ...] = field(init=False)
     _rows: tuple[_InputRow, ...] = field(init=False, repr=False)
+    predicate_expression: ProjectRelationshipPredicateExpression | None = field(
+        init=False
+    )
+    expression: Expression | None = field(init=False)
+    reference_leaves: tuple[NameExpr | DottedNameExpr, ...] = field(init=False)
+    existence_values: tuple[ProjectAnyValue, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         if (
@@ -231,10 +259,38 @@ class ProjectJoinConditionEnvironment:
         object.__setattr__(
             self,
             "source_candidates",
-            project_join_source_candidates(self.ledger, self.use, self.root.uses.index),
+            (self.ledger.bindings[0],)
+            if self.use.clause.uses_named_input
+            and project_join_mode(self.use.clause) in {"M3", "M5"}
+            else project_join_source_candidates(
+                self.ledger, self.use, self.root.uses.index
+            ),
         )
         object.__setattr__(self, "blocked_bindings", blocked)
         object.__setattr__(self, "_rows", rows)
+        matches = tuple(
+            item
+            for item in self.root.predicate_expressions
+            if item.owner is self.ledger.owner
+            and item.context is self.use.clause.on_clause
+        )
+        if len(matches) > 1:
+            raise ValueError(
+                "JOIN ON requires one exact predicate expression occurrence."
+            )
+        normalized = matches[0] if matches else None
+        object.__setattr__(self, "predicate_expression", normalized)
+        object.__setattr__(
+            self,
+            "expression",
+            normalized.expression
+            if normalized is not None
+            else (
+                self.use.clause.on_clause.expression
+                if self.use.clause.on_clause is not None
+                else None
+            ),
+        )
         object.__setattr__(
             self,
             "fields",
@@ -243,6 +299,41 @@ class ProjectJoinConditionEnvironment:
                 for i in range(len(rows))
             ),
         )
+        object.__setattr__(
+            self,
+            "reference_leaves",
+            ()
+            if self.expression is None
+            else normalized.scalar_references
+            if normalized is not None
+            else scalar_field_reference_leaves(self.expression),
+        )
+        on = self.use.clause.on_clause
+        values = ()
+        if on is not None and self.expression is not None:
+            values = analyze_any_values(
+                root=self.root.uses.relationships.semantic_result,
+                owner=self.ledger.owner,
+                authored=on.expression,
+                expression=self.expression,
+                normalized_any=() if normalized is None else normalized.any_expressions,
+                retained_bindings=None
+                if normalized is None
+                else normalized.any_bindings,
+                failed_relationship_calls=()
+                if normalized is None
+                else normalized.failed_calls,
+                outer_fields=tuple(
+                    ProjectAnyField(binding=item.binding, source_field=item)
+                    for item in self.fields
+                ),
+                available=()
+                if self.inputs is None
+                else self.inputs.scope.available_entries,
+            )
+        object.__setattr__(self, "existence_values", values)
+        if self.expression is not None:
+            validate_any_values(self.ledger.owner, self.expression, values)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -286,12 +377,9 @@ class ProjectJoinConditionReference:
 
     def __post_init__(self) -> None:
         env = self.environment
-        if (
-            type(env) is not ProjectJoinConditionEnvironment
-            or env.use.clause.on_clause is None
-        ):
+        if type(env) is not ProjectJoinConditionEnvironment or env.expression is None:
             raise ValueError("Reference requires an exact authored ON environment.")
-        leaves = scalar_field_reference_leaves(env.use.clause.on_clause.expression)
+        leaves = env.reference_leaves
         if type(self.position) is not int or not 0 <= self.position < len(leaves):
             raise ValueError("Reference requires an exact expression occurrence.")
         expression = leaves[self.position]
@@ -384,6 +472,16 @@ class ProjectJoinCondition:
         init=False
     )
     refinement_guarantee: ProjectRefinedMatchBounds | None = field(init=False)
+    base_guarantees: tuple[ProjectDirectionalRelationshipMatchGuarantee, ...] = field(
+        init=False
+    )
+    mandatory_equalities: tuple[ProjectJoinConditionEquality, ...] = field(init=False)
+    match_inputs: tuple[
+        tuple[ProjectRelationBindingOccurrence, ProjectIROutputRelationalProperties],
+        ...,
+    ] = field(init=False)
+    key_matches: tuple[ProjectJoinConditionKeyMatch, ...] = field(init=False)
+    legacy_matched_fields: tuple[ProjectJoinConditionField, ...] = field(init=False)
     value_type: ValueType | None = field(init=False)
     value_types: Mapping[Expression, ValueType] = field(init=False, repr=False)
     state: ProjectJoinConditionState = field(init=False)
@@ -400,9 +498,7 @@ class ProjectJoinCondition:
         )
         clause = self.use.clause
         mode = project_join_mode(clause)
-        expression = (
-            clause.on_clause.expression if clause.on_clause is not None else None
-        )
+        expression = env.expression
         scope = (
             (
                 ProjectRelationshipConditionScope.JOIN_LOCAL_ON_REFINEMENT
@@ -416,12 +512,24 @@ class ProjectJoinCondition:
         references = (
             tuple(
                 ProjectJoinConditionReference(environment=env, position=i)
-                for i in range(len(scalar_field_reference_leaves(expression)))
+                for i in range(len(env.reference_leaves))
             )
             if expression is not None
             else ()
         )
-        diagnostics: list[Diagnostic] = []
+        diagnostics: list[Diagnostic] = list(
+            env.predicate_expression.diagnostics
+            if env.predicate_expression is not None
+            else ()
+        )
+        # A typed ANY restates its rejected calls' errors, which the record owns.
+        owned = {id(item) for item in diagnostics}
+        diagnostics.extend(
+            item
+            for value in env.existence_values
+            for item in value.diagnostics
+            if id(item) not in owned
+        )
         combination = project_join_combination_error(clause)
         if combination is not None:
             diagnostics.append(_diagnostic(clause.span, combination, code="PIE-S2336"))
@@ -512,7 +620,11 @@ class ProjectJoinCondition:
                     "JOIN pre-match input or relationship authority is unavailable."
                 )
             diagnostics.append(_diagnostic(clause.span, message))
-        value_types: dict[Expression, ValueType] = {}
+        value_types: dict[Expression, ValueType] = {
+            expression: value_type
+            for value in env.existence_values
+            for expression, value_type in value.value_types.items()
+        }
         for reference in references:
             if reference.target is None:
                 diagnostics.append(
@@ -539,6 +651,11 @@ class ProjectJoinCondition:
                     value_types,
                     diagnostics,
                     report_unknown_name=True,
+                    failed_relationship_calls=(
+                        ()
+                        if env.predicate_expression is None
+                        else env.predicate_expression.failed_calls
+                    ),
                 )
                 predicate_diagnostic = _check_bool_expression(
                     expression, context="JOIN ON", expression_value_types=value_types
@@ -568,6 +685,7 @@ class ProjectJoinCondition:
         object.__setattr__(self, "conjuncts", conjuncts)
         object.__setattr__(self, "references", references)
         object.__setattr__(self, "base_conditions", bases)
+        object.__setattr__(self, "base_guarantees", guarantees)
         object.__setattr__(self, "base_guarantee", base)
         object.__setattr__(
             self,
@@ -583,6 +701,72 @@ class ProjectJoinCondition:
         object.__setattr__(self, "diagnostics", tuple(diagnostics))
         object.__setattr__(
             self,
+            "mandatory_equalities",
+            tuple(
+                ProjectJoinConditionEquality(condition=self, conjunct_position=position)
+                for position, conjunct in enumerate(conjuncts)
+                if ready
+                and _equality_fields(self, conjunct) is not None
+                and env.predicate_expression is not None
+                and any(
+                    conjunct is equality
+                    for call in env.predicate_expression.calls
+                    for equality in call.mandatory_equalities
+                )
+            ),
+        )
+        object.__setattr__(
+            self,
+            "match_inputs",
+            tuple(
+                (binding, properties)
+                for binding in env.bindings
+                for properties in (_matching_properties(self, binding),)
+                if properties is not None
+            ),
+        )
+        object.__setattr__(
+            self,
+            "key_matches",
+            tuple(
+                ProjectJoinConditionKeyMatch(condition=self, binding=binding, key=key)
+                for binding, properties in self.match_inputs
+                if ready and self.mandatory_equalities
+                for key in resolved_matching_keys(
+                    properties.keys, _matched_classes(self, binding, properties)
+                )
+            ),
+        )
+        object.__setattr__(
+            self,
+            "legacy_matched_fields",
+            tuple(
+                field
+                for field in env.fields
+                if ready
+                and any(
+                    field.binding is binding
+                    and any(
+                        field.input_field is member
+                        for group in groups
+                        for member in group.members
+                    )
+                    for guarantee in guarantees
+                    for binding, groups in (
+                        *(
+                            (source, guarantee.source_matched_classes)
+                            for source in source_candidates
+                            if source.output is guarantee.source_output
+                        ),
+                        (self.use.target_binding, guarantee.target_matched_classes)
+                        if self.use.target_binding.output is guarantee.target_output
+                        else (None, ()),
+                    )
+                )
+            ),
+        )
+        object.__setattr__(
+            self,
             "null_rejections",
             tuple(
                 ProjectJoinNullRejection(
@@ -591,6 +775,175 @@ class ProjectJoinCondition:
                 for i, conjunct in enumerate(conjuncts)
                 for reference in references
                 if ready and _null_rejection_reason(conjunct, reference) is not None
+            ),
+        )
+
+
+def _equality_fields(
+    condition: ProjectJoinCondition,
+    expression: Expression,
+) -> tuple[ProjectJoinConditionField, ProjectJoinConditionField] | None:
+    if type(expression) is not ComparisonExpr or expression.operator != "==":
+        return None
+    sides = tuple(
+        tuple(
+            reference.target
+            for reference in condition.references
+            if reference.expression is operand and reference.target is not None
+        )
+        for operand in (expression.left, expression.right)
+    )
+    if any(len(side) != 1 for side in sides):
+        return None
+    return sides[0][0], sides[1][0]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectJoinConditionEquality:
+    """One mandatory ON equality with exact fields and every predicate origin."""
+
+    condition: ProjectJoinCondition = field(repr=False)
+    conjunct_position: int
+    comparison: ComparisonExpr = field(init=False)
+    left: ProjectJoinConditionField = field(init=False)
+    right: ProjectJoinConditionField = field(init=False)
+    calls: tuple[RelationshipCallInfo, ...] = field(init=False)
+
+    def __post_init__(self) -> None:
+        condition = self.condition
+        if (
+            type(condition) is not ProjectJoinCondition
+            or not condition.ready
+            or (
+                type(self.conjunct_position) is not int
+                or not 0 <= self.conjunct_position < len(condition.conjuncts)
+            )
+        ):
+            raise ValueError("Match equality requires an exact ready ON conjunct.")
+        comparison = condition.conjuncts[self.conjunct_position]
+        sides = _equality_fields(condition, comparison)
+        if sides is None or type(comparison) is not ComparisonExpr:
+            raise ValueError(
+                "Match equality requires two exactly resolved field reads."
+            )
+        predicate = condition.environment.predicate_expression
+        calls = tuple(
+            call
+            for call in (() if predicate is None else predicate.calls)
+            if any(comparison is item for item in call.mandatory_equalities)
+        )
+        if not calls:
+            raise ValueError(
+                "Match equality requires an exact mandatory predicate-call origin."
+            )
+        object.__setattr__(self, "comparison", comparison)
+        object.__setattr__(self, "left", sides[0])
+        object.__setattr__(self, "right", sides[1])
+        object.__setattr__(self, "calls", calls)
+
+
+def _matching_properties(
+    condition: ProjectJoinCondition,
+    binding: ProjectRelationBindingOccurrence,
+) -> ProjectIROutputRelationalProperties | None:
+    properties = binding.output
+    if properties is None:
+        return None
+    if condition.inputs is not None:
+        matches = tuple(
+            item for item in condition.inputs.scope.bindings if item.binding is binding
+        )
+        if (
+            len(matches) != 1
+            or matches[0].authority is None
+            or (matches[0].authority.historical_properties is not properties)
+        ):
+            return None
+    return properties
+
+
+def _binding_equalities(
+    condition: ProjectJoinCondition,
+    binding: ProjectRelationBindingOccurrence,
+) -> tuple[tuple[ProjectJoinConditionEquality, ProjectJoinConditionField], ...]:
+    target = condition.use.target_binding
+    return tuple(
+        (equality, own)
+        for equality in condition.mandatory_equalities
+        for own, other in (
+            (equality.left, equality.right),
+            (equality.right, equality.left),
+        )
+        if own.binding is binding
+        and (
+            (binding is target and other.binding is not target)
+            or (binding is not target and other.binding is target)
+        )
+    )
+
+
+def _matched_classes(condition, binding, properties):
+    fields = tuple(
+        field.input_field for _, field in _binding_equalities(condition, binding)
+    )
+    return tuple(
+        group
+        for group in properties.value_classes
+        if any(member is field for member in group.members for field in fields)
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectJoinConditionKeyMatch:
+    """A complete declared input key constrained by this ON's cross-input equalities.
+
+    Extra filters can only reduce matches; no existence/coverage is asserted.
+    """
+
+    condition: ProjectJoinCondition = field(repr=False)
+    binding: ProjectRelationBindingOccurrence = field(repr=False)
+    key: ProjectIROutputCandidateKey
+    properties: ProjectIROutputRelationalProperties = field(init=False, repr=False)
+    equalities: tuple[ProjectJoinConditionEquality, ...] = field(init=False)
+    minimum: ProjectRelationshipMinimumBound = field(
+        default=ProjectRelationshipMinimumBound.ZERO_ALLOWED, init=False
+    )
+    maximum: ProjectRelationshipMaximumBound = field(
+        default=ProjectRelationshipMaximumBound.AT_MOST_ONE, init=False
+    )
+
+    def __post_init__(self) -> None:
+        condition = self.condition
+        if (
+            type(condition) is not ProjectJoinCondition
+            or not condition.ready
+            or not (_exact_member(self.binding, condition.environment.bindings))
+        ):
+            raise ValueError("Key match requires an exact ready ON input occurrence.")
+        candidates = tuple(
+            properties
+            for binding, properties in condition.match_inputs
+            if binding is self.binding
+        )
+        properties = candidates[0] if len(candidates) == 1 else None
+        if (
+            properties is None
+            or not _exact_member(self.key, properties.keys)
+            or not _exact_member(
+                self.key,
+                resolved_matching_keys(
+                    properties.keys,
+                    _matched_classes(condition, self.binding, properties),
+                ),
+            )
+        ):
+            raise ValueError("Key match requires a complete exact input key.")
+        object.__setattr__(self, "properties", properties)
+        object.__setattr__(
+            self,
+            "equalities",
+            tuple(
+                equality for equality, _ in _binding_equalities(condition, self.binding)
             ),
         )
 
@@ -650,12 +1003,29 @@ class ProjectJoinConditionSet:
     uses: ProjectRelationshipUseSet = field(repr=False)
     entries: tuple[ProjectJoinCondition, ...] = field(init=False)
     diagnostics: tuple[Diagnostic, ...] = field(init=False)
+    predicates: ProjectRelationshipPredicateCatalog = field(init=False, repr=False)
+    predicate_expressions: tuple[ProjectRelationshipPredicateExpression, ...] = field(
+        init=False
+    )
 
     def __post_init__(self) -> None:
         if type(self.uses) is not ProjectRelationshipUseSet:
             raise TypeError("JOIN conditions require exact use roots.")
         for ledger in self.uses.ledgers:
             validate_project_join_input_bindings(self.uses, ledger)
+        predicates = ProjectRelationshipPredicateCatalog(
+            semantic_result=self.uses.relationships.semantic_result
+        )
+        object.__setattr__(self, "predicates", predicates)
+        object.__setattr__(
+            self,
+            "predicate_expressions",
+            tuple(
+                item
+                for ledger in self.uses.ledgers
+                for item in bind_project_relationship_predicates(predicates, ledger)
+            ),
+        )
         entries = tuple(
             ProjectJoinCondition(root=self, ledger=ledger, use=use)
             for ledger in self.uses.ledgers
@@ -665,7 +1035,10 @@ class ProjectJoinConditionSet:
         object.__setattr__(
             self,
             "diagnostics",
-            tuple(diagnostic for entry in entries for diagnostic in entry.diagnostics),
+            (
+                *predicates.diagnostics,
+                *(diagnostic for entry in entries for diagnostic in entry.diagnostics),
+            ),
         )
 
 
@@ -712,7 +1085,7 @@ def rebuild_project_join_condition(
         and item.authority.historical_properties is item.binding.output
         for item in inputs.scope.bindings[: historical.use.identity.join_position + 2]
     )
-    if unchanged:
+    if unchanged and not old.existence_values:
         return historical
     return ProjectJoinCondition(
         root=historical.root,
@@ -763,3 +1136,13 @@ class ProjectJoinConditionCompletion:
     @property
     def uses(self) -> ProjectRelationshipUseSet:
         return self.historical.uses
+
+    @property
+    def predicates(self) -> ProjectRelationshipPredicateCatalog:
+        return self.historical.predicates
+
+    @property
+    def predicate_expressions(
+        self,
+    ) -> tuple[ProjectRelationshipPredicateExpression, ...]:
+        return self.historical.predicate_expressions

@@ -420,7 +420,7 @@ def test_matrix_union_must_equal_the_required_inventory():
             for o, n in recovered.items()
         },
     }
-    assert check.check_matrix("mysql", [report])["cells"] == 636
+    assert check.check_matrix("mysql", [report])["cells"] == 616
     assert check.matrix_report_damages("mysql", [report]) == {
         "reused_attempt": "MATRIX_FRESH_ATTEMPTS",
         "driver_in_saved_tail": "R1_SOURCE_OFFLINE",

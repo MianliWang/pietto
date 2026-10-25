@@ -41,11 +41,11 @@ READINESS_HEADER = (
     "    draft\n"
     "    paid\n"
     "shape Event:\n"
-    "    id: UUID not null\n"
-    "    optional_id: UUID nullable\n"
-    "    status: Status not null\n"
-    "    optional_status: Status nullable\n"
-    "    amount: Int not null\n"
+    "    id: UUID\n"
+    "    optional_id: UUID | None\n"
+    "    status: Status\n"
+    "    optional_status: Status | None\n"
+    "    amount: Int\n"
 )
 
 
@@ -490,7 +490,7 @@ def test_static_audit_no_uuid_enum_runtime_metadata_or_output_surface_was_added(
 def _source(connector: str, projections: str) -> str:
     return (
         READINESS_HEADER
-        + f'source events: Event is {connector}("events")\n'
+        + f'source events: Event = {connector}("events")\n'
         + "table projected:\n"
         + "    from events\n"
         + "    select:\n"

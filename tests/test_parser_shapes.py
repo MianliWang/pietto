@@ -32,9 +32,9 @@ from pietto.parser_api import ParseResult, parse_file, parse_source
 def test_shape_parses_ordered_fields_and_nullability_syntax() -> None:
     result = parse_source(
         "shape User:\n"
-        "    id: UUID not null\n"
-        "    email: Text(max = 255, encoding = utf8) nullable\n"
-        "    age: Age nullable\n"
+        "    id: UUID\n"
+        "    email: Text(max = 255, encoding = utf8) | None\n"
+        "    age: Age | None\n"
     )
 
     assert result.diagnostics == ()
@@ -71,9 +71,9 @@ def test_shape_parses_ordered_fields_and_nullability_syntax() -> None:
 def test_shape_field_modifiers_parse_only() -> None:
     result = parse_source(
         "shape User:\n"
-        "    id: UUID not null\n"
+        "    id: UUID\n"
         "    email: Email @pii @sensitive\n"
-        "    age: Age nullable ensure self is null or self between 0 and 130\n"
+        "    age: Age | None ensure self is None or 0 <= self <= 130\n"
     )
 
     assert result.diagnostics == ()
@@ -106,9 +106,8 @@ def test_shape_field_modifiers_parse_only() -> None:
 def test_shape_field_derive_precedes_other_modifiers() -> None:
     result = parse_source(
         "shape User:\n"
-        "    email: Email nullable\n"
-        "    email_norm: Text not null derive normalized_email(email) "
-        "@sensitive ensure self is not null\n"
+        "    email: Email | None\n"
+        "    email_norm: Text derive normalized_email(email) @sensitive ensure self is not None\n"
     )
 
     assert result.diagnostics == ()
@@ -137,8 +136,7 @@ def test_shape_field_derive_precedes_other_modifiers() -> None:
 def test_shape_field_modifier_order_is_preserved_within_each_kind() -> None:
     result = parse_source(
         "shape User:\n"
-        "    name: Text @pii ensure self is not null @sensitive "
-        "ensure len(self) > 0\n"
+        "    name: Text @pii ensure self is not None @sensitive ensure len(self) > 0\n"
     )
 
     assert result.diagnostics == ()
@@ -167,7 +165,7 @@ def test_shape_bare_field_type_and_derive_are_parse_only() -> None:
     assert isinstance(definition, ShapeDef)
     field = definition.fields[0]
     assert field.type_expr.name == "MissingType"
-    assert field.type_expr.nullability is Nullability.IMPLICIT
+    assert field.type_expr.nullability is Nullability.NOT_NULL
     assert isinstance(field.derive_expression, CallExpr)
     assert field.annotations[0].name == "unknown"
     assert isinstance(field.ensure_clauses[0].expression, LiteralExpr)
@@ -178,10 +176,10 @@ def test_shape_allows_blank_lines_and_comments() -> None:
         "shape User:\n"
         "\n"
         "    # Stable external identifier.\n"
-        "    id: UUID not null\n"
+        "    id: UUID\n"
         "\n"
         "    # Optional display name.\n"
-        "    display_name: Text nullable\n"
+        "    display_name: Text | None\n"
         "\n"
     )
 
@@ -194,9 +192,7 @@ def test_shape_allows_blank_lines_and_comments() -> None:
 
 def test_shape_without_final_newline_closes_at_eof() -> None:
     result = parse_source(
-        "shape User:\n"
-        "    id: UUID not null\n"
-        "    email_norm: Text derive normalized_email(email)"
+        "shape User:\n    id: UUID\n    email_norm: Text derive normalized_email(email)"
     )
 
     assert result.diagnostics == ()
@@ -213,9 +209,9 @@ def test_shape_and_field_spans_are_one_based_half_open() -> None:
     path = Path("examples/shapes/span.pietto")
     result = parse_source(
         "shape User:\n"
-        "    id: UUID not null\n"
-        "    email: Text(max = 255, encoding = utf8) nullable\n"
-        "    age: Age nullable\n",
+        "    id: UUID\n"
+        "    email: Text(max = 255, encoding = utf8) | None\n"
+        "    age: Age | None\n",
         path=path,
     )
 
@@ -228,35 +224,35 @@ def test_shape_and_field_spans_are_one_based_half_open() -> None:
         line=1,
         column=1,
         end_line=4,
-        end_column=22,
+        end_column=20,
     )
     assert definition.fields[0].span == Span(
         path=str(path),
         line=2,
         column=5,
         end_line=2,
-        end_column=22,
+        end_column=13,
     )
     assert definition.fields[0].type_expr.span == Span(
         path=str(path),
         line=2,
         column=9,
         end_line=2,
-        end_column=22,
+        end_column=13,
     )
     assert definition.fields[1].span == Span(
         path=str(path),
         line=3,
         column=5,
         end_line=3,
-        end_column=53,
+        end_column=51,
     )
     assert definition.fields[1].type_expr.span == Span(
         path=str(path),
         line=3,
         column=12,
         end_line=3,
-        end_column=53,
+        end_column=51,
     )
 
 
@@ -265,7 +261,7 @@ def test_shape_field_modifier_spans_are_one_based_half_open() -> None:
     result = parse_source(
         "shape User:\n"
         "    email: Email @pii @sensitive\n"
-        "    age: Age nullable ensure self is null or self between 0 and 130\n",
+        "    age: Age | None ensure self is None or 0 <= self <= 130\n",
         path=path,
     )
 
@@ -310,21 +306,21 @@ def test_shape_field_modifier_spans_are_one_based_half_open() -> None:
         line=3,
         column=5,
         end_line=3,
-        end_column=68,
+        end_column=60,
     )
     assert age.type_expr.span == Span(
         path=str(path),
         line=3,
         column=10,
         end_line=3,
-        end_column=22,
+        end_column=20,
     )
     assert age.ensure_clauses[0].span == Span(
         path=str(path),
         line=3,
-        column=23,
+        column=21,
         end_line=3,
-        end_column=68,
+        end_column=60,
     )
 
 
@@ -332,8 +328,7 @@ def test_shape_field_derive_span_is_one_based_half_open() -> None:
     path = Path("examples/shapes/derive_span.pietto")
     result = parse_source(
         "shape User:\n"
-        "    email_norm: Text nullable derive normalized_email(email) "
-        "@sensitive ensure self is not null\n",
+        "    email_norm: Text | None derive normalized_email(email) @sensitive ensure self is not None\n",
         path=path,
     )
 
@@ -347,36 +342,36 @@ def test_shape_field_derive_span_is_one_based_half_open() -> None:
         line=2,
         column=5,
         end_line=2,
-        end_column=96,
+        end_column=94,
     )
     assert field.type_expr.span == Span(
         path=str(path),
         line=2,
         column=17,
         end_line=2,
-        end_column=30,
+        end_column=28,
     )
     assert field.derive_expression is not None
     assert field.derive_expression.span == Span(
         path=str(path),
         line=2,
-        column=38,
+        column=36,
         end_line=2,
-        end_column=61,
+        end_column=59,
     )
     assert field.annotations[0].span == Span(
         path=str(path),
         line=2,
-        column=62,
+        column=60,
         end_line=2,
-        end_column=72,
+        end_column=70,
     )
     assert field.ensure_clauses[0].span == Span(
         path=str(path),
         line=2,
-        column=73,
+        column=71,
         end_line=2,
-        end_column=96,
+        end_column=94,
     )
 
 
@@ -384,11 +379,11 @@ def test_shape_keeps_top_level_definition_order() -> None:
     result = parse_source(
         "type Age = Int\n"
         "constraint positive(x: Age) -> Bool:\n"
-        "    x > 0\n"
+        "    return x > 0\n"
         "derive increment(x: Age) -> Age:\n"
-        "    x + 1\n"
+        "    return x + 1\n"
         "shape User:\n"
-        "    age: Age nullable\n"
+        "    age: Age | None\n"
         "enum Status:\n"
         "    ready\n"
     )
@@ -428,10 +423,10 @@ def test_shape_example_fixture_parses() -> None:
 def test_shape_ast_does_not_expose_antlr_nodes() -> None:
     result = parse_source(
         "shape User:\n"
-        "    id: UUID not null\n"
+        "    id: UUID\n"
         "    email: Email @pii\n"
         "    email_norm: Text derive normalized_email(email)\n"
-        "    age: Age nullable ensure self is null or self between 0 and 130\n"
+        "    age: Age | None ensure self is None or 0 <= self <= 130\n"
     )
 
     assert result.diagnostics == ()
@@ -450,8 +445,8 @@ def test_shape_ast_does_not_expose_antlr_nodes() -> None:
         "shape User:\n    id:\n",
         "shape User:\n",
         "shape User:\n    id: UUID not\n",
-        "shape User:\n    id: UUID null\n",
-        "shape User:\n    id: UUID nullable not null\n",
+        "shape User:\n    id: UUID None\n",
+        "shape User:\n    id: UUID | None not null\n",
         "shape User:\n    id: UUID?\n",
         "shape User:\n    id: UUID @\n",
         'shape User:\n    id: UUID @pii("yes")\n',
@@ -551,10 +546,10 @@ SOFT_KEYWORD_FIELD_NAMES = (
 def test_soft_keywords_name_shape_fields_keys_and_expression_reads(name: str) -> None:
     result = parse_source(
         "shape Row:\n"
-        f"    {name}: Text not null\n"
-        f"    unique {name}_key on {name}\n"
-        f"    index {name}_idx on id, {name} when {name} != 'x'\n"
-        f"    check {name}_set: {name} is not null and row.{name} != ''\n"
+        f"    {name}: Text\n"
+        f"    {name}_key = unique({name})\n"
+        f"    {name}_idx = index(id, {name}) when {name} != 'x'\n"
+        f"    {name}_set = check({name} is not None and row.{name} != '')\n"
     )
     assert result.diagnostics == ()
     assert result.ast is not None
@@ -567,11 +562,11 @@ def test_soft_keywords_name_shape_fields_keys_and_expression_reads(name: str) ->
 
 
 @pytest.mark.parametrize(
-    "name", ("and", "or", "not", "null", "true", "false", "like", "between", "window")
+    "name", ("and", "or", "not", "None", "True", "False", "like", "between", "window")
 )
 def test_operator_literal_and_window_words_stay_reserved_field_names(
     name: str,
 ) -> None:
-    result = parse_source(f"shape Row:\n    {name}: Text not null\n")
+    result = parse_source(f"shape Row:\n    {name}: Text\n")
     assert result.ast is None
     assert {item.code for item in result.diagnostics} == {"PIE-P1000"}

@@ -24,6 +24,7 @@ from pietto._project.project_grain import (
     ProjectGrainBasisState,
     ProjectGrainDependencyFact,
     ProjectGrainDomainFactor,
+    ProjectGroupedGrainFactorIdentity,
     ProjectJoinGrainFactorIdentity,
 )
 from pietto._project.project_ir import ProjectIRSnapshotScope, ProjectIRUseRef
@@ -52,23 +53,23 @@ SPEC = (
 
 def _source() -> str:
     return """shape CustomerRow:
-    id: Int not null
-    unique customer_key on id
+    id: Int
+    customer_key = unique(id)
 shape OrderRow:
-    id: Int not null
-    customer_id: Int not null
-    product_id: Int not null
-    amount: Int nullable
-    unique order_key on id
+    id: Int
+    customer_id: Int
+    product_id: Int
+    amount: Int | None
+    order_key = unique(id)
 shape ReturnRow:
-    id: Int not null
-    customer_id: Int not null
-    reason_id: Int not null
-    amount: Int nullable
-    unique return_key on id
-source customers: CustomerRow is postgres.table("customers")
-source orders: OrderRow is postgres.table("orders")
-source returns: ReturnRow is postgres.table("returns")
+    id: Int
+    customer_id: Int
+    reason_id: Int
+    amount: Int | None
+    return_key = unique(id)
+source customers: CustomerRow = postgres.table("customers")
+source orders: OrderRow = postgres.table("orders")
+source returns: ReturnRow = postgres.table("returns")
 query orders_by_customer:
     from orders
     group by:
@@ -121,137 +122,19 @@ query windowed:
     from orders
     select:
         id
-        ranking = row_number() window:
-            order by:
-                id
-relationship customer_orders_coarse:
-    endpoint customer: customers
-    endpoint orders: orders_by_customer
-    on customer.id == orders.customer_id
-relationship customer_orders_fine:
-    endpoint customer: customers
-    endpoint orders: orders_by_customer_product
-    on customer.id == orders.customer_id
-relationship customer_returns_fine:
-    endpoint customer: customers
-    endpoint returns: returns_by_customer_reason
-    on customer.id == returns.customer_id
-relationship independent_facts:
-    endpoint orders: orders_by_customer_product
-    endpoint returns: returns_by_customer_reason
-    on orders.customer_id == returns.customer_id
-relationship coarse_copy:
-    endpoint original: orders_by_customer
-    endpoint copy: orders_by_customer_copy
-    on original.customer_id == copy.customer_id
-relationship coarse_fine:
-    endpoint coarse: orders_by_customer
-    endpoint fine: orders_by_customer_product
-    on coarse.customer_id == fine.customer_id
-relationship orders_returns_aligned:
-    endpoint orders: orders_by_customer
-    endpoint returns: returns_by_customer
-    on orders.customer_id == returns.customer_id
-relationship parallel_one:
-    endpoint orders: orders_by_customer
-    endpoint returns: returns_by_customer
-    on orders.customer_id == returns.customer_id
-relationship parallel_two:
-    endpoint orders: orders_by_customer
-    endpoint returns: returns_by_customer
-    on orders.customer_id == returns.customer_id
-relationship self_fact:
-    endpoint child: orders_by_customer
-    endpoint parent: orders_by_customer
-    on child.customer_id == parent.customer_id
-relationship globals:
-    endpoint orders: global_orders
-    endpoint returns: global_returns
-    on orders.total == returns.total
-relationship customer_orders_raw:
-    endpoint customer: customers
-    endpoint orders: orders
-    on customer.id == orders.customer_id
-query aligned_join:
-    from orders_by_customer
-    inner join orders_by_customer_copy as copy:
-        from orders_by_customer
-        via coarse_copy: original -> copy
-    select:
-        customer_id
-query comparable_join:
-    from orders_by_customer
-    inner join orders_by_customer_product as fine:
-        from orders_by_customer
-        via coarse_fine: coarse -> fine
-    select:
-        customer_id
-query chasm_join:
-    from customers
-    inner join orders_by_customer_product as orders:
-        from customers
-        via customer_orders_fine: customer -> orders
-    inner join returns_by_customer_reason as returns:
-        from customers
-        via customer_returns_fine: customer -> returns
-    select:
-        id
-query incompatible_join:
-    from orders_by_customer_product
-    inner join returns_by_customer_reason as returns:
-        from orders_by_customer_product
-        via independent_facts: orders -> returns
-    select:
-        customer_id
-query reused_join:
-    from customers
-    inner join orders_by_customer as first_orders:
-        from customers
-        via customer_orders_coarse: customer -> orders
-    inner join orders_by_customer as second_orders:
-        from customers
-        via customer_orders_coarse: customer -> orders
-    select:
-        id
-query multihop_join:
-    from customers
-    inner join returns_by_customer as returns:
-        from customers
-        via customer_orders_coarse: customer -> orders
-        via orders_returns_aligned: orders -> returns
-    select:
-        id
-query self_fact_join:
-    from orders_by_customer
-    left join orders_by_customer as parent:
-        from orders_by_customer
-        via self_fact: child -> parent
-    select:
-        customer_id
-query global_join:
-    from global_orders
-    inner join global_returns as returns:
-        from global_orders
-        via globals: orders -> returns
-    select:
-        total
-query ambiguous_fact_join:
-    from orders_by_customer
-    inner join returns_by_customer as returns:
-        from orders_by_customer
-    select:
-        customer_id
+        ranking = row_number() window(order by id)
+relationship customer_orders_raw(customer: CustomerRow, order: OrderRow):
+    customer.id == order.customer_id
 query missing_fact_join:
     from orders_by_customer
-    inner join returns_by_customer_reason as returns:
-        from orders_by_customer
+    let reasons = returns_by_customer_reason
+    inner join reasons on orders_by_customer.customer_id == reasons.customer_id
     select:
-        customer_id
+        customer_id = orders_by_customer.customer_id
 query joined_aggregate_text:
     from customers
-    inner join orders as orders:
-        from customers
-        via customer_orders_raw: customer -> orders
+    let raw_orders = orders
+    inner join raw_orders on customer_orders_raw(customers, raw_orders)
     select:
         total = count()
 """
@@ -325,18 +208,6 @@ def _fact(
     return matches[0]
 
 
-def _region(
-    built: multifact.ProjectMultiFactAnalysis, owner: str
-) -> multifact.ProjectMultiFactConcreteRegion:
-    matches = tuple(
-        region
-        for region in built.concrete_regions
-        if region.region.ledger.owner.definition.name == owner
-    )
-    assert len(matches) == 1
-    return matches[0]
-
-
 def _subject(
     built: multifact.ProjectMultiFactAnalysis, owner: str
 ) -> multifact.ProjectMultiFactNonConcreteRegionSubject:
@@ -344,27 +215,6 @@ def _subject(
         subject
         for subject in built.non_concrete_regions
         if subject.region.ledger.owner.definition.name == owner
-    )
-    assert len(matches) == 1
-    return matches[0]
-
-
-def _localities(
-    region: multifact.ProjectMultiFactConcreteRegion,
-    fact: multifact.ProjectAggregateFactOccurrence,
-) -> tuple[multifact.ProjectAggregateFactJoinLocality, ...]:
-    return tuple(locality for locality in region.localities if locality.fact is fact)
-
-
-def _alignment(
-    region: multifact.ProjectMultiFactConcreteRegion,
-    left: multifact.ProjectAggregateFactOccurrence,
-    right: multifact.ProjectAggregateFactOccurrence,
-) -> multifact.ProjectMultiFactAlignment:
-    matches = tuple(
-        item
-        for item in region.alignments
-        if {id(item.left.fact), id(item.right.fact)} == {id(left), id(right)}
     )
     assert len(matches) == 1
     return matches[0]
@@ -430,22 +280,18 @@ def test_windows_selected_before_aggregates_keep_pre_window_stage_fields(
     )
     (tmp_path / "main.pietto").write_text(
         """shape Order:
-    region: Text not null
-    amount: Int not null
-source orders: Order is postgres.table("orders")
+    region: Text
+    amount: Int
+source orders: Order = postgres.table("orders")
 query ranked:
     from orders
     group by:
         region
     select:
-        r = rank() window:
-            order by:
-                total desc
+        r = rank() window(order by total desc)
         region
         total = max(amount)
-        rn = row_number() window:
-            order by:
-                region
+        rn = row_number() window(order by region)
         c = count()
 """,
         encoding="utf-8",
@@ -498,178 +344,19 @@ def test_same_context_facts_remain_distinct_and_exactly_aligned(
     assert matches[0].requirements == ()
 
 
-def test_join_localities_preserve_use_field_path_and_contextual_factor_identity(
-    built: multifact.ProjectMultiFactAnalysis,
-) -> None:
-    total = _fact(built, "orders_by_customer", "total")
-    reused = _localities(_region(built, "reused_join"), total)
-    assert len(reused) == 2
-    assert reused[0].introduction_use is not reused[1].introduction_use
-    assert reused[0].contextual_grain.factors != reused[1].contextual_grain.factors
-    assert all(
-        locality.relationship_entry_path is locality.introduction_join.path_step
-        and locality.final_field.introduction_use is locality.introduction_use
-        for locality in reused
-    )
-    assert all(
-        type(factor) is ProjectJoinGrainFactorIdentity
-        and factor.base == total.result_intrinsic_grain.active[0]
-        and factor.introduction_use == locality.introduction_use.ref
-        for locality in reused
-        for factor in locality.contextual_grain.factors
-    )
-    queried = multifact.analyze_project_fact_locality_pair(built, reused[1], reused[0])
-    assert (
-        queried.structural
-        is multifact.ProjectMultiFactStructuralAlignment.STRUCTURALLY_ALIGNABLE
-    )
-
-
-def test_intermediate_path_and_self_role_fact_uses_remain_distinct(
-    built: multifact.ProjectMultiFactAnalysis,
-) -> None:
-    orders = _fact(built, "orders_by_customer", "total")
-    returns = _fact(built, "returns_by_customer", "total")
-    multihop = _region(built, "multihop_join")
-    order_locality = _localities(multihop, orders)[0]
-    return_locality = _localities(multihop, returns)[0]
-    assert order_locality.introduction_join.identity.path_step_position == 0
-    assert return_locality.introduction_join.identity.path_step_position == 1
-    assert order_locality.relationship_entry_path is multihop.region.joins[0].path_step
-    assert return_locality.relationship_entry_path is multihop.region.joins[1].path_step
-
-    self_region = _region(built, "self_fact_join")
-    same_fact = _localities(self_region, orders)
-    assert len(same_fact) == 2
-    assert same_fact[0].side is multifact.ProjectFactJoinInputSide.LEFT
-    assert same_fact[0].relationship_entry_path is None
-    assert same_fact[1].side is multifact.ProjectFactJoinInputSide.RIGHT
-    assert same_fact[0].introduction_use is not same_fact[1].introduction_use
-    assert same_fact[1].final_field.nulling_joins == (
-        same_fact[1].introduction_join.node.ref,
-    )
-
-
-def test_exact_mutual_dependency_and_strict_grain_order_classifications(
-    built: multifact.ProjectMultiFactAnalysis,
-) -> None:
-    orders = _fact(built, "orders_by_customer", "total")
-    copy = _fact(built, "orders_by_customer_copy", "total")
-    aligned = _alignment(_region(built, "aligned_join"), orders, copy)
-    assert (
-        aligned.structural
-        is multifact.ProjectMultiFactStructuralAlignment.STRUCTURALLY_ALIGNABLE
-    )
-    assert aligned.grain_comparison is not None
-    assert (
-        aligned.grain_comparison.status
-        is relational.ProjectIRGrainComparisonStatus.EQUAL
-    )
-    assert (
-        aligned.left.contextual_grain.factors != aligned.right.contextual_grain.factors
-    )
-
-    fine = _fact(built, "orders_by_customer_product", "total")
-    comparable_region = _region(built, "comparable_join")
-    comparable = _alignment(comparable_region, orders, fine)
-    assert (
-        comparable.structural
-        is multifact.ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
-    )
-    assert comparable.finer is not None and comparable.finer.fact is fine
-    assert comparable.common_grain.status is multifact.ProjectCommonGrainStatus.UNIQUE
-    assert comparable.requirements == (
-        multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,
-    )
-    assert comparable_region.chasms == ()
-
-
-def test_independent_fact_branches_form_exact_chasm_and_multiplication_risk(
-    built: multifact.ProjectMultiFactAnalysis,
-) -> None:
-    orders = _fact(built, "orders_by_customer_product", "total")
-    returns = _fact(built, "returns_by_customer_reason", "return_count")
-    region = _region(built, "chasm_join")
-    assert len(region.localities) == 2
-    assert len(region.chasms) == 1
-    chasm = region.chasms[0]
-    assert chasm.localities == region.localities
-    assert len(chasm.introduction_joins) == 2
-    assert all(
-        item.status is relational.ProjectIRGrainComparisonStatus.INCOMPARABLE
-        for item in chasm.pairwise_comparisons
-    )
-    alignment = _alignment(region, orders, returns)
-    assert (
-        alignment.structural
-        is multifact.ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
-    )
-    assert alignment.common_grain.status is multifact.ProjectCommonGrainStatus.UNIQUE
-    assert alignment.multiplicity_risks == (
-        multifact.ProjectMultiFactMultiplicityRisk.FANOUT_RISK,
-        multifact.ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION,
-    )
-    assert alignment.requirements == (
-        multifact.ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,
-    )
-    assert all(locality.multiplicity_exposures for locality in region.localities)
-    assert {orders.aggregate_result.function, returns.aggregate_result.function} == {
-        "sum",
-        "count",
-    }
-
-
-def test_incomparable_facts_without_actual_common_candidate_are_incompatible(
-    built: multifact.ProjectMultiFactAnalysis,
-) -> None:
-    orders = _fact(built, "orders_by_customer_product", "total")
-    returns = _fact(built, "returns_by_customer_reason", "return_count")
-    region = _region(built, "incompatible_join")
-    alignment = _alignment(region, orders, returns)
-    assert alignment.grain_comparison is not None
-    assert alignment.grain_comparison.status is (
-        relational.ProjectIRGrainComparisonStatus.INCOMPARABLE
-    )
-    assert alignment.common_grain.status is multifact.ProjectCommonGrainStatus.NONE
-    assert (
-        alignment.structural
-        is multifact.ProjectMultiFactStructuralAlignment.INCOMPATIBLE
-    )
-    assert alignment.multiplicity_risks == (
-        multifact.ProjectMultiFactMultiplicityRisk.FANOUT_RISK,
-    )
-    assert region.chasms == ()
-
-
 def test_global_facts_keep_zero_factors_without_fabricated_grain(
     built: multifact.ProjectMultiFactAnalysis,
 ) -> None:
     orders = _fact(built, "global_orders", "total")
     returns = _fact(built, "global_returns", "total")
-    assert orders.result_intrinsic_grain.state is ProjectGrainBasisState.GLOBAL
-    assert orders.result_intrinsic_grain.active == ()
-    region = _region(built, "global_join")
-    assert len(region.localities) == 2
-    assert all(
-        locality.contextual_grain.state is ProjectGrainBasisState.GLOBAL
-        and locality.contextual_grain.factors == ()
-        for locality in region.localities
-    )
-    assert _alignment(region, orders, returns).structural is (
-        multifact.ProjectMultiFactStructuralAlignment.EXACTLY_ALIGNED
-    )
+    for fact in (orders, returns):
+        assert fact.result_intrinsic_grain.state is ProjectGrainBasisState.GLOBAL
+        assert fact.result_intrinsic_grain.active == ()
 
 
-def test_non_concrete_regions_preserve_ambiguous_path_or_missing_evidence(
+def test_non_concrete_regions_preserve_missing_evidence(
     built: multifact.ProjectMultiFactAnalysis,
 ) -> None:
-    ambiguous = _subject(built, "ambiguous_fact_join")
-    assert ambiguous.identifiable_facts
-    assert (
-        ambiguous.structural
-        is multifact.ProjectMultiFactStructuralAlignment.AMBIGUOUS_PATH
-    )
-    assert ambiguous.region.ending_allocation is ambiguous.region.starting_allocation
     missing = _subject(built, "missing_fact_join")
     assert missing.identifiable_facts
     assert (
@@ -679,33 +366,18 @@ def test_non_concrete_regions_preserve_ambiguous_path_or_missing_evidence(
     assert missing.region.ending_allocation is missing.region.starting_allocation
 
 
-def test_unrelated_locality_query_is_incompatible_without_global_pair_table(
-    built: multifact.ProjectMultiFactAnalysis,
-) -> None:
-    left = _region(built, "aligned_join").localities[0]
-    right = _region(built, "chasm_join").localities[0]
-    result = multifact.analyze_project_fact_locality_pair(built, left, right)
-    assert (
-        result.structural is multifact.ProjectMultiFactStructuralAlignment.INCOMPATIBLE
-    )
-    assert result.grain_comparison is None
-    assert result.common_grain.status is multifact.ProjectCommonGrainStatus.NONE
-    assert result.multiplicity_risks == ()
-
-
 def test_common_grain_masks_are_arbitrary_width_and_keep_every_finest_candidate(
     built: multifact.ProjectMultiFactAnalysis,
 ) -> None:
-    locality = _region(built, "chasm_join").localities[0]
-    retained = locality.contextual_grain.factors[0]
-    assert type(retained) is ProjectJoinGrainFactorIdentity
+    fact = _fact(built, "orders_by_customer_product", "total")
+    original = fact.result_intrinsic_grain
+    base = original.active[0]
+    assert type(base) is ProjectGroupedGrainFactorIdentity
+    scope = ProjectIRSnapshotScope()
     identities = tuple(
         ProjectJoinGrainFactorIdentity(
-            base=retained.base,
-            introduction_use=ProjectIRUseRef(
-                scope=retained.introduction_use.scope,
-                position=10_000 + position,
-            ),
+            base=base,
+            introduction_use=ProjectIRUseRef(scope=scope, position=10_000 + position),
             nulling_joins=(),
         )
         for position in range(72)
@@ -720,7 +392,6 @@ def test_common_grain_masks_are_arbitrary_width_and_keep_every_finest_candidate(
             dependents=(identities[0], identities[1]),
         ),
     )
-    original = locality.final_region_properties.relational.grain
     authority = ProjectIRProvidedIntrinsicGrain(
         output=original.output,
         state=ProjectGrainBasisState.FACTORIZED,
@@ -782,15 +453,12 @@ def test_carriers_reject_detached_fact_and_locality_authority(
     fact = _fact(built, "orders_by_customer", "total")
     with pytest.raises(ValueError, match="selected output"):
         replace(fact, selected_output_ordinal=fact.selected_output_ordinal + 1)
-    reused = _localities(_region(built, "reused_join"), fact)
-    with pytest.raises(ValueError, match="side"):
-        replace(reused[0], introduction_use=reused[1].introduction_use)
+    (home,) = (item for item in built.home_localities if item.fact is fact)
+    other = _fact(built, "orders_by_customer", "order_count")
+    with pytest.raises(ValueError, match="exact fact result authority"):
+        replace(home, home_field=other.home_field)
     with pytest.raises(ValueError, match="context facts index"):
         replace(built, facts_by_context={})
-    region = _region(built, "chasm_join")
-    assert region.fact_buckets[region.chasms[0].common_grain] == region.localities
-    with pytest.raises(ValueError, match="i < j"):
-        replace(region, alignments=())
 
 
 def test_contract_records_boundaries_and_exact_pass_title() -> None:

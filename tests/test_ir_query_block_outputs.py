@@ -23,6 +23,7 @@ from pietto._project.module_semantic_fact_preservation import (
 )
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
+    ProjectConcreteCompletedSemanticResult,
 )
 from pietto._project.project_completion import (
     ProjectEffectiveOutputTerminalReason,
@@ -41,6 +42,8 @@ from pietto._project.project_scalar_namespaces import (
 from pietto._project.project_scalar_references import (
     ProjectScalarReferenceResolution,
 )
+from pietto._project.project_ir_joins import ProjectIRNonConcreteJoinRegion
+from pietto._project.project_query_block import ProjectNonConcreteQueryBlock
 from pietto.ast_nodes import DottedNameExpr, QueryDef
 
 
@@ -57,112 +60,89 @@ SLICE12_SOURCE = (
     + """
 query final_projection:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        key = event.account_id
+    let event = events
+    inner join event on account_events(accounts, event)
+    let key = event.account_id
     select:
         account_id
         bound = event.id
         let_key = key
         doubled = event.metric * 2
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
 query final_alias_backward:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         first = event.account_id
         second = first
 query final_unnamed:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event.metric + 1
 query final_duplicate:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         repeated = event.id
         repeated = event.account_id
 query final_unknown:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         missing
 query final_order_absent:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        key = event.account_id
+    let event = events
+    inner join event on account_events(accounts, event)
+    let key = event.account_id
     select:
         event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id desc
+        ranked = row_number() window(order by event.id desc)
     order by:
         event.metric desc
         key asc
         ranked
 query final_order_input_precedence:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        account_id = row_number() window:
-            order by:
-                event.id
+        account_id = row_number() window(order by event.id)
     order by:
         account_id
 query final_order_ambiguous_input:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        id = row_number() window:
-            order by:
-                event.id
+        id = row_number() window(order by event.id)
     order by:
         id
 query final_order_projection_alias:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         renamed = event.account_id
     order by:
         renamed
 query final_grouped_order:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        key = event.id
-        key_chain = key
+    let event = events
+    inner join event on account_events(accounts, event)
+    let key = event.id
+    let key_chain = key
     group by:
         key
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            order by:
-                total
+        ranked = rank() window(order by total)
     order by:
         event_id
         total desc
@@ -170,9 +150,8 @@ query final_grouped_order:
         ranked
 query final_grouped_order_raw:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
@@ -182,9 +161,8 @@ query final_grouped_order_raw:
         metric
 query final_grouped_order_scalar:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
@@ -194,91 +172,78 @@ query final_grouped_order_scalar:
         total + 1
 query final_global_order:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         total = sum(event.metric)
     order by:
         total
 query final_window_order_only:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                event.id desc
+        ranked = rank() window(order by event.id desc)
 query final_limit_zero:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit 0
 query final_limit_one:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit 1
 query final_limit_max:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit 9223372036854775807
 query final_limit_large:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit 9223372036854775808
 query final_limit_negative:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit -1
 query final_limit_float:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit 1.5
 query final_limit_string:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit "1"
 query final_limit_name:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit event_id
 query final_limit_call:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit len("x")
@@ -290,9 +255,7 @@ query replay_selected:
     from accounts
     select:
         id
-        ranked = row_number() window:
-            order by:
-                id
+        ranked = row_number() window(order by id)
     qualify:
         ranked <= 3 and id > 0
 query replay_hidden:
@@ -300,10 +263,7 @@ query replay_hidden:
     select:
         id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
+        row_number() window(order by id) <= 3
 query replay_no_window:
     from accounts
     select:
@@ -315,28 +275,20 @@ query replay_global_hidden:
     select:
         total = sum(metric)
     qualify:
-        row_number() window:
-            order by:
-                total
-        <= 1
+        row_number() window(order by total) <= 1
 query replay_ambiguous:
     from accounts
     select:
-        id = row_number() window:
-            order by:
-                accounts.id
+        id = row_number() window(order by accounts.id)
     qualify:
         id > 0
 query replay_order:
     from accounts
-    let:
-        key = id
+    let key = id
     where id > 0
     select:
         id
-        ranked = row_number() window:
-            order by:
-                id
+        ranked = row_number() window(order by id)
     qualify:
         ranked <= 3
     order by:
@@ -351,9 +303,7 @@ query replay_grouped:
     select:
         id
         total = sum(metric)
-        ranked = rank() window:
-            order by:
-                total
+        ranked = rank() window(order by total)
     qualify:
         ranked <= 3
     order by:
@@ -372,18 +322,12 @@ class _Built:
 
 def _build(root: Path, files: dict[str, str]) -> _Built:
     semantic = slice7._semantic_project(root, files, reverse_creation=False)
-    base = completion.build_project_completion(slice7._phase62(semantic))
-    filters = row_filter.build_project_joined_row_filters(base)
-    aggregations = aggregation.build_project_joined_aggregations(filters)
-    window_set = windows.build_project_joined_window_stages(aggregations)
-    qualifies = qualify.build_project_joined_qualifies(window_set)
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
     return _Built(
-        completion=base,
-        qualifies=qualifies,
-        outputs=final_outputs.build_project_effective_output_completion(
-            base,
-            qualifies,
-        ),
+        completion=completed.completion,
+        qualifies=completed.effective_outputs.joined_qualifies,
+        outputs=completed.effective_outputs,
     )
 
 
@@ -398,6 +342,7 @@ def _rebuild_from_same_completion(built: _Built) -> _Built:
         outputs=final_outputs.build_project_effective_output_completion(
             built.completion,
             qualifies,
+            join_conditions=built.outputs.condition_authority,
         ),
     )
 
@@ -416,18 +361,16 @@ def propagated(tmp_path_factory: pytest.TempPathFactory) -> _Built:
     files["c.pietto"] = files["c.pietto"].replace(
         "query joined_a:\n"
         "    from customers\n"
-        "    inner join orders as orders:\n"
-        "        from customers\n"
-        "        via customer_orders: customer -> orders\n"
+        "    let order_input = orders\n"
+        "    inner join order_input on customer_orders(customers, order_input)\n"
         "    select:\n"
         "        id\n",
         "query joined_a:\n"
         "    from customers\n"
-        "    inner join orders as orders:\n"
-        "        from customers\n"
-        "        via customer_orders: customer -> orders\n"
+        "    let order_input = orders\n"
+        "    inner join order_input on customer_orders(customers, order_input)\n"
         "    select:\n"
-        "        order_id = orders.id\n",
+        "        order_id = order_input.id\n",
     )
     files["a.pietto"] = files["a.pietto"].replace(
         "query downstream_b:\n"
@@ -630,29 +573,27 @@ def test_projection_failures_publish_no_partial_output(
 
 
 _STAGE_ERRORS_SOURCE = """shape T:
-    id: Int not null
-    n: Int nullable
-    t: Text nullable
-    unique t_key on id
+    id: Int
+    n: Int | None
+    t: Text | None
+    t_key = unique(id)
 shape O:
-    oid: Int not null
-    tid: Int not null
-    unique o_key on oid
-source src: T is postgres.table("src")
-source oth: O is postgres.table("oth")
-relationship owned:
-    endpoint row: src
-    endpoint other: oth
-    on row.id == other.tid
-def tw(x: Text not null) -> Text not null: return x
+    oid: Int
+    tid: Int
+    o_key = unique(oid)
+source src: T = postgres.table("src")
+source oth: O = postgres.table("oth")
+relationship owned(row: T, other: O):
+    row.id == other.tid
+def tw(x: Text) -> Text: return x
 """
 
 
 @pytest.mark.parametrize(
     "join",
     (
-        "    inner join oth as r:\n        from src\n        on r.tid == id\n",
-        "    inner join oth as r\n",
+        "    let r = oth\n    inner join r on r.tid == id\n",
+        "    let r = oth\n    inner join r on owned(src, r)\n",
         "",
     ),
     ids=("on", "relationship", "none"),
@@ -667,10 +608,10 @@ def test_every_clause_of_a_relation_reports_its_own_errors(
     `let:` hid its WHERE and SELECT errors, the first SELECT item that failed
     hid the others, and an error in any relation's `let:` hid its WHERE."""
     queries = (
-        "    let:\n        l1 = lower(1)\n    where lower(3) is not null\n"
+        "    let l1 = lower(1)\n    where lower(3) is not None\n"
         "    select:\n        id\n        o = lower(2)\n        p = tw(t)\n"
         "        q = l1\n",
-        "    where lower(3) is not null\n    select:\n        id\n"
+        "    where lower(3) is not None\n    select:\n        id\n"
         "        o = lower(2)\n        p = tw(t)\n",
         "    select:\n        id\n        o = lower(2)\n        p = tw(t)\n",
     )
@@ -704,8 +645,7 @@ def test_every_clause_of_a_relation_reports_its_own_errors(
     )
     unfit = (
         "PIE-S2395",
-        "Invalid argument for def tw at position 1 (x): expected Text not null, "
-        "got Text nullable",
+        "Invalid argument for def tw at position 1 (x): expected Text, got Text | None",
     )
     assert [
         (d.code, d.message, d.location.line, d.location.column)
@@ -726,8 +666,8 @@ def test_every_clause_of_a_relation_reports_its_own_errors(
 @pytest.mark.parametrize(
     "join",
     (
-        "    inner join oth as r:\n        from src\n        on r.tid == id\n",
-        "    inner join oth as r\n",
+        "    let r = oth\n    inner join r on r.tid == id\n",
+        "    let r = oth\n    inner join r on owned(src, r)\n",
         "",
     ),
     ids=("on", "relationship", "none"),
@@ -742,13 +682,13 @@ def test_a_repeated_output_name_is_pie_s2305_after_the_clauses_before_it(
     Before, each such relation reported a bare PIE-S2333 or only the other
     errors."""
     queries = (
-        "    let:\n        k = null\n    select:\n        id\n        id = n\n",
-        "    let:\n        l1 = lower(1)\n    select:\n        id\n        id = n\n",
-        "    where lower(3) is not null\n    select:\n        x = lower(2)\n"
+        "    let k = None\n    select:\n        id\n        id = n\n",
+        "    let l1 = lower(1)\n    select:\n        id\n        id = n\n",
+        "    where lower(3) is not None\n    select:\n        x = lower(2)\n"
         "        x = n\n",
-        "    let:\n        k = null\n    group by:\n        id\n    select:\n"
+        "    let k = None\n    group by:\n        id\n    select:\n"
         "        id\n        id = count()\n",
-        "    where lower(3) is not null\n    group by:\n        id\n    select:\n"
+        "    where lower(3) is not None\n    group by:\n        id\n    select:\n"
         "        id\n        id = count()\n",
     )
     text = _STAGE_ERRORS_SOURCE + "".join(
@@ -798,8 +738,8 @@ def test_a_repeated_output_name_is_pie_s2305_after_the_clauses_before_it(
 @pytest.mark.parametrize(
     "join",
     (
-        "    inner join oth as r:\n        from src\n        on r.tid == id\n",
-        "    inner join oth as r\n",
+        "    let r = oth\n    inner join r on r.tid == id\n",
+        "    let r = oth\n    inner join r on owned(src, r)\n",
         "",
     ),
     ids=("on", "relationship", "none"),
@@ -814,7 +754,7 @@ def test_a_where_beside_a_binding_error_is_a_condition_of_its_call_type(
     was reported alone."""
     text = (
         _STAGE_ERRORS_SOURCE + f"query q:\n    from src\n{join}"
-        "    let:\n        l1 = lower(1)\n    where len(coalesce(null, null))\n"
+        "    let l1 = lower(1)\n    where len(coalesce(None, None))\n"
         "    select:\n        id\n"
     )
     (tmp_path / "pietto.toml").write_text(
@@ -834,13 +774,13 @@ def test_a_where_beside_a_binding_error_is_a_condition_of_its_call_type(
             "PIE-S2104",
             "Invalid argument type for function lower at position 1: expected Text, "
             "got Int",
-            lines.index("        l1 = lower(1)") + 1,
+            lines.index("    let l1 = lower(1)") + 1,
             14,
         ),
         (
             "PIE-S2202",
             "Expected Bool expression in where clause",
-            lines.index("    where len(coalesce(null, null))") + 1,
+            lines.index("    where len(coalesce(None, None))") + 1,
             11,
         ),
     ]
@@ -849,8 +789,8 @@ def test_a_where_beside_a_binding_error_is_a_condition_of_its_call_type(
 @pytest.mark.parametrize(
     "join",
     (
-        "    inner join oth as r:\n        from src\n        on r.tid == id\n",
-        "    inner join oth as r\n",
+        "    let r = oth\n    inner join r on r.tid == id\n",
+        "    let r = oth\n    inner join r on owned(src, r)\n",
     ),
     ids=("on", "relationship"),
 )
@@ -861,19 +801,20 @@ def test_joined_reads_of_relations_bindings_and_unknown_fields_report_their_erro
     relation, a binding with an error of its own or a field that does not
     resolve reports its own errors beside a `let:` error, and a field that
     does not resolve is PIE-S2102 at the read, also in a `let:` binding, as
-    in a single file; an ORDER BY key that names only a SELECT output gets
-    the single-file hint. Before, each was hidden behind the binding's error,
-    and without one the relation reported a bare PIE-S2333."""
-    let = "    let:\n        l1 = lower(1)\n"
+    in a single file; an ORDER BY key that names only a SELECT output is
+    PIE-S2102 because project SQL does not yet order such a relation by an
+    output. Before, each was hidden behind the binding's error, and without
+    one the relation reported a bare PIE-S2333."""
+    let = "    let l1 = lower(1)\n"
     queries = (
-        let + "    where exists oth and lower(3) is not null\n    select:\n"
+        let + "    where exists oth and lower(3) is not None\n    select:\n"
         '        id\n        e = lower(2) if exists oth else "x"\n',
-        let + "    where coalesce(l1, lower(3)) is not null\n    select:\n"
+        let + "    where coalesce(l1, lower(3)) is not None\n    select:\n"
         "        id\n        o = coalesce(l1, lower(2))\n",
-        let + "    where nosuch == 1 and lower(3) is not null\n    select:\n"
+        let + "    where nosuch == 1 and lower(3) is not None\n    select:\n"
         "        id\n        o = coalesce(nosuch, lower(2))\n",
         "    where nosuch == 1\n    select:\n        id\n        o = r.nosuch\n",
-        "    let:\n        l = nosuch\n        m = r.nosuch + 1\n    where l == 1\n"
+        "    let l = nosuch\n    let m = r.nosuch + 1\n    where l == 1\n"
         "    select:\n        id\n",
         "    select:\n        id\n        o = id\n    order by:\n        o\n",
     )
@@ -926,8 +867,9 @@ def test_joined_reads_of_relations_bindings_and_unknown_fields_report_their_erro
         ("PIE-S2102", "Unknown field: r.nosuch", at(4, "m = r.nosuch"), 13),
         (
             "PIE-S2102",
-            "Unknown field: o; outside a grouped query an ORDER BY key cannot "
-            "name a SELECT output (restate its expression or bind it in `let:`)",
+            "Unknown field: o; a project relation with JOIN inputs cannot order "
+            "by a SELECT output yet (restate its expression, or bind it with "
+            "`let` and order by that name)",
             at(5, "order by:") + 1,
             9,
         ),
@@ -1003,14 +945,22 @@ def test_absent_relation_order_preserves_scope_precedence_source_order_and_direc
     )
 
 
-def test_order_input_wins_over_window_alias_and_other_aliases_do_not_leak(
+def test_order_key_naming_an_input_field_and_a_window_alias_has_no_winner(
     built: _Built,
 ) -> None:
-    precedence = _completed(built, "final_order_input_precedence")
-    assert precedence.ordering is not None
-    assert type(precedence.ordering.items[0].source) is (
-        ProjectConcreteJoinedNamespaceExpression
+    # Before: the input field `event.account_id` won over the window alias.
+    precedence = _terminal(built, "final_order_input_precedence")
+    assert precedence.reason is (
+        final_outputs.ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE
     )
+    assert [(item.code, item.message) for item in precedence.diagnostics] == [
+        (
+            "PIE-S2102",
+            "Ambiguous field: account_id is both the input field event.account_id "
+            "and a SELECT output; write event.account_id, or give the output "
+            "another name",
+        )
+    ]
     ambiguous = _terminal(built, "final_order_ambiguous_input")
     projection_alias = _terminal(built, "final_order_projection_alias")
     assert ambiguous.reason is (
@@ -1216,15 +1166,55 @@ def test_upstream_failure_propagates_typed_terminals_without_fake_outputs(
     assert downstream_b.output is downstream_c.output is None
 
 
-def test_nonrecoverable_effective_join_terminal_is_retained_by_identity(
+def test_missing_condition_keeps_exact_historical_terminal_after_input_completion(
     propagated: _Built,
 ) -> None:
     base = _base_entry(propagated, "unsupported_join")
     assert type(base) is completion.ProjectEffectiveOutputTerminal
-    assert base.reason is (
-        ProjectEffectiveOutputTerminalReason.EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED
+    assert (
+        base.reason
+        is ProjectEffectiveOutputTerminalReason.JOINED_COMPLETION_NON_CONCRETE
     )
     assert _entry(propagated, "unsupported_join") is base
+    assert base.output is None
+    blocker = base.joined_completion
+    assert type(blocker) is ProjectNonConcreteQueryBlock
+    assert blocker.verification is propagated.completion.verification
+    region = blocker.join_region
+    assert type(region) is ProjectIRNonConcreteJoinRegion
+    assert region.ledger.owner is base.owner
+    assert region.blockers == region.ledger.uses and len(region.blockers) == 1
+    assert len(base.dependencies) == len(region.ledger.bindings) == 2
+    for dependency, binding in zip(
+        base.dependencies, region.ledger.bindings, strict=True
+    ):
+        assert dependency.evidence is binding and dependency.consumer is base.owner
+    joined = _completed(propagated, "joined_a")
+    assert base.dependencies[0].target is joined.owner
+    assert type(_entry(propagated, "local_rows")) is ProjectExistingEffectiveOutput
+    historical = propagated.outputs.condition_authority
+    operative = propagated.outputs.operative_conditions
+    assert historical is not None and operative is not None
+    (condition,) = tuple(
+        item for item in historical.entries if item.use.owner is base.owner
+    )
+    (retained,) = tuple(
+        item for item in operative.entries if item.use.owner is base.owner
+    )
+    assert retained is condition and condition.inputs is None
+    assert condition.use is region.blockers[0] and not condition.ready
+    assert condition.use.clause.on_clause is None
+    assert not any(
+        scope.ledger.owner is base.owner for scope in propagated.outputs.input_scopes
+    )
+    assert not any(
+        region.ledger.owner is base.owner
+        for region in propagated.outputs.current_regions
+    )
+    assert any(
+        region.ledger.owner is joined.owner
+        for region in propagated.outputs.current_regions
+    )
 
 
 def test_completion_allocates_no_project_ir_or_historical_attribution() -> None:
@@ -1293,23 +1283,24 @@ def test_completion_rejects_same_base_foreign_joined_authority_grafts(
     assert foreign.completion is built.completion
     assert foreign.qualifies is not built.qualifies
     assert foreign.qualifies.window_set is not built.qualifies.window_set
-    assert len(foreign.qualifies.results) == len(built.qualifies.results)
-    assert all(
-        final_outputs._joined_result_owner(local)
-        is final_outputs._joined_result_owner(alternate)
-        and local is not alternate
-        for local, alternate in zip(
-            built.qualifies.results,
-            foreign.qualifies.results,
-            strict=True,
-        )
+    local_tails, foreign_tails = (
+        built.outputs.current_tails,
+        foreign.outputs.current_tails,
     )
-
+    assert local_tails and len(local_tails) == len(foreign_tails)
+    assert all(
+        len(local.results) == len(alternate.results) == 1
+        and final_outputs._joined_result_owner(local.results[0])
+        is final_outputs._joined_result_owner(alternate.results[0])
+        and local.results[0] is not alternate.results[0]
+        for local, alternate in zip(local_tails, foreign_tails, strict=True)
+    )
     exact = replace(built.outputs)
     assert exact.joined_qualifies is built.qualifies
     assert exact.entries is built.outputs.entries
-    with pytest.raises(ValueError, match="exact Slice-11"):
-        replace(built.outputs, joined_qualifies=foreign.qualifies)
+    assert exact.current_tails is built.outputs.current_tails
+    with pytest.raises(ValueError, match="foreign owner-local readiness"):
+        replace(built.outputs, current_tails=foreign_tails)
 
     local_completed = _completed(built, "final_projection")
     foreign_completed = _completed(foreign, "final_projection")
@@ -1320,7 +1311,12 @@ def test_completion_rejects_same_base_foreign_joined_authority_grafts(
         schema=foreign_completed.schema,
         row_domain=foreign_completed.row_domain,
     )
-    with pytest.raises(ValueError, match="exact Slice-11"):
+    # Later JOIN scopes retain this complete earlier output by identity.
+    assert any(
+        any(entry is local_completed for entry in scope.available_entries)
+        for scope in built.outputs.input_scopes
+    )
+    with pytest.raises(ValueError, match="exact available prefix"):
         replace(
             built.outputs,
             entries=tuple(
@@ -1374,7 +1370,7 @@ def test_completion_rejects_same_base_foreign_joined_authority_grafts(
     local_terminal = _terminal(built, "qualify_unknown")
     foreign_terminal = _terminal(foreign, "qualify_unknown")
     assert local_terminal.joined_qualify is local_terminal.blocker
-    with pytest.raises(ValueError, match="Slice-11 blocker"):
+    with pytest.raises(ValueError, match="exact QUALIFY blocker"):
         replace(local_terminal, blocker=foreign_terminal.blocker)
 
 
@@ -1402,7 +1398,14 @@ def test_completion_rejects_foreign_downstream_replay_overlay_entry(
     )
     with pytest.raises(ValueError, match="field source"):
         replace(local_downstream, fields=(grafted_field,))
-    with pytest.raises(ValueError, match="exact upstream overlay entry"):
+    prefix_retained = any(
+        any(entry is local_downstream for entry in scope.available_entries)
+        for scope in propagated.outputs.input_scopes
+    )
+    rejection = (
+        "exact available prefix" if prefix_retained else "exact upstream overlay entry"
+    )
+    with pytest.raises(ValueError, match=rejection):
         replace(
             propagated.outputs,
             replay_roots=tuple(
@@ -1462,7 +1465,15 @@ def test_no_join_replay_roots_reject_all_foreign_success_and_terminal_grafts(
         foreign_entry = foreign.outputs.find_owner(local_entry.owner)[0]
         foreign_root = replay_root(foreign_entry)
         assert foreign_root is not None and foreign_root is not local_root
-        with pytest.raises(ValueError, match="owner-local replay root"):
+        # Prefix authority is validated before replay-root membership.
+        prefix_retained = any(
+            any(entry is local_entry for entry in scope.available_entries)
+            for scope in built.outputs.input_scopes
+        )
+        rejection = (
+            "exact available prefix" if prefix_retained else "owner-local replay root"
+        )
+        with pytest.raises(ValueError, match=rejection):
             replace(
                 built.outputs,
                 entries=tuple(

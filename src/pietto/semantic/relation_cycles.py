@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
+    AnyExpr,
     FromClause,
     JoinClause,
     QueryDef,
@@ -23,6 +24,9 @@ def check_relation_cycles(
     from_resolutions: Mapping[FromClause, RelationDefinition],
     *,
     join_resolutions: Mapping[JoinClause, RelationDefinition] | None = None,
+    any_dependencies: tuple[
+        tuple[DerivedRelation, AnyExpr, RelationDefinition | None], ...
+    ] = (),
 ) -> tuple[set[DerivedRelation], list[Diagnostic]]:
     """Find table/query dependency cycles in deterministic source order.
 
@@ -54,14 +58,19 @@ def check_relation_cycles(
         component_start = len(component_stack)
         component_stack.append(definition)
 
-        edges: list[tuple[FromClause | JoinClause, RelationDefinition | None]] = [
-            (definition.from_clause, from_resolutions.get(definition.from_clause))
-        ]
+        edges: list[
+            tuple[FromClause | JoinClause | AnyExpr, RelationDefinition | None]
+        ] = [(definition.from_clause, from_resolutions.get(definition.from_clause))]
         if join_resolutions is not None:
             edges.extend(
                 (clause, join_resolutions.get(clause))
                 for clause in definition.join_clauses
             )
+        edges.extend(
+            (expression, target)
+            for owner, expression, target in any_dependencies
+            if owner is definition
+        )
         for edge, target in edges:
             if not isinstance(target, (TableDef, QueryDef)):
                 continue
@@ -93,7 +102,7 @@ def check_relation_cycles(
 
 
 def _cycle_diagnostic(
-    closing_edge: FromClause | JoinClause,
+    closing_edge: FromClause | JoinClause | AnyExpr,
     cycle: list[DerivedRelation],
 ) -> Diagnostic:
     """Report one cycle at the dependency edge that closes it."""

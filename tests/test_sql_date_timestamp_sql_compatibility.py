@@ -39,12 +39,12 @@ CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
 
 EVENT_SHAPE = (
     "shape Event:\n"
-    "    category: Text not null\n"
-    "    event_date: Date nullable\n"
-    "    required_event_date: Date not null\n"
-    "    created_at: Timestamp not null\n"
-    "    optional_created_at: Timestamp nullable\n"
-    "    amount: Int not null\n"
+    "    category: Text\n"
+    "    event_date: Date | None\n"
+    "    required_event_date: Date\n"
+    "    created_at: Timestamp\n"
+    "    optional_created_at: Timestamp | None\n"
+    "    amount: Int\n"
 )
 
 
@@ -345,8 +345,8 @@ def test_temporal_type_names_remain_unsupported(type_name: str) -> None:
     result = analyze(
         _parse(
             "shape TemporalBoundary:\n"
-            f"    value: {type_name} not null\n"
-            'source events: TemporalBoundary is postgres.table("events")\n'
+            f"    value: {type_name}\n"
+            'source events: TemporalBoundary = postgres.table("events")\n'
             "table projected:\n"
             "    from events\n"
             "    select:\n"
@@ -426,7 +426,7 @@ def test_static_audit_no_temporal_runtime_or_metadata_surface_was_added() -> Non
 def _projected_source(connector: str, projections: str) -> str:
     return (
         EVENT_SHAPE
-        + f'source events: Event is {connector}("events")\n'
+        + f'source events: Event = {connector}("events")\n'
         + "table projected:\n"
         + "    from events\n"
         + "    select:\n"
@@ -452,7 +452,7 @@ def _extrema_source(connector: str, *, grouped: bool) -> str:
     group_by = "    group by:\n        category\n" if grouped else ""
     return (
         EVENT_SHAPE
-        + f'source events: Event is {connector}("events")\n'
+        + f'source events: Event = {connector}("events")\n'
         + "table extrema:\n"
         + "    from events\n"
         + group_by

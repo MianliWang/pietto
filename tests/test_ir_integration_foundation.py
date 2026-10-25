@@ -36,13 +36,13 @@ assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 @pytest.mark.parametrize(
     ("source", "expected_type"),
     [
-        ("type Email = Text not null\n", TypeIR),
+        ("type Email = Text\n", TypeIR),
         ("enum Status:\n    pending\n    active\n", EnumIR),
-        ("shape User:\n    email: Text not null\n", ShapeIR),
+        ("shape User:\n    email: Text\n", ShapeIR),
         (
             "shape User:\n"
-            "    email: Text not null\n"
-            'source users: User is postgres.table("public.users")\n',
+            "    email: Text\n"
+            'source users: User = postgres.table("public.users")\n',
             SourceIR,
         ),
     ],
@@ -62,14 +62,14 @@ def test_public_pipeline_lowers_each_foundation_declaration(
 
 def test_public_pipeline_preserves_supported_definition_and_field_order() -> None:
     result = _compile_foundation(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    pending\n"
         "    active\n"
         "shape User:\n"
-        "    id: UUID not null\n"
-        "    email: Email nullable\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    id: UUID\n"
+        "    email: Email | None\n"
+        'source users: User = postgres.table("public.users")\n'
     )
 
     assert result.ir is not None
@@ -85,11 +85,11 @@ def test_public_pipeline_preserves_supported_definition_and_field_order() -> Non
 
 def test_alias_and_canonical_type_survive_type_shape_and_source_pipeline() -> None:
     result = _compile_foundation(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "shape User:\n"
-        "    id: UUID not null\n"
-        "    email: Email nullable\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    id: UUID\n"
+        "    email: Email | None\n"
+        'source users: User = postgres.table("public.users")\n'
     )
 
     assert result.ir is not None
@@ -116,8 +116,8 @@ def test_alias_and_canonical_type_survive_type_shape_and_source_pipeline() -> No
 def test_source_connector_is_static_metadata_only() -> None:
     result = _compile_foundation(
         "shape User:\n"
-        "    id: UUID not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    id: UUID\n"
+        'source users: User = postgres.table("public.users")\n'
     )
 
     assert result.ir is not None
@@ -134,13 +134,13 @@ def test_source_connector_is_static_metadata_only() -> None:
 
 def test_constraint_and_derive_definitions_lower_deterministically() -> None:
     source = (
-        "constraint valid(x: Bool not null) -> Bool not null:\n"
-        "    x\n"
-        "derive identity(x: Text not null) -> Text not null:\n"
-        "    x\n"
+        "constraint valid(x: Bool) -> Bool:\n"
+        "    return x\n"
+        "derive identity(x: Text) -> Text:\n"
+        "    return x\n"
         "shape User:\n"
-        "    email: Text not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Text\n"
+        'source users: User = postgres.table("public.users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"
@@ -168,12 +168,12 @@ def test_constraint_and_derive_definitions_lower_deterministically() -> None:
 
 def test_foundation_ir_is_deeply_frozen_and_frontend_independent() -> None:
     result = _compile_foundation(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    active\n"
         "shape User:\n"
-        "    email: Email nullable\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Email | None\n"
+        'source users: User = postgres.table("public.users")\n'
     )
 
     assert result.ir is not None

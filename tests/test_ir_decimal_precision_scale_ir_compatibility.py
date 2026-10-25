@@ -271,15 +271,15 @@ def test_ir_layer_does_not_consume_decimal_precision_scale_carrier() -> None:
 
 def _source(connector: str) -> str:
     return (
-        "type Money = Decimal(12, 2) not null\n"
-        "type Price = Money nullable\n"
+        "type Money = Decimal(12, 2)\n"
+        "type Price = Money\n"
         "shape Order:\n"
-        "    direct: Decimal(12, 2) not null\n"
-        "    money: Money not null\n"
-        "    price: Price nullable\n"
-        "    plain: Decimal not null\n"
-        "    empty: Decimal() nullable\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    direct: Decimal(12, 2)\n"
+        "    money: Money\n"
+        "    price: Price | None\n"
+        "    plain: Decimal\n"
+        "    empty: Decimal() | None\n"
+        f'source orders: Order = {connector}("orders")\n'
         "table order_projection:\n"
         "    from orders\n"
         "    select:\n"

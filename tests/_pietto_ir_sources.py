@@ -26,16 +26,19 @@ def set_source(
     operands: tuple[str, ...] = ("lhs", "rhs"),
     replay: bool = True,
 ) -> str:
+    operands_text = (
+        f":\n        from {operands[0]}\n"
+        if len(operands) == 1
+        else f" {', '.join(operands)}\n"
+    )
     text = f"""shape Left:
-    id: Int not null
+    id: Int
 shape Right:
-    other: {right_type} nullable
-source lhs: Left is postgres.table("lhs")
-source rhs: Right is postgres.table("rhs")
+    other: {right_type} | None
+source lhs: Left = postgres.table("lhs")
+source rhs: Right = postgres.table("rhs")
 table combined:
-    {operator}{(" " + quantifier) if quantifier else ""}:
-"""
-    text += "".join(f"        from {name}\n" for name in operands)
+    {operator}{(" " + quantifier) if quantifier else ""}{operands_text}"""
     if replay:
         text += "query result:\n    from combined\n    select:\n        id\n"
     return text
@@ -94,9 +97,9 @@ def bag_apply(kind: str, quantifier: str, left: Counter, right: Counter) -> Coun
 
 def distinct_source(type_name: str = "Int", *, distinct: bool = True) -> str:
     return f"""shape Row:
-    value: {type_name} nullable
-    hidden: Float nullable
-source rows: Row is postgres.table("rows")
+    value: {type_name} | None
+    hidden: Float | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select{" distinct" if distinct else ""}:
@@ -123,16 +126,15 @@ def vertical_source(kind: str, side: str) -> str:
     source = _join_source("lhs.id == r.id", kind=kind)
     prepared = """table prepared:
     from rhs
-    inner join lhs as x:
-        from rhs
-        on rhs.id == x.id
+    let x = lhs
+    inner join x on rhs.id == x.id
     select:
         id = rhs.id
 """
     source = source.replace("query result:\n", prepared + "query result:\n")
     head, query = source.split("query result:\n", 1)
     if side == "right":
-        query = query.replace(f"{kind} join rhs as r:", f"{kind} join prepared as r:")
+        query = query.replace("let r = rhs", "let r = prepared")
     else:
         query = query.replace("from lhs", "from prepared").replace(
             "lhs.id", "prepared.id"
@@ -145,12 +147,12 @@ def decimal_source(mode: str, tmp_path: Path) -> str:
         return distinct_source("Decimal(10, 2)")
     if mode == "imported":
         (tmp_path / "types.pietto").write_text(
-            "type Base = Decimal(10, 2)\nexport:\n    type Base\n"
+            "type Base = Decimal(10, 2)\nexport type Base\n"
         )
         (tmp_path / "facade.pietto").write_text(
-            'import "types.pietto":\n    type Base as Public\nexport:\n    type Public\n'
+            'from "types.pietto" import type Base as Public\nexport type Public\n'
         )
-        return 'import "facade.pietto":\n    type Public as Alias\n' + distinct_source(
+        return 'from "facade.pietto" import type Public as Alias\n' + distinct_source(
             "Alias"
         )
     source = "type Base = Decimal(10, 2)\ntype Alias = Base\n" + distinct_source(
@@ -158,13 +160,11 @@ def decimal_source(mode: str, tmp_path: Path) -> str:
     )
     if mode in {"inherited", "repeated"}:
         source = source.replace("query result:", "table dedup:")
-        source += (
-            "table combined:\n    union all:\n        from dedup\n        from dedup\n"
-        )
+        source += "table combined:\n    union all dedup, dedup\n"
         source += (
             "query result:\n    from combined\n    select distinct:\n        value\n"
             if mode == "inherited"
-            else "query result:\n    union all:\n        from combined\n        from combined\n"
+            else "query result:\n    union all combined, combined\n"
         )
     return source
 
@@ -195,7 +195,7 @@ SPEC_HEADINGS = (
 def _project_files() -> dict[str, str]:
     return {
         "a.pietto": (
-            'import "b.pietto":\n    table Public as Input\n'
+            'from "b.pietto" import table Public as Input\n'
             "query final:\n"
             "    from consumer\n"
             "    select:\n"
@@ -210,8 +210,9 @@ def _project_files() -> dict[str, str]:
             "        id\n"
             "query full:\n"
             "    from Input\n"
-            "    let:\n"
-            "        floor = 0\n"
+            "    let floor = 0\n"
+            "    let child = window base\n"
+            "    let base = window(partition by category order by total desc)\n"
             "    where id > floor\n"
             "    group by:\n"
             "        category\n"
@@ -219,13 +220,7 @@ def _project_files() -> dict[str, str]:
             "        category\n"
             "        total = sum(amount)\n"
             "        ranking = row_number() window child\n"
-            "    window child = base\n"
-            "    window base:\n"
-            "        partition by:\n"
-            "            category\n"
-            "        order by:\n"
-            "            total desc\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        total > 0\n"
             "    order by:\n"
             "        ranking\n"
@@ -236,29 +231,26 @@ def _project_files() -> dict[str, str]:
             "        missing\n"
         ),
         "b.pietto": (
-            'import "c.pietto":\n    table projected as Public\n'
-            "export:\n"
-            "    table Public\n"
+            'from "c.pietto" import table projected as Public\nexport table Public\n'
         ),
         "c.pietto": (
             "shape Row:\n"
-            "    id: Int not null\n"
-            "    amount: Int nullable\n"
-            "    category: Text nullable\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "    id: Int\n"
+            "    amount: Int | None\n"
+            "    category: Text | None\n"
+            'source rows: Row = postgres.table("rows")\n'
             "table projected:\n"
             "    from rows\n"
             "    select:\n"
             "        id\n"
             "        amount\n"
             "        category\n"
-            "export:\n"
-            "    table projected\n"
+            "export table projected\n"
         ),
         "d.pietto": (
             "shape Other:\n"
-            "    key: Int not null\n"
-            'source other: Other is postgres.table("other")\n'
+            "    key: Int\n"
+            'source other: Other = postgres.table("other")\n'
             "query other_result:\n"
             "    from other\n"
             "    select:\n"

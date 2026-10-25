@@ -260,7 +260,7 @@ def test_source_family_bridge_known_mismatch_mixed_and_connection_residual(
 ):
     source = row_source(ROW_BODY)
     source = source.replace("query result:", "table first:")
-    source += 'source other: Row is mysql.table("other")\nquery result:\n    union all:\n        from first\n        from other\n'
+    source += 'source other: Row = mysql.table("other")\nquery result:\n    union all:\n        from first\n        from other\n'
     # Align positional outputs while preserving both real source descriptors.
     source = (
         source[: source.index("table first:")]
@@ -702,7 +702,14 @@ def test_actual_taxonomy_and_precise_scalar_and_type_propositions(corpus):
             actual.setdefault(entry.family.value, set()).add(
                 None if entry.subkind is None else entry.subkind.value
             )
-    assert actual == {f: set(kinds) for f, kinds in mapping.SUPPORTED_SUBKINDS.items()}
+    # relationship_equality needs a source-bound relationship guarantee, which
+    # only the retired spelling declares; the modern corpus never reaches it.
+    legacy_only = {"join": {"relationship_equality"}}
+    assert legacy_only["join"] < set(mapping.SUPPORTED_SUBKINDS["join"])
+    assert actual == {
+        f: set(kinds) - legacy_only.get(f, set())
+        for f, kinds in mapping.SUPPORTED_SUBKINDS.items()
+    }
     product, _, _ = _assessed(corpus["row", P.BIND_SAFE_LITERALS])
     keys = {q.key for q in product.lookups}
     assert (
@@ -734,8 +741,8 @@ def test_real_scalar_transform_signatures_leave_composite_aggregate_unmapped(
     tmp_path, call, operators
 ):
     text = _ordinary(f"    select:\n        total = {call}\n").replace(
-        "    value: Int nullable\n",
-        "    value: Int nullable\n    label: Text nullable\n",
+        "    value: Int | None\n",
+        "    value: Int | None\n    label: Text | None\n",
     )
     record = _reported(_roots(tmp_path, text), P.BIND_SAFE_LITERALS)
     product, _, view = _assessed(record)
@@ -750,7 +757,7 @@ def test_real_scalar_transform_signatures_leave_composite_aggregate_unmapped(
 
 
 def test_original_alias_decimal_provenance_is_not_a_builtin_rewrite(tmp_path):
-    text = 'type Money = Decimal(12, 2)\nshape Row:\n    amount: Money nullable\nsource rows: Row is postgres.table("rows")\nquery result:\n    from rows\n    select:\n        amount\n'
+    text = 'type Money = Decimal(12, 2)\nshape Row:\n    amount: Money | None\nsource rows: Row = postgres.table("rows")\nquery result:\n    from rows\n    select:\n        amount\n'
     record = _reported(_roots(tmp_path, text), P.PRESERVE_LITERALS)
     product, _, _ = _assessed(record)
     keys = {q.key for q in product.lookups}

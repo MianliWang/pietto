@@ -113,7 +113,7 @@ def test_public_ast_does_not_expose_antlr_nodes() -> None:
         "type Username = Text(max = 32, encoding = utf8):\n"
         "    ensure len(self) >= 3\n"
         "constraint valid_name(x: Text) -> Bool:\n"
-        "    len(x) >= 3\n"
+        "    return len(x) >= 3\n"
     )
 
     assert result.ast is not None
@@ -196,7 +196,7 @@ def test_line_breaks_inside_parentheses_join_lines_with_real_positions() -> None
         "    amount: Decimal(10,\n"
         "# a comment line\n"
         "\n"
-        "            2) not null derive coalesce(\n"
+        "            2) derive coalesce(\n"
         "        amount, (1 +\n"
         "  2))\n"
     )
@@ -212,7 +212,7 @@ def test_line_breaks_inside_parentheses_join_lines_with_real_positions() -> None
     ]
     derive = field.derive_expression
     assert derive is not None
-    assert (derive.span.line, derive.span.column) == (5, 32)
+    assert (derive.span.line, derive.span.column) == (5, 23)
     assert (derive.span.end_line, derive.span.end_column) == (7, 6)
 
 
@@ -254,9 +254,9 @@ def test_tabs_inside_joined_lines_are_still_reported() -> None:
 @pytest.mark.parametrize(
     ("ending", "fields", "shape_end", "open_paren"),
     (
-        ("\n", [(2, 5, 2, 21), (3, 5, 3, 15)], (3, 15), (5, 13)),
-        ("\r\n", [(2, 5, 2, 21), (3, 5, 3, 15)], (3, 15), (5, 13)),
-        ("\r", [(2, 5, 2, 21), (3, 5, 3, 15)], (3, 15), (5, 13)),
+        ("\n", [(2, 5, 2, 12), (3, 5, 3, 15)], (3, 15), (5, 13)),
+        ("\r\n", [(2, 5, 2, 12), (3, 5, 3, 15)], (3, 15), (5, 13)),
+        ("\r", [(2, 5, 2, 12), (3, 5, 3, 15)], (3, 15), (5, 13)),
     ),
 )
 def test_lf_crlf_and_cr_give_the_same_positions_around_joined_lines(
@@ -265,7 +265,7 @@ def test_lf_crlf_and_cr_give_the_same_positions_around_joined_lines(
     shape_end: tuple[int, int],
     open_paren: tuple[int, int],
 ) -> None:
-    source = "shape Row:\n    id: Int not null\n    name: Text\n"
+    source = "shape Row:\n    id: Int\n    name: Text\n"
     ok = parse_source(source.replace("\n", ending))
     assert ok.diagnostics == () and ok.ast is not None
     shape = ok.ast.definitions[0]
@@ -286,15 +286,15 @@ def test_lf_crlf_and_cr_give_the_same_positions_around_joined_lines(
     ("source", "line", "column"),
     (
         (
-            "    shape A:\n        id: Int not null\nshape B:\n    id: Int not null\n",
+            "    shape A:\n        id: Int\nshape B:\n    id: Int\n",
             1,
             5,
         ),
         # Deeper than the next line: still the first line, and no PIE-P1003.
-        ("     shape S:\n    id: Int not null\n", 1, 6),
-        ("  shape S:\n    id: Int not null\n", 1, 3),
-        ("    shape S:\r    id: Int not null\r", 1, 5),
-        ("# c\n     shape A:\n    id: Int not null\n", 2, 6),
+        ("     shape S:\n    id: Int\n", 1, 6),
+        ("  shape S:\n    id: Int\n", 1, 3),
+        ("    shape S:\r    id: Int\r", 1, 5),
+        ("# c\n     shape A:\n    id: Int\n", 2, 6),
         ("\n    type T = Int\n", 2, 5),
     ),
 )
@@ -310,9 +310,7 @@ def test_an_indented_first_code_line_is_one_unexpected_indentation(
     ] == [("PIE-P1000", line, column, "Unexpected indentation.")]
 
 
-_INDENTED_AS_A_WHOLE = (
-    "    shape A:\n        id: Int not null\n    shape B:\n        id: Int not null\n"
-)
+_INDENTED_AS_A_WHOLE = "    shape A:\n        id: Int\n    shape B:\n        id: Int\n"
 _UNEXPECTED = "Unexpected indentation."
 _NO_OUTER_BLOCK = "Indentation does not match an outer block."
 
@@ -342,15 +340,19 @@ _NO_OUTER_BLOCK = "Indentation does not match an outer block."
             ],
         ),
         (
-            '  shape R:\n    a: Int not null\n  source r: R is postgres.table("r")\n'
-            "  query q:\n    from r\n    select: a\n",
+            "  shape R:\n"
+            "    a: Int\n"
+            '  source r: R = postgres.table("r")\n'
+            "  query q:\n"
+            "    from r\n"
+            "    select a\n",
             [
                 ("PIE-P1000", 1, 3, _UNEXPECTED),
                 ("PIE-P1003", 3, 3, _NO_OUTER_BLOCK),
             ],
         ),
         (
-            "    type A = Int not null\n    type B = Int not null\n",
+            "    type A = Int\n    type B = Int\n",
             [("PIE-P1000", 1, 5, _UNEXPECTED)],
         ),
         # The first declaration reports only its cause; a later one its own error.
@@ -381,7 +383,7 @@ def test_a_file_indented_as_a_whole_reports_its_first_code_line(
         ("shape Row:\n\tid: Int\n", 2),
         ("shape Row:\r\n\tid: Int\r\n", 2),
         # A lone CR ends a line for the tab check as for every position.
-        ("shape S:\r    a: Int not null\r\tx: Int\r", 3),
+        ("shape S:\r    a: Int\r\tx: Int\r", 3),
         # A form feed inside a comment ends no line.
         ("# a\fb\nshape Row:\n\tid: Int\n", 3),
     ),
@@ -400,6 +402,6 @@ def test_tab_errors_count_lines_like_every_position(source: str, line: int) -> N
 def test_a_tab_after_another_separator_in_a_comment_is_not_indentation(
     separator: str,
 ) -> None:
-    result = parse_source(f"# a{separator}\tb\ntype A = Int not null\n")
+    result = parse_source(f"# a{separator}\tb\ntype A = Int\n")
 
     assert [item.code for item in result.diagnostics if item.code == "PIE-P1004"] == []

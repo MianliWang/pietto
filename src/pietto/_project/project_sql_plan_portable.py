@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._project import existence_values
+
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Never
@@ -44,6 +46,7 @@ from pietto._project import (
 )
 from pietto._project import model as project_model
 from pietto.semantic import model as semantic_model
+from pietto.semantic import existence_generators as existence_generators
 from pietto._project import let_scope_facts as let_scope_facts
 from pietto._project import project_ir_operators as project_ir_operators
 from pietto._project import project_ir_construction as project_ir_construction
@@ -82,6 +85,9 @@ from pietto._project import (
     project_query_block_ir_algebra as project_query_block_ir_algebra,
 )
 from pietto._project import project_join_conditions as project_join_conditions
+from pietto._project import (
+    project_relationship_predicates as project_relationship_predicates,
+)
 from pietto._project import project_scalar_namespaces as project_scalar_namespaces
 from pietto._project import project_scalar_references as project_scalar_references
 from pietto._project import project_single_match as project_single_match
@@ -304,10 +310,94 @@ def _fields(value: Any) -> tuple[str, tuple[tuple[str, Any], ...]]:
             ),
         )
     kind = _ADAPTERS.get(type(value))
+    if isinstance(value, plans.ProjectSQLPlan) and value.existence_generators:
+        kind = "project_sql_plan_with_any"
+    elif isinstance(value, (ast_nodes.TableDef, ast_nodes.QueryDef)):
+        from pietto.semantic.inline_functions import _tree_nodes
+
+        if value.join_filters or any(
+            isinstance(item, ast_nodes.AnyExpr) for item in _tree_nodes(value)
+        ):
+            kind = (
+                "authored_any_table"
+                if isinstance(value, ast_nodes.TableDef)
+                else "authored_any_query"
+            )
+    elif isinstance(value, project_join_conditions.ProjectJoinCondition):
+        predicate = value.environment.predicate_expression
+        if predicate is not None and predicate.calls:
+            kind = "project_predicate_join_condition"
+    elif isinstance(
+        value, project_scalar_namespaces.ProjectConcreteJoinedNamespaceExpression
+    ):
+        if value.predicate_expression is not None and value.predicate_expression.calls:
+            kind = "project_predicate_joined_namespace_expression"
+    elif isinstance(value, project_final_outputs.ProjectNoJoinScalarExpression):
+        if value.predicate_expression is not None and value.predicate_expression.calls:
+            kind = "project_predicate_no_join_scalar_expression"
+    elif isinstance(value, project_final_outputs.ProjectConcreteNoJoinReplay):
+        if any(item.calls for item in value.predicate_expressions):
+            kind = "project_predicate_no_join_replay"
+    elif isinstance(value, aggregate_grouped_schema.ProjectAggregateExpressionAnalysis):
+        if value.predicate_expression is not None and value.predicate_expression.calls:
+            kind = "project_predicate_aggregate_expression_analysis"
+    elif isinstance(value, ast_nodes.JoinClause) and value.uses_named_input:
+        kind = "named_join_clause"
+    elif isinstance(value, ast_nodes.FromClause) and value.binding_name is not None:
+        kind = "bound_from_clause"
+    if (
+        isinstance(value, project_join_conditions.ProjectJoinCondition)
+        and value.environment.existence_values
+    ):
+        kind = "project_any_join_condition"
+    elif (
+        isinstance(
+            value, project_scalar_namespaces.ProjectConcreteJoinedNamespaceExpression
+        )
+        and value.existence_values
+    ):
+        kind = "project_any_joined_namespace_expression"
+    elif (
+        isinstance(value, project_final_outputs.ProjectNoJoinScalarExpression)
+        and value.existence_values
+    ):
+        kind = "project_any_no_join_scalar_expression"
+    elif (
+        isinstance(value, project_scalar_namespaces.ProjectJoinedLetValue)
+        and value.existence_values
+    ):
+        kind = "project_any_joined_let_value"
+    elif (
+        isinstance(value, let_scope_facts.ProjectRelationLetScopeFacts)
+        and value.existence_values
+    ):
+        kind = "project_any_let_scope_facts"
+    if isinstance(value, plans.ProjectSQLPlan) and value.scalar_existence_generators:
+        kind = "project_sql_plan_with_scalar_any"
+    if (
+        isinstance(
+            value,
+            project_relationship_predicates.ProjectRelationshipPredicateExpression,
+        )
+        and value.any_expressions
+    ):
+        kind = "project_predicate_expression_with_any"
     if kind is None:
         raise TransportError(RuntimeIssue.UNSUPPORTED_VALUE)
 
     def retained(name):
+        if (
+            isinstance(value, project_join_conditions.ProjectJoinCondition)
+            and name == "existence_values"
+        ):
+            return value.environment.existence_values
+        if isinstance(value, existence_generators.AnyUseInfo):
+            if name == "normalized_joins":
+                return value.owner.join_clauses
+        if name == "predicate_expression" and isinstance(
+            value, project_join_conditions.ProjectJoinCondition
+        ):
+            return value.environment.predicate_expression
         if (
             name == "operators"
             and type(value) is project_query_block_ir.ProjectIRReusedEffectiveOutput
@@ -482,6 +572,14 @@ def _corresponds(product):
 # Exact runtime class and field projection; unknown variants fail closed.
 
 _ADAPTERS: Mapping[type, str] = {
+    existence_values.ProjectAnyRowBinding: "project_any_row_binding",
+    existence_values.ProjectAnyInput: "project_any_input",
+    existence_values.ProjectAnyField: "project_any_field",
+    existence_values.ProjectAnyLetValue: "project_any_let_value",
+    existence_values.ProjectAnyReference: "project_any_reference",
+    existence_values.ProjectAnyValue: "project_any_value",
+    project_sql_plan_expressions.ProjectSQLAny: "project_sql_any",
+    project_sql_plan_expressions.ProjectSQLAnyReference: "project_sql_any_reference",
     plans.ProjectSQLPlanScope: "project_sql_plan_scope",
     plans.ProjectSQLPlanRef: "project_sql_plan_ref",
     plans.ProjectSQLPort: "project_sql_port",
@@ -826,6 +924,20 @@ _ADAPTERS: Mapping[type, str] = {
     ast_nodes.JoinClause: "join_clause",
     ast_nodes.JoinOnClause: "join_on_clause",
     project_join_conditions.ProjectJoinCondition: "project_join_condition",
+    project_relationship_predicates.ProjectRelationshipPredicateExpression: "project_relationship_predicate_expression",
+    semantic_model.RelationshipTemplateInfo: "relationship_template_info",
+    semantic_model.RelationshipCallInfo: "relationship_call_info",
+    semantic_model.RelationshipArgumentInfo: "relationship_argument_info",
+    ast_nodes.RelationshipTemplate: "relationship_template",
+    ast_nodes.AnyExpr: "any_expr",
+    ast_nodes.JoinFilterClause: "join_filter_clause",
+    existence_generators.AnyUseInfo: "any_use_info",
+    existence_generators.AnyValueInfo: "any_value_info",
+    ast_nodes.RelationshipParameter: "relationship_parameter",
+    ast_nodes.QueryLetDeclaration: "query_let_declaration",
+    ast_nodes.FunctionDef: "function_def",
+    project_join_conditions.ProjectJoinConditionEquality: "project_join_condition_equality",
+    project_join_conditions.ProjectJoinConditionKeyMatch: "project_join_condition_key_match",
     project_scalar_namespaces.ProjectConcreteJoinedNamespaceExpression: "project_concrete_joined_namespace_expression",
     project_scalar_namespaces.ProjectJoinedScalarNamespace: "project_joined_scalar_namespace",
     project_scalar_references.ProjectScalarReferenceResolution: "project_scalar_reference_resolution",

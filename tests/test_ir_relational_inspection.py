@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 
 from pietto._project.project_final_outputs import ProjectCompletedEffectiveOutput
+from pietto._project.project_join_conditions import ProjectJoinConditionKeyMatch
 from pietto._project.project_query_block_ir import (
     ProjectIRCompletedQueryBlockOutput,
     ProjectIRQueryBlockTerminal,
@@ -19,6 +20,7 @@ from pietto._project import project_query_block_ir_pure_boundary as pure
 from pietto._project.project_query_block_ir_pure_boundary import (
     PROJECT_FLAT_RELATIONAL_IR_INSPECTION_FORMAT,
     ProjectQueryBlockIRPureStatus,
+    ProjectQueryBlockIRPureValue,
     evaluate_project_query_block_ir_document,
 )
 from pietto._project.project_query_block_ir_verification import (
@@ -80,9 +82,7 @@ def test_effective_input_vertical_to_verified_private_observation(
     assert b"condition\t" in product.canonical_bytes
 
 
-@pytest.mark.parametrize(
-    "kind", ("inner", "left", "cross", "right", "full", "semi", "anti")
-)
+@pytest.mark.parametrize("kind", ("inner", "left", "cross", "right", "full"))
 def test_all_join_kinds_keep_original_matching_and_two_input_uses(
     tmp_path: Path, kind: str
 ) -> None:
@@ -107,8 +107,7 @@ def test_all_join_kinds_keep_original_matching_and_two_input_uses(
         if kind == "cross"
         else joined.condition.expression is not None
     )
-    expected = 3 if kind in {"semi", "anti"} else 6
-    assert len(joined.output.row_shape.fields) == expected
+    assert len(joined.output.row_shape.fields) == 6
     for old, new in zip(
         joined.source.output.row_shape.fields,
         joined.output.row_shape.fields,
@@ -133,8 +132,8 @@ def test_distinct_visible_comparison_before_order_limit_and_downstream(
     from pietto._project.project_query_block_ir import ProjectIRDistinctComparison
 
     source = """shape Row:
-    id: Int nullable
-source rows: Row is postgres.table("rows")
+    id: Int | None
+source rows: Row = postgres.table("rows")
 table dedup:
     from rows
     select distinct:
@@ -248,7 +247,7 @@ def test_supported_set_types_survive_ir_and_portable_evidence(
     from _pietto_ir_sources import set_source as set_source
 
     source = set_source(right_type=type_name).replace(
-        "id: Int not null", f"id: {type_name} nullable"
+        "id: Int", f"id: {type_name} | None"
     )
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
@@ -264,7 +263,7 @@ def test_supported_set_types_survive_ir_and_portable_evidence(
 
 
 @pytest.mark.parametrize(
-    "scenario", ("unproved", "relationship", "refinement", "right_limit", "global")
+    "scenario", ("unproved", "matched_key", "guarded_key", "right_limit", "global")
 )
 def test_single_match_retains_actual_boundary_proof_and_warning(
     tmp_path: Path, scenario: str
@@ -279,13 +278,13 @@ def test_single_match_retains_actual_boundary_proof_and_warning(
     )
 
     if scenario == "unproved":
-        source = _source("true", kind="semi") + "    limit 1\n"
-    elif scenario in {"relationship", "refinement"}:
+        source = _source("True", kind="left") + "    limit 1\n"
+    elif scenario in {"matched_key", "guarded_key"}:
         source = _asymmetric_source(target_unique=True)
-        if scenario == "refinement":
+        if scenario == "guarded_key":
             source = source.replace(
-                "        from lhs\n    select:",
-                "        from lhs\n        via link: l -> r\n        on r.id > 0\n    select:",
+                "inner join r on Link(lhs, r)",
+                "inner join r on Link(lhs, r) and r.id > 0",
             )
     elif scenario == "right_limit":
         source = _limited_source(right_limit=1)
@@ -295,7 +294,7 @@ def test_single_match_retains_actual_boundary_proof_and_warning(
         )
 
         source, _ = _tail_source("global")
-        source += "query result:\n    from lhs\n    semi join upstream as r:\n        from lhs\n        on true\n    select:\n        id = lhs.id\n"
+        source += "query result:\n    from lhs\n    let r = upstream\n    left join r on True\n    select:\n        id = lhs.id\n"
     original = _completed(tmp_path, source)
     request = _request(original, -1)
     completed = with_project_single_match_requests(original, (request, request))
@@ -312,6 +311,16 @@ def test_single_match_retains_actual_boundary_proof_and_warning(
             for image, source in zip(requirement.proofs, assessment.proofs, strict=True)
         )
         assert assessment.downstream_enforcement_required is (scenario == "unproved")
+        assert (
+            assessment.condition is not None
+            and assessment.condition.base_guarantee is None
+        )
+        if scenario in {"matched_key", "guarded_key"}:
+            assert [proof.kind.value for proof in assessment.proofs] == ["matched_key"]
+        elif scenario == "right_limit":
+            assert [proof.kind.value for proof in assessment.proofs] == ["right_limit"]
+        elif scenario == "global":
+            assert [proof.kind.value for proof in assessment.proofs] == ["right_global"]
     verification = verify_project_query_block_ir(snapshot)
     assert verification.verified, verification.issues
     product = build_project_query_block_ir_inspection(
@@ -331,55 +340,94 @@ def test_single_match_retains_actual_boundary_proof_and_warning(
 
 
 @pytest.mark.parametrize("both_unique", (False, True))
-def test_hop_and_whole_path_requirements_keep_distinct_composed_scopes(
+def test_explicit_join_requirements_keep_distinct_composed_boundaries(
     tmp_path: Path, both_unique: bool
 ) -> None:
-    from dataclasses import replace
     from pietto._project.project_completed_semantics import (
         with_project_single_match_requests,
     )
-    from pietto._project.project_single_match import ProjectSingleMatchScope
-    from _pietto_project_single_match import (
-        _request,
-        _asymmetric_source,
+    from pietto._project.project_single_match import (
+        ProjectSingleMatchScope,
+        ProjectSingleMatchState,
     )
+    from _pietto_plan_joins import _path_source, _path_requests
 
-    source = (
-        _asymmetric_source(target_unique=True, source_unique=both_unique)
-        .replace("inner join rhs as r:", "inner join lhs as r:")
-        .replace(
-            "        from lhs\n    select:",
-            "        from lhs\n        via link: l -> r\n        via link: r -> l\n    select:",
-        )
+    original = _completed(tmp_path, _path_source(all_unique=both_unique))
+    requests = _path_requests(original)
+    assert len(requests) == 2
+    assert all(
+        request.scope is ProjectSingleMatchScope.DIRECT_BINARY for request in requests
     )
-    original = _completed(tmp_path, source)
-    request = _request(original)
-    path = original.roots.join_conditions.entries[0].effective_use.path
-    assert path is not None
-    hop = replace(
-        request, scope=ProjectSingleMatchScope.PATH_HOP, path=path, hop=path.steps[0]
-    )
-    whole = replace(request, scope=ProjectSingleMatchScope.WHOLE_PATH, path=path)
-    completed = with_project_single_match_requests(original, (hop, whole))
+    completed = with_project_single_match_requests(original, requests)
     assert completed.ok, completed.diagnostics
-    snapshot = build_project_query_block_ir(completed)
-    assert [len(requirement.boundaries) for requirement in snapshot.requirements] == [
-        1,
-        2,
+    assessments = completed.single_matches.entries
+    assert [
+        [proof.kind.value for proof in assessment.proofs] for assessment in assessments
+    ] == [
+        ["matched_key"],
+        ["matched_key"] if both_unique else [],
     ]
-    assert (
-        snapshot.requirements[0].boundaries[0] is snapshot.requirements[1].boundaries[0]
+    assert [
+        assessment.downstream_enforcement_required for assessment in assessments
+    ] == [False, not both_unique]
+    snapshot = build_project_query_block_ir(completed)
+    entry = next(
+        entry for entry in snapshot.entries if entry.owner.definition.name == "result"
     )
     assert (
-        snapshot.requirements[1].assessment.downstream_enforcement_required
-        is not both_unique
+        isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+        and entry.join_prefix is not None
+    )
+    first, second = entry.join_prefix.joins
+    assert second.input_uses[0].output is first.output.occurrence
+    assert first.input_uses[0].output is second.input_uses[1].output
+    assert first.input_uses[0] is not second.input_uses[1]
+    assert len(snapshot.requirements) == 2
+    for request, assessment, retained, boundary in zip(
+        requests, assessments, snapshot.requirements, (first, second), strict=True
+    ):
+        assert assessment.request is request and retained.assessment is assessment
+        assert retained.owner_entry is entry and retained.boundaries == (boundary,)
+        assert retained.input_pairs == (
+            (boundary.input_uses[0], boundary.input_uses[1]),
+        )
+        assert (
+            assessment.condition is not None
+            and assessment.condition.base_guarantee is None
+        )
+        for image, proof in zip(retained.proofs, assessment.proofs, strict=True):
+            assert image.source is proof and proof.kind.value == "matched_key"
+            condition, match, key, *equalities = proof.roots
+            assert type(match) is ProjectJoinConditionKeyMatch
+            assert condition is assessment.condition and match.condition is condition
+            assert match.binding is request.use.target_binding and match.key is key
+            assert tuple(equalities) == match.equalities
+    assert assessments[0].state is ProjectSingleMatchState.PROVED
+    assert assessments[1].state is (
+        ProjectSingleMatchState.PROVED
+        if both_unique
+        else ProjectSingleMatchState.LEGAL_UNPROVED
+    )
+    assert [d.code for d in completed.diagnostics] == (
+        [] if both_unique else ["PIE-S2337"]
     )
     verification = verify_project_query_block_ir(snapshot)
     assert verification.verified, verification.issues
     product = build_project_query_block_ir_inspection(
         build_project_query_block_ir_analysis_bundle(verification)
     )
-    assert b"whole_path" in product.canonical_bytes
+    assert (
+        b"direct_binary" in product.canonical_bytes
+        and b"matched_key" in product.canonical_bytes
+    )
+    left, right = assessments[0].input_pairs[0]
+    for wrong_pairs in (((right, left),), assessments[1].input_pairs):
+        forged = replace(requests[0], input_pairs=wrong_pairs)
+        rejected = with_project_single_match_requests(original, (forged,))
+        assert (
+            rejected.single_matches.entries[0].state is ProjectSingleMatchState.INVALID
+        )
+        assert [d.code for d in rejected.diagnostics] == ["PIE-S2338"]
 
 
 def test_grouped_output_left_join_window_qualify_retains_all_stages(
@@ -390,7 +438,7 @@ def test_grouped_output_left_join_window_qualify_retains_all_stages(
     )
 
     source, _ = _tail_source("grouped")
-    source += "query result:\n    from lhs\n    left join upstream as u:\n        from lhs\n        on u.total > 0\n    select:\n        id = lhs.id\n        total = u.total\n        rn = row_number() window:\n            order by:\n                lhs.id\n    qualify:\n        rn <= 2\n"
+    source += "query result:\n    from lhs\n    let u = upstream\n    left join u on u.total > 0\n    select:\n        id = lhs.id\n        total = u.total\n        rn = row_number() window(order by lhs.id)\n    qualify:\n        rn <= 2\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     snapshot = build_project_query_block_ir(completed)
@@ -424,7 +472,7 @@ def test_accumulated_join_nulls_whole_left_in_composed_coordinates(
 ) -> None:
     source = _source("lhs.id == r.id").replace(
         "    select:\n",
-        f"    {kind} join rhs as s:\n        from lhs\n        on r.id == s.id\n    select:\n",
+        f"    let s = rhs\n    {kind} join s on r.id == s.id\n    select:\n",
     )
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
@@ -455,9 +503,9 @@ def test_decimal_set_join_distinct_and_named_nested_set_keep_parameter_sources(
     from _pietto_ir_sources import set_source as set_source
 
     source = set_source(right_type="Decimal(10, 2)").replace(
-        "id: Int not null", "id: Decimal(10, 2) nullable"
+        "id: Int", "id: Decimal(10, 2) | None"
     )
-    source += "table joined:\n    from result\n    inner join result as r:\n        from result\n        on true\n    select distinct:\n        price = result.id\ntable final:\n    except distinct:\n        from joined\n        from joined\n        from joined\n"
+    source += "table joined:\n    from result\n    let r = result\n    inner join r on True\n    select distinct:\n        price = result.id\ntable final:\n    except distinct joined, joined, joined\n"
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     snapshot = build_project_query_block_ir(completed)
@@ -483,8 +531,8 @@ def test_invalid_request_blocks_owner_and_all_set_membership_dependencies(
         _request,
     )
 
-    source = _source("true").replace("query result:", "table invalid_owner:")
-    source += "table blocked:\n    union all:\n        from invalid_owner\n        from invalid_owner\nquery valid:\n    from lhs\n    select:\n        id\n"
+    source = _source("True").replace("query result:", "table invalid_owner:")
+    source += "table blocked:\n    union all invalid_owner, invalid_owner\nquery valid:\n    from lhs\n    select:\n        id\n"
     original = _completed(tmp_path, source)
     request = replace(_request(original), input_pairs=())
     completed = with_project_single_match_requests(original, (request,))
@@ -521,9 +569,7 @@ LET_SET = (
         select:
             id
             key
-    union distinct:
-        from left_rows
-        from right_rows
+    union distinct left_rows, right_rows
 """
 )
 
@@ -536,8 +582,8 @@ def test_inlined_def_calls_serialize_as_the_ordinary_expressions_they_are(
         _source("same(lhs.id, r.id)", kind="left").replace(
             "    select:\n", "    where pos(lhs.id) and pos(lhs.id)\n    select:\n"
         )
-        + "def same(a: Int not null, b: Int not null) -> Bool nullable: return a == b\n"
-        + "def pos(x: Int not null) -> Bool nullable: return x > 0 and x < 9\n",
+        + "def same(a: Int, b: Int) -> Bool | None: return a == b\n"
+        + "def pos(x: Int) -> Bool | None: return x > 0 and x < 9\n",
     )
     assert completed.ok, completed.diagnostics
     verification = verify_project_query_block_ir(
@@ -668,3 +714,441 @@ def test_a_let_coordinate_is_never_dropped_moved_or_swapped(
     )
     assert outcome.status is ProjectQueryBlockIRPureStatus[status]
     assert outcome.canonical_bytes is None
+
+
+def test_predicate_inspection_retains_all_calls_keys_and_located_equalities(
+    tmp_path: Path,
+) -> None:
+    completed = _completed(
+        tmp_path,
+        """shape Row:
+    id: Int
+    row_key = unique(id)
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
+relationship Same(a: Row, b: Row):
+    a.id == b.id and b.id > 0
+query result:
+    from lhs
+    inner join rhs on Same(lhs, rhs) and Same(lhs, rhs)
+    where Same(lhs, rhs) or not Same(lhs, rhs)
+    select:
+        matched = Same(lhs, rhs)
+        id = lhs.id
+""",
+    )
+    assert completed.ok, completed.diagnostics
+    from pietto._project.project_completed_semantics import (
+        with_project_single_match_requests,
+    )
+    from pietto._project.project_single_match import ProjectSingleMatchRequest
+
+    condition = completed.roots.join_conditions.entries[0]
+    request = ProjectSingleMatchRequest(owner=condition.use.owner, use=condition.use)
+    completed = with_project_single_match_requests(completed, (request, request))
+    assert all(
+        [proof.kind.value for proof in assessment.proofs] == ["matched_key"]
+        for assessment in completed.single_matches.entries
+    )
+    snapshot = build_project_query_block_ir(completed)
+    checked = verify_project_query_block_ir(snapshot)
+    assert checked.verified, checked.issues
+    product = build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(checked)
+    )
+    observed = product.inspection
+    canonical = completed.roots.join_conditions.predicate_expressions
+    expected = tuple(call for record in canonical for call in record.calls)
+    assert len(expected) == 5
+    assert len(observed.predicate_calls) == len(expected)
+    assert all(
+        actual is original
+        for actual, original in zip(observed.predicate_calls, expected, strict=True)
+    )
+    assert [call.ordinal for call in observed.predicate_calls] == list(range(5))
+    assert [proof.conjunct_position for proof in observed.predicate_equalities] == [
+        0,
+        2,
+    ]
+    assert [proof.calls for proof in observed.predicate_equalities] == [
+        (expected[0],),
+        (expected[1],),
+    ]
+    assert [
+        proof.binding.identity.binding_position
+        for proof in observed.predicate_key_matches
+    ] == [0, 1]
+    assert all(
+        proof.minimum.value == "zero_allowed"
+        for proof in observed.predicate_key_matches
+    )
+    assert [len(call.mandatory_equalities) for call in expected] == [1, 1, 0, 0, 0]
+    records = product.document.records
+    position = next(
+        i
+        for i, record in enumerate(records)
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.PREDICATE_EXPRESSION
+    )
+    original = records[position]
+    changed = replace(
+        original,
+        fields=tuple(
+            replace(
+                field,
+                value=pure.project_query_block_ir_pure_refs(
+                    tuple(reversed(field.value.refs))
+                ),
+            )
+            if field.key == "calls"
+            else field
+            for field in original.fields
+        ),
+    )
+    damaged = replace(
+        product.document,
+        records=(*records[:position], changed, *records[position + 1 :]),
+    )
+    assert (
+        evaluate_project_query_block_ir_document(damaged).status
+        is not ProjectQueryBlockIRPureStatus.OK
+    )
+
+
+def test_any_inspection_retains_authored_and_generated_occurrences(
+    tmp_path: Path,
+) -> None:
+    from pietto._project.project_query_block_ir_inspection import (
+        _derive_project_query_block_ir_inspection,
+        _existence_uses,
+        _project_query_block_ir_document,
+    )
+
+    completed = _completed(
+        tmp_path,
+        """shape Row:
+    id: Int
+source orders: Row = postgres.table("orders")
+source customers: Row = postgres.table("customers")
+source regions: Row = postgres.table("regions")
+query result:
+    from orders
+    where any(buyer.id == orders.id for buyer in customers)
+    inner join regions on orders.id == regions.id
+    where orders.id > 0 and not any(buyer.id == regions.id for buyer in customers)
+    select:
+        id = orders.id
+""",
+    )
+    assert completed.ok, completed.diagnostics
+    snapshot = build_project_query_block_ir(completed)
+    verified = verify_project_query_block_ir(snapshot)
+    assert verified.verified, verified.issues
+    inspection = _derive_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(verified)
+    )
+    (first,) = _existence_uses(snapshot)
+    (last,) = inspection.scalar_existence_uses
+    assert inspection.existence_uses == (first,)
+    assert first.input_ordinal == 1 and first.preceding_join_count == 0
+    assert first.expression is not last.expression
+    assert len(inspection.scalar_existence_values) == 1
+    document = _project_query_block_ir_document(inspection)
+    (record,) = pure._records(
+        document, pure.ProjectQueryBlockIRRecordKind.EXISTENCE_USE
+    )
+    assert pure._integer(record, "input_ordinal") == 1
+    assert pure._integer(record, "preceding_join_count") == 0
+    assert pure._field(record, "node").tag is pure.ProjectQueryBlockIRPureTag.REF
+
+
+def test_scalar_any_inspection_keeps_nested_bindings_and_rejects_missing_field(
+    tmp_path: Path,
+) -> None:
+    completed = _completed(
+        tmp_path,
+        """shape Row:
+    id: Int
+source orders: Row = postgres.table("orders")
+source customers: Row = postgres.table("customers")
+query result:
+    from orders
+    where orders.id > 0 or any(any(other.id == buyer.id for other in customers) and buyer.id == orders.id for buyer in customers)
+    select id = orders.id
+""",
+    )
+    assert completed.ok, completed.diagnostics
+    snapshot = build_project_query_block_ir(completed)
+    verified = verify_project_query_block_ir(snapshot)
+    assert verified.verified, verified.issues
+    product = build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(verified)
+    )
+    inspection = product.inspection
+    outer, inner = inspection.scalar_existence_values
+    assert outer.nested == (inner,)
+    assert outer.input.binding.origin is inspection.scalar_existence_uses[0]
+    assert inner.input.binding.origin is inspection.scalar_existence_uses[1]
+    assert len(outer.references) == len(inner.references) == 2
+    target = inner.references[1].target
+    assert target is not None
+    assert target.binding is outer.input.binding
+    assert (
+        evaluate_project_query_block_ir_document(product.document).status
+        is ProjectQueryBlockIRPureStatus.OK
+    )
+    records = list(product.document.records)
+    position = next(
+        i
+        for i, record in enumerate(records)
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.SCALAR_ANY_FIELD
+    )
+    damaged = replace(
+        product.document, records=(*records[:position], *records[position + 1 :])
+    )
+    assert (
+        evaluate_project_query_block_ir_document(damaged).status
+        is not ProjectQueryBlockIRPureStatus.OK
+    )
+    uses = [
+        record
+        for record in records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.SCALAR_ANY_USE
+    ]
+    outer_use, inner_use = (pure._ref(record, "ref") for record in uses)
+    inner_record = next(
+        record
+        for record in records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.SCALAR_ANY_VALUE
+        and pure._ref(record, "use") == inner_use
+    )
+    inner_references = pure._refs(inner_record, "references")
+    candidate_position = next(
+        i
+        for i, record in enumerate(records)
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.SCALAR_ANY_CANDIDATE
+        and pure._field(record, "local").tag is pure.ProjectQueryBlockIRPureTag.REF
+        and pure._ref(record, "local") == outer_use
+        and pure._text(record, "name") == "buyer"
+        and pure._ref(record, "reference") in inner_references
+    )
+    candidate = records[candidate_position]
+    changed = replace(
+        candidate,
+        fields=tuple(
+            replace(field, value=pure.project_query_block_ir_pure_ref(inner_use))
+            if field.key == "local"
+            else field
+            for field in candidate.fields
+        ),
+    )
+    graft = replace(
+        product.document,
+        records=(
+            *records[:candidate_position],
+            changed,
+            *records[candidate_position + 1 :],
+        ),
+    )
+    assert (
+        evaluate_project_query_block_ir_document(graft).status
+        is not ProjectQueryBlockIRPureStatus.OK
+    )
+
+
+@pytest.mark.parametrize("captured", ("orders", "regions"))
+def test_scalar_any_outer_capture_cannot_be_retargeted(
+    tmp_path: Path, captured: str
+) -> None:
+    completed = _completed(
+        tmp_path,
+        """shape Row:
+    id: Int
+source orders: Row = postgres.table("orders")
+source customers: Row = postgres.table("customers")
+source regions: Row = postgres.table("regions")
+query result:
+    from orders
+    inner join regions on orders.id == regions.id
+    where any(buyer.id == orders.id and buyer.id == regions.id for buyer in customers)
+    select id = orders.id
+""",
+    )
+    assert completed.ok, completed.diagnostics
+    verified = verify_project_query_block_ir(build_project_query_block_ir(completed))
+    assert verified.verified, verified.issues
+    document = build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(verified)
+    ).document
+    assert (
+        evaluate_project_query_block_ir_document(document).status
+        is ProjectQueryBlockIRPureStatus.OK
+    )
+    owners = {
+        pure._text(record, "declared_name"): pure._ref(record, "ref")
+        for record in document.records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.OWNER_ENTRY
+    }
+    records = document.records
+    (position,) = (
+        i
+        for i, record in enumerate(records)
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.SCALAR_ANY_CANDIDATE
+        and pure._text(record, "name") == captured
+    )
+    candidate = records[position]
+    assert pure._ref(candidate, "target") == owners[captured]
+    changed = replace(
+        candidate,
+        fields=tuple(
+            replace(
+                field, value=pure.project_query_block_ir_pure_ref(owners["customers"])
+            )
+            if field.key == "target"
+            else field
+            for field in candidate.fields
+        ),
+    )
+    damaged = replace(
+        document, records=(*records[:position], changed, *records[position + 1 :])
+    )
+    assert evaluate_project_query_block_ir_document(
+        damaged
+    ) == pure.ProjectQueryBlockIRPureOutcome(
+        status=ProjectQueryBlockIRPureStatus.INVALID_DOCUMENT,
+        record_position=0,
+        field_position=0,
+    )
+
+
+@pytest.mark.parametrize("captured", ("orders", "regions", "buyer"))
+def test_scalar_any_capture_is_bound_to_its_verified_input_fields(
+    tmp_path: Path, captured: str
+) -> None:
+    completed = _completed(
+        tmp_path,
+        """shape Row:
+    id: Int
+    code: Text | None
+    rank: Int
+source orders: Row = postgres.table("orders")
+source customers: Row = postgres.table("customers")
+source regions: Row = postgres.table("regions")
+query result:
+    from orders
+    inner join regions on orders.id == regions.id
+    where any(buyer.id == orders.id and buyer.id == regions.id for buyer in customers)
+    select id = orders.id
+""",
+    )
+    assert completed.ok, completed.diagnostics
+    verified = verify_project_query_block_ir(build_project_query_block_ir(completed))
+    assert verified.verified, verified.issues
+    document = build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(verified)
+    ).document
+    records = document.records
+    owners = {
+        pure._text(record, "declared_name"): pure._ref(record, "ref")
+        for record in records
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.OWNER_ENTRY
+    }
+    position = next(
+        i
+        for i, record in enumerate(records)
+        if record.kind is pure.ProjectQueryBlockIRRecordKind.SCALAR_ANY_CANDIDATE
+        and pure._text(record, "name") == captured
+    )
+    candidate = records[position]
+    assert pure._field(candidate, "input_names").texts == ("id", "code", "rank")
+    assert pure._enumeration(candidate, "nullability") == "non_null"
+    customers = pure.project_query_block_ir_pure_ref(owners["customers"])
+    damages: dict[str, tuple[tuple[int, str, ProjectQueryBlockIRPureValue], ...]] = {
+        "nullability": (
+            (
+                position,
+                "nullability",
+                pure.project_query_block_ir_pure_enumeration("nullable"),
+            ),
+        ),
+        "extra name": (
+            (
+                position,
+                "input_names",
+                pure.project_query_block_ir_pure_texts(("id", "code", "rank", "x")),
+            ),
+        ),
+        "rotated names": (
+            (
+                position,
+                "input_names",
+                pure.project_query_block_ir_pure_texts(("id", "rank", "code")),
+            ),
+        ),
+    }
+    if captured != "buyer":
+        assert pure._ref(candidate, "target") == owners[captured]
+        (dependency,) = (
+            i
+            for i, record in enumerate(records)
+            if record.kind is pure.ProjectQueryBlockIRRecordKind.DEPENDENCY
+            and pure._ref(record, "consumer") == owners["result"]
+            and pure._integer(record, "ordinal") == pure._integer(candidate, "position")
+        )
+        assert pure._ref(records[dependency], "target") == owners[captured]
+        damages["dependency"] = ((dependency, "target", customers),)
+        damages["target and dependency"] = (
+            (position, "target", customers),
+            (dependency, "target", customers),
+        )
+    for name, changes in damages.items():
+        damaged = list(records)
+        for at, key, value in changes:
+            damaged[at] = replace(
+                damaged[at],
+                fields=tuple(
+                    replace(field, value=value) if field.key == key else field
+                    for field in damaged[at].fields
+                ),
+            )
+        assert evaluate_project_query_block_ir_document(
+            replace(document, records=tuple(damaged))
+        ) == pure.ProjectQueryBlockIRPureOutcome(
+            status=ProjectQueryBlockIRPureStatus.INVALID_DOCUMENT,
+            record_position=0,
+            field_position=0,
+        ), name
+
+
+def test_tail_scalar_any_retains_nested_let_capture(tmp_path: Path) -> None:
+    completed = _completed(
+        tmp_path,
+        """shape Row:
+    id: Int
+source orders: Row = postgres.table("orders")
+source customers: Row = postgres.table("customers")
+query result:
+    from orders
+    let floor = orders.id
+    where any(any(other.id > floor and other.id == buyer.id for other in customers) for buyer in customers)
+    select id = orders.id
+""",
+    )
+    assert completed.ok, completed.diagnostics
+    snapshot = build_project_query_block_ir(completed)
+    checked = verify_project_query_block_ir(snapshot)
+    assert checked.verified, checked.issues
+    product = build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(checked)
+    )
+    assert not product.inspection.existence_uses
+    assert len(product.inspection.scalar_existence_uses) == 2
+    outer, inner = product.inspection.scalar_existence_values
+    assert outer.nested == (inner,)
+    assert any(
+        getattr(reference.target, "binding", None) is not None
+        for reference in inner.captures
+    )
+    assert (
+        evaluate_project_query_block_ir_document(product.document).status
+        is ProjectQueryBlockIRPureStatus.OK
+    )

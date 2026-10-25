@@ -65,6 +65,7 @@ class ProjectSingleMatchState(StrEnum):
 class ProjectSingleMatchProofKind(StrEnum):
     RELATIONSHIP = "relationship"
     REFINEMENT = "refinement"
+    MATCHED_KEY = "matched_key"
     WHOLE_PATH = "whole_path"
     RIGHT_LIMIT = "right_limit"
     RIGHT_GLOBAL = "right_global"
@@ -258,6 +259,14 @@ def _single_boundary_proofs(
                     roots=(condition, base),
                 )
             )
+        proofs.extend(
+            ProjectSingleMatchProof(
+                kind=ProjectSingleMatchProofKind.MATCHED_KEY,
+                roots=(condition, match, match.key, *match.equalities),
+            )
+            for match in condition.key_matches
+            if match.binding is condition.use.target_binding
+        )
     return (*proofs, *_right_proofs(root, join))
 
 
@@ -631,6 +640,27 @@ def compiled_boundary_proofs(ir, address):
                     ),
                 )
             )
+    from pietto._project.project_current_joins import (
+        _compiled_predicate_matched_classes,
+    )
+    from pietto._project.project_compiled_schema import (
+        predicate_calls,
+        predicate_equalities,
+    )
+
+    predicate_matches = _compiled_predicate_matched_classes(records, join, right, 1)
+    calls = tuple(
+        call for call in predicate_calls(records, join) if call.get("role") == "on"
+    )
+    equalities = predicate_equalities(records, join)
+    for key in resolved_matching_keys(right.keys, predicate_matches):
+        proofs.append(
+            CompiledSingleMatchProof(
+                ProjectSingleMatchProofKind.MATCHED_KEY,
+                (address,),
+                (join, right_use, key, *calls, *equalities),
+            )
+        )
     for kind, roots in _compiled_right_bounds(ir, right_use.get("producer")):
         proofs.append(CompiledSingleMatchProof(kind, (address,), (right_use, *roots)))
     return tuple(proofs)

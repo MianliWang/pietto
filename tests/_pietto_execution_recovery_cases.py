@@ -31,8 +31,8 @@ class R2Fixture:
 
 _CROSS_R2 = """query result:
     from rows
-    cross join rows as second:
-        from rows
+    let second = rows
+    cross join second
     where rows.id > 0
     select:
         record_id = rows.id
@@ -111,8 +111,16 @@ def live_r2(directory, providers, *, target: str = "postgres") -> R2Fixture:
     if len(by_source) != len(providers):
         raise ValueError("FIXTURE_PROVIDER_DUPLICATE")
     source_order = tuple((source.namespace, source.name) for source in sources)
-    occurrences = source_text.count("from rows\n")
-    if len(source_order) != 1 or source_order[0] not in by_source or occurrences != 2:
+    root_occurrences = source_text.count("\n    from rows\n")
+    joined_occurrences = source_text.count(
+        "    let second = rows\n    cross join second\n"
+    )
+    occurrences = root_occurrences + joined_occurrences
+    if (
+        len(source_order) != 1
+        or source_order[0] not in by_source
+        or (root_occurrences, joined_occurrences) != (1, 1)
+    ):
         raise ValueError("R2_CROSS_SOURCE_ORDER")
     requirements = []
     for source in sources:

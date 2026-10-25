@@ -18,8 +18,8 @@ def test_derived_field_depending_on_base_field_is_acyclic() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    email_norm: Text not null derive lower(trim(email))\n"
+            "    email: Text\n"
+            "    email_norm: Text derive lower(trim(email))\n"
         )
     )
 
@@ -30,9 +30,9 @@ def test_derived_field_can_depend_on_earlier_derived_field() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    email: Text not null\n"
-            "    email_norm: Text not null derive lower(email)\n"
-            "    display_email: Text not null derive lower(email_norm)\n"
+            "    email: Text\n"
+            "    email_norm: Text derive lower(email)\n"
+            "    display_email: Text derive lower(email_norm)\n"
         )
     )
 
@@ -43,9 +43,9 @@ def test_derived_field_can_depend_on_later_derived_field() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    display_email: Text not null derive lower(email_norm)\n"
-            "    email_norm: Text not null derive lower(email)\n"
-            "    email: Text not null\n"
+            "    display_email: Text derive lower(email_norm)\n"
+            "    email_norm: Text derive lower(email)\n"
+            "    email: Text\n"
         )
     )
 
@@ -53,7 +53,7 @@ def test_derived_field_can_depend_on_later_derived_field() -> None:
 
 
 def test_direct_field_derive_cycle_reports_pie_s2504() -> None:
-    result = analyze(_parse("shape User:\n    a: Text not null derive a\n"))
+    result = analyze(_parse("shape User:\n    a: Text derive a\n"))
 
     assert _diagnostics(result.diagnostics) == [
         ("PIE-S2504", Severity.ERROR, "Derived field cycle involving a")
@@ -62,7 +62,7 @@ def test_direct_field_derive_cycle_reports_pie_s2504() -> None:
 
 def test_two_field_derive_cycle_reports_once_at_earliest_field() -> None:
     script = _parse(
-        "shape User:\n    a: Text not null derive b\n    b: Text not null derive a\n",
+        "shape User:\n    a: Text derive b\n    b: Text derive a\n",
         path="field-cycles.pietto",
     )
     shape = script.definitions[0]
@@ -80,9 +80,9 @@ def test_three_field_derive_cycle_reports_once() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    a: Text not null derive b\n"
-            "    b: Text not null derive c\n"
-            "    c: Text not null derive a\n"
+            "    a: Text derive b\n"
+            "    b: Text derive c\n"
+            "    c: Text derive a\n"
         )
     )
 
@@ -94,8 +94,8 @@ def test_nested_builtin_call_dependency_participates_in_cycle() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    a: Text not null derive lower(trim(b))\n"
-            "    b: Text not null derive lower(trim(a))\n"
+            "    a: Text derive lower(trim(b))\n"
+            "    b: Text derive lower(trim(a))\n"
         )
     )
 
@@ -105,9 +105,7 @@ def test_nested_builtin_call_dependency_participates_in_cycle() -> None:
 def test_comparison_dependencies_participate_in_cycle() -> None:
     result = analyze(
         _parse(
-            "shape Flags:\n"
-            "    a: Bool not null derive b == true\n"
-            "    b: Bool not null derive a == true\n"
+            "shape Flags:\n    a: Bool derive b == True\n    b: Bool derive a == True\n"
         )
     )
 
@@ -118,8 +116,8 @@ def test_is_null_dependencies_participate_in_cycle() -> None:
     result = analyze(
         _parse(
             "shape Flags:\n"
-            "    a: Bool not null derive b is null\n"
-            "    b: Bool not null derive a is not null\n"
+            "    a: Bool derive b is None\n"
+            "    b: Bool derive a is not None\n"
         )
     )
 
@@ -129,12 +127,8 @@ def test_is_null_dependencies_participate_in_cycle() -> None:
 @pytest.mark.parametrize(
     "source",
     (
-        "shape Flags:\n"
-        "    a: Bool not null derive b if true else false\n"
-        "    b: Bool not null derive a\n",
-        "shape Flags:\n"
-        "    a: Bool not null derive b in (true,)\n"
-        "    b: Bool not null derive a\n",
+        "shape Flags:\n    a: Bool derive b if True else False\n    b: Bool derive a\n",
+        "shape Flags:\n    a: Bool derive b in (True,)\n    b: Bool derive a\n",
     ),
     ids=("conditional", "membership"),
 )
@@ -147,9 +141,7 @@ def test_new_composite_expression_dependencies_participate_in_cycles(
 
 
 def test_unknown_field_does_not_create_fake_cycle() -> None:
-    result = analyze(
-        _parse("shape User:\n    a: Text not null derive lower(missing)\n")
-    )
+    result = analyze(_parse("shape User:\n    a: Text derive lower(missing)\n"))
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
 
@@ -158,10 +150,10 @@ def test_shapes_are_checked_independently() -> None:
     result = analyze(
         _parse(
             "shape First:\n"
-            "    a: Text not null derive a\n"
+            "    a: Text derive a\n"
             "shape Second:\n"
-            "    a: Text not null derive b\n"
-            "    b: Text not null derive a\n"
+            "    a: Text derive b\n"
+            "    b: Text derive a\n"
         )
     )
 
@@ -178,10 +170,10 @@ def test_disjoint_cycles_are_reported_in_source_order() -> None:
     result = analyze(
         _parse(
             "shape Record:\n"
-            "    first: Text not null derive second\n"
-            "    second: Text not null derive first\n"
-            "    third: Text not null derive fourth\n"
-            "    fourth: Text not null derive third\n"
+            "    first: Text derive second\n"
+            "    second: Text derive first\n"
+            "    third: Text derive fourth\n"
+            "    fourth: Text derive third\n"
         )
     )
 
@@ -195,9 +187,7 @@ def test_disjoint_cycles_are_reported_in_source_order() -> None:
 
 
 def test_field_derive_cycle_analysis_does_not_mutate_input_ast() -> None:
-    script = _parse(
-        "shape User:\n    a: Text not null derive b\n    b: Text not null derive a\n"
-    )
+    script = _parse("shape User:\n    a: Text derive b\n    b: Text derive a\n")
     original = deepcopy(script)
 
     analyze(script)
@@ -207,11 +197,7 @@ def test_field_derive_cycle_analysis_does_not_mutate_input_ast() -> None:
 
 def test_field_derive_cycle_results_do_not_expose_antlr_nodes() -> None:
     result = analyze(
-        _parse(
-            "shape User:\n"
-            "    a: Text not null derive b\n"
-            "    b: Text not null derive a\n"
-        )
+        _parse("shape User:\n    a: Text derive b\n    b: Text derive a\n")
     )
 
     _assert_no_antlr_nodes(result)

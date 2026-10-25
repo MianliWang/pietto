@@ -1352,7 +1352,7 @@ def representative_pilot(
 def native_manifest(target):
     """Current original denominators; target exclusions stay explicit."""
     from _pietto_execution_rows_cases import CASES as ordinary
-    from _pietto_execution_source_assurance_cases import CASES as refined
+    from _pietto_execution_source_assurance_cases import REFINED as refined
     from _pietto_execution_guard_cases import manifest
 
     exclusions = (

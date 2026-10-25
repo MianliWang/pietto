@@ -166,8 +166,7 @@ def test_let_and_aggregate_outputs_are_concrete_while_pure_grouping_stays_deferr
             tmp_path,
             "query let_output:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + 1\n"
+            "    let total = score + 1\n"
             "    select:\n"
             "        total\n"
             "query aggregate:\n"
@@ -298,11 +297,11 @@ def _project(tmp_path: Path, relation_source: str) -> Path:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
+        "    id: Int\n"
         "    email: Text\n"
         "    score: Int\n"
         "    bonus: Int\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         f"{relation_source}",
     )
     return root

@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import json
 from enum import Enum
-from pietto.ast_nodes import Node, Span
+from pietto.ast_nodes import (
+    Node,
+    Span,
+    JoinOnClause,
+    WhereClause,
+    SelectItem,
+    ShapeDef,
+    LetBinding,
+)
 from pietto.errors import Diagnostic
 from pietto._project.project_query_block_ir_algebra import ProjectIRComposedJoin
 from pietto._project.project_row_equivalence import ProjectRowEquivalenceField
@@ -62,6 +70,14 @@ from pietto._project.project_ir import (
 )
 from pietto._project.project_ir_composition import ProjectIRProjectPlan
 from pietto._project.project_ir_joins import ProjectIRJoinRegionStage
+from pietto.semantic.existence_generators import AnyUseInfo, AnyValueInfo
+from pietto._project.existence_values import (
+    ProjectAnyValue,
+    ProjectAnyField,
+    ProjectAnyLetValue,
+    ProjectAnyRowBinding,
+)
+from pietto._project.project_joined_row_filter import ProjectConcreteJoinedRowFilter
 from pietto._project.project_ir_operators import ProjectIRLogicalOperatorOccurrence
 from pietto._project.project_ir_properties import (
     ProjectIREffectEvidence,
@@ -109,6 +125,8 @@ from pietto._project.project_query_block_ir import (
 )
 from pietto._project.project_final_outputs import (
     ProjectConcreteNoJoinReplay,
+    _entry_schema,
+    ProjectCompletedEffectiveOutput,
     ProjectRelationOrdering,
     _has_set_outputs,
     _has_distinct,
@@ -146,6 +164,16 @@ from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockVerificationResult,
     ProjectIRQueryBlockVerificationStatus,
 )
+
+from pietto._project.project_relationship_predicates import (
+    ProjectRelationshipPredicateExpression,
+)
+from pietto._project.project_join_conditions import (
+    ProjectJoinConditionEquality,
+    ProjectJoinConditionKeyMatch,
+)
+from pietto.semantic.model import RelationshipCallInfo
+from pietto._project.project_relationship_uses import ProjectRelationBindingOccurrence
 
 __all__: tuple[str, ...] = ()
 
@@ -251,6 +279,13 @@ class ProjectIRQueryBlockInspection:
     slice14_uses: tuple[ProjectIRQueryBlockInspectionUse, ...]
     algebra_joins: tuple[ProjectIRComposedJoin, ...]
     historical_matches: tuple[ProjectIRComposedJoin, ...]
+    existence_uses: tuple[AnyUseInfo, ...]
+    scalar_existence_uses: tuple[AnyValueInfo, ...]
+    scalar_existence_values: tuple[ProjectAnyValue, ...]
+    predicate_expressions: tuple[ProjectRelationshipPredicateExpression, ...]
+    predicate_calls: tuple[RelationshipCallInfo, ...]
+    predicate_equalities: tuple[ProjectJoinConditionEquality, ...]
+    predicate_key_matches: tuple[ProjectJoinConditionKeyMatch, ...]
     requirements: tuple[ProjectIRSingleMatchRetention, ...]
     diagnostics: tuple[Diagnostic, ...]
     operators: tuple[ProjectIRQueryBlockInspectionOperator, ...]
@@ -429,6 +464,109 @@ def _entry_active_roots(
     return ()
 
 
+def _existence_uses(root: ProjectIRQueryBlockSnapshot) -> tuple[AnyUseInfo, ...]:
+    """Retain canonical authored ANY occurrences for the inspected owners."""
+    return tuple(
+        use
+        for module in root.completed.semantic_result.modules
+        if module.parsed_input is not None
+        for use in module.parsed_input.existence_generators
+        if any(
+            owner.identity.module_path == module.path and owner.definition is use.owner
+            for owner in root.owners
+        )
+    )
+
+
+def _scalar_existence_uses(
+    root: ProjectIRQueryBlockSnapshot,
+) -> tuple[AnyValueInfo, ...]:
+    return tuple(
+        use
+        for module in root.completed.semantic_result.modules
+        if module.parsed_input is not None
+        for use in module.parsed_input.existence_values
+        if any(
+            owner.identity.module_path == module.path and owner.definition is use.owner
+            for owner in root.owners
+        )
+    )
+
+
+def _scalar_existence_values(
+    root: ProjectIRQueryBlockSnapshot,
+) -> tuple[ProjectAnyValue, ...]:
+    candidates: list[ProjectAnyValue] = []
+
+    def retain(roots):
+        pending = list(reversed(roots))
+        while pending:
+            value = pending.pop()
+            if not any(value is previous for previous in candidates):
+                candidates.append(value)
+                pending.extend(reversed(value.nested))
+
+    for entry in root.entries:
+        if not isinstance(entry, ProjectIRCompletedQueryBlockOutput):
+            continue
+        joins = () if entry.join_prefix is None else entry.join_prefix.joins
+        for joined in joins:
+            retain(joined.condition.environment.existence_values)
+        for operator in entry.operators:
+            evidence = operator.evidence
+            if isinstance(evidence, ProjectConcreteJoinedRowFilter):
+                for value in evidence.joined_semantics.namespaces.values:
+                    retain(value.existence_values)
+                if evidence.expression_analysis is not None:
+                    retain(evidence.expression_analysis.existence_values)
+        semantic = entry.semantic_entry
+        if isinstance(semantic.root, ProjectConcreteNoJoinReplay):
+            retain(semantic.root.let_scope.existence_values)
+            if semantic.root.where.expression_analysis is not None:
+                retain(semantic.root.where.expression_analysis.existence_values)
+        for selected in semantic.fields:
+            retain(getattr(selected.source, "existence_values", ()))
+    for joined in root.retained_joins:
+        retain(joined.condition.environment.existence_values)
+    uses = _scalar_existence_uses(root)
+    result = tuple(
+        value
+        for use in uses
+        for value in candidates
+        if value.input.binding.origin is use
+    )
+    if len(result) != len(candidates):
+        raise ValueError(
+            "Scalar ANY inspection lost canonical source occurrence authority."
+        )
+    return result
+
+
+def _predicate_expressions(
+    root: ProjectIRQueryBlockSnapshot,
+) -> tuple[ProjectRelationshipPredicateExpression, ...]:
+    """Every actual predicate-use context, from its canonical owner in source order."""
+    joined = root.completed.roots.join_conditions.predicate_expressions
+    replayed = tuple(
+        value
+        for entry in root.completed.effective_outputs.entries
+        if isinstance(entry, ProjectCompletedEffectiveOutput)
+        and isinstance(entry.root, ProjectConcreteNoJoinReplay)
+        for value in entry.root.predicate_expressions
+    )
+    result = tuple(
+        value
+        for owner in root.owners
+        for value in (*joined, *replayed)
+        if value.owner is owner and (value.calls or value.any_bindings)
+    )
+    if len({(id(value.owner), id(value.context)) for value in result}) != len(result):
+        raise ValueError(
+            "Predicate inspection requires one canonical record per context."
+        )
+    return result
+
+
 def _runtime_sections(
     root: ProjectIRQueryBlockSnapshot,
 ) -> dict[str, tuple[object, ...]]:
@@ -477,12 +615,46 @@ def _runtime_sections(
     scalar_outputs = tuple(
         output for entry in completed for output in entry.scalar_outputs
     )
+    predicates = _predicate_expressions(root)
+    conditions = tuple(
+        joined.condition
+        for joined in sorted(
+            (
+                *root.retained_joins,
+                *(
+                    joined
+                    for entry in completed
+                    if entry.join_prefix is not None
+                    for joined in entry.join_prefix.joins
+                ),
+            ),
+            key=lambda joined: joined.node.ref.position,
+        )
+        if joined.condition.environment.predicate_expression is not None
+        and (
+            joined.condition.environment.predicate_expression.calls
+            or joined.condition.environment.predicate_expression.any_bindings
+        )
+    )
     base = root.base_plan.structural_stage
     join = root.join_stage.structural
     values: dict[str, tuple[object, ...]] = {
         "owners": root.owners,
         "requirements": root.requirements,
         "historical_matches": root.retained_joins,
+        "existence_uses": _existence_uses(root),
+        "scalar_existence_uses": _scalar_existence_uses(root),
+        "scalar_existence_values": _scalar_existence_values(root),
+        "predicate_expressions": predicates,
+        "predicate_calls": tuple(call for value in predicates for call in value.calls),
+        "predicate_equalities": tuple(
+            value
+            for condition in conditions
+            for value in condition.mandatory_equalities
+        ),
+        "predicate_key_matches": tuple(
+            value for condition in conditions for value in condition.key_matches
+        ),
         "diagnostics": root.completed.diagnostics,
         "dependencies": root.dependencies,
         "schedule": root.schedule,
@@ -2246,6 +2418,10 @@ def _project_query_block_ir_document(
     _window_records(inspection, records)
     if marker == PROJECT_FLAT_RELATIONAL_IR_INSPECTION_FORMAT:
         _algebra_records(inspection, records)
+    _predicate_records(inspection, records)
+    _existence_records(inspection, records)
+    _scalar_any_records(inspection, records)
+    _predicate_any_scope_records(inspection, records)
     capabilities: list[
         tuple[ProjectQueryBlockIRPortableRef, ProjectRowEquivalenceField]
     ] = []
@@ -2553,7 +2729,9 @@ def query_project_query_block_reachability(
     )
 
 
-def _authored_data(value: object, module_path: str) -> object:
+def _authored_data(
+    value: object, module_path: str, *, include_occurrence: bool = False
+) -> object:
     """Portable authored syntax, using the containing logical module path."""
     if isinstance(value, Enum):
         return value.value
@@ -2562,7 +2740,10 @@ def _authored_data(value: object, module_path: str) -> object:
     if type(value) is float:
         return {"float_hex": value.hex()}
     if type(value) is tuple:
-        return [_authored_data(item, module_path) for item in value]
+        return [
+            _authored_data(item, module_path, include_occurrence=include_occurrence)
+            for item in value
+        ]
     if type(value) is Span:
         return {
             "path": module_path,
@@ -2570,12 +2751,17 @@ def _authored_data(value: object, module_path: str) -> object:
             "column": value.column,
             "end_line": value.end_line,
             "end_column": value.end_column,
+            **({"occurrence": value.occurrence} if include_occurrence else {}),
         }
     if isinstance(value, Node):
         return {
             "node": type(value).__name__,
             **{
-                item.name: _authored_data(getattr(value, item.name), module_path)
+                item.name: _authored_data(
+                    getattr(value, item.name),
+                    module_path,
+                    include_occurrence=include_occurrence,
+                )
                 for item in dataclass_fields(value)
             },
         }
@@ -2589,6 +2775,762 @@ def _authored_text(value: object, module_path: str) -> str:
         allow_nan=False,
         separators=(",", ":"),
     )
+
+
+def _predicate_records(inspection, records):
+    """Formal predicate-use and proof records, emitted only for actual calls."""
+    K, D = ProjectQueryBlockIRRecordKind, ProjectQueryBlockIRPortableRefDomain
+    text = project_query_block_ir_pure_text
+    integer = project_query_block_ir_pure_integer
+    refs = project_query_block_ir_pure_refs
+    integers = project_query_block_ir_pure_integers
+    reference = project_query_block_ir_pure_ref
+    enum = project_query_block_ir_pure_enumeration
+    expressions = inspection.predicate_expressions
+    call_values = inspection.predicate_calls
+    expression_refs = {
+        id(value): _portable_ref(D.PREDICATE_EXPRESSION, i)
+        for i, value in enumerate(expressions)
+    }
+    call_refs = {
+        id(value): _portable_ref(D.PREDICATE_CALL, i)
+        for i, value in enumerate(call_values)
+    }
+    equalities = inspection.predicate_equalities
+    equality_refs = {
+        id(value): _portable_ref(D.PREDICATE_EQUALITY, i)
+        for i, value in enumerate(equalities)
+    }
+    matches = inspection.predicate_key_matches
+    match_refs = {
+        id(value): _portable_ref(D.PREDICATE_KEY_MATCH, i)
+        for i, value in enumerate(matches)
+    }
+    joined = tuple(
+        sorted(
+            (*inspection.historical_matches, *inspection.algebra_joins),
+            key=lambda value: value.node.ref.position,
+        )
+    )
+    joined = tuple(
+        value
+        for value in joined
+        if value.condition.environment.predicate_expression is not None
+        and (
+            value.condition.environment.predicate_expression.calls
+            or value.condition.environment.predicate_expression.any_bindings
+        )
+    )
+    input_keys = tuple(
+        (value.condition, binding, properties, i, key)
+        for value in joined
+        for binding, properties in value.condition.match_inputs
+        for i, key in enumerate(properties.keys)
+    )
+
+    def syntax(value, module_path):
+        return text(
+            json.dumps(
+                _authored_data(value, module_path, include_occurrence=True),
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+        )
+
+    def join_ref(condition):
+        values = tuple(value for value in joined if value.condition is condition)
+        if len(values) != 1:
+            raise ValueError("Predicate proof requires one exact JOIN image.")
+        return reference(_runtime_ref(values[0].node.ref))
+
+    def key_ref(condition, binding, key):
+        positions = tuple(
+            i
+            for i, (c, b, _, _, k) in enumerate(input_keys)
+            if c is condition and b is binding and k is key
+        )
+        if len(positions) != 1:
+            raise ValueError("Predicate key proof requires one exact input key.")
+        return _portable_ref(D.PREDICATE_INPUT_KEY, positions[0])
+
+    for value in expressions:
+        path = value.owner.identity.module_path
+        role = {
+            JoinOnClause: "on",
+            WhereClause: "where",
+            SelectItem: "select",
+            LetBinding: "let",
+        }[type(value.context)]
+        _record(
+            records,
+            K.PREDICATE_EXPRESSION,
+            ("ref", reference(expression_refs[id(value)])),
+            ("owner", reference(_owner_ref(inspection, value.owner))),
+            ("role", enum(role)),
+            ("context", syntax(value.context, path)),
+            ("authored", syntax(value.authored, path)),
+            ("normalized", syntax(value.expression, path)),
+            ("calls", refs(tuple(call_refs[id(call)] for call in value.calls))),
+        )
+    for value in expressions:
+        path = value.owner.identity.module_path
+        for call in value.calls:
+            template_path = call.template.declaration.span.path or path
+            _record(
+                records,
+                K.PREDICATE_CALL,
+                ("ref", reference(call_refs[id(call)])),
+                ("expression", reference(expression_refs[id(value)])),
+                ("ordinal", integer(call.ordinal)),
+                ("call", syntax(call.call, path)),
+                ("template", syntax(call.template.declaration, template_path)),
+                (
+                    "shapes",
+                    project_query_block_ir_pure_texts(
+                        tuple(
+                            json.dumps(
+                                _authored_data(
+                                    shape,
+                                    shape.span.path or path,
+                                    include_occurrence=True,
+                                ),
+                                ensure_ascii=False,
+                                allow_nan=False,
+                                separators=(",", ":"),
+                            )
+                            for shape in call.template.parameter_shapes
+                        )
+                    ),
+                ),
+                ("expanded", syntax(call.expanded, path)),
+                (
+                    "mandatory",
+                    project_query_block_ir_pure_texts(
+                        tuple(
+                            json.dumps(
+                                _authored_data(equality, path, include_occurrence=True),
+                                ensure_ascii=False,
+                                allow_nan=False,
+                                separators=(",", ":"),
+                            )
+                            for equality in call.mandatory_equalities
+                        )
+                    ),
+                ),
+            )
+    for value in expressions:
+        path = value.owner.identity.module_path
+        for call, bindings in zip(value.calls, value.argument_bindings, strict=True):
+            for i, (argument, binding) in enumerate(
+                zip(call.arguments, bindings, strict=True)
+            ):
+                ordinal = (
+                    binding.identity.binding_position
+                    if isinstance(binding, ProjectRelationBindingOccurrence)
+                    else 0
+                )
+                if isinstance(binding, ProjectAnyRowBinding):
+                    target_owner = binding.target
+                else:
+                    symbol = (
+                        binding.target
+                        if isinstance(binding, ProjectRelationBindingOccurrence)
+                        else binding.target_symbol
+                    )
+                    target_owner = None if symbol is None else symbol.target_occurrence
+                if target_owner is None:
+                    raise ValueError(
+                        "Predicate argument lost its resolved relation target."
+                    )
+                _record(
+                    records,
+                    K.PREDICATE_ARGUMENT,
+                    ("call", reference(call_refs[id(call)])),
+                    ("ordinal", integer(i)),
+                    ("binding", integer(ordinal)),
+                    (
+                        "target",
+                        reference(_owner_ref(inspection, target_owner)),
+                    ),
+                    (
+                        "parameter",
+                        syntax(
+                            argument.parameter,
+                            call.template.declaration.span.path or path,
+                        ),
+                    ),
+                    ("argument", syntax(argument.argument, path)),
+                    ("occurrence", syntax(argument.occurrence, path)),
+                    (
+                        "relation",
+                        syntax(argument.relation, argument.relation.span.path or path),
+                    ),
+                    ("shape", syntax(argument.shape, argument.shape.span.path or path)),
+                )
+    for value in joined:
+        condition = value.condition
+        predicate = condition.environment.predicate_expression
+        _record(
+            records,
+            K.PREDICATE_JOIN,
+            ("node", join_ref(condition)),
+            ("expression", reference(expression_refs[id(predicate)])),
+            (
+                "equalities",
+                refs(
+                    tuple(equality_refs[id(e)] for e in condition.mandatory_equalities)
+                ),
+            ),
+            (
+                "bindings",
+                integers(
+                    tuple(
+                        b.identity.binding_position for b, _ in condition.match_inputs
+                    )
+                ),
+            ),
+            (
+                "key_counts",
+                integers(tuple(len(p.keys) for _, p in condition.match_inputs)),
+            ),
+            (
+                "keys",
+                refs(
+                    tuple(
+                        key_ref(condition, b, k)
+                        for b, p in condition.match_inputs
+                        for k in p.keys
+                    )
+                ),
+            ),
+            ("matches", refs(tuple(match_refs[id(m)] for m in condition.key_matches))),
+        )
+    for equality in equalities:
+        condition = equality.condition
+        _record(
+            records,
+            K.PREDICATE_EQUALITY,
+            ("ref", reference(equality_refs[id(equality)])),
+            ("node", join_ref(condition)),
+            ("position", integer(equality.conjunct_position)),
+            (
+                "comparison",
+                syntax(equality.comparison, condition.use.owner.identity.module_path),
+            ),
+            ("left_binding", integer(equality.left.binding.identity.binding_position)),
+            ("left_field", integer(equality.left.input_field.field_position)),
+            (
+                "right_binding",
+                integer(equality.right.binding.identity.binding_position),
+            ),
+            ("right_field", integer(equality.right.input_field.field_position)),
+            ("calls", refs(tuple(call_refs[id(call)] for call in equality.calls))),
+        )
+    for i, (condition, binding, _, ordinal, key) in enumerate(input_keys):
+        _record(
+            records,
+            K.PREDICATE_INPUT_KEY,
+            ("ref", reference(_portable_ref(D.PREDICATE_INPUT_KEY, i))),
+            ("node", join_ref(condition)),
+            ("binding", integer(binding.identity.binding_position)),
+            ("ordinal", integer(ordinal)),
+            ("strength", enum(key.strength.value)),
+            (
+                "class_sizes",
+                integers(tuple(len(group.members) for group in key.determinants)),
+            ),
+            (
+                "fields",
+                integers(
+                    tuple(
+                        member.field_position
+                        for group in key.determinants
+                        for member in group.members
+                    )
+                ),
+            ),
+        )
+    for match in matches:
+        _record(
+            records,
+            K.PREDICATE_KEY_MATCH,
+            ("ref", reference(match_refs[id(match)])),
+            ("node", join_ref(match.condition)),
+            ("key", reference(key_ref(match.condition, match.binding, match.key))),
+            ("equalities", refs(tuple(equality_refs[id(e)] for e in match.equalities))),
+            ("minimum", enum(match.minimum.value)),
+            ("maximum", enum(match.maximum.value)),
+        )
+
+
+def _existence_records(inspection, records):
+    """Project inter-JOIN authored filters and their actual generated stages."""
+    K, D = ProjectQueryBlockIRRecordKind, ProjectQueryBlockIRPortableRefDomain
+    joins = (*inspection.historical_matches, *inspection.algebra_joins)
+    for i, use in enumerate(inspection.existence_uses):
+        owners = tuple(
+            owner for owner in inspection.owners if owner.definition is use.owner
+        )
+        if len(owners) != 1:
+            raise ValueError("Inter-JOIN ANY requires one exact owner.")
+        owner = owners[0]
+        path = owner.identity.module_path
+
+        def syntax(value):
+            return project_query_block_ir_pure_text(
+                json.dumps(
+                    _authored_data(value, path, include_occurrence=True),
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                )
+            )
+
+        matches = tuple(
+            join
+            for join in joins
+            if join.condition.use.clause is use.clause
+            and join.condition.use.owner is owner
+        )
+        if len(matches) > 1:
+            raise ValueError("Inter-JOIN ANY cannot have multiple JOIN images.")
+        _record(
+            records,
+            K.EXISTENCE_USE,
+            ("ref", project_query_block_ir_pure_ref(_portable_ref(D.EXISTENCE_USE, i))),
+            ("owner", project_query_block_ir_pure_ref(_owner_ref(inspection, owner))),
+            ("authored_owner", syntax(use.authored_owner)),
+            ("context", syntax(use.context)),
+            ("any", syntax(use.expression)),
+            ("clause", syntax(use.clause)),
+            ("input_ordinal", project_query_block_ir_pure_integer(use.input_ordinal)),
+            (
+                "preceding_join_count",
+                project_query_block_ir_pure_integer(use.preceding_join_count),
+            ),
+            (
+                "node",
+                project_query_block_ir_pure_ref(_runtime_ref(matches[0].node.ref))
+                if matches
+                else PROJECT_QUERY_BLOCK_IR_PURE_ABSENT,
+            ),
+        )
+
+
+def _scalar_any_records(inspection, records):
+    K, D = ProjectQueryBlockIRRecordKind, ProjectQueryBlockIRPortableRefDomain
+    text, integer = (
+        project_query_block_ir_pure_text,
+        project_query_block_ir_pure_integer,
+    )
+    ref, refs, enum = (
+        project_query_block_ir_pure_ref,
+        project_query_block_ir_pure_refs,
+        project_query_block_ir_pure_enumeration,
+    )
+    uses, values = inspection.scalar_existence_uses, inspection.scalar_existence_values
+    use_refs = tuple(_portable_ref(D.SCALAR_ANY_USE, i) for i in range(len(uses)))
+    value_refs = tuple(_portable_ref(D.SCALAR_ANY_VALUE, i) for i in range(len(values)))
+    fields = tuple(
+        (value, i, item) for value in values for i, item in enumerate(value.fields)
+    )
+    references = tuple(
+        (value, i, item) for value in values for i, item in enumerate(value.references)
+    )
+    candidates = tuple(
+        (reference, i, item)
+        for _, _, reference in references
+        for i, item in enumerate(reference.candidates)
+    )
+    field_refs = tuple(_portable_ref(D.SCALAR_ANY_FIELD, i) for i in range(len(fields)))
+    reference_refs = tuple(
+        _portable_ref(D.SCALAR_ANY_REFERENCE, i) for i in range(len(references))
+    )
+    candidate_refs = tuple(
+        _portable_ref(D.SCALAR_ANY_CANDIDATE, i) for i in range(len(candidates))
+    )
+
+    def syntax(value, path):
+        return text(
+            json.dumps(
+                _authored_data(value, path, include_occurrence=True),
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+            )
+        )
+
+    def owner_of(use):
+        return next(
+            owner for owner in inspection.owners if owner.definition is use.owner
+        )
+
+    def optional_owner(owner):
+        return (
+            PROJECT_QUERY_BLOCK_IR_PURE_ABSENT
+            if owner is None
+            else ref(_owner_ref(inspection, owner))
+        )
+
+    def field_path(field, fallback):
+        if field is None:
+            return fallback
+        matches = tuple(
+            module.path
+            for module in inspection.root.completed.semantic_result.modules
+            if module.parsed_input is not None
+            and module.parsed_input.script is not None
+            for definition in module.parsed_input.script.definitions
+            if isinstance(definition, ShapeDef)
+            for candidate in definition.fields
+            if candidate is field
+        )
+        if len(matches) != 1:
+            raise ValueError(
+                "ANY field definition requires one exact declaring module."
+            )
+        return matches[0]
+
+    for i, use in enumerate(uses):
+        owner = owner_of(use)
+        path = owner.identity.module_path
+        related = tuple(
+            value_refs[j]
+            for j, value in enumerate(values)
+            if value.input.binding.origin is use
+        )
+        _record(
+            records,
+            K.SCALAR_ANY_USE,
+            ("ref", ref(use_refs[i])),
+            ("owner", ref(_owner_ref(inspection, owner))),
+            ("authored", syntax(use.authored_expression, path)),
+            ("authored_owner", syntax(use.authored_owner, path)),
+            ("authored_context", syntax(use.authored_context, path)),
+            ("current", syntax(use.expression, path)),
+            ("context", syntax(use.context, path)),
+            ("owner_definition", syntax(use.owner, path)),
+            ("authored_prefix", integer(use.authored_join_count)),
+            ("current_prefix", integer(use.join_prefix_count)),
+            ("values", refs(related)),
+        )
+    for i, value in enumerate(values):
+        use = value.input.binding.origin
+        use_index = _position(cast(tuple[object, ...], uses), use, "scalar ANY origin")
+        parents = tuple(
+            j
+            for j, parent in enumerate(values)
+            if any(child is value for child in parent.nested)
+        )
+        if len(parents) > 1:
+            raise ValueError("Scalar ANY scope cannot have multiple parents.")
+        path = value.input.binding.owner.identity.module_path
+        local_fields = tuple(
+            field_refs[j] for j, (owner, _, _) in enumerate(fields) if owner is value
+        )
+        local_refs = tuple(
+            reference_refs[j]
+            for j, (owner, _, _) in enumerate(references)
+            if owner is value
+        )
+        nested = tuple(
+            value_refs[
+                _position(cast(tuple[object, ...], values), child, "nested ANY value")
+            ]
+            for child in value.nested
+        )
+        _record(
+            records,
+            K.SCALAR_ANY_VALUE,
+            ("ref", ref(value_refs[i])),
+            ("use", ref(use_refs[use_index])),
+            (
+                "parent",
+                ref(value_refs[parents[0]])
+                if parents
+                else PROJECT_QUERY_BLOCK_IR_PURE_ABSENT,
+            ),
+            ("target", optional_owner(value.input.binding.target)),
+            ("context", syntax(value.context, path)),
+            ("expression", syntax(value.expression, path)),
+            ("type", text(value.value_type.resolved_type.name)),
+            ("nullability", enum(value.value_type.nullability.value)),
+            ("field_count", integer(len(local_fields))),
+            (
+                "input_names",
+                project_query_block_ir_pure_texts(
+                    tuple(value.input.schema.fields)
+                    if value.input.schema is not None
+                    and not value.input.schema.is_unknown
+                    else ()
+                ),
+            ),
+            ("fields", refs(local_fields)),
+            ("reference_count", integer(len(local_refs))),
+            ("references", refs(local_refs)),
+            ("nested", refs(nested)),
+        )
+    for i, (value, ordinal, item) in enumerate(fields):
+        index = _position(cast(tuple[object, ...], values), value, "ANY value")
+        path = value.input.binding.owner.identity.module_path
+        _record(
+            records,
+            K.SCALAR_ANY_FIELD,
+            ("ref", ref(field_refs[i])),
+            ("value", ref(value_refs[index])),
+            ("ordinal", integer(ordinal)),
+            ("name", text(item.evidence.name)),
+            ("type", text(item.value_type.resolved_type.name)),
+            ("nullability", enum(item.value_type.nullability.value)),
+            (
+                "definition",
+                syntax(
+                    item.evidence.field_def, field_path(item.evidence.field_def, path)
+                ),
+            ),
+        )
+    for i, (value, ordinal, item) in enumerate(references):
+        index = _position(cast(tuple[object, ...], values), value, "ANY value")
+        path = value.input.binding.owner.identity.module_path
+        local = tuple(
+            candidate_refs[j]
+            for j, (owner, _, _) in enumerate(candidates)
+            if owner is item
+        )
+        _record(
+            records,
+            K.SCALAR_ANY_REFERENCE,
+            ("ref", ref(reference_refs[i])),
+            ("value", ref(value_refs[index])),
+            ("ordinal", integer(ordinal)),
+            ("expression", syntax(item.expression, path)),
+            ("candidate_count", integer(len(local))),
+            ("candidates", refs(local)),
+        )
+    for i, (reference, ordinal, item) in enumerate(candidates):
+        index = _position(
+            tuple(item for _, _, item in references), reference, "ANY reference"
+        )
+        value = references[index][0]
+        path = value.input.binding.owner.identity.module_path
+        local = target = position = field_position = let_expression = None
+        input_names = ()
+        if isinstance(item, ProjectAnyLetValue):
+            kind, binding, name, field = (
+                "let",
+                item.binding,
+                item.binding.name,
+                item.binding,
+            )
+            let_expression = item.expression
+        else:
+            assert isinstance(item, ProjectAnyField)
+            kind, name, field = "field", item.binding_name, item.evidence.field_def
+            if isinstance(item.binding, ProjectAnyRowBinding):
+                binding = item.binding.expression
+                local = item.binding.origin
+                target = item.binding.target
+                scope = value
+                visited = set()
+                while scope.input.binding is not item.binding:
+                    if id(scope) in visited:
+                        raise ValueError("Scalar ANY scope cannot contain a cycle.")
+                    visited.add(id(scope))
+                    parents = tuple(
+                        parent
+                        for parent in values
+                        if any(child is scope for child in parent.nested)
+                    )
+                    if len(parents) != 1:
+                        raise ValueError(
+                            "Scalar ANY capture requires an exact enclosing scope."
+                        )
+                    scope = parents[0]
+                positions = tuple(
+                    j
+                    for j, field_value in enumerate(scope.fields)
+                    if field_value.evidence is item.evidence
+                )
+                if len(positions) != 1:
+                    raise ValueError(
+                        "Scalar ANY capture requires one exact producer field."
+                    )
+                position = field_position = positions[0]
+                input_names = tuple(field.evidence.name for field in scope.fields)
+            elif isinstance(item.binding, ProjectRelationBindingOccurrence):
+                binding = item.binding.site
+                target = (
+                    None
+                    if item.binding.target is None
+                    else item.binding.target.target_occurrence
+                )
+                position = item.binding.identity.binding_position
+            else:
+                binding = item.binding.reference.from_clause
+                target = item.binding.target_symbol.target_occurrence
+                position = 0
+        if isinstance(item, ProjectAnyField) and local is None:
+            matching = tuple(
+                entry
+                for entry in inspection.root.completed.effective_outputs.entries
+                if entry.owner is target
+            )
+            if len(matching) != 1:
+                raise ValueError(
+                    "Scalar ANY capture requires one exact input producer."
+                )
+            source_schema = _entry_schema(matching[0])
+            input_names = tuple(source_schema.fields)
+            positions = tuple(
+                i
+                for i, source in enumerate(source_schema.fields.values())
+                if source is item.evidence
+            )
+            if len(positions) != 1:
+                raise ValueError(
+                    "Scalar ANY capture lost its exact input field identity."
+                )
+            field_position = positions[0]
+        value_type = item.value_type
+        _record(
+            records,
+            K.SCALAR_ANY_CANDIDATE,
+            ("ref", ref(candidate_refs[i])),
+            ("reference", ref(reference_refs[index])),
+            ("ordinal", integer(ordinal)),
+            ("kind", enum(kind)),
+            ("binding", syntax(binding, path)),
+            ("name", text(name)),
+            (
+                "field_name",
+                text(
+                    item.binding.name
+                    if isinstance(item, ProjectAnyLetValue)
+                    else item.evidence.name
+                ),
+            ),
+            ("type", text(value_type.resolved_type.name)),
+            ("nullability", enum(value_type.nullability.value)),
+            (
+                "field",
+                syntax(
+                    field,
+                    field_path(field, path)
+                    if isinstance(item, ProjectAnyField)
+                    else path,
+                ),
+            ),
+            (
+                "local",
+                PROJECT_QUERY_BLOCK_IR_PURE_ABSENT
+                if local is None
+                else ref(
+                    use_refs[
+                        _position(
+                            cast(tuple[object, ...], uses), local, "ANY local binding"
+                        )
+                    ]
+                ),
+            ),
+            ("target", optional_owner(target)),
+            (
+                "position",
+                PROJECT_QUERY_BLOCK_IR_PURE_ABSENT
+                if position is None
+                else integer(position),
+            ),
+            (
+                "field_position",
+                PROJECT_QUERY_BLOCK_IR_PURE_ABSENT
+                if field_position is None
+                else integer(field_position),
+            ),
+            ("input_names", project_query_block_ir_pure_texts(input_names)),
+            (
+                "let_expression",
+                PROJECT_QUERY_BLOCK_IR_PURE_ABSENT
+                if let_expression is None
+                else syntax(let_expression, path),
+            ),
+        )
+
+
+def _predicate_any_scope_records(inspection, records):
+    """Retain every actual predicate ANY binding and its normalized image."""
+    K, D = ProjectQueryBlockIRRecordKind, ProjectQueryBlockIRPortableRefDomain
+    uses = inspection.scalar_existence_uses
+    for index, record in enumerate(inspection.predicate_expressions):
+        path = record.owner.identity.module_path
+        for ordinal, binding in enumerate(record.any_bindings):
+            images = tuple(
+                after
+                for before, after in record.any_expressions
+                if before is binding.expression
+            )
+            if len(images) != 1:
+                raise ValueError("Predicate ANY requires one exact normalized image.")
+            origin = _position(
+                cast(tuple[object, ...], uses),
+                binding.origin,
+                "ANY predicate scope origin",
+            )
+
+            def syntax(value, module_path):
+                return project_query_block_ir_pure_text(
+                    json.dumps(
+                        _authored_data(value, module_path, include_occurrence=True),
+                        ensure_ascii=False,
+                        allow_nan=False,
+                        separators=(",", ":"),
+                    )
+                )
+
+            read = binding.resolution.read
+            _record(
+                records,
+                K.PREDICATE_ANY_SCOPE,
+                (
+                    "expression",
+                    project_query_block_ir_pure_ref(
+                        _portable_ref(D.PREDICATE_EXPRESSION, index)
+                    ),
+                ),
+                ("ordinal", project_query_block_ir_pure_integer(ordinal)),
+                (
+                    "use",
+                    project_query_block_ir_pure_ref(
+                        _portable_ref(D.SCALAR_ANY_USE, origin)
+                    ),
+                ),
+                (
+                    "target",
+                    PROJECT_QUERY_BLOCK_IR_PURE_ABSENT
+                    if binding.target is None
+                    else project_query_block_ir_pure_ref(
+                        _owner_ref(inspection, binding.target)
+                    ),
+                ),
+                (
+                    "relation",
+                    PROJECT_QUERY_BLOCK_IR_PURE_ABSENT
+                    if binding.target is None
+                    else syntax(
+                        binding.target.definition, binding.target.identity.module_path
+                    ),
+                ),
+                (
+                    "position",
+                    project_query_block_ir_pure_enumeration(read.position.value),
+                ),
+                (
+                    "container_ordinal",
+                    project_query_block_ir_pure_integer(read.container_ordinal),
+                ),
+                ("read_ordinal", project_query_block_ir_pure_integer(read.ordinal)),
+                ("before", syntax(binding.expression, path)),
+                ("after", syntax(images[0], path)),
+            )
 
 
 def _algebra_records(
@@ -3827,6 +4769,22 @@ def _proof_root_data(
                 ],
             }
         )
+    elif isinstance(root, ProjectJoinConditionKeyMatch):
+        data["key_match"] = _position(
+            inspection.predicate_key_matches, root, "predicate key match"
+        )
+    elif isinstance(root, ProjectJoinConditionEquality):
+        data["equality"] = _position(
+            inspection.predicate_equalities, root, "predicate equality"
+        )
+    elif isinstance(root, ProjectIROutputCandidateKey):
+        data["key_matches"] = [
+            _position(inspection.predicate_key_matches, match, "predicate key match")
+            for match in proof.source.roots
+            if isinstance(match, ProjectJoinConditionKeyMatch) and match.key is root
+        ]
+        if not data["key_matches"]:
+            raise ValueError("Matched-key root lost its exact key-match proof.")
     elif isinstance(root, ProjectJoinCondition):
         data.update(
             {

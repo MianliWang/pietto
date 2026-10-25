@@ -220,10 +220,10 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "severity": "error",
                     "message": "PostgreSQL SQL emission is not implemented for RelationIR: result. "
                     "PostgreSQL does not support IGNORE NULLS",
-                    "location": ["postgres_ignore_nulls.pietto", 6, 1, 12, 15],
+                    "location": ["postgres_ignore_nulls.pietto", 6, 1, 12, 67],
                 }
             ],
-            "7f5bec37cc2cc6ab1c360df0a5e17d5813c3254f7b9ec90a9a0410ff19452190",
+            "91f0adcc280515ccf4fd5d9b97143288c47d6eb4d0958378228ead20cbdc9af4",
         ],
         [
             "postgres_from_last",
@@ -236,10 +236,10 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "severity": "error",
                     "message": "PostgreSQL SQL emission is not implemented for RelationIR: result. "
                     "PostgreSQL does not support FROM LAST",
-                    "location": ["postgres_from_last.pietto", 6, 1, 12, 15],
+                    "location": ["postgres_from_last.pietto", 6, 1, 12, 65],
                 }
             ],
-            "76a0c8698dc24d146fac5b8792c0017dea20e25efb41f43a51b618c4453e036d",
+            "ffaef720fcc6c7247b8777b9965fb6f23e36a66ee2a0ff37a2228e97ba1ff3ad",
         ],
         [
             "postgres_range_offset",
@@ -252,10 +252,10 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "severity": "error",
                     "message": "PostgreSQL SQL emission is not implemented for RelationIR: result. "
                     + _RANGE_OFFSET.format("PostgreSQL"),
-                    "location": ["postgres_range_offset.pietto", 6, 1, 13, 26],
+                    "location": ["postgres_range_offset.pietto", 6, 1, 13, 54],
                 }
             ],
-            "5fd8a2370954cde63bf1239ab88d437b2c3207c63fbccee94a0742a8d6d3fc5f",
+            "4210647b0f1501106e603f7347633dbd4211d74a3067fd7aca9800d803db7bca",
         ],
         [
             "mysql_groups",
@@ -268,10 +268,10 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "severity": "error",
                     "message": "MySQL SQL emission is not implemented for RelationIR: result. MySQL "
                     "does not support GROUPS frames",
-                    "location": ["mysql_groups.pietto", 6, 1, 13, 27],
+                    "location": ["mysql_groups.pietto", 6, 1, 13, 54],
                 }
             ],
-            "48105edde77d183e96418d1b6b05d6f38c6d9c89e96cf0b84f58b302b23ea11d",
+            "bb470bd789be7a787cb3a5f17c11eea4ff508347a400cf37828fa14dbf9d8c6e",
         ],
         [
             "mysql_exclude",
@@ -284,10 +284,10 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "severity": "error",
                     "message": "MySQL SQL emission is not implemented for RelationIR: result. MySQL "
                     "does not support authored EXCLUDE frames",
-                    "location": ["mysql_exclude.pietto", 6, 1, 13, 43],
+                    "location": ["mysql_exclude.pietto", 6, 1, 13, 54],
                 }
             ],
-            "c50d2971bf326fdb77bc5be0ee0f5a94ad32311d983e80eb33533c820d6d1111",
+            "468ff91c44cbd8fd51e33e10b6266a6444070fb59fd74a05b93bfa0e953b0db3",
         ],
         [
             "mysql_ignore_nulls",
@@ -300,10 +300,10 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "severity": "error",
                     "message": "MySQL SQL emission is not implemented for RelationIR: result. MySQL "
                     "does not execute IGNORE NULLS",
-                    "location": ["mysql_ignore_nulls.pietto", 6, 1, 12, 15],
+                    "location": ["mysql_ignore_nulls.pietto", 6, 1, 12, 67],
                 }
             ],
-            "bc714f6eb13d5bbc26923897493df02f46c668f1809d864f01c1fc5b1e976a77",
+            "d8a2479c2139a6483c7cdb826b57c03791916cc18edd7b5b6d4bcb4c359525aa",
         ],
         [
             "mysql_from_last",
@@ -316,10 +316,10 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "severity": "error",
                     "message": "MySQL SQL emission is not implemented for RelationIR: result. MySQL "
                     "does not execute FROM LAST",
-                    "location": ["mysql_from_last.pietto", 6, 1, 12, 15],
+                    "location": ["mysql_from_last.pietto", 6, 1, 12, 65],
                 }
             ],
-            "09c54cb713121bec9eca9e410448b6c48f718c3b8dfe6c608f670dc136305755",
+            "8674f31539d9aa957389b96dcae064d0e0feed8880ce04bfc37250997b51ec2b",
         ],
         [
             "mysql_range_offset",
@@ -332,10 +332,10 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "severity": "error",
                     "message": "MySQL SQL emission is not implemented for RelationIR: result. "
                     + _RANGE_OFFSET.format("MySQL"),
-                    "location": ["mysql_range_offset.pietto", 6, 1, 13, 26],
+                    "location": ["mysql_range_offset.pietto", 6, 1, 13, 54],
                 }
             ],
-            "f50199d97604b1ffd0cf6a68fc338247303039fb750547a96132a75745c33ca2",
+            "121b6d543f8331037accdd38979a386677e003c006e508d7bd3fb330ca58b199",
         ],
     ],
     "negative_project": {
@@ -347,9 +347,9 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
         "roles": ["window_argument", "window_order"],
     },
     "graph": {
-        "canonical_sha256": "381b2079b1d3c006288a9cfa59a27be52d5ff8cfbfef4ffcde2ed5dfa9c7b740",
-        "canonical_size": 25048,
-        "named_sha256": "49a028449f9e66a38af9e664efc0f0a885830ae4ddb61dd33a566e5953510ccc",
+        "canonical_sha256": "d3492106f0c9f8accd31ee793c8a8dca9b7b60d04d01fba5afb153598715e10e",
+        "canonical_size": 24979,
+        "named_sha256": "4d6070635291ca4865b007e55558daa6dd6a5e0da99ee1a38a72e99f237e7d6a",
         "semantic_sha256": "7b8791721352b4ddcd8545218e5137b56ef15280620b1ba398952fe57423f20b",
         "links_sha256": "efd3d750c39e099ae7057f6b11409fe7cc6daea6c53bc7aedd3e573f9342cb73",
         "provenance": [
@@ -434,8 +434,8 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
             "",
         ],
     ],
-    "observation_sha256": "57ecb4c1735bbb5c1a20baddc8a01f0ed445d83819326465e2a352cdfcaf4285",
-    "observation_size": 48244,
+    "observation_sha256": "5d0fda10c364439340f4b0a23a3385ccd74ee1c1a34bf27115fbd7ee72486dc1",
+    "observation_size": 48240,
 }
 
 

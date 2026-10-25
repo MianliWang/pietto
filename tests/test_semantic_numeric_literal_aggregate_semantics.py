@@ -18,15 +18,15 @@ from pietto.semantic import (
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float nullable\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal not null\n"
-    "    active: Bool not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float | None\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    active: Bool\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -176,8 +176,8 @@ def test_cli_check_accepts_numeric_literal_aggregate_arguments(
         ("value = sum(1 + 2)", "sum"),
         ("value = avg(1.5 * 2)", "avg"),
         ('value = sum(amount + "x")', "sum"),
-        ("value = sum(amount + true)", "sum"),
-        ("value = sum(amount + null)", "sum"),
+        ("value = sum(amount + True)", "sum"),
+        ("value = sum(amount + None)", "sum"),
         ("value = sum(amount / tax)", "sum"),
         ("value = sum(amount % tax)", "sum"),
         ("value = sum(amount + len(status))", "sum"),

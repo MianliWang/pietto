@@ -24,15 +24,15 @@ from pietto.ir import (
     SymbolNamespace,
     build_ir,
 )
-from pietto.sql import SqlArtifactKind
+from pietto.sql import SqlArtifactKind, SqlResult
 from pietto.sql.mysql import emit_mysql_sql
 
 SOURCE = (
     "shape User:\n"
-    "    email: Text nullable\n"
-    "    age: Int not null\n"
-    "    deleted_at: Timestamp nullable\n"
-    'source users: User is mysql.table("app.users")\n'
+    "    email: Text | None\n"
+    "    age: Int\n"
+    "    deleted_at: Timestamp | None\n"
+    'source users: User = mysql.table("app.users")\n'
 )
 
 
@@ -41,7 +41,7 @@ def test_source_backed_relation_renders_approved_format() -> None:
         _compile(
             SOURCE + "table active_users:\n"
             "    from users\n"
-            "    where deleted_at is null\n"
+            "    where deleted_at is None\n"
             "    select:\n"
             "        email\n"
             "        normalized = lower(trim(email))\n"
@@ -69,16 +69,15 @@ def test_decimal_int_membership_renders_as_written() -> None:
     # side is cast.
     result = emit_mysql_sql(
         _compile(
-            "type Money = Decimal(12, 2) not null\n"
+            "type Money = Decimal(12, 2)\n"
             "shape Acct:\n"
-            "    amount: Decimal(12, 2) not null\n"
-            "    n: Int not null\n"
-            "    m: Money not null\n"
-            'source accts: Acct is mysql.table("accts")\n'
+            "    amount: Decimal(12, 2)\n"
+            "    n: Int\n"
+            "    m: Money\n"
+            'source accts: Acct = mysql.table("accts")\n'
             "table q:\n"
             "    from accts\n"
-            "    let:\n"
-            "        listed = m in (n, null)\n"
+            "    let listed = m in (n, None)\n"
             "    where amount in (1, 2)\n"
             "    select:\n"
             "        n\n"
@@ -102,10 +101,10 @@ def test_abs_of_every_numeric_type_renders_as_written() -> None:
     result = emit_mysql_sql(
         _compile(
             "shape Acct:\n"
-            "    n: Int not null\n"
-            "    f: Float nullable\n"
-            "    d: Decimal(10, 2) not null\n"
-            'source accts: Acct is mysql.table("accts")\n'
+            "    n: Int\n"
+            "    f: Float | None\n"
+            "    d: Decimal(10, 2)\n"
+            'source accts: Acct = mysql.table("accts")\n'
             "table q:\n"
             "    from accts\n"
             "    where abs(n - 1) < 3\n"
@@ -395,13 +394,13 @@ def test_supported_artifacts_and_diagnostics_preserve_definition_order() -> None
 
 def test_metadata_remains_non_emitting() -> None:
     script_ir = _compile(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    active\n"
-        "constraint valid_email(email: Text not null) -> Bool not null:\n"
-        "    email is not null\n"
-        "derive normalize_email(email: Text not null) -> Text not null:\n"
-        "    trim(email)\n"
+        "constraint valid_email(email: Text) -> Bool:\n"
+        "    return email is not None\n"
+        "derive normalize_email(email: Text) -> Text:\n"
+        "    return trim(email)\n"
         + SOURCE
         + "table selected:\n    from users\n    select:\n        email\n"
     )
@@ -478,7 +477,10 @@ def _compile(source: str) -> ScriptIR:
         diagnostic.severity is not Severity.ERROR
         for diagnostic in semantic_result.diagnostics
     )
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    # IR lowers the analyzed script, in which each `let name = value` is
+    # already resolved, as the CLI lowers it.
+    assert semantic_result.script is not None
+    ir_result = build_ir(semantic_result.script, semantic_result.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir
@@ -495,3 +497,158 @@ def _definition[DefinitionT: (SourceIR, RelationIR)](
         if isinstance(definition, definition_type) and definition.name == name
     )
     return definition
+
+
+def test_scalar_any_in_or_preserves_outer_capture_and_binding() -> None:
+    source = """shape Row:
+    id: Int
+source orders: Row = mysql.table("orders")
+source customers: Row = mysql.table("customers")
+query result:
+    from orders
+    where orders.id > 0 or any(buyer.id == orders.id for buyer in customers)
+    select id = orders.id
+"""
+    parsed = parser_api.parse_source(source, path="any-mysql.pietto")
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = semantic_api.analyze(parsed.ast)
+    assert semantic.script is not None and not semantic.diagnostics
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    result = emit_mysql_sql(lowered.ir)
+    assert not result.diagnostics
+    (artifact,) = result.artifacts
+    assert "EXISTS (SELECT 1 FROM " in artifact.sql
+    assert " OR " in artifact.sql
+    assert "`orders`.`id`" in artifact.sql
+
+
+def test_scalar_any_null_predicate_emits_unknown_filter() -> None:
+    parsed = parser_api.parse_source("""shape Row:
+    id: Int
+source rows: Row = mysql.table("rows")
+query result:
+    from rows
+    select found = any(None for candidate in rows)
+""")
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = semantic_api.analyze(parsed.ast)
+    assert semantic.script is not None and not semantic.diagnostics
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    result = emit_mysql_sql(lowered.ir)
+    assert not result.diagnostics
+    assert " WHERE NULL)" in result.artifacts[0].sql
+
+
+def test_scalar_any_derived_iterator_includes_transitive_ctes() -> None:
+    parsed = parser_api.parse_source("""shape Row:
+    id: Int
+source rows: Row = mysql.table("rows")
+query result:
+    from rows
+    select:
+        found = any(candidate.id == rows.id for candidate in later)
+table later:
+    from prior
+    select:
+        id = prior.id
+table prior:
+    from rows
+    select:
+        id = rows.id
+""")
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = semantic_api.analyze(parsed.ast)
+    assert semantic.script is not None
+    # The ANY defines `later` and `prior` as CTEs; `later` itself reads `prior`
+    # by name.
+    assert [
+        (item.code, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == [("PIE-S2382", 9, 5)]
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    result = emit_mysql_sql(lowered.ir)
+    assert not result.diagnostics
+    sql = next(
+        artifact.sql for artifact in result.artifacts if artifact.name == "result"
+    )
+    assert sql.index("`prior` AS (") < sql.index("`later` AS (") < sql.index("EXISTS (")
+    assert "FROM `later` AS" in sql
+
+
+def _emit_any_reader(table: str) -> SqlResult:
+    parsed = parser_api.parse_source(
+        f"""shape Row:
+    id: Int
+source outer_rows: Row = mysql.table("{table}")
+source inner_rows: Row = mysql.table("items")
+query filtered:
+    from inner_rows
+    where id > 1
+    select id
+query q:
+    from outer_rows
+    select:
+        id
+        matched = any(candidate.id == outer_rows.id for candidate in filtered)
+""",
+        path="any-mysql.pietto",
+    )
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = semantic_api.analyze(parsed.ast)
+    assert semantic.script is not None and not semantic.diagnostics
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    return emit_mysql_sql(lowered.ir)
+
+
+# A CTE takes the place of a same-named table read without a schema in the
+# main SELECT (MySQL compares the names case-insensitively); emitting it would
+# read the CTE's rows.
+@pytest.mark.parametrize("table", ("filtered", "FILTERED"))
+def test_scalar_any_dependency_cte_never_hides_a_table_read_without_a_schema(
+    table: str,
+) -> None:
+    result = _emit_any_reader(table)
+    assert [
+        (
+            item.code,
+            item.message,
+            item.location.path,
+            item.location.line,
+            item.location.column,
+        )
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            "MySQL SQL emission is not implemented for RelationIR: q. MySQL scalar "
+            "ANY defines relation filtered as a CTE, which would hide table "
+            f"{table} read in the same SQL; rename the relation or read the table "
+            "with its schema",
+            "any-mysql.pietto",
+            9,
+            1,
+        )
+    ]
+    assert [artifact.name for artifact in result.artifacts] == ["filtered"]
+
+
+def test_scalar_any_dependency_cte_keeps_a_table_read_with_its_schema() -> None:
+    result = _emit_any_reader("app.filtered")
+    assert result.diagnostics == ()
+    assert result.artifacts[1].sql == (
+        "WITH `filtered` AS (\n"
+        "SELECT\n"
+        "    `id` AS `id`\n"
+        "FROM `items`\n"
+        "WHERE `id` > 1\n"
+        ")\n"
+        "SELECT\n"
+        "    `id` AS `id`,\n"
+        "    EXISTS (SELECT 1 FROM `filtered` AS `_pietto_value_1` WHERE "
+        "`_pietto_value_1`.`id` = `outer_rows`.`id`) AS `matched`\n"
+        "FROM `app`.`filtered` AS `outer_rows`"
+    )

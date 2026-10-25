@@ -32,11 +32,11 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
     "integrity": "ok",
     "pure_status": "ok",
     "canonical_sha256": (
-        "e5b510011b04b92939631ff34bab844a86bb2b25e2b2b7574dd8d6be02cea876"
+        "da8793c86506296f183c35389c6e5d36f43448607036032e08ed62ef964108e4"
     ),
-    "canonical_size": 589019,
+    "canonical_size": 588825,
     "inspection_sha256": (
-        "b1bd359cae7312b5a51c9636c2b588f13a98f6e656bc883ce8cb5f8d59a6dbd4"
+        "9898f10259cf3333163536b85e6749784116abb2c595aa1ebf7a565ad99f9daa"
     ),
     "counts": {
         "records": [
@@ -139,11 +139,11 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
     "project_explain": {
         "runtime_outcome": "success",
         "json_sha256": (
-            "62fa74167a6170e6ec143fdec0535c34c0f398e5d668c9576212322c03047423"
+            "63b98e4a2f86b6bb3558465b3468a8d386f20390e913d0a2c48fba86613829a2"
         ),
         "json_size": 12356,
         "text_sha256": (
-            "a35880e181fdf48c11a4289953ebe8e7b85170656998393339bc4fbde0e76df7"
+            "af664d7c34524c59dffd456f22715fe92b17fdd2a582bd5a6d02d25615e65457"
         ),
         "text_size": 3483,
         "cli_json_exit": 0,

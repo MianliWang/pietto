@@ -367,9 +367,9 @@ def _project(
     if include_source:
         source_text = (
             "shape User:\n"
-            "    id: Int not null\n"
+            "    id: Int\n"
             "    score: Int\n"
-            'source users: User is postgres.table("users")\n'
+            'source users: User = postgres.table("users")\n'
         )
     _write(root, "models.pietto", f"{source_text}{relation_body}")
     return root

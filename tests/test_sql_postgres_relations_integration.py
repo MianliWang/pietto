@@ -25,8 +25,8 @@ EXPECTED_EXAMPLE_ARTIFACTS = {
 def test_pipeline_emits_quoted_source_backed_relation_sql() -> None:
     result = _compile_and_emit(
         "shape Customer:\n"
-        "    Email: Text not null\n"
-        'source Customers: Customer is postgres.table("Sales.Customers")\n'
+        "    Email: Text\n"
+        'source Customers: Customer = postgres.table("Sales.Customers")\n'
         "table ActiveCustomers:\n"
         "    from Customers\n"
         '    where Email == "O\'Reilly"\n'
@@ -52,10 +52,10 @@ def test_pipeline_casts_sign_to_the_int_its_semantics_declare() -> None:
     # a numeric argument; Pietto types every sign() as Int.
     result = _compile_and_emit(
         "shape Acct:\n"
-        "    n: Int not null\n"
-        "    d: Decimal(10, 2) not null\n"
-        "    m: Int nullable\n"
-        'source accts: Acct is postgres.table("accts")\n'
+        "    n: Int\n"
+        "    d: Decimal(10, 2)\n"
+        "    m: Int | None\n"
+        'source accts: Acct = postgres.table("accts")\n'
         "table q:\n"
         "    from accts\n"
         "    where sign(m) == -1\n"
@@ -83,10 +83,10 @@ def test_pipeline_emits_abs_of_every_numeric_type_as_written() -> None:
     # PostgreSQL abs() returns the type of its argument, as Pietto types it.
     result = _compile_and_emit(
         "shape Acct:\n"
-        "    n: Int not null\n"
-        "    f: Float nullable\n"
-        "    d: Decimal(10, 2) not null\n"
-        'source accts: Acct is postgres.table("accts")\n'
+        "    n: Int\n"
+        "    f: Float | None\n"
+        "    d: Decimal(10, 2)\n"
+        'source accts: Acct = postgres.table("accts")\n'
         "table q:\n"
         "    from accts\n"
         "    where abs(n - 1) < 3\n"
@@ -112,16 +112,15 @@ def test_pipeline_emits_decimal_int_membership_as_written() -> None:
     # `amount in (1, 2)` checks like `amount == 1 or amount == 2`; neither
     # side is cast.
     result = _compile_and_emit(
-        "type Money = Decimal(12, 2) not null\n"
+        "type Money = Decimal(12, 2)\n"
         "shape Acct:\n"
-        "    amount: Decimal(12, 2) not null\n"
-        "    n: Int not null\n"
-        "    m: Money not null\n"
-        'source accts: Acct is postgres.table("accts")\n'
+        "    amount: Decimal(12, 2)\n"
+        "    n: Int\n"
+        "    m: Money\n"
+        'source accts: Acct = postgres.table("accts")\n'
         "table q:\n"
         "    from accts\n"
-        "    let:\n"
-        "        listed = m in (n, null)\n"
+        "    let listed = m in (n, None)\n"
         "    where amount in (1, 2)\n"
         "    select:\n"
         "        n\n"
@@ -149,15 +148,31 @@ def test_pipeline_refuses_null_arithmetic_and_read_null_outputs_on_postgresql() 
     output no relation reads, emit as written."""
     result = _compile_and_emit(
         "shape Acct:\n"
-        "    n: Int nullable\n"
-        'source accts: Acct is postgres.table("accts")\n'
-        "table sums:\n    from accts\n    select:\n        a = null + null\n"
-        "table signs:\n    from accts\n    select:\n        b = coalesce(-null, n)\n"
-        "table nothing:\n    from accts\n    let:\n        k = null\n"
-        "    select:\n        c = null\n        d = k\n"
-        "query later:\n    from nothing\n    select:\n        c\n"
-        "query typed:\n    from accts\n    select:\n        e = n + null\n"
-        "        f = null\n",
+        "    n: Int | None\n"
+        'source accts: Acct = postgres.table("accts")\n'
+        "table sums:\n"
+        "    from accts\n"
+        "    select:\n"
+        "        a = None + None\n"
+        "table signs:\n"
+        "    from accts\n"
+        "    select:\n"
+        "        b = coalesce(-None, n)\n"
+        "table nothing:\n"
+        "    from accts\n"
+        "    let k = None\n"
+        "    select:\n"
+        "        c = None\n"
+        "        d = k\n"
+        "query later:\n"
+        "    from nothing\n"
+        "    select:\n"
+        "        c\n"
+        "query typed:\n"
+        "    from accts\n"
+        "    select:\n"
+        "        e = n + None\n"
+        "        f = None\n",
         path="null.pietto",
     )
 
@@ -199,19 +214,49 @@ def test_pipeline_refuses_read_outputs_whose_every_value_is_null_on_postgresql()
     failed with `operator does not exist: text + integer`. One typed value
     types them, and an output no relation reads emits as written."""
     result = _compile_and_emit(
-        "shape S:\n    n: Int nullable\n    b: Bool nullable\n"
-        'source src: S is postgres.table("app.src")\n'
-        "table cases:\n    from src\n    select:\n        v = null if b else null\n"
-        "table coalesced:\n    from src\n    select:\n        c = coalesce(null, null)\n"
-        "table nested:\n    from src\n    let:\n        k = nullif(null, null)\n"
-        "    select:\n        d = k if b else coalesce(null, null)\n"
-        "table typed:\n    from src\n    select:\n        e = null if b else n\n"
-        "        f = nullif(null, n)\n        g = coalesce(null, n)\n"
-        "query later:\n    from cases\n    select:\n        w = v + 1\n"
-        "query again:\n    from coalesced\n    select:\n        c\n"
-        "query deeper:\n    from nested\n    select:\n        d\n"
-        "query fine:\n    from typed\n    select:\n        e\n"
-        "query unread:\n    from src\n    select:\n        h = null if b else null\n",
+        "shape S:\n"
+        "    n: Int | None\n"
+        "    b: Bool | None\n"
+        'source src: S = postgres.table("app.src")\n'
+        "table cases:\n"
+        "    from src\n"
+        "    select:\n"
+        "        v = None if b else None\n"
+        "table coalesced:\n"
+        "    from src\n"
+        "    select:\n"
+        "        c = coalesce(None, None)\n"
+        "table nested:\n"
+        "    from src\n"
+        "    let k = nullif(None, None)\n"
+        "    select:\n"
+        "        d = k if b else coalesce(None, None)\n"
+        "table typed:\n"
+        "    from src\n"
+        "    select:\n"
+        "        e = None if b else n\n"
+        "        f = nullif(None, n)\n"
+        "        g = coalesce(None, n)\n"
+        "query later:\n"
+        "    from cases\n"
+        "    select:\n"
+        "        w = v + 1\n"
+        "query again:\n"
+        "    from coalesced\n"
+        "    select:\n"
+        "        c\n"
+        "query deeper:\n"
+        "    from nested\n"
+        "    select:\n"
+        "        d\n"
+        "query fine:\n"
+        "    from typed\n"
+        "    select:\n"
+        "        e\n"
+        "query unread:\n"
+        "    from src\n"
+        "    select:\n"
+        "        h = None if b else None\n",
         path="null-trees.pietto",
     )
 
@@ -258,35 +303,64 @@ def test_pipeline_refuses_typed_uses_of_null_cases_on_postgresql() -> None:
     argument of a function that takes text, and where nothing reads it, it
     emits as written."""
     result = _compile_and_emit(
-        "enum Status:\n    active\n    done\n"
-        "shape S:\n    n: Int nullable\n    b: Bool nullable\n"
-        "    t: Text nullable\n    st: Status nullable\n"
-        'source src: S is postgres.table("app.src")\n'
-        "query plus:\n    from src\n    select:\n"
-        "        x = coalesce(null, null) + 1\n"
-        "query sign:\n    from src\n    select:\n        x = -nullif(null, null)\n"
-        "query both:\n    from src\n    select:\n"
-        "        x = (null if b else null) and b\n"
-        "query equal:\n    from src\n    select:\n"
-        "        x = coalesce(null, null) == 1\n"
-        "query listed:\n    from src\n    select:\n"
-        "        x = n in (coalesce(null, null), 1)\n"
-        "query nested:\n    from src\n    select:\n"
-        "        x = coalesce(null if b else null, n)\n"
-        "query branch:\n    from src\n    select:\n"
-        "        x = coalesce(null, null) if b else 1\n"
-        "query test:\n    from src\n    select:\n"
-        "        x = 1 if coalesce(null, null) else 2\n"
-        "query kept:\n    from src\n    where nullif(null, null)\n    select:\n"
+        "enum Status:\n"
+        "    active\n"
+        "    done\n"
+        "shape S:\n"
+        "    n: Int | None\n"
+        "    b: Bool | None\n"
+        "    t: Text | None\n"
+        "    st: Status | None\n"
+        'source src: S = postgres.table("app.src")\n'
+        "query plus:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = coalesce(None, None) + 1\n"
+        "query sign:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = -nullif(None, None)\n"
+        "query both:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = (None if b else None) and b\n"
+        "query equal:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = coalesce(None, None) == 1\n"
+        "query listed:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = n in (coalesce(None, None), 1)\n"
+        "query nested:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = coalesce(None if b else None, n)\n"
+        "query branch:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = coalesce(None, None) if b else 1\n"
+        "query test:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = 1 if coalesce(None, None) else 2\n"
+        "query kept:\n"
+        "    from src\n"
+        "    where nullif(None, None)\n"
+        "    select:\n"
         "        n\n"
-        "query part:\n    from src\n    select:\n"
-        "        x = year(null if b else null)\n"
-        "query fine:\n    from src\n    select:\n"
-        "        x = coalesce(null, null) == t\n"
-        "        y = coalesce(null if b else null, t)\n"
-        "        z = st == coalesce(null, null)\n"
-        "        w = len(nullif(null, null))\n"
-        "        v = coalesce(coalesce(null, null), null)\n",
+        "query part:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = year(None if b else None)\n"
+        "query fine:\n"
+        "    from src\n"
+        "    select:\n"
+        "        x = coalesce(None, None) == t\n"
+        "        y = coalesce(None if b else None, t)\n"
+        "        z = st == coalesce(None, None)\n"
+        "        w = len(nullif(None, None))\n"
+        "        v = coalesce(coalesce(None, None), None)\n",
         path="null-cases.pietto",
     )
 
@@ -329,8 +403,8 @@ def test_pipeline_refuses_typed_uses_of_null_cases_on_postgresql() -> None:
 def test_pipeline_uses_escape_string_for_backslash_quote_payload() -> None:
     result = _compile_and_emit(
         "shape User:\n"
-        "    email: Text nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    email: Text | None\n"
+        'source users: User = postgres.table("users")\n'
         "table matching_users:\n"
         "    from users\n"
         '    where email == "\\\\\'; DROP TABLE users; --"\n'
@@ -347,8 +421,8 @@ def test_pipeline_uses_escape_string_for_backslash_quote_payload() -> None:
 def test_pipeline_relation_without_filter_omits_where() -> None:
     result = _compile_and_emit(
         "shape Customer:\n"
-        "    Email: Text not null\n"
-        'source Customers: Customer is postgres.table("customers")\n'
+        "    Email: Text\n"
+        'source Customers: Customer = postgres.table("customers")\n'
         "query CustomerEmails:\n"
         "    from Customers\n"
         "    select:\n"
@@ -362,8 +436,8 @@ def test_pipeline_relation_without_filter_omits_where() -> None:
 def test_artifacts_and_diagnostics_preserve_their_definition_order() -> None:
     result = _compile_and_emit(
         "shape Customer:\n"
-        "    Email: Text not null\n"
-        'source Customers: Customer is postgres.table("customers")\n'
+        "    Email: Text\n"
+        'source Customers: Customer = postgres.table("customers")\n'
         "table FirstRelation:\n"
         "    from Customers\n"
         "    select:\n"
@@ -374,7 +448,7 @@ def test_artifacts_and_diagnostics_preserve_their_definition_order() -> None:
         "    from Customers\n"
         "    select:\n"
         "        Email\n"
-        "type CustomerEmail = Text not null\n",
+        "type CustomerEmail = Text\n",
         path="postgres-ordering.pietto",
     )
 
@@ -388,8 +462,8 @@ def test_artifacts_and_diagnostics_preserve_their_definition_order() -> None:
 def test_relation_dependency_uses_quoted_upstream_name_without_expansion() -> None:
     result = _compile_and_emit(
         "shape Customer:\n"
-        "    Email: Text not null\n"
-        'source Customers: Customer is postgres.table("customers")\n'
+        "    Email: Text\n"
+        'source Customers: Customer = postgres.table("customers")\n'
         "table CustomerRows:\n"
         "    from Customers\n"
         "    select:\n"
@@ -429,7 +503,8 @@ def test_committed_examples_complete_postgres_backend_pipeline(path: Path) -> No
         semantic_errors,
     )
 
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    assert semantic_result.script is not None
+    ir_result = build_ir(semantic_result.script, semantic_result.model)
     ir_errors = tuple(
         diagnostic
         for diagnostic in ir_result.diagnostics
@@ -474,7 +549,8 @@ def _compile_and_emit(
         semantic_errors,
     )
 
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    assert semantic_result.script is not None
+    ir_result = build_ir(semantic_result.script, semantic_result.model)
     assert ir_result.diagnostics == (), _format_diagnostics(
         Path(path),
         "IR",

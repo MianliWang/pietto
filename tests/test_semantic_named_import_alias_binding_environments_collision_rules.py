@@ -29,13 +29,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/_project/module_bindings.py"
 
 SIX_KIND_SOURCE = (
-    "type Email = Text not null\n"
+    "type Email = Text\n"
     "enum Status:\n"
     "    active\n"
     "    inactive\n"
     "shape Customer:\n"
-    "    id: UUID not null\n"
-    'source customers: Customer is postgres.table("public.customers")\n'
+    "    id: UUID\n"
+    'source customers: Customer = postgres.table("public.customers")\n'
     "table CustomerTable:\n"
     "    from customers\n"
     "    select:\n"
@@ -46,22 +46,22 @@ SIX_KIND_SOURCE = (
     "        id\n"
 )
 SIX_KIND_EXPORTS = (
-    "export:\n"
-    "    type Email\n"
-    "    enum Status\n"
-    "    shape Customer\n"
-    "    source customers\n"
-    "    table CustomerTable\n"
-    "    query CustomerQuery\n"
+    "export (\n"
+    "    type Email,\n"
+    "    enum Status,\n"
+    "    shape Customer,\n"
+    "    source customers,\n"
+    "    table CustomerTable,\n"
+    "    query CustomerQuery)\n"
 )
 SIX_KIND_IMPORTS = (
-    'import "library.pietto":\n'
-    "    type Email\n"
-    "    enum Status\n"
-    "    shape Customer\n"
-    "    source customers\n"
-    "    table CustomerTable\n"
-    "    query CustomerQuery\n"
+    'from "library.pietto" import (\n'
+    "    type Email,\n"
+    "    enum Status,\n"
+    "    shape Customer,\n"
+    "    source customers,\n"
+    "    table CustomerTable,\n"
+    "    query CustomerQuery)\n"
 )
 
 
@@ -247,8 +247,8 @@ def test_binding_carrier_constructors_reject_wrong_types_and_identity_rewrites(
             "    id: Int\n"
             "shape Other:\n"
             "    id: Int\n"
-            'import "library.pietto":\n'
-            "    shape Customer as Local\n"
+            'from "library.pietto" import (\n'
+            "    shape Customer as Local)\n"
         ),
     )
     local_collision = _environment(local_collision_semantic, "main.pietto")
@@ -281,9 +281,9 @@ def test_binding_carrier_constructors_reject_wrong_types_and_identity_rewrites(
     import_collision_semantic = _simple_semantic(
         tmp_path / "import-collision",
         (
-            'import "library.pietto":\n'
-            "    shape Customer as Shared\n"
-            "    type Email as Shared\n"
+            'from "library.pietto" import (\n'
+            "    shape Customer as Shared,\n"
+            "    type Email as Shared)\n"
         ),
     )
     import_collision = _environment(import_collision_semantic, "main.pietto")
@@ -352,7 +352,7 @@ def test_unaliased_import_uses_exported_name_for_local_identity(
     binding = _environment(
         _simple_semantic(
             tmp_path,
-            'import "library.pietto":\n    shape Customer\n',
+            'from "library.pietto" import (\n    shape Customer)\n',
         ),
         "main.pietto",
     ).bindings[0]
@@ -367,7 +367,7 @@ def test_alias_changes_only_local_binding_name_and_preserves_target_identity(
     binding = _environment(
         _simple_semantic(
             tmp_path,
-            'import "library.pietto":\n    shape Customer as Buyer\n',
+            'from "library.pietto" import (\n    shape Customer as Buyer)\n',
         ),
         "main.pietto",
     ).bindings[0]
@@ -387,12 +387,12 @@ def test_target_resolution_preserves_exact_path_case_and_unicode(
     _, semantic = _semantic_project(
         tmp_path / "project",
         {
-            "Mód.pietto": "shape Row:\n    id: Int\nexport:\n    shape Row\n",
+            "Mód.pietto": "shape Row:\n    id: Int\nexport (\n    shape Row)\n",
             "main.pietto": (
-                'import "Mód.pietto":\n'
-                "    shape Row as Exact\n"
-                'import "mód.pietto":\n'
-                "    shape Row as Folded\n"
+                'from "Mód.pietto" import (\n'
+                "    shape Row as Exact)\n"
+                'from "mód.pietto" import (\n'
+                "    shape Row as Folded)\n"
             ),
         },
     )
@@ -419,7 +419,7 @@ def test_unselected_target_fails_closed_without_filesystem_discovery(
     for position, raw_target in enumerate(raw_targets):
         semantic = _simple_semantic(
             tmp_path / f"target-{position}",
-            f'import "{raw_target}":\n    shape Customer\n',
+            f'from "{raw_target}" import (\n    shape Customer)\n',
         )
         environment = _environment(semantic, "main.pietto")
         assert environment.bindings == ()
@@ -433,7 +433,7 @@ def test_unknown_exported_name_retains_issue_without_winner(tmp_path: Path) -> N
     environment = _environment(
         _simple_semantic(
             tmp_path,
-            'import "library.pietto":\n    shape Missing\n',
+            'from "library.pietto" import (\n    shape Missing)\n',
         ),
         "main.pietto",
     )
@@ -453,7 +453,7 @@ def test_private_or_unexported_declaration_is_not_importable(
     environment = _environment(
         _simple_semantic(
             tmp_path,
-            'import "library.pietto":\n    shape Customer\n',
+            'from "library.pietto" import (\n    shape Customer)\n',
             library_source=SIX_KIND_SOURCE,
         ),
         "main.pietto",
@@ -476,18 +476,18 @@ def test_namespace_or_kind_disagreement_retains_inconsistent_facade_issue(
         "    id: Int\n"
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("public.rows")\n'
+        'source rows: Row = postgres.table("public.rows")\n'
         "query Shared:\n"
         "    from rows\n"
         "    select:\n"
         "        id\n"
-        "export:\n"
-        "    query Shared\n"
+        "export (\n"
+        "    query Shared)\n"
     )
     environment = _environment(
         _simple_semantic(
             tmp_path,
-            'import "library.pietto":\n    shape Shared\n',
+            'from "library.pietto" import (\n    shape Shared)\n',
             library_source=library,
         ),
         "main.pietto",
@@ -518,12 +518,12 @@ def test_ambiguous_target_facade_retains_all_entries_without_winner(
     tmp_path: Path,
 ) -> None:
     library = (
-        "shape Shared:\n    id: Int\nexport:\n    shape Shared\n    shape Shared\n"
+        "shape Shared:\n    id: Int\nexport (\n    shape Shared,\n    shape Shared)\n"
     )
     environment = _environment(
         _simple_semantic(
             tmp_path,
-            'import "library.pietto":\n    shape Shared\n',
+            'from "library.pietto" import (\n    shape Shared)\n',
             library_source=library,
         ),
         "main.pietto",
@@ -545,8 +545,8 @@ def test_local_declaration_and_import_collision_has_no_winner(
             (
                 "shape Local:\n"
                 "    id: Int\n"
-                'import "library.pietto":\n'
-                "    shape Customer as Local\n"
+                'from "library.pietto" import (\n'
+                "    shape Customer as Local)\n"
             ),
         ),
         "main.pietto",
@@ -568,9 +568,9 @@ def test_repeated_local_binding_name_has_no_first_or_last_winner(
         _simple_semantic(
             tmp_path,
             (
-                'import "library.pietto":\n'
-                "    shape Customer as Shared\n"
-                "    type Email as Shared\n"
+                'from "library.pietto" import (\n'
+                "    shape Customer as Shared,\n"
+                "    type Email as Shared)\n"
             ),
         ),
         "main.pietto",
@@ -590,9 +590,9 @@ def test_distinct_exported_names_aliased_to_same_local_name_collide(
         _simple_semantic(
             tmp_path,
             (
-                'import "library.pietto":\n'
-                "    shape Customer as Shared\n"
-                "    enum Status as Shared\n"
+                'from "library.pietto" import (\n'
+                "    shape Customer as Shared,\n"
+                "    enum Status as Shared)\n"
             ),
         ),
         "main.pietto",
@@ -616,9 +616,9 @@ def test_exact_duplicate_requests_remain_distinct_with_prior_evidence(
         _simple_semantic(
             tmp_path,
             (
-                'import "library.pietto":\n'
-                "    shape Customer as Shared\n"
-                "    shape Customer as Shared\n"
+                'from "library.pietto" import (\n'
+                "    shape Customer as Shared,\n"
+                "    shape Customer as Shared)\n"
             ),
         ),
         "main.pietto",
@@ -643,9 +643,9 @@ def test_import_order_changes_evidence_order_not_collision_meaning(
         _simple_semantic(
             tmp_path / "first",
             (
-                'import "library.pietto":\n'
-                "    shape Customer as Shared\n"
-                "    enum Status as Shared\n"
+                'from "library.pietto" import (\n'
+                "    shape Customer as Shared,\n"
+                "    enum Status as Shared)\n"
             ),
         ),
         "main.pietto",
@@ -654,9 +654,9 @@ def test_import_order_changes_evidence_order_not_collision_meaning(
         _simple_semantic(
             tmp_path / "second",
             (
-                'import "library.pietto":\n'
-                "    enum Status as Shared\n"
-                "    shape Customer as Shared\n"
+                'from "library.pietto" import (\n'
+                "    enum Status as Shared,\n"
+                "    shape Customer as Shared)\n"
             ),
         ),
         "main.pietto",
@@ -681,13 +681,13 @@ def test_environment_set_preserves_selected_input_and_source_order(
     _, semantic = _semantic_project(
         tmp_path / "project",
         {
-            "a-library.pietto": "shape A:\n    id: Int\nexport:\n    shape A\n",
-            "b-library.pietto": "shape B:\n    id: Int\nexport:\n    shape B\n",
+            "a-library.pietto": "shape A:\n    id: Int\nexport (\n    shape A)\n",
+            "b-library.pietto": "shape B:\n    id: Int\nexport (\n    shape B)\n",
             "z-main.pietto": (
-                'import "b-library.pietto":\n'
-                "    shape B\n"
-                'import "a-library.pietto":\n'
-                "    shape A\n"
+                'from "b-library.pietto" import (\n'
+                "    shape B)\n"
+                'from "a-library.pietto" import (\n'
+                "    shape A)\n"
             ),
         },
     )
@@ -713,7 +713,7 @@ def test_environment_values_lookups_and_collections_are_immutable(
 ) -> None:
     semantic = _simple_semantic(
         tmp_path,
-        'import "library.pietto":\n    shape Customer\n',
+        'from "library.pietto" import (\n    shape Customer)\n',
     )
     environment_set = _required_bindings(semantic)
     environment = _environment(semantic, "main.pietto")
@@ -736,7 +736,7 @@ def test_resolved_binding_keeps_separate_local_and_nominal_identities(
     binding = _environment(
         _simple_semantic(
             tmp_path,
-            'import "library.pietto":\n    shape Customer as LocalCustomer\n',
+            'from "library.pietto" import (\n    shape Customer as LocalCustomer)\n',
         ),
         "main.pietto",
     ).bindings[0]
@@ -758,16 +758,16 @@ def test_direct_explicit_reexport_entry_is_importable_without_identity_rewrite(
         tmp_path / "project",
         {
             "a-origin.pietto": (
-                "shape Original:\n    id: Int\nexport:\n    shape Original\n"
+                "shape Original:\n    id: Int\nexport (\n    shape Original)\n"
             ),
             "b-middle.pietto": (
-                'import "a-origin.pietto":\n'
-                "    shape Original as Shared\n"
-                "export:\n"
-                "    shape Shared\n"
+                'from "a-origin.pietto" import (\n'
+                "    shape Original as Shared)\n"
+                "export (\n"
+                "    shape Shared)\n"
             ),
             "c-consumer.pietto": (
-                'import "b-middle.pietto":\n    shape Shared as Local\n'
+                'from "b-middle.pietto" import (\n    shape Shared as Local)\n'
             ),
         },
     )
@@ -787,18 +787,20 @@ def test_single_backfill_does_not_recurse_or_build_facade_fixed_point(
         tmp_path / "project",
         {
             "a-origin.pietto": (
-                "shape Original:\n    id: Int\nexport:\n    shape Original\n"
+                "shape Original:\n    id: Int\nexport (\n    shape Original)\n"
             ),
             "b-one.pietto": (
-                'import "a-origin.pietto":\n'
-                "    shape Original as One\n"
-                "export:\n"
-                "    shape One\n"
+                'from "a-origin.pietto" import (\n'
+                "    shape Original as One)\n"
+                "export (\n"
+                "    shape One)\n"
             ),
             "c-two.pietto": (
-                'import "b-one.pietto":\n    shape One as Two\nexport:\n    shape Two\n'
+                'from "b-one.pietto" import (\n    shape One as Two)\nexport (\n    shape Two)\n'
             ),
-            "d-consumer.pietto": ('import "c-two.pietto":\n    shape Two as Final\n'),
+            "d-consumer.pietto": (
+                'from "c-two.pietto" import (\n    shape Two as Final)\n'
+            ),
         },
     )
     assert len(_environment(semantic, "c-two.pietto").bindings) == 1
@@ -816,7 +818,7 @@ def test_slice6_candidate_proof_positions_and_alias_span_are_exact(
 ) -> None:
     semantic = _simple_semantic(
         tmp_path,
-        'import "library.pietto":\n    shape Customer as Buyer\n',
+        'from "library.pietto" import (\n    shape Customer as Buyer)\n',
     )
     binding = _environment(semantic, "main.pietto").bindings[0]
     candidate = _required_bindings(semantic).imported_export_candidates[-1]
@@ -837,10 +839,10 @@ def test_matching_export_request_consumes_real_candidate_for_reexport(
     semantic = _simple_semantic(
         tmp_path,
         (
-            'import "library.pietto":\n'
-            "    shape Customer as Buyer\n"
-            "export:\n"
-            "    shape Buyer\n"
+            'from "library.pietto" import (\n'
+            "    shape Customer as Buyer)\n"
+            "export (\n"
+            "    shape Buyer)\n"
         ),
     )
     assert semantic.module_exports is not None
@@ -863,7 +865,7 @@ def test_schema_v2_semantic_result_retains_private_bindings_and_fail_closed_post
         tmp_path / "project",
         {
             "library.pietto": SIX_KIND_SOURCE + SIX_KIND_EXPORTS,
-            "main.pietto": 'import "library.pietto":\n    shape Customer\n',
+            "main.pietto": 'from "library.pietto" import (\n    shape Customer)\n',
         },
     )
     assert parse_result.ok
@@ -895,7 +897,7 @@ def test_schema_v2_text_and_json_remain_exact_and_private(
         tmp_path / "project",
         {
             "library.pietto": SIX_KIND_SOURCE + SIX_KIND_EXPORTS,
-            "main.pietto": 'import "library.pietto":\n    shape Customer\n',
+            "main.pietto": 'from "library.pietto" import (\n    shape Customer)\n',
         },
     )
     assert cli.main(["check", "--project", str(root)]) == 0
@@ -970,7 +972,7 @@ def test_builder_uses_only_preloaded_inputs_and_performs_no_io(
         tmp_path / "project",
         {
             "library.pietto": SIX_KIND_SOURCE + SIX_KIND_EXPORTS,
-            "main.pietto": 'import "library.pietto":\n    shape Customer\n',
+            "main.pietto": 'from "library.pietto" import (\n    shape Customer)\n',
         },
     )
     assert parse_result.selected_input_index is not None
@@ -996,7 +998,7 @@ def test_no_public_diagnostics_graph_ir_sql_or_serialized_binding_surface(
         tmp_path / "project",
         {
             "library.pietto": SIX_KIND_SOURCE + SIX_KIND_EXPORTS,
-            "main.pietto": 'import "library.pietto":\n    shape Missing\n',
+            "main.pietto": 'from "library.pietto" import (\n    shape Missing)\n',
         },
     )
     assert tuple(item.code for item in semantic.diagnostics) == ("PIE-S2705",)

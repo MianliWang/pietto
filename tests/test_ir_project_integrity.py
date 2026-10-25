@@ -53,13 +53,13 @@ SPEC_HEADINGS = (
 
 def _source() -> str:
     return """shape Row:
-    id: Int not null
-    amount: Int nullable
-    category: Text nullable
+    id: Int
+    amount: Int | None
+    category: Text | None
 shape Other:
-    key: Int not null
-source rows: Row is postgres.table("rows")
-source other: Other is postgres.table("other")
+    key: Int
+source rows: Row = postgres.table("rows")
+source other: Other = postgres.table("other")
 query chained:
     from same_a
     select:
@@ -86,16 +86,12 @@ query window_row:
     from rows
     select:
         id
-        ranking = row_number() window:
-            order by:
-                id
+        ranking = row_number() window(order by id)
 query window_rank:
     from rows
     select:
         id
-        ranking = rank() window:
-            order by:
-                id
+        ranking = rank() window(order by id)
 query aggregate_only:
     from rows
     select:
@@ -109,8 +105,9 @@ query grouped:
         total = sum(amount)
 query full:
     from rows
-    let:
-        adjusted = amount + id
+    let adjusted = amount + id
+    let child = window base
+    let base = window(partition by category order by total desc)
     where id > 0
     group by:
         category
@@ -118,13 +115,7 @@ query full:
         category
         total = sum(adjusted)
         ranking = row_number() window child
-    window child = base
-    window base:
-        partition by:
-            category
-        order by:
-            total desc
-    satisfying:
+    having:
         sum(adjusted) > 0
 query other_result:
     from other

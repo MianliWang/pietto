@@ -141,56 +141,11 @@ def test_pending_binding_rebuilds_every_request_and_preserves_old_refusal(
         verify_binding(replace(a, guarded=None))
 
 
-@pytest.mark.parametrize("target", ("postgres", "mysql"))
-@pytest.mark.parametrize("three_sources", (False, True))
-def test_exact_legacy_multi_hop_refusal_is_preserved(tmp_path, target, three_sources):
-    import json
-    from copy import deepcopy
-    import _pietto_sql_emission as probe
-    from _pietto_execution_guard_cases import PATH
-
-    fixture = probe.join_witness(target, PATH, link=True)
-    if three_sources:
-        fixture["source"] = (
-            fixture["source"]
-            .replace(
-                "relationship link:",
-                "source middle: Row is "
-                + target
-                + '.table("middle")\nrelationship link:',
-            )
-            .replace("endpoint r: rhs", "endpoint r: middle")
-            .replace(
-                "query result:",
-                "relationship onward:\n    endpoint l: middle\n    endpoint r: rhs\n    on l.id == r.id\nquery result:",
-            )
-            .replace("inner join lhs as r:", "inner join rhs as r:")
-            .replace("via link: r -> l", "via onward: l -> r")
-        )
-        contract = json.loads(fixture["contract"])
-        middle = deepcopy(contract["sources"][1])
-        middle["selector"]["name"] = "middle"
-        middle["relation"]["name"] = "phase66 middle"
-        contract["sources"].append(middle)
-        fixture["contract"] = json.dumps(contract)
-    checked, outcome = probe.build_case(
-        tmp_path, fixture["source"], fixture["contract"]
-    )
-    assert checked.verified and type(checked.plan) is ProjectSQLPlan
-    assert not checked.plan.single_matches
-    assert outcome.status == "BLOCKED"
-    assert [(b.code, b.detail) for b in outcome.blockers] == [
-        ("PIE-B1003", "scalar_projection_requires_later_slice"),
-        ("PIE-B1003", "scalar_projection_requires_later_slice"),
-        ("PIE-B1003", "join_shape_not_admitted_in_slice7"),
-        ("PIE-B1003", "join_shape_not_admitted_in_slice7"),
-    ]
-
-
-def test_private_multi_hop_carrier_keeps_unbound_input_and_old_verifier_refuses(
+def test_two_direct_boundaries_keep_input_identity_and_guarded_authority(
     tmp_path,
 ):
     from _pietto_execution_guard_cases import PATH
+    from pietto._project.project_sql_emission_joins import JoinBody
     from pietto._project.project_guard_preparation import GuardedArtifact
     from pietto._project.project_sql_emission import EmissionArtifact
     from pietto._project.project_sql_emission_verification import (
@@ -210,12 +165,22 @@ def test_private_multi_hop_carrier_keeps_unbound_input_and_old_verifier_refuses(
     assert p.artifact.guard_scope is p.scope
     assert not verify_project_sql_emission(p.artifact, p.scope.request).verified
     assert type(p.artifact.ast) is SQLJoinQuery
-    inputs = tuple(
-        i for u in p.artifact.ast.units if hasattr(u, "inputs") for i in u.inputs
+    first, second = tuple(
+        unit for unit in p.artifact.ast.units if type(unit) is JoinBody
     )
-    original = tuple(
-        i
-        for i in inputs
-        if i.original.producer is not None and i.original.binding_use is None
+    accumulated = second.inputs[0]
+    assert accumulated.original.predecessor is first.join.ref
+    assert accumulated.original.producer is accumulated.original.binding_use is None
+    assert accumulated.producer is first and accumulated.use is None
+    external = (first.inputs[0], first.inputs[1], second.inputs[1])
+    assert all(
+        item.original.producer is not None
+        and item.original.predecessor is None
+        and item.original.binding_use is not None
+        and item.use is not None
+        and item.use.original.ref is item.original.binding_use
+        for item in external
     )
-    assert original and all(i.use is None for i in original)
+    assert first.inputs[0].producer is second.inputs[1].producer
+    assert first.inputs[0].original is not second.inputs[1].original
+    assert first.inputs[0].use is not second.inputs[1].use

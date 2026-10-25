@@ -5,85 +5,69 @@ from _pietto_plan_selected import _roots
 
 SOURCES = {
     "ordinary_selected": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
         id
-        w = row_number() window:
-            order by:
-                id
+        w = row_number() window(order by id)
 """,
     "named_use": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
+    let named = window(order by id)
     select:
         id
         w = rank() window named
         w2 = dense_rank() window named
-    window named:
-        order by:
-            id
 """,
     "selected_and_hidden": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
         id
-        w = row_number() window:
-            order by:
-                id
+        w = row_number() window(order by id)
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3 and w <= 2
+        row_number() window(order by id) <= 3 and w <= 2
 """,
     "grouped_satisfying_window": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     group by:
         id
     select:
         total = count()
-        w = rank() window:
-            order by:
-                total
-    satisfying:
+        w = rank() window(order by total)
+    having:
         total > 0
     qualify:
         w <= 3
 """,
     "argument_default_partition_order": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
-    let:
-        alias = value
+    let alias = value
     select:
-        w = lag(alias, 1, id) window:
-            partition by:
-                id
-            order by:
-                id
+        w = lag(alias, 1, id) window(partition by id order by id)
 """,
 }
 
@@ -131,70 +115,64 @@ def _family_source(
         .replace("postgres.table", f"{backend}.table")
     )
     if named:
-        body = f"{kind} result:\n    from rows\n    select:\n        id\n        w = {call} window composed\n    window composed = base\n    window base:\n        order by:\n            id desc\n"
+        body = f"{kind} result:\n    from rows\n    let composed = window base\n    let base = window(\n        order by id desc\n"
         if frame is not None:
             body += f"        {frame}\n"
-    else:
-        body = f"{kind} result:\n    from rows\n    select:\n        id\n        w = {call} window:\n            order by:\n                id desc\n"
-        if frame is not None:
-            body += f"            {frame}\n"
-    return prefix + body
+        return (
+            prefix
+            + body
+            + f"    )\n    select:\n        id\n        w = {call} window composed\n"
+        )
+    body = f"{kind} result:\n    from rows\n    select:\n        id\n        w = {call} window(\n            order by id desc\n"
+    if frame is not None:
+        body += f"            {frame}\n"
+    return prefix + body + "    )\n"
 
 
 COMPOSED_SOURCES = {
     "joined_let_where_window": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
-source other: Row is postgres.table("other")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
+source other: Row = postgres.table("other")
 query result:
     from rows
-    left join other as r:
-        from rows
-        on rows.id == r.id
-    let:
-        alias = r.value
+    let r = other
+    left join r on rows.id == r.id
+    let alias = r.value
     where rows.id > 0
     select:
         id = rows.id
-        w = lag(alias, 1, 0) window:
-            order by:
-                rows.id
+        w = lag(alias, 1, 0) window(order by rows.id)
     qualify:
         w > 0
 """,
     "joined_hidden_constant": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
-source other: Row is postgres.table("other")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
+source other: Row = postgres.table("other")
 query result:
     from rows
-    left join other as r:
-        from rows
-        on rows.id == r.id
+    let r = other
+    left join r on rows.id == r.id
     select:
         constant = 1
     qualify:
-        row_number() window:
-            order by:
-                rows.id
-        <= 3
+        row_number() window(order by rows.id) <= 3
 """,
     "named_windowed_consumer": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 table upstream:
     from rows
     select:
         id
-        w = row_number() window:
-            order by:
-                id
+        w = row_number() window(order by id)
 query result:
     from upstream
     where w > 0
@@ -203,10 +181,10 @@ query result:
         w
 """,
     "named_global_then_window": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 table upstream:
     from rows
     select:
@@ -215,8 +193,6 @@ query result:
     from upstream
     select:
         total
-        w = row_number() window:
-            order by:
-                total
+        w = row_number() window(order by total)
 """,
 }

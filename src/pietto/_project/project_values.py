@@ -195,17 +195,13 @@ def _analyze(
                 )
             )
         seen.add(column.name)
-        if (
-            declared.name not in _LITERAL_TYPES
-            or declared.arguments
-            or declared.nullability is Nullability.IMPLICIT
-        ):
+        if declared.name not in _LITERAL_TYPES or declared.arguments:
             diagnostics.append(
                 _diagnostic(
                     declared.span,
                     INVALID_COLUMN,
-                    "VALUES column type must be Bool, Int, Float or Text followed "
-                    "by 'not null' or 'nullable'.",
+                    "VALUES column type must be Bool, Int, Float or Text, "
+                    "optionally followed by '| None'.",
                 )
             )
             columns.append(None)
@@ -248,8 +244,8 @@ def _analyze(
                         cell.span,
                         CELL_TYPE,
                         f"VALUES cell does not match column '{column.name}' "
-                        f"declared {column.logical_type} "
-                        f"{'nullable' if column.nullable else 'not null'}.",
+                        f"declared {column.logical_type}"
+                        f"{' | None' if column.nullable else ''}.",
                     )
                 )
             values.append(value)

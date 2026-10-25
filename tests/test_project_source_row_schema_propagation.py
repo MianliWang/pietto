@@ -29,14 +29,14 @@ def test_source_row_schema_populates_from_resolved_shape_fields_in_order(
     _write(
         root,
         "models.pietto",
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    ACTIVE\n"
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    email: Email nullable\n"
+        "    id: Int\n"
+        "    email: Email | None\n"
         "    status: Status\n"
-        'source rows: Row is postgres.table("rows")\n',
+        'source rows: Row = postgres.table("rows")\n',
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
@@ -91,12 +91,12 @@ def test_source_row_schema_preserves_cross_file_shape_source_resolution(
     _write(
         root,
         "models/a_shape.pietto",
-        "shape Row:\n    id: Int not null\n    label: Text nullable\n",
+        "shape Row:\n    id: Int\n    label: Text | None\n",
     )
     _write(
         root,
         "models/b_source.pietto",
-        'source rows: Row is postgres.table("rows")\n',
+        'source rows: Row = postgres.table("rows")\n',
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
@@ -114,7 +114,7 @@ def test_source_row_schema_preserves_cross_file_shape_source_resolution(
     assert semantic_result.model.relation_row_schemas == {}
 
 
-def test_source_row_schema_maps_field_nullability_without_deciding_implicit_default(
+def test_source_row_schema_maps_bare_fields_to_non_null_and_none_to_nullable(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
@@ -122,10 +122,10 @@ def test_source_row_schema_maps_field_nullability_without_deciding_implicit_defa
         root,
         "nullability.pietto",
         "shape Row:\n"
-        "    required: Int not null\n"
-        "    optional: Text nullable\n"
-        "    implicit: Bool\n"
-        'source rows: Row is postgres.table("rows")\n',
+        "    required: Int\n"
+        "    optional: Text | None\n"
+        "    flag: Bool\n"
+        'source rows: Row = postgres.table("rows")\n',
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
@@ -137,7 +137,7 @@ def test_source_row_schema_maps_field_nullability_without_deciding_implicit_defa
 
     assert schema.fields["required"].nullability is ProjectRowFieldNullability.NON_NULL
     assert schema.fields["optional"].nullability is ProjectRowFieldNullability.NULLABLE
-    assert schema.fields["implicit"].nullability is ProjectRowFieldNullability.UNKNOWN
+    assert schema.fields["flag"].nullability is ProjectRowFieldNullability.NON_NULL
 
 
 def test_source_row_schema_skips_unresolved_shape_field_types_without_new_diagnostics(
@@ -149,7 +149,7 @@ def test_source_row_schema_skips_unresolved_shape_field_types_without_new_diagno
         "broken.pietto",
         "shape Broken:\n"
         "    missing: MissingType\n"
-        'source rows: Broken is postgres.table("rows")\n',
+        'source rows: Broken = postgres.table("rows")\n',
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
@@ -210,8 +210,8 @@ def test_source_row_schema_missing_direct_projection_stays_private_without_diagn
         root,
         "projection_deferred.pietto",
         "shape Row:\n"
-        "    id: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"
@@ -247,9 +247,7 @@ def _source_row_schema_project(tmp_path: Path) -> Path:
     _write(
         root,
         "models.pietto",
-        "shape Row:\n"
-        "    id: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n',
+        'shape Row:\n    id: Int\nsource rows: Row = postgres.table("rows")\n',
     )
     return root
 

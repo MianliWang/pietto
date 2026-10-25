@@ -226,48 +226,37 @@ def test_retained_fact_context_cannot_cross_computations(
 
 HIDDEN_SOURCES = {
     "hidden_bare": """shape Row:
-    id: Int not null
-    other: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+    other: Int
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
         constant = 1
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
+        row_number() window(order by id) <= 3
 """,
     "hidden_qualified": """shape Row:
-    id: Int not null
-    other: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+    other: Int
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
         constant = 1
     qualify:
-        row_number() window:
-            order by:
-                rows.id
-        <= 3
+        row_number() window(order by rows.id) <= 3
 """,
     "hidden_navigation": """shape Row:
-    id: Int not null
-    other: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+    other: Int
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
         constant = 1
     qualify:
-        lag(rows.id, 1, rows.other) window:
-            partition by:
-                rows.other
-            order by:
-                rows.id
-        > 0
+        lag(rows.id, 1, rows.other) window(partition by rows.other order by rows.id) > 0
 """,
 }
 
@@ -430,8 +419,8 @@ def test_joined_and_named_predecessors_complete_through_inspection(
     "body",
     (
         "    select:\n        id\n        a = w\n        b = w\n",
-        "    let:\n        alias = w\n    where alias > 0\n    select:\n        w = lag(alias, 1, 0) window:\n            order by:\n                id\n",
-        "    group by:\n        id\n    select:\n        total = count()\n    satisfying:\n        total > 0\n",
+        "    let alias = w\n    where alias > 0\n    select:\n        w = lag(alias, 1, 0) window(order by id)\n",
+        "    group by:\n        id\n    select:\n        total = count()\n    having:\n        total > 0\n",
         "    select:\n        total = sum(w)\n",
     ),
 )
@@ -458,22 +447,18 @@ def test_windowed_producer_rebound_consumers_keep_immediate_exports(
     assert all(window.definition is upstream.ref for window in view.windows[:2])
 
 
-@pytest.mark.parametrize(
-    "kind", ("inner", "left", "right", "full", "semi", "anti", "cross")
-)
+@pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "cross"))
 def test_all_join_kinds_feed_window_membership(tmp_path: Path, kind: str) -> None:
     prefix = SOURCES["ordinary_selected"].split("query result:")[0]
-    condition = "" if kind == "cross" else "        on rows.id == r.id\n"
+    condition = "" if kind == "cross" else " on rows.id == r.id"
     source = (
         prefix
         + f"""query result:
     from rows
-    {kind} join rows as r:
-        from rows
-{condition}    select:
-        w = row_number() window:
-            order by:
-                rows.id
+    let r = rows
+    {kind} join r{condition}
+    select:
+        w = row_number() window(order by rows.id)
     qualify:
         w <= 3
 """
@@ -490,12 +475,12 @@ def window_plans(tmp_path_factory: pytest.TempPathFactory):
     source = (
         SOURCES["selected_and_hidden"]
         .replace(
-            "w = row_number() window:\n            order by:\n                id",
+            "w = row_number() window(order by id)",
             "w = lag(value, 1, id) window declared",
         )
         .replace(
-            "    qualify:",
-            "    window declared:\n        order by:\n            id\n    qualify:",
+            "    select:",
+            "    let declared = window(order by id)\n    select:",
         )
     )
     return tuple(
@@ -727,20 +712,13 @@ def test_named_template_sharing_keeps_use_local_inputs_and_unused_templates(
         prefix
         + """query result:
     from rows
+    let copied = window base
+    let base = window(order by id)
+    let unused = window(order by value rows between unbounded preceding and current row)
     select:
         a = rank() window base
         b = dense_rank() window copied
-        c = row_number() window base:
-            partition by:
-                id
-    window copied = base
-    window base:
-        order by:
-            id
-    window unused:
-        order by:
-            value
-        rows between unbounded preceding and current row
+        c = row_number() window base(partition by id)
 """,
     )
     assert len(plan.windows) == 3
@@ -762,7 +740,7 @@ def test_named_template_sharing_keeps_use_local_inputs_and_unused_templates(
 
 
 @pytest.mark.parametrize(
-    "call", ("lag(value, 1, null)", "lag(null, 0, 1)", "lead(value)", "ntile(1)")
+    "call", ("lag(value, 1, None)", "lag(None, 0, 1)", "lead(value)", "ntile(1)")
 )
 def test_specialized_literals_defaults_and_omissions_keep_their_own_types(
     tmp_path: Path, call: str
@@ -800,17 +778,17 @@ def test_repeated_selected_references_reuse_the_established_window_value(
     "body,lookups,prepared",
     (
         (
-            "row_number(1) window:\n            order by:\n                id\n        <= 3",
+            "row_number(1) window(order by id) <= 3",
             0,
             False,
         ),
         (
-            "row_number() window:\n            order by:\n                missing\n        <= 3",
+            "row_number() window(order by missing) <= 3",
             1,
             True,
         ),
         (
-            "row_number() window:\n            partition by:\n                id + 1\n            order by:\n                id\n        <= 3",
+            "row_number() window(partition by id + 1 order by id) <= 3",
             1,
             True,
         ),
@@ -947,15 +925,11 @@ def test_hidden_inputs_and_outer_qualify_share_original_project_target_bridge(
 ) -> None:
     prefix = SOURCES["ordinary_selected"].split("query result:")[0]
     body = (
-        """    let:
-        alias = value
+        """    let alias = value
     select:
         constant = 1
     qualify:
-        lag(alias, 1, 0) window:
-            order by:
-                id
-        > 0 and id > 0
+        lag(alias, 1, 0) window(order by id) > 0 and id > 0
 """
         if not grouped
         else """    group by:
@@ -963,15 +937,10 @@ def test_hidden_inputs_and_outer_qualify_share_original_project_target_bridge(
     select:
         key = id
         total = count()
-    satisfying:
+    having:
         total > 0
     qualify:
-        lag(total, 1, 0) window:
-            partition by:
-                key
-            order by:
-                total
-        > 0 and key > 0 and total > 0
+        lag(total, 1, 0) window(partition by key order by total) > 0 and key > 0 and total > 0
 """
     )
     _, plan, _, view = _planned(
@@ -992,11 +961,8 @@ def test_repeated_hidden_computations_keep_shared_scope_but_separate_results(
     tmp_path: Path,
 ) -> None:
     source = HIDDEN_SOURCES["hidden_bare"].replace(
-        "        <= 3\n",
-        """        <= 3 and row_number() window:
-            order by:
-                id
-        > 0
+        " <= 3\n",
+        """ <= 3 and row_number() window(order by id) > 0
 """,
     )
     _, plan, _, view = _planned(tmp_path, source)
@@ -1084,18 +1050,16 @@ def test_imported_reexported_windowed_producer_preserves_logical_reuse(
     tmp_path: Path,
 ) -> None:
     producer = SOURCES["selected_and_hidden"].replace("query result:", "table first:")
-    (tmp_path / "a.pietto").write_text(producer + "export:\n    table first\n")
+    (tmp_path / "a.pietto").write_text(producer + "export table first\n")
     (tmp_path / "b.pietto").write_text(
-        'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n'
+        'from "a.pietto" import table first as Public\nexport table Public\n'
     )
     _, plan, _, view = _planned(
         tmp_path,
-        """import "b.pietto":
-    table Public as Alias
+        """from "b.pietto" import table Public as Alias
 query result:
     from Alias
-    let:
-        value = w
+    let value = w
     where value > 0
     select:
         first = value
@@ -1130,9 +1094,7 @@ def test_qualify_does_not_discharge_original_single_match_obligation(
         "inner",
         "lhs.id < r.id",
         tail="""    select:
-        w = row_number() window:
-            order by:
-                lhs.id
+        w = row_number() window(order by lhs.id)
     qualify:
         w <= 1
 """,
@@ -1181,10 +1143,8 @@ def test_where_false_and_repeated_order_uses_keep_computation_and_membership(
 ) -> None:
     source = (
         SOURCES["ordinary_selected"]
-        .replace("    select:", "    where false\n    select:")
-        .replace(
-            "                id\n", "                id asc\n                id desc\n"
-        )
+        .replace("    select:", "    where False\n    select:")
+        .replace("window(order by id)", "window(order by id asc, id desc)")
     )
     _, plan, _, view = _planned(tmp_path, source)
     assert [block.kind.value for block in plan.blocks] == [
@@ -1214,9 +1174,8 @@ def test_repeated_windowed_producer_uses_keep_one_definition_and_two_inputs(
         producer
         + """query result:
     from upstream
-    left join upstream as r:
-        from upstream
-        on upstream.id == r.id
+    let r = upstream
+    left join r on upstream.id == r.id
     select:
         first = upstream.w
         second = r.w
@@ -1306,41 +1265,34 @@ def test_new_hidden_preparation_preserves_original_positive_kernel_result(
 
 REJECTED_SOURCES = {
     "global_same_body": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
         total = count()
-        w = row_number() window:
-            order by:
-                total
+        w = row_number() window(order by total)
 """,
     "ambiguous_qualify": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:
         id
-        id = row_number() window:
-            order by:
-                id
+        id = row_number() window(order by id)
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3 and id > 0
+        row_number() window(order by id) <= 3 and id > 0
 """,
     "no_window_qualify": """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select:

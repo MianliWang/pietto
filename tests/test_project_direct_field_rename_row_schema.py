@@ -274,8 +274,8 @@ def test_table_to_query_rename_projection_propagates(tmp_path: Path) -> None:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        'source users: User = postgres.table("users")\n'
         "table staged:\n"
         "    from users\n"
         "    select:\n"
@@ -374,8 +374,8 @@ def _renamed_projection_project(
         "models.pietto",
         "shape User:\n"
         "    id: Int\n"
-        "    email: Text nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    email: Text | None\n"
+        'source users: User = postgres.table("users")\n'
         f"{relation_kind} {relation_name}:\n"
         "    from users\n"
         "    select:\n"
@@ -391,10 +391,10 @@ def _project_with_select(tmp_path: Path, select_body: str) -> Path:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
+        "    id: Int\n"
+        "    email: Text | None\n"
         "    score: Int\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"

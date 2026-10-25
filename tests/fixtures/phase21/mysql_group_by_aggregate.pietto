@@ -1,8 +1,8 @@
 shape Order:
-    status: Text not null
-    amount: Int not null
+    status: Text
+    amount: Int
 
-source orders: Order is mysql.table("orders")
+source orders: Order = mysql.table("orders")
 
 table revenue_by_status:
     from orders

@@ -41,19 +41,19 @@ def _semantic(root: Path, source: str | None = None) -> ProjectSemanticResult:
     (root / "main.pietto").write_text(
         source
         or """shape Row:
-    id: Int not null
-    category: Text nullable
-    amount: Int nullable
-    unique id_key on id
-source rows: Row is postgres.table("rows")
+    id: Int
+    category: Text | None
+    amount: Int | None
+    id_key = unique(id)
+source rows: Row = postgres.table("rows")
 shape Loose:
-    value: Int nullable
-source unkeyed: Loose is postgres.table("loose")
+    value: Int | None
+source unkeyed: Loose = postgres.table("loose")
 shape Pair:
-    a: Int not null
-    b: Int not null
-    unique pair_key on a, b
-source pairs: Pair is postgres.table("pairs")
+    a: Int
+    b: Int
+    pair_key = unique(a, b)
+source pairs: Pair = postgres.table("pairs")
 query aliases:
     from rows
     select:
@@ -382,14 +382,12 @@ def test_output_fd_index_strict_closure_lax_boundary_and_witness_order(
 def test_output_fd_masks_support_more_than_seventy_value_classes(
     tmp_path: Path,
 ) -> None:
-    fields_source = "".join(
-        f"    f{position}: Int not null\n" for position in range(72)
-    )
+    fields_source = "".join(f"    f{position}: Int\n" for position in range(72))
     stage = _stage(
         tmp_path,
         "shape Wide:\n"
         + fields_source
-        + 'source wide: Wide is postgres.table("wide")\n',
+        + 'source wide: Wide = postgres.table("wide")\n',
     )
     wide = _outputs(stage, "wide")[0]
     assert len(wide.fd_index.universe) == 72
@@ -401,11 +399,11 @@ def test_output_fd_masks_support_more_than_seventy_value_classes(
 
     # Source grain factors follow source identity, not width: one field each.
     sources = "".join(
-        f'source rows_{position}: One is postgres.table("rows_{position}")\n'
+        f'source rows_{position}: One = postgres.table("rows_{position}")\n'
         for position in range(72)
     )
     comparison_stage = _stage(
-        tmp_path / "comparison", "shape One:\n    id: Int not null\n" + sources
+        tmp_path / "comparison", "shape One:\n    id: Int\n" + sources
     )
     grains = tuple(
         _outputs(comparison_stage, f"rows_{position}")[0].grain

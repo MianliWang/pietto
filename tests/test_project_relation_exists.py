@@ -19,12 +19,12 @@ import _pietto_sql_emission as probe
 from pietto import cli
 
 HEAD = """shape Row:
-    id: Int not null
-    key: Int nullable
-source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
+    id: Int
+    key: Int | None
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
 """
-WINDOW = "        n = row_number() window:\n            order by:\n"
+WINDOW = "        n = row_number() window(\n            order by\n"
 COMPLETION = (
     "PIE-S2333",
     "Project relation semantic completion is unavailable: q",
@@ -34,16 +34,17 @@ COMPLETION = (
 # body, (line, column) of the read, refused place, the clause's own diagnostics
 REFUSED = {
     "join_on": (
-        "query q:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
-        "        on lhs.id == r.id and exists rhs\n    select:\n        id = lhs.id\n",
-        (10, 31),
+        "query q:\n    from lhs\n    let r = rhs\n"
+        "    inner join r on lhs.id == r.id and exists rhs\n"
+        "    select:\n        id = lhs.id\n",
+        (9, 40),
         "JOIN ON",
         [],
     ),
     "row_let": (
-        "query q:\n    from lhs\n    let:\n        f = exists rhs\n"
+        "query q:\n    from lhs\n    let f = exists rhs\n"
         "    select:\n        id\n        f\n",
-        (9, 13),
+        (8, 13),
         "a row let",
         [],
     ),
@@ -62,7 +63,7 @@ REFUSED = {
     ),
     "satisfying": (
         "query q:\n    from lhs\n    group by:\n        id\n    select:\n        id\n"
-        "        n = count()\n    satisfying:\n        n > 0 and exists rhs\n",
+        "        n = count()\n    having:\n        n > 0 and exists rhs\n",
         (14, 19),
         "SATISFYING",
         [COMPLETION],
@@ -70,7 +71,7 @@ REFUSED = {
     "window_order": (
         "query q:\n    from lhs\n    select:\n        id\n"
         + WINDOW
-        + "                exists rhs\n",
+        + "                exists rhs)\n",
         (12, 17),
         "a window",
         [
@@ -85,8 +86,8 @@ REFUSED = {
     ),
     "window_argument": (
         "query q:\n    from lhs\n    select:\n        id\n"
-        "        n = first_value(exists rhs) window:\n            order by:\n"
-        "                id\n",
+        "        n = first_value(exists rhs) window(\n            order by\n"
+        "                id)\n",
         (10, 25),
         "a window",
         [
@@ -100,26 +101,26 @@ REFUSED = {
         ],
     ),
     "named_window": (
-        "query q:\n    from lhs\n    select:\n        id\n"
-        "        n = row_number() window w\n    window w:\n        order by:\n"
-        "            exists rhs\n",
-        (13, 13),
+        "query q:\n    from lhs\n    let w = window(\n        order by\n"
+        "            exists rhs)\n    select:\n        id\n"
+        "        n = row_number() window w\n",
+        (10, 13),
         "a window",
         [
             (
                 "PIE-S2103",
                 "Unsupported window computation for function row_number: "
                 "window order expression must be a direct field",
-                10,
+                13,
                 13,
             )
         ],
     ),
     "qualify": (
         "query q:\n    from lhs\n    select:\n        id\n    qualify:\n"
-        "        row_number() window:\n            order by:\n                id\n"
-        "        <= 3 and exists rhs\n",
-        (14, 18),
+        "        row_number() window(\n            order by\n                id\n"
+        "        ) <= 3 and exists rhs\n",
+        (14, 20),
         "QUALIFY",
         [],
     ),
@@ -157,15 +158,15 @@ ADMITTED = {
     "        id\n    select:\n        id\n        n = count()\n",
     "nested_values": "query q:\n    from lhs\n"
     "    where id > 0 and (exists rhs or not exists rhs)\n    select:\n        id\n"
-    "        a = 1 if exists rhs else 0\n        b = coalesce(exists rhs, false)\n"
-    "        c = (exists rhs) is null\n",
-    "joined_where": "query q:\n    from lhs\n    left join rhs as r:\n        from lhs\n"
-    "        on lhs.id == r.id\n    where exists rhs and r.id is null\n"
+    "        a = 1 if exists rhs else 0\n        b = coalesce(exists rhs, False)\n"
+    "        c = (exists rhs) is None\n",
+    "joined_where": "query q:\n    from lhs\n    let r = rhs\n"
+    "    left join r on lhs.id == r.id\n    where exists rhs and r.id is None\n"
     "    select:\n        id = lhs.id\n        e = not exists rhs\n",
     "let_body": "query q:\n    let picked:\n        from rhs\n        where exists lhs\n"
     "        select:\n            id\n            e = exists lhs\n    from lhs\n"
     "    where exists picked\n    select:\n        id\n",
-    "parameterized_where": "query q(cut: Int not null):\n    from lhs\n"
+    "parameterized_where": "query q(cut: Int):\n    from lhs\n"
     "    where id > cut and exists rhs\n    select:\n        id\n",
 }
 
@@ -232,8 +233,7 @@ def test_a_legacy_flat_project_keeps_the_pre_admission_diagnostic(
 
 
 PARAMETERIZED = (
-    "query p(cut: Int not null):\n    from rhs\n    where id > cut\n"
-    "    select:\n        id\n"
+    "query p(cut: Int):\n    from rhs\n    where id > cut\n    select:\n        id\n"
 )
 
 

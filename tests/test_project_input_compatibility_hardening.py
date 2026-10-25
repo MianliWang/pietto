@@ -25,7 +25,7 @@ PROJECT_JSON_TOP_LEVEL_KEYS = (
 
 VALID_PROJECT_SOURCES = {
     "models/a_shape.pietto": "shape Row:\n    id: Int\n",
-    "models/b_source.pietto": 'source rows: Row is postgres.table("rows")\n',
+    "models/b_source.pietto": 'source rows: Row = postgres.table("rows")\n',
     "models/c_table.pietto": (
         "table projected:\n    from rows\n    select:\n        id\n"
     ),
@@ -33,9 +33,9 @@ VALID_PROJECT_SOURCES = {
 
 VALID_RELATION_SOURCE = (
     "shape User:\n"
-    "    id: Int not null\n"
-    "    email: Text not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: Int\n"
+    "    email: Text\n"
+    'source users: User = postgres.table("users")\n'
     "table active_users:\n"
     "    from users\n"
     "    select:\n"
@@ -274,7 +274,7 @@ def test_single_file_surfaces_do_not_use_project_semantic_builder(
     check_source = _write(
         tmp_path,
         "shape_only.pietto",
-        "shape Row:\n    id: Int not null\n",
+        "shape Row:\n    id: Int\n",
     )
     relation_source = _write(tmp_path, "relation.pietto", VALID_RELATION_SOURCE)
 

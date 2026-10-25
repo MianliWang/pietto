@@ -17,11 +17,11 @@ def _request(
 def _limited_source(
     *, right_limit: int | None, post_limit: bool = False, where: bool = False
 ) -> str:
-    source = _source("true").split("query result:", 1)[0]
+    source = _source("True").split("query result:", 1)[0]
     source += "table right_named:\n    from rhs\n    select:\n        id\n"
     if right_limit is not None:
         source += f"    limit {right_limit}\n"
-    source += "query result:\n    from lhs\n    inner join right_named as r:\n        from lhs\n        on true\n"
+    source += "query result:\n    from lhs\n    let r = right_named\n    inner join r on True\n"
     if where:
         source += "    where lhs.id == 1\n"
     source += "    select:\n        id = lhs.id\n"
@@ -32,19 +32,17 @@ def _limited_source(
 
 def _asymmetric_source(*, target_unique: bool, source_unique: bool = False) -> str:
     return f"""shape LeftRow:
-    id: Int not null
-{("    unique key on id" + chr(10)) if source_unique else ""}shape RightRow:
-    id: Int not null
-{("    unique key on id" + chr(10)) if target_unique else ""}source lhs: LeftRow is postgres.table("lhs")
-source rhs: RightRow is postgres.table("rhs")
-relationship link:
-    endpoint l: lhs
-    endpoint r: rhs
-    on l.id == r.id
+    id: Int
+{("    key = unique(id)" + chr(10)) if source_unique else ""}shape RightRow:
+    id: Int
+{("    key = unique(id)" + chr(10)) if target_unique else ""}source lhs: LeftRow = postgres.table("lhs")
+source rhs: RightRow = postgres.table("rhs")
+relationship Link(l: LeftRow, r: RightRow):
+    l.id == r.id
 query result:
     from lhs
-    inner join rhs as r:
-        from lhs
+    let r = rhs
+    inner join r on Link(lhs, r)
     select:
         id = lhs.id
 """

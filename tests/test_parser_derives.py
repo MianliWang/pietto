@@ -21,13 +21,14 @@ from pietto.ast_nodes import (
     Span,
     TypeDef,
     TypeExpr,
+    UnaryExpr,
 )
 from pietto.parser_api import ParseResult, parse_file, parse_source
 
 
 def test_derive_parses_nested_call_expression() -> None:
     result = parse_source(
-        "derive normalized_email(x: Text) -> Text:\n    lower(trim(x))\n"
+        "derive normalized_email(x: Text) -> Text:\n    return lower(trim(x))\n"
     )
 
     assert result.diagnostics == ()
@@ -53,7 +54,7 @@ def test_derive_parses_nested_call_expression() -> None:
 def test_derive_is_parse_only_without_semantic_checks() -> None:
     result = parse_source(
         "derive recursive(value: MissingType) -> UnexpectedType:\n"
-        "    recursive(value)\n"
+        "    return recursive(value)\n"
     )
 
     assert result.diagnostics == ()
@@ -66,7 +67,7 @@ def test_derive_is_parse_only_without_semantic_checks() -> None:
 
 def test_derive_parameter_and_return_types_preserve_nullability() -> None:
     result = parse_source(
-        "derive normalize(value: Text nullable) -> Text not null:\n    value\n"
+        "derive normalize(value: Text | None) -> Text:\n    return value\n"
     )
 
     assert result.diagnostics == ()
@@ -82,7 +83,7 @@ def test_derive_allows_blank_lines_and_comments() -> None:
         "derive normalized(x: Text) -> Text:\n"
         "\n"
         "    # The body remains one expression.\n"
-        "    lower(x)\n"
+        "    return lower(x)\n"
         "\n"
     )
 
@@ -93,7 +94,7 @@ def test_derive_allows_blank_lines_and_comments() -> None:
 
 def test_derive_without_final_newline_closes_at_eof() -> None:
     result = parse_source(
-        "derive normalized_email(x: Text) -> Text:\n    lower(trim(x))"
+        "derive normalized_email(x: Text) -> Text:\n    return lower(trim(x))"
     )
 
     assert result.diagnostics == ()
@@ -101,13 +102,13 @@ def test_derive_without_final_newline_closes_at_eof() -> None:
     definition = result.ast.definitions[0]
     assert isinstance(definition, DeriveDef)
     assert definition.span.end_line == 2
-    assert definition.span.end_column == 19
+    assert definition.span.end_column == 26
 
 
 def test_derive_span_is_one_based_half_open() -> None:
     path = Path("examples/derives/span.pietto")
     result = parse_source(
-        "derive normalized_email(x: Text) -> Text:\n    lower(trim(x))\n",
+        "derive normalized_email(x: Text) -> Text:\n    return lower(trim(x))\n",
         path=path,
     )
 
@@ -120,7 +121,7 @@ def test_derive_span_is_one_based_half_open() -> None:
         line=1,
         column=1,
         end_line=2,
-        end_column=19,
+        end_column=26,
     )
     assert definition.parameters[0].span == Span(
         path=str(path),
@@ -139,9 +140,9 @@ def test_derive_span_is_one_based_half_open() -> None:
     assert definition.body.span == Span(
         path=str(path),
         line=2,
-        column=5,
+        column=12,
         end_line=2,
-        end_column=19,
+        end_column=26,
     )
 
 
@@ -149,9 +150,9 @@ def test_derive_keeps_top_level_definition_order() -> None:
     result = parse_source(
         "type Email = Text\n"
         "constraint valid(x: Email) -> Bool:\n"
-        "    x is not null\n"
+        "    return x is not None\n"
         "derive normalized(x: Email) -> Email:\n"
-        "    lower(x)\n"
+        "    return lower(x)\n"
         "enum Status:\n"
         "    ready\n"
     )
@@ -176,7 +177,7 @@ def test_derive_example_fixture_parses() -> None:
 
 def test_derive_ast_does_not_expose_antlr_nodes() -> None:
     result = parse_source(
-        "derive normalized_email(x: Text) -> Text:\n    lower(trim(x))\n"
+        "derive normalized_email(x: Text) -> Text:\n    return lower(trim(x))\n"
     )
 
     assert result.diagnostics == ()
@@ -189,10 +190,10 @@ def test_derive_ast_does_not_expose_antlr_nodes() -> None:
     [
         "derive (x: Text) -> Text:\n    x\n",
         "derive normalized x: Text -> Text:\n    x\n",
-        "derive normalized(x) -> Text:\n    x\n",
-        "derive normalized(x: Text) Text:\n    x\n",
-        "derive normalized(x: Text) -> :\n    x\n",
-        "derive normalized(x: Text) -> Text\n    x\n",
+        "derive normalized(x) -> Text:\n    return x\n",
+        "derive normalized(x: Text) Text:\n    return x\n",
+        "derive normalized(x: Text) -> :\n    return x\n",
+        "derive normalized(x: Text) -> Text\n    return x\n",
         "derive normalized(x: Text) -> Text:\nx\n",
         "derive normalized(x: Text) -> Text:\n",
     ],
@@ -204,9 +205,27 @@ def test_malformed_derives_return_syntax_diagnostic(source: str) -> None:
     assert _has_code(result, "PIE-P1000")
 
 
+def test_derive_one_line_body_returns_on_the_header_line() -> None:
+    result = parse_source("derive successor(x: Int) -> Int: return x + 1\n")
+    missing = parse_source("derive successor(x: Int) -> Int: x + 1\n")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, DeriveDef)
+    assert (definition.span.end_line, definition.span.end_column) == (1, 46)
+    body = definition.body
+    assert (body.span.line, body.span.column, body.span.end_column) == (1, 41, 46)
+    assert missing.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in missing.diagnostics
+    ] == [("PIE-P1000", 1, 34, "Unexpected 'x'; expected 'return' or end of line.")]
+
+
 def test_derive_rejects_multiple_body_expressions() -> None:
     result = parse_source(
-        "derive normalize(x: Text) -> Text:\n    trim(x)\n    lower(x)\n"
+        "derive normalize(x: Text) -> Text:\n    return trim(x)\n    lower(x)\n"
     )
 
     assert result.ast is None
@@ -214,7 +233,9 @@ def test_derive_rejects_multiple_body_expressions() -> None:
 
 
 def test_derive_brace_block_reports_unsupported_brace() -> None:
-    result = parse_source("derive normalize(x: Text) -> Text {\n    trim(x)\n}\n")
+    result = parse_source(
+        "derive normalize(x: Text) -> Text {\n    return trim(x)\n}\n"
+    )
 
     assert result.ast is None
     assert _has_code(result, "PIE-P1005")
@@ -242,16 +263,15 @@ def _has_code(result: ParseResult, code: str) -> bool:
 
 def test_def_header_line_and_block_bodies_build_one_function() -> None:
     header = parse_source(
-        "def reachable(email: Text nullable, coupon: Text nullable) -> Bool nullable:"
-        ' return email like "%@%" and coupon is null\n'
+        'def reachable(email: Text | None, coupon: Text | None) -> Bool | None: return email like "%@%" and coupon is None\n'
     )
     block = parse_source(
         "def reachable(\n"
-        "    email: Text nullable,\n"
-        "    coupon: Text nullable,\n"
-        ") -> Bool nullable:\n"
+        "    email: Text | None,\n"
+        "    coupon: Text | None,\n"
+        ") -> Bool | None:\n"
         "    # the only statement\n"
-        '    return email like "%@%" and coupon is null\n'
+        '    return email like "%@%" and coupon is None\n'
     )
 
     for result in (header, block):
@@ -274,51 +294,40 @@ def test_def_header_line_and_block_bodies_build_one_function() -> None:
 
 
 @pytest.mark.parametrize(
-    ("source", "role", "column"),
-    (
-        ("def f(x: Int) -> Int not null: return x\n", "parameter", 10),
-        ("def f(x: Int not null) -> Int: return x\n", "return type", 27),
-        ("def f() -> Bool:\n    return true\n", "return type", 12),
-    ),
+    "source",
+    ("def f(x: Int) -> Int: return x\n", "def f() -> Bool:\n    return True\n"),
 )
-def test_def_types_must_state_their_nullability(
-    source: str, role: str, column: int
-) -> None:
+def test_bare_def_types_are_not_null(source: str) -> None:
     result = parse_source(source)
 
-    assert result.ast is None
-    assert [
-        (item.code, item.message, item.location.line, item.location.column)
-        for item in result.diagnostics
-    ] == [
-        (
-            "PIE-P1000",
-            f"A `def` {role} must state its nullability: write `nullable` or "
-            "`not null` after the type.",
-            1,
-            column,
-        )
-    ]
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    (function,) = result.ast.definitions
+    assert isinstance(function, FunctionDef)
+    assert [p.type.nullability for p in function.parameters] == [
+        Nullability.NOT_NULL
+    ] * len(function.parameters)
+    assert function.return_type.nullability is Nullability.NOT_NULL
 
 
 @pytest.mark.parametrize(
     ("source", "line", "column", "message"),
     (
-        ("def f() -> Int not null: 1\n", 1, 26, "Unexpected '1'."),
+        ("def f() -> Int: 1\n", 1, 17, "Unexpected '1'."),
         (
-            "def f() -> Int not null:\n    1\n",
+            "def f() -> Int:\n    1\n",
             2,
             5,
             "Unexpected '1'; expected 'return' or end of line.",
         ),
         (
-            "def f() -> Int not null:\n    return 1\n    return 2\n",
+            "def f() -> Int:\n    return 1\n    return 2\n",
             3,
             5,
             "Unexpected 'return'; expected end of block.",
         ),
         ("def f():\n    return 1\n", 1, 8, "Unexpected ':'."),
-        ("def f -> Int not null: return 1\n", 1, 7, "Unexpected '->'."),
+        ("def f -> Int: return 1\n", 1, 7, "Unexpected '->'."),
     ),
 )
 def test_def_bodies_are_exactly_one_return(
@@ -335,8 +344,7 @@ def test_def_bodies_are_exactly_one_return(
 
 def test_def_and_return_remain_ordinary_names() -> None:
     result = parse_source(
-        "shape Row:\n    def: Int not null\n    return: Text nullable\n"
-        "type return = Int\n"
+        "shape Row:\n    def: Int\n    return: Text | None\ntype return = Int\n"
     )
 
     assert result.diagnostics == ()
@@ -348,3 +356,59 @@ def test_def_and_return_remain_ordinary_names() -> None:
         "return",
     ]
     assert result.ast.definitions[1].name == "return"
+
+
+_ADD_RETURN = "Add 'return' before the body expression."
+
+
+# `return` is also a name.  A block body reads it as the keyword when the rest
+# of the body is an expression, and otherwise as a name, which the modern
+# syntax refuses; a body that neither reading fits reports its first token
+# that neither accepts.
+@pytest.mark.parametrize(
+    ("body", "column", "message", "suggestion"),
+    [
+        (
+            "return * 2",
+            5,
+            "This spelling is not accepted by the modern syntax. " + _ADD_RETURN,
+            _ADD_RETURN,
+        ),
+        (
+            "return",
+            5,
+            "This spelling is not accepted by the modern syntax. " + _ADD_RETURN,
+            _ADD_RETURN,
+        ),
+        (
+            "return(1, 2)",
+            5,
+            "This spelling is not accepted by the modern syntax. " + _ADD_RETURN,
+            _ADD_RETURN,
+        ),
+        ("return - a b", 16, "Unexpected 'b'.", None),
+    ],
+)
+def test_a_block_body_reading_the_name_return_keeps_its_refusal(
+    body: str, column: int, message: str, suggestion: str | None
+) -> None:
+    result = parse_source(f"derive d(return: Int, a: Int) -> Int:\n    {body}\n")
+
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", 2, column, message)]
+    assert [item.suggestion for item in result.diagnostics] == [suggestion]
+
+
+def test_a_block_body_that_both_readings_fit_takes_return_as_the_keyword() -> None:
+    result = parse_source("derive d(return: Int, a: Int) -> Int:\n    return - a\n")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, DeriveDef)
+    body = definition.body
+    assert isinstance(body, UnaryExpr) and body.operator == "-"
+    assert isinstance(body.operand, NameExpr) and body.operand.name == "a"

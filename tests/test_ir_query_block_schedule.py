@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any, cast
 
 import pytest
@@ -16,23 +17,64 @@ from pietto._project.project_ir_construction import (
     ProjectIRConcreteSingleRelationFragment,
     ProjectIRNonConcreteSingleRelationFragment,
 )
-from pietto._project.project_ir_joins import ProjectIRConcreteJoinRegion
 from pietto._project.project_joined_row_semantics import (
     ProjectConcreteJoinedRowSemantics,
-    ProjectNonConcreteJoinedRowSemantics,
+)
+from pietto._project.project_completed_semantics import (
+    ProjectConcreteCompletedSemanticResult,
+    build_project_completed_semantic_result,
+)
+from pietto._project.project_final_outputs import (
+    ProjectCompletedEffectiveOutput,
+    ProjectConcreteNoJoinReplay,
+    ProjectEffectiveOutputCompletionTerminal,
+    ProjectEffectiveOutputCompletionTerminalReason,
 )
 from pietto._project.project_query_block import ProjectNonConcreteQueryBlock
+from pietto._project.project_ir_joins import ProjectIRNonConcreteJoinRegion
 from pietto.ast_nodes import QueryDef, TableDef
 
 from _pietto_project_completion_ledger import (
     REPO_ROOT,
     PRODUCTION,
-    _Built,
-    built as built,
+    _project_files,
+    _semantic_project,
     _owner,
     _entry,
     _coordinates,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _Built:
+    completed: ProjectConcreteCompletedSemanticResult
+    reverse_completed: ProjectConcreteCompletedSemanticResult
+
+    @property
+    def result(self):
+        return self.completed.completion
+
+    @property
+    def verification(self):
+        return self.completed.verification
+
+    @property
+    def reverse_result(self):
+        return self.reverse_completed.completion
+
+
+@pytest.fixture(scope="module")
+def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
+    root = tmp_path_factory.mktemp("completion-current")
+    forward = build_project_completed_semantic_result(
+        _semantic_project(root / "forward", _project_files(), reverse_creation=False)
+    )
+    reverse = build_project_completed_semantic_result(
+        _semantic_project(root / "reverse", _project_files(), reverse_creation=True)
+    )
+    assert isinstance(forward, ProjectConcreteCompletedSemanticResult)
+    assert isinstance(reverse, ProjectConcreteCompletedSemanticResult)
+    return _Built(forward, reverse)
 
 
 def test_inventory_ledger_and_schedule_cover_exact_owners_deterministically(
@@ -87,8 +129,8 @@ def test_dependencies_retain_exact_resolution_and_join_binding_occurrences(
     )
     region = next(
         item
-        for item in built.verification.root.join_regions.regions
-        if type(item) is ProjectIRConcreteJoinRegion and item.ledger.owner is repeated
+        for item in built.completed.effective_outputs.current_regions
+        if item.ledger.owner is repeated
     )
     assert tuple(item.evidence for item in repeated_dependencies) == tuple(
         binding for binding in region.ledger.bindings if binding.target is not None
@@ -121,57 +163,134 @@ def test_existing_concrete_outputs_and_properties_are_retained_without_rebuild(
         )
 
 
-def test_concrete_and_nonconcrete_joined_completion_remain_output_terminals(
+def test_historical_join_terminals_and_current_outputs_keep_distinct_authority(
     built: _Built,
 ) -> None:
-    ready = _entry(built.result, "c.pietto", "joined_a")
-    blocked = _entry(built.result, "c.pietto", "lineage_blocked_join")
-    assert type(ready) is completion.ProjectEffectiveOutputTerminal
+    base_joined = _entry(built.result, "c.pietto", "joined_a")
+    base_derived = _entry(built.result, "c.pietto", "lineage_blocked_join")
+    for entry in (base_joined, base_derived):
+        assert type(entry) is completion.ProjectEffectiveOutputTerminal
+        assert (
+            entry.reason
+            is completion.ProjectEffectiveOutputTerminalReason.JOINED_COMPLETION_NON_CONCRETE
+        )
+        assert entry.output is None
+        assert entry.joined_completion is not None
+        assert type(entry.joined_completion) is not ProjectConcreteJoinedRowSemantics
+    overlay = built.completed.effective_outputs
+    entries = {entry.owner.definition.name: entry for entry in overlay.entries}
+    joined = entries["joined_a"]
+    assert type(joined) is ProjectEffectiveOutputCompletionTerminal
+    assert joined.base_entry is base_joined
     assert (
-        ready.reason
-        is completion.ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
+        joined.reason
+        is ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE
     )
-    assert type(ready.joined_completion) is ProjectConcreteJoinedRowSemantics
-    assert ready.output is None
-    assert ready.joined_completion.final_output is not ready.output
-    assert ready.joined_completion.row_source.final_output is (
-        ready.joined_completion.final_output
+    (region,) = tuple(
+        region
+        for region in overlay.current_regions
+        if region.ledger.owner is joined.owner
     )
-    assert type(blocked) is completion.ProjectEffectiveOutputTerminal
-    assert (
-        blocked.reason
-        is completion.ProjectEffectiveOutputTerminalReason.JOINED_COMPLETION_NON_CONCRETE
+    assert joined.current_region is region and len(region.joins) == 1
+    assert all(condition.ready for condition in region.operative)
+    derived = entries["lineage_blocked_join"]
+    assert type(derived) is ProjectCompletedEffectiveOutput
+    assert derived.base_entry is base_derived
+    (derived_region,) = tuple(
+        region
+        for region in overlay.current_regions
+        if region.ledger.owner is derived.owner
     )
-    assert type(blocked.joined_completion) in {
-        ProjectNonConcreteJoinedRowSemantics,
-        ProjectNonConcreteQueryBlock,
+    assert derived_region.input_scope is not None
+    producer = entries["computed_orders"]
+    assert type(producer) is ProjectCompletedEffectiveOutput
+    authority = derived_region.input_scope.bindings[1].authority
+    assert authority is not None
+    assert authority.entry is producer
+    assert all(
+        condition.ready and condition.key_matches == ()
+        for condition in derived_region.operative
+    )
+    assert tuple(derived.schema.fields) == ("id",)
+
+
+def test_explicit_projection_completes_without_changing_the_bare_id_control(
+    tmp_path,
+) -> None:
+    files = _project_files()
+    anchor = """query joined_a:
+    from customers
+    let order_input = orders
+    inner join order_input on customer_orders(customers, order_input)
+    select:
+        id
+"""
+    assert files["c.pietto"].count(anchor) == 1
+    files["c.pietto"] = files["c.pietto"].replace(
+        anchor, anchor.replace("        id\n", "        id = customers.id\n")
+    )
+    completed = build_project_completed_semantic_result(
+        _semantic_project(tmp_path / "project", files, reverse_creation=False)
+    )
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    entries = {
+        entry.owner.definition.name: entry
+        for entry in completed.effective_outputs.entries
     }
-    assert blocked.output is None
+    for name in ("joined_a", "downstream_b", "downstream_c"):
+        entry = entries[name]
+        assert type(entry) is ProjectCompletedEffectiveOutput
+        assert tuple(entry.schema.fields) == ("id",)
+    for name, upstream in (
+        ("downstream_b", "joined_a"),
+        ("downstream_c", "downstream_b"),
+    ):
+        entry = entries[name]
+        assert type(entry) is ProjectCompletedEffectiveOutput
+        assert type(entry.root) is ProjectConcreteNoJoinReplay
+        assert entry.root.upstream_entry is entries[upstream]
 
 
 def test_same_and_cross_module_pending_propagation_chain_is_exact(
     built: _Built,
 ) -> None:
     result = built.result
-    joined = _entry(result, "c.pietto", "joined_a")
-    downstream_b = _entry(result, "a.pietto", "downstream_b")
-    downstream_c = _entry(result, "a.pietto", "downstream_c")
-    assert type(downstream_b) is completion.ProjectEffectiveOutputTerminal
-    assert type(downstream_c) is completion.ProjectEffectiveOutputTerminal
-    for entry in (downstream_b, downstream_c):
+    base_joined = _entry(result, "c.pietto", "joined_a")
+    base_b = _entry(result, "a.pietto", "downstream_b")
+    base_c = _entry(result, "a.pietto", "downstream_c")
+    overlay = built.completed.effective_outputs
+    (joined,) = overlay.find_owner(base_joined.owner)
+    (downstream_b,) = overlay.find_owner(base_b.owner)
+    (downstream_c,) = overlay.find_owner(base_c.owner)
+    assert type(joined) is ProjectEffectiveOutputCompletionTerminal
+    assert joined.base_entry is base_joined
+    for base, entry, upstream in (
+        (base_b, downstream_b, joined),
+        (base_c, downstream_c, downstream_b),
+    ):
+        assert type(base) is completion.ProjectEffectiveOutputTerminal
+        assert (
+            base.reason
+            is completion.ProjectEffectiveOutputTerminalReason.HISTORICAL_NON_CONCRETE
+        )
+        assert type(entry) is ProjectEffectiveOutputCompletionTerminal
         assert (
             entry.reason
-            is completion.ProjectEffectiveOutputTerminalReason.UPSTREAM_EFFECTIVE_OUTPUT_PENDING
+            is ProjectEffectiveOutputCompletionTerminalReason.UPSTREAM_EFFECTIVE_OUTPUT_NON_CONCRETE
         )
-        assert entry.output is None
-        assert len(entry.pending_dependencies) == len(entry.pending_entries) == 1
-        assert entry.pending_dependencies[0].consumer is entry.owner
-        assert entry.pending_entries[0].owner is entry.pending_dependencies[0].target
-    assert downstream_b.pending_entries == (joined,)
-    assert downstream_c.pending_entries == (downstream_b,)
-    assert downstream_b.resolution is not None
-    assert downstream_b.resolution.target_symbol.target_occurrence is joined.owner
-    assert downstream_b.resolution.target_symbol.local_name == "JoinedInput"
+        assert entry.base_entry is base and entry.output is None
+        assert entry.upstream_entry is entry.blocker is upstream
+        assert entry.dependencies is base.dependencies
+        assert len(entry.dependencies) == 1
+        (dependency,) = entry.dependencies
+        assert (
+            dependency.consumer is entry.owner and dependency.target is upstream.owner
+        )
+        assert dependency.evidence is base.fragment.semantic_facts.resolution
+    resolution = base_b.fragment.semantic_facts.resolution
+    assert resolution is not None
+    assert resolution.target_symbol.target_occurrence is joined.owner
+    assert resolution.target_symbol.local_name == "JoinedInput"
     positions = {id(owner): index for index, owner in enumerate(result.schedule)}
     assert (
         positions[id(joined.owner)]
@@ -203,23 +322,64 @@ def test_unrelated_nonconcrete_state_is_not_promoted_to_recoverable(
     )
 
 
-def test_join_over_pending_effective_input_stays_unsupported_and_unpromoted(
+def test_join_over_pending_effective_input_retains_the_exact_historical_blocker(
     built: _Built,
 ) -> None:
-    entry = _entry(built.result, "a.pietto", "unsupported_join")
-    assert type(entry) is completion.ProjectEffectiveOutputTerminal
+    base = _entry(built.result, "a.pietto", "unsupported_join")
+    assert type(base) is completion.ProjectEffectiveOutputTerminal
     assert (
-        entry.reason
-        is completion.ProjectEffectiveOutputTerminalReason.EFFECTIVE_UPSTREAM_JOIN_UNSUPPORTED
+        base.reason
+        is completion.ProjectEffectiveOutputTerminalReason.JOINED_COMPLETION_NON_CONCRETE
     )
-    assert entry.output is None
-    assert entry.joined_completion is None
-    assert len(entry.pending_entries) == 1
-    assert entry.pending_entries[0].owner is _owner(
-        built.result,
-        "c.pietto",
-        "joined_a",
+    (entry,) = built.completed.effective_outputs.find_owner(base.owner)
+    assert entry is base and base.output is None
+    blocker = base.joined_completion
+    assert type(blocker) is ProjectNonConcreteQueryBlock
+    assert blocker.verification is built.verification
+    (region,) = tuple(
+        region
+        for region in built.verification.root.join_regions.regions
+        if region.ledger.owner is base.owner
     )
+    assert type(region) is ProjectIRNonConcreteJoinRegion
+    assert blocker.join_region is region
+    assert blocker.owner_bridge.owner is base.owner
+    assert region.blockers == region.ledger.uses and len(region.blockers) == 1
+    assert region.ending_allocation is region.starting_allocation
+    assert len(region.ledger.bindings) == len(base.dependencies) == 2
+    joined = _owner(built.result, "c.pietto", "joined_a")
+    local = _owner(built.result, "a.pietto", "local_rows")
+    assert tuple(item.target for item in base.dependencies) == (joined, local)
+    for binding, dependency in zip(
+        region.ledger.bindings, base.dependencies, strict=True
+    ):
+        assert dependency.evidence is binding and dependency.consumer is base.owner
+    overlay = built.completed.effective_outputs
+    (pending,) = overlay.find_owner(joined)
+    (available,) = overlay.find_owner(local)
+    assert type(pending) is ProjectEffectiveOutputCompletionTerminal
+    assert (
+        pending.reason
+        is ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE
+    )
+    assert type(available) is completion.ProjectExistingEffectiveOutput
+    historical, operative = overlay.condition_authority, overlay.operative_conditions
+    assert historical is not None and operative is not None
+    (condition,) = tuple(
+        item for item in historical.entries if item.use.owner is base.owner
+    )
+    (retained,) = tuple(
+        item for item in operative.entries if item.use.owner is base.owner
+    )
+    assert retained is condition and condition.inputs is None
+    assert condition.use is region.blockers[0] and not condition.ready
+    assert condition.use.clause.on_clause is None
+    # An unsuccessful optional attempt must not publish partial current authority.
+    assert not any(scope.ledger.owner is base.owner for scope in overlay.input_scopes)
+    assert not any(
+        region.ledger.owner is base.owner for region in overlay.current_regions
+    )
+    assert any(region.ledger.owner is joined for region in overlay.current_regions)
     use_set = built.verification.root.join_regions.uses
     assert all(
         binding.target is None
@@ -312,9 +472,9 @@ def test_slice7_scope_dependency_and_contract_are_exact() -> None:
 
 
 EXISTS_HEAD = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 """
 # `flagged` is declared after its reader, so only the read orders it first.
 EXISTS_READS = """query result:
@@ -443,10 +603,10 @@ query self:
 
 
 SCALAR_READS = """shape Row:
-    id: Int not null
-    key: Int nullable
-source rows: Row is postgres.table("rows")
-source tags: Row is postgres.table("tags")
+    id: Int
+    key: Int | None
+source rows: Row = postgres.table("rows")
+source tags: Row = postgres.table("tags")
 query result:
     let picked:
         from tags
@@ -510,9 +670,8 @@ MEMBERSHIP_READS = """query result:
         id
 query pairs:
     from tags
-    inner join rows as r:
-        from tags
-        on tags.id == r.id
+    let r = rows
+    inner join r on tags.id == r.id
     select:
         id = tags.id
         twice = r.id
@@ -561,10 +720,10 @@ def test_a_membership_read_binds_the_sole_column_of_its_target(tmp_path) -> None
 
 
 CAPTURE_HEAD = """shape Row:
-    id: Int not null
-    key: Int nullable
-source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
+    id: Int
+    key: Int | None
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
 """
 # Phase70 S10: the let reads the current row of the body's FROM and LEFT JOIN
 # inputs; only the body's EXISTS read orders the let first.
@@ -577,9 +736,8 @@ CAPTURE_JOINED = """query result:
         select:
             id
     from lhs
-    left join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    left join r on lhs.id == r.id
     where exists matched
     select:
         a = lhs.id
@@ -814,14 +972,12 @@ CAPTURE_LATERAL = """query result:
         select:
             id
     from lhs
-    left join rhs as r:
-        from lhs
-        on lhs.id == r.id
-    cross join matched as m:
-        from lhs
-    inner join rhs as z:
-        from lhs
-        on z.id == m.id
+    let r = rhs
+    left join r on lhs.id == r.id
+    let m = matched
+    cross join m
+    let z = rhs
+    inner join z on z.id == m.id
     select:
         a = lhs.id
 """
@@ -917,10 +1073,10 @@ def test_the_ir_rejects_forged_lateral_capture_checkpoints(tmp_path) -> None:
 
 
 _GROUPED_ENDPOINT_SOURCE = """shape Sale:
-    id: Int not null
-    uid: Int not null
-    amount: Int not null
-source sales: Sale is postgres.table("sales")
+    id: Int
+    uid: Int
+    amount: Int
+source sales: Sale = postgres.table("sales")
 query per_user:
     from sales
     group by:
@@ -928,53 +1084,71 @@ query per_user:
     select:
         k = uid
         total = sum(amount)
-relationship sale_user:
-    endpoint s: sales
-    endpoint u: per_user
-    on s.uid == u.k
 query q:
     from per_user
-    left join sales as x:
-        from per_user
-        via sale_user: u -> s
+    let x = sales
+    left join x on per_user.k == x.uid
     select:
         v = x.amount
 """
 
 
-def test_join_over_an_input_with_deferred_history_stays_unavailable(tmp_path) -> None:
+def test_join_over_grouped_input_retains_history_and_uses_current_producer(
+    tmp_path,
+) -> None:
     from _pietto_project_join import _completed
+    from pietto._project.model import ProjectRowFieldNullability
+    from pietto._project.project_query_block_ir import build_project_query_block_ir
+    from pietto._project.project_query_block_ir_verification import (
+        verify_project_query_block_ir,
+    )
 
     result = _completed(tmp_path, _GROUPED_ENDPOINT_SOURCE)
-    (entry,) = (
+    (base,) = tuple(
         entry
         for entry in result.completion.entries
         if entry.owner.identity.declared_name == "q"
     )
-    assert type(entry) is completion.ProjectEffectiveOutputTerminal
+    assert type(base) is completion.ProjectEffectiveOutputTerminal
     assert (
-        entry.reason
-        is completion.ProjectEffectiveOutputTerminalReason.HISTORICAL_NON_CONCRETE
+        base.reason
+        is completion.ProjectEffectiveOutputTerminalReason.JOINED_COMPLETION_NON_CONCRETE
     )
     assert (
-        entry.fragment.semantic_facts.state.reason
+        base.fragment.semantic_facts.state.reason
         is ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
     )
-    assert [(d.code, d.message, d.location.line) for d in result.diagnostics] == [
-        (
-            "PIE-S2333",
-            "Project relation semantic completion is unavailable: q (JOIN x reads "
-            "per_user, whose rows are not available to a relationship JOIN yet: "
-            "it has GROUP BY and a computed SELECT output)",
-            17,
-        )
-    ]
+    entries = {
+        entry.owner.definition.name: entry for entry in result.effective_outputs.entries
+    }
+    current, grouped = entries["q"], entries["per_user"]
+    assert type(current) is ProjectCompletedEffectiveOutput
+    assert type(grouped) is ProjectCompletedEffectiveOutput
+    assert current.base_entry is base
+    assert tuple(grouped.schema.fields) == ("k", "total")
+    assert tuple(current.schema.fields) == ("v",)
+    assert current.schema.fields["v"].nullability is ProjectRowFieldNullability.NULLABLE
+    (region,) = tuple(
+        region
+        for region in result.effective_outputs.current_regions
+        if region.ledger.owner is current.owner
+    )
+    assert region.input_scope is not None
+    authority = region.input_scope.bindings[0].authority
+    assert authority is not None
+    assert authority.entry is grouped
+    assert all(
+        condition.ready and condition.key_matches == ()
+        for condition in region.operative
+    )
+    assert result.ok, result.diagnostics
+    assert verify_project_query_block_ir(build_project_query_block_ir(result)).verified
 
 
 _GLOBAL_JOIN_SOURCE = """shape Row:
-    id: Int not null
-source left_rows: Row is postgres.table("left_rows")
-source right_rows: Row is postgres.table("right_rows")
+    id: Int
+source left_rows: Row = postgres.table("left_rows")
+source right_rows: Row = postgres.table("right_rows")
 query global_left:
     from left_rows
     select:
@@ -983,41 +1157,50 @@ query global_right:
     from right_rows
     select:
         total = count()
-relationship globals:
-    endpoint left: global_left
-    endpoint right: global_right
-    on left.total == right.total
 query global_join:
     from global_left
-    inner join global_right as right:
-        from global_left
-        via globals: left -> right
+    let counted_right = global_right
+    inner join counted_right on global_left.total == counted_right.total
     select:
         total
 """
-_DEFERRED_HISTORY_JOINS = [
+_SHARED_PROJECTION_TERMINALS = (
     "aligned_join",
     "comparable_join",
-    "global_join",
     "incompatible_join",
     "self_fact_join",
-]
+    "global_join",
+    "ambiguous_fact_join",
+)
 
 
 @pytest.mark.parametrize(
     ("source", "expected"),
     (
-        ("join_differential", _DEFERRED_HISTORY_JOINS),
-        ("project_aggregate", _DEFERRED_HISTORY_JOINS),
-        ("global_join", ["global_join"]),
+        (
+            "join_differential",
+            (
+                *_SHARED_PROJECTION_TERMINALS,
+                "unique_target_inner",
+                "unique_target_left",
+                "fanout_join",
+            ),
+        ),
+        ("project_aggregate", _SHARED_PROJECTION_TERMINALS),
+        ("global_join", ("global_join",)),
     ),
 )
 def test_project_check_of_test_join_sources_reports_instead_of_raising(
-    tmp_path, source: str, expected: list[str]
+    tmp_path, source: str, expected: tuple[str, ...]
 ) -> None:
     from _pietto_ir_join_differential import PRIMARY_MAIN_SOURCE
     from _pietto_project_aggregate import _source as aggregate_source
     from _pietto_project_join import _completed
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedEffectiveOutput,
+        ProjectEffectiveOutputCompletionTerminal,
+        ProjectEffectiveOutputCompletionTerminalReason,
+    )
 
     text = {
         "join_differential": PRIMARY_MAIN_SOURCE,
@@ -1025,13 +1208,93 @@ def test_project_check_of_test_join_sources_reports_instead_of_raising(
         "global_join": _GLOBAL_JOIN_SOURCE,
     }[source]
     result = _completed(tmp_path, text)
-
-    unavailable = sorted(
-        entry.owner.identity.declared_name
-        for entry in result.completion.entries
-        if type(entry) is completion.ProjectEffectiveOutputTerminal
+    entries = {
+        entry.owner.definition.name: entry for entry in result.effective_outputs.entries
+    }
+    regions = result.effective_outputs.current_regions
+    actual_projection = tuple(
+        entry.owner.definition.name
+        for entry in result.effective_outputs.entries
+        if type(entry) is ProjectEffectiveOutputCompletionTerminal
         and entry.reason
-        is completion.ProjectEffectiveOutputTerminalReason.HISTORICAL_NON_CONCRETE
+        is ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE
     )
-    assert unavailable == expected
-    assert {d.code for d in result.diagnostics} == {"PIE-S2333"}
+    expected_projection = tuple(
+        owner.definition.name
+        for owner in result.effective_outputs.owners
+        if owner.definition.name in expected
+    )
+    assert len(expected_projection) == len(expected)
+    assert actual_projection == expected_projection
+    for name in expected:
+        terminal = entries[name]
+        assert type(terminal) is ProjectEffectiveOutputCompletionTerminal
+        assert terminal.output is None
+        (prefix,) = tuple(
+            region for region in regions if region.ledger.owner is terminal.owner
+        )
+        assert prefix.joins and all(condition.ready for condition in prefix.operative)
+    if source == "project_aggregate":
+        assert isinstance(
+            entries["aggregate_left_outputs"], ProjectCompletedEffectiveOutput
+        )
+    if source != "global_join":
+        from pietto._project.project_join_conditions import ProjectJoinConditionState
+        from pietto._project.project_ir_joins import ProjectIRNonConcreteJoinRegion
+        from pietto._project.project_query_block import (
+            ProjectNonConcreteQueryBlock,
+            ProjectQueryBlockNonConcreteReason,
+        )
+
+        missing = entries["missing_fact_join"]
+        operative = result.effective_outputs.operative_conditions
+        assert operative is not None
+        (condition,) = tuple(
+            item for item in operative.entries if item.use.owner is missing.owner
+        )
+        assert condition.state is ProjectJoinConditionState.UNAVAILABLE
+        assert not condition.ready and condition.expression is None
+        assert condition.use.clause.on_clause is None
+        assert all(binding.target is not None for binding in condition.ledger.bindings)
+        assert isinstance(
+            missing,
+            (
+                completion.ProjectEffectiveOutputTerminal,
+                ProjectEffectiveOutputCompletionTerminal,
+            ),
+        )
+        assert missing.output is None
+        if type(missing) is completion.ProjectEffectiveOutputTerminal:
+            assert (
+                missing.reason
+                is completion.ProjectEffectiveOutputTerminalReason.JOINED_COMPLETION_NON_CONCRETE
+            )
+            blocker = missing.joined_completion
+            assert type(blocker) is ProjectNonConcreteQueryBlock
+            assert (
+                blocker.reason
+                is ProjectQueryBlockNonConcreteReason.JOIN_REGION_NON_CONCRETE
+            )
+            assert blocker.row_source is None
+            assert type(blocker.join_region) is ProjectIRNonConcreteJoinRegion
+            assert blocker.join_region.ledger is condition.ledger
+            assert any(
+                blocker.join_region is region
+                for region in result.verification.root.join_regions.regions
+            )
+            assert len(blocker.join_region.blockers) == 1
+            assert blocker.join_region.blockers[0] is condition.use
+        else:
+            assert type(missing) is ProjectEffectiveOutputCompletionTerminal
+            assert (
+                missing.reason
+                is ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_CONDITION_NON_CONCRETE
+            )
+            assert type(missing.blocker) is tuple and len(missing.blocker) == 1
+            assert missing.blocker[0] is condition
+            assert (
+                condition.inputs is not None
+                and condition.inputs.scope is missing.current_inputs
+            )
+            assert missing.current_region is None
+    assert not result.ok and result.diagnostics

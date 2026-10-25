@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import inspect
 from dataclasses import replace
 
@@ -483,6 +484,15 @@ def test_unsupported_calls_kinds_and_operators_are_not_silently_rendered(
 
 def test_expression_renderer_remains_internal_and_dependency_isolated() -> None:
     source = inspect.getsource(expression_module)
+    imported = tuple(
+        name
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for name in (
+            *(() if isinstance(node, ast.Import) else (node.module or "",)),
+            *(alias.name for alias in node.names),
+        )
+    )
 
     assert "render_expression_sql" not in sql_api.__all__
     for dependency in (
@@ -493,7 +503,9 @@ def test_expression_renderer_remains_internal_and_dependency_isolated() -> None:
         "pietto.ir.lowering",
         "sqlglot",
         "database",
-        "connector",
         "pietto.cli",
     ):
         assert dependency not in source
+    # Scalar ANY reads the checked `ExistsIR.connector`, as the relation emitter
+    # reads `SourceIR.connector`; importing a connector stays forbidden.
+    assert not any("connector" in name for name in imported)

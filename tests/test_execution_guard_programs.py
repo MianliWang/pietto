@@ -169,7 +169,7 @@ def test_every_campaign_fixture_has_complete_original_contract_and_guard(
         verify_native_guard(render_guard(statement_for(refined_program, "guard")))
 
 
-def test_multi_hop_checker_rejects_complete_coordinated_grafts_without_builder(
+def test_two_direct_boundaries_reject_complete_coordinated_grafts_without_builder(
     tmp_path, monkeypatch
 ):
     from _pietto_execution_guard_cases import PATH
@@ -184,6 +184,21 @@ def test_multi_hop_checker_rejects_complete_coordinated_grafts_without_builder(
     )
     native = render_guard(statement_for(a, "combined"))
     assert len(a.subjects) == 2
+    from pietto._project.project_single_match import ProjectSingleMatchScope
+
+    assert [
+        (subject.request_position, subject.boundary_position) for subject in a.subjects
+    ] == [(0, 0), (1, 0)]
+    assert all(
+        subject.obligation.request.scope is ProjectSingleMatchScope.DIRECT_BINARY
+        and subject.obligation.request.path is subject.obligation.request.hop is None
+        for subject in a.subjects
+    )
+    first, second = a.subjects
+    assert first.obligation is not second.obligation
+    assert first.unit is not second.unit
+    assert second.inputs[0].original.predecessor is first.unit.join.ref
+    assert second.inputs[0].producer is first.unit
     damages = (
         replace(a, subjects=a.subjects[:1]),
         replace(a, subjects=a.subjects + a.subjects[:1]),
@@ -258,7 +273,7 @@ def test_guarded_query_parameters_keep_one_native_owner_each(tmp_path, target):
     from _pietto_execution_refinement import capabilities
 
     body = DIRECT.replace(
-        "query result:", "query result(low: Int not null, high: Int not null):"
+        "query result:", "query result(low: Int, high: Int):"
     ).replace(
         "on lhs.id == r.id",
         "on lhs.id == r.id and lhs.id > low and r.key > high and lhs.id < high",

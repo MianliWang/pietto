@@ -18,10 +18,19 @@ from pietto.semantic import analyzer
 
 SOURCE = (
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text nullable\n"
-    'source users: User is postgres.table("users")\n'
+    "    id: UUID\n"
+    "    email: Text | None\n"
+    'source users: User = postgres.table("users")\n'
 )
+
+
+def _same_file_read(name: str, kind: str = "table") -> str:
+    """The PIE-S2382 warning at a read of a table or query of the file."""
+    return (
+        f"`{name}` is a {kind} of this file; single-file SQL reads it by name, so "
+        "the SQL runs only where the database already has a relation named "
+        f"{name} (an EXPLICIT_MODULES project emits it as a CTE)"
+    )
 
 
 def test_table_from_typed_source_builds_known_schema() -> None:
@@ -127,8 +136,7 @@ def test_aliased_bare_name_that_is_no_field_reports_s2102_and_unknown_schema(
         _parse(
             SOURCE + "table projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        normalized = lower(email)\n"
+            "    let normalized = lower(email)\n"
             "    select:\n"
             f"        {selected}\n"
             "        kept = normalized\n"
@@ -146,17 +154,20 @@ def test_aliased_bare_name_that_is_no_field_reports_s2102_and_unknown_schema(
         for (code, _, message), diagnostic in zip(
             _diagnostics(result), result.diagnostics, strict=True
         )
-    ] == [("PIE-S2102", f"Unknown field: {name}", column)]
+    ] == [
+        ("PIE-S2102", f"Unknown field: {name}", column),
+        ("PIE-S2382", _same_file_read("projected"), 5),
+    ]
     assert result.model.relation_row_schemas[table].is_unknown is True
 
 
 _UNKNOWN_TYPED_INPUT = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    price: Float not null\n"
-    "    qty: Float not null\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    price: Float\n"
+    "    qty: Float\n"
+    'source rows: Row = postgres.table("rows")\n'
     "table rates:\n"
     "    from rows\n"
     "    select:\n"
@@ -188,8 +199,7 @@ _UNKNOWN_TYPED_INPUT = (
         # R10: beside a window item.
         (
             "    from rates\n    select:\n        id\n        ratio = per\n"
-            "        rn = row_number() window:\n            order by:\n"
-            "                id asc\n",
+            "        rn = row_number() window(order by id asc)\n",
             "ratio",
         ),
         # R11: through a pass-through table.
@@ -213,7 +223,16 @@ def test_aliased_read_of_an_input_field_of_unknown_type_is_a_computed_output(
     query = _relation(result, "q", QueryDef)
     schema = result.model.relation_row_schemas[query]
 
-    assert result.diagnostics == ()
+    # Only the warnings at the reads of this file's tables: `passed` reads
+    # rates, and q reads rates or passed.
+    read = "passed" if "from passed" in body else "rates"
+    assert [
+        (item.code, item.severity, item.message, item.location.line)
+        for item in result.diagnostics
+    ] == [
+        ("PIE-S2382", Severity.WARNING, _same_file_read("rates"), 14),
+        ("PIE-S2382", Severity.WARNING, _same_file_read(read), 19),
+    ]
     assert schema.is_unknown is False
     assert output in schema.fields
 
@@ -281,7 +300,7 @@ def test_duplicate_projection_diagnostic_uses_later_item_span() -> None:
 def test_unknown_input_schema_suppresses_field_diagnostics() -> None:
     result = analyze(
         _parse(
-            'source raw is postgres.table("raw")\n'
+            'source raw = postgres.table("raw")\n'
             "table projected:\n"
             "    from raw\n"
             "    select:\n"
@@ -363,7 +382,10 @@ def test_unknown_upstream_schema_suppresses_downstream_field_diagnostics() -> No
     )
     second = _relation(result, "second", QueryDef)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "PIE-S2102",
+        "PIE-S2382",
+    ]
     assert result.model.relation_row_schemas[second].is_unknown is True
 
 
@@ -385,7 +407,11 @@ def test_relation_cycles_produce_unknown_schemas_with_cycle_diagnostic() -> None
 
     assert result.model.relation_row_schemas[first].is_unknown is True
     assert result.model.relation_row_schemas[second].is_unknown is True
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "PIE-S2382",
+        "PIE-S2302",
+        "PIE-S2382",
+    ]
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -401,8 +427,8 @@ def test_a_long_chain_of_computed_tables_is_refined_in_linear_work(
         for index in range(1, count + 1)
     ]
     source = (
-        "shape T:\n    a: Int not null\n"
-        'source t0: T is postgres.table("t0")\n'
+        "shape T:\n    a: Int\n"
+        'source t0: T = postgres.table("t0")\n'
         + "".join(reversed(tables) if reverse else tables)
         + f"table last:\n    from t{count}\n    select:\n        b = missing\n"
     )
@@ -425,10 +451,17 @@ def test_a_long_chain_of_computed_tables_is_refined_in_linear_work(
             "Int",
             EffectiveNullability.UNKNOWN,
         )
+    # Every table reads the table before it of this file by name.
+    reads = [
+        ("PIE-S2382", number, 5)
+        for number, line in enumerate(source.splitlines(), 1)
+        if line.startswith("    from t") and line != "    from t0"
+    ]
+    assert len(reads) == count
     assert [
         (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
         for diagnostic in result.diagnostics
-    ] == [("PIE-S2102", 4 * count + 7, 13)]
+    ] == sorted([*reads, ("PIE-S2102", 4 * count + 7, 13)], key=lambda item: item[1])
     assert sum(typed_tables) < 4 * (count + 1)
 
 
@@ -535,9 +568,8 @@ def test_join_target_projection_types_propagate_through_forward_dependencies(
     consumer = (
         "table matched_users:\n"
         "    from users\n"
-        "    inner join named_users as peer:\n"
-        "        from users\n"
-        "        on users.id == peer.uid\n"
+        "    let peer = named_users\n"
+        "    inner join peer on users.id == peer.uid\n"
         "    select:\n"
         "        address = peer.address\n"
     )
@@ -552,7 +584,13 @@ def test_join_target_projection_types_propagate_through_forward_dependencies(
         )
     )
 
-    assert result.diagnostics == ()
+    # The JOIN and the output read tables of this file by name; nothing else.
+    assert [
+        (item.code, item.severity, item.message) for item in result.diagnostics
+    ] == [
+        ("PIE-S2382", Severity.WARNING, _same_file_read(name))
+        for name in ("named_users", "matched_users")
+    ]
     for name in ("named_users", "matched_users", "output"):
         relation = result.model.relation_symbols[name]
         assert isinstance(relation, (TableDef, QueryDef))
@@ -569,14 +607,12 @@ def test_refused_join_has_no_projected_fields_for_downstream_let_shadowing() -> 
         _parse(
             SOURCE + "table refused:\n"
             "    from users\n"
-            "    inner join missing as peer:\n"
-            "        from users\n"
+            "    inner join missing on users.id == missing.id\n"
             "    select:\n"
             "        out = users.id\n"
             "query output:\n"
             "    from refused\n"
-            "    let:\n"
-            "        out = 1\n"
+            "    let out = 1\n"
             "    select:\n"
             "        value = out\n"
         )
@@ -591,4 +627,7 @@ def test_refused_join_has_no_projected_fields_for_downstream_let_shadowing() -> 
             diagnostic.location.column,
         )
         for diagnostic in result.diagnostics
-    ] == [("PIE-S2301", "Unknown relation: missing", 7, 5)]
+    ] == [
+        ("PIE-S2301", "Unknown relation: missing", 7, 5),
+        ("PIE-S2382", _same_file_read("refused"), 11, 5),
+    ]

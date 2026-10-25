@@ -8,8 +8,8 @@ from pietto.semantic import EffectiveNullability, analyze
 def test_min_max_results_are_nullable_same_logical_type() -> None:
     parsed = parse_source(
         "shape Row:\n"
-        "    amount: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    amount: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table extrema:\n"
         "    from rows\n"
         "    select:\n"

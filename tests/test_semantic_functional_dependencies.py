@@ -50,33 +50,33 @@ def _project_files() -> dict[str, str]:
     return {
         "a.pietto": (
             "shape Row:\n"
-            "    a: Int not null\n"
-            "    b: Int not null\n"
-            "    c: Int nullable\n"
+            "    a: Int\n"
+            "    b: Int\n"
+            "    c: Int | None\n"
             "    d: Int\n"
-            "    unique a_key on a\n"
-            "    unique a_key_again on a\n"
-            "    unique b_key on b\n"
-            "    unique c_key on c\n"
-            'source left_rows: Row is postgres.table("left_rows")\n'
-            'source right_rows: Row is postgres.table("right_rows")\n'
+            "    a_key = unique(a)\n"
+            "    a_key_again = unique(a)\n"
+            "    b_key = unique(b)\n"
+            "    c_key = unique(c)\n"
+            'source left_rows: Row = postgres.table("left_rows")\n'
+            'source right_rows: Row = postgres.table("right_rows")\n'
             "shape Singleton:\n"
-            "    only: Int not null\n"
-            "    unique only_key on only\n"
-            'source singleton_rows: Singleton is postgres.table("singleton")\n'
+            "    only: Int\n"
+            "    only_key = unique(only)\n"
+            'source singleton_rows: Singleton = postgres.table("singleton")\n'
             "shape Unkeyed:\n"
-            "    plain: Int not null\n"
-            'source unkeyed_rows: Unkeyed is postgres.table("unkeyed")\n'
+            "    plain: Int\n"
+            'source unkeyed_rows: Unkeyed = postgres.table("unkeyed")\n'
             "shape Composite:\n"
-            "    x: Int not null\n"
-            "    y: Int not null\n"
-            "    z: Int not null\n"
-            "    unique xy_key on x, y\n"
-            'source composite_rows: Composite is postgres.table("composite")\n'
+            "    x: Int\n"
+            "    y: Int\n"
+            "    z: Int\n"
+            "    xy_key = unique(x, y)\n"
+            'source composite_rows: Composite = postgres.table("composite")\n'
             "shape Broken:\n"
-            "    broken: MissingType not null\n"
-            "    unique broken_key on broken\n"
-            'source broken_rows: Broken is postgres.table("broken")\n'
+            "    broken: MissingType\n"
+            "    broken_key = unique(broken)\n"
+            'source broken_rows: Broken = postgres.table("broken")\n'
             "table projected_rows:\n"
             "    from left_rows\n"
             "    select:\n"
@@ -270,13 +270,13 @@ def test_compiled_indexes_are_universe_local_and_support_arbitrary_width(
     with pytest.raises(ValueError, match="exact field universe"):
         value_fds.strictly_determines(left.index, left_a, right_a)
 
-    field_lines = "".join(f"    f{position}: Int not null\n" for position in range(70))
+    field_lines = "".join(f"    f{position}: Int\n" for position in range(70))
     wide_files = {
         "wide.pietto": (
             "shape Wide:\n"
             + field_lines
-            + "    unique wide_key on f0\n"
-            + 'source wide_rows: Wide is postgres.table("wide")\n'
+            + "    wide_key = unique(f0)\n"
+            + 'source wide_rows: Wide = postgres.table("wide")\n'
         )
     }
     _wide_keys, wide_result = _facts(tmp_path / "wide", wide_files)

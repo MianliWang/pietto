@@ -19,8 +19,8 @@ from pietto.sql import SqlResult
 
 SOURCE = (
     "shape User:\n"
-    "    email: Text not null\n"
-    'source users: User is postgres.table("users")\n'
+    "    email: Text\n"
+    'source users: User = postgres.table("users")\n'
     "table user_emails:\n"
     "    from users\n"
     "    select:\n"
@@ -935,9 +935,7 @@ def test_success_path_with_newline_is_escaped_on_stdout(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(
-        tmp_path, "valid\nname.pietto", "shape User:\n    id: UUID not null\n"
-    )
+    path = _write(tmp_path, "valid\nname.pietto", "shape User:\n    id: UUID\n")
 
     assert cli.main(["check", str(path)]) == 0
 

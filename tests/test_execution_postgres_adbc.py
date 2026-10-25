@@ -74,7 +74,7 @@ def test_explicit_route_and_premise_preserve_rows(artifact):
 
 
 def test_a_parameterized_template_is_refused_before_any_connection(tmp_path):
-    body = "query result(low: Int not null):\n    from rows\n    where id > low\n"
+    body = "query result(low: Int):\n    from rows\n    where id > low\n"
     body += "    select:\n        display_text = text\n"
     _, outcome = parameterized_case(tmp_path, "postgres", body)
     assert outcome.status == "VERIFIED"
@@ -148,7 +148,7 @@ def test_guard_and_page_statements_send_each_parameter_with_its_type(tmp_path):
     from pietto._project.project_refinement_enumeration import Enumeration
 
     body = DIRECT.replace(
-        "query result:", "query result(low: Int not null, label: Text nullable):"
+        "query result:", "query result(low: Int, label: Text | None):"
     ).replace(
         "on lhs.id == r.id", "on lhs.id == r.id and lhs.id > low and r.key != label"
     )

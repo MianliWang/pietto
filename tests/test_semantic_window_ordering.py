@@ -93,11 +93,11 @@ def _program(
 ) -> str:
     prefix = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    observed_at: Timestamp not null\n"
-        "    label: Text nullable\n"
-        "    nullable_id: Int nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    observed_at: Timestamp\n"
+        "    label: Text | None\n"
+        "    nullable_id: Int | None\n"
+        'source rows: Row = postgres.table("rows")\n'
     )
     input_name = "rows"
     if upstream:
@@ -116,15 +116,22 @@ def _program(
         lines.append("    where id > 0")
     lines.append("    select:")
     lines.extend(f"        {value}" for value in before)
-    lines.append(f"        {alias} = {call} window:")
+    lines.append(f"        {alias} = {call} window(")
     if partition:
-        lines.append("            partition by:")
-        lines.extend(f"                {value}" for value in partition)
+        lines.append("            partition by")
+        lines.extend(
+            ",\n".join(f"                {value}" for value in partition).splitlines()
+        )
     if order:
-        lines.append("            order by:")
-        for value, direction in order:
-            suffix = f" {direction}" if direction is not None else ""
-            lines.append(f"                {value}{suffix}")
+        lines.append("            order by")
+        lines.extend(
+            ",\n".join(
+                f"                {value}"
+                + (f" {direction}" if direction is not None else "")
+                for value, direction in order
+            ).splitlines()
+        )
+    lines[-1] += ")"
     if final_order is not None:
         lines.extend(("    order by:", f"        {final_order}"))
     if limit:

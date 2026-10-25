@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field as dataclass_field
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsReason,
@@ -70,6 +71,13 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
+
+
+if TYPE_CHECKING:
+    from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
+    from pietto._project.project_relationship_predicates import (
+        ProjectRelationshipPredicateExpression,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -209,6 +217,7 @@ class ProjectAggregateExpressionAnalysis:
     effective_argument: Expression | None
     argument_value_types: Mapping[Expression, ValueType]
     result_value_type: ValueType
+    predicate_expression: ProjectRelationshipPredicateExpression | None = None
 
     def __post_init__(self) -> None:
         call = self.item.expression
@@ -224,6 +233,15 @@ class ProjectAggregateExpressionAnalysis:
             or self.result_value_type.kind is not ValueTypeKind.KNOWN
         ):
             raise ValueError("Aggregate analysis requires its exact original context")
+        if self.predicate_expression is not None and (
+            self.predicate_expression.owner.definition is not self.definition
+            or not call.arguments
+            or self.predicate_expression.authored is not call.arguments[0]
+            or self.predicate_expression.expression is not self.effective_argument
+        ):
+            raise ValueError(
+                "Aggregate predicate requires exact authored/normalized argument roots."
+            )
         values = MappingProxyType(dict(self.argument_value_types))
         if call.arguments:
             if not any(expression is call.arguments[0] for expression in values):
@@ -1083,6 +1101,8 @@ def _build_project_aggregate_schema_attempt(
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
     let_computed_keys: bool = False,
+    pretyped_arguments: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured aggregate-only candidate attempt."""
 
@@ -1133,6 +1153,7 @@ def _build_project_aggregate_schema_attempt(
         if type(item.expression) is WindowExpr:
             continue
         selected_attempt = _build_project_aggregate_selected_result_attempt(
+            pretyped_arguments=pretyped_arguments,
             definition=definition,
             item=item,
             input_schema=input_schema,
@@ -1189,6 +1210,8 @@ def build_project_aggregate_grouped_schema_finalization(
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
     let_computed_keys: bool = False,
+    pretyped_arguments: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
 ) -> ProjectAggregateGroupedSchemaFinalization:
     """Finalize one complete candidate without publishing it to the model.
 
@@ -1198,6 +1221,7 @@ def build_project_aggregate_grouped_schema_finalization(
 
     if definition.group_by_clause is None:
         attempt = _build_project_aggregate_schema_attempt(
+            pretyped_arguments=pretyped_arguments,
             definition=definition,
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
@@ -1207,6 +1231,7 @@ def build_project_aggregate_grouped_schema_finalization(
         )
     else:
         attempt = _build_project_grouped_schema_attempt(
+            pretyped_arguments=pretyped_arguments,
             definition=definition,
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
@@ -1229,6 +1254,8 @@ def _build_project_grouped_schema_attempt(
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
     let_computed_keys: bool = False,
+    pretyped_arguments: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured grouped candidate attempt."""
 
@@ -1343,6 +1370,7 @@ def _build_project_grouped_schema_attempt(
             aggregate_selection_count += 1
 
         aggregate_attempt = _build_project_aggregate_selected_result_attempt(
+            pretyped_arguments=pretyped_arguments,
             definition=definition,
             item=item,
             input_schema=input_schema,
@@ -1647,6 +1675,8 @@ def _build_project_aggregate_selected_result_attempt(
     let_scope_facts: ProjectRelationLetScopeFacts,
     fallback_path: str,
     let_extrema: bool = False,
+    pretyped_arguments: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
 ) -> _ProjectAggregateSelectedResultAttempt:
     """Build one aggregate result or retain its exact failure category."""
 
@@ -1668,6 +1698,7 @@ def _build_project_aggregate_selected_result_attempt(
         assert len(arguments) == 1
         argument = arguments[0]
         argument_attempt = _project_aggregate_argument_type_attempt(
+            pretyped_arguments=pretyped_arguments,
             definition=definition,
             function_name=function_name,
             argument=argument,
@@ -1746,6 +1777,13 @@ def _build_project_aggregate_selected_result_attempt(
             else argument_attempt.effective_expression,
             argument_value_types=argument_values,
             result_value_type=result_type,
+            predicate_expression=(
+                pretyped_arguments[arguments[0]].predicate_expression
+                if arguments
+                and pretyped_arguments
+                and arguments[0] in pretyped_arguments
+                else None
+            ),
         ),
         failure_reason=None,
     )
@@ -1859,6 +1897,8 @@ def _project_aggregate_argument_type_attempt(
     input_schema: ProjectRowSchema,
     let_scope_facts: ProjectRelationLetScopeFacts,
     let_extrema: bool = False,
+    pretyped_arguments: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
 ) -> _ProjectAggregateArgumentTypeAttempt:
     """Resolve one aggregate argument or retain its exact failure category."""
 
@@ -1892,7 +1932,30 @@ def _project_aggregate_argument_type_attempt(
         argument,
         let_expansions,
     )
-    if is_direct_row_let:
+    analysis = (pretyped_arguments or {}).get(argument)
+    if analysis is not None:
+        from pietto._project.project_final_outputs import (
+            ProjectNoJoinScalarExpression,
+            ProjectNoJoinScalarStatus,
+        )
+
+        if (
+            type(analysis) is not ProjectNoJoinScalarExpression
+            or analysis.owner.definition is not definition
+            or analysis.input_schema is not input_schema
+            or analysis.expression is not argument
+            or analysis.predicate_expression is None
+            or analysis.status is not ProjectNoJoinScalarStatus.CONCRETE
+            or analysis.diagnostics
+            or analysis.value_type is None
+        ):
+            raise ValueError(
+                "Aggregate pretyping requires exact checked predicate argument authority."
+            )
+        effective_argument = analysis.normalized_expression
+        argument_type = analysis.value_type
+        effective_value_types = analysis.value_types
+    elif is_direct_row_let:
         if (
             not isinstance(argument, NameExpr)
             or let_scope_facts.status is not ProjectLetScopeFactsStatus.CONCRETE
@@ -1929,7 +1992,7 @@ def _project_aggregate_argument_type_attempt(
         )
     if not is_supported_semantic_aggregate_argument_expression(
         function_name,
-        argument,
+        effective_argument if analysis is not None else argument,
         argument_type,
         let_expansions=let_expansions,
     ):

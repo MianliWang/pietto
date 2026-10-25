@@ -124,7 +124,7 @@ def _report():
         },
         "r2": {
             route: {
-                "source": "cross join rows as second",
+                "source": "query result:\n    from rows\n    let second = rows\n    cross join second\n",
                 "source_order": [["phase66", "rows"]],
                 "source_occurrences": 2,
                 "expected_extent": 12,
@@ -238,7 +238,8 @@ def test_r2_cross_fixture_has_four_ordered_sources_and_two_slots(tmp_path, targe
         2,
         12,
     )
-    assert witness.source.count("cross join rows as ") == 1
+    assert witness.source.count("\n    from rows\n") == 1
+    assert witness.source.count("    let second = rows\n    cross join second\n") == 1
     assert tuple(item.role for item in witness.source_requirements) == (
         ("pietto_query@%",) if target == "mysql" else ("pietto_query",)
     )

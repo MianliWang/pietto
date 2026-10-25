@@ -12,10 +12,11 @@ from pietto import _inline_argument, _window_identity
 class Span:
     """A 1-based, half-open source range: [line:column, end_line:end_column).
 
-    ``occurrence`` tells apart the copies of one source range that inlining a
-    ``def`` call writes more than once: the body at each call and an argument
-    the body uses again. Parsed source keeps 0, and locations shown to users
-    are only the range.
+    ``occurrence`` tells apart the copies of one source range that the AST
+    holds more than once: the inner operand ``b`` of a comparison chain such
+    as ``a < b < c``, built again for its second comparison, and, inlining a
+    ``def`` call, the body at each call and an argument the body uses again.
+    Text read once keeps 0, and locations shown to users are only the range.
     """
 
     path: str | None
@@ -151,6 +152,17 @@ class RelationExistsExpr(Expression):
     """An ``exists`` test against a named relation."""
 
     relation_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AnyExpr(Expression):
+    """One correlated existence predicate with a parentheses-local row binder."""
+
+    predicate: Expression
+    binding_name: str
+    binding_span: Span
+    relation_name: str
+    relation_span: Span
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -405,7 +417,12 @@ class TypeArgument(Node):
 
 
 class Nullability(StrEnum):
-    """Explicit syntax state recorded for a parsed type expression."""
+    """Nullability recorded for a parsed type expression.
+
+    A modern bare type is ``NOT_NULL`` and ``T | None`` is ``NULLABLE``.
+    ``IMPLICIT`` comes only from the private 0.1.4 legacy reader and from the
+    target of a ``Float(value)`` constructor call.
+    """
 
     IMPLICIT = "implicit"
     NULLABLE = "nullable"
@@ -414,7 +431,7 @@ class Nullability(StrEnum):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TypeExpr(Node):
-    """A parsed type reference with arguments and three-state nullability."""
+    """A parsed type reference with arguments and its nullability."""
 
     name: str
     arguments: tuple[TypeArgument, ...]
@@ -555,7 +572,7 @@ class DeriveDef(Node):
 class FunctionDef(Node):
     """A pure inline function ``def name(parameters) -> type: return body``.
 
-    Every parameter type and the return type state their nullability.
+    A bare parameter or return type is never None; ``T | None`` may be None.
     """
 
     name: str
@@ -595,6 +612,23 @@ class RelationshipMetadata(Node):
     name: str
     endpoints: tuple[RelationshipEndpoint, RelationshipEndpoint]
     base_match: RelationshipMatchClause | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RelationshipParameter(Node):
+    """One ordered row role with an explicitly named declared shape."""
+
+    name: str
+    shape_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RelationshipTemplate(Node):
+    """A reusable shape-typed row predicate, separate from source metadata."""
+
+    name: str
+    parameters: tuple[RelationshipParameter, ...]
+    body: Expression
 
 
 class ModuleDeclarationKind(StrEnum):
@@ -654,6 +688,7 @@ class FromClause(Node):
     """A parse-only relation input reference."""
 
     source_name: str
+    binding_name: str | None = None
 
 
 class AuthoredJoinKind(StrEnum):
@@ -697,8 +732,9 @@ class JoinClause(Node):
     """One authored JOIN with independently retained VIA and optional ON.
 
     A JOIN written without ``from`` leaves ``source_binding_name`` absent
-    (None) for semantic inference. ``target_binding_span`` locates the ``as``
-    name; a clause built by hand may leave it absent.
+    (None) for semantic inference. ``uses_named_input`` distinguishes the
+    modern named-input form from legacy inference. ``target_binding_span``
+    locates the authored target name; a hand-built clause may leave it absent.
     """
 
     kind: AuthoredJoinKind
@@ -708,8 +744,11 @@ class JoinClause(Node):
     traversal_steps: tuple[JoinTraversalStep, ...] = ()
     on_clause: JoinOnClause | None = None
     target_binding_span: Span | None = None
+    uses_named_input: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.uses_named_input) is not bool:
+            raise TypeError("join named-input marker must be an exact bool")
         if type(self.kind) is not AuthoredJoinKind:
             raise TypeError("join kind must be an exact authored JOIN kind")
         if type(self.traversal_steps) is not tuple or any(
@@ -718,6 +757,27 @@ class JoinClause(Node):
             raise TypeError("join traversal steps must be an exact tuple")
         if self.on_clause is not None and type(self.on_clause) is not JoinOnClause:
             raise TypeError("join ON requires an exact JOIN-local clause")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class JoinFilterClause(Node):
+    """An authored WHERE filter at an exact prefix of the authored JOINs."""
+
+    expression: Expression
+    preceding_join_count: int
+
+    def __post_init__(self) -> None:
+        if type(self.preceding_join_count) is not int or self.preceding_join_count < 0:
+            raise ValueError("join filter requires a nonnegative authored JOIN count")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class QueryLetDeclaration(Node):
+    """One ordered query name; semantic resolution determines its role."""
+
+    name: str
+    expression: Expression
+    name_span: Span
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -840,8 +900,6 @@ class NamedWindowDeclaration(Node):
             raise TypeError("named-window declaration base must be exact or absent")
         if self.spec is not None and type(self.spec) is not WindowSpec:
             raise TypeError("named-window declaration spec must be exact or absent")
-        if self.spec is not None and not self.spec.has_components:
-            raise ValueError("named-window declaration colon blocks must be nonempty")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -880,15 +938,13 @@ class WindowExpr(Expression):
         ):
             raise TypeError("window NULL treatment must be exact or absent")
         if self.use_kind is WindowUseKind.INLINE:
-            if self.base is not None or not self.spec.has_components:
+            if self.base is not None:
                 raise ValueError("inline window uses require only local components")
         elif self.base is None:
             raise ValueError("named window uses require one exact base reference")
         elif self.use_kind is WindowUseKind.NAMED_DIRECT:
             if self.spec.has_components:
                 raise ValueError("direct named-window uses forbid local components")
-        elif not self.spec.has_components:
-            raise ValueError("extended named-window uses require local components")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -927,6 +983,8 @@ class TableDef(Node):
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
     join_clauses: tuple[JoinClause, ...] = ()
     distinct_clause: DistinctClause | None = None
+    naming_declarations: tuple[QueryLetDeclaration, ...] = ()
+    join_filters: tuple[JoinFilterClause, ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.named_windows) is not tuple or any(
@@ -960,6 +1018,8 @@ class QueryDef(Node):
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
     join_clauses: tuple[JoinClause, ...] = ()
     distinct_clause: DistinctClause | None = None
+    naming_declarations: tuple[QueryLetDeclaration, ...] = ()
+    join_filters: tuple[JoinFilterClause, ...] = ()
     parameters: tuple[QueryParameter, ...] = ()
 
     def __post_init__(self) -> None:
@@ -1115,6 +1175,8 @@ class SelectBody(Node):
     named_windows: tuple[NamedWindowDeclaration, ...] = ()
     join_clauses: tuple[JoinClause, ...] = ()
     distinct_clause: DistinctClause | None = None
+    naming_declarations: tuple[QueryLetDeclaration, ...] = ()
+    join_filters: tuple[JoinFilterClause, ...] = ()
 
 
 RelationBody = SelectBody | SetOperationBody | ValuesBody
@@ -1217,3 +1279,4 @@ class Script(Node):
     definitions: tuple[Definition, ...]
     relationships: tuple[RelationshipMetadata, ...] = ()
     module_statements: tuple[ModuleStatement, ...] = ()
+    relationship_templates: tuple[RelationshipTemplate, ...] = ()

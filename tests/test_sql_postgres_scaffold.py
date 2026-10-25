@@ -115,16 +115,16 @@ def test_pie_b1000_is_documented() -> None:
 
 def _all_definition_ir() -> ScriptIR:
     parse_result = parser_api.parse_source(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "enum Status:\n"
         "    active\n"
-        "constraint valid_email(email: Text not null) -> Bool not null:\n"
-        "    email is not null\n"
-        "derive normalize_email(email: Text not null) -> Text not null:\n"
-        "    trim(email)\n"
+        "constraint valid_email(email: Text) -> Bool:\n"
+        "    return email is not None\n"
+        "derive normalize_email(email: Text) -> Text:\n"
+        "    return trim(email)\n"
         "shape User:\n"
-        "    email: Text not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Text\n"
+        'source users: User = postgres.table("public.users")\n'
         "table active_users:\n"
         "    from users\n"
         "    select:\n"

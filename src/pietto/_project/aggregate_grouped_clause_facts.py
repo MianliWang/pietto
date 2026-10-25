@@ -6,6 +6,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import InitVar, dataclass, field as dataclass_field
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from pietto._project.aggregate_grouped_schema import (
     ProjectAggregateGroupedSchemaFinalization,
@@ -69,6 +70,9 @@ from pietto.semantic.model import RowSchema, ValueType, SatisfyingResultPredicat
 from pietto.semantic.relation_limits import MAX_RELATION_LIMIT
 from pietto.semantic.satisfying import check_satisfying_clauses
 
+if TYPE_CHECKING:
+    from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
+
 __all__: tuple[str, ...] = ()
 
 _KNOWN_EXPRESSIONS = frozenset(
@@ -81,6 +85,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.UnaryExpr,
         ast.ConditionalExpr,
         ast.MembershipExpr,
+        ast.AnyExpr,
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
@@ -381,10 +386,13 @@ def build_project_aggregate_grouped_clause_readiness(
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts | None = None,
     let_computed_keys: bool = False,
+    pretyped_arguments: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
 ) -> ProjectAggregateGroupedClauseReadiness:
     """Build atomic private clause facts over exactly one Slice 7 finalization."""
 
     finalization = build_project_aggregate_grouped_schema_finalization(
+        pretyped_arguments=pretyped_arguments,
         definition=definition,
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,

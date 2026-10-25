@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectParseCheckResult,
+    ProjectParsedInput,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
     ProjectRowField,
@@ -16,6 +18,7 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
+from pietto.semantic.modern_inputs import normalize_query_names
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -167,7 +170,7 @@ def test_unknown_and_null_stay_non_concrete_while_division_and_aggregate_are_con
             "query nullish:\n"
             "    from users\n"
             "    select:\n"
-            "        nothing = null\n"
+            "        nothing = None\n"
             "query divided:\n"
             "    from users\n"
             "    select:\n"
@@ -242,8 +245,7 @@ def test_bare_let_selected_output_becomes_concrete_in_slice7(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + 1\n"
+            "    let total = score + 1\n"
             "    select:\n"
             "        total\n",
         )
@@ -338,9 +340,29 @@ def _assert_state(
 def _project_semantic_result(
     root: Path,
 ) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
-    parse_result = check_project_parse_only(root)
+    parse_result = _normalized_parse_result(check_project_parse_only(root))
     assert parse_result.ok
     return parse_result, build_empty_project_semantic_result(parse_result)
+
+
+def _normalized_parse_result(
+    parse_result: ProjectParseCheckResult,
+) -> ProjectParseCheckResult:
+    """Bind modern `let name = expression` names as the analyzer does.
+
+    The private LEGACY_FLAT scaffold reads its scalar let bindings from
+    `LetClause`, while modern spelling retains each `let name = expression`
+    as a query naming declaration until `normalize_query_names` runs before
+    semantics. Normalizing here keeps these private facts about the same
+    authored bindings under the modern spelling.
+    """
+
+    normalized_inputs: list[ProjectParsedInput] = []
+    for parsed_input in parse_result.parsed_inputs:
+        script, diagnostics = normalize_query_names(parsed_input.script)
+        assert diagnostics == ()
+        normalized_inputs.append(replace(parsed_input, script=script))
+    return replace(parse_result, parsed_inputs=tuple(normalized_inputs))
 
 
 def _project(tmp_path: Path, relation_source: str) -> Path:
@@ -349,11 +371,11 @@ def _project(tmp_path: Path, relation_source: str) -> Path:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
-        "    score: Int not null\n"
-        "    bonus: Int nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        "    email: Text | None\n"
+        "    score: Int\n"
+        "    bonus: Int | None\n"
+        'source users: User = postgres.table("users")\n'
         f"{relation_source}",
     )
     return root

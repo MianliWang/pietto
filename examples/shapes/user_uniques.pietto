@@ -1,6 +1,6 @@
 shape User:
-    tenant_id: UUID not null
-    email: Text(max = 255) not null
+    tenant_id: UUID
+    email: Text(max = 255)
 
-    unique user_email on email
-    unique tenant_user_email on tenant_id, email
+    user_email = unique(email)
+    tenant_user_email = unique(tenant_id, email)

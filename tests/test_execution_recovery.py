@@ -367,14 +367,14 @@ def test_pending_close_refuses_an_unresolved_single_retry():
 
 
 SINCE = (
-    "\nquery since(low: Int not null, note: Text nullable):\n    from items\n"
-    "    where id > low and (note is null or label != note)\n    select:\n"
+    "\nquery since(low: Int, note: Text | None):\n    from items\n"
+    "    where id > low and (note is None or label != note)\n    select:\n"
     "        id\n        next = low + 1\n"
 )
 # An R2 shape that is refused (D70.05): it groups by a key its let computes.
 GROUPED = (
-    "\nquery grouped(low: Int not null):\n    from items\n    let:\n"
-    "        big = id > 5\n    group by:\n        big\n"
+    "\nquery grouped(low: Int):\n    from items\n"
+    "    let big = id > 5\n    group by:\n        big\n"
     "    select:\n        flag = big\n        total = count()\n"
 )
 SAVED = {"low": 5, "note": None}
@@ -406,9 +406,9 @@ def _queries(directory):
 # R2 shapes that are refused (D70.05) whose lets with capture lines read the
 # header: an EXISTS read and a LATERAL join.
 CAPTURING = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
-query exists_since(low: Int not null, note: Text nullable):
+query exists_since(low: Int, note: Text | None):
     let same:
         capture items
         from tags
@@ -416,11 +416,11 @@ query exists_since(low: Int not null, note: Text nullable):
         select:
             id
     from items
-    where exists same and (note is null or label != note)
+    where exists same and (note is None or label != note)
     select:
         id
 
-query lateral_since(low: Int not null, note: Text nullable):
+query lateral_since(low: Int, note: Text | None):
     let later:
         capture items
         from tags
@@ -428,9 +428,9 @@ query lateral_since(low: Int not null, note: Text nullable):
         select:
             tag_id = id
     from items
-    cross join later as t:
-        from items
-    where note is null or items.label != note
+    let t = later
+    cross join t
+    where note is None or items.label != note
     select:
         id = items.id
         tag_id = t.tag_id

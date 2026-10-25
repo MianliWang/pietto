@@ -98,7 +98,7 @@ def test_access_and_value_mutation_precede_any_connection(tmp_path):
 
 
 def test_a_parameterized_template_is_refused_before_any_connection(tmp_path):
-    body = "query result(low: Int not null):\n    from rows\n    where id > low\n"
+    body = "query result(low: Int):\n    from rows\n    where id > low\n"
     body += "    select:\n        display_text = text\n"
     _, outcome = parameterized_case(tmp_path, "mysql", body)
     assert outcome.status == "VERIFIED"

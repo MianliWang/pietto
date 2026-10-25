@@ -49,6 +49,16 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#relationshipTemplate.
+    def visitRelationshipTemplate(self, ctx:PiettoParser.RelationshipTemplateContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#relationshipParameter.
+    def visitRelationshipParameter(self, ctx:PiettoParser.RelationshipParameterContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#relationshipBody.
     def visitRelationshipBody(self, ctx:PiettoParser.RelationshipBodyContext):
         return self.visitChildren(ctx)
@@ -309,6 +319,16 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#relationStep.
+    def visitRelationStep(self, ctx:PiettoParser.RelationStepContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#queryLetDeclaration.
+    def visitQueryLetDeclaration(self, ctx:PiettoParser.QueryLetDeclarationContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#fromClause.
     def visitFromClause(self, ctx:PiettoParser.FromClauseContext):
         return self.visitChildren(ctx)
@@ -479,6 +499,16 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#compactWindowSpec.
+    def visitCompactWindowSpec(self, ctx:PiettoParser.CompactWindowSpecContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#compactWindowFrame.
+    def visitCompactWindowFrame(self, ctx:PiettoParser.CompactWindowFrameContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#windowInlineClause.
     def visitWindowInlineClause(self, ctx:PiettoParser.WindowInlineClauseContext):
         return self.visitChildren(ctx)
@@ -526,6 +556,16 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#qualifyClause.
     def visitQualifyClause(self, ctx:PiettoParser.QualifyClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyBody.
+    def visitQualifyBody(self, ctx:PiettoParser.QualifyBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#qualifyLine.
+    def visitQualifyLine(self, ctx:PiettoParser.QualifyLineContext):
         return self.visitChildren(ctx)
 
 
@@ -666,6 +706,11 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#primaryExpression.
     def visitPrimaryExpression(self, ctx:PiettoParser.PrimaryExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#anyExpression.
+    def visitAnyExpression(self, ctx:PiettoParser.AnyExpressionContext):
         return self.visitChildren(ctx)
 
 

@@ -1,27 +1,27 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass, fields
+from dataclasses import fields
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
 import _pietto_project_windows as slice10
-from pietto._project import project_completion as completion
-from pietto._project import project_joined_aggregation as aggregation
 from pietto._project import project_joined_qualify as qualify
 from pietto._project import project_joined_row_filter as row_filter
 from pietto._project import project_joined_windows as windows
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
 )
-from pietto._project.project_completion import ProjectEffectiveOutputTerminalReason
+from pietto._project.project_completed_semantics import (
+    ProjectConcreteCompletedSemanticResult,
+    build_project_completed_semantic_result,
+)
 from pietto._project.project_ir_properties import ProjectIRPropertyAvailability
 from pietto.ast_nodes import (
     BinaryExpr,
     CallExpr,
-    CastExpr,
     ComparisonExpr,
     DottedNameExpr,
     MembershipExpr,
@@ -55,393 +55,342 @@ QUALIFY_SOURCE = (
     slice10.WINDOW_SOURCE
     + """
 shape FlagRow:
-    id: Int not null
-    account_id: Int not null
-    active: Bool nullable
-    unique flag_key on id
-source flags: FlagRow is postgres.table("flags")
-relationship account_flags:
-    endpoint account: accounts
-    endpoint flag: flags
-    on account.id == flag.account_id
+    id: Int
+    account_id: Int
+    active: Bool | None
+    flag_key = unique(id)
+source flags: FlagRow = postgres.table("flags")
+relationship account_flags(account: AccountRow, flag: FlagRow):
+    account.id == flag.account_id
 query qualify_selected:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(
+            order by
+                event.id)
     qualify:
         ranked <= 3 and event.account_id > 0
 query qualify_selected_input_only:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                event.id
+        ranked = rank() window(
+            order by
+                event.id)
     qualify:
         account_id > 0
 query qualify_hidden_only:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        row_number() window:
-            order by:
-                event.id
-        <= 3
+        row_number() window(
+            order by
+                event.id) <= 3
 query qualify_no_window:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
         account_id > 0
 query qualify_unknown:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(
+            order by
+                event.id)
     qualify:
         missing > 0
 query qualify_joined_ambiguous:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(
+            order by
+                event.id)
     qualify:
         id > 0
 query qualify_cross_domain_collision:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        account_id = row_number() window:
-            order by:
-                event.id
+        account_id = row_number() window(
+            order by
+                event.id)
     qualify:
         account_id > 0
 query qualify_cross_domain_qualified:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        account_id = row_number() window:
-            order by:
-                event.id
+        account_id = row_number() window(
+            order by
+                event.id)
     qualify:
         event.account_id > 0
 query qualify_computed_alias:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         doubled = event.metric * 2
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(
+            order by
+                event.id)
     qualify:
         doubled > 0
 query qualify_direct_alias:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         renamed = event.account_id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(
+            order by
+                event.id)
     qualify:
         renamed > 0
 query qualify_direct_alias_input:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         renamed = event.account_id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(
+            order by
+                event.id)
     qualify:
         account_id > 0
 query qualify_let:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        key = event.account_id
+    let event = events
+    inner join event on account_events(accounts, event)
+
+    let key = event.account_id
     select:
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(
+            order by
+                event.id)
     qualify:
         key > 0
 query qualify_grouped:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        key = event.id
-        chain = key
+    let event = events
+    inner join event on account_events(accounts, event)
+
+    let key = event.id
+    let chain = key
     group by:
         key
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            order by:
-                total
+        ranked = rank() window(
+            order by
+                total)
     qualify:
         event_id > 0 and total > 0 and chain > 0
 query qualify_grouped_original:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            order by:
-                total
+        ranked = rank() window(
+            order by
+                total)
     qualify:
         event.id > 0
 query qualify_selected_bool:
     from accounts
-    inner join flags as flag:
-        from accounts
-        via account_flags: account -> flag
+    let flag = flags
+    inner join flag on account_flags(accounts, flag)
     select:
-        previous = lag(flag.active) window:
-            order by:
-                flag.id
+        previous = lag(flag.active) window(
+            order by
+                flag.id)
     qualify:
         previous
 query qualify_nullable_input_bool:
     from accounts
-    inner join flags as flag:
-        from accounts
-        via account_flags: account -> flag
+    let flag = flags
+    inner join flag on account_flags(accounts, flag)
     select:
-        ranked = rank() window:
-            order by:
-                flag.id
+        ranked = rank() window(
+            order by
+                flag.id)
     qualify:
         flag.active
 query qualify_scalar_selected:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        previous = lag(event.label) window:
-            order by:
-                event.id
+        previous = lag(event.label) window(
+            order by
+                event.id)
     qualify:
         len(previous) > 0
 query qualify_non_bool:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                event.id
+        ranked = rank() window(
+            order by
+                event.id)
     qualify:
         event.metric
 query qualify_aggregate_call:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                event.id
+        ranked = rank() window(
+            order by
+                event.id)
     qualify:
         sum(event.metric) > 0
 query qualify_hidden_rank:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        rank() window:
-            order by:
-                event.id
-        <= 3
+        rank() window(
+            order by
+                event.id) <= 3
 query qualify_hidden_lag:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        lag(event.metric, 0, event.metric) ignore nulls window:
-            order by:
-                event.id
-        > 0
+        lag(event.metric, 0, event.metric) ignore nulls window(
+            order by
+                event.id) > 0
 query qualify_hidden_first_rows:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        first_value(event.metric) ignore nulls window:
-            order by:
+        first_value(event.metric) ignore nulls window(
+            order by
                 event.id
-            rows between unbounded preceding and current row exclude ties
-        is not null
+            rows between unbounded preceding and current row exclude ties) is not None
 query qualify_hidden_last_range:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        last_value(event.metric) window:
-            order by:
+        last_value(event.metric) window(
+            order by
                 event.id
-            range current row exclude current row
-        is null
+            range current row exclude current row) is None
 query qualify_hidden_nth_groups:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        nth_value(event.metric, 2) from last ignore nulls window:
-            order by:
+        nth_value(event.metric, 2) from last ignore nulls window(
+            order by
                 event.id
-            groups current row exclude group
-        is null
+            groups current row exclude group) is None
 query qualify_hidden_repeated:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        row_number() window:
-            order by:
-                event.id
-        <= 3 and row_number() window:
-            order by:
-                event.id
-        <= 5
+        row_number() window(
+            order by
+                event.id) <= 3 and row_number() window(
+            order by
+                event.id) <= 5
 query qualify_hidden_invalid:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        lag(missing) window:
-            order by:
-                event.id
-        > 0
+        lag(missing) window(
+            order by
+                event.id) > 0
 query qualify_hidden_selected_input:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(
+            order by
+                event.id)
     qualify:
-        lag(ranked) window:
-            order by:
-                event.id
-        > 0
+        lag(ranked) window(
+            order by
+                event.id) > 0
 query qualify_upstream_window_bad:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                id
+        ranked = rank() window(
+            order by
+                id)
     qualify:
-        true
+        True
 """
 )
 
 
-@dataclass(frozen=True, slots=True)
-class _Built:
-    completion: completion.ProjectCompletion
-    filters: row_filter.ProjectJoinedRowFilterSet
-    aggregations: aggregation.ProjectJoinedAggregationSet
-    windows: windows.ProjectJoinedWindowStageSet
-    qualifies: qualify.ProjectJoinedQualifySet
-
-
 @pytest.fixture(scope="module")
-def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
+def built(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> ProjectConcreteCompletedSemanticResult:
     semantic = slice10.slice9.slice7._semantic_project(
         tmp_path_factory.mktemp("p63s11") / "project",
         {"main.pietto": QUALIFY_SOURCE},
         reverse_creation=False,
     )
-    completed = completion.build_project_completion(
-        slice10.slice9.slice7._phase62(semantic)
-    )
-    filters = row_filter.build_project_joined_row_filters(completed)
-    aggregations = aggregation.build_project_joined_aggregations(filters)
-    window_set = windows.build_project_joined_window_stages(aggregations)
-    return _Built(
-        completion=completed,
-        filters=filters,
-        aggregations=aggregations,
-        windows=window_set,
-        qualifies=qualify.build_project_joined_qualifies(window_set),
-    )
+    result = build_project_completed_semantic_result(semantic)
+    assert isinstance(result, ProjectConcreteCompletedSemanticResult)
+    return result
 
 
-def _result(built: _Built, name: str) -> qualify.ProjectJoinedQualifyResult:
+def _result(
+    built: ProjectConcreteCompletedSemanticResult, name: str
+) -> qualify.ProjectJoinedQualifyResult:
     matches = tuple(
         result
-        for result in built.qualifies.results
+        for tail in (
+            built.effective_outputs.joined_qualifies,
+            *built.effective_outputs.current_tails,
+        )
+        for result in tail.results
         if result.window_stage.input_aggregation.input_filter.entry.owner.identity.declared_name
         == name
     )
@@ -462,9 +411,9 @@ def _parse(source: str):
 
 
 MINIMAL_PREFIX = """shape Row:
-    item: Int not null
-    qualify: Int not null
-source rows: Row is postgres.table("rows")
+    item: Int
+    qualify: Int
+source rows: Row = postgres.table("rows")
 """
 
 
@@ -475,10 +424,9 @@ def test_qualify_ast_retains_exact_clause_hidden_window_and_precedence() -> None
         "    select:\n"
         "        item\n"
         "    qualify:\n"
-        "        row_number() window:\n"
-        "            order by:\n"
-        "                item\n"
-        "        <= 3 and item > 0\n"
+        "        row_number() window(\n"
+        "            order by\n"
+        "                item) <= 3 and item > 0\n"
     )
     assert parsed.diagnostics == () and parsed.ast is not None
     query = cast(QueryDef, parsed.ast.definitions[-1])
@@ -548,7 +496,7 @@ def test_qualify_mirrors_relation_reference_expressions_and_names() -> None:
     "body",
     (
         "    qualify:\n        item > 0\n    qualify:\n        item < 10\n",
-        "    qualify:\n        item > 0\n    satisfying:\n        item > 0\n",
+        "    qualify:\n        item > 0\n    having:\n        item > 0\n",
         "    order by:\n        item\n    qualify:\n        item > 0\n",
         "    limit 1\n    qualify:\n        item > 0\n",
         "    qualify:\n",
@@ -568,26 +516,24 @@ def test_qualify_clause_order_empty_duplicate_and_hidden_named_are_parser_negati
 @pytest.mark.parametrize(
     ("operand", "tail", "shape"),
     (
-        ("coalesce(lag(item) window:", ", 0) > 1", "call"),
-        ("abs(lag(item) window:", ") > 1", "call"),
-        ("cast(row_number() window:", "as Int) > 1", "cast"),
-        ("1 in (row_number() window:", ", 2)", "in"),
-        ("not coalesce(rank() window:", ", 0) > 3", "call"),
-        ("(row_number() window:", ") <= 3", "comparison"),
-        ("3 >= (rank() window:", ")", "comparison"),
-        ("not (rank() window:", "> 3)", "not"),
+        ("coalesce(lag(item) window(", ", 0) > 1", "call"),
+        ("abs(lag(item) window(", ") > 1", "call"),
+        ("Float(row_number() window(", ") > 1", "call"),
+        ("1 in (row_number() window(", ", 2)", "in"),
+        ("not coalesce(rank() window(", ", 0) > 3", "call"),
+        ("(row_number() window(", ") <= 3", "comparison"),
+        ("3 >= (rank() window(", ")", "comparison"),
+        ("not (rank() window(", "> 3)", "not"),
     ),
 )
-def test_a_window_block_in_parentheses_keeps_its_block_layout(
+def test_a_parenthesized_window_keeps_nested_expression_layout(
     operand: str, tail: str, shape: str
 ) -> None:
-    # Inside any parentheses the window block keeps its line breaks until they
-    # close, so these operands parse as they always did.
     parsed = _parse(
         MINIMAL_PREFIX
         + "query ok:\n    from rows\n    select:\n        item\n    qualify:\n"
         + f"        {operand}\n"
-        + "            order by:\n                item\n"
+        + "            order by\n                item)\n"
         + f"        {tail}\n"
     )
     assert parsed.diagnostics == () and parsed.ast is not None
@@ -605,10 +551,9 @@ def test_a_window_block_in_parentheses_keeps_its_block_layout(
         NameExpr(span=window.spec.order_by[0].expression.span, name="item")
     ]
     span = window.span
-    assert (span.line, span.end_line, span.end_column) == (10, 12, 21)
+    assert (span.line, span.end_line, span.end_column) == (10, 12, 22)
     holder = {
         "call": CallExpr,
-        "cast": CastExpr,
         "in": MembershipExpr,
         "comparison": ComparisonExpr,
         "not": UnaryExpr,
@@ -634,9 +579,9 @@ def _walk(node: object) -> list[object]:
 @pytest.mark.parametrize(
     "body",
     (
-        "    where row_number() window:\n        order by:\n            item\n",
-        "    let:\n        bad = row_number() window:\n            order by:\n                item\n",
-        "    group by:\n        row_number() window:\n            order by:\n                item\n",
+        "    where row_number() window(\n        order by\n            item)\n",
+        "    let bad = row_number() window(order by item)\n",
+        "    group by:\n        row_number() window(\n            order by\n                item)\n",
     ),
 )
 def test_global_expression_contexts_still_reject_window_expression(body: str) -> None:
@@ -656,9 +601,9 @@ def test_existing_source_has_none_qualify_and_selected_window_ast_is_unchanged()
         MINIMAL_PREFIX + "query old:\n"
         "    from rows\n"
         "    select:\n"
-        "        ranked = row_number() window:\n"
-        "            order by:\n"
-        "                item\n"
+        "        ranked = row_number() window(\n"
+        "            order by\n"
+        "                item)\n"
     )
     assert parsed.diagnostics == () and parsed.ast is not None
     query = cast(QueryDef, parsed.ast.definitions[-1])
@@ -668,7 +613,9 @@ def test_existing_source_has_none_qualify_and_selected_window_ast_is_unchanged()
     assert expression.use_kind is WindowUseKind.INLINE
 
 
-def test_absent_and_upstream_nonconcrete_stages_are_closed(built: _Built) -> None:
+def test_absent_and_upstream_nonconcrete_stages_are_closed(
+    built: ProjectConcreteCompletedSemanticResult,
+) -> None:
     absent = _result(built, "absent_stage")
     upstream = _result(built, "qualify_upstream_window_bad")
     assert type(absent) is qualify.ProjectConcreteJoinedQualify
@@ -687,7 +634,7 @@ def test_absent_and_upstream_nonconcrete_stages_are_closed(built: _Built) -> Non
 
 
 def test_selected_result_and_pre_window_references_share_exact_outer_lookup(
-    built: _Built,
+    built: ProjectConcreteCompletedSemanticResult,
 ) -> None:
     selected = _result(built, "qualify_selected")
     input_only = _result(built, "qualify_selected_input_only")
@@ -712,7 +659,7 @@ def test_selected_result_and_pre_window_references_share_exact_outer_lookup(
 
 
 def test_joined_and_cross_domain_ambiguity_retain_complete_buckets_without_winner(
-    built: _Built,
+    built: ProjectConcreteCompletedSemanticResult,
 ) -> None:
     joined = _result(built, "qualify_joined_ambiguous")
     collision = _result(built, "qualify_cross_domain_collision")
@@ -738,7 +685,7 @@ def test_joined_and_cross_domain_ambiguity_retain_complete_buckets_without_winne
 
 
 def test_projection_aliases_never_flow_backward_but_actual_input_and_let_do(
-    built: _Built,
+    built: ProjectConcreteCompletedSemanticResult,
 ) -> None:
     computed = _result(built, "qualify_computed_alias")
     direct = _result(built, "qualify_direct_alias")
@@ -757,7 +704,7 @@ def test_projection_aliases_never_flow_backward_but_actual_input_and_let_do(
 
 
 def test_grouped_outputs_and_group_key_let_are_visible_but_joined_input_is_not(
-    built: _Built,
+    built: ProjectConcreteCompletedSemanticResult,
 ) -> None:
     grouped = _result(built, "qualify_grouped")
     original = _result(built, "qualify_grouped_original")
@@ -772,7 +719,7 @@ def test_grouped_outputs_and_group_key_let_are_visible_but_joined_input_is_not(
 
 
 def test_nullable_bool_selected_input_and_scalar_selected_result_are_legal(
-    built: _Built,
+    built: ProjectConcreteCompletedSemanticResult,
 ) -> None:
     selected_bool = _result(built, "qualify_selected_bool")
     input_bool = _result(built, "qualify_nullable_input_bool")
@@ -794,7 +741,7 @@ def test_nullable_bool_selected_input_and_scalar_selected_result_are_legal(
 
 
 def test_hidden_window_families_frames_modifiers_and_repeated_sites_reuse_slice10(
-    built: _Built,
+    built: ProjectConcreteCompletedSemanticResult,
 ) -> None:
     names = (
         "qualify_hidden_only",
@@ -843,7 +790,7 @@ def test_hidden_window_families_frames_modifiers_and_repeated_sites_reuse_slice1
 
 
 def test_hidden_failures_are_atomic_complete_and_cannot_see_selected_results(
-    built: _Built,
+    built: ProjectConcreteCompletedSemanticResult,
 ) -> None:
     invalid = _result(built, "qualify_hidden_invalid")
     sequential = _result(built, "qualify_hidden_selected_input")
@@ -879,7 +826,7 @@ def test_hidden_failures_are_atomic_complete_and_cannot_see_selected_results(
 
 
 def test_window_requirement_reference_bool_and_aggregate_failures_are_distinct(
-    built: _Built,
+    built: ProjectConcreteCompletedSemanticResult,
 ) -> None:
     required = _result(built, "qualify_no_window")
     unknown = _result(built, "qualify_unknown")
@@ -910,7 +857,9 @@ def test_window_requirement_reference_bool_and_aggregate_failures_are_distinct(
     assert _codes(aggregate_call) == ("PIE-S2308",)
 
 
-def test_sql_truth_property_and_output_boundaries_are_exact(built: _Built) -> None:
+def test_sql_truth_property_and_output_boundaries_are_exact(
+    built: ProjectConcreteCompletedSemanticResult,
+) -> None:
     result = _result(built, "qualify_selected")
     assert type(result) is qualify.ProjectConcreteJoinedQualify
     assert result.retention_effects is row_filter._SQL_ROW_RETENTION_EFFECTS
@@ -935,8 +884,13 @@ def test_sql_truth_property_and_output_boundaries_are_exact(built: _Built) -> No
     assert not preservation.establishes_relation_order
     assert preservation.selected_results is result.window_stage.selected_results
     assert result.post_qualify.selected_results is result.window_stage.selected_results
-    assert result.window_stage.input_aggregation.input_filter.entry.reason is (
-        ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
+    filtered = result.window_stage.input_aggregation.input_filter
+    assert filtered.current_semantics is filtered.joined_semantics
+    assert filtered.current_semantics is not None
+    assert any(filtered.entry is entry for entry in built.completion.entries)
+    assert (
+        filtered.entry.owner
+        is filtered.current_semantics.namespaces.binding_environment.ledger.owner
     )
     assert all(
         hidden not in result.post_qualify.selected_results
@@ -944,16 +898,19 @@ def test_sql_truth_property_and_output_boundaries_are_exact(built: _Built) -> No
     )
 
 
-def test_collection_preserves_exact_slice10_order_and_membership(built: _Built) -> None:
-    assert len(built.qualifies.results) == len(built.windows.results)
-    assert all(
-        result.window_stage is stage
-        for result, stage in zip(
-            built.qualifies.results,
-            built.windows.results,
-            strict=True,
+def test_collection_preserves_exact_window_stage_order_and_membership(
+    built: ProjectConcreteCompletedSemanticResult,
+) -> None:
+    assert built.effective_outputs.current_tails
+    for tail in (
+        built.effective_outputs.joined_qualifies,
+        *built.effective_outputs.current_tails,
+    ):
+        assert len(tail.results) == len(tail.window_set.results)
+        assert all(
+            result.window_stage is stage
+            for result, stage in zip(tail.results, tail.window_set.results, strict=True)
         )
-    )
 
 
 def test_scope_kernel_generated_and_contract_boundaries_are_static() -> None:
@@ -983,3 +940,123 @@ def test_scope_kernel_generated_and_contract_boundaries_are_static() -> None:
     assert "assert \"QUALIFY: 'qualify';\" in grammar" in historical
     assert "A3/M17/D0" in spec
     assert "Slice 12 = `NEXT / NOT IMPLEMENTED`" in spec
+
+
+def test_a_qualify_block_joins_its_lines_with_and() -> None:
+    parsed = _parse(
+        MINIMAL_PREFIX + "query ranked:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        item\n"
+        "    qualify:\n"
+        "        row_number() window(order by item) <= 3\n"
+        "\n"
+        "        item > 0 or item is None\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    query = cast(QueryDef, parsed.ast.definitions[-1])
+    assert query.qualify_clause is not None
+    expression = query.qualify_clause.expression
+    assert type(expression) is BinaryExpr and expression.operator == "and"
+    assert type(expression.left) is ComparisonExpr
+    assert type(expression.left.left) is WindowExpr
+    assert type(expression.right) is BinaryExpr and expression.right.operator == "or"
+    span = expression.span
+    assert (span.line, span.column, span.end_line, span.end_column) == (10, 9, 12, 33)
+
+
+@pytest.mark.parametrize("operator", ("and", "or"))
+def test_a_qualify_block_line_cannot_start_with_and_or_or(operator: str) -> None:
+    parsed = _parse(
+        MINIMAL_PREFIX + "query ranked:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        item\n"
+        "    qualify:\n"
+        "        row_number() window(order by item) <= 3\n"
+        f"        {operator} item > 0\n"
+    )
+    assert parsed.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in parsed.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            11,
+            9,
+            "A condition line cannot start with `and` or `or`; the lines of a "
+            "condition block are joined with `and`, and parentheses continue one "
+            "condition across lines.",
+        )
+    ]
+
+
+def test_modern_qualify_retains_nested_window_calls_and_none_chain() -> None:
+    from pietto.ast_nodes import BetweenExpr, CallExpr
+
+    result = parse_source(
+        "query q:\n"
+        "    from rows\n"
+        "    select id\n"
+        "    qualify None <= Float(row_number() window(order by id)) <= 3\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    query = result.ast.definitions[0]
+    assert isinstance(query, QueryDef) and query.qualify_clause is not None
+    expression = query.qualify_clause.expression
+    assert isinstance(expression, BetweenExpr)
+    assert isinstance(expression.value, CallExpr)
+    assert isinstance(expression.value.arguments[0], WindowExpr)
+
+
+_WINDOW_CALL_ROWS = (
+    'shape R:\n    a: Int\n    b: Bool\nsource r: R = postgres.table("r")\n'
+    "query q:\n    from r\n    select:\n        a\n"
+)
+
+
+def test_a_window_call_read_inside_a_window_calls_arguments_keeps_its_error() -> None:
+    # The arguments of a window call hold no window call, so the outer call is
+    # a plain call, and no window may follow it.
+    result = parse_source(
+        _WINDOW_CALL_ROWS
+        + "    qualify:\n        f(lag(a) window(order by a)) window(order by a) > 1\n"
+    )
+
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", 10, 38, "Unexpected 'window'; expected end of line.")]
+
+
+@pytest.mark.parametrize(
+    ("condition", "direction", "treatment"),
+    [
+        ("nth_value(a, 2) from first window(order by a) > 1", "first", None),
+        ("lag(a) respect nulls window(order by a) > 1", None, "respect"),
+    ],
+)
+def test_a_qualify_window_call_keeps_its_direction_and_null_treatment(
+    condition: str, direction: str | None, treatment: str | None
+) -> None:
+    result = parse_source(_WINDOW_CALL_ROWS + f"    qualify {condition}\n")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    (query,) = (item for item in result.ast.definitions if isinstance(item, QueryDef))
+    assert query.qualify_clause is not None
+    expression = query.qualify_clause.expression
+    assert isinstance(expression, ComparisonExpr) and expression.operator == ">"
+    window = expression.left
+    assert isinstance(window, WindowExpr)
+    callee = window.call.callee
+    assert isinstance(callee, NameExpr) and callee.name == condition.split("(")[0]
+    assert (
+        None if window.nth_direction is None else window.nth_direction.kind.value
+    ) == direction
+    assert (
+        None if window.null_treatment is None else window.null_treatment.kind.value
+    ) == treatment

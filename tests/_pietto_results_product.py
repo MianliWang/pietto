@@ -168,9 +168,9 @@ CASES += _integration().GROUPS + _whole().GROUPS
 
 def source(target):
     return f"""shape Row:
-    id: Int not null
-    other: Int nullable
-source rows: Row is {target}.table("opaque.result.fixture")
+    id: Int
+    other: Int | None
+source rows: Row = {target}.table("opaque.result.fixture")
 table result:
     from rows
     select:
@@ -594,10 +594,10 @@ def scalar_fixture(directory, target, *, all_nullable=False):
     names = ("integer", "maybe_integer", "flag", "maybe_flag", "ratio", "maybe_ratio")
     kinds = ("Int", "Int", "Bool", "Bool", "Float", "Float")
     text = "shape Row:\n" + "".join(
-        f"    {name}: {kind} {'nullable' if all_nullable or i % 2 else 'not null'}\n"
+        f"    {name}: {kind}{' | None' if all_nullable or i % 2 else ''}\n"
         for i, (name, kind) in enumerate(zip(names, kinds, strict=True))
     )
-    text += f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+    text += f'source rows: Row = {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
     text += "".join(
         f"        {label} = {name}\n"
         for label, name in zip(SCALAR_LABELS, names, strict=True)
@@ -1192,12 +1192,12 @@ def text_source(target, *, mixed=True, all_nullable=False):
     names = ("text", "maybe_text", "number", "flag", "ratio")[: 5 if mixed else 2]
     kinds = ("Text", "Text", "Int", "Bool", "Float")[: len(names)]
     source_ = "shape Row:\n" + "".join(
-        f"    {name}: {kind} {'nullable' if all_nullable or i == 1 else 'not null'}\n"
+        f"    {name}: {kind}{' | None' if all_nullable or i == 1 else ''}\n"
         for i, (name, kind) in enumerate(zip(names, kinds, strict=True))
     )
     return (
         source_
-        + f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+        + f'source rows: Row = {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
         + "".join(
             f"        {label} = {name}\n"
             for label, name in zip(TEXT_LABELS[: len(names)], names, strict=True)
@@ -2155,12 +2155,12 @@ def decimal_source(target, precision, scale, *, mixed=False, all_nullable=False)
         kinds += ["Int", "Bool", "Float", "Text"]
     names = ("amount", *DECIMAL_LABELS[1 : len(kinds)])
     text = "shape Row:\n" + "".join(
-        f"    {name}: {kind} {'nullable' if all_nullable or i in (1, 5) else 'not null'}\n"
+        f"    {name}: {kind}{' | None' if all_nullable or i in (1, 5) else ''}\n"
         for i, (name, kind) in enumerate(zip(names, kinds, strict=True))
     )
     return (
         text
-        + f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+        + f'source rows: Row = {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
         + "".join(
             f"        {label} = {name}\n"
             for label, name in zip(DECIMAL_LABELS[: len(kinds)], names, strict=True)
@@ -3410,7 +3410,7 @@ def temporal_source(target, *, mixed=False, all_nullable=False, projection=None)
         "Decimal(39, 4)",
     )[: 9 if mixed else 4]
     text = "shape Row:\n" + "".join(
-        f"    {name}: {kind} {'nullable' if all_nullable or i in (1, 3, 7) else 'not null'}\n"
+        f"    {name}: {kind}{' | None' if all_nullable or i in (1, 3, 7) else ''}\n"
         for i, (name, kind) in enumerate(
             zip(TEMPORAL_NAMES[: len(kinds)], kinds, strict=True)
         )
@@ -3423,7 +3423,7 @@ def temporal_source(target, *, mixed=False, all_nullable=False, projection=None)
     )
     return (
         text
-        + f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+        + f'source rows: Row = {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
         + "".join(
             f"        {labels[i]} = {TEMPORAL_NAMES[position]}\n"
             for i, position in enumerate(projection)
@@ -4962,10 +4962,10 @@ def finite_fixture(directory, target, *, all_nullable=False):
     from pietto._project.project_sql_emission import emit_project_sql
 
     text = "shape Row:\n" + "".join(
-        f"    {name}: {kind} {'nullable' if all_nullable or i % 2 else 'not null'}\n"
+        f"    {name}: {kind}{' | None' if all_nullable or i % 2 else ''}\n"
         for i, (name, kind) in enumerate(zip(FINITE_NAMES, FINITE_KINDS, strict=True))
     )
-    text += f'source rows: Row is {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
+    text += f'source rows: Row = {target}.table("opaque.result.fixture")\ntable result:\n    from rows\n    select:\n'
     text += "".join(
         f"        {label} = {name}\n"
         for label, name in zip(FINITE_LABELS, FINITE_NAMES, strict=True)
@@ -10545,11 +10545,11 @@ type Label = Text:
     ensure self != "café é"
 """
     body = """shape Row:
-    id: Int not null
-    label: Label nullable
-    amount: Money nullable
-    second: Money not null
-source rows: Row is postgres.table("rows")
+    id: Int
+    label: Label | None
+    amount: Money | None
+    second: Money
+source rows: Row = postgres.table("rows")
 table result:
     from rows
     select:
@@ -10563,9 +10563,8 @@ table result:
     if imported:
         body = body.replace("        id desc\n", "        id + 0 desc\n")
         return {
-            "types.pietto": types + "export:\n    type Money\n    type Label\n",
-            "main.pietto": 'import "types.pietto":\n    type Money\n    type Label\n'
-            + body,
+            "types.pietto": types + "export type Money, type Label\n",
+            "main.pietto": 'from "types.pietto" import type Money, type Label\n' + body,
         }
     return {"main.pietto": types + body}
 

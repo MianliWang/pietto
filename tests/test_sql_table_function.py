@@ -57,13 +57,13 @@ LET_DESCENDING = (
 # The series on either side of a JOIN with a physical source.
 LET_JOIN = (
     "query result:\n    let s:\n        from generate_series(1, 2, 1) as n\n"
-    "        select:\n            n\n    from lhs\n    inner join s as t:\n"
-    "        from lhs\n        on lhs.id == t.n\n    select:\n        a = lhs.id\n"
+    "        select:\n            n\n    from lhs\n    let t = s\n"
+    "    inner join t on lhs.id == t.n\n    select:\n        a = lhs.id\n"
     "        b = t.n\n"
 )
 LEFT_JOIN = (
     "query result:\n    from generate_series(1, 2, 1) as n\n"
-    "    inner join lhs as l:\n        from n\n        on n.n == l.id\n"
+    "    let l = lhs\n    inner join l on n.n == l.id\n"
     "    select:\n        a = n.n\n        b = l.id\n"
 )
 BODIES = {
@@ -277,7 +277,7 @@ def test_the_emission_verifier_rejects_a_series_unit_the_builder_changed(
 
 
 LET_VALUES = (
-    "query result:\n    let seed:\n        values(id: Int not null):\n"
+    "query result:\n    let seed:\n        values(id: Int):\n"
     "            7\n            8\n            9\n    from seed\n    select:\n"
     "        id\n"
 )
@@ -390,8 +390,8 @@ def test_every_refused_call_is_blocked_at_its_own_input_in_source_order(
     first, second = "a" * 64, "b" * 64
     body = (
         f"query result:\n    let s:\n        from generate_series(1, 2, 1) as {first}\n"
-        f"        inner join u as t:\n            from {first}\n"
-        f"            on {first}.{first} == t.w\n"
+        "        let t = u\n"
+        f"        inner join t on {first}.{first} == t.w\n"
         f"        select:\n            v = {first}.{first}\n"
         f"    let u:\n        from generate_series(1, 2, 1) as {second}\n"
         f"        select:\n            w = {second}\n"
@@ -417,7 +417,7 @@ def test_every_refused_call_is_blocked_at_its_own_input_in_source_order(
             },
             "related": [],
         }
-        for position, line in ((1, 8), (0, 15))
+        for position, line in ((1, 8), (0, 14))
     ]
 
 
@@ -502,9 +502,8 @@ CAPTURED_SERIES = {
         select:
             id
     from generate_series(1, 3, 1) as n
-    inner join lhs as l:
-        from n
-        on n.n == l.id
+    let l = lhs
+    inner join l on n.n == l.id
     where exists m
     select:
         a = n.n
@@ -517,11 +516,10 @@ CAPTURED_SERIES = {
         select:
             id
     from generate_series(1, 3, 1) as n
-    left join lhs as l:
-        from n
-        on n.n == l.id
-    cross join m as o:
-        from l
+    let l = lhs
+    left join l on n.n == l.id
+    let o = m
+    cross join o
     select:
         a = n.n
         b = o.id
@@ -643,9 +641,9 @@ def test_mysql_refuses_ordered_reads_beside_a_refused_series(
 SERIES_VALUES_JOIN = (
     "query result:\n    let s:\n        from generate_series(1, 3, 1) as n\n"
     "        select:\n            n\n"
-    "    let seed:\n        values(id: Int not null, label: Text nullable):\n"
-    '            1, "a"\n            3, null\n'
-    "    from s\n    left join seed as v:\n        from s\n        on s.n == v.id\n"
+    "    let seed:\n        values(id: Int, label: Text | None):\n"
+    '            1, "a"\n            3, None\n'
+    "    from s\n    let v = seed\n    left join v on s.n == v.id\n"
     "    select:\n        n\n        label = v.label\n"
 )
 

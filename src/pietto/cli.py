@@ -20,6 +20,7 @@ from pietto.ir.diagnostics import join_explain_diagnostics
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
 from pietto import cli_json
+from pietto.source_migration import migrate_file
 from pietto._metadata.builder import build_semantic_metadata_artifact
 from pietto._metadata.serializer import (
     SemanticMetadataFailureStage,
@@ -64,7 +65,7 @@ from pietto._output_file import (
 from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
 
-_FALLBACK_VERSION = "0.1.4"
+_FALLBACK_VERSION = "0.1.5"
 _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"
@@ -232,6 +233,8 @@ def _main(argv: Sequence[str] | None = None) -> int:
         )
     if namespace.command == "explain":
         return _run_explain_command(namespace)
+    if namespace.command == "migrate":
+        return _run_migrate(namespace.path)
     return 0
 
 
@@ -264,6 +267,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="explain one Pietto file or project",
     )
     _configure_explain_parser(explain_parser)
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="write migrated Pietto source to stdout without changing the input",
+    )
+    migrate_parser.add_argument("path", type=Path, help="Pietto source file")
     return parser
 
 
@@ -611,14 +619,27 @@ def _project_check_semantics(
     parse_result: ProjectParseCheckResult,
 ) -> tuple[tuple[Diagnostic, ...], bool]:
     """Check project semantics; as in a single file, exhausting the recursion
-    limit is PIE-S2006."""
+    limit is PIE-S2006.
+
+    Every diagnostic that a project check reports after the parse check's own
+    comes from here. As the project JSON v2 contract states, an explicit-module
+    check reports a diagnostic equal to an earlier one once, at its first
+    position; the parse check applies that rule to its own diagnostics."""
 
     try:
-        return _project_semantic_boundary(
+        diagnostics, ok = _project_semantic_boundary(
             build_empty_project_semantic_result(parse_result)
         )
     except RecursionError:
-        return (project_recursion_limit_diagnostic(parse_result),), False
+        diagnostics, ok = (project_recursion_limit_diagnostic(parse_result),), False
+    if parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
+        earlier = set(parse_result.diagnostics)
+        diagnostics = tuple(
+            diagnostic
+            for diagnostic in dict.fromkeys(diagnostics)
+            if diagnostic not in earlier
+        )
+    return diagnostics, ok
 
 
 def _project_semantic_boundary(
@@ -666,6 +687,21 @@ def _print_project_error(error: ProjectDiscoveryError) -> None:
     if error.path is not None:
         message = f"{message} (path: {_escape_cli_text(error.path)})"
     _write_stderr(f"{message}\n")
+
+
+def _run_migrate(path: Path) -> int:
+    """Emit a complete source migration or diagnostics, never a partial rewrite."""
+
+    try:
+        result = migrate_file(path)
+    except (OSError, UnicodeError) as error:
+        _print_cli_error(path, _cli_error_message(error, path))
+        return _EXIT_USAGE_ERROR
+    _render_diagnostics(result.diagnostics, fallback_path=path)
+    if result.source is None:
+        return _EXIT_DIAGNOSTIC_ERROR
+    _write_stdout(result.source.encode("utf-8"))
+    return 0
 
 
 def _run_check(

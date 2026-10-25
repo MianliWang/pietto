@@ -33,7 +33,7 @@ def test_unary_numeric_matrix_preserves_current_behavior() -> None:
                     f"Invalid operands for operator {operator}: expected numeric operand",
                 ),
             )
-        value, diagnostics = expression_facts(operator + "null")
+        value, diagnostics = expression_facts(operator + "None")
         assert value.kind is ValueTypeKind.UNKNOWN
         assert diagnostics == ()
 
@@ -128,8 +128,8 @@ def test_bool_operator_matrix_preserves_current_behavior() -> None:
                 ),
             )
         for left, right in (
-            ("active", "null"),
-            ("null", "active"),
+            ("active", "None"),
+            ("None", "active"),
         ):
             value, diagnostics = expression_facts(f"{left} {operator} {right}")
             assert value.kind is ValueTypeKind.UNKNOWN
@@ -146,7 +146,7 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
         "active != active",
         "order_date <= created_at",
         'created_at >= "2024-01-01"',
-        "amount between tax and score",
+        "tax <= amount <= score",
     ):
         value, diagnostics = expression_facts(expression)
         assert value.resolved_type.name == "Bool"
@@ -157,7 +157,7 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
         ('amount == "x"', "=="),
         ("active < amount", "<"),
         ("created_at != 1", "!="),
-        ('amount between 1 and "z"', "between"),
+        ('1 <= amount <= "z"', "between"),
     ):
         value, diagnostics = expression_facts(expression)
         assert value.kind is ValueTypeKind.UNKNOWN
@@ -169,8 +169,8 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
         )
 
     for expression, operator, remedy in (
-        ("null == status", "==", "; write `is null` instead"),
-        ("amount between null and null", "between", ""),
+        ("None == status", "==", "; write `is None` instead"),
+        ("None <= amount <= None", "between", ""),
     ):
         value, diagnostics = expression_facts(expression)
         assert value.kind is ValueTypeKind.UNKNOWN
@@ -183,11 +183,11 @@ def test_comparison_between_and_is_null_boundaries_preserve_behavior() -> None:
         )
 
     # One null bound may be FALSE: the test is a Bool the other bound decides.
-    value, diagnostics = expression_facts("amount between null and 5")
+    value, diagnostics = expression_facts("None <= amount <= 5")
     assert value.resolved_type.name == "Bool"
     assert value.nullability is EffectiveNullability.UNKNOWN
     assert diagnostics == ()
-    value, diagnostics = expression_facts("created_at is null")
+    value, diagnostics = expression_facts("created_at is None")
     assert value.resolved_type.name == "Bool"
     assert value.nullability is EffectiveNullability.NON_NULL
     assert diagnostics == ()
@@ -202,10 +202,10 @@ def test_a_null_arithmetic_operand_takes_the_type_of_the_other_operand() -> None
     rejects; and the expression stayed of unknown type, so `trim(null % f)`
     passed too."""
     for expression, type_name in (
-        ("amount + null", "Int"),
-        ("null - score", "Float"),
-        ("price * null", "Decimal"),
-        ("amount % null", "Int"),
+        ("amount + None", "Int"),
+        ("None - score", "Float"),
+        ("price * None", "Decimal"),
+        ("amount % None", "Int"),
     ):
         value, diagnostics = expression_facts(expression)
         assert (value.kind, value.resolved_type.name, value.nullability) == (
@@ -214,21 +214,21 @@ def test_a_null_arithmetic_operand_takes_the_type_of_the_other_operand() -> None
             EffectiveNullability.NULLABLE,
         ), expression
         assert diagnostics == (), expression
-    for expression in ("null / price", "null + null", "-null"):
+    for expression in ("None / price", "None + None", "-None"):
         value, diagnostics = expression_facts(expression)
         assert value.kind is ValueTypeKind.UNKNOWN
         assert diagnostics == (), expression
 
     for expression, operator, expected in (
         (
-            "status + null",
+            "status + None",
             "+",
             "numeric operands; string concatenation is not supported yet",
         ),
-        ("null - active", "-", "numeric operands"),
-        ("order_date * null", "*", "numeric operands"),
-        ("score % null", "%", "Int operands"),
-        ("null / status", "/", "numeric operands"),
+        ("None - active", "-", "numeric operands"),
+        ("order_date * None", "*", "numeric operands"),
+        ("score % None", "%", "Int operands"),
+        ("None / status", "/", "numeric operands"),
     ):
         value, diagnostics = expression_facts(expression)
         assert value.kind is ValueTypeKind.UNKNOWN
@@ -248,8 +248,8 @@ def test_membership_mixes_decimal_with_int_as_its_comparisons_do() -> None:
         ("price not in (amount, -2)", EffectiveNullability.NON_NULL),
         ("amount in (price, discount)", EffectiveNullability.NULLABLE),
         ("discount in (1)", EffectiveNullability.NULLABLE),
-        ("price in (1, null)", EffectiveNullability.NULLABLE),
-        ("amount not in (null, price)", EffectiveNullability.NULLABLE),
+        ("price in (1, None)", EffectiveNullability.NULLABLE),
+        ("amount not in (None, price)", EffectiveNullability.NULLABLE),
         ("price in (amount + 1)", EffectiveNullability.UNKNOWN),
     ):
         value, diagnostics = expression_facts(expression)
@@ -286,18 +286,18 @@ def test_a_null_option_hides_no_option_the_value_does_not_compare_with() -> None
     # the list of unknown type, as PostgreSQL runs `"amount" IN (2.5, NULL)`,
     # and a null among options of one type is still typed by them.
     source = (
-        "shape Row:\n    id: Int not null\n    amount: Decimal(12, 2) not null\n"
-        "    ratio: Float nullable\n    label: Text nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "query q:\n    from rows\n    let:\n        k = null\n"
-        '    where id in ("x", null)\n'
+        "shape Row:\n    id: Int\n    amount: Decimal(12, 2)\n"
+        "    ratio: Float | None\n    label: Text | None\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query q:\n    from rows\n    let k = None\n"
+        '    where id in ("x", None)\n'
         "    select:\n"
-        '        a = id in (1, "x", null)\n'
-        "        b = amount in (2.5, null)\n"
-        "        c = ratio not in (1, null, null)\n"
+        '        a = id in (1, "x", None)\n'
+        "        b = amount in (2.5, None)\n"
+        "        c = ratio not in (1, None, None)\n"
         '        d = id in ("x", k)\n'
-        '        e = label in ("a", null)\n'
-        "        f = amount in (1, null)\n"
+        '        e = label in ("a", None)\n'
+        "        f = amount in (1, None)\n"
         "        g = id in (k, 2)\n"
     )
     script = parse_source(source).ast
@@ -316,20 +316,20 @@ def test_a_null_option_hides_no_option_the_value_does_not_compare_with() -> None
             column,
         )
         for operator, line, column in (
-            ("in", 11, 11),
-            ("in", 13, 13),
-            ("in", 16, 13),
+            ("in", 10, 11),
+            ("in", 12, 13),
+            ("in", 15, 13),
         )
     ]
 
 
 _ALIAS_TYPES = (
-    "type Age = Int not null\n"
-    "type Money = Decimal(12, 2) not null\n"
-    "type Cash = Money not null\n"
-    "type Ratio = Float not null\n"
-    "type Flag = Bool not null\n"
-    "type Doc = Json not null\n"
+    "type Age = Int\n"
+    "type Money = Decimal(12, 2)\n"
+    "type Cash = Money\n"
+    "type Ratio = Float\n"
+    "type Flag = Bool\n"
+    "type Doc = Json\n"
 )
 _ALIAS_FIELDS = (
     ("age", "Age", "Int"),
@@ -354,10 +354,10 @@ def _alias_operand_facts(
         (_ALIAS_TYPES if aliased else "\n" * _ALIAS_TYPES.count("\n"))
         + "shape Row:\n"
         + "".join(
-            f"    {name}: {alias if aliased else base} not null\n"
+            f"    {name}: {alias if aliased else base}\n"
             for name, alias, base in _ALIAS_FIELDS
         )
-        + 'source rows: Row is postgres.table("rows")\n'
+        + 'source rows: Row = postgres.table("rows")\n'
         + "table projected:\n    from rows\n    select:\n"
         + f"        value = {expression}\n"
     )
@@ -402,7 +402,7 @@ def test_type_alias_operands_read_as_their_base_type() -> None:
         ("amount in (age, 1)", ("BUILTIN", "Bool", non_null)),
         ("cash not in (bonus)", ("BUILTIN", "Bool", non_null)),
         ("age in (fee, cash)", ("BUILTIN", "Bool", non_null)),
-        ("amount in (age, null)", ("BUILTIN", "Bool", EffectiveNullability.NULLABLE)),
+        ("amount in (age, None)", ("BUILTIN", "Bool", EffectiveNullability.NULLABLE)),
     ):
         facts = _alias_operand_facts(expression, aliased=True)
         assert facts == (expected, ()), expression

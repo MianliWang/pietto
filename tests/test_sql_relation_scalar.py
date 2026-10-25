@@ -88,12 +88,12 @@ HIDDEN = """query result:
 SHAPES = {
     # A typed VALUES let and a zero-row VALUES query are typed by their header.
     "values": """query none:
-    values(rid: Int not null)
+    values(rid: Int)
 query result:
     let seed:
-        values(rid: Int not null, t: Text nullable):
+        values(rid: Int, t: Text | None):
             1, "a"
-            2, null
+            2, None
     from lhs
     where lhs.id == scalar seed.rid
     select:
@@ -107,9 +107,8 @@ query result:
         select:
             rid = id
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    inner join r on lhs.id == r.id
     where lhs.id == scalar picked.rid
     select:
         a = lhs.id
@@ -150,7 +149,7 @@ query result:
     select:
         id
         n = count()
-    satisfying:
+    having:
         n > 1
 query distinct_keys:
     from rhs
@@ -808,7 +807,7 @@ def test_the_verifier_refuses_a_mysql_ordered_scalar_read_on_its_own(
 # header like any other let of it. On PostgreSQL a let ending in ORDER BY and
 # LIMIT keeps them in the wrapper around its read; MySQL refuses that read as
 # it does without parameters.
-HEADER_IN_SCALAR = """query result(cut: Int not null, hi: Int nullable):
+HEADER_IN_SCALAR = """query result(cut: Int, hi: Int | None):
     let m:
         capture lhs
         from rhs
@@ -845,7 +844,7 @@ HEADER_IN_SCALAR_SQL = {
         "CAST(? AS SIGNED)))) AS `t1`) AS `e0`) AS `k` FROM `p0` AS `t3`"
     ),
 }
-HEADER_IN_ORDERED_SCALAR = """query result(cut: Int not null, hi: Int nullable):
+HEADER_IN_ORDERED_SCALAR = """query result(cut: Int, hi: Int | None):
     let m:
         capture lhs
         from rhs

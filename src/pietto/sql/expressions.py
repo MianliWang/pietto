@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pietto.ir.model import (
     AggregateCallIR,
+    AnyFieldIR,
+    ExistsIR,
     BetweenIR,
     BinaryIR,
     CastIR,
@@ -152,6 +154,8 @@ def expression_uses_qualified_field(expression: ExpressionIR) -> bool:
 
     if isinstance(expression, FieldRefIR):
         return bool(expression.qualifier)
+    if isinstance(expression, ExistsIR):
+        return expression_uses_qualified_field(expression.predicate)
     if isinstance(expression, WindowCallIR):
         arguments = getattr(expression, "arguments", ())
         if type(arguments) is tuple and any(
@@ -223,6 +227,27 @@ def expression_uses_qualified_field(expression: ExpressionIR) -> bool:
 
 
 def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
+    if isinstance(expression, AnyFieldIR):
+        return quote_qualified_identifier((expression.binding, expression.name))
+    if isinstance(expression, ExistsIR):
+        if expression.connector is None:
+            parts = (expression.target.name,)
+        else:
+            connector = expression.connector
+            if (
+                connector.name != "postgres.table"
+                or len(connector.arguments) != 1
+                or not isinstance(connector.arguments[0], str)
+                or not connector.arguments[0]
+            ):
+                raise ValueError("Scalar ANY requires postgres.table(Text)")
+            parts = tuple(connector.arguments[0].split("."))
+            if len(parts) > 2 or not all(parts):
+                raise ValueError(
+                    "Scalar ANY table name must be <table> or <schema>.<table>"
+                )
+        predicate = _render_expression_sql(expression.predicate, nested=False)
+        return f"EXISTS (SELECT 1 FROM {quote_qualified_identifier(parts)} AS {quote_identifier(expression.binding)} WHERE {predicate})"
     if isinstance(expression, LiteralIR):
         return render_literal(expression.value)
     if isinstance(expression, FieldRefIR):

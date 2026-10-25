@@ -37,8 +37,7 @@ BUILTIN_TYPES = (
 
 def test_builtin_type_catalog_resolves_supported_names() -> None:
     fields_source = "".join(
-        f"    value_{index}: {name} not null\n"
-        for index, name in enumerate(BUILTIN_TYPES)
+        f"    value_{index}: {name}\n" for index, name in enumerate(BUILTIN_TYPES)
     )
     result = analyze(_parse(f"shape Values:\n{fields_source}"))
     shape = _shape(result.model, "Values")
@@ -50,9 +49,7 @@ def test_builtin_type_catalog_resolves_supported_names() -> None:
 
 
 def test_user_type_alias_resolves_with_forward_reference() -> None:
-    result = analyze(
-        _parse("shape Person:\n    age: Age not null\ntype Age = Int not null\n")
-    )
+    result = analyze(_parse("shape Person:\n    age: Age\ntype Age = Int\n"))
     shape = _shape(result.model, "Person")
     alias = _type_def(result.model, "Age")
 
@@ -65,7 +62,7 @@ def test_user_type_alias_resolves_with_forward_reference() -> None:
 
 def test_enum_type_resolves() -> None:
     result = analyze(
-        _parse("enum Status:\n    active\nshape User:\n    status: Status not null\n")
+        _parse("enum Status:\n    active\nshape User:\n    status: Status\n")
     )
     shape = _shape(result.model, "User")
 
@@ -78,10 +75,10 @@ def test_enum_type_resolves() -> None:
 def test_shape_type_resolves_in_callable_parameter() -> None:
     result = analyze(
         _parse(
-            "constraint valid(user: User not null) -> Bool not null:\n"
-            "    true\n"
+            "constraint valid(user: User) -> Bool:\n"
+            "    return True\n"
             "shape User:\n"
-            "    id: UUID not null\n"
+            "    id: UUID\n"
         )
     )
     constraint = result.model.callable_symbols["valid"]
@@ -94,7 +91,7 @@ def test_shape_type_resolves_in_callable_parameter() -> None:
 
 
 def test_unknown_type_reports_p2002_and_records_placeholder() -> None:
-    result = analyze(_parse("type Value = Missing not null\n"))
+    result = analyze(_parse("type Value = Missing\n"))
     type_expr = _type_def(result.model, "Value").base
 
     assert [
@@ -107,7 +104,7 @@ def test_unknown_type_reports_p2002_and_records_placeholder() -> None:
 
 def test_unknown_type_diagnostic_uses_type_expression_span() -> None:
     path = Path("examples/semantic/unknown-type.pietto")
-    script = _parse("type Value = Missing not null\n", path=path)
+    script = _parse("type Value = Missing\n", path=path)
     definition = script.definitions[0]
     assert isinstance(definition, TypeDef)
     type_expr = definition.base
@@ -121,48 +118,50 @@ def test_unknown_type_diagnostic_uses_type_expression_span() -> None:
     assert diagnostic.location.end_column == type_expr.span.end_column
 
 
-def test_cast_target_participates_in_type_resolution() -> None:
+def test_cast_like_call_to_an_unknown_type_is_an_unknown_function() -> None:
+    # `cast(value as T)` is retired and `Float(value)` is the only cast, so a
+    # call spelled with an unknown type name is an unknown function: its name
+    # is no type expression and gets no type resolution.
     result = analyze(
         _parse(
             "shape User:\n"
-            "    count: Int not null\n"
-            'source users: User is postgres.table("users")\n'
+            "    count: Int\n"
+            'source users: User = postgres.table("users")\n'
             "table projected:\n"
             "    from users\n"
             "    select:\n"
-            "        value = cast(count as Missing)\n",
+            "        value = Missing(count)\n",
             path=Path("cast-target.pietto"),
         )
     )
 
-    target = next(
-        type_expr
+    assert [
+        type_expr.name
         for type_expr in result.model.type_resolutions
         if type_expr.name == "Missing"
-    )
-    assert result.model.type_resolutions[target].kind is TypeKind.UNKNOWN
-    diagnostic = next(
-        diagnostic
+    ] == []
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.path,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
         for diagnostic in result.diagnostics
-        if diagnostic.code == "PIE-S2002"
-    )
-    assert (
-        diagnostic.location.path,
-        diagnostic.location.line,
-        diagnostic.location.column,
-    ) == (target.span.path, target.span.line, target.span.column)
+    ] == [("PIE-S2103", "Unknown function: Missing", "cast-target.pietto", 7, 17)]
 
 
 def test_valid_cast_target_is_not_a_declaration_nullability_warning() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    count: Int not null\n"
-            'source users: User is postgres.table("users")\n'
+            "    count: Int\n"
+            'source users: User = postgres.table("users")\n'
             "table projected:\n"
             "    from users\n"
             "    select:\n"
-            "        value = cast(count as Float)\n"
+            "        value = Float(count)\n"
         )
     )
 
@@ -170,11 +169,7 @@ def test_valid_cast_target_is_not_a_declaration_nullability_warning() -> None:
 
 
 def test_unknown_type_does_not_stop_unrelated_resolution() -> None:
-    result = analyze(
-        _parse(
-            "shape Values:\n    missing: Missing not null\n    text: Text not null\n"
-        )
-    )
+    result = analyze(_parse("shape Values:\n    missing: Missing\n    text: Text\n"))
     shape = _shape(result.model, "Values")
 
     assert (
@@ -188,12 +183,14 @@ def test_unknown_type_does_not_stop_unrelated_resolution() -> None:
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2002"]
 
 
+# A bare type is never None, so no check mode reports it (the implicit
+# nullability diagnostic PIE-S2005 is retired) and it reads as NON_NULL.
 @pytest.mark.parametrize(
     ("mode", "expected"),
     [
         (CheckMode.LOOSE, ()),
-        (CheckMode.CHECKED, (("PIE-S2005", Severity.WARNING),)),
-        (CheckMode.STRICT, (("PIE-S2005", Severity.ERROR),)),
+        (CheckMode.CHECKED, ()),
+        (CheckMode.STRICT, ()),
     ],
 )
 def test_implicit_nullability_mode_policy(
@@ -209,37 +206,45 @@ def test_implicit_nullability_mode_policy(
         )
         == expected
     )
-    assert result.model.type_nullability[type_expr] is EffectiveNullability.UNKNOWN
+    assert result.model.type_nullability[type_expr] is EffectiveNullability.NON_NULL
 
 
+# An alias names a non-null type, so nullability is stated where the alias is
+# used: `Age | None` is nullable and a bare `Age` is not.
 @pytest.mark.parametrize(
     ("syntax", "expected"),
     [
-        ("nullable", EffectiveNullability.NULLABLE),
-        ("not null", EffectiveNullability.NON_NULL),
+        ("| None", EffectiveNullability.NULLABLE),
+        ("", EffectiveNullability.NON_NULL),
     ],
 )
 def test_explicit_nullability_has_no_p2005(
     syntax: str,
     expected: EffectiveNullability,
 ) -> None:
-    result = analyze(_parse(f"type Age = Int {syntax}\n"))
-    type_expr = _type_def(result.model, "Age").base
+    result = analyze(
+        _parse(f"type Age = Int\nshape Person:\n    age: Age {syntax}".rstrip() + "\n")
+    )
+    type_expr = _shape(result.model, "Person").fields[0].type_expr
 
     assert result.diagnostics == ()
     assert result.model.type_nullability[type_expr] is expected
+    assert (
+        result.model.type_nullability[_type_def(result.model, "Age").base]
+        is EffectiveNullability.NON_NULL
+    )
 
 
 def test_all_supported_type_expression_locations_are_recorded() -> None:
     result = analyze(
         _parse(
-            "type Age = Int not null\n"
-            "constraint valid(value: Age nullable) -> Bool not null:\n"
-            "    true\n"
-            "derive normalize(value: Text not null) -> Text nullable:\n"
-            "    value\n"
+            "type Age = Int\n"
+            "constraint valid(value: Age | None) -> Bool:\n"
+            "    return True\n"
+            "derive normalize(value: Text) -> Text | None:\n"
+            "    return value\n"
             "shape User:\n"
-            "    age: Age not null\n"
+            "    age: Age\n"
         )
     )
     alias = _type_def(result.model, "Age")
@@ -264,27 +269,23 @@ def test_all_supported_type_expression_locations_are_recorded() -> None:
 
 
 def test_duplicate_symbol_diagnostic_still_works_with_type_resolution() -> None:
-    result = analyze(_parse("type Value = Int not null\ntype Value = Text not null\n"))
+    result = analyze(_parse("type Value = Int\ntype Value = Text\n"))
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2001"]
 
 
 def test_type_and_duplicate_diagnostics_follow_source_order() -> None:
     result = analyze(
-        _parse(
-            "type First = Missing not null\n"
-            "type Value = Int\n"
-            "type Value = Text not null\n"
-        )
+        _parse("type First = Missing\ntype Value = Decimal(0, 0)\ntype Value = Text\n")
     )
 
     assert [
         (diagnostic.location.line, diagnostic.code) for diagnostic in result.diagnostics
-    ] == [(1, "PIE-S2002"), (2, "PIE-S2005"), (3, "PIE-S2001")]
+    ] == [(1, "PIE-S2002"), (2, "PIE-S2004"), (3, "PIE-S2001")]
 
 
 def test_type_resolution_mappings_are_readonly() -> None:
-    model = analyze(_parse("type Age = Int not null\n")).model
+    model = analyze(_parse("type Age = Int\n")).model
     type_expr = _type_def(model, "Age").base
 
     with pytest.raises(TypeError):
@@ -296,9 +297,7 @@ def test_type_resolution_mappings_are_readonly() -> None:
 
 
 def test_type_resolution_does_not_mutate_input_ast() -> None:
-    script = _parse(
-        "constraint valid(value: Text nullable) -> Bool not null:\n    true\n"
-    )
+    script = _parse("constraint valid(value: Text | None) -> Bool:\n    return True\n")
     original = deepcopy(script)
 
     analyze(script)
@@ -307,9 +306,7 @@ def test_type_resolution_does_not_mutate_input_ast() -> None:
 
 
 def test_semantic_type_model_does_not_expose_antlr_nodes() -> None:
-    result = analyze(
-        _parse("type Age = Int not null\nshape User:\n    age: Age nullable\n")
-    )
+    result = analyze(_parse("type Age = Int\nshape User:\n    age: Age | None\n"))
 
     _assert_no_antlr_nodes(result)
 

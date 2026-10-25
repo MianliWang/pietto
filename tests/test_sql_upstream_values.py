@@ -14,7 +14,6 @@ from pietto._project.project_final_outputs import (
     ProjectCompletedEffectiveOutput,
     ProjectConcreteNoJoinReplay,
     ProjectEffectiveOutputCompletionTerminal,
-    ProjectEffectiveOutputTerminal,
     ProjectExistingEffectiveOutput,
     ProjectNoJoinGroupedOutput,
 )
@@ -22,6 +21,7 @@ from pietto._project.project_joined_aggregation import ProjectJoinedAggregationM
 from pietto._project.project_ir_properties import ProjectIRJoinedRowField
 from pietto._project.project_sql_plan import ProjectSQLPlan
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
+from pietto.ast_nodes import BinaryExpr, ComparisonExpr, DottedNameExpr
 
 TARGETS = ("postgres", "mysql")
 
@@ -33,8 +33,8 @@ PRODUCERS = {
     "literal": "table prod:\n    from rhs\n    select:\n        pid = id\n        marker = 1\n",
     "computed": "table prod:\n    from rhs\n    select:\n        pid = id\n        computed = id + 0\n",
     "let": (
-        "table prod:\n    from rhs\n    let:\n        step = id + 0\n"
-        "        twice = step + 0\n    select:\n        pid = id\n        doubled = twice\n"
+        "table prod:\n    from rhs\n    let step = id + 0\n"
+        "    let twice = step + 0\n    select:\n        pid = id\n        doubled = twice\n"
     ),
     # Controls: a pure field projection and a filter-only body were always
     # concrete, and must keep their established historical route.
@@ -53,7 +53,7 @@ UNCHANGED = ("field_only", "where_only")
 EXCLUDED = {
     "window_order": (
         "table prod:\n    from rhs\n    select:\n        pid = id\n"
-        "        at = row_number() window:\n            order by:\n                id\n"
+        "        at = row_number() window(order by id)\n"
         "    order by:\n        pid\n"
     ),
 }
@@ -61,7 +61,7 @@ EXCLUDED = {
 # the current route with its own completed window results.
 WINDOW_PRODUCER = (
     "table prod:\n    from rhs\n    select:\n        pid = id\n"
-    "        at = row_number() window:\n            order by:\n                id\n"
+    "        at = row_number() window(order by id)\n"
 )
 # Slice8's authorized aggregate-producer completion route: this body now reaches
 # the current route with its own grouped readiness instead of the base route.
@@ -72,9 +72,8 @@ AGGREGATE_PRODUCER = (
 
 CONSUMER = """query result:
     from lhs
-    {kind} join prod as r:
-        from lhs
-        on lhs.id == r.pid
+    let r = prod
+    {kind} join r on lhs.id == r.pid
     select:
         a = lhs.id
         b = r.pid
@@ -284,9 +283,8 @@ def test_a_promoted_right_side_value_is_null_extended_exactly_once(tmp_path, tar
         PRODUCERS["literal"]
         + """query result:
     from lhs
-    left join prod as r:
-        from lhs
-        on lhs.id == r.pid
+    let r = prod
+    left join r on lhs.id == r.pid
     select:
         a = lhs.id
         b = r.pid
@@ -333,15 +331,15 @@ def test_each_join_kind_null_extends_exactly_its_own_side(
     tmp_path, target, kind, nulled_sides
 ):
     """Ordered nulling causes, derived from the kind rather than from the value."""
-    condition = "" if kind == "cross" else "        on lhs.id == r.id\n"
+    condition = "" if kind == "cross" else " on lhs.id == r.id"
     checked, outcome = build(
         tmp_path,
         target,
         f"""query result:
     from lhs
-    {kind} join rhs as r:
-        from lhs
-{condition}    select:
+    let r = rhs
+    {kind} join r{condition}
+    select:
         a = lhs.id
 """,
     )
@@ -365,12 +363,10 @@ def test_an_accumulated_right_join_nulls_the_whole_retained_left(tmp_path, targe
         target,
         """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
-    right join rhs as s:
-        from lhs
-        on lhs.id == s.id
+    let r = rhs
+    inner join r on lhs.id == r.id
+    let s = rhs
+    right join s on lhs.id == s.id
     select:
         a = lhs.id
 """,
@@ -392,21 +388,27 @@ def test_an_accumulated_right_join_nulls_the_whole_retained_left(tmp_path, targe
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("kind", ("semi", "anti"))
 def test_a_membership_join_publishes_only_its_left_side(tmp_path, target, kind):
+    """The JOIN-prefix `[not] any` is the hidden SEMI/ANTI JOIN before the later
+    JOIN: it publishes its left row only, and nulls none of it."""
+    negation = "not " if kind == "anti" else ""
     checked, outcome = build(
         tmp_path,
         target,
         f"""query result:
     from lhs
-    {kind} join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    where {negation}any(lhs.id == r.id for r in r)
+    let later = rhs
+    cross join later
     select:
         a = lhs.id
 """,
     )
     assert outcome.status == "VERIFIED"
     plan = verified_plan(checked)
-    (join,) = plan.joins
+    joins = sorted(plan.joins, key=lambda join: join.position)
+    assert [join.kind.value for join in joins] == [kind, "cross"]
+    join = joins[0]
     inputs = {item.ref: item for item in plan.join_inputs}
     assert len(join.outputs) == len(inputs[join.inputs[0]].ports)
     assert all(
@@ -417,15 +419,20 @@ def test_a_membership_join_publishes_only_its_left_side(tmp_path, target, kind):
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("kind", ("inner", "left"))
 def test_a_relationship_via_route_keeps_its_retained_equality(tmp_path, target, kind):
-    """The optional current route never invents or drops a relationship equality."""
+    """The optional current route never invents or drops a relationship equality.
+
+    The retired `via link: l -> r` route is the relationship call `link(lhs, r)`
+    in ON: the plan keeps that ON and its one mandatory equality, the
+    relationship's own `l.id == r.id` over the two actual rows, and no
+    route-level relationship match.
+    """
     checked, outcome = build(
         tmp_path,
         target,
         f"""query result:
     from lhs
-    {kind} join rhs as r:
-        from lhs
-        via link: l -> r
+    let r = rhs
+    {kind} join r on link(lhs, r)
     select:
         a = lhs.id
 """,
@@ -433,20 +440,27 @@ def test_a_relationship_via_route_keeps_its_retained_equality(tmp_path, target, 
     )
     assert outcome.status == "VERIFIED"
     (join,) = verified_plan(checked).joins
-    assert len(join.equalities) == 1 and join.on is None
+    assert join.equalities == () and join.on is not None
+    (equality,) = join.source.condition.mandatory_equalities
+    assert isinstance(equality.comparison.left, DottedNameExpr)
+    assert isinstance(equality.comparison.right, DottedNameExpr)
+    assert (equality.comparison.left.parts, equality.comparison.right.parts) == (
+        ("lhs", "id"),
+        ("r", "id"),
+    )
 
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_via_route_refined_by_an_authored_predicate_keeps_both(tmp_path, target):
+    """The relationship call and an authored refinement share one ON: the plan
+    keeps both conjuncts and exactly the relationship's mandatory equality."""
     checked, outcome = build(
         tmp_path,
         target,
         """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        via link: l -> r
-        on lhs.key == r.key
+    let r = rhs
+    inner join r on link(lhs, r) and lhs.key == r.key
     select:
         a = lhs.id
 """,
@@ -454,7 +468,26 @@ def test_a_via_route_refined_by_an_authored_predicate_keeps_both(tmp_path, targe
     )
     assert outcome.status == "VERIFIED"
     (join,) = verified_plan(checked).joins
-    assert len(join.equalities) == 1 and join.on is not None
+    assert join.equalities == () and join.on is not None
+    condition = join.source.condition
+    (equality,) = condition.mandatory_equalities
+    assert equality.conjunct_position == 0
+    assert isinstance(equality.comparison.left, DottedNameExpr)
+    assert isinstance(equality.comparison.right, DottedNameExpr)
+    assert (equality.comparison.left.parts, equality.comparison.right.parts) == (
+        ("lhs", "id"),
+        ("r", "id"),
+    )
+    assert isinstance(condition.expression, BinaryExpr)
+    refinement = condition.expression.right
+    assert isinstance(refinement, ComparisonExpr)
+    assert isinstance(refinement.left, DottedNameExpr)
+    assert isinstance(refinement.right, DottedNameExpr)
+    assert (refinement.left.parts, refinement.operator, refinement.right.parts) == (
+        ("lhs", "key"),
+        "==",
+        ("r", "key"),
+    )
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -463,37 +496,43 @@ def test_a_promoted_endpoint_keeps_the_relationship_guarantee_unavailable(
 ):
     """A precise upstream negative, retained rather than worked around.
 
-    Becoming transportable does not make a value a relationship endpoint: the
-    M1/M2/M4 guarantee still needs historical properties this producer has none
-    of. This input failed before the promotion too, and it must keep failing --
-    it is not a successful promoted-`via` witness and discharges no obligation.
+    Becoming transportable does not make a value a relationship endpoint. A
+    relationship is shape-typed now, and a row of the promoted producer is not
+    a row of a declared shape, even one with its field names: the call refuses
+    that argument (PIE-S2604), so it is not a successful promoted-endpoint
+    witness and discharges no obligation.
     """
     checked, outcome = build(
         tmp_path,
         target,
-        """relationship prodlink:
-    endpoint l: lhs
-    endpoint p: prod
-    on l.id == p.pid
+        """shape Prod:
+    pid: Int
+    marker: Int
+relationship prodlink(l: Row, p: Prod):
+    l.id == p.pid
 """
         + PRODUCERS["literal"]
         + """query result:
     from lhs
-    inner join prod as r:
-        from lhs
-        via prodlink: l -> p
+    let r = prod
+    inner join r on prodlink(lhs, r)
     select:
         a = lhs.id
 """,
     )
-    # The producer itself IS promoted; only the relationship guarantee over it
-    # stays unavailable, and the established base route keeps its own reason.
+    # The producer itself IS promoted; only the relationship over it stays
+    # unavailable, and the JOIN that calls it keeps its condition non-concrete.
     assert type(producer_entry(checked)) is ProjectCompletedEffectiveOutput
     entry = producer_entry(checked, "result")
-    assert type(entry) is ProjectEffectiveOutputTerminal
-    assert entry.reason.value == "joined_completion_non_concrete"
+    assert type(entry) is ProjectEffectiveOutputCompletionTerminal
+    assert entry.reason.value == "current_join_condition_non_concrete"
     assert outcome.status == "BLOCKED"
-    assert [item.code for item in outcome.diagnostics] == ["PIE-S2333"]
+    assert [(item.code, item.message) for item in outcome.diagnostics] == [
+        (
+            "PIE-S2604",
+            "Unavailable row argument for relationship prodlink parameter p",
+        )
+    ]
 
 
 @pytest.mark.parametrize("target", TARGETS)

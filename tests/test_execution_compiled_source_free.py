@@ -19,6 +19,135 @@ def forbidden(*args, **kwargs):
     raise AssertionError("source-language elaboration reached from compiled input")
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_any_filters_load_and_emit_without_generator_or_project_replay(
+    tmp_path, monkeypatch, target
+):
+    source = f"""shape Row:
+    id: Int
+    key: Int | None
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
+relationship Same(left: Row, right: Row):
+    left.id == right.id
+query result:
+    from lhs
+    where any(Same(lhs, candidate) for candidate in rhs)
+    let rhs_again = rhs
+    inner join rhs_again on Same(lhs, rhs_again)
+    where not any(Same(rhs_again, candidate) for candidate in rhs)
+    select:
+        id = lhs.id
+        matched = rhs_again.id
+"""
+    _any_source_free_round_trip(
+        tmp_path, monkeypatch, target, source, ("id", "matched")
+    )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_any_values_keep_on_or_let_select_and_nested_captures_source_free(
+    tmp_path, monkeypatch, target
+):
+    source = f"""shape Row:
+    id: Int
+    key: Int | None
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
+relationship Same(left: Row, right: Row):
+    left.id == right.id
+query result:
+    from lhs
+    let other = lhs
+    inner join other on Same(lhs, other) and any(Same(lhs, candidate) and candidate.id == other.id and candidate.id > 0 for candidate in rhs)
+    let found = any(Same(other, candidate) for candidate in rhs)
+    where lhs.key is None or any(Same(lhs, candidate) for candidate in rhs) or found
+    select:
+        id = lhs.id
+        found
+        again = not found
+        nested = any(any(Same(parent_row, child_row) and child_row.id == lhs.id for child_row in rhs) for parent_row in rhs)
+        nullable_flag = any(candidate.key == lhs.key for candidate in rhs)
+        null_flag = any(None for candidate in rhs)
+"""
+    loaded = _any_source_free_round_trip(
+        tmp_path,
+        monkeypatch,
+        target,
+        source,
+        ("id", "found", "again", "nested", "nullable_flag", "null_flag"),
+    )
+    assert tuple(
+        record.get("logical")
+        for record in loaded.records.values()
+        if record.address.kind == "output"
+    ) == (("Int", "non_null"), *(("Bool", "non_null"),) * 5)
+
+
+def _any_source_free_round_trip(tmp_path, monkeypatch, target, source, labels):
+    import shutil
+    import _pietto_sql_emission as probe
+    import pietto.ast_nodes as nodes
+    import pietto.parser_api as parser
+    import pietto.semantic.existence_generators as generators
+    from pietto._project import check, model, project_completed_semantics
+    from pietto._project import existence_values
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    item = probe.join_witness(target, "", policy="bind_safe_literals")
+    _, emitted = probe.build_case(
+        tmp_path / "build-only", source, item["contract"], item["policy"]
+    )
+    assert emitted.status == "VERIFIED", emitted.blockers
+    assert emitted.artifact is not None
+    expected_sql = emitted.artifact.rendered.sql
+    built = build_compiled(emitted.artifact)
+    shutil.rmtree(tmp_path / "build-only")
+    original_read = Path.read_bytes
+
+    def closed_read(path):
+        assert path.suffix != ".pietto" and path.name != "pietto.toml"
+        return original_read(path)
+
+    monkeypatch.setattr(Path, "read_bytes", closed_read)
+    monkeypatch.setattr(parser, "parse_source", forbidden)
+    monkeypatch.setattr(check, "check_project_parse_only", forbidden)
+    monkeypatch.setattr(model, "build_empty_project_semantic_result", forbidden)
+    monkeypatch.setattr(
+        project_completed_semantics,
+        "build_project_completed_semantic_result",
+        forbidden,
+    )
+    monkeypatch.setattr(generators, "normalize_existence_generators", forbidden)
+    monkeypatch.setattr(generators, "rebind_existence_generators", forbidden)
+    monkeypatch.setattr(generators, "collect_any_values", forbidden)
+    monkeypatch.setattr(generators, "rebind_any_values", forbidden)
+    monkeypatch.setattr(existence_values, "analyze_any_values", forbidden)
+    # Keep the inherited allocator unchanged across parametrized cells.
+    monkeypatch.setattr(nodes.AnyExpr, "__init__", forbidden)
+    moved = tmp_path / "source-free"
+    moved.mkdir()
+    monkeypatch.chdir(moved)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    observed = prepare_compiled_template(loaded).artifact
+    assert loaded is not built.root and loaded.scope is not built.root.scope
+    assert observed.rendered.sql == expected_sql
+    assert (
+        tuple(
+            record.get("label")
+            for record in loaded.records.values()
+            if record.address.kind == "output"
+        )
+        == labels
+    )
+    return loaded
+
+
 def test_actual_build_then_new_roots_and_text_rederivation(tmp_path, monkeypatch):
     source = original.source("postgres").replace("renamed = id", 'renamed = "seed"')
     live = template(tmp_path / "original", source)
@@ -217,7 +346,7 @@ print(json.dumps({"bindings": 3, "source_ast_constructions": 0, "source_calls": 
 @pytest.mark.parametrize(
     "seed,values,bad",
     [
-        ("true", (False, True, False), (0, 1, None)),
+        ("True", (False, True, False), (0, 1, None)),
         ("1", (-(2**63), 2**63 - 1, -(2**63)), (True, 1.0, None)),
         ("1.5", (-0.0, 1.25, -0.0), (1, True, float("inf"), float("nan"))),
         ('"seed"', ("", "雪é😀  ? %s $1", ""), (b"x", None, "\ud800")),
@@ -328,6 +457,7 @@ def test_complete_named_corpus_in_fresh_source_free_process(tmp_path, target):
     import subprocess
     import sys
     from _pietto_execution_source_assurance_cases import (
+        BLOCK_READS,
         CASES,
         original as source_artifact,
     )
@@ -395,7 +525,8 @@ def test_complete_named_corpus_in_fresh_source_free_process(tmp_path, target):
             excluded.append((target, case, variant))
             continue
         retain(artifact, [target, case, variant, "ordinary"])
-        retain(artifact, [target, case, variant, "refined"], refined=True)
+        if (case, variant) not in BLOCK_READS:
+            retain(artifact, [target, case, variant, "refined"], refined=True)
     for case in manifest():
         if target == "mysql" and case["options"].get("postgres_only", False):
             continue
@@ -482,7 +613,11 @@ for item in records:
     root = load_compiled(Path(item["path"]).read_bytes(), expected_pin=item["pin"],
         accepted_producer=item["producer"], accepted_compatibility=tuple(item["compatibility"]))
     values = tuple(scalar_read(value).value for value in item["values"])
-    artifact = emit_compiled(root, values)
+    try:
+        artifact = emit_compiled(root, values)
+    except Exception as error:
+        error.add_note("Compiled corpus case: " + repr(item["name"]))
+        raise
     assert artifact.rendered.sql.decode() == item["sql"], item["name"]
     preparation = prepare_compiled_guarded(artifact) if item["guarded"] else None
     template = prepare_template(artifact) if preparation is None else prepare_guarded_template(preparation)

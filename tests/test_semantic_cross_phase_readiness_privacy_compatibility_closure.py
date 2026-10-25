@@ -54,13 +54,13 @@ def _project(root: Path, relations: str) -> Path:
     )
     (root / "models.pietto").write_text(
         "shape User:\n"
-        "    email: Text not null\n"
-        "    amount: Int not null\n"
-        "    tax: Int nullable\n"
-        "    score: Int not null\n"
-        "    bonus: Int nullable\n"
-        "    status: Text not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    email: Text\n"
+        "    amount: Int\n"
+        "    tax: Int | None\n"
+        "    score: Int\n"
+        "    bonus: Int | None\n"
+        "    status: Text\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )
@@ -142,8 +142,7 @@ def test_mixed_aggregate_grouped_diagnostic_order_and_non_concrete_suppression_a
             "        duplicate\n"
             "query invalid_grouped_let:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
+            "    let total = score + bonus\n"
             "    group by:\n"
             "        email\n"
             "    select:\n"
@@ -369,14 +368,13 @@ def test_current_aggregate_grouped_private_facts_remain_unserialized_and_unexpor
         tmp_path / "project",
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    group by:\n"
         "        status\n"
         "    select:\n"
         "        label = status\n"
         "        total = sum(gross)\n"
-        "    satisfying:\n"
+        "    having:\n"
         '        (total > 0) and (label == "open")\n'
         "    order by:\n"
         "        total desc\n"
@@ -463,8 +461,8 @@ def test_current_aggregate_grouped_private_facts_remain_unserialized_and_unexpor
     single_file = tmp_path / "single.pietto"
     single_file.write_text(
         "shape Single:\n"
-        "    id: Int not null\n"
-        'source singles: Single is postgres.table("singles")\n'
+        "    id: Int\n"
+        'source singles: Single = postgres.table("singles")\n'
         "query projected:\n"
         "    from singles\n"
         "    select:\n"

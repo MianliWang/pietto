@@ -132,6 +132,7 @@ _CLAUSE_WORDS = {
     PiettoParser.SELECT: "select",
     PiettoParser.WINDOW: "window",
     PiettoParser.SATISFYING: "satisfying",
+    PiettoParser.HAVING: "having",
     PiettoParser.QUALIFY: "qualify",
     PiettoParser.ORDER: "order by",
     PiettoParser.LIMIT: "limit",
@@ -155,17 +156,28 @@ _RELATION_BODY_CONTEXTS = (
     PiettoParser.LetRelationDefinitionContext,
 )
 _CLAUSE_ORDER = (
-    "a relation body lists from, joins, let:, where, group by:, select:, "
-    "windows, satisfying:, qualify:, order by: and limit in that order."
+    "a relation body lists from, joins, let, where, group by, select, having, "
+    "qualify, order by and limit in that order."
 )
 # Habits from SQL and other languages, recognized from the offending token.
 _WORD_HINTS = {
-    "having": "Filter groups with `satisfying:` after `select:`.",
-    "over": "A window function takes `window:` with an indented block or "
-    "`window name`, not OVER (...).",
+    "over": "Write a window function as `rank() window(order by ...)` or "
+    "`rank() window name`, not OVER (...).",
     "case": "Write `a if condition else b` instead of CASE.",
     "with": "Write a relation let `let x:` at the start of the body instead of "
     "WITH (EXPLICIT_MODULES projects).",
+}
+# Keywords that modern source spells another way, or not at all (`via`), so
+# capitals such as NULL or BETWEEN are not answered with their lowercase.
+_RETIRED_WORDS: dict[str, str | None] = {
+    "null": "None",
+    "true": "True",
+    "false": "False",
+    "between": "lower <= value <= upper",
+    "cast": "Float(value)",
+    "nullable": "T | None",
+    "satisfying": "having",
+    "via": None,
 }
 _SUBQUERY_HINT = (
     "A subquery is not written in parentheses: declare it as a relation let "
@@ -274,6 +286,10 @@ def token_display(token: Token) -> str:
     return display if display is not None else quoted_source_text(token.text or "")
 
 
+def _out_of_order(clause: str) -> str:
+    return f"Clause `{clause}` is out of order or repeated; {_CLAUSE_ORDER}"
+
+
 def _expected_display(expected: Iterable[int]) -> str:
     """Name an expected-token set briefly: categories first, then tokens."""
 
@@ -356,6 +372,15 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         if self._from_parenthesis(recognizer, token):
             message += " " + _FROM_HINT
         self._append(token, message)
+
+    def report_out_of_order(self, token: Token) -> None:
+        """Report a relation step that parses but stands out of its order.
+
+        The steps after FROM parse as one list; the parser API reports a step
+        that the list's order does not admit as the parser reports a clause.
+        """
+
+        self._append(token, _out_of_order(_CLAUSE_WORDS[token.type]))
 
     def _token(self, index: int) -> Token | None:
         return self.tokens[index] if 0 <= index < len(self.tokens) else None
@@ -446,7 +471,7 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         clause = _CLAUSE_WORDS.get(token.type)
         body_line = line_start and isinstance(recognizer._ctx, _RELATION_BODY_CONTEXTS)
         if body_line and clause is not None:
-            message = f"Clause `{clause}` is out of order or repeated; {_CLAUSE_ORDER}"
+            message = _out_of_order(clause)
         elif body_line and token.type not in _LAYOUT_TOKEN_TYPES:
             message = f"Unknown clause {token_display(token)}; {_CLAUSE_ORDER}"
             hint = self._hint(recognizer, token, previous, expected_types, line_start)
@@ -490,6 +515,18 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             recognizer._ctx, PiettoParser.SelectLineContext
         ):
             return "A window call is a whole `select:` item on a line of its own."
+        let = self._token(_index(token) - 3)
+        if (
+            token.type == PiettoParser.WINDOW
+            and previous is not None
+            and previous.type == PiettoParser.ASSIGN
+            and let is not None
+            and let.type == PiettoParser.LET
+        ):
+            return (
+                "A named window is a `let` among the lets after FROM and every "
+                "JOIN, before `where`, `group by` and `select`."
+            )
         if token.type == PiettoParser.ASSIGN and (
             PiettoParser.NEWLINE in expected or PiettoParser.EQ in expected
         ):
@@ -504,7 +541,7 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         if token.type == PiettoParser.JOIN:
             return (
                 "A JOIN starts with its kind: `inner`, `left`, `cross`, "
-                "`right`, `full`, `semi` or `anti`."
+                "`right` or `full`."
             )
         if token.type == PiettoParser.UNKNOWN and not text.isascii():
             return "Names use ASCII letters, digits and `_`."
@@ -528,10 +565,9 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         if token.type == PiettoParser.UNKNOWN and text == ";":
             return "Lines do not end with `;`."
         if (
-            token.type == PiettoParser.UNKNOWN
-            and text == "|"
+            token.type == PiettoParser.PIPE
             and following is not None
-            and following.text == "|"
+            and following.type == PiettoParser.PIPE
         ):
             return "String concatenation with `||` is not supported yet."
         before = self._token(_index(token) - 2)
@@ -553,8 +589,8 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             and before.type == PiettoParser.VALUES
         ):
             return (
-                "A VALUES body has a typed header, `values(id: Int not null, "
-                "label: Text nullable):`, and one row per line below it "
+                "A VALUES body has a typed header, `values(id: Int, "
+                "label: Text | None):`, and one row per line below it "
                 "(EXPLICIT_MODULES projects)."
             )
         if (
@@ -584,14 +620,17 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
                 ahead is None or ahead.type in _LAYOUT_TOKEN_TYPES
             ):
                 return (
-                    "A clause header ends with ':'; its items follow on the same "
-                    "line or in an indented block."
+                    "A clause lists its items on its header line, or in an "
+                    "indented block after ':'."
                 )
         if previous is not None and (previous.text or "").lower() == "case":
             return _WORD_HINTS["case"]
         if token.type == PiettoParser.IDENTIFIER:
             lowered = text.lower()
             if lowered != text and f"'{lowered}'" in PiettoParser.literalNames:
+                if lowered in _RETIRED_WORDS:
+                    modern = _RETIRED_WORDS[lowered]
+                    return None if modern is None else f"Write `{modern}`."
                 return f"Keywords are lowercase: write `{lowered}`."
             if lowered == "with" and not line_start:
                 # A common table expression starts a line; a WITH later in a

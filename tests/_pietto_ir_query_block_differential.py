@@ -66,29 +66,26 @@ SEED_ENVIRONMENT = "PIETTO_PHASE63_SLICE15_AMBIENT"
 
 
 MAIN_SOURCE = """shape AccountRow:
-    id: Int not null
-    metric: Int nullable
-    unique account_key on id
+    id: Int
+    metric: Int | None
+    account_key = unique(id)
 shape EventRow:
-    id: Int not null
-    account_id: Int not null
-    metric: Int nullable
-    unique event_key on id
-source accounts: AccountRow is postgres.table("accounts")
-source events: EventRow is postgres.table("events")
-relationship account_events:
-    endpoint account: accounts
-    endpoint event: events
-    on account.id == event.account_id
+    id: Int
+    account_id: Int
+    metric: Int | None
+    event_key = unique(id)
+source accounts: AccountRow = postgres.table("accounts")
+source events: EventRow = postgres.table("events")
+relationship account_events(account: AccountRow, event: EventRow):
+    account.id == event.account_id
 query plain:
     from accounts
     select:
         id
 query joined:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         account_id = accounts.id
         event_id = event.id
@@ -98,9 +95,8 @@ query downstream:
         event_id
 query grouped:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.account_id
     select:
@@ -108,60 +104,49 @@ query grouped:
         total = sum(event.metric)
 query global:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         total = sum(event.metric)
 query qualified:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
     qualify:
         ranked <= 3
 query filtered:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     where event.id > 0
     select:
         event_id = event.id
 query satisfying:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(event.metric)
-    satisfying:
+    having:
         event_id > 0 and total > 0
 query hidden_qualify:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     qualify:
-        row_number() window:
-            order by:
-                event.id
-        <= 3
+        row_number() window(order by event.id) <= 3
 query ordered_limited:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     order by:
@@ -169,34 +154,29 @@ query ordered_limited:
     limit 1
 query computed:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
         doubled = event.metric * 2
 query key_drop:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         metric = event.metric
 query mixed:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     where event.id > 0
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(event.metric)
-        ranked = rank() window:
-            order by:
-                total
-    satisfying:
+        ranked = rank() window(order by total)
+    having:
         event_id > 0 and total > 0
     qualify:
         ranked <= 3
@@ -208,9 +188,7 @@ query replay_selected:
     from accounts
     select:
         id
-        ranked = row_number() window:
-            order by:
-                id
+        ranked = row_number() window(order by id)
     qualify:
         ranked <= 3
 query replay_full:
@@ -218,9 +196,7 @@ query replay_full:
     where id > 0
     select:
         id
-        ranked = row_number() window:
-            order by:
-                id
+        ranked = row_number() window(order by id)
     qualify:
         ranked <= 3
     order by:
@@ -242,19 +218,11 @@ query qualified_events:
         account_id
         metric
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
-relationship account_qualified_events:
-    endpoint account: accounts
-    endpoint event: qualified_events
-    on account.id == event.account_id
+        row_number() window(order by id) <= 3
 query stale_join:
     from accounts
-    inner join qualified_events as event:
-        from accounts
-        via account_qualified_events: account -> event
+    let event = qualified_events
+    inner join event on accounts.id == event.account_id
     select:
         event_id = event.id
 query downstream_stale:
@@ -262,96 +230,74 @@ query downstream_stale:
     select:
         event_id
 shape DetailRow:
-    id: Int not null
-    event_id: Int not null
-    unique detail_key on id
-source details: DetailRow is postgres.table("details")
-relationship event_details:
-    endpoint event: events
-    endpoint detail: details
-    on event.id == detail.event_id
+    id: Int
+    event_id: Int
+    detail_key = unique(id)
+source details: DetailRow = postgres.table("details")
+relationship event_details(event: EventRow, detail: DetailRow):
+    event.id == detail.event_id
 query multi_join:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    left join details as detail:
-        from event
-        via event_details: event -> detail
+    let event = events
+    inner join event on account_events(accounts, event)
+    let detail = details
+    left join detail on event_details(event, detail)
     select:
         account_id = accounts.id
         event_id = event.id
         detail_id = detail.id
 query left_selected_hidden:
     from accounts
-    left join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    left join event on account_events(accounts, event)
     select:
         event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
     qualify:
-        ranked <= 3 and row_number() window:
-            order by:
-                event.id
-        <= 3
+        ranked <= 3 and row_number() window(order by event.id) <= 3
 query window_base:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
 query qualify_added:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
     qualify:
         ranked <= 3
 query relation_order_added:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id
+        ranked = row_number() window(order by event.id)
     order by:
         event.id desc
 query limit_one:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit 1
 query limit_two:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         event_id = event.id
     limit 2
 query left_joined:
     from accounts
-    left join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    left join event on account_events(accounts, event)
     select:
         account_id = accounts.id
         event_id = event.id
@@ -367,9 +313,9 @@ query semantic_bad_downstream:
 
 
 DISCONNECTED_SOURCE = """shape AuditRow:
-    id: Int not null
-    unique audit_key on id
-source audit_rows: AuditRow is postgres.table("audit_rows")
+    id: Int
+    audit_key = unique(id)
+source audit_rows: AuditRow = postgres.table("audit_rows")
 query audit_result:
     from audit_rows
     select:

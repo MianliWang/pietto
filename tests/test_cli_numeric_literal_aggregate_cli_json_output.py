@@ -23,12 +23,12 @@ EMIT_SQL_KEYS = {
 
 SOURCE_SHAPE = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
+    "    region: Text\n"
+    "    status: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
 )
 
 POSTGRES_SQL = (
@@ -371,7 +371,7 @@ def test_public_mysql_api_remains_private() -> None:
 
 def _accepted_source(connector: str) -> str:
     return (
-        SOURCE_SHAPE + f'source orders: Order is {connector}("orders")\n'
+        SOURCE_SHAPE + f'source orders: Order = {connector}("orders")\n'
         "table aggregate_stats:\n"
         "    from orders\n"
         "    group by:\n"
@@ -380,7 +380,7 @@ def _accepted_source(connector: str) -> str:
         "        region\n"
         "        total = sum(amount + 1)\n"
         "        average = avg(score * 2)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total > 1000\n"
         "    order by:\n"
         "        average desc\n"
@@ -391,7 +391,7 @@ def _accepted_source(connector: str) -> str:
 
 def _invalid_source(connector: str, projection: str) -> str:
     return (
-        SOURCE_SHAPE + f'source orders: Order is {connector}("orders")\n'
+        SOURCE_SHAPE + f'source orders: Order = {connector}("orders")\n'
         "table aggregate_stats:\n"
         "    from orders\n"
         "    select:\n"

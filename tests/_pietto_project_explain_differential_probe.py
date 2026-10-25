@@ -76,7 +76,7 @@ def _project_observation(root: Path, cwd: Path) -> dict[str, object]:
 
 def _single_file_observation(workspace: Path) -> dict[str, object]:
     source = workspace / "single.pietto"
-    source.write_text("shape Row:\n    id: Int not null\n", encoding="utf-8")
+    source.write_text("shape Row:\n    id: Int\n", encoding="utf-8")
     text_cli, json_cli = _run_cli_pair(
         ("explain", "single.pietto"),
         ("explain", "single.pietto", "--format", "json"),

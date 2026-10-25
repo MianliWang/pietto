@@ -25,7 +25,6 @@ from pietto._project.project_ir_construction import (
     ProjectIRConcreteSingleRelationFragment,
 )
 from pietto._project.project_ir_joins import (
-    ProjectIRConcreteJoinRegion,
     ProjectIRNonConcreteJoinRegion,
 )
 from pietto._project.row_expression_type_facts import (
@@ -56,8 +55,8 @@ PRODUCTION = REPO_ROOT / "src/pietto/_project/project_scalar_references.py"
 FIELD_ADAPTER = REPO_ROOT / "src/pietto/_project/row_expression_type_facts.py"
 TEXT_SOURCE = """
 shape LabelRow:
-    label: Text not null
-source labels: LabelRow is postgres.table("labels")
+    label: Text
+source labels: LabelRow = postgres.table("labels")
 query label_query:
     from labels
     select:
@@ -84,12 +83,12 @@ def _span(column: int) -> Span:
 
 
 def _fragment(
-    analysis,
+    completed,
     name: str,
 ) -> ProjectIRConcreteSingleRelationFragment:
     matches = tuple(
         fragment
-        for fragment in analysis.evaluation.project_plan.fragments
+        for fragment in completed.verification.root.evaluation.project_plan.fragments
         if type(fragment) is ProjectIRConcreteSingleRelationFragment
         and fragment.semantic_facts.owner.definition.name == name
     )
@@ -98,15 +97,14 @@ def _fragment(
 
 
 def _region(
-    analysis,
+    completed,
     name: str,
-    expected_type: type[ProjectIRConcreteJoinRegion]
-    | type[ProjectIRNonConcreteJoinRegion],
-) -> ProjectIRConcreteJoinRegion | ProjectIRNonConcreteJoinRegion:
+) -> ProjectIRNonConcreteJoinRegion:
     matches = tuple(
         region
-        for region in analysis.join_regions.regions
-        if type(region) is expected_type and region.ledger.owner.definition.name == name
+        for region in completed.verification.root.join_regions.regions
+        if type(region) is ProjectIRNonConcreteJoinRegion
+        and region.ledger.owner.definition.name == name
     )
     assert len(matches) == 1
     return matches[0]
@@ -114,21 +112,23 @@ def _region(
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
-    _, analysis, bundle, _ = _build(
+    _, completed, _, _ = _build(
         tmp_path_factory.mktemp("p63s3") / "project",
         PRIMARY_MAIN_SOURCE + TEXT_SOURCE,
         reverse_creation=False,
     )
-    numeric_fragment = _fragment(analysis, "orders_by_customer")
-    text_fragment = _fragment(analysis, "label_query")
-    joined_region = _region(analysis, "unique_target_left", ProjectIRConcreteJoinRegion)
-    non_concrete_region = _region(
-        analysis,
-        "ambiguous_fact_join",
-        ProjectIRNonConcreteJoinRegion,
+    numeric_fragment = _fragment(completed, "orders_by_customer")
+    text_fragment = _fragment(completed, "label_query")
+    (joined,) = tuple(
+        readiness.namespaces.binding_environment.scalar_environment.query_block
+        for region, readiness in zip(
+            completed.effective_outputs.current_regions,
+            completed.effective_outputs.current_readiness,
+            strict=True,
+        )
+        if region.ledger.owner.definition.name == "unique_target_left"
     )
-    assert type(joined_region) is ProjectIRConcreteJoinRegion
-    assert type(non_concrete_region) is ProjectIRNonConcreteJoinRegion
+    non_concrete_region = _region(completed, "bad_relationship_join")
 
     numeric = query_blocks.build_project_query_block_from_relation(
         compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
@@ -140,16 +140,10 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
         owner=text_fragment.semantic_facts.owner,
         fragment=text_fragment,
     )
-    joined = query_blocks.build_project_query_block_from_join_region(
-        compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
-        owner=joined_region.ledger.owner,
-        verification=bundle.verification,
-        region=joined_region,
-    )
     non_concrete = query_blocks.build_project_query_block_from_join_region(
         compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
         owner=non_concrete_region.ledger.owner,
-        verification=bundle.verification,
+        verification=completed.verification,
         region=non_concrete_region,
     )
     assert type(numeric) is query_blocks.ProjectConcreteQueryBlock
@@ -209,7 +203,7 @@ def test_ordinary_and_joined_environments_retain_exact_occurrences(
 
     joined = _concrete_environment(built.joined)
     joined_source = built.joined.row_source
-    assert type(joined_source) is query_blocks.ProjectVerifiedJoinedRowSource
+    assert type(joined_source) is query_blocks.ProjectCurrentJoinedRowSource
     assert joined.row_source is joined_source
     assert all(
         item.source_field is source

@@ -17,13 +17,13 @@ from pietto.sql.mysql import emit_mysql_sql
 
 SOURCE_PREFIX = (
     "shape Row:\n"
-    "    id: UUID not null\n"
-    "    text: Text nullable\n"
-    "    count: Int not null\n"
-    "    amount: Float nullable\n"
-    "    active: Bool not null\n"
-    'source rows: Row is postgres.table("rows")\n'
-    'source mysql_rows: Row is mysql.table("rows")\n'
+    "    id: UUID\n"
+    "    text: Text | None\n"
+    "    count: Int\n"
+    "    amount: Float | None\n"
+    "    active: Bool\n"
+    'source rows: Row = postgres.table("rows")\n'
+    'source mysql_rows: Row = mysql.table("rows")\n'
 )
 
 
@@ -37,11 +37,11 @@ def test_mixed_relation_chain_preserves_semantic_and_ir_row_schema() -> None:
         "        value = count + 1\n"
         "        score = count + amount\n"
         "        label = lower(text)\n"
-        "        active_value = active and true\n"
+        "        active_value = active and True\n"
         "        negative_count = -count\n"
         "query normalized:\n"
         "    from selected\n"
-        "    where value > 1 and active_value == true\n"
+        "    where value > 1 and active_value == True\n"
         "    select:\n"
         "        selected.id\n"
         "        label = label\n"
@@ -138,6 +138,7 @@ def test_unknown_and_invalid_computed_aliases_do_not_fake_downstream_precision()
             "Invalid operands for operator +: expected numeric operands; "
             "string concatenation is not supported yet",
         ),
+        ("PIE-S2382", Severity.WARNING, _same_file_read("first")),
     ]
     assert [diagnostic.code for diagnostic in semantic.diagnostics].count(
         "PIE-S2105"
@@ -186,7 +187,7 @@ def test_computed_alias_cycles_fail_closed_without_diagnostic_cascade() -> None:
     script = _parse(
         "table first:\n"
         "    from second\n"
-        "    where missing_where and true\n"
+        "    where missing_where and True\n"
         "    select:\n"
         "        value = missing_first + 1\n"
         "table second:\n"
@@ -200,11 +201,13 @@ def test_computed_alias_cycles_fail_closed_without_diagnostic_cascade() -> None:
     semantic = analyze(script)
 
     assert _diagnostics(semantic) == [
+        ("PIE-S2382", Severity.WARNING, _same_file_read("second")),
         (
             "PIE-S2302",
             Severity.ERROR,
             "Relation cycle detected: first -> second -> first",
-        )
+        ),
+        ("PIE-S2382", Severity.WARNING, _same_file_read("first")),
     ]
     assert semantic.model.relation_row_schemas[first].is_unknown is True
     assert semantic.model.relation_row_schemas[second].is_unknown is True
@@ -216,7 +219,7 @@ def test_diagnostics_keep_source_order_and_refinement_diagnostics_are_not_duplic
     script = _parse(
         SOURCE_PREFIX + "table projected:\n"
         "    from rows\n"
-        "    where missing_where and true\n"
+        "    where missing_where and True\n"
         "    select:\n"
         "        count + 1\n"
         "        value = text + 1\n"
@@ -248,7 +251,7 @@ def test_representative_postgres_and_mysql_sql_bytes_remain_exact() -> None:
     _, _, postgres_ir = _compile(
         SOURCE_PREFIX + "table selected:\n"
         "    from rows\n"
-        "    where rows.active == true\n"
+        "    where rows.active == True\n"
         "    select:\n"
         "        rows.text\n"
         "        value = count + 1\n"
@@ -256,7 +259,7 @@ def test_representative_postgres_and_mysql_sql_bytes_remain_exact() -> None:
     _, _, mysql_ir = _compile(
         SOURCE_PREFIX + "table selected:\n"
         "    from mysql_rows\n"
-        "    where mysql_rows.active == true\n"
+        "    where mysql_rows.active == True\n"
         "    select:\n"
         "        mysql_rows.text\n"
         "        value = count + 1\n"
@@ -285,9 +288,8 @@ def test_representative_postgres_and_mysql_sql_bytes_remain_exact() -> None:
 
 def test_relationship_metadata_remains_outside_schema_ir_and_sql_behavior() -> None:
     script, semantic, script_ir = _compile(
-        SOURCE_PREFIX + "relationship membership:\n"
-        "    endpoint member: rows\n"
-        "    endpoint group: rows\n"
+        SOURCE_PREFIX + "relationship membership(member: Row, group: Row):\n"
+        "    member.id == group.id\n"
         "table selected:\n"
         "    from rows\n"
         "    select:\n"
@@ -297,7 +299,7 @@ def test_relationship_metadata_remains_outside_schema_ir_and_sql_behavior() -> N
     relation = _relation(script, "selected", TableDef)
     relation_ir = _relation_ir(script_ir, "selected")
 
-    assert len(semantic.model.relationships) == 1
+    assert len(semantic.model.relationship_templates) == 1
     assert _semantic_schema_facts(semantic, relation) == [
         ("id", "UUID", TypeKind.BUILTIN, EffectiveNullability.NON_NULL),
         ("value", "Int", TypeKind.BUILTIN, EffectiveNullability.UNKNOWN),
@@ -413,3 +415,12 @@ def _diagnostics(
         (diagnostic.code, diagnostic.severity, diagnostic.message)
         for diagnostic in result.diagnostics
     ]
+
+
+def _same_file_read(name: str) -> str:
+    """The PIE-S2382 warning at a read of a table of the file."""
+    return (
+        f"`{name}` is a table of this file; single-file SQL reads it by name, so "
+        "the SQL runs only where the database already has a relation named "
+        f"{name} (an EXPLICIT_MODULES project emits it as a CTE)"
+    )

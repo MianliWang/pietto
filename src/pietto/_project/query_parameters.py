@@ -10,10 +10,10 @@ count, avg, min or max; a GROUP BY key only as a computed LET binding without
 JOIN. Inside a window call of an ungrouped SELECT list a bare read is also
 admitted as a value argument, a lag/lead default, or a structural count
 (lag/lead offset, ntile bucket count, nth_value position); a count must be
-declared ``Int not null``. Every other position (LIMIT, other window positions
-and frames, structural call arguments) is refused here before semantic
-analysis. Each relation let of the entry query reads the header under the
-same rules (Phase70 S11); no other declaration reads it.
+declared ``Int``, not ``Int | None``. Every other position (LIMIT, other
+window positions and frames, structural call arguments) is refused here before
+semantic analysis. Each relation let of the entry query reads the header under
+the same rules (Phase70 S11); no other declaration reads it.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ COLLISION_CODE = "PIE-S2354"
 POSITION_CODE = "PIE-S2355"
 INPUT_CODE = "PIE-S2356"
 COUNT_CODE = "PIE-S2358"
-COUNT_MESSAGE = "A window count parameter must be declared Int not null."
+COUNT_MESSAGE = "A window count parameter must be declared Int, not Int | None."
 COLLISION_MESSAGE = (
     "Query parameter name is also a field, let, relation, output or window name."
 )
@@ -202,9 +202,16 @@ def _header_bodies(definition: object) -> tuple[QueryDef, ...]:
     )
 
 
-def query_parameter_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
+def query_parameter_diagnostics(
+    script: Script, *, position_diagnostics_out: list[Diagnostic] | None = None
+) -> tuple[Diagnostic, ...]:
     """Declaration and position errors of every entry-query header, sorted;
-    the relation lets of an entry query follow the same position rules."""
+    the relation lets of an entry query follow the same position rules.
+
+    The optional output retains the actual position occurrences for the caller
+    that must recheck them after canonical query naming. Other header errors
+    still stop that caller before normalization.
+    """
 
     found: list[Diagnostic] = []
     for definition in script.definitions:
@@ -212,7 +219,11 @@ def query_parameter_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
         if bodies:
             found.extend(_declaration_diagnostics(bodies[0]))
         for body in bodies:
-            found.extend(_position_diagnostics(body))
+            found.extend(
+                _position_diagnostics(
+                    body, position_diagnostics_out=position_diagnostics_out
+                )
+            )
             # An unaliased read would name its output after the parameter.
             found.extend(
                 _diagnostic(COLLISION_CODE, COLLISION_MESSAGE, item.expression.span)
@@ -251,14 +262,6 @@ def _declaration_diagnostics(definition: QueryDef) -> list[Diagnostic]:
                 _diagnostic(
                     DECLARATION_CODE,
                     "Query parameter type must be Bool, Int, Float or Text.",
-                    parameter.span,
-                )
-            )
-        if declared.nullability is Nullability.IMPLICIT:
-            found.append(
-                _diagnostic(
-                    DECLARATION_CODE,
-                    "Query parameter must declare not null or nullable.",
                     parameter.span,
                 )
             )
@@ -325,7 +328,9 @@ def _reads(root: Node, dependent: set[str] | frozenset[str]) -> bool:
     )
 
 
-def _position_diagnostics(definition: QueryDef) -> list[Diagnostic]:
+def _position_diagnostics(
+    definition: QueryDef, *, position_diagnostics_out: list[Diagnostic] | None = None
+) -> list[Diagnostic]:
     lets, outputs = _dependent_names(definition)
     grouped = (
         definition.group_by_clause is not None
@@ -445,7 +450,7 @@ def _position_diagnostics(definition: QueryDef) -> list[Diagnostic]:
                     out.extend(_children(node))
     # A GROUP BY key is a bare name, never rewritten to a read.
     names = lets | {parameter.name for parameter in definition.parameters}
-    return found + [
+    positions = [
         _diagnostic(POSITION_CODE, _POSITION_MESSAGE, node.span)
         for roots, visible in ((refused, names), (late, names | outputs))
         for root in roots
@@ -453,6 +458,9 @@ def _position_diagnostics(definition: QueryDef) -> list[Diagnostic]:
         if (type(node) is ParameterRefExpr and id(node) not in windowed)
         or (type(node) is NameExpr and cast(NameExpr, node).name in visible)
     ]
+    if position_diagnostics_out is not None:
+        position_diagnostics_out.extend(positions)
+    return found + positions
 
 
 def _let_aggregate(node: Node) -> bool:

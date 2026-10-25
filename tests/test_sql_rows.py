@@ -538,7 +538,7 @@ def test_abs_of_an_int_is_blocked_exactly_where_unary_minus_is(tmp_path, target)
 def test_repeated_let_reads_are_column_reads_not_new_occurrences(tmp_path, target):
     source = row_source(
         target,
-        "    from rows\n    let:\n        bumped = id + 1\n"
+        "    from rows\n    let bumped = id + 1\n"
         "    select:\n        a = bumped\n        b = bumped\n        c = bumped\n",
     )
     _, outcome = probe.build_case(
@@ -556,7 +556,7 @@ def test_repeated_let_reads_are_column_reads_not_new_occurrences(tmp_path, targe
 def test_a_required_but_unprojected_let_is_retained(tmp_path, target):
     source = row_source(
         target,
-        "    from rows\n    let:\n        hidden = id + 1\n"
+        "    from rows\n    let hidden = id + 1\n"
         "    where hidden > 0\n    select:\n        kept = id\n",
     )
     _, outcome = probe.build_case(
@@ -617,7 +617,7 @@ def test_a_violated_text_premise_blocks_the_comparison(tmp_path, target):
 def test_parameters_bind_in_select_let_and_where(tmp_path, target):
     source = row_source(
         target,
-        "    from rows\n    let:\n        bumped = id + 7\n"
+        "    from rows\n    let bumped = id + 7\n"
         "    where id > 11\n    select:\n        kept = bumped\n        literal = 13\n",
     )
     _, outcome = probe.build_case(
@@ -932,7 +932,7 @@ def test_adding_a_valid_stage_does_not_weaken_unrelated_source_checks(tmp_path, 
     }
     source = row_source(
         target,
-        "    from rows\n    let:\n        bumped = id + 1\n"
+        "    from rows\n    let bumped = id + 1\n"
         "    where id > 0\n    select:\n        kept = bumped\n        ratio\n",
     )
     _, outcome = probe.build_case(
@@ -951,8 +951,8 @@ def test_unrelated_unused_source_description_is_not_over_rejected(tmp_path, targ
     header = row_source(target, "", header_only=True)
     source = (
         header
-        + f'source unused: Row is {target}.table("opaque.unused")\n'
-        + "table result:\n    from rows\n    let:\n        bumped = id + 1\n"
+        + f'source unused: Row = {target}.table("opaque.unused")\n'
+        + "table result:\n    from rows\n    let bumped = id + 1\n"
         "    where id > 0\n    select:\n        kept = bumped\n"
     )
     _, outcome = probe.build_case(

@@ -23,13 +23,13 @@ from pietto.semantic import SemanticResult, analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    region: Text\n"
+    "    status: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -188,24 +188,26 @@ def test_no_group_order_by_still_uses_input_scope_ir() -> None:
     _assert_field_order(item.expression, name="amount", qualifier=())
 
 
-def test_no_group_projection_alias_still_does_not_resolve_in_order_by() -> None:
-    script = _parse(
+def test_no_group_projection_alias_in_order_by_lowers_the_output_expression() -> None:
+    relation, semantic_result = _compile_relation(
         SOURCE_PREFIX + "table sorted_orders:\n"
         "    from orders\n"
         "    select:\n"
         "        sort_key = lower(status)\n"
         "    order by:\n"
-        "        sort_key\n"
+        "        sort_key\n",
+        name="sorted_orders",
     )
 
-    assert _errors(analyze(script)) == [
-        (
-            "PIE-S2102",
-            "Unknown field: sort_key; outside a grouped query an ORDER BY key "
-            "cannot name a SELECT output (restate its expression or bind it in "
-            "`let:`)",
-        )
-    ]
+    # Before: PIE-S2102 said an ORDER BY key outside a grouped query cannot
+    # name a SELECT output. The key now lowers to the output's expression.
+    assert _errors(semantic_result) == []
+    item = relation.order_by[0]
+    assert item.direction is OrderDirectionIR.ASC
+    assert item.expression is relation.projections[0].expression
+    assert isinstance(item.expression, CallIR)
+    assert item.expression.callee == "lower"
+    _assert_field_order(item.expression.arguments[0], name="status", qualifier=())
 
 
 def test_unsupported_grouped_order_fails_before_ir_with_s2321() -> None:
@@ -249,7 +251,7 @@ def _grouped_relation(
     key_block = "".join(f"        {key}\n" for key in group_keys)
     projection_block = "".join(f"        {projection}\n" for projection in projections)
     satisfying_block = (
-        "" if satisfying is None else f"    satisfying:\n        {satisfying}\n"
+        "" if satisfying is None else f"    having:\n        {satisfying}\n"
     )
     order_block = "".join(f"        {item}\n" for item in order_items)
     return (

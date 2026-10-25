@@ -10,6 +10,12 @@ from types import MappingProxyType
 from typing import Any, NamedTuple, cast
 
 from pietto._project import project_multifact as multifact
+from pietto._project.existence_values import (
+    ProjectAnyField,
+    ProjectAnyLetValue,
+    ProjectAnyValue,
+)
+from pietto.ast_nodes import AnyExpr
 from pietto._project.model import ProjectRowFieldNullability
 from pietto._project.project_current_joins import (
     ProjectCurrentJoinRegion,
@@ -61,7 +67,6 @@ from pietto._project.project_scalar_references import (
     ProjectScalarEnvironmentField,
     ProjectScalarReferenceOccurrence,
     ProjectScalarReferenceResolution,
-    scalar_field_reference_leaves,
 )
 from pietto._project.project_relationship_match_guarantees import (
     resolved_matching_keys,
@@ -319,7 +324,8 @@ def _let_field_dependencies(
         for _, _, _, field_semantics in _resolved_field_dependencies(
             input_filter=input_filter,
             namespace=value.namespace,
-            expression=value.occurrence.expression,
+            expression=value.normalized_expression,
+            existence_values=value.existence_values,
         )
     )
 
@@ -671,7 +677,7 @@ def _let_expansions(
     input_filter: ProjectConcreteJoinedRowFilter,
 ) -> Mapping[str, Expression]:
     return {
-        value.occurrence.binding.name: value.occurrence.expression
+        value.occurrence.binding.name: value.normalized_expression
         for value in input_filter.namespace.let_values
     }
 
@@ -682,6 +688,7 @@ def _aggregate_dependencies(
     selected_output_ordinal: int,
     item: SelectItem,
     expression: Expression,
+    existence_values: tuple[ProjectAnyValue, ...] = (),
 ) -> tuple[ProjectJoinedAggregateFieldDependency, ...]:
     return tuple(
         ProjectJoinedAggregateFieldDependency(
@@ -698,6 +705,7 @@ def _aggregate_dependencies(
                 input_filter=input_filter,
                 namespace=input_filter.namespace,
                 expression=expression,
+                existence_values=existence_values,
             )
         )
     )
@@ -716,46 +724,119 @@ def _resolved_field_dependencies(
     input_filter: ProjectConcreteJoinedRowFilter,
     namespace: ProjectJoinedScalarNamespace,
     expression: Expression,
+    existence_values: tuple[ProjectAnyValue, ...] = (),
 ) -> tuple[_ResolvedFieldDependency, ...]:
     dependencies: list[_ResolvedFieldDependency] = []
+
+    def add_field(
+        namespace: ProjectJoinedScalarNamespace,
+        leaf: NameExpr | DottedNameExpr,
+        let_path: tuple[ProjectJoinedLetValue, ...],
+        expected: ProjectScalarEnvironmentField | None = None,
+    ) -> None:
+        resolution = resolve_project_joined_namespace_reference(
+            namespace,
+            ProjectScalarReferenceOccurrence(
+                environment=namespace.binding_environment.scalar_environment,
+                expression=leaf,
+            ),
+        )
+        if type(resolution) is ProjectJoinedLetReferenceResolution:
+            target = resolution.target
+            if expected is not None or any(target is value for value in let_path):
+                raise ValueError(
+                    "Exact LET prefixes cannot change capture identity or contain a cycle."
+                )
+            visit(
+                target.namespace,
+                target.normalized_expression,
+                (*let_path, target),
+                target.existence_values,
+            )
+            return
+        if (
+            type(resolution) is not ProjectScalarReferenceResolution
+            or resolution.target is None
+            or expected is not None
+            and resolution.target is not expected
+        ):
+            raise ValueError("Valid aggregate lost a concrete field dependency.")
+        dependencies.append(
+            (
+                resolution.reference,
+                resolution,
+                let_path,
+                _field_semantics(input_filter, resolution.target),
+            )
+        )
+
+    def visit_any(
+        value: ProjectAnyValue,
+        namespace: ProjectJoinedScalarNamespace,
+        let_path: tuple[ProjectJoinedLetValue, ...],
+    ) -> None:
+        references = {
+            id(reference.expression): reference for reference in value.references
+        }
+        nested = {id(child.expression): child for child in value.nested}
+        pending = [value.predicate]
+        while pending:
+            node = pending.pop()
+            if type(node) is AnyExpr:
+                child = nested.get(id(node))
+                if child is None:
+                    raise ValueError(
+                        "ANY dependency lost its checked nested occurrence."
+                    )
+                visit_any(child, namespace, let_path)
+            elif isinstance(node, (NameExpr, DottedNameExpr)):
+                reference = references.get(id(node))
+                target = None if reference is None else reference.target
+                if type(target) is ProjectAnyField:
+                    if type(target.source_field) is ProjectScalarEnvironmentField:
+                        add_field(namespace, node, let_path, target.source_field)
+                elif type(target) is ProjectAnyLetValue:
+                    authority = target.authority
+                    if type(authority) is not ProjectJoinedLetValue or any(
+                        authority is item for item in let_path
+                    ):
+                        raise ValueError(
+                            "ANY LET dependency requires its exact joined prefix."
+                        )
+                    visit(
+                        authority.namespace,
+                        target.expression,
+                        (*let_path, authority),
+                        target.existence_values,
+                    )
+                else:
+                    raise ValueError(
+                        "ANY dependency requires a checked field or LET capture."
+                    )
+            else:
+                pending.extend(reversed(semantic_aggregates.child_expressions(node)))
 
     def visit(
         namespace: ProjectJoinedScalarNamespace,
         root: Expression,
         let_path: tuple[ProjectJoinedLetValue, ...],
+        values: tuple[ProjectAnyValue, ...],
     ) -> None:
-        for leaf in scalar_field_reference_leaves(root):
-            resolution = resolve_project_joined_namespace_reference(
-                namespace,
-                ProjectScalarReferenceOccurrence(
-                    environment=namespace.binding_environment.scalar_environment,
-                    expression=leaf,
-                ),
-            )
-            if type(resolution) is ProjectJoinedLetReferenceResolution:
-                target = resolution.target
-                if any(target is value for value in let_path):
-                    raise ValueError("Exact LET prefixes cannot contain a cycle.")
-                visit(
-                    target.namespace,
-                    target.occurrence.expression,
-                    (*let_path, target),
-                )
-                continue
-            if type(resolution) is not ProjectScalarReferenceResolution or (
-                resolution.target is None
-            ):
-                raise ValueError("Valid aggregate lost a concrete field dependency.")
-            dependencies.append(
-                (
-                    resolution.reference,
-                    resolution,
-                    let_path,
-                    _field_semantics(input_filter, resolution.target),
-                )
-            )
+        by_expression = {id(value.expression): value for value in values}
+        pending = [root]
+        while pending:
+            node = pending.pop()
+            if type(node) is AnyExpr:
+                value = by_expression.get(id(node))
+                if value is None:
+                    raise ValueError("ANY dependency requires its exact checked value.")
+                visit_any(value, namespace, let_path)
+            elif isinstance(node, (NameExpr, DottedNameExpr)):
+                add_field(namespace, node, let_path)
+            else:
+                pending.extend(reversed(semantic_aggregates.child_expressions(node)))
 
-    visit(namespace, expression, ())
+    visit(namespace, expression, (), existence_values)
     return tuple(dependencies)
 
 
@@ -902,9 +983,18 @@ def _aggregate_attempt(
                     ),
                 ),
             )
+        argument_form = (
+            argument
+            if function_name
+            in {
+                semantic_aggregates.MIN_AGGREGATE_NAME,
+                semantic_aggregates.MAX_AGGREGATE_NAME,
+            }
+            else analysis.normalized_expression
+        )
         if not semantic_aggregates.is_supported_semantic_aggregate_argument_expression(
             function_name,
-            argument,
+            argument_form,
             argument_type,
             let_expansions=let_expansions,
         ):
@@ -924,7 +1014,8 @@ def _aggregate_attempt(
             input_filter=input_filter,
             selected_output_ordinal=selected_output_ordinal,
             item=item,
-            expression=argument,
+            expression=analysis.normalized_expression,
+            existence_values=analysis.existence_values,
         )
 
     result_type = semantic_aggregates.semantic_projection_aggregate_result_value_type(
@@ -989,7 +1080,15 @@ def _unfit_argument_alone(
             or _is_let_extremum(function_name, argument, let_expansions)
         )
         and semantic_aggregates.accepts_argument_form(
-            function_name, argument, let_expansions=let_expansions
+            function_name,
+            argument
+            if function_name
+            in {
+                semantic_aggregates.MIN_AGGREGATE_NAME,
+                semantic_aggregates.MAX_AGGREGATE_NAME,
+            }
+            else analysis.normalized_expression,
+            let_expansions=let_expansions,
         )
     )
 
@@ -1914,6 +2013,69 @@ def _current_source_match(guarantee, source, unconditional):
     )
 
 
+def _predicate_source_match(region, condition):
+    """Complete mandatory pairs and exact full-ON coverage for two source inputs."""
+    equalities = condition.mandatory_equalities
+    if (
+        condition.mode != "M3"
+        or not condition.ready
+        or not equalities
+        or len({id(item.comparison) for item in equalities}) != len(equalities)
+        or any(
+            item.condition is not condition
+            or item.comparison is not condition.conjuncts[item.conjunct_position]
+            or not item.calls
+            for item in equalities
+        )
+    ):
+        return None
+    target = condition.use.target_binding
+    source = equalities[0].left.binding
+    if source is target:
+        source = equalities[0].right.binding
+    if source is target or not any(
+        source is binding
+        for binding in condition.ledger.bindings[
+            : condition.use.identity.join_position + 1
+        ]
+    ):
+        return None
+    for binding in (source, target):
+        if (
+            binding.target is None
+            or type(binding.target.target_occurrence.definition) is not SourceDef
+            or binding.output is None
+        ):
+            return None
+    pairs = []
+    for equality in equalities:
+        first, second = equality.left, equality.right
+        if first.binding is target:
+            first, second = second, first
+        if second.binding is not target or first.binding is not source:
+            return None
+        for matched in (first, second):
+            if not any(
+                matched.input_field is retained
+                for retained in matched.binding.output.fields
+            ):
+                return None
+        pairs.append(
+            (first.input_field.field_position, second.input_field.field_position)
+        )
+    return (
+        region.introduction(source),
+        source.target.target_occurrence,
+        target.target.target_occurrence,
+        tuple(pairs),
+        len(equalities) == len(condition.conjuncts)
+        and all(
+            item.comparison is conjunct
+            for item, conjunct in zip(equalities, condition.conjuncts, strict=True)
+        ),
+    )
+
+
 def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
     """One JOIN of a current region for `resolved_orphan_free_dependencies`."""
 
@@ -1963,8 +2125,14 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
     expression = condition.expression
 
     def rejects(nulls: frozenset) -> bool:
-        return source in nulls or (
-            expression is not None and _never(expression, True, nulls, leaf)
+        return (
+            source in nulls
+            or any(
+                region.introduction(field.binding) in nulls
+                for equality in condition.mandatory_equalities
+                for field in (equality.left, equality.right)
+            )
+            or (expression is not None and _never(expression, True, nulls, leaf))
         )
 
     pins = set()
@@ -1974,7 +2142,7 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
         and _holds_key(base.source_output, base.source_matched_classes)
     ):
         pins.add(source)
-    # `on` equalities of the right input's fields with another input's.
+    # Preserve the existing handwritten ON pinning law independently.
     equated: dict[int, tuple[Any, list[Any]]] = {}
     target_binding = condition.use.target_binding
     for conjunct in condition.conjuncts:
@@ -1997,12 +2165,18 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
         if properties is not None and _holds_key(
             properties,
             tuple(
-                c
-                for c in properties.value_classes
-                if any(member is item for member in c.members for item in fields)
+                group
+                for group in properties.value_classes
+                if any(member is item for member in group.members for item in fields)
             ),
         ):
             pins.add(region.introduction(binding))
+    # Every independently proven prior input key remains an exact pin.
+    pins.update(
+        region.introduction(proof.binding)
+        for proof in condition.key_matches
+        if proof.binding is not condition.use.target_binding
+    )
     return _RegionJoin(
         join.kind.value,
         current_forward_at_most_one(condition),
@@ -2017,7 +2191,7 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
         frozenset(pins),
         _current_source_match(base, source, expression is None)
         if base is not None and source is not None
-        else None,
+        else _predicate_source_match(region, condition),
     )
 
 
@@ -2890,7 +3064,7 @@ def _infer_satisfying_value(
                 diagnostics.append(
                     semantic_aggregates.invalid_context_diagnostic(
                         expression,
-                        context="satisfying clause",
+                        context="having clause",
                     )
                 )
                 value_type = semantic_satisfying._UNKNOWN_VALUE_TYPE
@@ -2903,7 +3077,7 @@ def _infer_satisfying_value(
         diagnostics.append(
             semantic_aggregates.invalid_context_diagnostic(
                 expression,
-                context="satisfying clause",
+                context="having clause",
             )
         )
         value_type = semantic_satisfying._UNKNOWN_VALUE_TYPE
@@ -3988,6 +4162,81 @@ def compiled_field_dependencies(ir, region, arguments):
     return tuple(retained)
 
 
+def _compiled_predicate_source_match(records, join, origin, earlier):
+    """The source-free counterpart of `_predicate_source_match`."""
+    from pietto._project.project_compiled_schema import (
+        MAX_RECORDS,
+        predicate_equalities,
+    )
+
+    predicate = join.get("predicate")
+    if join.get("law") != "current" or join.get("equalities") or predicate is None:
+        return None
+    authorized = {item.address for item in predicate_equalities(records, join)}
+    if not authorized:
+        return None
+    right = join.get("inputs")[1]
+    pending, seen, pairs, matched = [predicate], set(), [], set()
+    unconditional = True
+    while pending:
+        address = pending.pop()
+        # Shared expression addresses have no separate occurrence authority in
+        # predicate_equalities; never silently collapse their multiplicity.
+        if address in seen or len(seen) >= MAX_RECORDS:
+            return None
+        seen.add(address)
+        if address.kind != "operation":
+            unconditional = False
+            continue
+        record = records[address]
+        operands = record.get("operands")
+        if record.get("operator") == ("binary", "and"):
+            pending.extend(reversed(operands))
+            continue
+        if address not in authorized:
+            unconditional = False
+            continue
+        if len(operands) != 2:
+            return None
+        matched.add(address)
+        first, second = (origin(operand) for operand in operands)
+        if first is None or second is None:
+            return None
+        if first[0] == right:
+            first, second = second, first
+        if first[0] not in earlier or second[0] != right:
+            return None
+        pairs.append((first, second))
+    if (
+        matched != authorized
+        or not pairs
+        or any(first[0] != pairs[0][0][0] for first, _ in pairs)
+    ):
+        return None
+    source = pairs[0][0][0]
+    producers = tuple(records[records[use].get("producer")] for use in (source, right))
+    if any(producer.address.kind != "source" for producer in producers) or any(
+        not 0 <= ordinal < len(producer.get("fields"))
+        for pair in pairs
+        for (_, ordinal), producer in zip(pair, producers, strict=True)
+    ):
+        return None
+    declarations = tuple(records[producer.get("declaration")] for producer in producers)
+    if any(
+        (declaration.get("namespace"), declaration.get("kind"), declaration.get("let"))
+        != ("relation", "source", None)
+        for declaration in declarations
+    ):
+        return None
+    return (
+        source,
+        declarations[0].address,
+        declarations[1].address,
+        tuple((first[1], second[1]) for first, second in pairs),
+        unconditional,
+    )
+
+
 def compiled_orphan_free_dependencies(ir, region, stage, arguments):
     """`orphan_free_dependencies` over compiled records: a read is followed
     through the region's JOIN outputs to the input that introduced it, and
@@ -4144,6 +4393,10 @@ def compiled_orphan_free_dependencies(ir, region, stage, arguments):
                     tuple((a[1], b[1]) for a, b in pairs),
                     predicate is None,
                 )
+        if source_match is None:
+            source_match = _compiled_predicate_source_match(
+                records, join.record, origin, introductions(left_address)
+            )
         entries.append(
             _RegionJoin(
                 kind,

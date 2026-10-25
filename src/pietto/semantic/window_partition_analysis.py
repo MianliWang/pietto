@@ -38,8 +38,8 @@ def bind_window_partition_fields(
         raise TypeError("input_schema must be an exact RowSchema")
     if type(field_qualifier) is not str:
         raise TypeError("field_qualifier must be an exact string")
-    if type(value_types) is not dict:
-        raise TypeError("value_types must be an exact dict")
+    if not isinstance(value_types, dict):
+        raise TypeError("value_types must be a dict")
     if type(diagnostics) is not list:
         raise TypeError("diagnostics must be an exact list")
 

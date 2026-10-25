@@ -1,8 +1,10 @@
 """The single-file fan-out rule for aggregates over JOIN rows.
 
-The facts each relation's rule reads are built from its file as the analyzer
-builds them. The queries named faN are admitted and those named frN refused;
-the others name the case they pin.
+The facts each relation's rule reads are the ones the analyzer builds from its
+file. The queries named faN are admitted and those named frN refused; the
+others name the case they pin. Each JOIN names its input with `let` and
+states its match in `on`, through a shape-typed relationship call where a
+declared key proves it.
 """
 
 from __future__ import annotations
@@ -23,67 +25,62 @@ from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 
 _FANOUT_SOURCE: str = """shape Order:
-    id: Int not null
-    customer_id: Int nullable
-    amount: Int not null
-    rush: Bool not null
-    unique order_key on id
+    id: Int
+    customer_id: Int | None
+    amount: Int
+    rush: Bool
+    order_key = unique(id)
 shape OrderX:
-    id: Int not null
-    customer_id: Int nullable
-    amount: Int not null
-    unique ox_key on id
-    unique ox_cust on customer_id
+    id: Int
+    customer_id: Int | None
+    amount: Int
+    ox_key = unique(id)
+    ox_cust = unique(customer_id)
 shape Customer:
-    id: Int not null
-    name: Text not null
-    region_id: Int nullable
-    vip: Bool not null
-    unique customer_key on id
+    id: Int
+    name: Text
+    region_id: Int | None
+    vip: Bool
+    customer_key = unique(id)
 shape Region:
-    id: Int not null
-    label: Text not null
-    unique region_key on id
+    id: Int
+    label: Text
+    region_key = unique(id)
 shape Line:
-    ord_id: Int not null
-    line_no: Int not null
-    qty: Int not null
-    unique line_k on ord_id, line_no
+    ord_id: Int
+    line_no: Int
+    qty: Int
+    line_k = unique(ord_id, line_no)
 shape Ship:
-    id: Int not null
-    ord_id: Int nullable
-    line_no: Int nullable
-    qty: Int nullable
-    unique ship_k on id
+    id: Int
+    ord_id: Int | None
+    line_no: Int | None
+    qty: Int | None
+    ship_k = unique(id)
 shape Cust:
-    id: Int not null
-    ref: Int nullable
-    unique cust_k0 on id
+    id: Int
+    ref: Int | None
+    cust_k0 = unique(id)
 shape Ord:
-    id: Int not null
-    cust_id: Int nullable
-source orders: Order is postgres.table("shop.orders")
-source orders_x: OrderX is postgres.table("shop.orders_x")
-source customers: Customer is postgres.table("shop.customers")
-source regions: Region is postgres.table("shop.regions")
-source lines: Line is postgres.table("shop.lines")
-source ships: Ship is postgres.table("shop.ships")
-source cust: Cust is postgres.table("app.cust")
-source ord: Ord is postgres.table("app.ord")
-relationship order_customer: orders.customer_id == customers.id
-relationship customer_region: customers.region_id == regions.id
-relationship ox_customer: orders_x.customer_id == customers.id
-relationship ship_line: ships.ord_id == lines.ord_id and ships.line_no == lines.line_no
-relationship ship_order: ships.ord_id == lines.ord_id
-relationship ship_line_qty: ships.ord_id == lines.ord_id and ships.line_no == lines.line_no and ships.qty == lines.qty
-relationship referral:
-    endpoint referrer: cust
-    endpoint referee: cust
-    on referrer.ref == referee.id
-relationship ord_cust:
-    endpoint o: ord
-    endpoint c: cust
-    on o.cust_id == c.id
+    id: Int
+    cust_id: Int | None
+source orders: Order = postgres.table("shop.orders")
+source orders_x: OrderX = postgres.table("shop.orders_x")
+source customers: Customer = postgres.table("shop.customers")
+source regions: Region = postgres.table("shop.regions")
+source lines: Line = postgres.table("shop.lines")
+source ships: Ship = postgres.table("shop.ships")
+source cust: Cust = postgres.table("app.cust")
+source ord: Ord = postgres.table("app.ord")
+relationship order_customer(order: Order, customer: Customer): order.customer_id == customer.id
+relationship customer_region(customer: Customer, region: Region): customer.region_id == region.id
+relationship ox_customer(order: OrderX, customer: Customer): order.customer_id == customer.id
+relationship ship_line(ship: Ship, line: Line): ship.ord_id == line.ord_id and ship.line_no == line.line_no
+relationship ship_order(ship: Ship, line: Line): ship.ord_id == line.ord_id
+relationship ship_line_qty(ship: Ship, line: Line):
+    ship.ord_id == line.ord_id and ship.line_no == line.line_no and ship.qty == line.qty
+relationship referral(referrer: Cust, referee: Cust): referrer.ref == referee.id
+relationship ord_cust(o: Ord, c: Cust): o.cust_id == c.id
 query named_customers:
     from customers
     where name != ""
@@ -96,211 +93,218 @@ query totals:
         total = count()
 query fa1:
     from orders
-    inner join customers as customer
-    group by: customer.id, customer.name
+    let customer = customers
+    inner join customer on order_customer(orders, customer)
+    group by customer.id, customer.name
     select:
         name = customer.name
         biggest = max(orders.amount)
         n = count()
 query fa2:
     from customers
-    inner join orders as o
+    let o = orders
+    inner join o on order_customer(o, customers)
     select:
         biggest = max(o.amount)
 query fa3:
     from customers
-    inner join orders as o
-    group by: customers.id
+    let o = orders
+    inner join o on order_customer(o, customers)
+    group by customers.id
     select:
         total = count(o.id)
 query fa4:
     from orders
-    left join customers as c
+    let c = customers
+    left join c on order_customer(orders, c)
     select:
         n = count(orders.id)
 query fa5:
     from orders
-    cross join regions as r: from orders
+    let r = regions
+    cross join r
     select:
         n = count()
 query fa6:
     from cust
-    inner join cust as b2:
-        from cust
-        via referral: referee -> referrer
+    let b2 = cust
+    inner join b2 on referral(b2, cust)
     select:
         mn = min(b2.id)
 query fa7:
     from customers
-    left join orders as o
-    group by: o.id
+    let o = orders
+    left join o on order_customer(o, customers)
+    group by o.id
     select:
         oid = o.id
         n = count(customers.id)
 query fa8:
     from orders
-    right join customers as c:
-        from orders
-        on orders.customer_id == c.id
-    group by: orders.id
+    let c = customers
+    right join c on orders.customer_id == c.id
+    group by orders.id
     select:
         oid = orders.id
         n = count(c.id)
 query fa9:
     from ships
-    inner join lines as l: via ship_line
+    let l = lines
+    inner join l on ship_line(ships, l)
     select:
         n = count(ships.id)
 query fa10:
     from lines
-    inner join ships as s: via ship_line
+    let s = ships
+    inner join s on ship_line(s, lines)
     select:
         m = max(s.id)
+query fa11:
+    from customers
+    let r = regions
+    inner join r on r.id >= customers.region_id
+    let o = orders
+    inner join o on order_customer(o, customers) and o.amount > 0
+    group by r.id
+    select:
+        rid = r.id
+        n = count(o.id)
+query fa12:
+    from cust
+    let b1 = cust
+    where any(referral(cust, b1) for b1 in b1)
+    let b2 = cust
+    inner join b2 on referral(b2, cust) and b2.ref != 5
+    select:
+        mn = min(b2.id)
+query fa13:
+    from cust
+    let b2 = cust
+    inner join b2 on referral(b2, cust) and b2.ref != 5
+    select:
+        mn = min(b2.id)
+query fa14:
+    from cust
+    let b2 = ord
+    inner join b2 on ord_cust(b2, cust) and b2.id != 5
+    select:
+        mn = min(b2.id)
 query fr1:
     from customers
-    inner join orders as o:
-        from customers
-        on o.customer_id == customers.id
-    group by: customers.name
+    let o = orders
+    inner join o on o.customer_id == customers.id
+    group by customers.name
     select:
         name = customers.name
         cnt = count(customers.id)
 query fr2:
     from orders
-    inner join customers as c
+    let c = customers
+    inner join c on order_customer(orders, c)
     select:
         n = count(c.name)
 query fr3:
     from orders
-    cross join regions as r: from orders
+    let r = regions
+    cross join r
     select:
         n = count(orders.id)
 query fr4:
     from orders
-    inner join named_customers as c:
-        from orders
-        on orders.customer_id == c.id
+    let c = named_customers
+    inner join c on orders.customer_id == c.id
     select:
         n = count(orders.id)
 query fr5:
     from orders
-    cross join totals as t: from orders
-    group by: orders.customer_id
+    let t = totals
+    cross join t
+    group by orders.customer_id
     select:
         m = max(orders.amount)
 query fr6:
     from orders
-    right join customers as c
-    left join regions as r: from c
-    group by: orders.id
+    let c = customers
+    right join c on order_customer(orders, c)
+    let r = regions
+    left join r on customer_region(c, r)
+    group by orders.id
     select:
         oid = orders.id
         n = count(r.id)
 query fr7:
     from orders
-    right join customers as c
-    cross join regions as r: from orders
-    group by: orders.id
+    let c = customers
+    right join c on order_customer(orders, c)
+    let r = regions
+    cross join r
+    group by orders.id
     select:
         oid = orders.id
         n = count(r.id)
 query fr8:
     from orders
-    full join customers as c
-    cross join regions as r: from orders
-    group by: orders.id
+    let c = customers
+    full join c on order_customer(orders, c)
+    let r = regions
+    cross join r
+    group by orders.id
     select:
         oid = orders.id
         n = count(r.id)
 query fr9:
     from customers
-    right join regions as r
-    cross join orders as w: from customers
+    let r = regions
+    right join r on customer_region(customers, r)
+    let w = orders
+    cross join w
     select:
         n = count(customers.vip or w.rush)
 query fr10:
     from customers
-    inner join regions as r:
-        from customers
-        on r.id >= customers.region_id
-    right join orders as o: from customers
-    group by: r.id
+    let r = regions
+    inner join r on r.id >= customers.region_id
+    let o = orders
+    right join o on order_customer(o, customers)
+    group by r.id
     select:
         rid = r.id
         n = count(o.id)
-query fr11:
-    from customers
-    inner join regions as r:
-        from customers
-        on r.id >= customers.region_id
-    inner join orders as o:
-        from customers
-        via order_customer
-        on o.amount > 0
-    group by: r.id
-    select:
-        rid = r.id
-        n = count(o.id)
-query fr12:
-    from cust
-    semi join cust as b1:
-        from cust
-        via referral: referrer -> referee
-    inner join cust as b2:
-        from cust
-        via referral: referee -> referrer
-        on b2.ref != 5
-    select:
-        mn = min(b2.id)
-query fr13:
-    from cust
-    inner join cust as b2:
-        from cust
-        via referral: referee -> referrer
-        on b2.ref != 5
-    select:
-        mn = min(b2.id)
 query fr14:
     from cust
-    right join cust as b2:
-        from cust
-        via referral: referee -> referrer
+    let b2 = cust
+    right join b2 on referral(b2, cust)
     select:
         mn = min(b2.id)
 query fr15:
     from customers
-    inner join orders_x as o:
-        from customers
-        on o.customer_id == customers.id
-    group by: o.customer_id
+    let o = orders_x
+    inner join o on o.customer_id == customers.id
+    group by o.customer_id
     select:
         n = count(customers.id)
 query fr16:
     from ships
-    inner join lines as l: via ship_order
+    let l = lines
+    inner join l on ship_order(ships, l)
     select:
         n = count(ships.id)
 query fr17:
     from orders_x
-    right join customers as c
+    let c = customers
+    right join c on ox_customer(orders_x, c)
     select:
         n = count(c.id)
-query fr18:
-    from cust
-    inner join ord as b2:
-        from cust
-        via ord_cust: c -> o
-        on b2.id != 5
-    select:
-        mn = min(b2.id)
 query count_only:
     from orders
-    cross join regions as r: from orders
+    let r = regions
+    cross join r
     select:
         n = count()
 query not_exempt:
     from orders
-    cross join regions as r: from orders
+    let r = regions
+    cross join r
     select:
         n = count()
         low = min(r.id)
@@ -309,84 +313,93 @@ query not_exempt:
         k = count(r.id)
 query chain_admitted:
     from orders
-    inner join customers as c
-    left join regions as r: from c
+    let c = customers
+    inner join c on order_customer(orders, c)
+    let r = regions
+    left join r on customer_region(c, r)
     select:
         n = count(orders.id)
 query chain_refused:
     from orders
-    inner join customers as c
-    left join regions as r: from c
+    let c = customers
+    inner join c on order_customer(orders, c)
+    let r = regions
+    left join r on customer_region(c, r)
     select:
         top = max(r.id)
 query let_argument:
     from orders
-    cross join regions as r: from orders
-    let:
-        label_text = r.label
-        shown = label_text
+    let r = regions
+    cross join r
+    let label_text = r.label
+    let shown = label_text
     select:
         n = count(shown)
 query let_admitted:
     from orders
-    inner join customers as c
-    let:
-        paid = orders.amount
+    let c = customers
+    inner join c on order_customer(orders, c)
+    let paid = orders.amount
     select:
         total = sum(paid)
 query renamed_key:
     from customers
-    inner join orders as o:
-        from customers
-        on o.customer_id == customers.id
-    let:
-        cid = customers.id
-    group by: cid
+    let o = orders
+    inner join o on o.customer_id == customers.id
+    let cid = customers.id
+    group by cid
     select:
-        cid
         total = count(o.id)
 query renamed_non_key:
     from customers
-    inner join orders as o:
-        from customers
-        on o.customer_id == customers.id
-    let:
-        cname = customers.name
-    group by: cname
+    let o = orders
+    inner join o on o.customer_id == customers.id
+    let cname = customers.name
+    group by cname
     select:
-        cname
         total = count(o.id)
 query reverse_subset:
     from lines
-    inner join ships as s: via ship_line_qty
+    let s = ships
+    inner join s on ship_line_qty(s, lines)
     select:
         m = max(s.id)
 query semi_not_factor:
     from customers
-    anti join orders as o
+    let o = orders
+    where not any(order_customer(o, customers) for o in o)
+    let r = regions
+    inner join r on customer_region(customers, r)
     select:
         n = count(customers.id)
 query one_key_two_joins:
     from orders
-    inner join customers as c
-    inner join customers as d: from orders
+    let c = customers
+    inner join c on order_customer(orders, c)
+    let d = customers
+    inner join d on order_customer(orders, d)
     select:
         n = count(c.name)
 query composite_key_text:
     from lines
-    inner join ships as s: via ship_line
+    let s = ships
+    inner join s on ship_line(s, lines)
     select:
         n = count(lines.ord_id)
 query two_keys:
     from orders
-    inner join customers as c
-    inner join regions as r: from c
+    let c = customers
+    inner join c on order_customer(orders, c)
+    let r = regions
+    inner join r on customer_region(c, r)
     select:
         n = count(r.label)
 query unique_keys_of_two:
     from orders
-    cross join regions as r: from orders
-    cross join customers as k: from orders
+    let r = regions
+    cross join r
+    let k = customers
+    cross join k
     select:
         n = count(orders.id)
 """
@@ -419,6 +432,10 @@ _ADMITTED = (
     "fa8",
     "fa9",
     "fa10",
+    "fa11",
+    "fa12",
+    "fa13",
+    "fa14",
     "count_only",
     "chain_admitted",
     "let_admitted",
@@ -432,107 +449,65 @@ _ADMITTED = (
 def test_an_aggregate_whose_inputs_determine_every_input_row_is_admitted(
     fanout: JoinScript, query: str
 ) -> None:
-    """Forward edges of INNER and LEFT relationship JOINs (fa1, fa4, fa9 and a
-    chain), reverse edges of INNER M1/M2 JOINs (fa2, fa6, fa10, and a source
-    key smaller than the matched fields), strict group keys (fa3, fa7, fa8 and
-    a renamed key), `count()` (fa1, fa5), `let:` arguments, and SEMI or ANTI
-    targets, which repeat no row."""
+    """A relationship call that is a required conjunct of an INNER `on` proves
+    the rows of each side whose declared key it matches (fa1, fa2, fa6, fa9,
+    fa10 and a key smaller than the matched fields), also beside further
+    filters of the same `on` (fa11 to fa14); of a LEFT `on` it proves the
+    joined side (fa4 and a chain). Strict group keys (fa3, fa7, fa8 and a
+    renamed key), `count()` (fa1, fa5), `let` arguments, and the hidden SEMI
+    or ANTI JOIN of a JOIN-prefix `[not] any` (fa12, semi_not_factor), which
+    repeats no row, need no proof."""
 
     assert fanout.fanout(query) == ()
 
 
-def _repeated(joins: str, remedy: str = "") -> str:
-    return f"An aggregate may read rows repeated by {joins}" + (
+def _repeated(remedy: str = "") -> str:
+    return "An aggregate may read rows that a JOIN repeats" + (
         f"; {remedy}" if remedy else ""
     )
 
 
-def _group(binding: str) -> str:
-    return f"group by a unique key of {binding} whose fields are all not null"
+def _match(*bindings: str) -> str:
+    noun = "a declared unique key" if len(bindings) == 1 else "declared unique keys"
+    return (
+        f"match {noun} of {' and '.join(bindings)} whose fields are never None in "
+        "`on` with a relationship call, use `any(...)` for an input that only "
+        "filters rows, or aggregate in a separate query first"
+    )
 
 
 _REFUSED = (
-    ("fr1", "count(customers.id)", _repeated("JOIN o", _group("o"))),
-    (
-        "fr2",
-        "count(c.name)",
-        _repeated(
-            "JOIN c",
-            "declare a unique key on orders.customer_id (matched by JOIN c), or "
-            + _group("orders"),
-        ),
-    ),
-    ("fr3", "count(orders.id)", _repeated("JOIN r", _group("r"))),
-    ("fr4", "count(orders.id)", _repeated("JOIN c")),
-    ("fr5", "max(orders.amount)", _repeated("JOIN t")),
-    # RIGHT and FULL JOINs give no edge: a NULL-extended source part
-    # determines no target row.
-    ("fr6", "count(r.id)", _repeated("JOIN c and JOIN r", _group("c"))),
-    ("fr7", "count(r.id)", _repeated("JOIN c", _group("c"))),
-    ("fr8", "count(r.id)", _repeated("JOIN c", _group("c"))),
-    ("fr9", "count(customers.vip or w.rush)", _repeated("JOIN r", _group("r"))),
-    # Neither do the reverse directions of RIGHT and M4 JOINs.
-    ("fr10", "count(o.id)", _repeated("JOIN r and JOIN o", _group("customers"))),
-    ("fr11", "count(o.id)", _repeated("JOIN r and JOIN o", _group("customers"))),
-    ("fr12", "min(b2.id)", _repeated("JOIN b2", _group("cust"))),
-    ("fr13", "min(b2.id)", _repeated("JOIN b2", _group("cust"))),
-    ("fr14", "min(b2.id)", _repeated("JOIN b2", _group("cust"))),
+    # A handwritten equality proves no key.
+    ("fr1", "count(customers.id)", _repeated(_match("o"))),
+    # The call matches the key of c, not of orders.
+    ("fr2", "count(c.name)", _repeated(_match("orders"))),
+    ("fr3", "count(orders.id)", _repeated(_match("r"))),
+    # A query carries no declared key in a single file.
+    ("fr4", "count(orders.id)", _repeated()),
+    ("fr5", "max(orders.amount)", _repeated()),
+    # RIGHT and FULL calls prove nothing: a NULL-extended row of one side
+    # determines no row of the other.
+    ("fr6", "count(r.id)", _repeated(_match("c"))),
+    ("fr7", "count(r.id)", _repeated(_match("c"))),
+    ("fr8", "count(r.id)", _repeated(_match("c"))),
+    ("fr9", "count(customers.vip or w.rush)", _repeated(_match("r"))),
+    ("fr10", "count(o.id)", _repeated(_match("customers"))),
+    ("fr14", "min(b2.id)", _repeated(_match("cust"))),
     # A nullable key protects no group.
-    ("fr15", "count(customers.id)", _repeated("JOIN o", _group("o"))),
+    ("fr15", "count(customers.id)", _repeated(_match("o"))),
     # A composite key covered only in part.
-    (
-        "fr16",
-        "count(ships.id)",
-        _repeated(
-            "JOIN l",
-            "declare a unique key on lines.ord_id (matched by JOIN l), or "
-            + _group("l"),
-        ),
-    ),
-    ("fr17", "count(c.id)", _repeated("JOIN c", _group("orders_x"))),
-    ("fr18", "min(b2.id)", _repeated("JOIN b2", _group("cust"))),
-    ("chain_refused", "max(r.id)", _repeated("JOIN r", _group("orders"))),
-    # The argument reads r through two `let:` names, and the group key is a
+    ("fr16", "count(ships.id)", _repeated(_match("l"))),
+    ("fr17", "count(c.id)", _repeated(_match("orders_x"))),
+    ("chain_refused", "max(r.id)", _repeated(_match("orders"))),
+    # The argument reads r through two `let` names, and the group key is a
     # renamed field that is no key.
-    ("let_argument", "count(shown)", _repeated("JOIN r", _group("orders"))),
-    ("renamed_non_key", "count(o.id)", _repeated("JOIN o", _group("customers"))),
+    ("let_argument", "count(shown)", _repeated(_match("orders"))),
+    ("renamed_non_key", "count(o.id)", _repeated(_match("customers"))),
     # One key serves two JOINs; a composite key; two keys; two group keys.
-    (
-        "one_key_two_joins",
-        "count(c.name)",
-        _repeated(
-            "JOIN c",
-            "declare a unique key on orders.customer_id (matched by JOINs c and d), "
-            "or " + _group("orders"),
-        ),
-    ),
-    (
-        "composite_key_text",
-        "count(lines.ord_id)",
-        _repeated(
-            "JOIN s",
-            "declare a unique key on ships (ord_id, line_no) (matched by JOIN s), or "
-            + _group("s"),
-        ),
-    ),
-    (
-        "two_keys",
-        "count(r.label)",
-        _repeated(
-            "JOIN r",
-            "declare a unique key on orders.customer_id (matched by JOIN c) and a "
-            "unique key on customers.region_id (matched by JOIN r), or "
-            + _group("orders"),
-        ),
-    ),
-    (
-        "unique_keys_of_two",
-        "count(orders.id)",
-        _repeated(
-            "JOIN r and JOIN k",
-            "group by unique keys of r and k whose fields are all not null",
-        ),
-    ),
+    ("one_key_two_joins", "count(c.name)", _repeated(_match("orders"))),
+    ("composite_key_text", "count(lines.ord_id)", _repeated(_match("s"))),
+    ("two_keys", "count(r.label)", _repeated(_match("orders"))),
+    ("unique_keys_of_two", "count(orders.id)", _repeated(_match("r", "k"))),
 )
 
 
@@ -551,7 +526,7 @@ def test_only_count_without_an_argument_is_exempt(fanout: JoinScript) -> None:
     """`min`, `max`, `count_distinct` and `count` of a field read the rows a
     JOIN repeats; each is refused once, in select order."""
 
-    message = _repeated("JOIN r", _group("orders"))
+    message = _repeated(_match("orders"))
     assert located(fanout.fanout("not_exempt")) == [
         ("PIE-S2381", message, *_at("not_exempt", call))
         for call in ("min(r.id)", "max(r.id)", "count_distinct(r.label)", "count(r.id)")
@@ -564,50 +539,53 @@ def test_an_aggregate_that_reads_no_input_names_no_repeated_join() -> None:
 
     source = (
         _FANOUT_SOURCE.split("query named_customers:")[0]
-        + "query no_field:\n    from orders\n    cross join regions as r: from orders\n"
+        + "query no_field:\n    from orders\n    let r = regions\n    cross join r\n"
         "    select:\n        n = sum(1)\n"
     )
     facts = join_script(source)
     lines = source.split("\n")
     line = lines.index("        n = sum(1)") + 1
     assert located(facts.fanout("no_field")) == [
-        (
-            "PIE-S2381",
-            "An aggregate may read rows that a JOIN repeats; group by unique keys of "
-            "orders and r whose fields are all not null",
-            line,
-            13,
-        )
+        ("PIE-S2381", _repeated(_match("orders", "r")), line, 13)
     ]
 
 
-# Where both modes refuse an aggregate for fan-out, the single-file message is
-# the project's cause clause with its first letter capitalized; the project
-# accepts the refusals in which single files are stricter.
-_SAME_CLAUSE = (
-    "fr1",
-    "fr2",
-    "fr3",
-    "fr6",
-    "fr7",
-    "fr8",
-    "fr9",
-    "fr10",
-    "fr11",
-    "fr15",
-    "fr16",
-    "not_exempt",
-    "chain_refused",
-    "let_argument",
-    "renamed_non_key",
-    "one_key_two_joins",
-    "composite_key_text",
-    "two_keys",
-    "unique_keys_of_two",
+# Where both modes refuse an aggregate for fan-out, the project's cause clause
+# names the JOINs that repeat its rows and the single-file message, which
+# names none for a JOIN of a `let` input, gives the same input whose key the
+# remedy matches; the project accepts the refusals in which single files are
+# stricter.
+_SAME_REMEDY = (
+    ("fr1", "JOIN o", "o"),
+    ("fr2", "JOIN c", "orders"),
+    ("fr3", "JOIN r", "r"),
+    ("fr6", "JOIN c and JOIN r", "c"),
+    ("fr7", "JOIN c", "c"),
+    ("fr8", "JOIN c", "c"),
+    ("fr9", "JOIN r", "r"),
+    ("fr15", "JOIN o", "o"),
+    ("fr16", "JOIN l", "l"),
+    ("not_exempt", "JOIN r", "orders"),
+    ("chain_refused", "JOIN r", "orders"),
+    ("let_argument", "JOIN r", "orders"),
+    ("renamed_non_key", "JOIN o", "customers"),
+    ("one_key_two_joins", "JOIN c", "orders"),
+    ("composite_key_text", "JOIN s", "s"),
+    ("two_keys", "JOIN r", "orders"),
+    ("unique_keys_of_two", "JOIN r and JOIN k", "r and k"),
 )
-# The project proves reverse M4/RIGHT self relationships; the bounded
-# single-file rule deliberately gives those directions no edge.
-_STRICTER = ("fr5", "fr12", "fr13", "fr14", "fr17", "fr18")
+# The project proves RIGHT JOINs and JOINs to a query that the bounded
+# single-file rule deliberately leaves unproven.
+_STRICTER = ("fr5", "fr10", "fr14", "fr17")
+
+
+def _project_remedy(bindings: str) -> str:
+    noun = "unique keys" if " and " in bindings else "a unique key"
+    return (
+        f"match {noun} of {bindings} whose fields are never None in `on` with a "
+        "relationship call, use `any(...)` for an input that only filters rows, "
+        "or aggregate in a separate query first"
+    )
 
 
 def test_fanout_messages_are_the_project_cause_clause(
@@ -632,13 +610,18 @@ def test_fanout_messages_are_the_project_cause_clause(
         )
         assert item.code == "PIE-S2333" and match is not None, item
         clauses[match.group(1)] = match.group(2)
-    assert tuple(clauses) == (*_SAME_CLAUSE[:3], "fr4", *_SAME_CLAUSE[3:])
-    for query in _SAME_CLAUSE:
+    names = tuple(query for query, _, _ in _SAME_REMEDY)
+    assert tuple(clauses) == (*names[:3], "fr4", *names[3:])
+    for query, joins, bindings in _SAME_REMEDY:
+        assert clauses[query] == (
+            f"an aggregate may read rows repeated by {joins}; "
+            + _project_remedy(bindings)
+        )
         messages = {item.message for item in fanout.fanout(query)}
-        assert messages == {clauses[query][0].upper() + clauses[query][1:]}
+        assert messages == {_repeated(_match(*bindings.split(" and ")))}
     # The project carries a key through the query `named_customers`.
     assert clauses["fr4"] == (
-        "an aggregate may read rows repeated by JOIN c; " + _group("c")
+        "an aggregate may read rows repeated by JOIN c; " + _project_remedy("c")
     )
     for query in (*_STRICTER, *_ADMITTED):
         assert query not in clauses
@@ -653,13 +636,13 @@ def test_analyzer_keeps_each_aggregate_and_self_binding_separate(
         _FANOUT_SOURCE.split("query named_customers:")[0]
         + f"""query grouped:
     from customers
-    cross join customers as peer: from customers
-    let:
-        first_key = {protected}.id
-        group_key = first_key
-        first_value = {protected}.id
-        repeated_value = first_value
-    group by: group_key
+    let peer = customers
+    cross join peer
+    let first_key = {protected}.id
+    let group_key = first_key
+    let first_value = {protected}.id
+    let repeated_value = first_value
+    group by group_key
     select:
         key = {protected}.id
         once = count({other}.id)
@@ -671,7 +654,7 @@ def test_analyzer_keeps_each_aggregate_and_self_binding_separate(
     result = analyze(parsed.ast)
     line = source.splitlines().index("        repeated = count(repeated_value)") + 1
     assert located(result.diagnostics) == [
-        ("PIE-S2381", _repeated("JOIN peer", _group(other)), line, 20)
+        ("PIE-S2381", _repeated(_match(other)), line, 20)
     ]
 
 
@@ -683,15 +666,13 @@ def test_refined_left_subtree_cannot_determine_an_earlier_cross_input(
         _FANOUT_SOURCE.split("query named_customers:")[0]
         + f"""query refined:
     from orders
-    cross join regions as r: from orders
-    left join customers as c:
-        from orders
-        via order_customer
-        on r.id == c.region_id
-    inner join orders_x as x:
-        from c
-        via ox_customer
-    group by: {grouped}.id
+    let r = regions
+    cross join r
+    let c = customers
+    left join c on order_customer(orders, c) and r.id == c.region_id
+    let x = orders_x
+    inner join x on ox_customer(x, c)
+    group by {grouped}.id
     select:
         n = count(orders.id)
 """
@@ -705,7 +686,7 @@ def test_refined_left_subtree_cannot_determine_an_earlier_cross_input(
         else [
             (
                 "PIE-S2381",
-                _repeated("JOIN r", _group("r")),
+                _repeated(_match("r")),
                 source.splitlines().index("        n = count(orders.id)") + 1,
                 13,
             )

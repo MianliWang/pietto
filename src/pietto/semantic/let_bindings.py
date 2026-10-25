@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pietto.semantic.relationship_predicates import RelationshipCallFailure
+
+from collections.abc import Mapping, Sequence
 from typing import cast
 
 from pietto.ast_nodes import (
+    AnyExpr,
     BetweenExpr,
     BinaryExpr,
     CastExpr,
@@ -17,6 +23,7 @@ from pietto.ast_nodes import (
     Expression,
     FromClause,
     IsNullExpr,
+    JoinClause,
     LetBinding,
     LiteralExpr,
     MembershipExpr,
@@ -41,7 +48,11 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     invalid_context_diagnostic,
 )
-from pietto.semantic.expressions import LetValues, infer_row_expression
+from pietto.semantic.expressions import (
+    LetValues,
+    _FailedRelationshipTypes,
+    infer_row_expression,
+)
 from pietto.semantic.model import (
     LetScopeSemanticInfo,
     ResolvedType,
@@ -80,6 +91,8 @@ def analyze_relation_let_bindings(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     joined_inputs: Mapping[DerivedRelation, RowSchema] | None = None,
     reserved_let_names: Mapping[DerivedRelation, frozenset[str]] | None = None,
+    normalized_bindings: Mapping[LetBinding, Expression] | None = None,
+    failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
 ) -> tuple[
     dict[DerivedRelation, LetScopeSemanticInfo],
     dict[Expression, ValueType],
@@ -114,6 +127,8 @@ def analyze_relation_let_bindings(
             allow_unaliased_selected_let_outputs=(allow_unaliased_selected_let_outputs),
             type_expansions=type_expansions,
             reserved_names=(reserved_let_names or {}).get(definition, frozenset()),
+            normalized_bindings=normalized_bindings,
+            failed_relationship_calls=failed_relationship_calls,
         )
         scopes[definition] = scope
         value_types.update(relation_values)
@@ -144,15 +159,22 @@ def admitted_relation_let_expressions(
     return expressions
 
 
-def join_reserved_let_names(definition: DerivedRelation) -> frozenset[str]:
+def join_reserved_let_names(
+    definition: DerivedRelation, *, generated_joins: tuple[JoinClause, ...] = ()
+) -> frozenset[str]:
     """The names a single-file JOIN relation's let bindings cannot take.
 
     Every binding, SEMI and ANTI ones included, and every binding's relation.
     """
 
-    names = {definition.from_clause.source_name}
+    names = {
+        definition.from_clause.source_name,
+        (definition.from_clause.binding_name or definition.from_clause.source_name),
+    }
+    generated = {id(clause) for clause in generated_joins}
     for clause in definition.join_clauses:
-        names.update((clause.target_binding_name, clause.target_relation_name))
+        if id(clause) not in generated:
+            names.update((clause.target_binding_name, clause.target_relation_name))
     return frozenset(names)
 
 
@@ -167,6 +189,8 @@ _MAX_INLINE_LEVELS = 768
 def let_expansion_diagnostics(
     definition: DerivedRelation,
     admitted: Mapping[str, object],
+    *,
+    extra_expressions: tuple[Expression, ...] = (),
 ) -> list[Diagnostic]:
     """Refuse relation expressions whose single-file let inlining is too big.
 
@@ -206,7 +230,7 @@ def let_expansion_diagnostics(
                 culprit = binding.name
             measured[binding.name] = (size, levels, culprit)
     diagnostics: list[Diagnostic] = []
-    for expression in _relation_expressions(definition):
+    for expression in (*_relation_expressions(definition), *extra_expressions):
         size, levels, culprit, inlined = measure(expression)
         if inlined and _exceeds(size, levels):
             diagnostics.append(
@@ -260,6 +284,8 @@ def _relation_expressions(definition: DerivedRelation) -> tuple[Expression, ...]
 def _operands(expression: Expression) -> tuple[Expression, ...]:
     """Return the operands that let inline expansion descends into."""
 
+    if isinstance(expression, AnyExpr):
+        return ()
     if isinstance(expression, CallExpr):
         return expression.arguments
     if isinstance(expression, UnaryExpr):
@@ -338,11 +364,17 @@ def _analyze_relation_let_clause(
     allow_unaliased_selected_let_outputs: bool = False,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     reserved_names: frozenset[str] = frozenset(),
+    normalized_bindings: Mapping[LetBinding, Expression] | None = None,
+    failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
 ) -> tuple[LetScopeSemanticInfo, dict[Expression, ValueType], list[Diagnostic]]:
     assert definition.let_clause is not None
 
     diagnostics: list[Diagnostic] = []
-    value_types: dict[Expression, ValueType] = {}
+    value_types: dict[Expression, ValueType] = (
+        _FailedRelationshipTypes(failed_relationship_calls)
+        if failed_relationship_calls
+        else {}
+    )
     scope_values: dict[str, ValueType] = {}
     # Earlier admitted bindings, which `let_value` follows as emission inlines.
     scope_expressions = LetValues()
@@ -357,6 +389,12 @@ def _analyze_relation_let_clause(
         reserved_names=reserved_names,
     )
 
+    ignored_dependency_ids = frozenset(
+        id(argument)
+        for failure in failed_relationship_calls
+        for argument in failure.expression.arguments
+        if isinstance(argument, NameExpr)
+    )
     for binding in definition.let_clause.bindings:
         reported = len(diagnostics)
         if contains_semantic_aggregate(binding.expression):
@@ -368,22 +406,28 @@ def _analyze_relation_let_clause(
             all_name_set=all_name_set,
             prior_names=set(scope_values),
             diagnostics=diagnostics,
+            ignored_expression_ids=ignored_dependency_ids,
         )
+        expression = (normalized_bindings or {}).get(binding, binding.expression)
         value_type = infer_row_expression(
-            binding.expression,
+            expression,
             input_schema,
             value_types,
             diagnostics,
             report_unknown_name=True,
-            field_qualifier=definition.from_clause.source_name,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             bare_value_types=scope_values,
             bare_value_expressions=scope_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
             type_expansions=type_expansions,
         )
+        value_types[binding.expression] = value_type
         if binding.name not in invalid_binding_names and binding.name not in seen_names:
             scope_values[binding.name] = value_type
-            scope_expressions[binding.name] = binding.expression
+            scope_expressions[binding.name] = expression
             if any(item.severity is Severity.ERROR for item in diagnostics[reported:]):
                 scope_expressions.erroneous.add(binding.name)
         seen_names.add(binding.name)
@@ -436,7 +480,11 @@ def _invalid_binding_names(
             invalid_names.add(binding.name)
             continue
         if (
-            binding.name == definition.from_clause.source_name
+            binding.name
+            == (
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            )
             or binding.name in reserved_names
         ):
             diagnostics.append(
@@ -471,12 +519,18 @@ def _binding_conflicts_with_projection_output(
     *,
     allow_unaliased_selected_let_outputs: bool,
 ) -> bool:
+    """Whether an output of another value takes the binding's name.
+
+    Selecting the binding by its own name outputs its value; a single file
+    selects a binding so only in a relation without GROUP BY.
+    """
+
     for item in definition.select_items:
         output_name = _projection_output_name(item)
         if output_name != binding_name:
             continue
         if (
-            allow_unaliased_selected_let_outputs
+            (allow_unaliased_selected_let_outputs or definition.group_by_clause is None)
             and item.alias is None
             and isinstance(item.expression, NameExpr)
             and item.expression.name == binding_name
@@ -492,11 +546,14 @@ def _dependency_diagnostics(
     all_name_set: set[str],
     prior_names: set[str],
     diagnostics: list[Diagnostic],
+    ignored_expression_ids: frozenset[int] = frozenset(),
 ) -> set[str]:
     suppressed_unknown_names: set[str] = set()
     reported_names: set[str] = set()
     for expression in _walk_expressions(binding.expression):
-        if not isinstance(expression, NameExpr):
+        if id(expression) in ignored_expression_ids or not isinstance(
+            expression, NameExpr
+        ):
             continue
         if expression.name == binding.name:
             diagnostics.append(
@@ -604,6 +661,7 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
             ParameterRefExpr,
             RelationExistsExpr,
             RelationScalarExpr,
+            AnyExpr,
         ),
     ):
         raise AssertionError(f"Unsupported expression: {type(expression).__name__}")

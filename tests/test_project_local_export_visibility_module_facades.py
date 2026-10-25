@@ -39,18 +39,18 @@ SOURCE_REL = "src/pietto/_project/module_exports.py"
 TEST_REL = "tests/test_project_local_export_visibility_module_facades.py"
 
 ALL_DEFINITIONS = (
-    "type Email = Text not null\n"
+    "type Email = Text\n"
     "enum Status:\n"
     "    active\n"
     "    inactive\n"
-    "constraint valid_email(value: Text not null) -> Bool not null:\n"
-    '    matches(value, "@")\n'
-    "derive normalized_email(value: Text not null) -> Text not null:\n"
-    "    lower(trim(value))\n"
+    "constraint valid_email(value: Text) -> Bool:\n"
+    '    return matches(value, "@")\n'
+    "derive normalized_email(value: Text) -> Text:\n"
+    "    return lower(trim(value))\n"
     "shape User:\n"
-    "    id: UUID not null\n"
-    "    email: Text not null\n"
-    'source users: User is postgres.table("public.users")\n'
+    "    id: UUID\n"
+    "    email: Text\n"
+    'source users: User = postgres.table("public.users")\n'
     "table FirstRelation:\n"
     "    from users\n"
     "    select:\n"
@@ -61,13 +61,13 @@ ALL_DEFINITIONS = (
     "        id\n"
 )
 ALL_EXPORTS = (
-    "export:\n"
-    "    type Email\n"
-    "    enum Status\n"
-    "    shape User\n"
-    "    source users\n"
-    "    table FirstRelation\n"
-    "    query SecondRelation\n"
+    "export (\n"
+    "    type Email,\n"
+    "    enum Status,\n"
+    "    shape User,\n"
+    "    source users,\n"
+    "    table FirstRelation,\n"
+    "    query SecondRelation)\n"
 )
 
 
@@ -258,7 +258,7 @@ def test_export_carrier_enums_fields_privacy_and_exact_six_kind_mapping_are_lock
 def test_export_carrier_constructors_reject_wrong_types_and_inconsistent_values() -> (
     None
 ):
-    surface = _one_surface("type Shared = Int\nexport:\n    type Shared\n")
+    surface = _one_surface("type Shared = Int\nexport (\n    type Shared)\n")
     request = surface.requests[0]
     occurrence = cast(
         module_catalog.ProjectDeclarationOccurrence,
@@ -297,7 +297,7 @@ def test_export_carrier_constructors_reject_wrong_types_and_inconsistent_values(
             resolved_from=occurrence,
         )
     reexport = _one_surface(
-        "export:\n    shape Imported\n",
+        "export (\n    shape Imported)\n",
         candidates=(_candidate(),),
     ).entries[0]
     assert isinstance(
@@ -324,8 +324,8 @@ def test_export_carrier_constructors_reject_wrong_types_and_inconsistent_values(
         "    id: Int\n"
         "shape Shared:\n"
         "    id: Int\n"
-        "export:\n"
-        "    shape Shared\n"
+        "export (\n"
+        "    shape Shared)\n"
     )
     with pytest.raises(ValueError):
         module_exports.ProjectModuleExportIssue(
@@ -396,7 +396,7 @@ def test_only_successful_explicit_local_exports_are_visible_without_catalog_muta
     None
 ):
     module = _module(
-        "type Public = Int\ntype Private = Text\nexport:\n    type Public\n"
+        "type Public = Int\ntype Private = Text\nexport (\n    type Public)\n"
     )
     catalogs = _catalogs(module)
     before = catalogs.catalogs[0].occurrences
@@ -416,7 +416,7 @@ def test_only_successful_explicit_local_exports_are_visible_without_catalog_muta
 def test_unique_exact_local_match_preserves_nominal_identity_occurrence_and_source_request() -> (
     None
 ):
-    surface = _one_surface("type Shared = Int\nexport:\n    type Shared\n")
+    surface = _one_surface("type Shared = Int\nexport (\n    type Shared)\n")
     entry = surface.entries[0]
     occurrence = cast(module_catalog.ProjectDeclarationOccurrence, entry.resolved_from)
 
@@ -438,7 +438,7 @@ def test_unique_exact_local_match_preserves_nominal_identity_occurrence_and_sour
 
 
 def test_missing_local_declaration_fails_closed_with_unresolved_issue() -> None:
-    surface = _one_surface("export:\n    type Missing\n")
+    surface = _one_surface("export (\n    type Missing)\n")
 
     assert surface.entries == ()
     assert tuple(issue.status for issue in surface.issues) == (
@@ -450,7 +450,7 @@ def test_missing_local_declaration_fails_closed_with_unresolved_issue() -> None:
 
 def test_duplicate_exact_local_identity_fails_closed_without_winner() -> None:
     surface = _one_surface(
-        "type Shared = Int\ntype Shared = Text\nexport:\n    type Shared\n"
+        "type Shared = Int\ntype Shared = Text\nexport (\n    type Shared)\n"
     )
 
     assert surface.entries == ()
@@ -467,13 +467,13 @@ def test_duplicate_exact_local_identity_fails_closed_without_winner() -> None:
 
 
 def test_same_spelling_in_another_namespace_or_kind_does_not_match() -> None:
-    enum_only = _one_surface("enum Shared:\n    one\nexport:\n    type Shared\n")
+    enum_only = _one_surface("enum Shared:\n    one\nexport (\n    type Shared)\n")
     relation_only = _one_surface(
         "shape Row:\n"
         "    id: Int\n"
-        'source Shared: Row is postgres.table("public.shared")\n'
-        "export:\n"
-        "    type Shared\n"
+        'source Shared: Row = postgres.table("public.shared")\n'
+        "export (\n"
+        "    type Shared)\n"
     )
 
     for surface in (enum_only, relation_only):
@@ -485,7 +485,7 @@ def test_same_spelling_in_another_namespace_or_kind_does_not_match() -> None:
 
 def test_same_spelling_in_another_module_does_not_satisfy_local_export() -> None:
     modules = (
-        _module("export:\n    type Shared\n", path="a.pietto", position=0),
+        _module("export (\n    type Shared)\n", path="a.pietto", position=0),
         _module("type Shared = Int\n", path="b.pietto", position=1),
     )
     surfaces = _surfaces(*modules)
@@ -502,7 +502,7 @@ def test_same_spelling_in_another_module_does_not_satisfy_local_export() -> None
 def test_module_path_name_case_and_unicode_are_preserved_exactly() -> None:
     path = "Módels/Customer.pietto"
     surface = _one_surface(
-        "type CaseName = Int\nexport:\n    type CaseName\n",
+        "type CaseName = Int\nexport (\n    type CaseName)\n",
         path=path,
     )
 
@@ -513,7 +513,7 @@ def test_module_path_name_case_and_unicode_are_preserved_exactly() -> None:
         declared_name="CaseName",
     )
     wrong_case = _one_surface(
-        "type CaseName = Int\nexport:\n    type casename\n",
+        "type CaseName = Int\nexport (\n    type casename)\n",
         path=path,
     )
     assert wrong_case.entries == ()
@@ -527,11 +527,11 @@ def test_multiple_export_blocks_and_items_preserve_statement_item_and_request_or
         "type Second = Text\n"
         "enum Third:\n"
         "    one\n"
-        "export:\n"
-        "    type Second\n"
-        "    type First\n"
-        "export:\n"
-        "    enum Third\n"
+        "export (\n"
+        "    type Second,\n"
+        "    type First)\n"
+        "export (\n"
+        "    enum Third)\n"
     )
 
     assert len(surface.export_statements) == 2
@@ -555,7 +555,7 @@ def test_repeated_exact_requests_remain_distinct_entries_and_duplicate_issue_fac
     None
 ):
     surface = _one_surface(
-        "type Shared = Int\nexport:\n    type Shared\nexport:\n    type Shared\n"
+        "type Shared = Int\nexport (\n    type Shared)\nexport (\n    type Shared)\n"
     )
 
     assert len(surface.requests) == 2
@@ -571,7 +571,7 @@ def test_repeated_exact_requests_remain_distinct_entries_and_duplicate_issue_fac
 
 def test_requests_entries_issues_and_lookup_results_are_immutable_tuples() -> None:
     surface = _one_surface(
-        "type Shared = Int\nexport:\n    type Shared\n    type Missing\n"
+        "type Shared = Int\nexport (\n    type Shared,\n    type Missing)\n"
     )
 
     assert type(surface.requests) is tuple
@@ -595,16 +595,16 @@ def test_requests_entries_issues_and_lookup_results_are_immutable_tuples() -> No
     ordered = _one_surface(
         "type First = Int\n"
         "type Second = Int\n"
-        "export:\n"
-        "    type First\n"
-        "    type Second\n"
+        "export (\n"
+        "    type First,\n"
+        "    type Second)\n"
     )
     with pytest.raises(ValueError):
         replace(ordered, entries=tuple(reversed(ordered.entries)))
     with pytest.raises(ValueError):
         replace(ordered, entries=(ordered.entries[0], ordered.entries[0]))
     duplicate_missing = _one_surface(
-        "export:\n    shape Missing\nexport:\n    shape Missing\n"
+        "export (\n    shape Missing)\nexport (\n    shape Missing)\n"
     )
     assert tuple(issue.status for issue in duplicate_missing.issues) == (
         module_exports.ProjectModuleExportIssueStatus.UNRESOLVED_EXPORT_BINDING,
@@ -627,7 +627,7 @@ def test_facade_and_facade_set_are_frozen_slotted_value_equal_hashable_and_order
 ):
     first = _surfaces(
         _module(
-            "type A = Int\nexport:\n    type A\n",
+            "type A = Int\nexport (\n    type A)\n",
             path="a.pietto",
             position=0,
         ),
@@ -635,7 +635,7 @@ def test_facade_and_facade_set_are_frozen_slotted_value_equal_hashable_and_order
     )
     second = _surfaces(
         _module(
-            "type A = Int\nexport:\n    type A\n",
+            "type A = Int\nexport (\n    type A)\n",
             path="a.pietto",
             position=0,
         ),
@@ -664,7 +664,7 @@ def test_unique_explicit_named_import_candidate_builds_direct_reexport_with_orig
     )
     candidate = _candidate(target=target)
     surface = _one_surface(
-        "export:\n    shape Imported\n",
+        "export (\n    shape Imported)\n",
         candidates=(candidate,),
     )
 
@@ -684,7 +684,7 @@ def test_reexport_exposed_name_is_local_binding_name_and_every_hop_requires_expl
 ):
     candidate = _candidate(local_name="LocalAlias")
     visible = _one_surface(
-        "export:\n    shape LocalAlias\n",
+        "export (\n    shape LocalAlias)\n",
         candidates=(candidate,),
     )
     private = _one_surface("", candidates=(candidate,))
@@ -697,7 +697,7 @@ def test_reexport_exposed_name_is_local_binding_name_and_every_hop_requires_expl
 
 
 def test_no_imported_candidate_produces_no_reexport() -> None:
-    surface = _one_surface("export:\n    shape Imported\n")
+    surface = _one_surface("export (\n    shape Imported)\n")
 
     assert surface.entries == ()
     assert surface.issues[0].status is (
@@ -719,7 +719,7 @@ def test_multiple_imported_candidates_fail_closed_without_winner() -> None:
         ),
     )
     surface = _one_surface(
-        "export:\n    shape Imported\n",
+        "export (\n    shape Imported)\n",
         candidates=candidates,
     )
 
@@ -737,7 +737,7 @@ def test_local_and_imported_candidate_conflict_fails_closed_without_winner() -> 
         target=_identity(module_path="library.pietto", declared_name="Shared"),
     )
     surface = _one_surface(
-        "type Shared = Int\nexport:\n    type Shared\n",
+        "type Shared = Int\nexport (\n    type Shared)\n",
         candidates=(candidate,),
     )
 
@@ -764,7 +764,7 @@ def test_wrong_owner_namespace_kind_or_target_candidate_fails_closed() -> None:
     )
 
     owner_surface = _one_surface(
-        "export:\n    shape Imported\n",
+        "export (\n    shape Imported)\n",
         candidates=(wrong_owner,),
     )
     assert owner_surface.entries == ()
@@ -773,7 +773,7 @@ def test_wrong_owner_namespace_kind_or_target_candidate_fails_closed() -> None:
     )
     for candidate in (wrong_kind, wrong_target):
         surface = _one_surface(
-            "export:\n    shape Imported\n",
+            "export (\n    shape Imported)\n",
             candidates=(candidate,),
         )
         assert surface.entries == ()
@@ -792,7 +792,7 @@ def test_wrong_owner_namespace_kind_or_target_candidate_fails_closed() -> None:
         ),
     )
     mixed_surface = _one_surface(
-        "export:\n    shape Imported\n",
+        "export (\n    shape Imported)\n",
         candidates=(*exact_candidates, wrong_target),
     )
     assert mixed_surface.entries == ()
@@ -809,10 +809,10 @@ def test_candidate_seam_never_traverses_facades_import_targets_or_transitive_exp
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _module(
-        'import "does/not/exist.pietto":\n'
-        "    shape Remote as Imported\n"
-        "export:\n"
-        "    shape Imported\n"
+        'from "does/not/exist.pietto" import (\n'
+        "    shape Remote as Imported)\n"
+        "export (\n"
+        "    shape Imported)\n"
     )
     assert module.parsed_input is not None
     import_statement = cast(
@@ -842,7 +842,7 @@ def test_facade_exact_namespace_kind_name_and_target_identity_queries_return_com
     None
 ):
     surface = _one_surface(
-        "type Shared = Int\nexport:\n    type Shared\nexport:\n    type Shared\n"
+        "type Shared = Int\nexport (\n    type Shared)\nexport (\n    type Shared)\n"
     )
     identity = surface.entries[0].target_identity
 
@@ -873,9 +873,9 @@ def test_local_visibility_query_distinguishes_local_exports_from_reexports_and_p
     surface = _one_surface(
         "type Local = Int\n"
         "type Private = Text\n"
-        "export:\n"
-        "    type Local\n"
-        "    shape Imported\n",
+        "export (\n"
+        "    type Local,\n"
+        "    shape Imported)\n",
         candidates=(candidate,),
     )
 
@@ -911,7 +911,7 @@ def test_schema_v2_semantic_result_retains_catalogs_and_facades_with_unchanged_f
     _write(
         root,
         "row.pietto",
-        "shape Row:\n    id: Int\nexport:\n    shape Row\n",
+        "shape Row:\n    id: Int\nexport (\n    shape Row)\n",
     )
     parse_result, semantic = _project_semantic_result(root)
 
@@ -974,7 +974,7 @@ def test_schema_v2_text_and_json_cli_remain_exact_and_serialize_no_export_facts(
     _write(
         root,
         "row.pietto",
-        "shape Row:\n    id: Int\nexport:\n    shape Row\n",
+        "shape Row:\n    id: Int\nexport (\n    shape Row)\n",
     )
 
     assert cli.main(["check", "--project", str(root)]) == 0

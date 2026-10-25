@@ -20,13 +20,13 @@ from pietto.semantic import (
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    region: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    active: Bool not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    region: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    active: Bool\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -116,7 +116,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             "    select:\n"
             "        region\n"
             "        normalized = count_distinct(lower(status))\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        normalized > 10\n"
         )
     )
@@ -302,7 +302,7 @@ def test_direct_count_distinct_inside_satisfying_still_uses_s2308() -> None:
             "    select:\n"
             "        region\n"
             "        normalized = count_distinct(lower(status))\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        count_distinct(lower(status)) > 10\n"
         )
     )
@@ -310,7 +310,7 @@ def test_direct_count_distinct_inside_satisfying_still_uses_s2308() -> None:
     assert _errors(result) == [
         (
             "PIE-S2308",
-            "Aggregate count_distinct() is not allowed in satisfying clause; "
+            "Aggregate count_distinct() is not allowed in having clause; "
             "use it only as a direct aliased select projection",
         )
     ]

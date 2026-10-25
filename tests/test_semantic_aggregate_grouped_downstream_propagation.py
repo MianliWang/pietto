@@ -37,6 +37,7 @@ from pietto._project.let_scope_facts import (
 )
 from pietto._project.model import (
     ProjectParseCheckResult,
+    ProjectParsedInput,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
     ProjectRowResultRole,
@@ -60,6 +61,7 @@ from pietto._project.row_lineage import (
     ProjectRowLineageStatus,
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
+from pietto.semantic.modern_inputs import normalize_query_names
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_persistence.py"
@@ -412,15 +414,14 @@ def test_selected_let_and_field_bearing_expression_aggregates_use_one_canonical_
         tmp_path,
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        base = amount + tax\n"
-        "        selected = base + amount\n"
+        "    let base = amount + tax\n"
+        "    let selected = base + amount\n"
         "    select:\n"
         "        total = sum(selected)\n"
         "        weighted = avg(score * weight)\n"
         "        distinct_status = count_distinct(lower(trim(status)))\n",
     )
-    parse_result = check_project_parse_only(root)
+    parse_result = _normalized_parse_result(check_project_parse_only(root))
     assert parse_result.ok
     original = (
         persistence_module.build_project_aggregate_grouped_dependency_lineage_readiness
@@ -638,8 +639,7 @@ def test_one_hop_downstream_uses_bare_and_immediate_qualified_outputs_only(
             "        bad = db.aggregate.total\n"
             "query selected_let:\n"
             "    from users\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        total = sum(gross)\n"
             "query let_downstream:\n"
@@ -1016,7 +1016,7 @@ def test_clause_readiness_gates_activation_without_new_persisted_model_field(
         "    select:\n"
         "        label = status\n"
         "        total = count()\n"
-        "    satisfying:\n"
+        "    having:\n"
         '        (total > 0) and (label == "open")\n'
         "    order by:\n"
         "        total desc\n"
@@ -1033,7 +1033,7 @@ def test_clause_readiness_gates_activation_without_new_persisted_model_field(
         "    select:\n"
         "        status\n"
         "        total = count()\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        amount > 0\n"
         "query blocked_downstream:\n"
         "    from invalid_clause\n"
@@ -1266,9 +1266,29 @@ def _candidate_inputs(root: Path, relations: str) -> _CandidateInputs:
 def _project_semantic_result(
     root: Path,
 ) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
-    parse_result = check_project_parse_only(root)
+    parse_result = _normalized_parse_result(check_project_parse_only(root))
     assert parse_result.ok
     return parse_result, build_empty_project_semantic_result(parse_result)
+
+
+def _normalized_parse_result(
+    parse_result: ProjectParseCheckResult,
+) -> ProjectParseCheckResult:
+    """Bind modern `let name = expression` names as the analyzer does.
+
+    The private LEGACY_FLAT scaffold reads its scalar let bindings from
+    `LetClause`, while modern spelling retains each `let name = expression`
+    as a query naming declaration until `normalize_query_names` runs before
+    semantics. Normalizing here keeps these private facts about the same
+    authored bindings under the modern spelling.
+    """
+
+    normalized_inputs: list[ProjectParsedInput] = []
+    for parsed_input in parse_result.parsed_inputs:
+        script, diagnostics = normalize_query_names(parsed_input.script)
+        assert diagnostics == ()
+        normalized_inputs.append(replace(parsed_input, script=script))
+    return replace(parse_result, parsed_inputs=tuple(normalized_inputs))
 
 
 def _semantic_model(result: ProjectSemanticResult) -> ProjectSemanticModel:
@@ -1284,16 +1304,16 @@ def _project(root: Path, relations: str) -> Path:
     )
     (root / "models.pietto").write_text(
         "shape User:\n"
-        "    active: Bool not null\n"
-        "    amount: Int not null\n"
-        "    tax: Int nullable\n"
-        "    score: Float not null\n"
-        "    weight: Float nullable\n"
-        "    price: Decimal(12, 2) not null\n"
-        "    status: Text not null\n"
-        "    region: Text nullable\n"
-        "    created_at: Timestamp not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    active: Bool\n"
+        "    amount: Int\n"
+        "    tax: Int | None\n"
+        "    score: Float\n"
+        "    weight: Float | None\n"
+        "    price: Decimal(12, 2)\n"
+        "    status: Text\n"
+        "    region: Text | None\n"
+        "    created_at: Timestamp\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )

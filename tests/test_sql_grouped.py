@@ -120,7 +120,7 @@ def test_a_grouped_aggregation_over_a_global_table_groups_its_one_row(tmp_path, 
         tmp_path,
         target,
         "table totals:\n    from agg\n    select:\n        c = count()\n"
-        "query result:\n    from totals\n    group by: c\n    select:\n"
+        "query result:\n    from totals\n    group by c\n    select:\n"
         "        c\n        k = count()\n",
     )
     data = document(outcome)
@@ -272,8 +272,7 @@ def test_computed_determinants_keep_the_reviewed_comparison_domains(
         target,
         f"""query result:
     from agg
-    let:
-        {let}
+    let {let}
     group by:
         grp
     select:
@@ -306,8 +305,7 @@ def test_computed_determinants_keep_the_reviewed_comparison_domains(
 
 ORDERED_COMPUTED_KEY = """query result:
     from agg
-    let:
-        bucket = {value}
+    let bucket = {value}
     group by:
         bucket
     select:
@@ -376,8 +374,7 @@ def test_global_extrema_over_a_let_value_keep_its_range(tmp_path, target):
         target,
         """query result:
     from agg
-    let:
-        weight = 2 if value > 15 else 1
+    let weight = 2 if value > 15 else 1
     select:
         lo = min(weight)
         hi = max(weight)
@@ -439,8 +436,7 @@ LET_FORMS = {
         """query result:
     let g:
         from agg
-        let:
-            bucket = 1 if key > 1 else 0
+        let bucket = 1 if key > 1 else 0
         group by:
             bucket
         select:
@@ -453,8 +449,7 @@ LET_FORMS = {
 """,
         """query g:
     from agg
-    let:
-        bucket = 1 if key > 1 else 0
+    let bucket = 1 if key > 1 else 0
     group by:
         bucket
     select:
@@ -475,8 +470,7 @@ query result:
             key
             value
     from base
-    let:
-        bucket = 1 if key > 1 else 0
+    let bucket = 1 if key > 1 else 0
     group by:
         bucket
     select:
@@ -490,8 +484,7 @@ query result:
         value
 query result:
     from base
-    let:
-        bucket = 1 if key > 1 else 0
+    let bucket = 1 if key > 1 else 0
     group by:
         bucket
     select:
@@ -640,11 +633,9 @@ def test_a_joined_computed_key_inside_a_relation_let_matches_top_level(
         "top",
         """query result:
     from lhs
-    inner join rhs as r:
-        from lhs
-        on lhs.id == r.id
-    let:
-        k = lhs.id + 1
+    let r = rhs
+    inner join r on lhs.id == r.id
+    let k = lhs.id + 1
     group by:
         k
     select:
@@ -657,11 +648,9 @@ def test_a_joined_computed_key_inside_a_relation_let_matches_top_level(
         """query result:
     let pairs:
         from lhs
-        inner join rhs as r:
-            from lhs
-            on lhs.id == r.id
-        let:
-            k = lhs.id + 1
+        let r = rhs
+        inner join r on lhs.id == r.id
+        let k = lhs.id + 1
         group by:
             k
         select:
@@ -735,7 +724,7 @@ def test_joined_extrema_keep_a_narrow_let_site_range(tmp_path, target):
     (
         ("", "3", "preserve_literals"),
         ("", "3 * 2 + 1", "bind_safe_literals"),
-        ("(p: Int nullable)", "p + 1", "bind_safe_literals"),
+        ("(p: Int | None)", "p + 1", "bind_safe_literals"),
     ),
 )
 def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
@@ -745,14 +734,14 @@ def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
     keeps the module form's MIN/MAX result; it links no JOIN side, so the group
     keys must fix both sides, exactly as for a direct field argument."""
     joined = (
-        f"query result{header}:\n    from agg\n    inner join agg as r:\n"
-        "        from agg\n        on agg.key == r.key\n"
-        f"    let:\n        level = {value}\n    group by:\n{{keys}}"
+        f"query result{header}:\n    from agg\n    let r = agg\n"
+        "    inner join r on agg.key == r.key\n"
+        f"    let level = {value}\n    group by:\n{{keys}}"
         "    select:\n        a = agg.rid\n        low = min({arg})\n"
         "        top = max({arg})\n"
     )
     module = (
-        f"query result{header}:\n    from agg\n    let:\n        level = {value}\n"
+        f"query result{header}:\n    from agg\n    let level = {value}\n"
         "    group by:\n        rid\n    select:\n        a = rid\n"
         "        low = min(level)\n        top = max(level)\n"
     )
@@ -797,8 +786,10 @@ def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
             (
                 "PIE-S2333",
                 "Project relation semantic completion is unavailable: result (an "
-                "aggregate may read rows repeated by JOIN r; group by a unique key "
-                "of r whose fields are all not null)",
+                "aggregate may read rows repeated by JOIN r; match a unique key "
+                "of r whose fields are never None in `on` with a relationship call, "
+                "use `any(...)` for an input that only filters rows, or aggregate "
+                "in a separate query first)",
             )
         ]
     )
@@ -806,12 +797,12 @@ def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_joined_computed_key_output_filters_and_orders_the_result(tmp_path, target):
-    """`satisfying` and grouped ORDER BY name the selected key's output."""
+    """`having` and grouped ORDER BY name the selected key's output."""
     outcome = emit_source(
         tmp_path,
         target,
         probe.AGGREGATE_COMPUTED_JOIN
-        + "    satisfying:\n        b\n    order by:\n        b desc\n",
+        + "    having:\n        b\n    order by:\n        b desc\n",
     )
     data = document(outcome)
     q = '"' if target == "postgres" else "`"
@@ -1155,7 +1146,7 @@ def test_global_with_satisfying_stays_rejected_at_its_own_boundary(tmp_path, tar
     from agg
     select:
         total = count()
-    satisfying:
+    having:
         total > 1
 """,
     )

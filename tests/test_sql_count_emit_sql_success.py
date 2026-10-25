@@ -142,8 +142,8 @@ def _write_count_program(
     path = tmp_path / "count.pietto"
     path.write_text(
         "shape Order:\n"
-        "    status: Text not null\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    status: Text\n"
+        f'source orders: Order = {connector}("orders")\n'
         "table paid_order_stats:\n"
         "    from orders\n"
         '    where status == "paid"\n'

@@ -22,8 +22,12 @@ from pietto._project.project_ir_construction import (
     ProjectIRNonConcreteSingleRelationFragment,
 )
 from pietto._project.project_ir_joins import (
-    ProjectIRConcreteJoinRegion,
     ProjectIRNonConcreteJoinRegion,
+)
+from pietto._project.project_current_joins import ProjectCurrentJoinRegion
+from pietto._project.project_final_outputs import (
+    ProjectEffectiveOutputCompletionTerminal,
+    ProjectEffectiveOutputCompletionTerminalReason,
 )
 from pietto._project.project_phase62_verification import (
     ProjectPhase62VerificationIssue,
@@ -52,9 +56,12 @@ class _Built:
     other_verification: ProjectPhase62VerificationResult
     ordinary_fragment: ProjectIRConcreteSingleRelationFragment
     deferred_fragment: ProjectIRNonConcreteSingleRelationFragment
-    joined_region: ProjectIRConcreteJoinRegion
+    joined_region: ProjectCurrentJoinRegion
     non_concrete_region: ProjectIRNonConcreteJoinRegion
-    other_joined_region: ProjectIRConcreteJoinRegion
+    other_joined_region: ProjectCurrentJoinRegion
+    other_non_concrete_region: ProjectIRNonConcreteJoinRegion
+    joined_block: query_blocks.ProjectConcreteQueryBlock
+    current_terminal: ProjectEffectiveOutputCompletionTerminal
 
 
 def _owner(semantic: ProjectSemanticResult, name: str) -> ProjectDeclarationOccurrence:
@@ -77,15 +84,18 @@ def _fixture_build(
     ProjectPhase62VerificationResult,
     ProjectIRConcreteSingleRelationFragment,
     ProjectIRNonConcreteSingleRelationFragment,
-    ProjectIRConcreteJoinRegion,
+    ProjectCurrentJoinRegion,
     ProjectIRNonConcreteJoinRegion,
+    query_blocks.ProjectConcreteQueryBlock,
+    ProjectEffectiveOutputCompletionTerminal,
 ]:
-    semantic, analysis, bundle, _ = _build(
+    semantic, completed, _, _ = _build(
         root,
         PRIMARY_MAIN_SOURCE + TABLE_SOURCE,
         reverse_creation=reverse_creation,
     )
-    fragments = analysis.evaluation.project_plan.fragments
+    verification = completed.verification
+    fragments = verification.root.evaluation.project_plan.fragments
     ordinary = tuple(
         fragment
         for fragment in fragments
@@ -100,24 +110,41 @@ def _fixture_build(
     )
     joined = tuple(
         region
-        for region in analysis.join_regions.regions
-        if type(region) is ProjectIRConcreteJoinRegion
-        and region.ledger.owner.definition.name == "direct_unique_join"
+        for region in completed.effective_outputs.current_regions
+        if region.ledger.owner.definition.name == "direct_unique_join"
     )
     non_concrete = tuple(
         region
-        for region in analysis.join_regions.regions
+        for region in verification.root.join_regions.regions
         if type(region) is ProjectIRNonConcreteJoinRegion
-        and region.ledger.owner.definition.name == "ambiguous_fact_join"
+        and region.ledger.owner.definition.name == "bad_relationship_join"
     )
     assert len(ordinary) == len(deferred) == len(joined) == len(non_concrete) == 1
+    (block,) = tuple(
+        readiness.namespaces.binding_environment.scalar_environment.query_block
+        for region, readiness in zip(
+            completed.effective_outputs.current_regions,
+            completed.effective_outputs.current_readiness,
+            strict=True,
+        )
+        if region is joined[0]
+    )
+    (terminal,) = tuple(
+        entry
+        for entry in completed.effective_outputs.entries
+        if entry.owner is non_concrete[0].ledger.owner
+    )
+    assert type(block) is query_blocks.ProjectConcreteQueryBlock
+    assert type(terminal) is ProjectEffectiveOutputCompletionTerminal
     return (
         semantic,
-        bundle.verification,
+        verification,
         ordinary[0],
         deferred[0],
         joined[0],
         non_concrete[0],
+        block,
+        terminal,
     )
 
 
@@ -140,6 +167,9 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
         joined_region=first[4],
         non_concrete_region=first[5],
         other_joined_region=second[4],
+        other_non_concrete_region=second[5],
+        joined_block=first[6],
+        current_terminal=first[7],
     )
 
 
@@ -218,7 +248,7 @@ def test_non_concrete_relation_output_never_publishes_a_row_source(
     assert result.row_source is None
 
 
-def test_verified_joined_row_source_retains_final_output_fields_and_history(
+def test_current_joined_row_source_retains_final_output_fields_and_history(
     built: _Built,
 ) -> None:
     region = built.joined_region
@@ -230,17 +260,13 @@ def test_verified_joined_row_source_retains_final_output_fields_and_history(
     historical_fact = historical[0]
     historical_state = historical_fact.state
 
-    result = query_blocks.build_project_query_block_from_join_region(
-        compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
-        owner=owner,
-        verification=built.verification,
-        region=region,
-    )
+    result = built.joined_block
 
     assert type(result) is query_blocks.ProjectConcreteQueryBlock
-    assert type(result.row_source) is query_blocks.ProjectVerifiedJoinedRowSource
+    assert type(result.row_source) is query_blocks.ProjectCurrentJoinedRowSource
     source = result.row_source
-    assert source.verification is built.verification
+    assert result.owner_bridge.owner is owner
+    assert source.base_verification is built.verification
     assert source.region is region
     assert source.historical_semantic_facts is historical_fact
     assert source.final_output is region.joins[-1].output
@@ -282,11 +308,23 @@ def test_all_compilation_modes_are_exact_and_have_no_fallback(
     mode: ProjectCompilationMode,
     reason: query_blocks.ProjectQueryBlockNonConcreteReason | None,
 ) -> None:
-    result = query_blocks.build_project_query_block_from_join_region(
+    result = query_blocks.build_project_query_block_from_relation(
         compilation_mode=mode,
-        owner=built.joined_region.ledger.owner,
+        owner=built.ordinary_fragment.semantic_facts.owner,
+        fragment=built.ordinary_fragment,
+    )
+    base_join = query_blocks.build_project_query_block_from_join_region(
+        compilation_mode=mode,
+        owner=built.non_concrete_region.ledger.owner,
         verification=built.verification,
-        region=built.joined_region,
+        region=built.non_concrete_region,
+    )
+    assert type(base_join) is query_blocks.ProjectNonConcreteQueryBlock
+    assert base_join.row_source is None
+    assert base_join.reason is (
+        query_blocks.ProjectQueryBlockNonConcreteReason.JOIN_REGION_NON_CONCRETE
+        if reason is None
+        else reason
     )
     assert tuple(ProjectCompilationMode) == (
         ProjectCompilationMode.LEGACY_FLAT,
@@ -319,9 +357,9 @@ def test_invalid_phase62_verification_is_a_typed_non_concrete_result(
     )
     result = query_blocks.build_project_query_block_from_join_region(
         compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
-        owner=built.joined_region.ledger.owner,
+        owner=built.non_concrete_region.ledger.owner,
         verification=invalid,
-        region=built.joined_region,
+        region=built.non_concrete_region,
     )
 
     assert type(result) is query_blocks.ProjectNonConcreteQueryBlock
@@ -331,7 +369,7 @@ def test_invalid_phase62_verification_is_a_typed_non_concrete_result(
     )
     assert result.state is ProjectIRRelationConstructionState.BLOCKED
     assert result.verification is invalid
-    assert result.join_region is built.joined_region
+    assert result.join_region is built.non_concrete_region
     assert result.row_source is None
 
 
@@ -351,42 +389,74 @@ def test_non_concrete_join_region_retains_its_exact_typed_blocker(
         result.reason
         is query_blocks.ProjectQueryBlockNonConcreteReason.JOIN_REGION_NON_CONCRETE
     )
-    assert result.state is ProjectIRRelationConstructionState.AMBIGUOUS
+    assert result.state is ProjectIRRelationConstructionState(region.state.value)
     assert result.verification is built.verification
     assert result.join_region is region
     assert result.row_source is None
+    terminal = built.current_terminal
+    assert terminal.owner is region.ledger.owner
+    assert (
+        terminal.reason
+        is ProjectEffectiveOutputCompletionTerminalReason.CURRENT_JOIN_CONDITION_NON_CONCRETE
+    )
+    assert terminal.output is None and terminal.current_region is None
+    assert type(terminal.blocker) is tuple
+    (condition,) = terminal.blocker
+    assert not condition.ready and condition.use is region.ledger.uses[0]
+    assert condition.expression is not None
+    assert condition.diagnostics
 
 
 def test_detached_region_owner_mismatch_and_arbitrary_shape_are_rejected(
     built: _Built,
 ) -> None:
     assert built.other_verification is not built.verification
-    assert any(
-        built.other_joined_region is region
-        for region in built.other_verification.root.join_regions.regions
-    )
+    # The retained base builder remains a separate refusal boundary.
     with pytest.raises(ValueError, match="exact verification root"):
         query_blocks.build_project_query_block_from_join_region(
             compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
-            owner=built.other_joined_region.ledger.owner,
+            owner=built.other_non_concrete_region.ledger.owner,
             verification=built.verification,
-            region=built.other_joined_region,
+            region=built.other_non_concrete_region,
         )
-
     with pytest.raises(ValueError, match="exact query-block owner"):
         query_blocks.build_project_query_block_from_join_region(
             compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
             owner=built.ordinary_fragment.semantic_facts.owner,
             verification=built.verification,
-            region=built.joined_region,
+            region=built.non_concrete_region,
         )
-
-    joined_shape = built.joined_region.joins[-1].output.row_shape
     with pytest.raises(TypeError, match="exact Phase-62 JOIN region"):
         query_blocks.build_project_query_block_from_join_region(
             compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
-            owner=built.joined_region.ledger.owner,
+            owner=built.non_concrete_region.ledger.owner,
             verification=built.verification,
+            region=cast(Any, built.joined_region.joins[-1].output.row_shape),
+        )
+    with pytest.raises(ValueError, match="exact base and condition roots"):
+        query_blocks.ProjectCurrentJoinedRowSource(
+            base_verification=built.verification,
+            region=built.other_joined_region,
+        )
+    with pytest.raises(ValueError, match="exact base and condition roots"):
+        query_blocks.ProjectCurrentJoinedRowSource(
+            base_verification=built.other_verification,
+            region=built.joined_region,
+        )
+
+    with pytest.raises(ValueError, match="exact owner bridge"):
+        query_blocks.ProjectConcreteQueryBlock(
+            compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
+            owner_bridge=query_blocks.ProjectQueryBlockOwnerBridge(
+                owner=built.ordinary_fragment.semantic_facts.owner
+            ),
+            row_source=built.joined_block.row_source,
+        )
+
+    joined_shape = built.joined_region.joins[-1].output.row_shape
+    with pytest.raises(ValueError, match="exact base and condition roots"):
+        query_blocks.ProjectCurrentJoinedRowSource(
+            base_verification=built.verification,
             region=cast(Any, joined_shape),
         )
 

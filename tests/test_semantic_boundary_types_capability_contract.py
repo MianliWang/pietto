@@ -16,8 +16,8 @@ def test_boundary_type_count_capabilities_remain_fail_closed() -> None:
         result = analyze(
             _parse(
                 "shape Row:\n"
-                f"    {field_name}: {type_name} nullable\n"
-                'source rows: Row is postgres.table("rows")\n'
+                f"    {field_name}: {type_name} | None\n"
+                'source rows: Row = postgres.table("rows")\n'
                 "table totals:\n"
                 "    from rows\n"
                 "    select:\n"

@@ -399,8 +399,7 @@ def test_unique_direct_expression_let_decimal_and_count_finalize_in_order(
         tmp_path,
         f"{relation_kind} candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        rows = count()\n"
         "        direct = sum(amount)\n"
@@ -475,8 +474,7 @@ def test_grouped_expression_let_unknown_key_nullability_and_relation_upstream(
             "        tax\n"
             f"{relation_kind} candidate:\n"
             "    from base\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        region\n"
             "    select:\n"
@@ -731,8 +729,7 @@ def test_unavailable_and_invalid_failures_are_not_inferred_from_wrapper_none(
             tmp_path / "invalid_let",
             "query candidate:\n"
             "    from users\n"
-            "    let:\n"
-            "        gross = sum(amount)\n"
+            "    let gross = sum(amount)\n"
             "    select:\n"
             "        total = count()\n",
         )
@@ -886,8 +883,7 @@ def test_explicit_future_family_and_controlled_conflict_keep_distinct_reasons(
         tmp_path / "deferred_let",
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
-        "        chosen = amount\n"
+        "    let chosen = amount\n"
         "    select:\n"
         "        future = min(chosen)\n",
     )
@@ -1277,17 +1273,17 @@ def _project(root: Path, relations: str) -> Path:
     )
     (root / "models.pietto").write_text(
         "shape User:\n"
-        "    active: Bool not null\n"
-        "    amount: Int not null\n"
-        "    tax: Int nullable\n"
-        "    score: Float not null\n"
-        "    weight: Float nullable\n"
-        "    price: Decimal(12, 2) not null\n"
-        "    fee: Decimal nullable\n"
-        "    status: Text not null\n"
-        "    region: Text nullable\n"
-        "    created_at: Timestamp not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    active: Bool\n"
+        "    amount: Int\n"
+        "    tax: Int | None\n"
+        "    score: Float\n"
+        "    weight: Float | None\n"
+        "    price: Decimal(12, 2)\n"
+        "    fee: Decimal | None\n"
+        "    status: Text\n"
+        "    region: Text | None\n"
+        "    created_at: Timestamp\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )

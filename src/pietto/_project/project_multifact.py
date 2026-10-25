@@ -1578,6 +1578,68 @@ def _actual_region_candidates(
     return tuple(candidates)
 
 
+def current_candidate_grounds(
+    region: ProjectCurrentJoinRegion,
+) -> tuple[
+    tuple[
+        ProjectActualGrainAuthorityKind,
+        tuple[object, ...],
+        tuple[ProjectGrainFactorIdentity, ...],
+        bool,
+    ],
+    ...,
+]:
+    """Every current input/output authority in JOIN order, before factor grouping."""
+    grain = region.final_properties.relational.grain
+    grounds = []
+    for join_position, (join, join_properties) in enumerate(
+        zip(region.joins, region.join_properties, strict=True)
+    ):
+        for position, kind, properties in (
+            (0, ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT, join.left_input),
+            (1, ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT, join.right_input),
+        ):
+            if (
+                position == 1
+                and isinstance(join, ProjectCurrentBinaryJoin)
+                and join.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
+            ) or properties.grain.state is ProjectGrainBasisState.UNKNOWN:
+                continue
+            introduction = join.input_uses[position]
+            factors = _localized_input_factors(
+                grain=properties.grain,
+                introduction_use=introduction,
+                final_grain=grain,
+            )
+            grounds.append(
+                (
+                    kind,
+                    (join, introduction, properties.grain),
+                    factors,
+                    properties.grain.state is ProjectGrainBasisState.GLOBAL,
+                )
+            )
+        current = join_properties.relational.grain
+        if current.state is ProjectGrainBasisState.UNKNOWN:
+            continue
+        current_factors = current.active
+        if current is not grain:
+            current_factors = _localized_input_factors(
+                grain=current,
+                introduction_use=region.joins[join_position + 1].input_uses[0],
+                final_grain=grain,
+            )
+        grounds.append(
+            (
+                ProjectActualGrainAuthorityKind.JOIN_OUTPUT,
+                (join, current),
+                current_factors,
+                current.state is ProjectGrainBasisState.GLOBAL,
+            )
+        )
+    return tuple(grounds)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectCurrentMultiFactRegion:
     """Current row-grain evidence for the existing tail safety consumers only."""
@@ -1596,50 +1658,16 @@ class ProjectCurrentMultiFactRegion:
         grain = final.relational.grain
         index = _grain_index(grain)
         candidates: list[ProjectActualGrainCandidate] = []
-        for join_position, (join, join_properties) in enumerate(
-            zip(self.region.joins, self.region.join_properties, strict=True)
+        for kind, evidence, factors, allow_empty in current_candidate_grounds(
+            self.region
         ):
-            for position, kind, properties in (
-                (0, ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT, join.left_input),
-                (1, ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT, join.right_input),
-            ):
-                if (
-                    position == 1
-                    and isinstance(join, ProjectCurrentBinaryJoin)
-                    and join.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
-                ) or properties.grain.state is ProjectGrainBasisState.UNKNOWN:
-                    continue
-                introduction = join.input_uses[position]
-                factors = _localized_input_factors(
-                    grain=properties.grain,
-                    introduction_use=introduction,
-                    final_grain=grain,
-                )
-                _add_actual_candidate(
-                    candidates,
-                    index=index,
-                    kind=kind,
-                    evidence=(join, introduction, properties.grain),
-                    factors=factors,
-                    allow_empty=properties.grain.state is ProjectGrainBasisState.GLOBAL,
-                )
-            current = join_properties.relational.grain
-            if current.state is ProjectGrainBasisState.UNKNOWN:
-                continue
-            current_factors = current.active
-            if current is not grain:
-                current_factors = _localized_input_factors(
-                    grain=current,
-                    introduction_use=self.region.joins[join_position + 1].input_uses[0],
-                    final_grain=grain,
-                )
             _add_actual_candidate(
                 candidates,
                 index=index,
-                kind=ProjectActualGrainAuthorityKind.JOIN_OUTPUT,
-                evidence=(join, current),
-                factors=current_factors,
-                allow_empty=current.state is ProjectGrainBasisState.GLOBAL,
+                kind=kind,
+                evidence=evidence,
+                factors=factors,
+                allow_empty=allow_empty,
             )
         object.__setattr__(self, "final_properties", final)
         object.__setattr__(self, "grain_index", index)

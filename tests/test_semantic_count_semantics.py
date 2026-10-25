@@ -16,9 +16,9 @@ from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    status: Text not null\n"
-    "    amount: Int not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    status: Text\n"
+    "    amount: Int\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -104,10 +104,7 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             ),
         ),
         (
-            "shape Order:\n"
-            "    amount: Int not null\n"
-            "    check has_rows:\n"
-            "        count() > 0\n",
+            "shape Order:\n    amount: Int\n    has_rows = check(count() > 0)\n",
             (
                 "PIE-S2308",
                 "Aggregate count() is not allowed in shape check; "
@@ -115,7 +112,7 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             ),
         ),
         (
-            "derive total() -> Int not null:\n    count()\n",
+            "derive total() -> Int:\n    return count()\n",
             (
                 "PIE-S2308",
                 "Aggregate count() is not allowed in derive body; "
@@ -123,7 +120,7 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             ),
         ),
         (
-            "shape Order:\n    total: Int not null derive count()\n",
+            "shape Order:\n    total: Int derive count()\n",
             (
                 "PIE-S2308",
                 "Aggregate count() is not allowed in field derive body; "
@@ -271,9 +268,9 @@ def test_aggregate_of_an_input_field_of_unknown_type_is_not_refused_at_check(
 ) -> None:
     script = _parse(
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table rates:\n"
         "    from rows\n"
         "    select:\n"
@@ -287,16 +284,23 @@ def test_aggregate_of_an_input_field_of_unknown_type_is_not_refused_at_check(
         + "        n = count(per)\n"
         "        m = max(rates.per)\n"
     )
+    # `totals` reads the table `rates` of its own file by name.
+    reads_rates = (
+        "PIE-S2382",
+        "`rates` is a table of this file; single-file SQL reads it by name, so the "
+        "SQL runs only where the database already has a relation named rates (an "
+        "EXPLICIT_MODULES project emits it as a CTE)",
+    )
 
     assert [
         (diagnostic.code, diagnostic.message)
         for diagnostic in analyze(script).diagnostics
-    ] == expected
+    ] == [*expected, reads_rates]
 
 
 def test_aggregate_over_a_table_of_an_unshaped_source_is_not_refused_at_check() -> None:
     script = _parse(
-        'source events is postgres.table("events")\n'
+        'source events = postgres.table("events")\n'
         "table projected:\n"
         "    from events\n"
         "    select:\n"
@@ -309,7 +313,11 @@ def test_aggregate_over_a_table_of_an_unshaped_source_is_not_refused_at_check() 
         "        n = count(id)\n"
     )
 
-    assert analyze(script, mode_override=CheckMode.LOOSE).diagnostics == ()
+    # Only the single-file read of the table `projected` warns (PIE-S2382).
+    assert [
+        (d.code, d.severity, d.location.line, d.location.column)
+        for d in analyze(script, mode_override=CheckMode.LOOSE).diagnostics
+    ] == [("PIE-S2382", Severity.WARNING, 8, 5)]
 
 
 def test_count_with_unknown_argument_suppresses_wrong_arity_cascade() -> None:

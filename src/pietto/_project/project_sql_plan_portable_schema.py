@@ -89,9 +89,70 @@ INTEGER = Shape((Tag.INTEGER,))
 FLOAT = Shape((Tag.FLOAT,))
 TEXT = Shape((Tag.TEXT,))
 optional = ABSENT
+PREDICATE_VARIANT_BASES = MappingProxyType(
+    {
+        "project_sql_plan_with_scalar_any": "project_sql_plan",
+        "project_predicate_expression_with_any": "project_relationship_predicate_expression",
+        "project_any_join_condition": "project_join_condition",
+        "project_any_joined_namespace_expression": "project_concrete_joined_namespace_expression",
+        "project_any_no_join_scalar_expression": "project_no_join_scalar_expression",
+        "project_any_joined_let_value": "project_joined_let_value",
+        "project_any_let_scope_facts": "project_relation_let_scope_facts",
+        "project_predicate_join_condition": "project_join_condition",
+        "project_predicate_joined_namespace_expression": "project_concrete_joined_namespace_expression",
+        "project_predicate_no_join_scalar_expression": "project_no_join_scalar_expression",
+        "project_predicate_no_join_replay": "project_concrete_no_join_replay",
+        "bound_from_clause": "from_clause",
+        "project_sql_plan_with_any": "project_sql_plan",
+        "authored_any_query": "query_def",
+        "authored_any_table": "table_def",
+        "named_join_clause": "join_clause",
+        "project_predicate_aggregate_expression_analysis": "project_aggregate_expression_analysis",
+    }
+)
+
 ANCHOR = Shape(
     (Tag.REF,),
     domains=(
+        "project_sql_plan_with_scalar_any",
+        "project_predicate_expression_with_any",
+        "any_value_info",
+        "project_any_join_condition",
+        "project_any_joined_namespace_expression",
+        "project_any_no_join_scalar_expression",
+        "project_any_joined_let_value",
+        "project_any_let_scope_facts",
+        "project_any_row_binding",
+        "project_any_input",
+        "project_any_field",
+        "project_any_let_value",
+        "project_any_reference",
+        "project_any_value",
+        "project_sql_any",
+        "project_sql_any_reference",
+        "project_sql_plan_with_any",
+        "authored_any_query",
+        "authored_any_table",
+        "any_expr",
+        "join_filter_clause",
+        "any_use_info",
+        "project_predicate_aggregate_expression_analysis",
+        "project_relationship_predicate_expression",
+        "relationship_template_info",
+        "relationship_call_info",
+        "relationship_argument_info",
+        "relationship_template",
+        "relationship_parameter",
+        "query_let_declaration",
+        "function_def",
+        "project_join_condition_equality",
+        "project_join_condition_key_match",
+        "project_predicate_join_condition",
+        "project_predicate_joined_namespace_expression",
+        "project_predicate_no_join_scalar_expression",
+        "project_predicate_no_join_replay",
+        "bound_from_clause",
+        "named_join_clause",
         "project_sql_plan_scope",
         "project_sql_plan_ref",
         "project_sql_port",
@@ -643,7 +704,21 @@ def enum(*values):
 
 
 def ref(*domains):
-    return Shape((Tag.REF,), domains=domains)
+    return Shape(
+        (Tag.REF,),
+        domains=tuple(
+            member
+            for domain in domains
+            for member in (
+                domain,
+                *(
+                    variant
+                    for variant, base in PREDICATE_VARIANT_BASES.items()
+                    if base == domain
+                ),
+            )
+        ),
+    )
 
 
 def seq(item):
@@ -1241,6 +1316,8 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                             ref("project_sql_between"),
                             ref("project_sql_conditional"),
                             ref("project_sql_membership"),
+                            ref("project_sql_any"),
+                            ref("project_sql_any_reference"),
                             ref("project_sql_relation_exists"),
                             ref("project_sql_relation_scalar"),
                             ref("project_sql_relation_membership"),
@@ -1793,6 +1870,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule(
                     "expression",
                     union(
+                        ref("any_expr"),
                         ref("relation_exists_expr"),
                         ref("relation_scalar_expr"),
                         ref("relation_membership_expr"),
@@ -3678,6 +3756,14 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                         "effective_to_authored_window",
                         "authored_or_inherited_window_component",
                         "named_window_declaration",
+                        "relationship_predicate_call",
+                        "relationship_predicate_body",
+                        "relationship_predicate_argument",
+                        "normalized_expression",
+                        "relationship_predicate_generated_argument",
+                        "relationship_predicate_generated_call",
+                        "existence_generator_expansion",
+                        "existence_value_expansion",
                     ),
                 ),
                 FieldRule("observed", ANCHOR),
@@ -7196,7 +7282,10 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             (
                 FieldRule("identity", ref("project_relation_binding_identity")),
                 FieldRule("owner", ref("project_declaration_occurrence")),
-                FieldRule("site", union(ref("from_clause"), ref("join_clause"))),
+                FieldRule(
+                    "site",
+                    union(ref("from_clause"), ref("join_clause")),
+                ),
                 FieldRule("name", TEXT),
                 FieldRule("relation_name", TEXT),
                 FieldRule("state", enum("concrete", "unknown", "blocked", "ambiguous")),
@@ -8436,6 +8525,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     enum(
                         "relationship",
                         "refinement",
+                        "matched_key",
                         "whole_path",
                         "right_limit",
                         "right_global",
@@ -9866,5 +9956,491 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
             ),
         ),
+        "project_any_row_binding": RecordRule(
+            "project_any_row_binding",
+            (
+                FieldRule("owner", ref("project_declaration_occurrence")),
+                FieldRule("resolution", ref("project_resolved_expression_block_read")),
+                FieldRule("origin", ref("any_value_info")),
+            ),
+        ),
+        "project_any_input": RecordRule(
+            "project_any_input",
+            (
+                FieldRule("binding", ref("project_any_row_binding")),
+                FieldRule("schema", union(ref("project_row_schema"), optional)),
+            ),
+        ),
+        "project_any_field": RecordRule(
+            "project_any_field",
+            (
+                FieldRule(
+                    "binding",
+                    union(
+                        ref("project_any_row_binding"),
+                        ref("project_relation_binding_occurrence"),
+                        ref("project_resolved_module_relation_reference"),
+                    ),
+                ),
+                FieldRule(
+                    "source_field",
+                    union(
+                        ref("project_row_field"),
+                        ref("project_join_condition_field"),
+                        ref("project_scalar_environment_field"),
+                    ),
+                ),
+            ),
+        ),
+        "project_any_let_value": RecordRule(
+            "project_any_let_value",
+            (
+                FieldRule("binding", ref("let_binding")),
+                FieldRule("expression", ANCHOR),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule(
+                    "authority",
+                    union(
+                        ref("project_joined_let_value"),
+                        ref("project_relation_let_scope_facts"),
+                    ),
+                ),
+            ),
+        ),
+        "project_any_reference": RecordRule(
+            "project_any_reference",
+            (
+                FieldRule(
+                    "expression", union(ref("name_expr"), ref("dotted_name_expr"))
+                ),
+                FieldRule(
+                    "candidates",
+                    seq(union(ref("project_any_field"), ref("project_any_let_value"))),
+                ),
+                FieldRule(
+                    "target",
+                    union(
+                        ref("project_any_field"), ref("project_any_let_value"), optional
+                    ),
+                ),
+            ),
+        ),
+        "project_any_value": RecordRule(
+            "project_any_value",
+            (
+                FieldRule("input", ref("project_any_input")),
+                FieldRule(
+                    "context",
+                    union(
+                        ref("join_on_clause"),
+                        ref("where_clause"),
+                        ref("select_item"),
+                        ref("let_binding"),
+                        ref("any_expr"),
+                    ),
+                ),
+                FieldRule("expression", ref("any_expr")),
+                FieldRule("fields", seq(ref("project_any_field"))),
+                FieldRule("references", seq(ref("project_any_reference"))),
+                FieldRule("nested", seq(ref("project_any_value"))),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("value_types", mapping(ANCHOR, ref("value_type"))),
+                FieldRule("diagnostics", seq(ref("diagnostic"))),
+            ),
+        ),
+        "project_sql_any": RecordRule(
+            "project_sql_any",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                        ref("project_sql_match_site"),
+                        ref("project_sql_aggregate_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule("expression", ref("any_expr")),
+                FieldRule("use", ref("project_sql_plan_ref")),
+                FieldRule("predicate", ref("project_sql_plan_ref")),
+                FieldRule("evidence", ref("project_any_value")),
+            ),
+        ),
+        "project_sql_any_reference": RecordRule(
+            "project_sql_any_reference",
+            (
+                FieldRule("ref", ref("project_sql_plan_ref")),
+                FieldRule(
+                    "site",
+                    union(
+                        ref("project_sql_expression_site"),
+                        ref("project_sql_joined_site"),
+                        ref("project_sql_match_site"),
+                        ref("project_sql_aggregate_site"),
+                    ),
+                ),
+                FieldRule("value_type", ref("value_type")),
+                FieldRule(
+                    "expression", union(ref("name_expr"), ref("dotted_name_expr"))
+                ),
+                FieldRule("reference", ref("project_any_reference")),
+                FieldRule("use", union(ref("project_sql_plan_ref"), optional)),
+                FieldRule("position", union(INTEGER, optional)),
+                FieldRule("port", union(ref("project_sql_plan_ref"), optional)),
+            ),
+        ),
+        "any_expr": RecordRule(
+            "any_expr",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("predicate", ANCHOR),
+                FieldRule("binding_name", TEXT),
+                FieldRule("binding_span", ref("span")),
+                FieldRule("relation_name", TEXT),
+                FieldRule("relation_span", ref("span")),
+            ),
+        ),
+        "join_filter_clause": RecordRule(
+            "join_filter_clause",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("expression", ANCHOR),
+                FieldRule("preceding_join_count", INTEGER),
+            ),
+        ),
+        "any_value_info": RecordRule(
+            "any_value_info",
+            (
+                FieldRule("authored_expression", ref("any_expr")),
+                FieldRule("authored_owner", union(ref("query_def"), ref("table_def"))),
+                FieldRule(
+                    "authored_context",
+                    union(
+                        ref("join_on_clause"),
+                        ref("where_clause"),
+                        ref("select_item"),
+                        ref("let_binding"),
+                        ref("query_let_declaration"),
+                        ref("any_expr"),
+                    ),
+                ),
+                FieldRule("authored_join_count", INTEGER),
+                FieldRule("expression", ref("any_expr")),
+                FieldRule("owner", union(ref("query_def"), ref("table_def"))),
+                FieldRule(
+                    "context",
+                    union(
+                        ref("join_on_clause"),
+                        ref("where_clause"),
+                        ref("select_item"),
+                        ref("let_binding"),
+                        ref("query_let_declaration"),
+                        ref("any_expr"),
+                    ),
+                ),
+                FieldRule("join_prefix_count", INTEGER),
+            ),
+        ),
+        "any_use_info": RecordRule(
+            "any_use_info",
+            (
+                FieldRule("expression", ref("any_expr")),
+                FieldRule(
+                    "authored_owner",
+                    union(ref("authored_any_query"), ref("authored_any_table")),
+                ),
+                FieldRule(
+                    "context", union(ref("where_clause"), ref("join_filter_clause"))
+                ),
+                FieldRule("owner", union(ref("query_def"), ref("table_def"))),
+                FieldRule("clause", ref("named_join_clause")),
+                FieldRule("input_ordinal", INTEGER),
+                FieldRule("preceding_join_count", INTEGER),
+                FieldRule("normalized_joins", seq(ref("join_clause"))),
+            ),
+        ),
+        "relationship_parameter": RecordRule(
+            "relationship_parameter",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("name", TEXT),
+                FieldRule("shape_name", TEXT),
+            ),
+        ),
+        "relationship_template": RecordRule(
+            "relationship_template",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("name", TEXT),
+                FieldRule("parameters", seq(ref("relationship_parameter"))),
+                FieldRule("body", ANCHOR),
+            ),
+        ),
+        "function_def": RecordRule(
+            "function_def",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("name", TEXT),
+                FieldRule("parameters", seq(ref("parameter"))),
+                FieldRule("return_type", ref("type_expr")),
+                FieldRule("body", ANCHOR),
+            ),
+        ),
+        "query_let_declaration": RecordRule(
+            "query_let_declaration",
+            (
+                FieldRule("span", ref("span")),
+                FieldRule("name", TEXT),
+                FieldRule("expression", ANCHOR),
+                FieldRule("name_span", ref("span")),
+            ),
+        ),
+        "relationship_template_info": RecordRule(
+            "relationship_template_info",
+            (
+                FieldRule("declaration", ref("relationship_template")),
+                FieldRule("parameter_shapes", seq(ref("shape_def"))),
+            ),
+        ),
+        "relationship_argument_info": RecordRule(
+            "relationship_argument_info",
+            (
+                FieldRule("parameter", ref("relationship_parameter")),
+                FieldRule("argument", ANCHOR),
+                FieldRule(
+                    "occurrence",
+                    union(ref("from_clause"), ref("join_clause"), ref("any_expr")),
+                ),
+                FieldRule(
+                    "relation",
+                    union(ref("source_def"), ref("table_def"), ref("query_def")),
+                ),
+                FieldRule("shape", ref("shape_def")),
+            ),
+        ),
+        "relationship_call_info": RecordRule(
+            "relationship_call_info",
+            (
+                FieldRule("template", ref("relationship_template_info")),
+                FieldRule("call", ref("call_expr")),
+                FieldRule("owner", union(ref("table_def"), ref("query_def"))),
+                FieldRule(
+                    "context",
+                    union(
+                        ref("join_on_clause"),
+                        ref("where_clause"),
+                        ref("select_item"),
+                        ref("let_binding"),
+                        ref("any_expr"),
+                    ),
+                ),
+                FieldRule("ordinal", INTEGER),
+                FieldRule("arguments", seq(ref("relationship_argument_info"))),
+                FieldRule("expanded", ANCHOR),
+                FieldRule("mandatory_equalities", seq(ref("comparison_expr"))),
+            ),
+        ),
+        "project_relationship_predicate_expression": RecordRule(
+            "project_relationship_predicate_expression",
+            (
+                FieldRule("owner", ref("project_declaration_occurrence")),
+                FieldRule(
+                    "context",
+                    union(
+                        ref("join_on_clause"),
+                        ref("where_clause"),
+                        ref("select_item"),
+                        ref("let_binding"),
+                        ref("any_expr"),
+                    ),
+                ),
+                FieldRule("authored", ANCHOR),
+                FieldRule("expression", ANCHOR),
+                FieldRule("calls", seq(ref("relationship_call_info"))),
+                FieldRule(
+                    "argument_bindings",
+                    seq(
+                        seq(
+                            union(
+                                ref("project_relation_binding_occurrence"),
+                                ref("project_resolved_module_relation_reference"),
+                                ref("project_any_row_binding"),
+                            )
+                        )
+                    ),
+                ),
+                FieldRule("diagnostics", seq(ref("diagnostic"))),
+                FieldRule(
+                    "parent",
+                    union(ref("project_relationship_predicate_expression"), optional),
+                ),
+            ),
+        ),
+        "project_join_condition_equality": RecordRule(
+            "project_join_condition_equality",
+            (
+                FieldRule("condition", ref("project_join_condition")),
+                FieldRule("conjunct_position", INTEGER),
+                FieldRule("comparison", ref("comparison_expr")),
+                FieldRule("left", ref("project_join_condition_field")),
+                FieldRule("right", ref("project_join_condition_field")),
+                FieldRule("calls", seq(ref("relationship_call_info"))),
+            ),
+        ),
+        "project_join_condition_key_match": RecordRule(
+            "project_join_condition_key_match",
+            (
+                FieldRule("condition", ref("project_join_condition")),
+                FieldRule("binding", ref("project_relation_binding_occurrence")),
+                FieldRule("key", ref("project_ir_output_candidate_key")),
+                FieldRule("properties", ref("project_ir_output_relational_properties")),
+                FieldRule("equalities", seq(ref("project_join_condition_equality"))),
+                FieldRule("minimum", enum("zero_allowed")),
+                FieldRule("maximum", enum("at_most_one")),
+            ),
+        ),
     }
 )
+
+
+# Modern records extend actual new evidence only; legacy records keep their bytes.
+_predicate_fields = {
+    "project_sql_plan_with_scalar_any": (
+        FieldRule("existence_generators", seq(ref("any_use_info"))),
+        FieldRule("scalar_existence_generators", seq(ref("any_value_info"))),
+    ),
+    "project_predicate_expression_with_any": (
+        FieldRule("any_expressions", seq(seq(ref("any_expr")))),
+        FieldRule("any_bindings", seq(ref("project_any_row_binding"))),
+    ),
+    "project_predicate_join_condition": (
+        FieldRule(
+            "predicate_expression", ref("project_relationship_predicate_expression")
+        ),
+        FieldRule(
+            "match_inputs",
+            seq(
+                seq(
+                    union(
+                        ref("project_relation_binding_occurrence"),
+                        ref("project_ir_output_relational_properties"),
+                    )
+                )
+            ),
+        ),
+        FieldRule("mandatory_equalities", seq(ref("project_join_condition_equality"))),
+        FieldRule("key_matches", seq(ref("project_join_condition_key_match"))),
+    ),
+    "project_predicate_joined_namespace_expression": (
+        FieldRule(
+            "predicate_expression", ref("project_relationship_predicate_expression")
+        ),
+        FieldRule("normalized_expression", ANCHOR),
+    ),
+    "project_predicate_no_join_scalar_expression": (
+        FieldRule(
+            "predicate_expression", ref("project_relationship_predicate_expression")
+        ),
+        FieldRule("normalized_expression", ANCHOR),
+    ),
+    "project_predicate_no_join_replay": (
+        FieldRule(
+            "predicate_expressions",
+            seq(ref("project_relationship_predicate_expression")),
+        ),
+    ),
+    "bound_from_clause": (FieldRule("binding_name", TEXT),),
+    "project_sql_plan_with_any": (
+        FieldRule("existence_generators", seq(ref("any_use_info"))),
+    ),
+    "authored_any_query": (
+        FieldRule("from_clause", ref("from_clause")),
+        FieldRule("join_clauses", seq(ref("join_clause"))),
+        FieldRule("join_filters", seq(ref("join_filter_clause"))),
+        FieldRule("where_clause", union(ref("where_clause"), optional)),
+        FieldRule("let_clause", union(ref("let_clause"), optional)),
+        FieldRule("naming_declarations", seq(ref("query_let_declaration"))),
+        FieldRule("select_items", seq(ref("select_item"))),
+    ),
+    "authored_any_table": (
+        FieldRule("from_clause", ref("from_clause")),
+        FieldRule("join_clauses", seq(ref("join_clause"))),
+        FieldRule("join_filters", seq(ref("join_filter_clause"))),
+        FieldRule("where_clause", union(ref("where_clause"), optional)),
+        FieldRule("let_clause", union(ref("let_clause"), optional)),
+        FieldRule("naming_declarations", seq(ref("query_let_declaration"))),
+        FieldRule("select_items", seq(ref("select_item"))),
+    ),
+    "named_join_clause": (
+        FieldRule("uses_named_input", BOOLEAN),
+        FieldRule("target_binding_span", union(ref("span"), optional)),
+    ),
+    "project_predicate_aggregate_expression_analysis": (
+        FieldRule(
+            "predicate_expression", ref("project_relationship_predicate_expression")
+        ),
+    ),
+}
+_any_values_field = (FieldRule("existence_values", seq(ref("project_any_value"))),)
+_predicate_fields.update(
+    {
+        "project_any_join_condition": (
+            FieldRule(
+                "predicate_expression",
+                union(ref("project_relationship_predicate_expression"), optional),
+            ),
+            *_predicate_fields["project_predicate_join_condition"][1:],
+            *_any_values_field,
+        ),
+        "project_any_joined_namespace_expression": (
+            FieldRule(
+                "predicate_expression",
+                union(ref("project_relationship_predicate_expression"), optional),
+            ),
+            FieldRule("normalized_expression", ANCHOR),
+            *_any_values_field,
+        ),
+        "project_any_no_join_scalar_expression": (
+            FieldRule(
+                "predicate_expression",
+                union(ref("project_relationship_predicate_expression"), optional),
+            ),
+            FieldRule("normalized_expression", ANCHOR),
+            *_any_values_field,
+        ),
+        "project_any_joined_let_value": (
+            FieldRule(
+                "predicate_expression",
+                union(ref("project_relationship_predicate_expression"), optional),
+            ),
+            FieldRule("normalized_expression", ANCHOR),
+            *_any_values_field,
+        ),
+        "project_any_let_scope_facts": _any_values_field,
+    }
+)
+del _any_values_field
+RECORD_RULES = MappingProxyType(
+    {
+        **RECORD_RULES,
+        **{
+            kind: RecordRule(
+                kind,
+                (
+                    *(
+                        FieldRule("source_binding_name", optional)
+                        if kind == "named_join_clause"
+                        and item.name == "source_binding_name"
+                        else item
+                        for item in RECORD_RULES[base].fields
+                    ),
+                    *_predicate_fields[kind],
+                ),
+            )
+            for kind, base in PREDICATE_VARIANT_BASES.items()
+        },
+    }
+)
+del _predicate_fields

@@ -41,15 +41,15 @@ _CLI_ERROR_KEYS = {"kind", "message", "path"}
         ("valid.pietto", "", 0, True, None),
         (
             "warning.pietto",
-            "shape User:\n    email: Text\n",
+            'source raw = postgres.table("raw")\n',
             0,
             True,
-            "PIE-S2005",
+            "PIE-S2303",
         ),
         ("parser.pietto", "shape User {\n", 1, False, "PIE-P1005"),
         (
             "semantic.pietto",
-            "shape User:\n    email: MissingType not null\n",
+            "shape User:\n    email: MissingType\n",
             1,
             False,
             "PIE-S2002",
@@ -191,12 +191,12 @@ def test_check_json_audit_controls_and_unicode_round_trip_as_raw_values(
     [
         (
             "huge-integer.pietto",
-            "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
+            "type Huge = Int(max = " + "9" * 5000 + ")\n",
             "PIE-P1000",
         ),
         (
             "deep-parser.pietto",
-            "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
+            "derive deep() -> Int:\n    " + "+" * 1500 + "1\n",
             "PIE-P1000",
         ),
         (
@@ -204,10 +204,10 @@ def test_check_json_audit_controls_and_unicode_round_trip_as_raw_values(
             "".join(
                 [
                     *(
-                        f"type Alias{index} = Alias{index + 1} not null\n"
+                        f"type Alias{index} = Alias{index + 1}\n"
                         for index in range(1399)
                     ),
-                    "type Alias1399 = Int not null\n",
+                    "type Alias1399 = Int\n",
                 ]
             ),
             "PIE-S2006",
@@ -261,7 +261,7 @@ def test_check_json_audit_semantic_error_never_enters_ir_or_sql(
     path = _write(
         tmp_path,
         "semantic-error.pietto",
-        "shape User:\n    email: MissingType not null\n",
+        "shape User:\n    email: MissingType\n",
     )
 
     def unexpected_call(*args: object, **kwargs: object) -> object:

@@ -39,9 +39,8 @@ def proof_artifact(directory, *, proved=True, retained: bool | str = False):
     limit 1
 query result:
     from lhs
-    inner join ranked as r:
-        from lhs
-        on lhs.id == r.id and lhs.id > 1
+    let r = ranked
+    inner join r on lhs.id == r.id and lhs.id > 1
     select:
         value = lhs.id
 """
@@ -68,8 +67,7 @@ query result:
                 "        where rhs.id == lhs.id\n        select:\n            id"
                 + unused.replace(
                     "    select:\n",
-                    "    inner join m as x:\n        from lhs\n"
-                    "        on x.id == lhs.id\n    select:\n",
+                    "    let x = m\n    inner join x on x.id == lhs.id\n    select:\n",
                 )
             )
         source += "query unused:" + unused

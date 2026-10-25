@@ -43,9 +43,9 @@ from pietto.semantic import CheckMode, RowField, RowSchema, SemanticModel, analy
 
 SOURCE = (
     "shape User:\n"
-    "    email: Text nullable\n"
-    "    count: Int not null\n"
-    'source users: User is postgres.table("public.users")\n'
+    "    email: Text | None\n"
+    "    count: Int\n"
+    'source users: User = postgres.table("public.users")\n'
 )
 
 
@@ -55,7 +55,7 @@ SOURCE = (
         ('"hello"', "hello", "Text"),
         ("42", 42, "Int"),
         ("1.5", 1.5, "Float"),
-        ("true", True, "Bool"),
+        ("True", True, "Bool"),
     ],
 )
 def test_literals_lower_with_canonical_value_types(
@@ -82,10 +82,10 @@ def test_literals_lower_with_canonical_value_types(
 
 def test_bare_field_lowers_with_stable_identity_and_alias_canonical_type() -> None:
     expression, model, table = _table_expression(
-        "type Email = Text not null\n"
+        "type Email = Text\n"
         "shape User:\n"
-        "    email: Email nullable\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    email: Email | None\n"
+        'source users: User = postgres.table("public.users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"
@@ -196,7 +196,7 @@ def test_comparison_lowers_recursively() -> None:
 
 @pytest.mark.parametrize(
     ("operator", "negated"),
-    [("is null", False), ("is not null", True)],
+    [("is None", False), ("is not None", True)],
 )
 def test_is_null_forms_lower_with_negation(
     operator: str,
@@ -223,7 +223,7 @@ def test_scalar_expression_forms_lower_with_semantic_types() -> None:
     script, model = _analyzed(
         SOURCE + "table projected:\n"
         "    from users\n"
-        "    where count between 1 and 5\n"
+        "    where 1 <= count <= 5\n"
         "    select:\n"
         "        unary_value = -1\n"
         "        binary_value = 1 + 2\n"
@@ -257,15 +257,15 @@ def test_scalar_expression_forms_lower_with_semantic_types() -> None:
 def test_q1_expression_nodes_lower_with_ordered_operands_and_type_refs() -> None:
     script, model = _analyzed(
         "shape User:\n"
-        "    count: Int not null\n"
-        "    name: Text nullable\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    count: Int\n"
+        "    name: Text | None\n"
+        'source users: User = postgres.table("public.users")\n'
         "table projected:\n"
         "    from users\n"
         "    where count not in (1, 2)\n"
         "    select:\n"
-        '        label = "yes" if name is not null else "no"\n'
-        "        converted = cast(count as Float)\n"
+        '        label = "yes" if name is not None else "no"\n'
+        "        converted = Float(count)\n"
     )
     table = _table(script)
     fields, owner = _input_fields(model, table)
@@ -304,13 +304,13 @@ def test_q1_expression_nodes_lower_with_ordered_operands_and_type_refs() -> None
 def test_q1_contextual_null_literals_lower_with_their_local_type_facts() -> None:
     script, model = _analyzed(
         "shape User:\n"
-        "    count: Int not null\n"
-        'source users: User is postgres.table("public.users")\n'
+        "    count: Int\n"
+        'source users: User = postgres.table("public.users")\n'
         "table projected:\n"
         "    from users\n"
-        "    where count not in (1, null)\n"
+        "    where count not in (1, None)\n"
         "    select:\n"
-        "        filled = coalesce(null, count)\n"
+        "        filled = coalesce(None, count)\n"
     )
     table = _table(script)
     fields, owner = _input_fields(model, table)
@@ -341,7 +341,7 @@ def test_q1_contextual_null_literals_lower_with_their_local_type_facts() -> None
 
 def test_unknown_expression_value_type_lowers_without_crashing() -> None:
     expression, model, _ = _table_expression(
-        'source raw is postgres.table("raw")\n'
+        'source raw = postgres.table("raw")\n'
         "table projected:\n"
         "    from raw\n"
         "    select:\n"
@@ -359,7 +359,7 @@ def test_unknown_expression_value_type_lowers_without_crashing() -> None:
 
 
 def test_static_postgres_connector_call_lowers_without_execution() -> None:
-    script, model = _analyzed('source users is postgres.table("public.users")\n')
+    script, model = _analyzed('source users = postgres.table("public.users")\n')
     source = next(
         definition
         for definition in script.definitions
@@ -474,7 +474,8 @@ def _analyzed(
         diagnostic.severity is not Severity.ERROR
         for diagnostic in semantic_result.diagnostics
     )
-    return parse_result.ast, semantic_result.model
+    assert semantic_result.script is not None
+    return semantic_result.script, semantic_result.model
 
 
 def _table(script: Script) -> TableDef:

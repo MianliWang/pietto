@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from _pietto_execution_rows_cases import CASES, build
+from _pietto_execution_rows_cases import BLOCK_READS, CASES, build
 from _pietto_execution_refinement import capabilities, refined, rewrite_cte
 from pietto._project.project_refinement import TieRefinement, prepare_refinement
 from pietto._project.project_refinement_rendering import Expr, Select, render
@@ -28,6 +28,10 @@ def test_complete_admitted_family_correspondence(tmp_path, target, case, variant
         return
     artifact = outcome.artifact
     assert artifact is not None
+    if (case, variant) in BLOCK_READS:
+        with pytest.raises(ValueError, match="^REFINEMENT_EXPRESSION_BLOCK_READ$"):
+            prepare_refinement(artifact, capabilities(artifact), policy=TieRefinement())
+        return
     original_sql = artifact.rendered.sql
     query = prepare_refinement(artifact, capabilities(artifact), policy=TieRefinement())
     assert verify_refinement(query) is query.units[-1]

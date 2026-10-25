@@ -1,14 +1,14 @@
 shape User:
-    id: UUID not null
-    email: Text nullable
-    email_norm: Text nullable
-    deleted_at: Timestamp nullable
+    id: UUID
+    email: Text | None
+    email_norm: Text | None
+    deleted_at: Timestamp | None
 
-source users: User is postgres.table("public.users")
+source users: User = postgres.table("public.users")
 
 table active_users:
     from users
-    where deleted_at is null
+    where deleted_at is None
     select:
         id
         email

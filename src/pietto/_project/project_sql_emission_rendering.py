@@ -389,6 +389,9 @@ class _Writer:
             self.identifier(target.producer.symbol.name, f"{kind}_reference", producer)
         self.emit(" AS ", "syntax", f"{kind}_alias", target.use.ref)
         self.identifier(target.symbol.name, f"{kind}_scope", target.use.ref)
+        if value.predicate is not None:
+            self.emit(" WHERE ", "syntax", "exists_where", reference)
+            self.scalar(value.predicate, alias)
         self.emit(")", "syntax", f"{kind}_close", reference)
         self.enclose(kind, reference, start)
 

@@ -1,11 +1,11 @@
 shape Order:
-    status: Text not null
-    amount: Int not null
-    score: Float not null
-    order_date: Date nullable
-    created_at: Timestamp not null
+    status: Text
+    amount: Int
+    score: Float
+    order_date: Date | None
+    created_at: Timestamp
 
-source orders: Order is postgres.table("orders")
+source orders: Order = postgres.table("orders")
 
 table order_extremes:
     from orders

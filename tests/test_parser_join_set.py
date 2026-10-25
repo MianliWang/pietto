@@ -10,17 +10,17 @@ import json
 from _pietto_parser_layout import layout_free
 from pietto.ast_nodes import (
     AuthoredJoinKind,
+    CallExpr,
+    NameExpr,
     BlockRelationDef,
     JoinClause,
     JoinOnClause,
-    JoinTraversalStep,
     SelectBody,
     Span,
     QueryDef,
     TableDef,
     SetRelationDef,
     ComparisonExpr,
-    LiteralExpr,
     ShapeDef,
     ImportStatement,
 )
@@ -40,7 +40,6 @@ from pietto._project.project_completion import (
     ProjectEffectiveOutputTerminal,
     ProjectExistingEffectiveOutput,
 )
-from pietto._project.project_relationship_uses import ProjectNonConcreteJoinUse
 from pietto._project.project_final_outputs import (
     ProjectCompletedSetOutput,
     ProjectEffectiveOutputCompletionTerminal,
@@ -53,41 +52,39 @@ from pietto._project.project_query_block import (
     ProjectNonConcreteQueryBlock,
 )
 from pietto._project.module_carrier import ProjectCompilationMode
-from pietto._project.project_phase62_verification import (
-    build_project_phase62_analysis_bundle,
-)
-from pietto._project.project_phase62_inspection import build_project_phase62_inspection
-from pietto._project import project_phase62_pure_boundary as phase62_pure
 
 from pietto.parser_api import parse_source
 
 
 BASE = """shape Row:
-    id: Int not null
-source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
-relationship link:
-    endpoint l: lhs
-    endpoint r: rhs
-    on l.id == r.id
+    id: Int
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
+relationship link(l: Row, r: Row):
+    l.id == r.id
 """
 
 
-def _join(kind: str = "inner", tail: str = "", *, owner: str = "query") -> str:
+def _join(
+    kind: str = "inner", predicate: str | None = None, *, owner: str = "query"
+) -> str:
+    condition = (
+        ""
+        if kind == "cross" and predicate is None
+        else f" on {predicate or 'lhs.id == r.id'}"
+    )
     return (
-        BASE
-        + f"""{owner} result:
-    from lhs
-    {kind} join rhs as r:
-        from lhs
-{tail}    select:
-        id = lhs.id
-"""
+        BASE + f"{owner} result:\n"
+        "    from lhs\n"
+        "    let r = rhs\n"
+        f"    {kind} join r{condition}\n"
+        "    select:\n"
+        "        id = lhs.id\n"
     )
 
 
 @pytest.mark.parametrize("kind", ("inner", "left"))
-def test_old_join_shape_remains_parseable(kind: str) -> None:
+def test_named_join_shape_remains_parseable(kind: str) -> None:
     result = parse_source(_join(kind))
     assert result.ast is not None and not result.diagnostics
     relation = result.ast.definitions[-1]
@@ -95,12 +92,10 @@ def test_old_join_shape_remains_parseable(kind: str) -> None:
     assert relation.join_clauses[0].kind.value == kind
 
 
-@pytest.mark.parametrize(
-    "kind", ("inner", "left", "right", "full", "semi", "anti", "cross")
-)
+@pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "cross"))
 def test_located_join_kinds_and_on_retention(kind: str) -> None:
-    tail = "" if kind == "cross" else "        on lhs.id == r.id\n"
-    result = parse_source(_join(kind, tail), path="joins.pietto")
+    predicate = None if kind == "cross" else "lhs.id == r.id"
+    result = parse_source(_join(kind, predicate), path="joins.pietto")
     assert result.ast is not None and not result.diagnostics
     relation = result.ast.definitions[-1]
     assert isinstance(relation, (TableDef, QueryDef))
@@ -109,11 +104,93 @@ def test_located_join_kinds_and_on_retention(kind: str) -> None:
     if kind != "cross":
         assert join.on_clause is not None
         assert type(join.on_clause).__name__ == "JoinOnClause"
-        assert join.on_clause.span.line == 13
+        assert join.on_clause.span.line == 10
         assert isinstance(join.on_clause.expression, ComparisonExpr)
         assert join.on_clause.expression.operator == "=="
     else:
         assert join.on_clause is None
+
+
+@pytest.mark.parametrize(("kind", "negation"), (("semi", ""), ("anti", "not ")))
+def test_semi_and_anti_joins_are_retired_for_any_filters(
+    kind: str, negation: str
+) -> None:
+    result = parse_source(_join(kind), path="joins.pietto")
+
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.suggestion)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            10,
+            5,
+            f"Write 'where {negation}any(predicate for r in r)' instead of "
+            f"'{kind} join r on predicate'.",
+        )
+    ]
+
+
+_AS_REVIEW = "; relationship traversal requires an explicit migration review."
+
+
+@pytest.mark.parametrize(
+    "tail",
+    ("\n", ":\n        from lhs\n        on lhs.id == r.id\n", ": on lhs.id == r.id\n"),
+)
+@pytest.mark.parametrize(
+    ("kind", "column", "suggestion"),
+    (
+        (
+            "semi",
+            19,
+            "Write 'where any(predicate for r in rhs)' instead of "
+            "'semi join rhs as r'" + _AS_REVIEW,
+        ),
+        (
+            "anti",
+            19,
+            "Write 'where not any(predicate for r in rhs)' instead of "
+            "'anti join rhs as r'" + _AS_REVIEW,
+        ),
+        (
+            "inner",
+            20,
+            "Name the input with 'let alias = relation', then write "
+            "'left join alias on predicate'" + _AS_REVIEW,
+        ),
+    ),
+)
+def test_old_join_bindings_are_refused_at_as_with_their_rewrite(
+    kind: str, column: int, suggestion: str, tail: str
+) -> None:
+    source = (
+        BASE + "query result:\n    from lhs\n"
+        f"    {kind} join rhs as r{tail}"
+        "    select:\n        id = lhs.id\n"
+    )
+    result = parse_source(source, path="joins.pietto")
+
+    assert result.ast is None
+    assert [
+        (
+            item.code,
+            item.location.line,
+            item.location.column,
+            item.message,
+            item.suggestion,
+        )
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            9,
+            column,
+            "This spelling is not accepted by the modern syntax. " + suggestion,
+            suggestion,
+        )
+    ]
 
 
 @pytest.mark.parametrize("operator", ("union", "intersect", "except"))
@@ -156,8 +233,8 @@ def test_set_body_is_a_located_named_definition(
 
 
 NEW_SOURCES = (
-    _join("inner", "        on false\n"),
-    _join("left", "        via link: l -> r\n        on false\n"),
+    _join("inner", "False"),
+    _join("left", "link(lhs, r) and False"),
     _join("full"),
     _join("cross"),
     BASE + "query combined:\n    union all:\n        from lhs\n        from rhs\n",
@@ -172,7 +249,7 @@ def test_single_file_join_ir_and_set_refusal_follow_current_support(
     parsed = parse_source(source)
     assert parsed.ast is not None and not parsed.diagnostics
     semantic = analyze(parsed.ast)
-    lowered = build_ir(parsed.ast, semantic.model)
+    lowered = build_ir(semantic.script or parsed.ast, semantic.model)
     if isinstance(parsed.ast.definitions[-1], SetRelationDef):
         assert any(d.code == "PIE-S2334" for d in semantic.diagnostics)
         assert lowered.ir is None
@@ -207,40 +284,45 @@ def test_project_forms_follow_current_owner_availability_without_traceback(
     assert any(d.code == "PIE-S2334" for d in result.diagnostics) is not supported
 
 
-@pytest.mark.parametrize(
-    "kind", ("inner", "left", "cross", "right", "full", "semi", "anti")
-)
-@pytest.mark.parametrize("steps", (0, 1, 2))
-def test_on_and_via_remain_distinct_from_historical_join_ir(
-    kind: str, steps: int, tmp_path: Path
+@pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "cross"))
+@pytest.mark.parametrize("occurrences", (1, 2, 3))
+def test_named_join_occurrences_preserve_order_and_on_identity(
+    kind: str, occurrences: int
 ) -> None:
-    tail = "        via link: l -> r\n" * steps + "        on false\n"
-    source = _join(kind, tail)
-    parsed = parse_source(source, path="join.pietto")
-    assert parsed.ast is not None
+    joins = "".join(
+        f"    let r{index} = rhs\n"
+        f"    {kind} join r{index}"
+        + ("" if kind == "cross" else f" on link(lhs, r{index})")
+        + "\n"
+        for index in range(occurrences)
+    )
+    parsed = parse_source(
+        BASE + "query q:\n    from lhs\n" + joins + "    select lhs.id\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
     relation = parsed.ast.definitions[-1]
     assert isinstance(relation, QueryDef)
-    clause = relation.join_clauses[0]
-    assert len(clause.traversal_steps) == steps
-    assert clause.on_clause is not None
-    assert isinstance(clause.on_clause.expression, LiteralExpr)
-    assert clause.on_clause.expression.value is False
-    if steps:
-        assert clause.traversal_steps[-1].span.line < clause.on_clause.span.line
-    result = _completed(tmp_path, source)
-    assert result.ok is (
-        kind in {"inner", "left", "right", "full", "semi", "anti"} and steps <= 1
-    )
-    uses = result.verification.root.join_regions.uses
-    ledger = next(
-        item for item in uses.ledgers if item.owner.definition.name == "result"
-    )
-    assert isinstance(ledger.uses[0], ProjectNonConcreteJoinUse)
-    assert ledger.uses[0].state.value != "concrete"
-    assert len(ledger.uses[0].step_uses) == steps
-    assert any(
-        issue.kind.value == "syntax_unsupported" for issue in ledger.uses[0].issues
-    )
+    assert [item.name for item in relation.naming_declarations] == [
+        f"r{i}" for i in range(occurrences)
+    ]
+    assert [item.target_binding_name for item in relation.join_clauses] == [
+        f"r{i}" for i in range(occurrences)
+    ]
+    assert len({item.span for item in relation.join_clauses}) == occurrences
+    for ordinal, clause in enumerate(relation.join_clauses):
+        assert clause.uses_named_input and clause.traversal_steps == ()
+        assert clause.source_binding_name is None
+        assert clause.span.line == 10 + 2 * ordinal
+        if kind == "cross":
+            assert clause.on_clause is None
+        else:
+            assert clause.on_clause is not None
+            assert isinstance(clause.on_clause.expression, CallExpr)
+            assert [
+                item.name
+                for item in clause.on_clause.expression.arguments
+                if isinstance(item, NameExpr)
+            ] == ["lhs", f"r{ordinal}"]
 
 
 def _completed(root: Path, source: str) -> ProjectConcreteCompletedSemanticResult:
@@ -288,7 +370,7 @@ query valid:
     assert (
         definition.body.operator_span.line,
         definition.body.operator_span.column,
-    ) == (10, 5)
+    ) == (8, 5)
     assert definition.body.operator_span.end_column == 5 + len(operator)
     assert len(definition.body.operands) == 1
     result = _completed(tmp_path, source)
@@ -424,17 +506,15 @@ query valid:
     ),
 )
 def test_new_words_remain_contextual_names(word: str) -> None:
-    source = f"""import "other.pietto":
-    type {word} as local
-export:
-    query {word}
+    source = f"""from "other.pietto" import type {word} as local
+export query {word}
 shape Row:
-    {word}: Int not null
-source {word}: Row is postgres.table("rows")
+    {word}: Int
+source {word}: Row = postgres.table("rows")
 query result:
     from {word}
-    inner join {word} as {word}:
-        from {word}
+    let joined = {word}
+    inner join joined on {word}.{word} == joined.{word}
     select:
         {word}.{word}
 """
@@ -446,9 +526,7 @@ query result:
     assert parsed.ast.module_statements[0].items[0].exported_name == word
 
 
-@pytest.mark.parametrize(
-    ("kind", "tail"), (("left", "        on true\n"), ("cross", ""))
-)
+@pytest.mark.parametrize(("kind", "tail"), (("left", " on True"), ("cross", "")))
 def test_lateral_uses_existing_join_syntax_over_a_local_relation(
     kind: str, tail: str
 ) -> None:
@@ -462,9 +540,8 @@ def test_lateral_uses_existing_join_syntax_over_a_local_relation(
         "            id\n"
         "        limit 1\n"
         "    from customers\n"
-        f"    {kind} join latest as l:\n"
-        "        from customers\n"
-        f"{tail}"
+        "    let l = latest\n"
+        f"    {kind} join l{tail}\n"
         "    select:\n"
         "        customer_id = customers.id\n"
         "        last_order = l.id\n"
@@ -475,8 +552,9 @@ def test_lateral_uses_existing_join_syntax_over_a_local_relation(
     assert type(definition.body) is SelectBody
     (join,) = definition.body.join_clauses
     assert join.kind is AuthoredJoinKind(kind)
-    assert (join.target_relation_name, join.target_binding_name) == ("latest", "l")
-    assert join.source_binding_name == "customers"
+    assert (join.target_relation_name, join.target_binding_name) == ("l", "l")
+    assert join.source_binding_name is None
+    assert join.uses_named_input
     assert (type(join.on_clause) is JoinOnClause) is bool(tail)
 
 
@@ -484,15 +562,18 @@ def test_lateral_uses_existing_join_syntax_over_a_local_relation(
 def test_blank_comments_parentheses_windows_qualify_and_eof_keep_spans(
     suffix: str,
 ) -> None:
-    source = _join(
-        "left",
-        "        # refinement\n        via link: l -> r\n\n        on (lhs.id == r.id and true)\n",
-    )
-    source += (
-        """        rn = row_number() window ordered
-    window ordered:
-        order by:
-            lhs.id
+    source = (
+        BASE
+        + """query result:
+    from lhs
+    let r = rhs
+    # refinement
+
+    left join r on (lhs.id == r.id and True)
+    let ordered = window(order by lhs.id)
+    select:
+        id = lhs.id
+        rn = row_number() window ordered
     qualify:
         rn <= 1"""
         + suffix
@@ -504,8 +585,8 @@ def test_blank_comments_parentheses_windows_qualify_and_eof_keep_spans(
     assert len(relation.named_windows) == 1 and relation.qualify_clause is not None
     on = relation.join_clauses[0].on_clause
     assert on is not None
-    assert (on.span.line, on.span.column, on.span.end_line) == (16, 9, 16)
-    assert relation.join_clauses[0].traversal_steps[0].span.line == 14
+    assert (on.span.line, on.span.column, on.span.end_line) == (12, 17, 12)
+    assert relation.naming_declarations[0].span.line == 9
 
 
 @pytest.mark.parametrize(
@@ -527,25 +608,18 @@ def test_malformed_set_bodies_are_syntax_errors(body: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "tail",
-    (
-        "        on true\n        on false\n",
-        "        on true\n        via link: l -> r\n",
-        "        on lhs.id = r.id\n",
-    ),
+    "predicate", ("True on False", "True via link: l -> r", "lhs.id = r.id")
 )
-def test_malformed_on_order_or_assignment_is_rejected(tail: str) -> None:
-    parsed = parse_source(_join("left", tail))
+def test_malformed_on_order_or_assignment_is_rejected(predicate: str) -> None:
+    parsed = parse_source(_join("left", predicate))
     assert parsed.ast is None and parsed.diagnostics
 
 
 def test_scalar_multiline_continuation_is_joined_like_where() -> None:
-    on = parse_source(
-        _join("inner", "        on (lhs.id == r.id\n            and true)\n")
-    )
+    on = parse_source(_join("inner", "(lhs.id == r.id\n            and True)"))
     where = parse_source(
         BASE
-        + "query q:\n    from lhs\n    where (id == id\n        and true)\n    select:\n        id\n"
+        + "query q:\n    from lhs\n    where (id == id\n        and True)\n    select:\n        id\n"
     )
     assert on.diagnostics == where.diagnostics == ()
     assert on.ast is not None and where.ast is not None
@@ -556,8 +630,8 @@ def test_scalar_multiline_continuation_is_joined_like_where() -> None:
     assert on_clause is not None and filtered.where_clause is not None
     spans = (on_clause.expression.span, filtered.where_clause.expression.span)
     assert [(s.line, s.column, s.end_line, s.end_column) for s in spans] == [
-        (13, 13, 14, 21),
-        (11, 12, 12, 17),
+        (10, 22, 11, 21),
+        (9, 12, 10, 17),
     ]
 
 
@@ -619,8 +693,8 @@ def test_contextual_words_do_not_blanket_reject_ordinary_programs(
     result = _completed(
         tmp_path,
         """shape Row:
-    distinct: Int not null
-source union: Row is postgres.table("rows")
+    distinct: Int
+source union: Row = postgres.table("rows")
 query except:
     from union
     select:
@@ -656,83 +730,6 @@ sha256 = "'''
     captured = capsys.readouterr()
     assert not captured.err
     assert not json.loads(captured.out)["ok"]
-
-
-@pytest.mark.parametrize(
-    "kind", ("inner", "left", "cross", "right", "full", "semi", "anti")
-)
-def test_phase62_observer_retains_new_negative_uses_but_rejects_concrete_forgery(
-    tmp_path: Path, kind: str
-) -> None:
-    tail = "        on false\n" if kind in {"inner", "left"} else ""
-    result = _completed(tmp_path, _join(kind, tail))
-    product = build_project_phase62_inspection(
-        build_project_phase62_analysis_bundle(result.verification)
-    )
-    assert product.canonical_bytes
-    document = product.document
-    position = next(
-        i
-        for i, record in enumerate(document.records)
-        if record.kind is phase62_pure.ProjectPhase62RecordKind.JOIN_USE
-    )
-    record = document.records[position]
-    forged = replace(
-        record,
-        fields=tuple(
-            replace(field, value=replace(field.value, enumeration="concrete"))
-            if field.key == "state"
-            else field
-            for field in record.fields
-        ),
-    )
-    corrupted = replace(
-        document,
-        records=(
-            *document.records[:position],
-            forged,
-            *document.records[position + 1 :],
-        ),
-    )
-    observed = phase62_pure.evaluate_project_phase62_document(corrupted)
-    assert observed.status is not phase62_pure.ProjectPhase62PureStatus.OK
-    assert observed.canonical_bytes is None
-
-
-def test_new_kind_cannot_be_a_phase62_binary_ir_record(tmp_path: Path) -> None:
-    result = _completed(tmp_path, _join())
-    assert result.ok
-    product = build_project_phase62_inspection(
-        build_project_phase62_analysis_bundle(result.verification)
-    )
-    document = product.document
-    position = next(
-        i
-        for i, record in enumerate(document.records)
-        if record.kind is phase62_pure.ProjectPhase62RecordKind.BINARY_JOIN
-    )
-    record = document.records[position]
-    forged = replace(
-        record,
-        fields=tuple(
-            replace(field, value=replace(field.value, enumeration="right"))
-            if field.key == "kind"
-            else field
-            for field in record.fields
-        ),
-    )
-    corrupted = replace(
-        document,
-        records=(
-            *document.records[:position],
-            forged,
-            *document.records[position + 1 :],
-        ),
-    )
-    assert (
-        phase62_pure.evaluate_project_phase62_document(corrupted).status
-        is not phase62_pure.ProjectPhase62PureStatus.OK
-    )
 
 
 @pytest.mark.parametrize("newline", ("\n", ""))
@@ -791,85 +788,285 @@ def test_precise_earlier_errors_precede_availability_diagnostics() -> None:
     result = analyze(parsed.ast)
     codes = tuple(d.code for d in result.diagnostics)
     assert codes.index("PIE-S2001") < codes.index("PIE-S2334")
-    assert "PIE-S2005" in codes  # Existing implicit-nullability warnings survive.
+
+
+@pytest.mark.parametrize("kind", ("inner", "left"))
+def test_parenthesized_on_layouts_preserve_the_same_ast(kind: str) -> None:
+    short = parse_source(_join(kind, "lhs.id == r.id and r.id > 0"))
+    long = parse_source(_join(kind, "(lhs.id == r.id\n        and r.id > 0)"))
+    assert short.diagnostics == long.diagnostics == ()
+    assert short.ast is not None and long.ast is not None
+    assert layout_free(short.ast) == layout_free(long.ast)
+
+
+def test_named_cross_join_keeps_optional_parts_absent() -> None:
+    result = parse_source(_join("cross"))
+    assert result.diagnostics == () and result.ast is not None
+    query = result.ast.definitions[-1]
+    assert isinstance(query, QueryDef)
+    (join,) = query.join_clauses
+    assert join.kind is AuthoredJoinKind.CROSS and join.uses_named_input
+    assert (join.source_binding_name, join.traversal_steps, join.on_clause) == (
+        None,
+        (),
+        None,
+    )
+    assert (join.span.line, join.span.column, join.span.end_column) == (10, 5, 17)
+    assert query.naming_declarations[0].name == "r"
+
+
+def test_modern_join_inputs_are_named_separately_and_calls_remain_ordinary() -> None:
+    from pietto.ast_nodes import CallExpr
+
+    result = parse_source(
+        "query q:\n"
+        "    from orders\n"
+        "    let buyer = customers\n"
+        "    left join buyer on ActiveOrderCustomer(orders, buyer)\n"
+        "    let region = regions\n"
+        "    left join region on CustomerRegion(buyer, region)\n"
+        "    select order_id = orders.id, region_name = region.name\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    query = result.ast.definitions[0]
+    assert isinstance(query, QueryDef)
+    first, second = query.join_clauses
+    assert first.target_relation_name == first.target_binding_name == "buyer"
+    assert second.target_relation_name == second.target_binding_name == "region"
+    assert first.source_binding_name is None
+    assert first.uses_named_input is second.uses_named_input is True
+    assert first.target_binding_span is not None
+    assert first.target_binding_span.column == 15
+    assert first.on_clause is not None and isinstance(
+        first.on_clause.expression, CallExpr
+    )
+    assert second.on_clause is not None and isinstance(
+        second.on_clause.expression, CallExpr
+    )
+
+    from pietto.parser_api import _parse_legacy_source
+
+    legacy = _parse_legacy_source(
+        "query q:\n"
+        "    from orders\n"
+        "    left join customers as buyer\n"
+        "    select: orders.id\n"
+    )
+    assert legacy.diagnostics == () and legacy.ast is not None
+    legacy_query = legacy.ast.definitions[0]
+    assert isinstance(legacy_query, QueryDef)
+    assert legacy_query.join_clauses[0].source_binding_name is None
+    assert legacy_query.join_clauses[0].uses_named_input is False
+
+
+def test_modern_union_shorthand_preserves_repeated_operand_occurrences() -> None:
+    result = parse_source("query all_rows:\n    union all a, b, a\n")
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, SetRelationDef)
+    assert [item.relation_name for item in definition.body.operands] == ["a", "b", "a"]
+    assert definition.body.operands[0].span != definition.body.operands[2].span
+
+
+@pytest.mark.parametrize(
+    "entry", [{}, {"single_file": True}, {"explicit_modules": True}]
+)
+@pytest.mark.parametrize("kind", ["left", "cross"])
+def test_modern_named_input_admission_preserves_legacy_source_requirement(
+    entry: dict[str, bool], kind: str
+) -> None:
+    from pietto._syntax_admission import unadmitted_syntax_diagnostics
+    from pietto.parser_api import _parse_legacy_source
+
+    condition = " on orders.id == buyer.id" if kind == "left" else ""
+    modern = parse_source(
+        "query q:\n"
+        "    from orders\n"
+        "    let buyer = customers\n"
+        f"    {kind} join buyer{condition}\n"
+        "    select orders.id\n"
+    )
+    assert modern.diagnostics == () and modern.ast is not None
+    assert unadmitted_syntax_diagnostics(modern.ast, **entry) == ()
+
+    legacy_condition = ":" + condition if condition else ""
+    legacy = _parse_legacy_source(
+        "query q:\n"
+        "    from orders\n"
+        f"    {kind} join customers as buyer{legacy_condition}\n"
+        "    select: orders.id\n"
+    )
+    assert legacy.diagnostics == () and legacy.ast is not None
+    diagnostics = unadmitted_syntax_diagnostics(legacy.ast, **entry)
+    assert [(item.code, item.location.line) for item in diagnostics] == [
+        ("PIE-S2378", 3)
+    ]
+
+
+def test_modern_any_filters_keep_exact_authored_join_prefixes_and_tail_where() -> None:
+    from pietto.ast_nodes import AnyExpr, BinaryExpr, UnaryExpr
+
+    source = (
+        "query q:\n"
+        "    from orders\n"
+        "    where any(Match(orders, buyer) for buyer in customers)\n"
+        "    let buyer = customers\n"
+        "    left join buyer on Match(orders, buyer)\n"
+        "    where:\n"
+        "        any(RegionMatch(buyer, region) for region in regions)\n"
+        "        not any(Blocked(buyer, banned) for banned in bans)\n"
+        "    where any(Match(orders, buyer) for buyer in archived)\n"
+        "    let region = regions\n"
+        "    left join region on RegionMatch(buyer, region)\n"
+        "    where orders.id > 0 or region.id is None\n"
+        "    select orders.id\n"
+    )
+    parsed = parse_source(source, path="any.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    query = parsed.ast.definitions[0]
+    assert isinstance(query, QueryDef)
+    assert len(query.join_clauses) == 2
+    assert [item.preceding_join_count for item in query.join_filters] == [0, 1, 1]
+    assert [item.span.line for item in query.join_filters] == [3, 6, 9]
+    first, conjunction, repeated = [item.expression for item in query.join_filters]
+    assert isinstance(first, AnyExpr) and isinstance(repeated, AnyExpr)
+    assert first.binding_name == repeated.binding_name == "buyer"
+    assert first.binding_span != repeated.binding_span
+    assert first.relation_name == "customers" and repeated.relation_name == "archived"
+    assert first.binding_span.line == first.relation_span.line == 3
+    line = source.splitlines()[2]
+    assert (
+        line[first.binding_span.column - 1 : first.binding_span.end_column - 1]
+        == "buyer"
+    )
+    assert (
+        line[first.relation_span.column - 1 : first.relation_span.end_column - 1]
+        == "customers"
+    )
+    assert first.binding_span.path == first.relation_span.path == "any.pietto"
+    assert isinstance(conjunction, BinaryExpr) and conjunction.operator == "and"
+    assert isinstance(conjunction.left, AnyExpr)
+    assert (
+        isinstance(conjunction.right, UnaryExpr) and conjunction.right.operator == "not"
+    )
+    assert isinstance(conjunction.right.operand, AnyExpr)
+    assert query.where_clause is not None and query.where_clause.span.line == 12
+    assert isinstance(query.where_clause.expression, BinaryExpr)
+    assert query.where_clause.expression.operator == "or"
+    assert [(item.name, item.span.line) for item in query.naming_declarations] == [
+        ("buyer", 4),
+        ("region", 10),
+    ]
+
+
+def test_modern_any_binder_shadows_parameter_only_inside_its_predicate() -> None:
+    from pietto.ast_nodes import (
+        AnyExpr,
+        BinaryExpr,
+        CallExpr,
+        NameExpr,
+        ParameterRefExpr,
+    )
+
+    parsed = parse_source(
+        "query q(buyer: Int):\n"
+        "    from orders\n"
+        "    where any(Match(orders, buyer) for buyer in customers) and buyer > 0\n"
+        "    select buyer\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    query = parsed.ast.definitions[0]
+    assert isinstance(query, QueryDef) and query.where_clause is not None
+    predicate = query.where_clause.expression
+    assert isinstance(predicate, BinaryExpr) and isinstance(predicate.left, AnyExpr)
+    assert isinstance(predicate.left.predicate, CallExpr)
+    bound_row = predicate.left.predicate.arguments[1]
+    assert isinstance(bound_row, NameExpr) and bound_row.name == "buyer"
+    assert isinstance(predicate.right, ComparisonExpr)
+    assert isinstance(predicate.right.left, ParameterRefExpr)
+    assert isinstance(query.select_items[0].expression, ParameterRefExpr)
+    assert query.join_clauses == query.join_filters == query.naming_declarations == ()
+
+
+def test_modern_any_binder_restores_capture_scope_after_its_parentheses() -> None:
+    from pietto.ast_nodes import AnyExpr, CallExpr, CapturedFieldExpr, DottedNameExpr
+
+    parsed = parse_source(
+        "query q:\n"
+        "    let inside:\n"
+        "        capture buyer\n"
+        "        from orders\n"
+        "        where any(Match(buyer.id) for buyer in customers)\n"
+        "        select buyer.id\n"
+        "    from inside\n"
+        "    select id\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    query = parsed.ast.definitions[0]
+    assert isinstance(query, BlockRelationDef)
+    body = query.let_relations[0].body
+    assert isinstance(body, SelectBody) and body.where_clause is not None
+    expression = body.where_clause.expression
+    assert isinstance(expression, AnyExpr) and isinstance(
+        expression.predicate, CallExpr
+    )
+    assert isinstance(expression.predicate.arguments[0], DottedNameExpr)
+    assert isinstance(body.select_items[0].expression, CapturedFieldExpr)
+
+
+@pytest.mark.parametrize(
+    "predicate",
+    [
+        "True",
+        "any(True)",
+        "any(True for x in rows) or any(False for y in rows)",
+        "not (any(True for x in rows) and any(False for y in rows))",
+        "any(True for x in rows) == True",
+    ],
+)
+def test_modern_inter_join_where_refuses_nonconjunctive_generator_filters(
+    predicate: str,
+) -> None:
+    parsed = parse_source(
+        "query q:\n    from orders\n"
+        f"    where {predicate}\n"
+        "    cross join customers\n    select orders.id\n"
+    )
+    assert parsed.ast is None
+    assert len(parsed.diagnostics) == 1
+    assert "only conjunctions" in parsed.diagnostics[0].message
+    assert parsed.diagnostics[0].location.line == 3
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "any(True for x in rows for y in rows)",
+        "any(True for x in rows if x.id > 0)",
+        "any(True for x in rows, False)",
+        "other(True for x in rows)",
+    ],
+)
+def test_modern_any_generator_refuses_extra_generator_forms(expression: str) -> None:
+    parsed = parse_source(
+        f"query q:\n    from orders\n    where {expression}\n    select orders.id\n"
+    )
+    assert parsed.ast is None
+    assert parsed.diagnostics
 
 
 def _joined(join: str) -> str:
     return BASE + f"query q:\n    from lhs\n{join}    select:\n        id = lhs.id\n"
 
 
-HEADER_LINE_JOINS = {
-    "from": (
-        "    inner join rhs as r: from lhs\n",
-        "    inner join rhs as r:\n        from lhs\n",
-    ),
-    "via_with_roles": (
-        "    left join rhs as r: via link: l -> r\n",
-        "    left join rhs as r:\n        via link: l -> r\n",
-    ),
-    "via_without_roles": (
-        "    inner join rhs as r: via link\n",
-        "    inner join rhs as r:\n        via link\n",
-    ),
-    "on": (
-        "    inner join rhs as r: on lhs.id == r.id\n",
-        "    inner join rhs as r:\n        on lhs.id == r.id\n",
-    ),
-}
-
-
-@pytest.mark.parametrize("case", sorted(HEADER_LINE_JOINS))
-def test_a_header_line_join_step_is_its_one_line_block(case: str) -> None:
-    short, long = (parse_source(_joined(text)) for text in HEADER_LINE_JOINS[case])
-    assert short.diagnostics == long.diagnostics == ()
-    assert short.ast is not None and long.ast is not None
-    assert layout_free(short.ast) == layout_free(long.ast)
-
-
-def test_omitted_join_parts_stay_absent_for_inference() -> None:
-    result = parse_source(
-        _joined(
-            "    inner join rhs as r\n"
-            "    inner join rhs as r2: via link\n"
-            "    cross join rhs as r3:\n        via link\n        on true\n"
-        )
-    )
-    assert result.diagnostics == () and result.ast is not None
-    query = result.ast.definitions[-1]
-    assert isinstance(query, QueryDef)
-    bare, via, block = query.join_clauses
-    assert (bare.source_binding_name, bare.traversal_steps, bare.on_clause) == (
-        None,
-        (),
-        None,
-    )
-    assert (bare.span.line, bare.span.column, bare.span.end_column) == (11, 5, 24)
-    (step,) = via.traversal_steps
-    assert via.source_binding_name is None
-    assert (step.relationship_name, step.source_endpoint_role) == ("link", None)
-    assert step.target_endpoint_role is None
-    assert (step.span.line, step.span.column, step.span.end_column) == (12, 27, 35)
-    assert block.kind is AuthoredJoinKind.CROSS and block.source_binding_name is None
-    assert block.on_clause is not None
-
-
-def test_traversal_roles_are_authored_together_or_not_at_all() -> None:
-    span = Span(path=None, line=1, column=1, end_line=1, end_column=2)
-    with pytest.raises(ValueError, match="authored together"):
-        JoinTraversalStep(
-            span=span,
-            relationship_name="link",
-            source_endpoint_role="l",
-            target_endpoint_role=None,
-        )
-
-
 def test_a_join_binding_name_keeps_its_own_span() -> None:
     result = parse_source(
         _joined(
-            "    inner join rhs as r\n"
-            "    left join rhs as second:\n        from lhs\n"
-            "    cross join rhs as r3: from lhs\n"
+            "    let r = rhs\n    inner join r\n"
+            "    let second = rhs\n    left join second\n"
+            "    let r3 = rhs\n    cross join r3\n"
         ),
         path="as.pietto",
     )
@@ -882,9 +1079,9 @@ def test_a_join_binding_name_keeps_its_own_span() -> None:
         else (span.path, span.line, span.column, span.end_line, span.end_column)
         for span in (clause.target_binding_span for clause in query.join_clauses)
     ] == [
-        ("as.pietto", 11, 23, 11, 24),
-        ("as.pietto", 12, 22, 12, 28),
-        ("as.pietto", 14, 23, 14, 25),
+        ("as.pietto", 10, 16, 10, 17),
+        ("as.pietto", 12, 15, 12, 21),
+        ("as.pietto", 14, 16, 14, 18),
     ]
     span = Span(path=None, line=1, column=1, end_line=1, end_column=2)
     built = JoinClause(

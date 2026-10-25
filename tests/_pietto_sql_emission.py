@@ -498,12 +498,12 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         else "query"
     )
     source = f"""shape Row:
-    id: Int not null
-    flag: Bool nullable
-    text: Text not null
-    money: Decimal(9, 2) not null
-    ratio: Float not null
-source rows: Row is {target}.table("opaque.locator.not.sql")
+    id: Int
+    flag: Bool | None
+    text: Text
+    money: Decimal(9, 2)
+    ratio: Float
+source rows: Row = {target}.table("opaque.locator.not.sql")
 {kind} result:
     from rows
     select:
@@ -710,11 +710,11 @@ def native_fixture(target, variant):
         }
     )
     source = f"""shape Row:
-    id: Int not null
-    decoy: Int not null
-    plain: Int not null
-    neighbor: Int nullable
-source rows: Row is {target}.table("opaque")
+    id: Int
+    decoy: Int
+    plain: Int
+    neighbor: Int | None
+source rows: Row = {target}.table("opaque")
 """
     if variant.startswith("named"):
         source += """table first:
@@ -738,7 +738,7 @@ query result:
     }
 
 
-PARAMETER_BODY = """query result(low: Int not null, label: Text nullable):
+PARAMETER_BODY = """query result(low: Int, label: Text | None):
     from rows
     where id > low and plain != 3
     select:
@@ -752,11 +752,10 @@ PARAMETER_BODY = """query result(low: Int not null, label: Text nullable):
 # product binder refuses any other value before execution (D70.01).
 PARAMETER_POSITION_BODIES = {
     # Computed key, LET aggregates, SATISFYING and grouped ORDER over parameters.
-    "grouped": """query result(low: Int not null, high: Int nullable):
+    "grouped": """query result(low: Int, high: Int | None):
     from rows
-    let:
-        k = id * low
-        s = id + high
+    let k = id * low
+    let s = id + high
     group by:
         k
     select:
@@ -765,22 +764,20 @@ PARAMETER_POSITION_BODIES = {
         n = count(s)
         a = avg(s)
         m = max(s)
-    satisfying:
+    having:
         c > low
     order by:
         n desc
 """,
     # A closed builtin value argument, QUALIFY arithmetic and a matched ORDER key.
-    "result": """query result(low: Int not null, label: Text nullable):
+    "result": """query result(low: Int, label: Text | None):
     from rows
     where contains(text, label)
     select:
         id
         s = id * low
         u = lower(label)
-        r = row_number() window:
-            order by:
-                id
+        r = row_number() window(order by id)
     qualify:
         r <= low + 1
     order by:
@@ -797,7 +794,7 @@ PARAMETER_POSITION_VARIANTS = {
 }
 # The same result through a relation let that reads both parameters; the
 # entry body reads `low` again in a later CTE stage.
-PARAMETER_LET_BODY = """query result(low: Int not null, label: Text nullable):
+PARAMETER_LET_BODY = """query result(low: Int, label: Text | None):
     let kept:
         from rows
         where id > low and plain != 3
@@ -904,12 +901,10 @@ def parameter_fixture(target, variant):
 METAMORPHIC_BODIES = {
     "join_chain_accumulated": """query result:
     from rows
-    left join rows as r:
-        from rows
-        on rows.id > r.id
-    right join rows as last:
-        from rows
-        on r.id == last.id
+    let r = rows
+    left join r on rows.id > r.id
+    let last = rows
+    right join last on r.id == last.id
     select:
         a = rows.id
         b = last.id
@@ -961,8 +956,7 @@ def metamorphic_fixture(target, variant):
         source["fields"] = source["fields"][:1]
         source["fields"][0]["column"] = "id"
         header = (
-            "shape One:\n    id: Int not null\n"
-            f'source rows: One is {target}.table("opaque")\n'
+            f'shape One:\n    id: Int\nsource rows: One = {target}.table("opaque")\n'
         )
     return {
         "source": header + METAMORPHIC_BODIES[variant],
@@ -1040,8 +1034,8 @@ def fixed_fixture(target, case, variant):
         expressions = (
             "id",
             "neighbor",
-            "true",
-            "false",
+            "True",
+            "False",
             "1",
             "1.0",
             "0",
@@ -1072,7 +1066,7 @@ def fixed_fixture(target, case, variant):
         id
         neighbor
         base = 17
-        unused = true
+        unused = True
         zero = -0.0
 """
         second = """table second:
@@ -1099,9 +1093,9 @@ def fixed_fixture(target, case, variant):
         source = header + first + second + final
         if variant.startswith("imported"):
             source = {
-                "a.pietto": header + first + "export:\n    table first\n",
-                "b.pietto": 'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n',
-                "main.pietto": 'import "b.pietto":\n    table Public as Alias\n'
+                "a.pietto": header + first + "export table first\n",
+                "b.pietto": 'from "a.pietto" import table first as Public\nexport table Public\n',
+                "main.pietto": 'from "b.pietto" import table Public as Alias\n'
                 + second.replace("from first", "from Alias")
                 + final,
             }
@@ -1117,17 +1111,17 @@ def fixed_fixture(target, case, variant):
 # exact relation it reads, so one authored surface covers empty, all-null, fanout
 # and membership inputs without multiplying declarations.
 AGGREGATE_HEADER = """shape Agg:
-    key: Int nullable
-    value: Int nullable
-    flag: Bool nullable
-    label: Text not null
-    amount: Decimal(9, 2) not null
-    ratio: Float not null
-    rid: Int not null
-    unique agg_row on rid
-source agg: Agg is {target}.table("aggregate.locator.not.sql")
+    key: Int | None
+    value: Int | None
+    flag: Bool | None
+    label: Text
+    amount: Decimal(9, 2)
+    ratio: Float
+    rid: Int
+    agg_row = unique(rid)
+source agg: Agg = {target}.table("aggregate.locator.not.sql")
 """
-AGGREGATE_KEYS_SOURCE = 'source keys: Agg is {target}.table("keys.locator.not.sql")\n'
+AGGREGATE_KEYS_SOURCE = 'source keys: Agg = {target}.table("keys.locator.not.sql")\n'
 AGGREGATE_COLUMNS = (
     ("key", "group key"),
     ("value", "value é"),
@@ -1179,9 +1173,8 @@ GLOBAL_BODY = """query result:
 # MAX reads another LET column and keeps that value's own proven range.
 AGGREGATE_COMPUTED = """query result:
     from agg
-    let:
-        bucket = 1 if key > 1 else 0
-        weight = 2 if value > 15 else 1
+    let bucket = 1 if key > 1 else 0
+    let weight = 2 if value > 15 else 1
     group by:
         bucket
     select:
@@ -1194,12 +1187,10 @@ AGGREGATE_COMPUTED = """query result:
 # MIN/MAX read the joined LET value `level`, which is the right side's rid.
 AGGREGATE_COMPUTED_JOIN = """query result:
     from agg
-    inner join agg as r:
-        from agg
-        on agg.key == r.key
-    let:
-        later = agg.rid > r.rid or r.rid > 12
-        level = r.rid + agg.rid * 0
+    let r = agg
+    inner join r on agg.key == r.key
+    let later = agg.rid > r.rid or r.rid > 12
+    let level = r.rid + agg.rid * 0
     group by:
         later
     select:
@@ -1271,19 +1262,18 @@ query result:
         k = key
         total = count()
         lo = min(value)
-    satisfying:
+    having:
         total < 2 and lo > 5 and total >= 1
 """,
     ("Y_aggregate_satisfying", "let_reference"): """query result:
     from agg
-    let:
-        taken = value
+    let taken = value
     group by:
         key
     select:
         k = key
         total = count(taken)
-    satisfying:
+    having:
         total > 0 and count(taken) < 2
 """,
     ("Y_aggregate_satisfying", "before_input"): """query result:
@@ -1325,8 +1315,7 @@ query result:
     ("Y_aggregate_computed", "join_key"): AGGREGATE_COMPUTED_JOIN,
     ("Z_aggregate_composition", "let_where"): """query result:
     from agg
-    let:
-        taken = value
+    let taken = value
     where key > 0
     group by:
         key
@@ -1353,9 +1342,8 @@ query result:
     # occurrence count, never a unique base-entity count.
     ("Z_aggregate_joined", "inner_fanout"): """query result:
     from agg
-    inner join agg as r:
-        from agg
-        on agg.key == r.key
+    let r = agg
+    inner join r on agg.key == r.key
     group by:
         agg.key
     select:
@@ -1366,9 +1354,8 @@ query result:
     # LEFT joins on that unique key: an unmatched left occurrence still counts.
     ("Z_aggregate_joined", "left_nullable"): """query result:
     from keys
-    left join agg as r:
-        from keys
-        on keys.rid == r.rid
+    let r = agg
+    left join r on keys.rid == r.rid
     group by:
         keys.rid
     select:
@@ -1385,9 +1372,8 @@ query result:
         total = count()
 query result:
     from keys
-    left join grouped as r:
-        from keys
-        on keys.key == r.k
+    let r = grouped
+    left join r on keys.key == r.k
     select:
         a = keys.key
         b = r.total
@@ -1408,9 +1394,8 @@ query result:
         total = sum(value)
 query result:
     from keys
-    semi join g as r:
-        from keys
-        on keys.key == r.total
+    let r = g
+    where any(keys.key == r.total for r in r)
     select:
         a = keys.key
 """,
@@ -1455,9 +1440,8 @@ AGGREGATE_LEFTISH = """table leftish:
 """
 AGGREGATE_MEMBERSHIP = """query result:
     from keys
-    {kind} join g as r:
-        from keys
-        on keys.key == r.{port}
+    let r = g
+    where {negation}any(keys.key == r.{port} for r in r)
     select:
         a = keys.key
 """
@@ -1531,16 +1515,16 @@ def aggregate_source(target, case, variant):
         if variant == "satisfying_right":
             producer = (
                 AGGREGATE_NAMED.replace("table grouped:", "table g:")
-                + "    satisfying:\n        total < 2\n"
+                + "    having:\n        total < 2\n"
             )
-            return producer + AGGREGATE_MEMBERSHIP.format(kind="semi", port="k")
+            return producer + AGGREGATE_MEMBERSHIP.format(negation="", port="k")
         if variant == "filtered_global":
             return (
                 "table g:\n    from agg\n    select:\n        total = count()\n"
                 "table f:\n    from g\n    where total > 0\n"
                 "    select:\n        t = total\n"
-                + AGGREGATE_MEMBERSHIP.format(kind="semi", port="t").replace(
-                    "join g as r", "join f as r"
+                + AGGREGATE_MEMBERSHIP.format(negation="", port="t").replace(
+                    "let r = g", "let r = f"
                 )
             )
         if variant.endswith("global"):
@@ -1549,8 +1533,8 @@ def aggregate_source(target, case, variant):
         else:
             producer = AGGREGATE_NAMED.replace("table grouped:", "table g:")
             port = "k"
-        kind = "semi" if variant.startswith("semi") else "anti"
-        return producer + AGGREGATE_MEMBERSHIP.format(kind=kind, port=port)
+        negation = "" if variant.startswith("semi") else "not "
+        return producer + AGGREGATE_MEMBERSHIP.format(negation=negation, port=port)
     if case == "Z_aggregate_joined" and variant in {
         "right_accumulated",
         "full_restricted",
@@ -1560,9 +1544,8 @@ def aggregate_source(target, case, variant):
             AGGREGATE_LEFTISH
             + f"""query result:
     from leftish
-    {kind} join agg as r:
-        from leftish
-        on leftish.lid == r.key
+    let r = agg
+    {kind} join r on leftish.lid == r.key
     group by:
         r.key
     select:
@@ -1580,10 +1563,10 @@ def aggregate_source(target, case, variant):
         if variant == "named":
             return AGGREGATE_NAMED + consumer
         return {
-            "a.pietto": "{header}" + AGGREGATE_NAMED + "export:\n    table grouped\n",
-            "b.pietto": 'import "a.pietto":\n    table grouped as Public\n'
-            "export:\n    table Public\n",
-            "main.pietto": 'import "b.pietto":\n    table Public as Alias\n'
+            "a.pietto": "{header}" + AGGREGATE_NAMED + "export table grouped\n",
+            "b.pietto": 'from "a.pietto" import table grouped as Public\n'
+            "export table Public\n",
+            "main.pietto": 'from "b.pietto" import table Public as Alias\n'
             + consumer.replace("from grouped", "from Alias"),
         }
     return AGGREGATE_BODIES[case, variant]
@@ -1851,9 +1834,9 @@ def chain_fixture(target, case, variant):
         description["relation"]["name"] = "phase66 empty é"
     if case == "N_imported_chain" or variant == "two_facades":
         source = {
-            "a.pietto": header + first + "export:\n    table first\n",
-            "b.pietto": 'import "a.pietto":\n    table first as Public\nexport:\n    table Public\n',
-            "main.pietto": 'import "b.pietto":\n    table Public as Alias\n'
+            "a.pietto": header + first + "export table first\n",
+            "b.pietto": 'from "a.pietto" import table first as Public\nexport table Public\n',
+            "main.pietto": 'from "b.pietto" import table Public as Alias\n'
             + second.replace("from first", "from Alias")
             + final,
         }
@@ -1862,10 +1845,8 @@ def chain_fixture(target, case, variant):
             description["relation"]["name"] = "p0"
         if variant == "two_facades":
             source["c.pietto"] = source["b.pietto"]
-            source["main.pietto"] = """import "b.pietto":
-    table Public as Left
-import "c.pietto":
-    table Public as Right
+            source["main.pietto"] = """from "b.pietto" import table Public as Left
+from "c.pietto" import table Public as Right
 query result:
     union all:
         from Left
@@ -1878,9 +1859,8 @@ query result:
                 + first
                 + """query result:
     from first
-    inner join first as r:
-        from first
-        on first.Key == r.Key
+    let r = first
+    inner join r on first.Key == r.Key
     select:
         id = first.Key
 """
@@ -1914,14 +1894,9 @@ query result:
     from rows
     select:
         id
-        w = row_number() window:
-            order by:
-                id
+        w = row_number() window(order by id)
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3 and w <= 2
+        row_number() window(order by id) <= 3 and w <= 2
 query result:
     from upstream
     select:
@@ -1934,11 +1909,11 @@ query result:
         elif variant == "order_completed":
             source = (
                 header
-                + f'source other: Row is {target}.table("other")\n'
+                + f'source other: Row = {target}.table("other")\n'
                 + """table upstream:
     from rows
-    cross join other as r:
-        from rows
+    let r = other
+    cross join r
     select:
         id = rows.id
 query result:
@@ -2024,16 +1999,15 @@ def let_fixture(target, variant):
         header = item["source"].split("query result:", 1)[0]
         source = (
             header
-            + f'source other: Row is {target}.table("other")\n'
+            + f'source other: Row = {target}.table("other")\n'
             + """query result:
     let picked:
         from other
         select:
             id
     from rows
-    inner join picked as r:
-        from rows
-        on rows.id == r.id
+    let r = picked
+    inner join r on rows.id == r.id
     select:
         a = rows.id
 """
@@ -2060,7 +2034,7 @@ def let_fixture(target, variant):
     item = chain_fixture(target, "N_imported_chain", "bag")
     modules = dict(item["source"])
     head, rest = modules["a.pietto"].split("table first:", 1)
-    first, exported = rest.split("export:", 1)
+    first, exported = rest.split("export ", 1)
     names = [
         line.strip().split(" = ")[0]
         for line in first.split("select:\n", 1)[1].splitlines()
@@ -2071,7 +2045,7 @@ def let_fixture(target, variant):
         + _as_let("staged", "staged:" + first)
         + "    from staged\n    select:\n"
         + "".join(f"        {name}\n" for name in names)
-        + "export:"
+        + "export "
         + exported
     )
     item["source"] = modules
@@ -2080,36 +2054,34 @@ def let_fixture(target, variant):
 
 VALUES_BODIES = {
     "top": """query result:
-    values(id: Int not null, label: Text nullable, ratio: Float nullable, flag: Bool nullable):
-        1, "a", 0.5, true
-        1, "a", 0.5, true
-        2, null, null, null
+    values(id: Int, label: Text | None, ratio: Float | None, flag: Bool | None):
+        1, "a", 0.5, True
+        1, "a", 0.5, True
+        2, None, None, None
 """,
     "rejected": """query result:
-    values(id: Int not null):
+    values(id: Int):
         1 + 1
 """,
     "let_join": """query result:
     let seed:
-        values(rid: Int not null, label: Text nullable):
+        values(rid: Int, label: Text | None):
             0, "z"
-            1, null
+            1, None
             1, "y"
     from rows
-    inner join seed as s:
-        from rows
-        on rows.id == s.rid
+    let s = seed
+    inner join s on rows.id == s.rid
     select:
         a = rows.id
         b = s.label
 """,
     "zero_left_join": """query result:
     let seed:
-        values(rid: Int not null, n: Int nullable)
+        values(rid: Int, n: Int | None)
     from rows
-    left join seed as s:
-        from rows
-        on rows.id == s.rid
+    let s = seed
+    left join s on rows.id == s.rid
     select:
         a = rows.id
         b = s.n
@@ -2129,26 +2101,25 @@ VALUES_BODIES = {
         select:
             id
     let seed:
-        values(rid: Int not null, label: Text nullable):
+        values(rid: Int, label: Text | None):
             0, "z"
-            1, null
+            1, None
             1, "y"
     let labels:
-        values(t: Text not null):
+        values(t: Text):
             "y"
     let nulls:
-        values(k: Int nullable):
+        values(k: Int | None):
             1
-            null
+            None
     let none:
-        values(t: Text nullable)
+        values(t: Text | None)
     let top:
-        values(n: Int not null):
+        values(n: Int):
             0
     from rows
-    inner join seed as s:
-        from rows
-        on rows.id == s.rid
+    let s = seed
+    inner join s on rows.id == s.rid
     where exists picked and not exists gone
     select:
         a = rows.id
@@ -2181,7 +2152,7 @@ def values_fixture(target, variant):
     spare["selector"]["name"] = "spare"
     spare["relation"]["name"] = "phase66 empty é"
     contract["sources"].append(spare)
-    spare_source = f'source spare: Row is {target}.table("opaque.spare.locator")\n'
+    spare_source = f'source spare: Row = {target}.table("opaque.spare.locator")\n'
     return {
         **item,
         "source": header + spare_source + VALUES_BODIES[variant],
@@ -2244,7 +2215,7 @@ def scalar_fixture(target, variant):
         + "    select:\n        Key\n"
         + "query counted:\n    from none\n    select:\n        n = count()\n"
         + "query result:\n    from second\n"
-        + "    where id2 >= scalar low.k and scalar none.Key is null"
+        + "    where id2 >= scalar low.k and scalar none.Key is None"
         + " and scalar counted.n == scalar low.k\n"
         + final
     )
@@ -2269,7 +2240,7 @@ query true_flags:
         FlagValue
 query null_flags:
     from flags
-    where FlagValue is null
+    where FlagValue is None
     select:
         FlagValue
 """
@@ -2310,7 +2281,7 @@ def membership_fixture(target, variant):
             + "    let smaller:\n        capture second\n        from first\n"
             + "        where first.Key == second.id2 and first.Key < second.again\n"
             + "        select:\n            Key\n"
-            + "    from second\n    where id2 in same and scalar smaller.Key is null\n"
+            + "    from second\n    where id2 in same and scalar smaller.Key is None\n"
             + final
         )
         return item
@@ -2340,9 +2311,8 @@ SERIES_BODIES = {
 """,
     "joined": """query result:
     from generate_series(0, 2, 1) as n
-    inner join rows as r:
-        from n
-        on n.n == r.id
+    let r = rows
+    inner join r on n.n == r.id
     select:
         n = n.n
         id = r.id
@@ -2359,9 +2329,8 @@ def series_fixture(target, variant):
 
 
 ROW_DIRECT_BODY = """    from rows
-    let:
-        bumped = id + 1
-        doubled = bumped * 2
+    let bumped = id + 1
+    let doubled = bumped * 2
     where id > 0
     select:
         record_id = id
@@ -2369,13 +2338,12 @@ ROW_DIRECT_BODY = """    from rows
         twice = doubled
         positive = id > 0
         both = id > 0 and flag
-        missing = flag is null
+        missing = flag is None
         same_text = text == text
 """
 ROW_PRODUCER = """table first:
     from rows
-    let:
-        bumped = id + 1
+    let bumped = id + 1
     where id > 0
     select:
         kept = id
@@ -2385,15 +2353,14 @@ ROW_PRODUCER = """table first:
 """
 ROW_CONSUMER = """query result:
     from {producer}
-    let:
-        doubled = stepped * 2
+    let doubled = stepped * 2
     select:
         record_id = kept
         next_id = stepped
         twice = doubled
         positive = kept > 0
         both = kept > 0 and flagged
-        missing = flagged is null
+        missing = flagged is None
         same_text = label == label
 """
 ROW_BLOCKED_BODY = {
@@ -2403,7 +2370,7 @@ ROW_BLOCKED_BODY = {
     "int_overflow": "        big = id + 1\n",
     "unary_overflow": "        negated = -id\n",
     "modulo": "        rest = id % 2\n",
-    "between": "        inside = id between 0 and 1\n",
+    "between": "        inside = 0 <= id <= 1\n",
 }
 
 
@@ -2426,93 +2393,57 @@ WINDOW_BODIES = {
     from rows
     select:
         record_id = id
-        numbered = row_number() window:
-            order by:
-                id
-        ranked = rank() window:
-            order by:
-                id
-        densely = dense_rank() window:
-            order by:
-                id
+        numbered = row_number() window(order by id)
+        ranked = rank() window(order by id)
+        densely = dense_rank() window(order by id)
 """,
     ("A_window_distribution", "spread"): """query result:
     from rows
     select:
         record_id = id
-        fraction = percent_rank() window:
-            partition by:
-                id
-            order by:
-                id
-        cumulative = cume_dist() window:
-            partition by:
-                id
-            order by:
-                id
-        bucket = ntile(2) window:
-            order by:
-                id
+        fraction = percent_rank() window(partition by id order by id)
+        cumulative = cume_dist() window(partition by id order by id)
+        bucket = ntile(2) window(order by id)
 """,
     ("A_window_navigation", "offsets"): """query result:
     from rows
     select:
         record_id = id
-        previous = lag(id, 1, 0) window:
-            order by:
-                id
-        upcoming = lead(id, 1) window:
-            order by:
-                id
+        previous = lag(id, 1, 0) window(order by id)
+        upcoming = lead(id, 1) window(order by id)
 """,
     ("A_window_frame", "rows"): """query result:
     from rows
     select:
         record_id = id
-        earliest = first_value(id) window:
-            order by:
-                id
-            rows between 1 preceding and current row
-        latest = last_value(id) window:
-            order by:
-                id
-            rows between 1 preceding and current row
+        earliest = first_value(id) window(order by id rows between 1 preceding and current row)
+        latest = last_value(id) window(order by id rows between 1 preceding and current row)
 """,
     ("A_window_frame", "range"): """query result:
     from rows
     select:
         record_id = id
-        earliest = first_value(id) window:
-            order by:
-                id
-            range between 1 preceding and current row
+        earliest = first_value(id) window(order by id range between 1 preceding and current row)
 """,
     ("A_window_groups", "exclude"): """query result:
     from rows
     select:
         record_id = id
-        peers = first_value(id) window:
-            order by:
-                id
-            groups between 1 preceding and current row exclude current row
+        peers = first_value(id) window(order by id groups between 1 preceding and current row exclude current row)
 """,
     ("A_window_named", "shared"): """query result:
     from rows
+    let ordered = window(order by id)
     select:
         record_id = id
         ranked = rank() window ordered
         densely = dense_rank() window ordered
-    window ordered:
-        order by:
-            id
 """,
     ("A_window_qualify", "selected"): """query result:
     from rows
     select:
         record_id = id
-        numbered = row_number() window:
-            order by:
-                id
+        numbered = row_number() window(order by id)
     qualify:
         numbered <= 2
 """,
@@ -2521,38 +2452,25 @@ WINDOW_BODIES = {
     select:
         record_id = id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 2
+        row_number() window(order by id) <= 2
 """,
     ("V_window_blocked", "ignore_nulls"): """query result:
     from rows
     select:
         record_id = id
-        earliest = first_value(id) ignore nulls window:
-            order by:
-                id
-            rows between unbounded preceding and current row
+        earliest = first_value(id) ignore nulls window(order by id rows between unbounded preceding and current row)
 """,
     ("V_window_blocked", "from_last"): """query result:
     from rows
     select:
         record_id = id
-        second = nth_value(id, 2) from last window:
-            order by:
-                id
-            rows between unbounded preceding and current row
+        second = nth_value(id, 2) from last window(order by id rows between unbounded preceding and current row)
 """,
     ("V_window_blocked", "offset_range_keys"): """query result:
     from rows
     select:
         record_id = id
-        earliest = first_value(id) window:
-            order by:
-                id
-                flag
-            range between 1 preceding and current row
+        earliest = first_value(id) window(order by id, flag range between 1 preceding and current row)
 """,
 }
 
@@ -2579,14 +2497,13 @@ def window_fixture(target, case, variant):
         # Both sources read only id from the unchanged four physical rows.
         contract["sources"][0]["fields"] = contract["sources"][0]["fields"][:1]
         header = (
-            "shape One:\n    id: Int not null\n"
-            f'source rows: One is {target}.table("opaque")\n'
+            f'shape One:\n    id: Int\nsource rows: One = {target}.table("opaque")\n'
         )
-        kind = "semi" if variant == "selected" else "anti"
+        negation = "" if variant == "selected" else "not "
         body = body.replace("query result:", "table ranked:", 1) + (
             "query result:\n    from rows\n"
-            f"    {kind} join ranked as r:\n        from rows\n"
-            "        on rows.id == r.record_id\n"
+            "    let r = ranked\n"
+            f"    where {negation}any(rows.id == r.record_id for r in r)\n"
             "    select:\n        record_id = rows.id\n"
         )
     if (case, variant) == ("A_window_frame", "range"):
@@ -2600,12 +2517,12 @@ def window_fixture(target, case, variant):
             "domain": {"kind": "int_range", "min": "0", "max": "5"},
         }
         header = (
-            "shape One:\n    id: Int not null\n"
-            f'source rows: One is {target}.table("opaque")\n'
+            "shape One:\n    id: Int\n"
+            f'source rows: One = {target}.table("opaque")\n'
             "table input:\n    from rows\n    select:\n        id\n        one = 1\n"
         )
         body = body.replace("from rows", "from input", 1) + (
-            "        w = first_value(one) window:\n            order by:\n                id\n"
+            "        w = first_value(one) window(order by id)\n"
         )
     return {
         "source": header + body,
@@ -2653,8 +2570,7 @@ RESULT_BODIES = {
 """,
     ("O_result_order", "constant_key"): """query result:
     from rows
-    let:
-        one = 1
+    let one = 1
     select:
         record_id = id
     order by:
@@ -2714,9 +2630,8 @@ query result:
     limit 2
 query result:
     from top
-    inner join top as r:
-        from top
-        on top.rid == r.rid
+    let r = top
+    inner join r on top.rid == r.rid
     select:
         a = top.rid
         b = r.rid
@@ -2726,18 +2641,13 @@ query result:
     select distinct:
         record_id = id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 4
+        row_number() window(order by id) <= 4
 """,
     ("O_result_window", "selected_order"): """query result:
     from rows
     select:
         record_id = id
-        n = row_number() window:
-            order by:
-                id
+        n = row_number() window(order by id)
     order by:
         n desc
     limit 2
@@ -2747,10 +2657,7 @@ query result:
     select distinct:
         record_id = id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
+        row_number() window(order by id) <= 3
     order by:
         id desc
     limit 2
@@ -2785,9 +2692,10 @@ MEMBERSHIP_RIGHT = {
 
 def membership_body(variant):
     kind, right = variant.split("_", 1)
+    negation = "" if kind == "semi" else "not "
     return MEMBERSHIP_RIGHT[right] + (
-        f"query result:\n    from rows\n    {kind} join ranked as r:\n"
-        "        from rows\n        on rows.id == r.rid\n    select:\n"
+        "query result:\n    from rows\n    let r = ranked\n"
+        f"    where {negation}any(rows.id == r.rid for r in r)\n    select:\n"
         "        a = rows.id\n"
     )
 
@@ -2816,8 +2724,8 @@ def result_fixture(target, case, variant):
         # The visible key is unique, so the hidden Text key is STRICT-FD
         # determined: exactly the R20 pending requirement.
         header = header.replace(
-            "shape Row:\n    id: Int not null\n",
-            "shape Row:\n    id: Int not null\n    unique by_id on id\n",
+            "shape Row:\n    id: Int\n",
+            "shape Row:\n    id: Int\n    by_id = unique(id)\n",
         )
     contract = json.loads(base["contract"])
     contract["environment"].append(
@@ -2983,13 +2891,13 @@ SET_BODIES = {
     ("S_set_producers", "satisfying_union"): (
         (),
         "table s:\n    from rows\n    group by:\n        id\n    select:\n        k = id\n        total = count()\n"
-        "    satisfying:\n        total > 1\n"
+        "    having:\n        total > 1\n"
         "query result:\n    union all:\n        from s\n        from s\n",
     ),
     ("S_set_producers", "window_union_distinct"): (
         (),
         "table w:\n    from rows\n    select:\n        k = id\n    qualify:\n"
-        "        row_number() window:\n            order by:\n                id\n        <= 2\n"
+        "        row_number() window(order by id) <= 2\n"
         "table top:\n    from rows\n    select:\n        k = id\n    order by:\n        id\n    limit 2\n"
         "query result:\n    union distinct:\n        from w\n        from top\n",
     ),
@@ -2997,7 +2905,7 @@ SET_BODIES = {
         (),
         SET_ROWS_AB + "table u:\n    union all:\n        from a\n        from b\n"
         "query result:\n    from u\n    select:\n        k\n"
-        "        n = row_number() window:\n            order by:\n                k\n",
+        "        n = row_number() window(order by k)\n",
     ),
     ("S_set_literals", "preserve"): (
         (),
@@ -3044,12 +2952,14 @@ def set_body(case, variant):
         )
     if case == "S_set_membership":
         join, kind = variant.split("_", 1)
+        negation = "" if join == "semi" else "not "
         return ("sl", "sa", "sb"), (
             "table a:\n    from sa\n    select:\n        v = value\n"
             "table b:\n    from sb\n    select:\n        v = key\n"
             f"table r:\n    {kind} distinct:\n        from a\n        from b\n"
-            f"query result:\n    from sl\n    {join} join r as x:\n        from sl\n"
-            "        on sl.key == x.v\n    select:\n        a = sl.key\n"
+            "query result:\n    from sl\n    let x = r\n"
+            f"    where {negation}any(sl.key == x.v for x in x)\n"
+            "    select:\n        a = sl.key\n"
         )
     return SET_BODIES[case, variant]
 
@@ -3060,7 +2970,7 @@ def set_fixture(target, case, variant):
     if sources and set(sources) <= SET_AGG_SOURCES:
         header = AGGREGATE_HEADER.format(target=target).split("source agg:", 1)[0]
         header += "".join(
-            f'source {name}: Agg is {target}.table("{name}.locator.not.sql")\n'
+            f'source {name}: Agg = {target}.table("{name}.locator.not.sql")\n'
             for name in sources
         )
         contract = json.loads(
@@ -3101,7 +3011,7 @@ def set_fixture(target, case, variant):
             "domain": {"kind": "int_range", "min": "-2147483648", "max": "2147483647"},
         }
         contract["sources"].append(second)
-        header += f'source second: Row is {target}.table("second.locator.not.sql")\n'
+        header += f'source second: Row = {target}.table("second.locator.not.sql")\n'
     if variant == "bind":
         contract["environment"].append(
             {
@@ -3169,16 +3079,16 @@ def row_fixture(target, case, variant):
                 for label, expression in zip(
                     TRUTH_LABELS,
                     (
-                        "flag and true",
-                        "flag and false",
+                        "flag and True",
+                        "flag and False",
                         "flag and flag",
-                        "true and flag",
-                        "false and flag",
-                        "flag or true",
-                        "flag or false",
+                        "True and flag",
+                        "False and flag",
+                        "flag or True",
+                        "flag or False",
                         "flag or flag",
-                        "true or flag",
-                        "false or flag",
+                        "True or flag",
+                        "False or flag",
                     ),
                     strict=True,
                 )
@@ -3190,8 +3100,8 @@ def row_fixture(target, case, variant):
     elif case == "U_row_named":
         if variant.startswith("imported"):
             source = {
-                "a.pietto": header + ROW_PRODUCER + "export:\n    table first\n",
-                "main.pietto": 'import "a.pietto":\n    table first as Public\n'
+                "a.pietto": header + ROW_PRODUCER + "export table first\n",
+                "main.pietto": 'from "a.pietto" import table first as Public\n'
                 + ROW_CONSUMER.format(producer="Public"),
             }
             description["selector"]["module"] = "a.pietto"
@@ -3204,9 +3114,8 @@ def row_fixture(target, case, variant):
             header
             + """query result:
     from rows
-    inner join rows as r:
-        from rows
-        on rows.id == r.id
+    let r = rows
+    inner join r on rows.id == r.id
     select:
         record_id = rows.id
 """
@@ -3248,8 +3157,7 @@ JOIN_LABELS = {
 # must null-extend every one of them.
 JOIN_ENRICHED = """table enriched:
     from rows
-    let:
-        step = id + 1
+    let step = id + 1
     where id > 0
     select:
         pid = id
@@ -3267,41 +3175,37 @@ JOIN_LEFTISH = """table leftish:
 JOIN_BODIES = {
     "cross": """query result:
     from rows
-    cross join rows as r:
-        from rows
+    let r = rows
+    cross join r
     select:
         a = rows.id
 """,
     "inner": """query result:
     from rows
-    inner join rows as r:
-        from rows
-        on rows.id == r.id
+    let r = rows
+    inner join r on rows.id == r.id
     select:
         a = rows.id
 """,
     "semi": """query result:
     from rows
-    semi join rows as r:
-        from rows
-        on rows.id == r.id
+    let r = rows
+    where any(rows.id == r.id for r in r)
     select:
         a = rows.id
 """,
     "anti": """query result:
     from rows
-    anti join rows as r:
-        from rows
-        on rows.id == r.id
+    let r = rows
+    where not any(rows.id == r.id for r in r)
     select:
         a = rows.id
 """,
     "left_marker": JOIN_ENRICHED
     + """query result:
     from rows
-    left join enriched as r:
-        from rows
-        on rows.id == r.pid
+    let r = enriched
+    left join r on rows.id == r.pid
     select:
         a = rows.id
         p = r.pid
@@ -3312,23 +3216,18 @@ JOIN_BODIES = {
     "right_accumulated": JOIN_LEFTISH
     + """query result:
     from leftish
-    right join rows as r:
-        from leftish
-        on leftish.lid == r.id
+    let r = rows
+    right join r on leftish.lid == r.id
     select:
         a = leftish.lid
         b = r.id
 """,
-    "via_refined": """relationship link:
-    endpoint l: rows
-    endpoint r: rows
-    on l.id == r.id
+    "via_refined": """relationship link(l: Row, r: Row):
+    l.id == r.id
 query result:
     from rows
-    inner join rows as r:
-        from rows
-        via link: l -> r
-        on rows.money == r.money
+    let r = rows
+    inner join r on link(rows, r) and rows.money == r.money
     select:
         a = rows.id
         k = r.id
@@ -3336,9 +3235,8 @@ query result:
     "restricted": JOIN_LEFTISH
     + """query result:
     from leftish
-    full join rows as r:
-        from leftish
-        on leftish.lid == r.id
+    let r = rows
+    full join r on leftish.lid == r.id
     select:
         a = leftish.lid
         b = r.id
@@ -3357,14 +3255,11 @@ CORRECTIVE_BODIES = {
     # and equal-content declarations are offline witnesses.
     ("A_window_named", "use_local"): """query result:
     from agg
+    let base = window(order by rid)
     select:
         record_id = rid
         previous = lag(value) window base
-        earliest = first_value(value) window base:
-            rows between 1 preceding and current row
-    window base:
-        order by:
-            rid
+        earliest = first_value(value) window base(rows between 1 preceding and current row)
 """,
     # G2 / R09: left keys [1,2,NULL] against a filtered producer's [2,NULL,3].
     ("V_join_full", "null_keys"): """table rr:
@@ -3374,9 +3269,8 @@ CORRECTIVE_BODIES = {
         rk = key
 query result:
     from sa
-    full join rr as r:
-        from sa
-        on sa.value == r.rk
+    let r = rr
+    full join r on sa.value == r.rk
     select:
         a = sa.value
         b = r.rk
@@ -3404,13 +3298,8 @@ query result:
     from rows
     select:
         id
-        low = first_value(id) window:
-            order by:
-                id
-            range between 40000 preceding and current row
-        high = lag(id, 1, 999999999) window:
-            order by:
-                id
+        low = first_value(id) window(order by id range between 40000 preceding and current row)
+        high = lag(id, 1, 999999999) window(order by id)
 """,
 }
 ROW_DOMAIN_RELATIONS = {
@@ -3463,9 +3352,9 @@ def corrective_fixture(target, case, variant):
     policy = "preserve_literals"
     if case == "A_window_named":
         header = (
-            "shape Keyed:\n    key: Int nullable\n    value: Int nullable\n"
-            "    rid: Int not null\n"
-            f'source agg: Keyed is {target}.table("aggregate.locator.not.sql")\n'
+            "shape Keyed:\n    key: Int | None\n    value: Int | None\n"
+            "    rid: Int\n"
+            f'source agg: Keyed = {target}.table("aggregate.locator.not.sql")\n'
         )
         sources = [
             _declared_source(
@@ -3481,10 +3370,10 @@ def corrective_fixture(target, case, variant):
         ]
     elif case == "V_join_full":
         header = (
-            "shape Left:\n    value: Int nullable\n"
-            "shape Keyed:\n    key: Int nullable\n    rid: Int not null\n"
-            f'source sa: Left is {target}.table("sa.locator.not.sql")\n'
-            f'source agg: Keyed is {target}.table("aggregate.locator.not.sql")\n'
+            "shape Left:\n    value: Int | None\n"
+            "shape Keyed:\n    key: Int | None\n    rid: Int\n"
+            f'source sa: Left = {target}.table("sa.locator.not.sql")\n'
+            f'source agg: Keyed = {target}.table("aggregate.locator.not.sql")\n'
         )
         sources = [
             _declared_source(
@@ -3505,8 +3394,8 @@ def corrective_fixture(target, case, variant):
         ]
     else:
         header = (
-            "shape One:\n    id: Int not null\n"
-            f'source rows: One is {target}.table("row.domain.locator.not.sql")\n'
+            "shape One:\n    id: Int\n"
+            f'source rows: One = {target}.table("row.domain.locator.not.sql")\n'
         )
         width = 16 if variant == "partitioned_root" else 64
         sources = [
@@ -3575,15 +3464,13 @@ def join_fixture(target, case, variant):
 
 
 JOIN_WITNESS_HEADER = """shape Row:
-    id: Int not null
-    key: Int nullable
-source lhs: Row is {target}.table("lhs")
-source rhs: Row is {target}.table("rhs")
+    id: Int
+    key: Int | None
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
 """
-JOIN_WITNESS_LINK = """relationship link:
-    endpoint l: lhs
-    endpoint r: rhs
-    on l.id == r.id
+JOIN_WITNESS_LINK = """relationship link(l: Row, r: Row):
+    l.id == r.id
 """
 
 
@@ -4217,7 +4104,8 @@ def _scan_definitions(document, occurrences):
         for interval in sorted(
             _records(document["ranges"]), key=lambda item: (item["start"], item["end"])
         )
-        if interval.get("role") in {"namespace", "join_namespace", "set_namespace"}
+        if interval.get("role")
+        in {"namespace", "join_namespace", "set_namespace", "exists_namespace"}
     ]
     _need(len(naming) == len(occurrences), "scan occurrence and relation counts")
     paired, selectors = [], {}
@@ -4297,9 +4185,88 @@ def _selector_key(description):
     return selector["module"], selector["kind"], selector["name"]
 
 
+# A node copied by relationship predicate expansion, row normalization or an
+# ANY generator publishes its authored sources in place of an authored cause.
+# The expansion leads the origin's sources and its first source is the copy's
+# authored site in the owner: the call, the normalized expression or the ANY.
+EXPANSION_SITES = {
+    "relationship_predicate_call",
+    "relationship_predicate_generated_call",
+    "normalized_expression",
+    "existence_generator_expansion",
+    "existence_value_expansion",
+}
+EXPANSIONS = EXPANSION_SITES | {
+    "relationship_predicate_body",
+    "relationship_predicate_argument",
+    "relationship_predicate_generated_argument",
+}
+
+
+def _cause_location(origin):
+    """The authored cause, or the authored site of a validated expansion."""
+    sources = origin["sources"]
+    return next(
+        (s["location"] for s in sources if s["kind"] == "authored_cause"),
+        sources[0]["location"],
+    )
+
+
+# S6: the EXISTS read an `any` value expands into is caused by that `any`
+# call, not by an authored clause: its own read tokens and its block use only.
+EXISTENCE_EXPANSION = "existence_value_expansion"
+EXISTENCE_EXPANSION_ROLES = {
+    "expression": frozenset(
+        {
+            "exists_open",
+            "exists_select",
+            "exists_sentinel",
+            "exists_from",
+            "exists_where",
+            "exists_close",
+            "exists",
+        }
+    ),
+    "expression_block_use": frozenset({"exists_alias", "exists_scope"}),
+}
+# S6: a JOIN-prefix `any` becomes one hidden SEMI/ANTI JOIN, caused by that
+# `any` expansion: every subject with a range inside that JOIN's own CTE.
+GENERATOR_EXPANSION = "existence_generator_expansion"
+
+
+def _hidden_membership_subjects(document):
+    """Subjects of each membership JOIN CTE no authored JOIN clause causes."""
+    intervals = sorted(
+        _records(document["ranges"]), key=lambda item: (item["start"], item["end"])
+    )
+    found = set()
+    for opening in intervals:
+        if opening.get("role") != "membership_open":
+            continue
+        join = opening["subject"]
+        names = [
+            i for i in intervals if i["role"] == "cte_name" and i["subject"] == join
+        ]
+        closes = [
+            i
+            for i in intervals
+            if i["role"] == "cte_body_close" and i["subject"] == join
+        ]
+        if len(names) != 1 or len(closes) != 1:
+            continue
+        start, end = names[0]["start"], closes[0]["end"]
+        found.update(
+            (i["subject"]["kind"], i["subject"]["position"])
+            for i in intervals
+            if start <= i["start"] and i["end"] <= end
+        )
+    return found
+
+
 def _named_range_provenance(document, descriptors):
     modules = {source["module"] for source in document["request"]["sources"]}
     subjects, positions = {}, {}
+    hidden = _hidden_membership_subjects(document)
     roles = {
         "selected_plan": ["selected_owner"],
         "definition": ["definition"],
@@ -4366,8 +4333,16 @@ def _named_range_provenance(document, descriptors):
         "effective_to_authored_window",
         "authored_or_inherited_window_component",
         "named_window_declaration",
+        *EXPANSIONS,
     }
     for interval in _records(document["ranges"]):
+        expansion = interval.get("role") in EXISTENCE_EXPANSION_ROLES.get(
+            interval["subject"]["kind"], ()
+        )
+        generated = (
+            interval["subject"]["kind"],
+            interval["subject"]["position"],
+        ) in hidden
         _reference(interval["subject"])
         key = interval["subject"]["kind"], interval["subject"]["position"]
         origins = _records(interval["origins"])
@@ -4397,11 +4372,22 @@ def _named_range_provenance(document, descriptors):
                 "foreign origin subject",
             )
             positions[origin["position"]] = key
-            causes = []
+            kinds = []
             for source in _records(origin["sources"]):
                 _keys(source, ("path", "kind", "location"))
+                # S6: a lone existence expansion causes only the EXISTS read an
+                # `any` value expands into (its read tokens and block use) or a
+                # subject inside the hidden SEMI/ANTI JOIN of a JOIN-prefix `any`.
+                misplaced = len(origin["sources"]) == 1 and (
+                    source["kind"] == EXISTENCE_EXPANSION
+                    and not expansion
+                    or source["kind"] == GENERATOR_EXPANSION
+                    and not generated
+                )
                 _need(
-                    source["path"] in modules and source["kind"] in associations,
+                    source["path"] in modules
+                    and source["kind"] in associations
+                    and not misplaced,
                     "range origin module or association",
                 )
                 _location(source["location"])
@@ -4419,9 +4405,15 @@ def _named_range_provenance(document, descriptors):
                     (location["line"], location["column"])
                     <= (location["end_line"], location["end_column"])
                 )
-                if source["kind"] == "authored_cause":
-                    causes.append(location)
-            _need(len(causes) == 1, "missing authored range cause")
+                kinds.append(source["kind"])
+            # Exactly one authored cause, or else a copy's leading expansion.
+            expanded = [kind for kind in kinds if kind in EXPANSIONS]
+            _need(
+                kinds.count("authored_cause") + bool(expanded) == 1
+                and kinds[: len(expanded)] == expanded
+                and (not expanded or expanded[0] in EXPANSION_SITES),
+                "missing authored range cause",
+            )
     return subjects
 
 
@@ -4464,10 +4456,7 @@ def _decode_named_sql(document, fields, limits):
         return provenance[ref["kind"], ref["position"]]
 
     def cause(ref):
-        locations = [
-            next(s["location"] for s in o["sources"] if s["kind"] == "authored_cause")
-            for o in origins(ref)
-        ]
+        locations = [_cause_location(o) for o in origins(ref)]
         _need(
             all(location == locations[0] for location in locations),
             "conflicting subject causes",
@@ -5216,7 +5205,12 @@ def _decode_fixed_public(document, limits):
         r.get("denominator") == "generated" and r.get("kind") == "capture"
         for r in document["requirements"]
     )
-    if not joined and not setted and not captured:
+    # An existence read may scan its own relation; the walk binds every scan.
+    existence = any(
+        r.get("denominator") == "generated" and r.get("kind") == "exists"
+        for r in document["requirements"]
+    )
+    if not joined and not setted and not captured and not existence:
         _need(
             len(scan_occurrences) == 1 or valued and len(scan_occurrences) <= 1,
             "one physical scan without a JOIN",
@@ -5294,10 +5288,7 @@ def _decode_fixed_public(document, limits):
 
     def cause(reference):
         group = provenance[reference["kind"], reference["position"]]
-        causes = [
-            next(s["location"] for s in o["sources"] if s["kind"] == "authored_cause")
-            for o in group
-        ]
+        causes = [_cause_location(o) for o in group]
         _need(all(c == causes[0] for c in causes))
         return causes[0]
 
@@ -5880,6 +5871,7 @@ def _decode_fixed_public(document, limits):
 
     specialized = [False]
     call_argument_depth = [0]
+    any_frames: list[dict[str, Any]] = []
 
     def inline_read(producer):
         """A let with capture lines read inline: its parsed final body and its
@@ -5952,14 +5944,21 @@ def _decode_fixed_public(document, limits):
             }
         if role == "value_scope":
             port = lexical[cursor][0]["subject"]
-            _need(port["kind"] == port_kind, "reference port kind")
             _, alias = take("identifier", "value_scope", subject=port)
+            # S6: inside an `any` read, its own alias names the read's row.
+            frame = next(
+                (item for item in reversed(any_frames) if item["alias"] == alias), None
+            )
+            _need(
+                port["kind"] == (port_kind if frame is None else frame["port_kind"]),
+                "reference port kind",
+            )
             original = expression_ref(False, repeated)
             take("syntax", "value_qualifier", ".", original)
             seen_expressions.add(original["position"])
             token, name = take("identifier", "value_column")
             expected_ranges.append(("reference", original, start, token["end"]))
-            if port_kind == "stage_port":
+            if port_kind == "stage_port" and frame is None:
                 row_stage_ports.add(encoded(port).decode())
             return {
                 "kind": "reference",
@@ -5969,6 +5968,7 @@ def _decode_fixed_public(document, limits):
                 "terminal": token["subject"],
                 "alias": alias,
                 "duplicate": repeated,
+                "frame": frame,
             }
         if role == "anchor_open" or (role == "unary_open" and constant_ahead()):
             return {
@@ -6278,16 +6278,34 @@ def _decode_fixed_public(document, limits):
             take("literal", "exists_sentinel", "1", original)
             take("syntax", "exists_from", " FROM ", original)
             producer = lexical[cursor][0]["subject"]
-            inline = None
+            inline = scan = None
             if peek() == "inline_open":
                 # Phase70 S10: a let with capture lines is the derived relation
                 # of its own read; its obligations follow the read's own.
                 source_body, inline = inline_read(producer)
+            elif peek() == "exists_namespace":
+                # S6: an `any` over a source scans that source again, under
+                # its own alias; only a correlated read (below) may.
+                item, index = bind_scan(producer)
+                take(
+                    "identifier",
+                    "exists_namespace",
+                    item["relation"]["namespace"],
+                    producer,
+                )
+                take("syntax", "exists_qualifier", ".", producer)
+                take(
+                    "identifier", "exists_relation", item["relation"]["name"], producer
+                )
+                _need(cause(producer)["path"] == item["selector"]["module"])
+                scan = {"description": item, "index": index}
+                source_body = None
             else:
                 _, name = take("identifier", "exists_reference", subject=producer)
                 source_body = row_ctes.get(name)
             _need(
-                source_body is not None
+                scan is not None
+                or source_body is not None
                 and source_body["block"] == producer
                 and source_body["projection"],
                 "an existence read must read a complete definition terminal",
@@ -6297,6 +6315,38 @@ def _decode_fixed_public(document, limits):
             take("syntax", "exists_alias", " AS ", use)
             _, alias = take("identifier", "exists_scope", subject=use)
             _need(alias == f"e{use['position']}", "existence read alias")
+            correlated = None
+            if peek() == "exists_where":
+                # S6: `any(P for x in X)` keeps the rows of X for which P is
+                # TRUE; P reads that row by the read's alias and the outer row.
+                _need(inline is None, "a capture read has no correlated predicate")
+                take("syntax", "exists_where", " WHERE ", original)
+                if scan is not None:
+                    columns = [
+                        {
+                            "name": field["column"],
+                            "terminal": source_port(producer, field),
+                            "realization": row_field_realization(field),
+                        }
+                        for field in scan["description"]["fields"]
+                    ]
+                else:
+                    assert source_body is not None
+                    columns = source_body["outgoing"]
+                any_frames.append(
+                    {
+                        "alias": alias,
+                        "columns": columns,
+                        "port_kind": "source_port" if scan else "result_port",
+                    }
+                )
+                predicate = row_parse(block)
+                any_frames.pop()
+                correlated = {"scan": scan, "predicate": predicate}
+            _need(
+                scan is None or correlated is not None,
+                "a source read by an existence value is correlated",
+            )
             closed, _ = take("syntax", "exists_close", ")", original)
             expected_ranges.append(("exists", original, start, closed["end"]))
             return {
@@ -6304,6 +6354,7 @@ def _decode_fixed_public(document, limits):
                 "expression": original,
                 "use": use,
                 "inline": inline,
+                "correlated": correlated,
             }
         if role == "scalar_open":
             # A scalar read of one output of one complete named producer
@@ -6475,6 +6526,41 @@ def _decode_fixed_public(document, limits):
                     )
                     row_rules[subject["position"]] = "R04"
             return {**realization, "root": value["expression"], "value": value}
+        if node["kind"] == "reference" and node.get("frame") is not None:
+            # S6: one column of the row an enclosing `any` read scans.
+            matches = [
+                c
+                for c in node["frame"]["columns"]
+                if c["name"] == node["name"] and c["terminal"] == node["terminal"]
+            ]
+            _need(
+                len(matches) == 1 and node["port"] == node["terminal"],
+                "an existence predicate reads one column of its own row",
+            )
+            read = matches[0]
+            _need(within(cause(node["expression"]), cause(owner)))
+            if not node.get("duplicate"):
+                row_generated.append(
+                    (
+                        "reference",
+                        node["expression"],
+                        "R05",
+                        row_node_premises(read["realization"]["tag"], (), "reference"),
+                        (
+                            "reference",
+                            row_block[0] if context is None else context,
+                            node["expression"],
+                        ),
+                    )
+                )
+            row_rules[node["expression"]["position"]] = "R01"
+            return {
+                **read["realization"],
+                "root": node["expression"],
+                "read": read,
+                "strict": read["realization"]["nullable"] is not True,
+                "proof": read["realization"]["nullable"] is False,
+            }
         if node["kind"] == "reference":
             if scopes is None:
                 _need(node["alias"] == alias, "stage reference scope")
@@ -6566,6 +6652,32 @@ def _decode_fixed_public(document, limits):
                 )
             )
             row_generated.extend(node.get("inline") or ())
+            correlated = node.get("correlated")
+            if correlated is not None:
+                scan = correlated["scan"]
+                if scan is not None:
+                    index = scan["index"]
+                    row_generated.append(
+                        ("qualified_scan", None, "R01", ("scan", index), None)
+                    )
+                    row_generated.extend(
+                        (
+                            "source_representation",
+                            None,
+                            "R02",
+                            ("field", index, field["ordinal"]),
+                            None,
+                        )
+                        for field in scan["description"]["fields"]
+                    )
+                predicate = row_resolve(
+                    correlated["predicate"], incoming, alias, owner, scopes, context
+                )
+                _need(
+                    predicate["tag"] == "Bool"
+                    and predicate["domain"]["kind"] == "bool01",
+                    "an existence predicate is a Boolean value",
+                )
             row_rules[original["position"]] = "R11"
             return {
                 **row_bool(False),
@@ -9840,7 +9952,7 @@ def _decode_fixed_public(document, limits):
         _need(
             values_evidence.get(encoded(reference))
             == [{"position": 0, "tag": "Int", "nullable": False}],
-            "the table-function column is Int not null",
+            "the table-function column is Int",
         )
         take("syntax", "select", "SELECT ", block)
         _, binding = take("identifier", "function_scope", None, reference)
@@ -11905,6 +12017,29 @@ def inspect_case(outcome, data):
         _need(item in view.ranges_of(item.subject), drift)
     _need(view.at(len(view.sql)) == (), drift)
     return view
+
+
+def block_reads(query):
+    """Every expression block read of one realized statement, in no order."""
+    import dataclasses
+
+    from pietto._project.project_sql_emission_rows import SQLBlockRead
+
+    found, pending, seen = [], [query], set()
+    while pending:
+        value = pending.pop()
+        if id(value) in seen:
+            continue
+        seen.add(id(value))
+        if type(value) is SQLBlockRead:
+            found.append(value)
+        if type(value) is tuple:
+            pending.extend(value)
+        elif type(value).__module__.startswith(
+            "pietto._project.project_sql_emission"
+        ) and dataclasses.is_dataclass(value):
+            pending.extend(getattr(value, f.name) for f in dataclasses.fields(value))
+    return found
 
 
 def build_case(

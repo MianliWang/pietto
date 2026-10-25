@@ -82,7 +82,7 @@ def test_alias_ir_preserves_declared_identity_and_canonical_target() -> None:
 
 
 def test_alias_cycles_remain_fail_closed_with_pie_s2003() -> None:
-    result = analyze(_parse("type A = A not null\n"))
+    result = analyze(_parse("type A = A\n"))
 
     assert [
         (diagnostic.code, diagnostic.message)
@@ -93,10 +93,10 @@ def test_alias_cycles_remain_fail_closed_with_pie_s2003() -> None:
 
 def test_type_ensure_remains_parse_ast_only_not_domain_validation() -> None:
     script = _parse(
-        "type Percent = Float not null ensure self between 0 and 1\n"
+        "type Percent = Float ensure 0 <= self <= 1\n"
         "shape Metric:\n"
-        "    score: Percent not null\n"
-        'source metrics: Metric is postgres.table("metrics")\n'
+        "    score: Percent\n"
+        'source metrics: Metric = postgres.table("metrics")\n'
         "table projected:\n"
         "    from metrics\n"
         "    select:\n"
@@ -188,11 +188,11 @@ def test_no_new_scalar_primitive_or_native_domain_carrier_was_added() -> None:
 
 def _alias_source() -> str:
     return (
-        "type Email = Text not null\n"
-        "type WorkEmail = Email nullable\n"
+        "type Email = Text\n"
+        "type WorkEmail = Email\n"
         "shape User:\n"
-        "    email: WorkEmail nullable\n"
-        'source users: User is postgres.table("users")\n'
+        "    email: WorkEmail | None\n"
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"

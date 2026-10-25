@@ -398,9 +398,9 @@ def test_postgres_group_keys_render_in_ir_source_order_with_qualified_alias() ->
     result = emit_postgres_sql(
         _compile_source(
             "shape Order:\n"
-            "    status: Text not null\n"
-            "    region: Text nullable\n"
-            'source orders: Order is postgres.table("orders")\n'
+            "    status: Text\n"
+            "    region: Text | None\n"
+            'source orders: Order = postgres.table("orders")\n'
             "table grouped_orders:\n"
             "    from orders\n"
             "    group by:\n"
@@ -446,7 +446,7 @@ def test_relation_over_a_source_without_a_shape_counting_its_rows_fails_closed(
 ) -> None:
     result = emitter(
         _compile_source(
-            f'source items is {connector}("shop.items")\n'
+            f'source items = {connector}("shop.items")\n'
             "query total:\n"
             "    from items\n"
             "    select:\n"
@@ -460,11 +460,11 @@ def test_relation_over_a_source_without_a_shape_counting_its_rows_fails_closed(
             "    select:\n"
             "        kind\n"
             "        n = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        n > 1 and n < 10\n"
             "query per_kind:\n"
             "    from kinds\n"
-            "    group by: kind\n"
+            "    group by kind\n"
             "    select:\n"
             "        k = kinds.kind\n"
             "        c = count()\n"
@@ -501,9 +501,9 @@ def test_reader_of_unknown_count_output_does_not_enable_aggregate_emission(
 ) -> None:
     result = emitter(
         _compile_source(
-            f'source items is {connector}("shop.items")\n'
+            f'source items = {connector}("shop.items")\n'
             "query q:\n    from items\n"
-            + ("    group by: kind\n" if grouped else "")
+            + ("    group by kind\n" if grouped else "")
             + "    select:\n        n = count()\n"
             "query r:\n    from q\n    where n\n"
             "    select:\n        m = len(n)\n"
@@ -539,8 +539,8 @@ def test_relation_over_a_source_without_a_shape_reading_its_fields_fails_as_befo
 ) -> None:
     result = emitter(
         _compile_source(
-            f'source items is {connector}("shop.items")\n'
-            "def f(v: Text not null) -> Int not null: return len(v)\n"
+            f'source items = {connector}("shop.items")\n'
+            "def f(v: Text) -> Int: return len(v)\n"
             "query a:\n"
             "    from items\n"
             "    where f(x) > 1\n"
@@ -548,8 +548,7 @@ def test_relation_over_a_source_without_a_shape_reading_its_fields_fails_as_befo
             "        n = count()\n"
             "query b:\n"
             "    from items\n"
-            "    let:\n"
-            "        x = 1\n"
+            "    let x = 1\n"
             "    where len(items.x) > x\n"
             "    select:\n"
             "        n = count(items.x + 1)\n"
@@ -563,14 +562,14 @@ def test_relation_over_a_source_without_a_shape_reading_its_fields_fails_as_befo
             "        k = count(len(o3))\n"
             "query counted:\n"
             "    from items\n"
-            "    group by: kind\n"
+            "    group by kind\n"
             "    select:\n"
             "        kind\n"
             "        c = count(x)\n"
             "        s = sum(x)\n"
             "query ok:\n"
             "    from items\n"
-            "    group by: kind\n"
+            "    group by kind\n"
             "    select:\n"
             "        kind\n"
             "        n = count()\n"
@@ -598,10 +597,10 @@ def test_relation_over_a_source_without_a_shape_reading_its_fields_fails_as_befo
     ] == [
         refused("a", "count", 3),
         refused("b", "count", 8),
-        refused("q", "sum", 15),
-        refused("r", "count", 19),
-        refused("counted", "count", 23),
-        refused("ok", "count", 30),
+        refused("q", "sum", 14),
+        refused("r", "count", 18),
+        refused("counted", "count", 22),
+        refused("ok", "count", 29),
     ]
     assert result.artifacts == ()
 
@@ -730,10 +729,10 @@ def _field(name: str, value_type: TypeRefIR) -> FieldRefIR:
 def _invalid_grouped_source(body: str) -> str:
     return (
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    customer_id: Text not null\n"
-        "    amount: Int not null\n"
-        'source orders: Order is postgres.table("orders")\n'
+        "    status: Text\n"
+        "    customer_id: Text\n"
+        "    amount: Int\n"
+        'source orders: Order = postgres.table("orders")\n'
         "table grouped_orders:\n"
         "    from orders\n"
         f"{body}"
@@ -743,9 +742,9 @@ def _invalid_grouped_source(body: str) -> str:
 def _grouped_chain_source(connector: str) -> str:
     return (
         "shape Order:\n"
-        "    status: Text not null\n"
-        "    amount: Int not null\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    status: Text\n"
+        "    amount: Int\n"
+        f'source orders: Order = {connector}("orders")\n'
         "table grouped_orders:\n"
         "    from orders\n"
         "    group by:\n"

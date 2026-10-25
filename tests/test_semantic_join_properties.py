@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-import re
 
 import pytest
 
 from _pietto_ir_join_differential import PRIMARY_MAIN_SOURCE, _build
-from _pietto_repository_facts import REPOSITORY_FACTS
 from pietto._project import check as project_check
 from pietto._project import project_joined_row_semantics as joined_semantics
-from pietto._project import project_query_block as query_blocks
-from pietto._project import project_scalar_bindings as scalar_bindings
 from pietto._project import project_scalar_namespaces as scalar_namespaces
-from pietto._project import project_scalar_references as scalar_references
 from pietto._project.model import (
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
@@ -26,41 +21,40 @@ from pietto._project.module_attribution import (
     ProjectModuleProjectionKind,
     ProjectModuleRowFieldKind,
 )
-from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.project_completed_semantics import (
+    ProjectConcreteCompletedSemanticResult,
     build_project_completed_semantic_result,
 )
+from pietto._project.project_current_joins import (
+    ProjectCurrentBinaryJoin,
+    ProjectCurrentJoinGrainWitness,
+)
+from pietto._project.project_final_outputs import (
+    ProjectCompletedEffectiveOutput,
+    ProjectConcreteNoJoinReplay,
+)
 from pietto._project.project_ir_joins import (
-    ProjectIRConcreteJoinRegion,
     ProjectIRJoinUnavailableProperty,
 )
 from pietto._project.project_ir_properties import (
     ProjectIRPropertyAvailability,
     ProjectIRProvidedNullExtension,
 )
-from pietto._project.project_multifact import ProjectMultiFactAnalysis
-from pietto._project.project_phase62_verification import (
-    ProjectPhase62VerificationResult,
-)
+from pietto._project.project_multifact import ProjectCurrentMultiFactRegion
+from pietto._project.project_query_block import ProjectCurrentJoinedRowSource
+from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION = REPO_ROOT / "src/pietto/_project/project_joined_row_semantics.py"
 BRIDGE_SOURCE = """
 query direct_renamed_orders:
     from orders
     select:
         customer_key = customer_id
         raw_amount = amount
-relationship customer_direct_renamed_orders:
-    endpoint customer: customers
-    endpoint renamed: direct_renamed_orders
-    on customer.id == renamed.customer_key
 query renamed_upstream_join:
     from customers
-    inner join direct_renamed_orders as renamed:
-        from customers
-        via customer_direct_renamed_orders: customer -> renamed
+    let renamed = direct_renamed_orders
+    inner join renamed on customers.id == renamed.customer_key
     select:
         id
 query computed_orders:
@@ -68,76 +62,66 @@ query computed_orders:
     select:
         customer_id
         adjusted = amount + 1
-relationship customer_computed_orders:
-    endpoint customer: customers
-    endpoint computed: computed_orders
-    on customer.id == computed.customer_id
 query computed_upstream_join:
     from customers
-    inner join computed_orders as computed:
-        from customers
-        via customer_computed_orders: customer -> computed
+    let computed = computed_orders
+    inner join computed on customers.id == computed.customer_id
     select:
         id
 query let_orders:
     from orders
-    let:
-        adjusted = amount + 1
+    let adjusted = amount + 1
     select:
         customer_id
         adjusted
-relationship customer_let_orders:
-    endpoint customer: customers
-    endpoint derived: let_orders
-    on customer.id == derived.customer_id
 query let_upstream_join:
     from customers
-    inner join let_orders as derived:
-        from customers
-        via customer_let_orders: customer -> derived
+    let derived = let_orders
+    inner join derived on customers.id == derived.customer_id
     select:
         id
 query source_multihop_left:
     from customers
-    left join returns as returned:
-        from customers
-        via customer_orders_raw: customer -> orders
-        via composite_raw: orders -> returns
+    let ordered = orders
+    left join ordered on customer_orders_raw(customers, ordered)
+    let returned = returns
+    left join returned on composite_raw(ordered, returned)
+    select:
+        id
+query source_multihop_full:
+    from customers
+    let ordered = orders
+    left join ordered on customer_orders_raw(customers, ordered)
+    let returned = returns
+    full join returned on composite_raw(ordered, returned)
     select:
         id
 query repeated_source_join:
     from customers
-    inner join orders as first_orders:
-        from customers
-        via customer_orders_raw: customer -> orders
-    inner join orders as second_orders:
-        from customers
-        via customer_orders_raw: customer -> orders
+    let first_orders = orders
+    inner join first_orders on customer_orders_raw(customers, first_orders)
+    let second_orders = orders
+    inner join second_orders on customer_orders_raw(customers, second_orders)
     select:
         id
 query nullable_inner_join:
     from orders
-    inner join returns as returned:
-        from orders
-        via nullable_amounts: orders -> returns
+    let returned = returns
+    inner join returned on nullable_amounts(orders, returned)
     select:
         id
 query let_attached_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        maybe_customer = customer.id
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let maybe_customer = customer.id
     select:
         amount
 query invalid_let_stage_join:
     from orders
-    left join customers as customer:
-        from orders
-        via orders_customer_unique_target: orders -> customer
-    let:
-        bad = bad + amount
+    let customer = customers
+    left join customer on orders_customer_unique_target(orders, customer)
+    let bad = bad + amount
     select:
         amount
 """
@@ -146,74 +130,36 @@ query invalid_let_stage_join:
 @dataclass(frozen=True, slots=True)
 class _Built:
     semantic: ProjectSemanticResult
-    analysis: ProjectMultiFactAnalysis
+    completed: ProjectConcreteCompletedSemanticResult
     attribution: ProjectModuleAttributionFactSet
-    verification: ProjectPhase62VerificationResult
+    results: dict[str, joined_semantics.ProjectJoinedRowSemanticsResult]
     namespaces: dict[str, scalar_namespaces.ProjectJoinedLetNamespaceResult]
-
-
-def _namespace(
-    analysis: ProjectMultiFactAnalysis,
-    verification: ProjectPhase62VerificationResult,
-    name: str,
-) -> scalar_namespaces.ProjectJoinedLetNamespaceResult:
-    matches = tuple(
-        region
-        for region in analysis.join_regions.regions
-        if type(region) is ProjectIRConcreteJoinRegion
-        and region.ledger.owner.definition.name == name
-    )
-    assert len(matches) == 1
-    region = matches[0]
-    query_block = query_blocks.build_project_query_block_from_join_region(
-        compilation_mode=ProjectCompilationMode.EXPLICIT_MODULES,
-        owner=region.ledger.owner,
-        verification=verification,
-        region=region,
-    )
-    assert type(query_block) is query_blocks.ProjectConcreteQueryBlock
-    scalar_environment = scalar_references.build_project_scalar_environment(query_block)
-    assert (
-        type(scalar_environment) is scalar_references.ProjectConcreteScalarEnvironment
-    )
-    bindings = scalar_bindings.build_project_joined_scalar_binding_environment(
-        scalar_environment
-    )
-    return scalar_namespaces.build_project_joined_let_namespaces(bindings)
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
-    semantic, analysis, bundle, _ = _build(
-        tmp_path_factory.mktemp("p63s6") / "project",
+    semantic, completed, _, _ = _build(
+        tmp_path_factory.mktemp("joined-properties") / "project",
         PRIMARY_MAIN_SOURCE + BRIDGE_SOURCE,
         reverse_creation=False,
     )
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
     attribution = semantic.module_attribution_facts
     assert attribution is not None
-    names = (
-        "unique_target_inner",
-        "unique_target_left",
-        "direct_renamed_orders",
-        "renamed_upstream_join",
-        "computed_upstream_join",
-        "let_upstream_join",
-        "source_multihop_left",
-        "repeated_source_join",
-        "nullable_inner_join",
-        "let_attached_join",
-        "invalid_let_stage_join",
-    )
+    results = {
+        region.ledger.owner.definition.name: result
+        for region, result in zip(
+            completed.effective_outputs.current_regions,
+            completed.effective_outputs.current_readiness,
+            strict=True,
+        )
+    }
     return _Built(
         semantic=semantic,
-        analysis=analysis,
+        completed=completed,
         attribution=attribution,
-        verification=bundle.verification,
-        namespaces={
-            name: _namespace(analysis, bundle.verification, name)
-            for name in names
-            if name != "direct_renamed_orders"
-        },
+        results=results,
+        namespaces={name: result.namespaces for name, result in results.items()},
     )
 
 
@@ -221,10 +167,7 @@ def _result(
     built: _Built,
     name: str,
 ) -> joined_semantics.ProjectJoinedRowSemanticsResult:
-    return joined_semantics.build_project_joined_row_semantics(
-        namespaces=built.namespaces[name],
-        attribution=built.attribution,
-    )
+    return built.results[name]
 
 
 def _concrete(
@@ -236,16 +179,34 @@ def _concrete(
     return result
 
 
-def test_exact_final_property_multifact_and_post_let_roots_are_retained(
+def test_exact_current_properties_and_post_let_roots_are_retained(
     built: _Built,
 ) -> None:
     namespaces = built.namespaces["let_attached_join"]
     assert type(namespaces) is scalar_namespaces.ProjectConcreteJoinedLetNamespaces
     result = _concrete(built, "let_attached_join")
-    expected_region = next(
+    (region,) = tuple(
         item
-        for item in built.analysis.concrete_regions
-        if item.region is namespaces.binding_environment.region
+        for item in built.completed.effective_outputs.current_regions
+        if item is namespaces.binding_environment.region
+    )
+    expected_region = result.multifact_region
+    assert type(expected_region) is ProjectCurrentMultiFactRegion
+    assert expected_region.region is region
+    assert region.input_scope is not None
+    block = namespaces.binding_environment.scalar_environment.query_block
+    assert block.owner_bridge.owner is region.ledger.owner
+    assert block.row_source is result.row_source
+    assert type(result.row_source) is ProjectCurrentJoinedRowSource
+    assert result.row_source.base_verification is built.completed.verification
+    assert region.operative == tuple(
+        condition
+        for condition in built.completed.roots.join_conditions.entries
+        if condition.ledger is region.ledger
+    )
+    assert all(
+        join.condition is condition
+        for join, condition in zip(region.joins, region.operative, strict=True)
     )
     bridge = result.property_bridge
     assert result.namespaces is namespaces
@@ -337,7 +298,22 @@ def test_nullability_coheres_for_original_inner_left_and_transitive_cases(
         item.effective_nullability is ProjectRowFieldNullability.NULLABLE
         for item in nulled
     )
-    assert max(len(item.nulling_joins) for item in nulled) == 2
+    first, second = multihop.row_source.region.joins
+    assert isinstance(first, ProjectCurrentBinaryJoin)
+    assert second.left_input is first.properties.relational
+    middle = multihop.fields[1:5]
+    assert all(item.nulling_joins == (first.node.ref,) for item in middle)
+    assert all(item.nulling_joins == (second.node.ref,) for item in multihop.fields[5:])
+
+    full = _concrete(built, "source_multihop_full")
+    first_full, second_full = full.row_source.region.joins
+    assert isinstance(first_full, ProjectCurrentBinaryJoin)
+    assert second_full.left_input is first_full.properties.relational
+    assert all(
+        item.nulling_joins == (first_full.node.ref, second_full.node.ref)
+        and item.effective_nullability is ProjectRowFieldNullability.NULLABLE
+        for item in full.fields[1:5]
+    )
 
     no_nulling = _concrete(built, "unique_target_inner")
     unavailable = no_nulling.property_bridge.null_extension
@@ -353,41 +329,33 @@ ENUM_JOIN_SOURCE = """enum Status:
     active
     suspended
 shape Order:
-    id: Int not null
-    customer_id: Int not null
+    id: Int
+    customer_id: Int
     status: Status{modifier}
-source orders: Order is postgres.table("orders")
+source orders: Order = postgres.table("orders")
 shape Customer:
-    id: Int not null
+    id: Int
     status: Status{modifier}
-source customers: Customer is postgres.table("customers")
-relationship order_customer:
-    endpoint order: orders
-    endpoint customer: customers
-    on order.customer_id == customer.id
+source customers: Customer = postgres.table("customers")
+relationship order_customer(order: Order, customer: Customer):
+    order.customer_id == customer.id
 {inputs}query q:
     from {left}
-    {kind} join {right} as c:
-        from {left}
-{condition}    select:
+    let c = {right}
+    {kind} join c{condition}    select:
         id = {left}.id
 """
-ENUM_JOIN_ON = "        on orders.customer_id == c.id\n"
+ENUM_JOIN_ON = " on orders.customer_id == c.id\n"
 ENUM_JOIN_FORMS = {
-    "inner_on": ("inner", ENUM_JOIN_ON),
-    "left_on": ("left", ENUM_JOIN_ON),
-    "right_on": ("right", ENUM_JOIN_ON),
-    "full_on": ("full", ENUM_JOIN_ON),
-    "semi_on": ("semi", ENUM_JOIN_ON),
-    "anti_on": ("anti", ENUM_JOIN_ON),
-    "cross": ("cross", ""),
-    "inner_relationship": ("inner", ""),
-    "left_relationship": ("left", ""),
-    "right_relationship": ("right", ""),
-    "full_relationship": ("full", ""),
-    "semi_relationship": ("semi", ""),
-    "anti_relationship": ("anti", ""),
-    "left_via": ("left", "        via order_customer: order -> customer\n"),
+    **{
+        f"{kind}_on": (kind, ENUM_JOIN_ON)
+        for kind in ("inner", "left", "right", "full", "semi", "anti")
+    },
+    "cross": ("cross", "\n"),
+    **{
+        f"{kind}_predicate": (kind, " on order_customer(orders, c)\n")
+        for kind in ("inner", "left", "right", "full", "semi", "anti")
+    },
 }
 
 
@@ -416,10 +384,11 @@ def test_an_enum_field_joins_whatever_its_declared_nullability(
 ) -> None:
     # Scalar typing reads an enum field as its enum, as a single file does,
     # whatever the JOIN makes of the field: the JOIN completes, and so does a
-    # read of the field after it, for every modifier.
+    # read of the field after it, for every modifier. `semi` and `anti` are
+    # the tail `any` and `not any` tests over the same relation and predicate.
     kind, condition = ENUM_JOIN_FORMS[form]
     reads = ("orders.status",) + (() if kind in {"semi", "anti"} else ("c.status",))
-    for position, modifier in enumerate(("", " nullable", " not null")):
+    for position, modifier in enumerate(("", " | None")):
         source = ENUM_JOIN_SOURCE.format(
             modifier=modifier,
             inputs="",
@@ -428,6 +397,13 @@ def test_an_enum_field_joins_whatever_its_declared_nullability(
             right="customers",
             condition=condition,
         )
+        if kind in {"semi", "anti"}:
+            negation = "not " if kind == "anti" else ""
+            predicate = condition.removeprefix(" on ").removesuffix("\n")
+            source = source.replace(
+                f"    {kind} join c{condition}",
+                f"    where {negation}any({predicate} for c in c)\n",
+            )
         assert _completed_diagnostics(tmp_path / f"{position}", source) == []
         for ordinal, read in enumerate(reads):
             assert (
@@ -436,43 +412,6 @@ def test_an_enum_field_joins_whatever_its_declared_nullability(
                 )
                 == []
             )
-
-
-@pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "semi", "anti"))
-@pytest.mark.parametrize(
-    "join",
-    (
-        "    {kind} join customers as c\n",
-        "    {kind} join customers as c: via order_customer\n",
-    ),
-    ids=("inferred", "inferred_roles"),
-)
-def test_an_enum_field_joins_through_an_inferred_relationship_join_as_written(
-    tmp_path: Path, kind: str, join: str
-) -> None:
-    # The JOIN that infers its source or its VIA roles completes, and so does a
-    # read of the field after it, exactly as the JOIN written with `from`.
-    for position, modifier in enumerate(("", " nullable", " not null")):
-        written = ENUM_JOIN_SOURCE.format(
-            modifier=modifier,
-            inputs="",
-            left="orders",
-            kind=kind,
-            right="customers",
-            condition="",
-        )
-        inferred = written.replace(
-            f"    {kind} join customers as c:\n        from orders\n",
-            join.format(kind=kind),
-        )
-        assert inferred != written
-        for suffix, expected in (
-            ("", []),
-            ("        s = orders.status\n", []),
-        ):
-            for name, source in (("written", written), ("inferred", inferred)):
-                directory = tmp_path / f"{position}-{bool(suffix)}-{name}"
-                assert _completed_diagnostics(directory, source + suffix) == expected
 
 
 @pytest.mark.parametrize("kind", ("inner", "left", "full", "cross"))
@@ -488,8 +427,8 @@ def test_an_enum_field_joins_through_an_inferred_relationship_join_as_written(
 def test_a_relation_output_with_an_enum_field_joins_whatever_its_nullability(
     tmp_path: Path, kind: str, relation: str
 ) -> None:
-    condition = "" if kind == "cross" else "        on b.id == c.id\n"
-    for position, modifier in enumerate(("", " nullable", " not null")):
+    condition = "\n" if kind == "cross" else " on b.id == c.id\n"
+    for position, modifier in enumerate(("", " | None")):
         source = ENUM_JOIN_SOURCE.format(
             modifier=modifier,
             inputs=relation,
@@ -508,10 +447,7 @@ def test_a_relation_output_with_an_enum_field_joins_whatever_its_nullability(
 
 
 ENUM_GROUPED = "    group by:\n        orders.id\n        c.status\n"
-ENUM_WINDOW = (
-    "        rn = row_number() window:\n            partition by:\n"
-    "                {}\n            order by:\n                {}\n"
-)
+ENUM_WINDOW = "        rn = row_number() window(partition by {} order by {})\n"
 ENUM_LET = (
     "query q:\n    let x:\n        from orders\n        select:\n"
     "            id\n            customer_id\n            status\n"
@@ -520,7 +456,7 @@ ENUM_LET = (
 # c.status after a LEFT JOIN, as docs/language.md states them: each is checked
 # as a single file checks a read of an enum field.
 ENUM_JOINED_READS = {
-    "where_is_null": ("    where c.status is null\n", "", []),
+    "where_is_null": ("    where c.status is None\n", "", []),
     "where_comparisons": (
         '    where c.status == "active" or c.id > 0\n',
         "",
@@ -534,13 +470,12 @@ ENUM_JOINED_READS = {
                 "PIE-S2104",
                 "Invalid argument types for function coalesce: expected same "
                 "canonical type",
-                22,
-                11,
+                'coalesce(c.status, "x")',
             )
         ],
     ),
     "select_comparison": ("", '        v = c.status != "active"\n', []),
-    "let_test": ("    let:\n        v = c.status is not null\n", "", []),
+    "let_test": ("    let v = c.status is not None\n", "", []),
     "order_comparison": ("", '    order by:\n        c.status >= "active"\n', []),
     # Before: a literal that is not a label of the enum was not checked.
     "order_comparison_not_a_label": (
@@ -550,8 +485,7 @@ ENUM_JOINED_READS = {
             (
                 "PIE-S2105",
                 "Invalid operands for operator >=: expected comparable operands",
-                25,
-                9,
+                'c.status >= "b"',
             )
         ],
     ),
@@ -564,25 +498,23 @@ ENUM_JOINED_READS = {
                 "PIE-S2105",
                 "Invalid operands for operator in: expected same canonical "
                 "membership operands",
-                22,
-                11,
+                'c.status in ("active")',
             )
         ],
     ),
     "where_between": (
-        '    where c.status between "active" and "suspended"\n',
+        '    where "active" <= c.status <= "suspended"\n',
         "",
         [],
     ),
     "where_between_not_labels": (
-        '    where c.status between "a" and "z"\n',
+        '    where "a" <= c.status <= "z"\n',
         "",
         [
             (
                 "PIE-S2105",
                 "Invalid operands for operator between: expected comparable operands",
-                22,
-                11,
+                '"a" <= c.status <= "z"',
             )
         ],
     ),
@@ -593,8 +525,7 @@ ENUM_JOINED_READS = {
             (
                 "PIE-S2105",
                 "Invalid operands for operator not like: expected Text operands",
-                22,
-                11,
+                'c.status not like "a%"',
             )
         ],
     ),
@@ -606,8 +537,7 @@ ENUM_JOINED_READS = {
                 "PIE-S2104",
                 "Invalid argument type for function lower at position 1: "
                 "expected Text, got Status",
-                24,
-                13,
+                "lower(c.status)",
             )
         ],
     ),
@@ -619,7 +549,7 @@ ENUM_JOINED_READS = {
         "        v = c.status\n        n = count()\n",
         [],
     ),
-    "let_selected": ("    let:\n        e = c.status\n", "        v = e\n", []),
+    "let_selected": ("    let e = c.status\n", "        v = e\n", []),
     "computed_selected": (
         "",
         "        v = coalesce(c.status, orders.status)\n",
@@ -633,8 +563,7 @@ ENUM_JOINED_READS = {
                 "PIE-S2314",
                 "Aggregate function count expects concrete non-Any field "
                 "argument, got Status",
-                26,
-                13,
+                "count(c.status)",
             )
         ],
     ),
@@ -648,7 +577,7 @@ def test_after_a_join_an_enum_field_reads_as_its_enum(
     tmp_path: Path, read: str
 ) -> None:
     before, after, expected = ENUM_JOINED_READS[read]
-    for position, modifier in enumerate(("", " nullable", " not null")):
+    for position, modifier in enumerate(("", " | None")):
         source = ENUM_JOIN_SOURCE.format(
             modifier=modifier,
             inputs="",
@@ -657,16 +586,22 @@ def test_after_a_join_an_enum_field_reads_as_its_enum(
             right="customers",
             condition=ENUM_JOIN_ON + before,
         )
-        assert (
-            _completed_diagnostics(tmp_path / f"{position}", source + after) == expected
-        )
+        source += after
+        located = []
+        for code, message, expression in expected:
+            assert source.count(expression) == 1
+            offset = source.index(expression)
+            line = source[:offset].count("\n") + 1
+            column = offset - source.rfind("\n", 0, offset)
+            located.append((code, message, line, column))
+        assert _completed_diagnostics(tmp_path / f"{position}", source) == located
 
 
 @pytest.mark.parametrize(
     ("left", "right", "condition"),
     [
-        ("x", "customers", "        on x.customer_id == c.id\n"),
-        ("customers", "x", "        on customers.id == c.customer_id\n"),
+        ("x", "customers", " on x.customer_id == c.id\n"),
+        ("customers", "x", " on customers.id == c.customer_id\n"),
     ],
     ids=("from", "target"),
 )
@@ -675,7 +610,7 @@ def test_a_relation_let_with_an_enum_field_is_a_join_input(
 ) -> None:
     # Its enum field is typed, so its rows complete as a JOIN input, with the
     # field or without it.
-    for position, modifier in enumerate(("", " nullable", " not null")):
+    for position, modifier in enumerate(("", " | None")):
         source = ENUM_JOIN_SOURCE.format(
             modifier=modifier,
             inputs="",
@@ -733,31 +668,55 @@ def test_source_and_renamed_relation_lineage_reuse_exact_attribution(
     )
 
 
-@pytest.mark.parametrize("name", ("computed_upstream_join", "let_upstream_join"))
-def test_existing_nonconcrete_computed_or_let_lineage_fails_closed(
-    built: _Built,
-    name: str,
+@pytest.mark.parametrize(
+    "name, producer",
+    (
+        ("computed_upstream_join", "computed_orders"),
+        ("let_upstream_join", "let_orders"),
+    ),
+)
+def test_computed_and_let_inputs_retain_completed_field_authority(
+    built: _Built, name: str, producer: str
 ) -> None:
-    result = _result(built, name)
-    assert type(result) is joined_semantics.ProjectNonConcreteJoinedRowSemantics
-    assert (
-        result.reason
-        is joined_semantics.ProjectJoinedRowSemanticsNonConcreteReason.UPSTREAM_LINEAGE_NON_CONCRETE
+    result = _concrete(built, name)
+    (entry,) = tuple(
+        item
+        for item in built.completed.effective_outputs.entries
+        if item.owner.definition.name == producer
     )
-    assert result.post_let is None
-    assert result.property_bridge is None
-    assert result.fields == ()
-    assert result.lineage_issues
-    assert all(
-        issue.canonical_field.kind is ProjectModuleRowFieldKind.RELATION_OUTPUT
-        and issue.lineage.status is not ProjectRelationRowSchemaStatus.CONCRETE
-        and built.attribution.find_row_lineage(issue.canonical_field.owner)
-        == (issue.lineage,)
-        for issue in result.lineage_issues
+    assert type(entry) is ProjectCompletedEffectiveOutput
+    assert type(entry.root) is ProjectConcreteNoJoinReplay
+    assert entry.root.owner is entry.owner
+    assert entry.root.base_entry is entry.base_entry
+    assert entry.dependencies is entry.base_entry.dependencies
+    assert not entry.schema.is_unknown
+    fields = result.fields[1:]
+    (historical,) = built.attribution.find_row_lineage(fields[0].canonical_field.owner)
+    assert historical.status is not ProjectRelationRowSchemaStatus.CONCRETE
+    assert tuple(item.canonical_field.name for item in fields) == (
+        "customer_id",
+        "adjusted",
     )
+    for item, original in zip(fields, entry.fields, strict=True):
+        current = item.current_input
+        assert current is not None
+        assert current.authority.entry is entry
+        assert current.original is original
+        assert original.owner is entry.owner
+        assert (
+            current.evidence
+            is entry.schema.fields[original.output_name]
+            is original.field
+        )
+        assert item.canonical_field is original.identity
+        assert item.lineage is item.source_roots is item.output_attribution is None
+    assert type(result.row_source) is ProjectCurrentJoinedRowSource
+    (condition,) = result.row_source.region.operative
+    assert condition.key_matches == ()
+    assert condition.mandatory_equalities == ()
 
 
-def test_repeated_and_hidden_occurrences_keep_distinct_rows_and_shared_roots(
+def test_repeated_and_unselected_occurrences_keep_distinct_rows_and_shared_roots(
     built: _Built,
 ) -> None:
     repeated = _concrete(built, "repeated_source_join")
@@ -787,20 +746,26 @@ def test_repeated_and_hidden_occurrences_keep_distinct_rows_and_shared_roots(
         assert left.source_roots == right.source_roots
 
     multihop = _concrete(built, "source_multihop_left")
-    hidden = multihop.namespaces.binding_environment.hidden_fields
-    hidden_semantics = tuple(
+    environment = multihop.namespaces.binding_environment
+    assert environment.hidden_fields == ()
+    (middle,) = tuple(
+        item for item in environment.bindings if item.binding.name == "ordered"
+    )
+    unselected = tuple(
         item
         for item in multihop.fields
-        if any(item.scalar_field is field for field in hidden)
+        if any(item.scalar_field is field for field in middle.fields)
     )
-    assert tuple(item.scalar_field for item in hidden_semantics) == hidden
-    assert hidden_semantics
-    assert all(
-        item.lineage is not None and item.lineage.paths for item in hidden_semantics
-    )
+    assert tuple(item.scalar_field for item in unselected) == middle.fields
+    assert len(unselected) == 4
+    assert all(item.lineage is not None and item.lineage.paths for item in unselected)
+    first, second = multihop.row_source.region.joins
+    assert isinstance(first, ProjectCurrentBinaryJoin)
+    assert second.left_input is first.properties.relational
+    assert all(item.introduction_use is first.input_uses[1] for item in unselected)
 
 
-def test_slice5_success_no_let_and_failure_attach_without_partial_stage(
+def test_let_success_absence_and_failure_attach_without_partial_stage(
     built: _Built,
 ) -> None:
     with_let = built.namespaces["let_attached_join"]
@@ -848,44 +813,58 @@ def test_historical_join_owner_never_receives_new_field_identity_or_state(
     )
 
 
-def test_slice6_scope_dependency_and_contract_are_exact() -> None:
-    facts = REPOSITORY_FACTS.python(PRODUCTION)
-    assert joined_semantics.__all__ == ()
-    assert not re.search(r"^class .*FieldIdentity", facts.text, re.MULTILINE)
-    for required in (
-        "ProjectIRJoinedRowField",
-        "ProjectIROutputFieldOccurrence",
-        "ProjectModuleRowFieldIdentity",
-        "ProjectModuleRowFieldLineage",
-        "ProjectMultiFactConcreteRegion",
-        "ProjectIRJoinOutputProperties",
-    ):
-        assert required in facts.identifiers
-    for forbidden in (
-        "build_project_ir_join_region",
-        "build_project_multifact_analysis",
-        "projectrowschema",
-        "dependencygraph",
-        "filter",
-        "grouping",
-        "windowexpr",
-        "qualify",
-        "scheduler",
-        "effective_output",
-        "executor",
-    ):
-        assert forbidden not in facts.text.casefold()
-    assert "pietto._project.row_lineage" not in facts.imported_modules
-    for relative in (
-        "src/pietto/_project/project_scalar_namespaces.py",
-        "src/pietto/_project/project_ir_properties.py",
-        "src/pietto/_project/project_ir_relational_properties.py",
-        "src/pietto/_project/project_ir_joins.py",
-        "src/pietto/_project/project_multifact.py",
-        "src/pietto/_project/project_phase62_verification.py",
-        "src/pietto/_project/module_attribution.py",
-    ):
-        assert not any(
-            name.endswith(".project_joined_row_semantics")
-            for name in REPOSITORY_FACTS.python(REPO_ROOT / relative).imported_modules
+def test_current_keys_fds_and_grain_keep_real_input_evidence(built: _Built) -> None:
+    strict = _concrete(built, "unique_target_inner").property_bridge
+    nullable = _concrete(built, "source_multihop_full").property_bridge
+    assert strict.keys and all(
+        key.strength is ProjectRowUniquenessStrength.STRICT for key in strict.keys
+    )
+    assert nullable.keys and all(
+        key.strength is ProjectRowUniquenessStrength.LAX for key in nullable.keys
+    )
+    for bridge in (strict, nullable):
+        assert bridge.fds
+        assert bridge.fd_index.facts is bridge.fds
+        assert all(
+            fact.output is bridge.relational.output and fact.supports
+            for fact in bridge.fds
+        )
+        assert bridge.grain.factors and bridge.grain.active
+        assert all(
+            any(active is factor.identity for factor in bridge.grain.factors)
+            for active in bridge.grain.active
+        )
+        join = bridge.properties.join
+        witness = bridge.grain.witness
+        assert isinstance(witness, ProjectCurrentJoinGrainWitness)
+        assert witness.condition is join.condition
+        assert witness.left is join.left_input.grain
+        assert witness.right is join.right_input.grain
+
+
+def test_current_properties_reject_foreign_roots_and_field_grafts(
+    built: _Built, tmp_path: Path
+) -> None:
+    _, foreign, _, _ = _build(
+        tmp_path / "foreign",
+        PRIMARY_MAIN_SOURCE + BRIDGE_SOURCE,
+        reverse_creation=False,
+    )
+    (other,) = tuple(
+        result
+        for result in foreign.effective_outputs.current_readiness
+        if result.namespaces.binding_environment.ledger.owner.definition.name
+        == "let_attached_join"
+    )
+    assert type(other) is joined_semantics.ProjectConcreteJoinedRowSemantics
+    local = _concrete(built, "let_attached_join")
+    with pytest.raises(ValueError, match="exact"):
+        replace(local.property_bridge, multifact_region=other.multifact_region)
+    with pytest.raises(ValueError, match="exact"):
+        replace(local.fields[0], input_field=other.fields[0].input_field)
+    with pytest.raises(ValueError, match="exact"):
+        replace(local.fields[0], property_field=local.fields[-1].property_field)
+    with pytest.raises(ValueError, match="same project semantic root"):
+        joined_semantics.build_project_joined_row_semantics(
+            namespaces=local.namespaces, attribution=other.attribution
         )

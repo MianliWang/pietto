@@ -39,9 +39,9 @@ from pietto.semantic import SemanticResult, analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    amount: Int not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    region: Text\n"
+    "    amount: Int\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 SPAN = SourceSpan(
     path="phase25-satisfying-ir.pietto",
@@ -214,9 +214,7 @@ def test_emit_sql_text_invalid_satisfying_still_fails_before_ir_and_sql(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert (
-        "PIE-S2324 error: Unknown select output in satisfying: missing" in captured.err
-    )
+    assert "PIE-S2324 error: Unknown select output in having: missing" in captured.err
 
 
 def test_emit_sql_json_invalid_satisfying_still_fails_without_artifacts(
@@ -311,7 +309,7 @@ def _valid_satisfying_source() -> str:
         "    select:\n"
         "        region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total_amount > 1000\n"
     )
 
@@ -325,7 +323,7 @@ def _group_key_alias_satisfying_source() -> str:
         "    select:\n"
         "        r = region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         '        r != "test"\n'
     )
 
@@ -339,7 +337,7 @@ def _invalid_satisfying_source() -> str:
         "    select:\n"
         "        region\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        missing > 1000\n"
     )
 

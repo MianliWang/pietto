@@ -466,17 +466,17 @@ def test_count_relation_input_dependency_has_no_field_leaf(tmp_path: Path) -> No
     ("bindings", "expected_let_edges", "expected_source_fields"),
     (
         (
-            "        selected = amount\n",
+            "    let selected = amount\n",
             (("selected", "users.amount"),),
             {"amount"},
         ),
         (
-            "        base = amount\n        selected = base\n",
+            "    let base = amount\n    let selected = base\n",
             (("base", "users.amount"), ("selected", "base")),
             {"amount"},
         ),
         (
-            "        base = amount + tax\n        selected = base + amount\n",
+            "    let base = amount + tax\n    let selected = base + amount\n",
             (
                 ("base", "users.amount"),
                 ("base", "users.tax"),
@@ -497,7 +497,6 @@ def test_direct_chained_and_computed_let_ancestry_is_immediate_then_transitive(
         tmp_path,
         "query candidate:\n"
         "    from users\n"
-        "    let:\n"
         f"{bindings}"
         "    select:\n"
         "        total = sum(selected)\n",
@@ -842,16 +841,16 @@ def _project(root: Path, relations: str) -> Path:
     )
     (root / "models.pietto").write_text(
         "shape User:\n"
-        "    active: Bool not null\n"
-        "    amount: Int not null\n"
-        "    tax: Int nullable\n"
-        "    score: Float not null\n"
-        "    weight: Float nullable\n"
-        "    price: Decimal(12, 2) not null\n"
-        "    status: Text not null\n"
-        "    region: Text nullable\n"
-        "    created_at: Timestamp not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    active: Bool\n"
+        "    amount: Int\n"
+        "    tax: Int | None\n"
+        "    score: Float\n"
+        "    weight: Float | None\n"
+        "    price: Decimal(12, 2)\n"
+        "    status: Text\n"
+        "    region: Text | None\n"
+        "    created_at: Timestamp\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )

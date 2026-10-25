@@ -13,13 +13,13 @@ from pietto.semantic import SemanticResult, ValueTypeKind, analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    region: Text\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -66,13 +66,13 @@ def test_no_group_satisfying_is_rejected() -> None:
             "    from orders\n"
             "    select:\n"
             "        amount\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        amount > 1000\n"
         )
     )
 
     assert _errors(result) == [
-        ("PIE-S2323", "`satisfying` requires GROUP BY"),
+        ("PIE-S2323", "`having` requires GROUP BY"),
     ]
 
 
@@ -85,7 +85,7 @@ def test_no_group_direct_aggregate_call_in_satisfying_uses_aggregate_context_dia
             "    from orders\n"
             "    select:\n"
             "        amount\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        sum(amount) > 1000\n"
         )
     )
@@ -93,7 +93,7 @@ def test_no_group_direct_aggregate_call_in_satisfying_uses_aggregate_context_dia
     assert _errors(result) == [
         (
             "PIE-S2308",
-            "Aggregate sum() is not allowed in satisfying clause; "
+            "Aggregate sum() is not allowed in having clause; "
             "use it only as a direct aliased select projection",
         ),
     ]
@@ -113,7 +113,7 @@ def test_unknown_select_output_name_in_satisfying_is_rejected() -> None:
     )
 
     assert _errors(result) == [
-        ("PIE-S2324", "Unknown select output in satisfying: missing"),
+        ("PIE-S2324", "Unknown select output in having: missing"),
     ]
 
 
@@ -133,7 +133,7 @@ def test_input_field_reference_in_satisfying_must_use_select_output() -> None:
     assert _errors(result) == [
         (
             "PIE-S2325",
-            "Satisfying reference must use select output name, not input field: amount",
+            "Having reference must use select output name, not input field: amount",
         ),
     ]
 
@@ -166,7 +166,7 @@ def test_renamed_group_key_exposes_only_alias_to_satisfying() -> None:
     assert _errors(invalid) == [
         (
             "PIE-S2325",
-            "Satisfying reference must use select output name, not input field: region",
+            "Having reference must use select output name, not input field: region",
         ),
     ]
 
@@ -174,8 +174,8 @@ def test_renamed_group_key_exposes_only_alias_to_satisfying() -> None:
 @pytest.mark.parametrize(
     ("satisfying", "form", "column"),
     (
-        ("null", "null literal", 9),
-        ("n > null", "null literal", 13),
+        ("None", "null literal", 9),
+        ("n > None", "null literal", 13),
     ),
 )
 def test_satisfying_that_cannot_be_validated_reports_s2327(
@@ -186,7 +186,7 @@ def test_satisfying_that_cannot_be_validated_reports_s2327(
             SOURCE_PREFIX + "table rates:\n"
             "    from orders\n"
             "    select:\n"
-            "        per = amount / null\n"
+            "        per = amount / None\n"
             "table buckets:\n"
             "    from rates\n"
             "    group by:\n"
@@ -194,20 +194,29 @@ def test_satisfying_that_cannot_be_validated_reports_s2327(
             "    select:\n"
             "        per\n"
             "        n = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             f"        {satisfying}\n"
         )
     )
 
     assert [
-        (diagnostic.code, diagnostic.message, diagnostic.location.column)
+        (
+            diagnostic.code,
+            diagnostic.severity,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
         for diagnostic in result.diagnostics
     ] == [
+        ("PIE-S2382", Severity.WARNING, _RATES_READ, 14, 5),
         (
             "PIE-S2327",
-            f"Unsupported satisfying expression form: {form}",
+            Severity.ERROR,
+            f"Unsupported having expression form: {form}",
+            21,
             column,
-        )
+        ),
     ]
 
 
@@ -232,8 +241,16 @@ def test_unsupported_satisfying_forms_are_named_in_plain_words(
     )
 
     assert _errors(result) == [
-        ("PIE-S2327", f"Unsupported satisfying expression form: {form}")
+        ("PIE-S2327", f"Unsupported having expression form: {form}")
     ]
+
+
+# The warning at a read of the same-file table `rates` in single-file mode.
+_RATES_READ = (
+    "`rates` is a table of this file; single-file SQL reads it by name, so the "
+    "SQL runs only where the database already has a relation named rates (an "
+    "EXPLICIT_MODULES project emits it as a CTE)"
+)
 
 
 def test_satisfying_over_an_output_of_unknown_type_is_not_refused_at_check() -> None:
@@ -242,7 +259,7 @@ def test_satisfying_over_an_output_of_unknown_type_is_not_refused_at_check() -> 
             SOURCE_PREFIX + "table rates:\n"
             "    from orders\n"
             "    select:\n"
-            "        per = amount / null\n"
+            "        per = amount / None\n"
             "table buckets:\n"
             "    from rates\n"
             "    group by:\n"
@@ -250,12 +267,34 @@ def test_satisfying_over_an_output_of_unknown_type_is_not_refused_at_check() -> 
             "    select:\n"
             "        per\n"
             "        n = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        per >= 0\n"
         )
     )
 
-    assert result.diagnostics == ()
+    # buckets reads the same-file table rates by name (PIE-S2382 at its FROM).
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.severity,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+            diagnostic.location.end_line,
+            diagnostic.location.end_column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [
+        (
+            "PIE-S2382",
+            Severity.WARNING,
+            _RATES_READ,
+            14,
+            5,
+            14,
+            15,
+        )
+    ]
     # Kept for lowering, so that emission refuses it (PIE-B1000) deterministically.
     assert result.model.relation_symbols["buckets"] in result.model.result_predicates
 
@@ -269,14 +308,14 @@ def test_satisfying_over_an_unknown_row_reads_a_count_output_as_an_int() -> None
 
     def relation(name: str, satisfying: str) -> str:
         return (
-            f"table {name}:\n    from raw\n    group by: t\n    select:\n"
+            f"table {name}:\n    from raw\n    group by t\n    select:\n"
             "        c = count()\n        m = max(n)\n"
-            f"    satisfying: {satisfying}\n"
+            f"    having {satisfying}\n"
         )
 
     result = analyze(
         _parse(
-            'source raw is postgres.table("raw")\n'
+            'source raw = postgres.table("raw")\n'
             + relation("a", "c")
             + relation("b", "c and m > 1")
             + relation("d", "c > 'x'")
@@ -289,17 +328,17 @@ def test_satisfying_over_an_unknown_row_reads_a_count_output_as_an_int() -> None
         for d in result.diagnostics
         if d.severity is Severity.ERROR
     ] == [
-        ("PIE-S2202", 8, 17, "Expected Bool expression in satisfying clause"),
+        ("PIE-S2202", 8, 12, "Expected Bool expression in having clause"),
         (
             "PIE-S2105",
             15,
-            17,
+            12,
             "Invalid operands for operator and: expected Bool operands",
         ),
         (
             "PIE-S2105",
             22,
-            17,
+            12,
             "Invalid operands for operator >: expected comparable operands",
         ),
     ]
@@ -330,7 +369,7 @@ def test_computed_projection_output_in_satisfying_is_deferred() -> None:
         ("PIE-S2319", "Grouped scalar projection expressions are not supported yet"),
         (
             "PIE-S2326",
-            "Satisfying output is not a group-key or direct aggregate projection: doubled",
+            "Having output is not a group-key or direct aggregate projection: doubled",
         ),
     ]
 
@@ -362,7 +401,7 @@ def test_aggregate_calls_inside_satisfying_use_invalid_context_diagnostic(
     assert _errors(result) == [
         (
             "PIE-S2308",
-            "Aggregate sum() is not allowed in satisfying clause; "
+            "Aggregate sum() is not allowed in having clause; "
             "use it only as a direct aliased select projection",
         ),
     ]
@@ -392,9 +431,9 @@ def test_satisfying_resolves_aggregate_expression_projection_alias() -> None:
         "total_amount + 1 > 1000",
         "-total_amount > 1000",
         'region like "e%"',
-        "total_amount between 1 and 1000",
-        "region is null",
-        "region is not null",
+        "1 <= total_amount <= 1000",
+        "region is None",
+        "region is not None",
     ],
 )
 def test_unsupported_satisfying_expression_forms_are_deferred(
@@ -429,7 +468,7 @@ def test_non_bool_satisfying_predicate_reuses_predicate_diagnostic() -> None:
     )
 
     assert _errors(result) == [
-        ("PIE-S2202", "Expected Bool expression in satisfying clause"),
+        ("PIE-S2202", "Expected Bool expression in having clause"),
     ]
 
 
@@ -496,7 +535,7 @@ def test_comparison_operands_of_different_families_reuse_operator_diagnostic() -
 
 
 def test_satisfying_compares_an_enum_key_only_with_its_enum_and_labels() -> None:
-    """Before: an enum operand was not checked, so `satisfying: status == 1`
+    """Before: an enum operand was not checked, so `having status == 1`
     passed and emitted `HAVING "status" = 1`, which PostgreSQL rejects
     (operator does not exist: status = integer)."""
     predicates = (
@@ -509,12 +548,12 @@ def test_satisfying_compares_an_enum_key_only_with_its_enum_and_labels() -> None
     result = analyze(
         _parse(
             "enum Status:\n    active\n    suspended\n"
-            "shape Account:\n    id: Int not null\n    status: Status not null\n"
-            'source accounts: Account is postgres.table("accounts")\n'
+            "shape Account:\n    id: Int\n    status: Status\n"
+            'source accounts: Account = postgres.table("accounts")\n'
             + "".join(
-                f"query q{index}:\n    from accounts\n    group by: status\n"
+                f"query q{index}:\n    from accounts\n    group by status\n"
                 "    select:\n        status\n        n = count()\n"
-                f"    satisfying: {predicate}\n"
+                f"    having {predicate}\n"
                 for index, predicate in enumerate(predicates)
             )
         )
@@ -528,7 +567,7 @@ def test_satisfying_compares_an_enum_key_only_with_its_enum_and_labels() -> None
             "PIE-S2105",
             "Invalid operands for operator ==: expected comparable operands",
             line,
-            17,
+            12,
         )
         for line in (21, 28, 35)
     ]
@@ -553,9 +592,7 @@ def test_emit_sql_text_invalid_satisfying_fails_before_ir_and_sql(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert (
-        "PIE-S2324 error: Unknown select output in satisfying: missing" in captured.err
-    )
+    assert "PIE-S2324 error: Unknown select output in having: missing" in captured.err
     assert "SELECT" not in captured.out
 
 
@@ -610,7 +647,7 @@ def _grouped_relation(
         "        region\n"
         "    select:\n"
         f"{select_body}"
-        "    satisfying:\n"
+        "    having:\n"
         f"        {satisfying}\n"
     )
 
@@ -667,14 +704,14 @@ def test_join_satisfying_reads_grouped_outputs_and_recognizes_input_fields(
         _parse(
             SOURCE_PREFIX + "query grouped_orders:\n"
             "    from orders\n"
-            "    cross join orders as peer:\n"
-            "        from orders\n"
+            "    let peer = orders\n"
+            "    cross join peer\n"
             "    group by:\n"
             "        peer.status\n"
             "    select:\n"
             "        peer_status = peer.status\n"
             "        total = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             f"        {predicate}\n"
         )
     )
@@ -686,7 +723,7 @@ def test_join_satisfying_reads_grouped_outputs_and_recognizes_input_fields(
         assert _errors(result) == [
             (
                 "PIE-S2325",
-                "Satisfying reference must use select output name, not input field: status",
+                "Having reference must use select output name, not input field: status",
             )
         ]
         diagnostic = result.diagnostics[0]

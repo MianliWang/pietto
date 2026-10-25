@@ -65,9 +65,9 @@ def test_adbc_route_dispatches_one_private_owner_with_fresh_public_inputs(
 
 
 SINCE = """
-query since(low: Int not null, note: Text nullable):
+query since(low: Int, note: Text | None):
     from items
-    where id > low and (note is null or label != note)
+    where id > low and (note is None or label != note)
     select:
         id
         tag = note

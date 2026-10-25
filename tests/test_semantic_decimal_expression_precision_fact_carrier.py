@@ -43,15 +43,15 @@ from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 BASE_SOURCE = (
-    "type Money = Decimal(12, 2) not null\n"
+    "type Money = Decimal(12, 2)\n"
     "shape Order:\n"
-    "    price: Decimal(12, 2) not null\n"
-    "    tax: Decimal(10, 4) not null\n"
-    "    amount: Int not null\n"
-    "    score: Float not null\n"
-    "    money: Money not null\n"
-    "    status: Text not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    price: Decimal(12, 2)\n"
+    "    tax: Decimal(10, 4)\n"
+    "    amount: Int\n"
+    "    score: Float\n"
+    "    money: Money\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 RelationAst = TableDef | QueryDef
@@ -101,8 +101,7 @@ def test_expression_facts_do_not_cover_computed_let_alias_or_type_alias_refs() -
     script, semantic, _ = _compile(
         BASE_SOURCE + "query computed:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = price\n"
+        "    let gross = price\n"
         "    select:\n"
         "        let_value = gross\n"
         "        decimal_total = price + tax\n"
@@ -270,7 +269,8 @@ def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:
     script = _parse(source)
     semantic = analyze(script)
     assert _error_codes(semantic) == []
-    ir_result = build_ir(script, semantic.model)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return script, semantic, ir_result.ir

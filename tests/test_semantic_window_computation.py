@@ -1,21 +1,18 @@
 from __future__ import annotations
 
-import ast
-from dataclasses import dataclass, fields, replace
-from pathlib import Path
+from dataclasses import dataclass, replace
 from typing import cast
 
 import pytest
 
 import _pietto_project_join_aggregate as slice9
 from pietto._project import project_completion as completion
-from pietto._project import project_joined_aggregation as aggregation
+from pietto._project import project_completed_semantics as completed_semantics
 from pietto._project import project_joined_row_filter as row_filter
 from pietto._project import project_joined_windows as windows
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
 )
-from pietto._project.project_completion import ProjectEffectiveOutputTerminalReason
 from pietto._project.project_ir_properties import ProjectIRPropertyAvailability
 from pietto._project.window_semantics import WindowDependencyRole
 from pietto.ast_nodes import Expression, NameExpr, QueryDef, WindowExpr
@@ -38,212 +35,132 @@ from pietto.semantic.window_semantics import (
     WindowComputationAnalysis,
     WindowExpressionAnalysis,
     WindowExpressionUnsupported,
-    WindowOccurrenceIdentity,
 )
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PRODUCTION = REPO_ROOT / "src/pietto/_project/project_joined_windows.py"
-SEMANTIC_ANALYSIS = REPO_ROOT / "src/pietto/semantic/window_analysis.py"
-SEMANTIC_NAVIGATION = REPO_ROOT / "src/pietto/semantic/window_navigation_analysis.py"
-SEMANTIC_MODEL = REPO_ROOT / "src/pietto/semantic/window_semantics.py"
-SPEC = (
-    REPO_ROOT
-    / "docs/spec/phase63-slice10-generic-window-computation-sites-named-window-reuse-v1.md"
-)
 
 WINDOW_SOURCE = (
     slice9.PROJECT_SOURCE
     + """
 query window_joined_ok:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        direct = event.id
-        chain = direct
-        computed = event.metric + 1
+    let event = events
+    inner join event on account_events(accounts, event)
+    let direct = event.id
+    let chain = direct
+    let computed = event.metric + 1
     select:
         ordinary = accounts.label
-        ranked = row_number() window:
-            partition by:
-                chain
-            order by:
-                event.id
-        navigated = lag(event.metric, 1, accounts.metric) ignore nulls window:
-            order by:
-                direct desc
-        framed = first_value(event.metric) ignore nulls window:
-            order by:
-                event.id
-            rows between unbounded preceding and current row exclude ties
+        ranked = row_number() window(partition by chain order by event.id)
+        navigated = lag(event.metric, 1, accounts.metric) ignore nulls window(order by direct desc)
+        framed = first_value(event.metric) ignore nulls window(order by event.id rows between unbounded preceding and current row exclude ties)
 query window_ambiguous:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                id
+        ranked = rank() window(order by id)
 query window_computed_let:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        computed = event.metric + 1
+    let event = events
+    inner join event on account_events(accounts, event)
+    let computed = event.metric + 1
     select:
-        ranked = rank() window:
-            order by:
-                computed
+        ranked = rank() window(order by computed)
 query window_relation_fallback:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = rank() window:
-            order by:
-                events.id
+        ranked = rank() window(order by events.id)
 query window_sequential:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
-        ranked = row_number() window:
-            order by:
-                event.id
-        later = rank() window:
-            order by:
-                ranked
+        ranked = row_number() window(order by event.id)
+        later = rank() window(order by ranked)
 query window_projection_alias:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         ordinary = event.id
-        ranked = rank() window:
-            order by:
-                ordinary
+        ranked = rank() window(order by ordinary)
 query window_grouped_ok:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    let:
-        key = event.id
-        key_chain = key
+    let event = events
+    inner join event on account_events(accounts, event)
+    let key = event.id
+    let key_chain = key
     group by:
         key
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            partition by:
-                key_chain
-            order by:
-                total
-        navigated = lead(total, 0, total) window:
-            order by:
-                event_id
+        ranked = rank() window(partition by key_chain order by total)
+        navigated = lead(total, 0, total) window(order by event_id)
 query window_grouped_raw_input:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            order by:
-                accounts.metric
+        ranked = rank() window(order by accounts.metric)
 query window_grouped_qualified_input:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     group by:
         event.id
     select:
         event_id = event.id
         total = sum(accounts.metric)
-        ranked = rank() window:
-            order by:
-                event.id
+        ranked = rank() window(order by event.id)
 query window_global:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
     select:
         total = sum(event.metric)
-        ranked = row_number() window:
-            order by:
-                total
+        ranked = row_number() window(order by total)
 query window_named_ok:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
+    let framed = window ordered(rows between unbounded preceding and current row exclude current row)
+    let alias = window ordered
+    let ordered = window(order by event.id desc)
+    let later = window ordered
     select:
         ranked = rank() window alias
-        extended = dense_rank() window ordered:
-            partition by:
-                accounts.id
+        extended = dense_rank() window ordered(partition by accounts.id)
         framed = nth_value(event.metric, 2) from last ignore nulls window framed
-    window framed = ordered:
-        rows between unbounded preceding and current row exclude current row
-    window alias = ordered
-    window ordered:
-        order by:
-            event.id desc
-    window later = ordered
 query window_named_conflict:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
+    let base = window(order by event.id)
+    let repeated = window base(order by accounts.id)
     select:
         ranked = rank() window repeated
-    window base:
-        order by:
-            event.id
-    window repeated = base:
-        order by:
-            accounts.id
 query window_named_dangling:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
+    let dangling = window missing
     select:
         ranked = rank() window dangling
-    window dangling = missing
 query window_named_cycle:
     from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
+    let event = events
+    inner join event on account_events(accounts, event)
+    let first = window second
+    let second = window first
     select:
         ranked = rank() window first
-    window first = second
-    window second = first
-query window_hidden_multihop:
-    from accounts
-    inner join signals as signal:
-        from accounts
-        via account_dimension: account -> dimension
-        via dimension_signals: dimension -> signal
-    select:
-        ranked = rank() window:
-            order by:
-                dimensions.id
 """
 )
 
@@ -251,9 +168,7 @@ query window_hidden_multihop:
 @dataclass(frozen=True, slots=True)
 class _Built:
     completion: completion.ProjectCompletion
-    filters: row_filter.ProjectJoinedRowFilterSet
-    aggregations: aggregation.ProjectJoinedAggregationSet
-    stages: windows.ProjectJoinedWindowStageSet
+    stages: tuple[windows.ProjectJoinedWindowStageSet, ...]
 
 
 @pytest.fixture(scope="module")
@@ -263,21 +178,40 @@ def built(tmp_path_factory: pytest.TempPathFactory) -> _Built:
         {"main.pietto": WINDOW_SOURCE},
         reverse_creation=False,
     )
-    completed = completion.build_project_completion(slice9.slice7._phase62(semantic))
-    filters = row_filter.build_project_joined_row_filters(completed)
-    aggregations = aggregation.build_project_joined_aggregations(filters)
-    return _Built(
-        completion=completed,
-        filters=filters,
-        aggregations=aggregations,
-        stages=windows.build_project_joined_window_stages(aggregations),
+    completed = completed_semantics.build_project_completed_semantic_result(semantic)
+    assert type(completed) is completed_semantics.ProjectConcreteCompletedSemanticResult
+    stages = tuple(
+        tail.window_set for tail in completed.effective_outputs.current_tails
     )
+    assert stages
+    built = _Built(completion=completed.completion, stages=stages)
+    for name in (
+        "window_joined_ok",
+        "window_ambiguous",
+        "window_computed_let",
+        "window_relation_fallback",
+        "window_sequential",
+        "window_projection_alias",
+        "window_grouped_ok",
+        "window_grouped_raw_input",
+        "window_grouped_qualified_input",
+        "window_global",
+        "window_named_ok",
+        "window_named_conflict",
+        "window_named_dangling",
+        "window_named_cycle",
+        "global_safe",
+        "upstream_filter_blocked",
+    ):
+        _stage(built, name)
+    return built
 
 
 def _stage(built: _Built, name: str) -> windows.ProjectJoinedWindowStageResult:
     matches = tuple(
         result
-        for result in built.stages.results
+        for stages in built.stages
+        for result in stages.results
         if result.input_aggregation.input_filter.entry.owner.identity.declared_name
         == name
     )
@@ -309,12 +243,12 @@ def test_selected_and_hidden_site_identity_domains_are_exact(built: _Built) -> N
     assert selected.site.root is stage.input_aggregation
     assert selected.site.item is definition.select_items[1]
     assert selected.site.occurrence is stage.selected_results[0].occurrence
-    assert tuple(field.name for field in fields(WindowOccurrenceIdentity)) == (
-        "source_id",
-        "relation_name",
-        "selected_output_ordinal",
-        "span",
-    )
+    occurrence = selected.site.occurrence
+    assert occurrence is not None
+    assert occurrence.source_id == stage.named_namespace.query_block.source_id
+    assert occurrence.relation_name == definition.name
+    assert occurrence.selected_output_ordinal == 1
+    assert occurrence.span is selected.site.expression.span
 
     hidden = windows.analyze_hidden_project_window_computation(
         stage,
@@ -397,7 +331,6 @@ def test_joined_input_is_occurrence_safe_and_let_admission_is_bounded(
     ambiguous = _stage(built, "window_ambiguous")
     computed = _stage(built, "window_computed_let")
     fallback = _stage(built, "window_relation_fallback")
-    hidden = _stage(built, "window_hidden_multihop")
     assert type(good) is windows.ProjectConcreteJoinedWindowStage
     assert good.named_namespace.declarations == ()
     kinds = tuple(binding.kind for binding in good.pre_window.bindings)
@@ -426,7 +359,7 @@ def test_joined_input_is_occurrence_safe_and_let_admission_is_bounded(
     assert all(
         type(result) is windows.ProjectNonConcreteJoinedWindowStage
         and result.post_window is None
-        for result in (ambiguous, computed, fallback, hidden)
+        for result in (ambiguous, computed, fallback)
     )
     ambiguous_attempt = cast(
         windows.ProjectNonConcreteJoinedWindowStage,
@@ -647,21 +580,16 @@ def test_exact_namespace_and_dependency_carriers_reject_lossy_grafts(
 
 
 def _standalone_pair(call: str, *, frame: str | None = None):
-    frame_source = "" if frame is None else f"            {frame}\n"
+    frame_source = "" if frame is None else f" {frame}"
     parsed = parse_source(
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    value: Int nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    value: Int | None\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
         "    select:\n"
-        f"        result = {call} window:\n"
-        "            partition by:\n"
-        "                id\n"
-        "            order by:\n"
-        "                value desc\n"
-        f"{frame_source}",
+        f"        result = {call} window(partition by id order by value desc{frame_source})\n",
         path="slice10-differential.pietto",
     )
     assert parsed.diagnostics == () and parsed.ast is not None
@@ -777,8 +705,8 @@ def test_common_kernel_projects_rows_range_groups_exclude_and_modifiers(
     assert historical.validated_specification == common.validated_specification
 
 
-_ORDER = "            order by:\n                id\n"
-_COMPUTED_ORDER = "            order by:\n                id + 1\n"
+_ORDER = "order by id"
+_COMPUTED_ORDER = "order by id + 1"
 _UNSUPPORTED = "Unsupported window computation for function"
 _AGGREGATE = "Aggregate window functions are not implemented:"
 
@@ -797,7 +725,7 @@ _AGGREGATE = "Aggregate window functions are not implemented:"
         ("result = SUM(value)", _ORDER, "Unknown function: SUM"),
         (
             "result = row_number()",
-            "            partition by:\n                id\n",
+            "partition by id",
             f"{_UNSUPPORTED} row_number: requires at least one window order field",
         ),
         (
@@ -812,7 +740,7 @@ _AGGREGATE = "Aggregate window functions are not implemented:"
         ),
         (
             "result = first_value(value)",
-            "            partition by:\n                value + 1\n" + _ORDER,
+            "partition by value + 1 " + _ORDER,
             f"{_UNSUPPORTED} first_value: window partition expression must be a "
             "direct field",
         ),
@@ -825,13 +753,13 @@ def test_refused_window_computations_name_their_reason(
 ) -> None:
     parsed = parse_source(
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    value: Int nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    value: Int | None\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query result:\n"
         "    from rows\n"
         "    select:\n"
-        f"        {item} window:\n" + spec,
+        f"        {item} window({spec})\n",
         path="window-refusal.pietto",
     )
     assert parsed.diagnostics == () and parsed.ast is not None
@@ -869,7 +797,7 @@ def test_refused_window_computations_name_their_reason(
     ] == [("PIE-S2103", message, 18)]
 
 
-def test_window_stage_preserves_rows_grain_properties_and_pending_ledger(
+def test_window_stage_preserves_rows_grain_properties_and_ledger(
     built: _Built,
 ) -> None:
     stage = _stage(built, "window_joined_ok")
@@ -891,45 +819,35 @@ def test_window_stage_preserves_rows_grain_properties_and_pending_ledger(
     )
     assert not preservation.filters_rows
     assert not preservation.establishes_relation_order
-    assert stage.input_aggregation.input_filter.entry.reason is (
-        ProjectEffectiveOutputTerminalReason.JOINED_TAIL_PENDING
+    assert any(
+        stage.input_aggregation.input_filter.entry is entry
+        for entry in built.completion.entries
     )
-    assert stage.input_aggregation.input_filter.entry in built.completion.entries
 
 
 def test_collection_is_one_for_one_in_canonical_slice9_order(built: _Built) -> None:
-    assert len(built.stages.results) == len(built.aggregations.results)
-    assert all(
-        stage.input_aggregation is aggregate
-        for stage, aggregate in zip(
-            built.stages.results,
-            built.aggregations.results,
-            strict=True,
+    for stages in built.stages:
+        aggregations = stages.aggregation_set
+        filters = aggregations.filter_set
+        assert filters.completion is built.completion
+        assert filters.results
+        current = filters.current_semantics
+        assert current is not None
+        owner = current.namespaces.binding_environment.ledger.owner
+        expected = tuple(
+            entry
+            for entry in built.completion.entries
+            if type(entry) is completion.ProjectEffectiveOutputTerminal
+            and entry.owner is owner
         )
-    )
-
-
-def test_scope_identity_kernel_and_contract_boundaries_are_static() -> None:
-    production = PRODUCTION.read_text(encoding="utf-8")
-    production_names = {
-        node.id for node in ast.walk(ast.parse(production)) if type(node) is ast.Name
-    }
-    analysis = SEMANTIC_ANALYSIS.read_text(encoding="utf-8")
-    navigation = SEMANTIC_NAVIGATION.read_text(encoding="utf-8")
-    semantic_model = SEMANTIC_MODEL.read_text(encoding="utf-8")
-    spec = SPEC.read_text(encoding="utf-8")
-    assert {
-        "RowSchema",
-        "build_project_window_persistence",
-        "ProjectIROutputRelationalProperties",
-        "WindowResultIdentity",
-        "ProjectModuleRowFieldIdentity",
-    }.isdisjoint(production_names)
-    assert "analyze_window_computation(" in analysis
-    assert "analyze_navigation_computation_arguments(" in navigation
-    assert "analyze_frame_value_computation_arguments(" in navigation
-    assert "class WindowComputationAnalysis" in semantic_model
-    assert "resolve_named_window_namespace_for_query_block" in semantic_model
-    assert "171 -> 172" in spec and "414 -> 415" in spec
-    assert "A3/M7/D0" in spec
-    assert "Slice 11 = `NEXT / NOT IMPLEMENTED`" in spec
+        assert expected
+        assert tuple(result.entry for result in filters.results) == expected
+        assert all(result.current_semantics is current for result in filters.results)
+        assert len(stages.results) == len(aggregations.results) == len(filters.results)
+        assert all(
+            stage.input_aggregation is aggregate
+            and aggregate.input_filter is input_filter
+            for stage, aggregate, input_filter in zip(
+                stages.results, aggregations.results, filters.results, strict=True
+            )
+        )

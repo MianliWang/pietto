@@ -28,9 +28,9 @@ from pietto.sql.relations import render_relation_sql
 
 SOURCE = (
     "shape User:\n"
-    "    email: Text nullable\n"
-    "    deleted_at: Timestamp nullable\n"
-    'source users: User is postgres.table("public.users")\n'
+    "    email: Text | None\n"
+    "    deleted_at: Timestamp | None\n"
+    'source users: User = postgres.table("public.users")\n'
 )
 
 
@@ -38,7 +38,7 @@ def test_source_backed_relation_emits_select_from_where_and_projections() -> Non
     script_ir = _compile(
         SOURCE + "table active_users:\n"
         "    from users\n"
-        "    where deleted_at is null\n"
+        "    where deleted_at is None\n"
         "    select:\n"
         "        email\n"
         "        email_norm = lower(trim(email))\n"
@@ -372,3 +372,45 @@ def _definition[DefinitionT: (SourceIR, RelationIR)](
         for definition in script_ir.definitions
         if isinstance(definition, definition_type) and definition.name == name
     )
+
+
+def test_scalar_any_in_or_preserves_outer_capture_and_binding() -> None:
+    source = """shape Row:
+    id: Int
+source orders: Row = postgres.table("orders")
+source customers: Row = postgres.table("customers")
+query result:
+    from orders
+    where orders.id > 0 or any(buyer.id == orders.id for buyer in customers)
+    select id = orders.id
+"""
+    parsed = parser_api.parse_source(source, path="any-postgres.pietto")
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = semantic_api.analyze(parsed.ast)
+    assert semantic.script is not None and not semantic.diagnostics
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    result = emit_postgres_sql(lowered.ir)
+    assert not result.diagnostics
+    (artifact,) = result.artifacts
+    assert "EXISTS (SELECT 1 FROM " in artifact.sql
+    assert " OR " in artifact.sql
+    assert '"orders"."id"' in artifact.sql
+
+
+def test_scalar_any_null_predicate_emits_unknown_filter() -> None:
+    parsed = parser_api.parse_source("""shape Row:
+    id: Int
+source rows: Row = postgres.table("rows")
+query result:
+    from rows
+    select found = any(None for candidate in rows)
+""")
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = semantic_api.analyze(parsed.ast)
+    assert semantic.script is not None and not semantic.diagnostics
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    result = emit_postgres_sql(lowered.ir)
+    assert not result.diagnostics
+    assert " WHERE NULL)" in result.artifacts[0].sql

@@ -901,6 +901,7 @@ def original_rule(plan, entry, *, generated_scopes):
             row.ProjectSQLReference,
             row.ProjectSQLJoinedReference,
             row.ProjectSQLMatchReference,
+            row.ProjectSQLAnyReference,
             row.ProjectSQLCapturedField,
             grouping.ProjectSQLResultReference,
             plan_windows.ProjectSQLWindowReference,
@@ -1031,6 +1032,8 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLCast,
     row.ProjectSQLScalarCall,
     row.ProjectSQLRelationExists,
+    row.ProjectSQLAny,
+    row.ProjectSQLAnyReference,
     row.ProjectSQLRelationScalar,
     row.ProjectSQLRelationMembership,
     row.ProjectSQLCapturedField,
@@ -1634,6 +1637,24 @@ def _join_body(
         )
     predicate = None
     if join.on is not None:
+        local_reads = {
+            expression.use
+            for expression in request.plan.expressions
+            if type(expression) is row.ProjectSQLAny
+            and expression.site.block is join.ref
+        }
+        for block_use in request.plan.expression_block_uses:
+            if block_use.ref not in local_reads:
+                continue
+            target = _block_target(request, block_use, by_definition, source_refs)
+            if target is None:
+                return None, (
+                    "PIE-B1001",
+                    "any_producer_not_realized",
+                    block_use.ref,
+                    None,
+                )
+            available[block_use.ref] = target
         predicate, problem = rows.build_row_value(
             request,
             available,

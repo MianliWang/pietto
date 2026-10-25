@@ -510,7 +510,10 @@ def _lower_relation(
             semantic_model,
             fields=input_schema.fields,
             field_owner=target_symbol,
-            field_qualifier=target.name,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             let_expansions=let_expansions,
             join_reads=join_reads,
         )
@@ -524,7 +527,9 @@ def _lower_relation(
         semantic_model,
         input_schema=input_schema,
         target_symbol=target_symbol,
-        field_qualifier=target.name,
+        field_qualifier=(
+            definition.from_clause.binding_name or definition.from_clause.source_name
+        ),
         let_expansions=let_expansions,
         join_reads=join_reads,
     )
@@ -571,8 +576,13 @@ def _lower_relation(
             ),
             group_keys=group_keys,
             input_schema=input_schema,
-            field_qualifier=target.name,
+            field_owner=target_symbol,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             let_expansions=let_expansions,
+            join_reads=join_reads,
         )
     )
     named_windows = (
@@ -583,7 +593,10 @@ def _lower_relation(
             semantic_model,
             fields=input_schema.fields,
             field_owner=target_symbol,
-            field_qualifier=target.name,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             let_expansions=let_expansions,
             window_input_expressions=window_input_expressions,
         )
@@ -599,7 +612,10 @@ def _lower_relation(
             ),
             source=RelationSourceIR(
                 target=target_symbol,
-                name=target.name,
+                name=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 span=lower_span(definition.from_clause.span),
             ),
             filter=filter_ir,
@@ -724,27 +740,82 @@ def _lower_order_by(
         return _lower_grouped_order_by(
             definition,
             input_schema=input_schema,
-            field_qualifier=target_symbol.name,
+            field_owner=target_symbol,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             projections=projections,
             group_keys=group_keys,
             let_expansions=let_expansions,
             join_reads=join_reads,
         )
-    return tuple(
-        OrderItemIR(
-            expression=_require_lowered_expression(
+    order_by: list[OrderItemIR] = []
+    for item in clause.items:
+        expression = _selected_order_expression(
+            item.expression,
+            projections=projections,
+            input_schema=input_schema,
+            let_expansions=let_expansions,
+            join_reads=join_reads,
+        )
+        if expression is None:
+            expression = _require_lowered_expression(
                 item.expression,
                 semantic_model,
                 fields=input_schema.fields,
                 field_owner=target_symbol,
-                field_qualifier=target_symbol.name,
+                field_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 let_expansions=let_expansions,
                 join_reads=join_reads,
-            ),
-            direction=_lower_order_direction(item.direction),
-            span=lower_span(item.span),
+            )
+        order_by.append(
+            OrderItemIR(
+                expression=expression,
+                direction=_lower_order_direction(item.direction),
+                span=lower_span(item.span),
+            )
         )
-        for item in clause.items
+    return tuple(order_by)
+
+
+def _selected_order_expression(
+    expression: Expression,
+    *,
+    projections: tuple[ProjectionIR, ...],
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None,
+) -> ExpressionIR | None:
+    """The selected expression an ungrouped ORDER BY key named alone reads.
+
+    A key that names a SELECT output, and no input field or `let:` binding of
+    a known row, is that output restated, as a `let:` name is its value; a
+    selected window result keeps its name.
+    """
+
+    if (
+        type(expression) is not NameExpr
+        or expression.name in let_expansions
+        or input_schema.is_unknown
+        or (
+            expression in join_reads.field_reads
+            if join_reads is not None
+            else expression.name in input_schema.fields
+        )
+    ):
+        return None
+    return next(
+        (
+            projection.expression
+            for projection in projections
+            if projection.name == expression.name
+            and not isinstance(projection.expression, WindowCallIR)
+        ),
+        None,
     )
 
 
@@ -752,6 +823,7 @@ def _lower_grouped_order_by(
     definition: DerivedRelation,
     *,
     input_schema: RowSchema,
+    field_owner: SymbolId,
     field_qualifier: str,
     projections: tuple[ProjectionIR, ...],
     group_keys: tuple[FieldRefIR, ...],
@@ -777,6 +849,7 @@ def _lower_grouped_order_by(
                 item.expression,
                 output_expressions=output_expressions,
                 input_schema=input_schema,
+                field_owner=field_owner,
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 join_reads=join_reads,
@@ -836,8 +909,10 @@ def _grouped_window_input_expressions(
     *,
     group_keys: tuple[FieldRefIR, ...],
     input_schema: RowSchema,
+    field_owner: SymbolId,
     field_qualifier: str,
     let_expansions: Mapping[str, Expression],
+    join_reads: JoinReads | None = None,
 ) -> dict[str, ExpressionIR]:
     """Map grouped window names to selected underlying expression IR."""
 
@@ -856,21 +931,24 @@ def _grouped_window_input_expressions(
         )
         if effective_expression is None:
             continue
-        field = _group_key_field(
-            effective_expression,
-            input_schema=input_schema,
-            field_qualifier=field_qualifier,
-        )
-        if field is None:
+        if join_reads is not None:
+            identity = join_reads.field_id(effective_expression)
+        else:
+            field = _group_key_field(
+                effective_expression,
+                input_schema=input_schema,
+                field_qualifier=field_qualifier,
+            )
+            if field is None:
+                continue
+            identity = FieldId(field_owner, field.name)
+        if identity is None:
             continue
         matched = next(
             (
                 output.expression
                 for output in outputs.values()
-                if output.field_identity
-                == FieldId(
-                    _symbol(SymbolNamespace.RELATION, field_qualifier), field.name
-                )
+                if output.field_identity == identity
             ),
             None,
         )
@@ -884,6 +962,7 @@ def _grouped_order_let_expression(
     *,
     output_expressions: Mapping[str, _GroupedOrderExpression],
     input_schema: RowSchema,
+    field_owner: SymbolId,
     field_qualifier: str,
     let_expansions: Mapping[str, Expression],
     join_reads: JoinReads | None = None,
@@ -907,9 +986,7 @@ def _grouped_order_let_expression(
         )
         if field is None:
             return None
-        identity = FieldId(
-            _symbol(SymbolNamespace.RELATION, field_qualifier), field.name
-        )
+        identity = FieldId(field_owner, field.name)
     for output in output_expressions.values():
         if output.field_identity == identity:
             return output.expression
@@ -1001,6 +1078,10 @@ def _lower_result_predicate(
             semantic_model,
             input_schema=input_schema,
             target_symbol=target_symbol,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             let_expansions=let_expansions,
             join_reads=join_reads,
         ),
@@ -1015,6 +1096,7 @@ def _lower_satisfying_expression(
     *,
     input_schema: RowSchema,
     target_symbol: SymbolId,
+    field_qualifier: str,
     let_expansions: Mapping[str, Expression],
     join_reads: JoinReads | None = None,
 ) -> ExpressionIR:
@@ -1027,7 +1109,7 @@ def _lower_satisfying_expression(
             semantic_model,
             fields=input_schema.fields,
             field_owner=target_symbol,
-            field_qualifier=target_symbol.name,
+            field_qualifier=field_qualifier,
             let_expansions=let_expansions,
             join_reads=join_reads,
         )
@@ -1047,7 +1129,7 @@ def _lower_satisfying_expression(
             semantic_model,
             fields=input_schema.fields,
             field_owner=target_symbol,
-            field_qualifier=target_symbol.name,
+            field_qualifier=field_qualifier,
             let_expansions=let_expansions,
             join_reads=join_reads,
         )
@@ -1071,6 +1153,7 @@ def _lower_satisfying_expression(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 join_reads=join_reads,
             ),
@@ -1081,6 +1164,7 @@ def _lower_satisfying_expression(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 join_reads=join_reads,
             ),
@@ -1095,6 +1179,7 @@ def _lower_satisfying_expression(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 join_reads=join_reads,
             ),
@@ -1105,6 +1190,7 @@ def _lower_satisfying_expression(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                field_qualifier=field_qualifier,
                 let_expansions=let_expansions,
                 join_reads=join_reads,
             ),
@@ -1215,6 +1301,10 @@ def _lower_projections(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                field_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
                 output_fields=output_fields,
                 let_expansions=let_expansions,
                 join_reads=join_reads,
@@ -1231,6 +1321,10 @@ def _lower_projections(
             semantic_model,
             input_schema=input_schema,
             target_symbol=target_symbol,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             output_fields=output_fields,
             let_expansions=let_expansions,
             join_reads=join_reads,
@@ -1240,8 +1334,12 @@ def _lower_projections(
         tuple(projections_by_ordinal.values()),
         group_keys=group_keys,
         input_schema=input_schema,
-        field_qualifier=target_symbol.name,
+        field_owner=target_symbol,
+        field_qualifier=(
+            definition.from_clause.binding_name or definition.from_clause.source_name
+        ),
         let_expansions=let_expansions,
+        join_reads=join_reads,
     )
     for ordinal, item in enumerate(definition.select_items):
         if type(item.expression) is not WindowExpr:
@@ -1251,6 +1349,10 @@ def _lower_projections(
             semantic_model,
             input_schema=input_schema,
             target_symbol=target_symbol,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
             output_fields=output_fields,
             let_expansions=let_expansions,
             join_reads=join_reads,
@@ -1269,6 +1371,7 @@ def _lower_projection(
     *,
     input_schema: RowSchema,
     target_symbol: SymbolId,
+    field_qualifier: str,
     output_fields: Mapping[str, RowFieldIR],
     let_expansions: Mapping[str, Expression],
     window_input_expressions: Mapping[str, ExpressionIR] | None = None,
@@ -1281,7 +1384,7 @@ def _lower_projection(
         semantic_model,
         fields=input_schema.fields,
         field_owner=target_symbol,
-        field_qualifier=target_symbol.name,
+        field_qualifier=field_qualifier,
         let_expansions=let_expansions,
         join_reads=join_reads,
         window_input_expressions=window_input_expressions,

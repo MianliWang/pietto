@@ -16,6 +16,7 @@ from pietto.ir.model import (
     WindowFrameUnitIR,
     WindowNthDirectionIR,
     WindowNullTreatmentIR,
+    WindowUseKindIR,
 )
 from pietto.semantic.capability_facts import (
     CapabilityDomain,
@@ -580,7 +581,8 @@ def _copied_bases_are_supported(
     ] + [
         (call.named_use.target, call.named_use.local_spec)
         for call in calls
-        if call.named_use is not None and call.named_use.local_spec.has_components
+        if call.named_use is not None
+        and call.named_use.occurrence.kind is WindowUseKindIR.NAMED_EXTENDED
     ]
     target = dialect.value
     for base, local in copies:

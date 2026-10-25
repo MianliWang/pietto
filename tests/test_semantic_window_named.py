@@ -20,6 +20,7 @@ from pietto.ast_nodes import (
 )
 from pietto.ir import build_ir
 from pietto.ir.lowering import lower_expr
+from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.window_semantics import (
@@ -47,10 +48,10 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC = REPO_ROOT / "docs/spec/phase60-slice8-query-local-named-windows-v1.md"
 PREFIX = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    account_id: Int not null\n"
-    "    value: Int not null\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    account_id: Int\n"
+    "    value: Int\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 
 EXPECTED_PROVENANCE_ORIGIN_MATRIX = (
@@ -195,29 +196,29 @@ def _adversarial_state() -> tuple[
     script = _parse(
         "query binding:\n"
         "    from rows\n"
+        "    let a = window(\n"
+        "        order by\n"
+        "            id)\n"
+        "    let b = window(\n"
+        "        order by\n"
+        "            id)\n"
+        "    let framed = window a(\n"
+        "        groups current row exclude ties)\n"
         "    select:\n"
         "        direct = row_number() window a\n"
-        "        partitioned = row_number() window a:\n"
-        "            partition by:\n"
-        "                account_id\n"
-        "        local_frame = row_number() window a:\n"
-        "            rows current row\n"
+        "        partitioned = row_number() window a(\n"
+        "            partition by\n"
+        "                account_id)\n"
+        "        local_frame = row_number() window a(\n"
+        "            rows current row)\n"
         "        inherited_frame = row_number() window framed\n"
-        "    window a:\n"
-        "        order by:\n"
-        "            id\n"
-        "    window b:\n"
-        "        order by:\n"
-        "            id\n"
-        "    window framed = a:\n"
-        "        groups current row exclude ties\n"
         "query other:\n"
         "    from rows\n"
+        "    let a = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
         "        id\n"
-        "    window a:\n"
-        "        order by:\n"
-        "            id\n"
     )
     binding_query = _query(script, "binding")
     binding = _namespace(binding_query)
@@ -268,9 +269,9 @@ def _empty_resolved_use(
         _parse(
             "query empty_use:\n"
             "    from rows\n"
+            "    let root = window()\n"
             "    select:\n"
             "        result = row_number() window root\n"
-            "    window root\n"
         ),
         "empty_use",
     )
@@ -295,27 +296,27 @@ def _provenance_carrier_matrix() -> dict[
         _parse(
             "query provenance_matrix:\n"
             "    from rows\n"
+            "    let empty = window()\n"
+            "    let partitioned = window(\n"
+            "        partition by\n"
+            "            account_id)\n"
+            "    let ordered = window partitioned(\n"
+            "        order by\n"
+            "            id)\n"
+            "    let all = window ordered(\n"
+            "        rows current row)\n"
+            "    let inherited_all = window all\n"
             "    select:\n"
             "        inherited = row_number() window all\n"
-            "        local_partition = row_number() window empty:\n"
-            "            partition by:\n"
-            "                account_id\n"
-            "        local_order = row_number() window empty:\n"
-            "            order by:\n"
-            "                id\n"
-            "        local_frame = row_number() window empty:\n"
-            "            rows current row\n"
+            "        local_partition = row_number() window empty(\n"
+            "            partition by\n"
+            "                account_id)\n"
+            "        local_order = row_number() window empty(\n"
+            "            order by\n"
+            "                id)\n"
+            "        local_frame = row_number() window empty(\n"
+            "            rows current row)\n"
             "        defaults = row_number() window empty\n"
-            "    window empty\n"
-            "    window partitioned:\n"
-            "        partition by:\n"
-            "            account_id\n"
-            "    window ordered = partitioned:\n"
-            "        order by:\n"
-            "            id\n"
-            "    window all = ordered:\n"
-            "        rows current row\n"
-            "    window inherited_all = all\n"
         ),
         "provenance_matrix",
     )
@@ -491,24 +492,26 @@ def _provenance_carrier_matrix() -> dict[
 
 def test_all_six_named_window_forms_parse_into_typed_authorship() -> None:
     parsed = parse_source(
-        "shape Row:\n"
-        "    id: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "query ranked:\n"
-        "    from rows\n"
-        "    select:\n"
-        "        direct = row_number() window alias\n"
-        "        extended = row_number() window recent:\n"
-        "            partition by:\n"
-        "                id\n"
-        "    window whole\n"
-        "    window recent:\n"
-        "        order by:\n"
-        "            id\n"
-        "    window alias = recent\n"
-        "    window rolling = recent:\n"
-        "        partition by:\n"
-        "            id\n",
+        (
+            "shape Row:\n"
+            "    id: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
+            "query ranked:\n"
+            "    from rows\n"
+            "    let whole = window()\n"
+            "    let recent = window(\n"
+            "        order by\n"
+            "            id)\n"
+            "    let alias = window recent\n"
+            "    let rolling = window recent(\n"
+            "        partition by\n"
+            "            id)\n"
+            "    select:\n"
+            "        direct = row_number() window alias\n"
+            "        extended = row_number() window recent(\n"
+            "            partition by\n"
+            "                id)\n"
+        ),
         path="slice8.pietto",
     )
     assert parsed.diagnostics == ()
@@ -525,7 +528,8 @@ def test_all_six_named_window_forms_parse_into_typed_authorship() -> None:
     assert direct.use_kind is WindowUseKind.NAMED_DIRECT
     assert extended.use_kind is WindowUseKind.NAMED_EXTENDED
     whole, recent, alias, rolling = query.named_windows
-    assert (whole.name, whole.base, whole.spec) == ("whole", None, None)
+    assert (whole.name, whole.base) == ("whole", None)
+    assert whole.spec is not None and not whole.spec.has_components
     assert recent.name == "recent" and recent.base is None
     assert recent.spec is not None and recent.spec.order_by
     assert alias.base is not None and alias.base.name == "recent"
@@ -543,9 +547,9 @@ def test_existing_inline_form_remains_distinct_and_zero_delta() -> None:
         "query ranked:\n"
         "    from rows\n"
         "    select:\n"
-        "        result = row_number() window:\n"
-        "            order by:\n"
-        "                id\n"
+        "        result = row_number() window(\n"
+        "            order by\n"
+        "                id)\n"
     )
     query = _query(script, "ranked")
     expression = _window(query)
@@ -561,10 +565,9 @@ def test_existing_inline_form_remains_distinct_and_zero_delta() -> None:
 @pytest.mark.parametrize(
     "tail",
     (
-        "    window empty:\n",
-        "    window broken =\n",
-        "    window multiple = first = second\n",
-        "    order by:\n        id\n    window late\n",
+        "    let broken = window\n",
+        "    let multiple = window first = second\n",
+        ("    order by:\n        id\n    let late = window()\n"),
     ),
 )
 def test_malformed_or_misplaced_named_declarations_remain_parser_negative(
@@ -597,16 +600,16 @@ def test_collection_first_namespace_resolves_forward_backward_aliases_and_roots(
         _parse(
             "query resolved:\n"
             "    from rows\n"
+            "    let alias = window recent\n"
+            "    let recent = window(\n"
+            "        order by\n"
+            "            id)\n"
+            "    let backward = window recent\n"
+            "    let whole = window()\n"
+            "    let empty_alias = window whole\n"
             "    select:\n"
             "        first = row_number() window alias\n"
             "        second = row_number() window backward\n"
-            "    window alias = recent\n"
-            "    window recent:\n"
-            "        order by:\n"
-            "            id\n"
-            "    window backward = recent\n"
-            "    window whole\n"
-            "    window empty_alias = whole\n"
         ),
         "resolved",
     )
@@ -641,24 +644,24 @@ def test_declaration_order_does_not_change_acyclic_resolved_components() -> None
     script = _parse(
         "query forward:\n"
         "    from rows\n"
+        "    let derived = window base(\n"
+        "        partition by\n"
+        "            account_id)\n"
+        "    let base = window(\n"
+        "        order by\n"
+        "            id desc)\n"
         "    select:\n"
         "        id\n"
-        "    window derived = base:\n"
-        "        partition by:\n"
-        "            account_id\n"
-        "    window base:\n"
-        "        order by:\n"
-        "            id desc\n"
         "query backward:\n"
         "    from rows\n"
+        "    let base = window(\n"
+        "        order by\n"
+        "            id desc)\n"
+        "    let derived = window base(\n"
+        "        partition by\n"
+        "            account_id)\n"
         "    select:\n"
         "        id\n"
-        "    window base:\n"
-        "        order by:\n"
-        "            id desc\n"
-        "    window derived = base:\n"
-        "        partition by:\n"
-        "            account_id\n"
     )
     first = _namespace(_query(script, "forward")).template_for_name("derived")
     second = _namespace(_query(script, "backward")).template_for_name("derived")
@@ -681,12 +684,12 @@ def test_duplicate_declarations_retain_every_occurrence_and_publish_no_namespace
     script = _parse(
         "query duplicate:\n"
         "    from rows\n"
+        "    let repeated = window()\n"
+        "    let repeated = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
         "        id\n"
-        "    window repeated\n"
-        "    window repeated:\n"
-        "        order by:\n"
-        "            id\n"
     )
     query = _query(script, "duplicate")
     result = resolve_named_window_namespace(query)
@@ -704,9 +707,9 @@ def test_declaration_and_use_dangling_references_fail_without_cross_block_captur
     declaration_script = _parse(
         "query dangling:\n"
         "    from rows\n"
+        "    let child = window missing\n"
         "    select:\n"
         "        id\n"
-        "    window child = missing\n"
     )
     declaration = resolve_named_window_namespace(_query(declaration_script, "dangling"))
     assert type(declaration) is NamedWindowResolutionFailure
@@ -720,11 +723,11 @@ def test_declaration_and_use_dangling_references_fail_without_cross_block_captur
     script = _parse(
         "query outer:\n"
         "    from rows\n"
+        "    let shared = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
         "        id\n"
-        "    window shared:\n"
-        "        order by:\n"
-        "            id\n"
         "query inner:\n"
         "    from outer\n"
         "    select:\n"
@@ -738,7 +741,11 @@ def test_declaration_and_use_dangling_references_fail_without_cross_block_captur
     )
     assert type(failure) is NamedWindowUseResolutionFailure
     assert failure.issues[0].kind is NamedWindowResolutionIssueKind.DANGLING_REFERENCE
-    assert [item.code for item in analyze(script).diagnostics] == ["PIE-S2111"]
+    # The second query reads the first by name (PIE-S2382).
+    assert [item.code for item in analyze(script).diagnostics] == [
+        "PIE-S2382",
+        "PIE-S2111",
+    ]
 
 
 def test_same_spelling_in_distinct_query_blocks_is_legal_and_identity_distinct() -> (
@@ -747,18 +754,18 @@ def test_same_spelling_in_distinct_query_blocks_is_legal_and_identity_distinct()
     script = _parse(
         "query first:\n"
         "    from rows\n"
+        "    let shared = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
         "        result = row_number() window shared\n"
-        "    window shared:\n"
-        "        order by:\n"
-        "            id\n"
         "query second:\n"
         "    from rows\n"
+        "    let shared = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
         "        result = row_number() window shared\n"
-        "    window shared:\n"
-        "        order by:\n"
-        "            id\n"
     )
     first = _namespace(_query(script, "first")).template_for_name("shared")
     second = _namespace(_query(script, "second")).template_for_name("shared")
@@ -772,18 +779,18 @@ def test_table_and_query_blocks_with_same_window_spelling_are_distinct() -> None
     script = _parse(
         "table table_block:\n"
         "    from rows\n"
+        "    let shared = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
         "        result = row_number() window shared\n"
-        "    window shared:\n"
-        "        order by:\n"
-        "            id\n"
         "query query_block:\n"
         "    from rows\n"
+        "    let shared = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
         "        result = row_number() window shared\n"
-        "    window shared:\n"
-        "        order by:\n"
-        "            id\n"
     )
     table = cast(
         TableDef,
@@ -800,10 +807,10 @@ def test_table_and_query_blocks_with_same_window_spelling_are_distinct() -> None
 @pytest.mark.parametrize(
     ("declarations", "witness"),
     (
-        (("window a = a",), "a -> a"),
-        (("window a = b", "window b = a"), "a -> b -> a"),
+        (("let a = window a",), "a -> a"),
+        (("let a = window b", "let b = window a"), "a -> b -> a"),
         (
-            ("window a = b", "window b = c", "window c = a"),
+            ("let a = window b", "let b = window c", "let c = window a"),
             "a -> b -> c -> a",
         ),
     ),
@@ -814,7 +821,9 @@ def test_self_two_node_and_long_cycles_reject_with_canonical_witness(
 ) -> None:
     declaration_source = "".join(f"    {item}\n" for item in declarations)
     script = _parse(
-        "query cyclic:\n    from rows\n    select:\n        id\n" + declaration_source
+        "query cyclic:\n    from rows\n"
+        + declaration_source
+        + "    select:\n        id\n"
     )
     result = resolve_named_window_namespace(_query(script, "cyclic"))
     assert type(result) is NamedWindowResolutionFailure
@@ -829,18 +838,18 @@ def test_self_two_node_and_long_cycles_reject_with_canonical_witness(
     ("base_body", "child_body", "component"),
     (
         (
-            "        partition by:\n            id\n",
-            "        partition by:\n            account_id\n",
+            "        partition by\n            id)\n",
+            "        partition by\n            account_id)\n",
             NamedWindowComponentKind.PARTITION,
         ),
         (
-            "        order by:\n            id\n",
-            "        order by:\n            account_id\n",
+            "        order by\n            id)\n",
+            "        order by\n            account_id)\n",
             NamedWindowComponentKind.ORDER,
         ),
         (
-            "        rows current row\n",
-            "        range current row\n",
+            "        rows current row)\n",
+            "        range current row)\n",
             NamedWindowComponentKind.FRAME,
         ),
     ),
@@ -853,9 +862,12 @@ def test_declaration_component_repetition_rejects_without_override(
     script = _parse(
         "query conflict:\n"
         "    from rows\n"
-        "    select:\n"
+        "    let base = window(\n"
+        + base_body
+        + "    let child = window base(\n"
+        + child_body
+        + "    select:\n"
         "        id\n"
-        "    window base:\n" + base_body + "    window child = base:\n" + child_body
     )
     result = resolve_named_window_namespace(_query(script, "conflict"))
     assert type(result) is NamedWindowResolutionFailure
@@ -868,13 +880,13 @@ def test_extended_use_component_repetition_precedes_function_policy() -> None:
     script = _parse(
         "query conflict:\n"
         "    from rows\n"
+        "    let base = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
-        "        result = row_number() window base:\n"
-        "            order by:\n"
-        "                account_id\n"
-        "    window base:\n"
-        "        order by:\n"
-        "            id\n"
+        "        result = row_number() window base(\n"
+        "            order by\n"
+        "                account_id)\n"
     )
     assert [item.code for item in analyze(script).diagnostics] == ["PIE-S2113"]
 
@@ -884,15 +896,15 @@ def test_defaults_follow_template_and_use_composition_without_false_conflicts() 
         _parse(
             "query defaults:\n"
             "    from rows\n"
+            "    let root = window()\n"
+            "    let filled = window root(\n"
+            "        partition by\n"
+            "            account_id\n"
+            "        order by\n"
+            "            id\n"
+            "        rows current row exclude current row)\n"
             "    select:\n"
             "        result = row_number() window filled\n"
-            "    window root\n"
-            "    window filled = root:\n"
-            "        partition by:\n"
-            "            account_id\n"
-            "        order by:\n"
-            "            id\n"
-            "        rows current row exclude current row\n"
         ),
         "defaults",
     )
@@ -919,11 +931,11 @@ def test_one_template_resolves_under_distinct_policies_without_mutation() -> Non
         _parse(
             "query policies:\n"
             "    from rows\n"
+            "    let ordered = window(\n"
+            "        order by\n"
+            "            id)\n"
             "    select:\n"
             "        result = row_number() window ordered\n"
-            "    window ordered:\n"
-            "        order by:\n"
-            "            id\n"
         ),
         "policies",
     )
@@ -949,16 +961,16 @@ def test_direct_provenance_reconstructs_multi_hop_component_chain() -> None:
         _parse(
             "query provenance:\n"
             "    from rows\n"
+            "    let a = window(\n"
+            "        order by\n"
+            "            id)\n"
+            "    let b = window a(\n"
+            "        partition by\n"
+            "            account_id)\n"
+            "    let c = window b(\n"
+            "        rows current row)\n"
             "    select:\n"
             "        result = row_number() window c\n"
-            "    window a:\n"
-            "        order by:\n"
-            "            id\n"
-            "    window b = a:\n"
-            "        partition by:\n"
-            "            account_id\n"
-            "    window c = b:\n"
-            "        rows current row\n"
         ),
         "provenance",
     )
@@ -997,13 +1009,13 @@ def test_direct_and_extended_uses_remain_distinct_when_effective_frames_match() 
         _parse(
             "query uses:\n"
             "    from rows\n"
+            "    let base = window(\n"
+            "        order by\n"
+            "            id)\n"
             "    select:\n"
             "        direct = row_number() window base\n"
-            "        extended = row_number() window base:\n"
-            "            range between unbounded preceding and current row exclude no others\n"
-            "    window base:\n"
-            "        order by:\n"
-            "            id\n"
+            "        extended = row_number() window base(\n"
+            "            range between unbounded preceding and current row exclude no others)\n"
         ),
         "uses",
     )
@@ -1048,12 +1060,12 @@ def test_inherited_explicit_frame_reaches_existing_function_policy() -> None:
     script = _parse(
         "query framed:\n"
         "    from rows\n"
+        "    let framed_window = window(\n"
+        "        order by\n"
+        "            id\n"
+        "        groups current row exclude ties)\n"
         "    select:\n"
         "        result = row_number() window framed_window\n"
-        "    window framed_window:\n"
-        "        order by:\n"
-        "            id\n"
-        "        groups current row exclude ties\n"
     )
     diagnostics = analyze(script).diagnostics
     assert [(item.code, item.message) for item in diagnostics] == [
@@ -1083,13 +1095,13 @@ def test_named_resolution_failure_precedes_inherited_frame_policy() -> None:
     script = _parse(
         "query duplicate:\n"
         "    from rows\n"
+        "    let framed = window(\n"
+        "        order by\n"
+        "            id\n"
+        "        rows current row)\n"
+        "    let framed = window()\n"
         "    select:\n"
         "        result = row_number() window framed\n"
-        "    window framed:\n"
-        "        order by:\n"
-        "            id\n"
-        "        rows current row\n"
-        "    window framed\n"
     )
     assert [item.code for item in analyze(script).diagnostics] == ["PIE-S2110"]
 
@@ -1098,11 +1110,11 @@ def test_legal_named_source_reaches_target_neutral_ir() -> None:
     script = _parse(
         "query legal:\n"
         "    from rows\n"
+        "    let ordered = window(\n"
+        "        order by\n"
+        "            id)\n"
         "    select:\n"
         "        result = row_number() window ordered\n"
-        "    window ordered:\n"
-        "        order by:\n"
-        "            id\n"
     )
     query = _query(script, "legal")
     expression = _window(query)
@@ -1119,32 +1131,12 @@ def test_legal_named_source_reaches_target_neutral_ir() -> None:
 
 
 def test_named_window_ir_stays_private_and_target_neutral() -> None:
-    assert tuple(field.name for field in fields(ir_model.WindowSpecIR)) == (
-        "partition_by",
-        "order_by",
-        "span",
-        "frame",
-    )
-    assert tuple(field.name for field in fields(ir_model.RelationIR)) == (
-        "symbol",
-        "name",
-        "kind",
-        "source",
-        "filter",
-        "projections",
-        "row_schema",
-        "span",
-        "order_by",
-        "limit",
-        "group_keys",
-        "result_predicate",
-        "named_windows",
-        "inputs",
-        "joins",
-    )
-    assert not hasattr(ir_model, "NamedWindowIR")
-    assert hasattr(ir_model, "NamedWindowDeclarationIR")
-    assert hasattr(ir_model, "NamedWindowUseIR")
+    import pietto.ir as public_ir
+
+    for name in ("NamedWindowDeclarationIR", "NamedWindowUseIR"):
+        assert hasattr(ir_model, name)
+        assert not hasattr(public_ir, name)
+        assert name not in public_ir.__all__
     assert "strategy" not in {field.name for field in fields(ir_model.RelationIR)}
     assert "strategy" not in {field.name for field in fields(ir_model.WindowCallIR)}
 
@@ -1269,20 +1261,23 @@ def test_file_backed_owner_rejects_missing_or_foreign_child_paths(
 
 def test_in_memory_owner_accepts_exact_children_but_rejects_another_block() -> None:
     parsed = parse_source(
-        PREFIX + "query first:\n"
-        "    from rows\n"
-        "    select:\n"
-        "        result = row_number() window shared\n"
-        "    window shared:\n"
-        "        order by:\n"
-        "            id\n"
-        "query second:\n"
-        "    from rows\n"
-        "    select:\n"
-        "        id\n"
-        "    window shared:\n"
-        "        order by:\n"
-        "            id\n"
+        PREFIX
+        + (
+            "query first:\n"
+            "    from rows\n"
+            "    let shared = window(\n"
+            "        order by\n"
+            "            id)\n"
+            "    select:\n"
+            "        result = row_number() window shared\n"
+            "query second:\n"
+            "    from rows\n"
+            "    let shared = window(\n"
+            "        order by\n"
+            "            id)\n"
+            "    select:\n"
+            "        id\n"
+        )
     )
     assert parsed.diagnostics == ()
     assert parsed.ast is not None
@@ -1628,11 +1623,11 @@ def test_equal_but_distinct_local_order_authorship_rejects() -> None:
         _parse(
             "query local_order:\n"
             "    from rows\n"
+            "    let root = window()\n"
             "    select:\n"
-            "        result = row_number() window root:\n"
-            "            order by:\n"
-            "                id\n"
-            "    window root\n"
+            "        result = row_number() window root(\n"
+            "            order by\n"
+            "                id)\n"
         ),
         "local_order",
     )
@@ -1686,13 +1681,13 @@ def test_wrong_multi_hop_node_cannot_substitute_for_direct_provenance() -> None:
         _parse(
             "query chain:\n"
             "    from rows\n"
+            "    let a = window(\n"
+            "        order by\n"
+            "            id)\n"
+            "    let b = window a\n"
+            "    let c = window b\n"
             "    select:\n"
             "        result = row_number() window c\n"
-            "    window a:\n"
-            "        order by:\n"
-            "            id\n"
-            "    window b = a\n"
-            "    window c = b\n"
         ),
         "chain",
     )
@@ -1863,3 +1858,170 @@ def test_slice8_spec_locks_semantic_only_and_later_owner_boundaries() -> None:
         "Add Phase 60 query-local named windows",
     ):
         assert evidence in document
+
+
+def test_named_windows_share_the_let_namespace_without_a_winner() -> None:
+    script = _parse(
+        "query value_first:\n"
+        "    from rows\n"
+        "    let ordered = value * 2\n"
+        "    let ordered = window(order by id)\n"
+        "    select:\n"
+        "        id\n"
+        "        position = row_number() window ordered\n"
+        "query window_first:\n"
+        "    from rows\n"
+        "    let ordered = window(order by id)\n"
+        "    let ordered = value * 2\n"
+        "    select:\n"
+        "        id\n"
+        "        position = row_number() window ordered\n"
+        "query aliased:\n"
+        "    let ordered = rows\n"
+        "    from ordered\n"
+        "    let ordered = window(order by id)\n"
+        "    select:\n"
+        "        id\n"
+        "        position = row_number() window ordered\n"
+    )
+    assert [
+        (
+            item.code,
+            item.severity,
+            item.message,
+            item.location.line,
+            item.location.column,
+        )
+        for item in analyze(script).diagnostics
+    ] == [
+        ("PIE-S2604", Severity.ERROR, "Duplicate query local name: ordered", line, 5)
+        for line in (9, 16, 23)
+    ]
+
+
+def test_a_named_window_reads_only_the_value_lets_before_it() -> None:
+    forward = _parse(
+        "query forward:\n"
+        "    from rows\n"
+        "    let by_key = window(partition by key order by id)\n"
+        "    let key = account_id\n"
+        "    select:\n"
+        "        id\n"
+        "        position = row_number() window by_key\n"
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in analyze(forward).diagnostics
+    ] == [("PIE-S2330", "Let binding cannot reference a later binding: key", 8, 38)]
+    # Windows still read each other in either direction, and a SELECT output
+    # names a column, not a let, so it may repeat a window's name.
+    backward = _parse(
+        "query backward:\n"
+        "    from rows\n"
+        "    let key = account_id\n"
+        "    let later = window by_key\n"
+        "    let by_key = window(partition by key order by id)\n"
+        "    select:\n"
+        "        id\n"
+        "        position = row_number() window later\n"
+        "        by_key = row_number() window by_key\n"
+    )
+    semantic = analyze(backward)
+    assert semantic.diagnostics == ()
+    namespace = _namespace(_query(backward, "backward"))
+    assert _resolution_names(namespace) == ("by_key", "later")
+
+
+SHADOWED_INPUTS = (
+    "shape Account:\n"
+    "    id: Int\n"
+    "    region: Text\n"
+    "shape Flag:\n"
+    "    flag: Bool\n"
+    "    id: Int\n"
+    'source accounts: Account = postgres.table("accounts")\n'
+    'source flags: Flag = postgres.table("flags")\n'
+    "table ranked:\n"
+    "    from rows\n"
+    "    select:\n"
+    "        id\n"
+    "        score = account_id * 2\n"
+)
+JOINED = "    from rows\n    inner join accounts on rows.account_id == accounts.id\n"
+# The relation an `any` reads (a semi JOIN target before S6) is bound only
+# inside the `any`, so it is no input name a let or a window cannot take.
+ANY_READ = "    from rows\n    let seen = any(rows.id == flags.id for flags in flags)\n"
+FIELD = "Let binding cannot shadow input field: "
+RELATION = "Let binding cannot shadow input relation: "
+
+
+@pytest.mark.parametrize(
+    ("inputs", "name", "key", "message"),
+    [
+        pytest.param("    from rows\n", "rows", "id", RELATION, id="from_relation"),
+        pytest.param("    from rows\n", "account_id", "id", FIELD, id="field"),
+        pytest.param(JOINED, "accounts", "rows.id", RELATION, id="join_binding"),
+        pytest.param(JOINED, "rows", "rows.id", RELATION, id="joined_from"),
+        pytest.param(JOINED, "region", "rows.id", FIELD, id="joined_field"),
+        pytest.param(JOINED, "id", "rows.id", FIELD, id="field_of_both_inputs"),
+        pytest.param(ANY_READ, "flags", "id", None, id="semi_join_relation"),
+        pytest.param("    from ranked\n", "score", "id", FIELD, id="table_output"),
+        pytest.param("    from ranked\n", "ranked", "id", RELATION, id="table"),
+        pytest.param(
+            "    from rows\n"
+            "    let seller = accounts\n"
+            "    inner join seller on rows.account_id == seller.id\n",
+            "accounts",
+            "rows.id",
+            RELATION,
+            id="aliased_join_relation",
+        ),
+        # The relation an alias names for a FROM without JOINs is not an
+        # input name a let cannot take.
+        pytest.param(
+            "    let buyer = rows\n    from buyer\n",
+            "rows",
+            "id",
+            None,
+            id="aliased_from_relation",
+        ),
+    ],
+)
+def test_a_named_window_cannot_shadow_an_input_as_a_value_let_cannot(
+    inputs: str, name: str, key: str, message: str | None
+) -> None:
+    head = SHADOWED_INPUTS + "query q:\n" + inputs
+    line = (PREFIX + head).count("\n") + 1
+
+    def diagnostics(value: str, use: str) -> list[tuple[str, str, int, int]]:
+        source = (
+            f"{head}    let {name} = {value}\n    select:\n        k = {key}\n{use}"
+        )
+        return [
+            (item.code, item.message, item.location.line, item.location.column)
+            for item in analyze(_parse(source)).diagnostics
+        ]
+
+    expected = [] if message is None else [("PIE-S2329", message + name, line, 5)]
+    # The value let's refusal comes after relation inputs resolve, so a FROM of
+    # the table `ranked` of this file is also warned about (PIE-S2382); the
+    # window's refusal stops the analysis before that check.
+    same_file_read = (
+        "PIE-S2382",
+        "`ranked` is a table of this file; single-file SQL reads it by name, "
+        "so the SQL runs only where the database already has a relation named "
+        "ranked (an EXPLICIT_MODULES project emits it as a CTE)",
+        line - 1,
+        5,
+    )
+    assert (
+        diagnostics("2", "")
+        == ([same_file_read] if inputs == "    from ranked\n" else []) + expected
+    )
+    assert (
+        diagnostics(
+            f"window(order by {key})",
+            f"        position = row_number() window {name}\n",
+        )
+        == expected
+    )

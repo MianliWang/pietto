@@ -355,13 +355,13 @@ def test_root_and_selection_are_explicit_and_never_name_resolved(plans) -> None:
 
 SUPPORTED_BODIES = {
     "set": "    union all:\n        from rows\n        from other\n",
-    "join": "    from rows\n    cross join other as r:\n        from rows\n    select:\n        id = rows.id\n",
+    "join": "    from rows\n    let r = other\n    cross join r\n    select:\n        id = rows.id\n",
     "where": "    from rows\n    where id > 0\n    select:\n        id\n",
-    "let": "    from rows\n    let:\n        x = id\n    select:\n        id\n",
+    "let": "    from rows\n    let x = id\n    select:\n        id\n",
     "scalar": "    from rows\n    select:\n        x = id + 1\n",
-    "group": "    from rows\n    group by:\n        id\n    select:\n        id\n        total = count(id)\n    satisfying:\n        total > 0\n",
+    "group": "    from rows\n    group by:\n        id\n    select:\n        id\n        total = count(id)\n    having:\n        total > 0\n",
     "global": "    from rows\n    select:\n        total = count(id)\n",
-    "window": "    from rows\n    select:\n        id\n        ranked = row_number() window:\n            order by:\n                id\n    qualify:\n        ranked <= 3\n",
+    "window": "    from rows\n    select:\n        id\n        ranked = row_number() window(order by id)\n    qualify:\n        ranked <= 3\n",
     "order": "    from rows\n    select:\n        id\n    order by:\n        id\n",
     "distinct": "    from rows\n    select distinct:\n        id\n    order by:\n        id\n    limit 2\n",
     "multiple": "    from rows\n    where id > 0\n    select:\n        a = id + 1\n        b = id + 2\n    order by:\n        id + 1\n    limit 2\n",
@@ -378,7 +378,7 @@ SCALAR_CALL_BODIES = {
     (
         '    from rows\n    select:\n        label = "yes" if id == 1 else "no"\n',
         "    from rows\n    select:\n        label = id in (1, 2)\n",
-        "    from rows\n    select:\n        label = cast(id as Float)\n",
+        "    from rows\n    select:\n        label = Float(id)\n",
     ),
 )
 def test_approved_scalar_control_forms_reach_portable_plan(
@@ -415,6 +415,7 @@ def test_semantic_admission_precedes_static_plan_representation(
     tmp_path: Path, connector: str, codes: tuple[str, ...], plannable: bool
 ) -> None:
     source = _source().replace('postgres.table("public.users")', connector)
+    assert source.split("source rows: Row = ", 1)[1].split("\n", 1)[0] == connector
     roots = _roots(tmp_path, source)
     completed = roots[0]
     assert tuple(d.code for d in completed.diagnostics) == codes
@@ -425,7 +426,6 @@ def test_semantic_admission_precedes_static_plan_representation(
         assert verify_project_sql_plan(result, *roots).verified
         literal = result.sources[0].connector.arguments[0]
         assert isinstance(literal, LiteralExpr)
-        assert source.split(" is ", 1)[1].split("\n", 1)[0] == connector
         view = inspect_project_sql_plan(verify_project_sql_plan(result, *roots))
         assert view.sources[0].connector.arguments[0] is literal
     else:
@@ -450,9 +450,7 @@ def test_semantic_admission_precedes_static_plan_representation(
 def test_unrelated_invalid_source_prevents_selected_planning(
     tmp_path: Path, separate_module: bool
 ) -> None:
-    invalid = (
-        'shape Bad:\n    id: Int not null\nsource broken: Bad is mysql.table("")\n'
-    )
+    invalid = 'shape Bad:\n    id: Int\nsource broken: Bad = mysql.table("")\n'
     text = _source()
     if separate_module:
         (tmp_path / "bad.pietto").write_text(invalid)
@@ -475,7 +473,7 @@ def test_scalar_calls_keep_selected_closure_plannable(
 ) -> None:
     base = (
         _source().split("query result:", 1)[0]
-        + 'source other: Row is postgres.table("other")\n'
+        + 'source other: Row = postgres.table("other")\n'
     )
     if family == "multiple":
         base += "table nested:\n" + SCALAR_CALL_BODIES["call"]
@@ -626,11 +624,11 @@ def test_verifier_and_inspection_never_call_construction(
 
 def test_imported_source_has_current_positive_planning(tmp_path: Path) -> None:
     (tmp_path / "source.pietto").write_text(
-        _source().split("query result:", 1)[0] + "export:\n    source rows\n"
+        _source().split("query result:", 1)[0] + "export source rows\n"
     )
     roots = _roots(
         tmp_path,
-        'import "source.pietto":\n    source rows\n'
+        'from "source.pietto" import source rows\n'
         + "query result:\n    from rows\n    select:\n        id\n",
     )
     assert roots[0].ok, roots[0].diagnostics
@@ -671,7 +669,7 @@ def test_lifted_row_and_join_families_are_positive(tmp_path: Path, family: str) 
     roots = _roots(
         tmp_path,
         _source().split("query result:", 1)[0]
-        + 'source other: Row is postgres.table("other")\n'
+        + 'source other: Row = postgres.table("other")\n'
         + "query result:\n"
         + SUPPORTED_BODIES[family],
     )
@@ -689,3 +687,261 @@ def test_lifted_row_and_join_families_are_positive(tmp_path: Path, family: str) 
     assert bool(view.set_bodies) is (family == "set")
     assert bool(view.expressions) is (family != "set")
     assert view.exports
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ("call_order", "missing_argument", "foreign_expansion", "cyclic_expansion"),
+)
+def test_predicate_plan_observation_refuses_call_and_binding_damage(
+    tmp_path: Path, damage: str
+) -> None:
+    from pietto._project import project_sql_plan as sql
+    from pietto._project import project_sql_plan_portable_schema as schema
+    from pietto._project import project_sql_plan_pure_boundary as pure
+
+    from _pietto_plan_joins import _roots as _join_roots, _requests
+
+    roots = _join_roots(
+        tmp_path,
+        """shape Row:
+    id: Int
+    row_key = unique(id)
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
+relationship Same(a: Row, b: Row):
+    a.id == b.id and b.id > 0
+query result:
+    from lhs
+    inner join rhs on Same(lhs, rhs) and Same(lhs, rhs)
+    where Same(lhs, rhs) or not Same(lhs, rhs)
+    select:
+        matched = Same(lhs, rhs)
+        id = lhs.id
+""",
+        requests=_requests,
+    )
+    assert roots[0].ok, roots[0].diagnostics
+    plan = build_project_sql_plan(*roots)
+    assert isinstance(plan, ProjectSQLPlan), plan
+    checked = verify_project_sql_plan(plan, *roots)
+    assert checked.verified, checked.issues
+    records = tuple(
+        record
+        for site in plan.expression_sites
+        if (record := sql.predicate_expression(site)) is not None
+    )
+    calls = tuple(call for record in records for call in record.calls)
+    assert [call.ordinal for call in calls] == list(range(5))
+    assert plan.relationship_matches == ()
+    assert all(
+        any(value.expression is call.expanded for value in plan.expressions)
+        for call in calls
+    )
+    product = build_project_sql_plan_portable(checked)
+    assert verify_project_sql_plan_portable(product, checked).verified
+    document = product.document
+    modern_joins = tuple(
+        record for record in document.records if record.kind == "named_join_clause"
+    )
+    assert len(modern_joins) == 1
+    assert (
+        next(
+            field.value.tag
+            for field in modern_joins[0].fields
+            if field.name == "source_binding_name"
+        )
+        is schema.Tag.ABSENT
+    )
+    position = next(
+        i
+        for i, record in enumerate(document.records)
+        if record.kind == "relationship_call_info"
+    )
+    original = document.records[position]
+    other = next(
+        record
+        for i, record in enumerate(document.records)
+        if record.kind == "relationship_call_info" and i != position
+    )
+    if damage == "cyclic_expansion":
+        expansion = next(
+            field.value for field in original.fields if field.name == "expanded"
+        )
+        position = next(
+            i
+            for i, record in enumerate(document.records)
+            if record.ref == expansion.data
+        )
+        original = document.records[position]
+        assert original.kind == "binary_expr"
+        key, replacement = "left", expansion
+    else:
+        key = {
+            "call_order": "ordinal",
+            "missing_argument": "arguments",
+            "foreign_expansion": "expanded",
+        }[damage]
+        replacement = (
+            next(field.value for field in other.fields if field.name == "ordinal")
+            if damage == "call_order"
+            else schema.Value(schema.Tag.SEQUENCE, ())
+            if damage == "missing_argument"
+            else next(field.value for field in other.fields if field.name == "expanded")
+        )
+    changed = replace(
+        original,
+        fields=tuple(
+            replace(field, value=replacement) if field.name == key else field
+            for field in original.fields
+        ),
+    )
+    damaged = replace(
+        document,
+        records=(
+            *document.records[:position],
+            changed,
+            *document.records[position + 1 :],
+        ),
+    )
+    assert pure.evaluate_project_sql_plan_document(damaged).status is not pure.Status.OK
+
+
+@pytest.mark.parametrize(
+    ("owner_kind", "ordered"),
+    (("query", False), ("table", True)),
+    ids=("query", "ordered_table"),
+)
+def test_scalar_any_plan_keeps_nested_input_occurrences_and_rejects_grafts(
+    tmp_path: Path,
+    owner_kind: str,
+    ordered: bool,
+) -> None:
+    from pietto._project import project_sql_plan_expressions as scalar
+    from pietto._project import project_sql_plan_portable_schema as schema
+    from pietto._project import project_sql_plan_pure_boundary as pure
+    from _pietto_plan_joins import _roots as _join_roots
+
+    ordered_tail = (
+        "        id = rows.id\n    order by:\n        id\n" if ordered else ""
+    )
+    roots = _join_roots(
+        tmp_path,
+        f"""shape Row:
+    id: Int
+source rows: Row = postgres.table("rows")
+{owner_kind} result:
+    from rows
+    where rows.id > 0 or any(other.id == rows.id for other in rows)
+    select:
+        accepted = any(any(inner.id == outer.id and inner.id == rows.id for inner in rows) for outer in rows)
+{ordered_tail}""",
+    )
+    assert roots[0].ok, roots[0].diagnostics
+    plan = build_project_sql_plan(*roots)
+    assert isinstance(plan, ProjectSQLPlan), plan
+    checked = verify_project_sql_plan(plan, *roots)
+    assert checked.verified, checked.issues
+    assert bool(plan.orders) is ordered
+    values = tuple(
+        value for value in plan.expressions if isinstance(value, scalar.ProjectSQLAny)
+    )
+    assert len(values) == 3
+    assert len({id(value.use) for value in values}) == 3
+    nested = values[-1]
+    reads = tuple(
+        value
+        for value in plan.expressions
+        if isinstance(value, scalar.ProjectSQLAnyReference)
+        and value.site is nested.site
+    )
+    assert any(value.use is values[-2].use for value in reads)
+    assert any(value.port is not None for value in reads)
+    product = build_project_sql_plan_portable(checked)
+    assert verify_project_sql_plan_portable(product, checked).verified
+    document = product.document
+    position = next(
+        i
+        for i, record in enumerate(document.records)
+        if record.kind == "project_sql_any_reference"
+        and any(
+            field.name == "use" and field.value.tag is schema.Tag.REF
+            for field in record.fields
+        )
+    )
+    original = document.records[position]
+    replacement = next(
+        field.value
+        for record in document.records
+        if record.kind == "project_sql_any"
+        for field in record.fields
+        if field.name == "use"
+        and field.value != next(f.value for f in original.fields if f.name == "use")
+    )
+    changed = replace(
+        original,
+        fields=tuple(
+            replace(field, value=replacement) if field.name == "use" else field
+            for field in original.fields
+        ),
+    )
+    damaged = replace(
+        document,
+        records=(
+            *document.records[:position],
+            changed,
+            *document.records[position + 1 :],
+        ),
+    )
+    assert pure.evaluate_project_sql_plan_document(damaged).status is not pure.Status.OK
+
+    # An equal reference payload is still a different FROM occurrence. The
+    # symbol alone must not authorize an outer capture from that forged ref.
+    by_ref = {record.ref: record for record in document.records}
+
+    def binding(record):
+        ref = next(
+            field.value.data for field in record.fields if field.name == "binding"
+        )
+        assert isinstance(ref, schema.Ref)
+        return ref
+
+    field_record = next(
+        record
+        for record in document.records
+        if record.kind == "project_any_field"
+        and by_ref[binding(record)].kind == "project_resolved_module_relation_reference"
+    )
+    binding_ref = binding(field_record)
+    binding_record = by_ref[binding_ref]
+    forged_ref = schema.Ref(
+        binding_ref.domain,
+        max(
+            record.ref.position
+            for record in document.records
+            if record.ref.domain == binding_ref.domain
+        )
+        + 1,
+    )
+    forged_binding = replace(binding_record, ref=forged_ref)
+    forged_field = replace(
+        field_record,
+        fields=tuple(
+            replace(field, value=schema.Value(schema.Tag.REF, forged_ref))
+            if field.name == "binding"
+            else field
+            for field in field_record.fields
+        ),
+    )
+    damaged_capture = replace(
+        document,
+        records=tuple(
+            forged_field if record is field_record else record
+            for record in document.records
+        )
+        + (forged_binding,),
+    )
+    assert (
+        pure.evaluate_project_sql_plan_document(damaged_capture).status
+        is not pure.Status.OK
+    )

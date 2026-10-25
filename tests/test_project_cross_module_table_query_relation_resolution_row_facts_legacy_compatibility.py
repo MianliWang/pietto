@@ -113,23 +113,7 @@ def _diagnostic_pairs(
 
 
 def _library_source(*, export_relation: str = "table projected") -> str:
-    return (
-        "shape Row:\n"
-        "    id: Int not null\n"
-        "    name: Text nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table projected:\n"
-        "    from rows\n"
-        "    select:\n"
-        "        id\n"
-        "        name\n"
-        "query reported:\n"
-        "    from projected\n"
-        "    select:\n"
-        "        id\n"
-        "        name\n"
-        f"export:\n    {export_relation}\n"
-    )
+    return f'shape Row:\n    id: Int\n    name: Text | None\nsource rows: Row = postgres.table("rows")\ntable projected:\n    from rows\n    select:\n        id\n        name\nquery reported:\n    from projected\n    select:\n        id\n        name\nexport (\n    {export_relation})\n'
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
@@ -225,8 +209,12 @@ def test_imported_relation_alias_preserves_binding_and_nominal_target_identity(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table projected as Local\n'
-                "query result:\n    from Local\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table projected as Local)\n"
+                "query result:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": _library_source(),
         },
@@ -246,7 +234,7 @@ def test_resolved_relation_symbol_rejects_mixed_sources_and_wrong_kinds(
     _, semantic = _semantic_project(
         tmp_path,
         {
-            "a.pietto": 'import "b.pietto":\n    table projected as Local\n',
+            "a.pietto": 'from "b.pietto" import (\n    table projected as Local)\n',
             "b.pietto": _library_source(),
         },
     )
@@ -272,10 +260,17 @@ def test_relation_reference_and_resolution_require_exact_retained_ast_sites(
         tmp_path,
         {
             "a.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "table first:\n    from rows\n    select:\n        id\n"
-                "query second:\n    from first\n    select:\n        id\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "table first:\n"
+                "    from rows\n"
+                "    select:\n"
+                "        id\n"
+                "query second:\n"
+                "    from first\n"
+                "    select:\n"
+                "        id\n"
             )
         },
     )
@@ -381,10 +376,17 @@ def test_local_sources_tables_and_queries_use_one_collect_before_resolve_namespa
         tmp_path,
         {
             "a.pietto": (
-                "query final:\n    from projected\n    select:\n        id\n"
-                "table projected:\n    from rows\n    select:\n        id\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "shape Row:\n    id: Int not null\n"
+                "query final:\n"
+                "    from projected\n"
+                "    select:\n"
+                "        id\n"
+                "table projected:\n"
+                "    from rows\n"
+                "    select:\n"
+                "        id\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "shape Row:\n"
+                "    id: Int\n"
             )
         },
     )
@@ -407,13 +409,19 @@ def test_imported_source_alias_resolves_in_relation_namespace(tmp_path: Path) ->
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    source rows as Input\n'
-                "query result:\n    from Input\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    source rows as Input)\n"
+                "query result:\n"
+                "    from Input\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": (
-                "shape Row:\n    id: Int not null\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "export:\n    source rows\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "export (\n"
+                "    source rows)\n"
             ),
         },
     )
@@ -428,8 +436,12 @@ def test_imported_table_alias_resolves_with_distinct_table_kind(tmp_path: Path) 
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table projected as Input\n'
-                "query result:\n    from Input\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table projected as Input)\n"
+                "query result:\n"
+                "    from Input\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": _library_source(),
         },
@@ -448,8 +460,12 @@ def test_imported_query_alias_resolves_with_distinct_query_kind(tmp_path: Path) 
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    query reported as Input\n'
-                "query result:\n    from Input\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    query reported as Input)\n"
+                "query result:\n"
+                "    from Input\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": _library_source(export_relation="query reported"),
         },
@@ -469,10 +485,12 @@ def test_explicit_reexport_preserves_direct_facade_and_original_table_identity(
     _, semantic = _semantic_project(
         tmp_path,
         {
-            "a.pietto": 'import "b.pietto":\n    table Public as Local\n',
+            "a.pietto": 'from "b.pietto" import (\n    table Public as Local)\n',
             "b.pietto": (
-                'import "c.pietto":\n    table projected as Public\n'
-                "export:\n    table Public\n"
+                'from "c.pietto" import (\n'
+                "    table projected as Public)\n"
+                "export (\n"
+                "    table Public)\n"
             ),
             "c.pietto": _library_source(),
         },
@@ -489,10 +507,12 @@ def test_explicit_reexport_preserves_original_query_identity(tmp_path: Path) -> 
     _, semantic = _semantic_project(
         tmp_path,
         {
-            "a.pietto": 'import "b.pietto":\n    query Public as Local\n',
+            "a.pietto": 'from "b.pietto" import (\n    query Public as Local)\n',
             "b.pietto": (
-                'import "c.pietto":\n    query reported as Public\n'
-                "export:\n    query Public\n"
+                'from "c.pietto" import (\n'
+                "    query reported as Public)\n"
+                "export (\n"
+                "    query Public)\n"
             ),
             "c.pietto": _library_source(export_relation="query reported"),
         },
@@ -511,7 +531,7 @@ def test_dependency_first_order_and_selected_position_tie_break_are_exact(
         {
             "a.pietto": "shape A:\n    id: Int\n",
             "b.pietto": _library_source(),
-            "c.pietto": 'import "b.pietto":\n    table projected\n',
+            "c.pietto": 'from "b.pietto" import (\n    table projected)\n',
         },
     )
     assert tuple(item.path for item in _required_set(semantic).dependency_order) == (
@@ -528,19 +548,31 @@ def test_cyclic_direct_facade_blocks_before_acyclic_nominal_target(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table Public as Local\n'
-                "query result:\n    from Local\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table Public as Local)\n"
+                "query result:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    table projected as Public\n'
-                'import "d.pietto":\n    query D\n'
-                "export:\n    table Public\n"
+                'from "c.pietto" import (\n'
+                "    table projected as Public)\n"
+                'from "d.pietto" import (\n'
+                "    query D)\n"
+                "export (\n"
+                "    table Public)\n"
             ),
             "c.pietto": _library_source(),
             "d.pietto": (
-                "query D:\n    from missing\n    select:\n        id\n"
-                "export:\n    query D\n"
-                'import "b.pietto":\n    table Public\n'
+                "query D:\n"
+                "    from missing\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    query D)\n"
+                'from "b.pietto" import (\n'
+                "    table Public)\n"
             ),
         },
     )
@@ -572,14 +604,24 @@ def test_module_cycle_emits_only_pie_s2703_root_for_relation_resolution(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    query B\n'
-                "query A:\n    from B\n    select:\n        id\n"
-                "export:\n    query A\n"
+                'from "b.pietto" import (\n'
+                "    query B)\n"
+                "query A:\n"
+                "    from B\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    query A)\n"
             ),
             "b.pietto": (
-                'import "a.pietto":\n    query A\n'
-                "query B:\n    from A\n    select:\n        id\n"
-                "export:\n    query B\n"
+                'from "a.pietto" import (\n'
+                "    query A)\n"
+                "query B:\n"
+                "    from A\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    query B)\n"
             ),
         },
     )
@@ -599,8 +641,12 @@ def test_local_import_collision_blocks_complete_relation_bucket_without_winner(
         {
             "a.pietto": (
                 "type Local = Int\n"
-                'import "b.pietto":\n    table projected as Local\n'
-                "query result:\n    from Local\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table projected as Local)\n"
+                "query result:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": _library_source(),
         },
@@ -618,9 +664,14 @@ def test_import_import_collision_blocks_complete_relation_bucket_without_winner(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table projected as Shared\n'
-                'import "c.pietto":\n    query reported as Shared\n'
-                "query result:\n    from Shared\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table projected as Shared)\n"
+                'from "c.pietto" import (\n'
+                "    query reported as Shared)\n"
+                "query result:\n"
+                "    from Shared\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": _library_source(),
             "c.pietto": _library_source(export_relation="query reported"),
@@ -639,9 +690,13 @@ def test_duplicate_local_relation_cross_kind_emits_one_pie_s2001_without_winner(
         tmp_path,
         {
             "a.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source Shared: Row is postgres.table("rows")\n'
-                "table Shared:\n    from Shared\n    select:\n        id\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source Shared: Row = postgres.table("rows")\n'
+                "table Shared:\n"
+                "    from Shared\n"
+                "    select:\n"
+                "        id\n"
             )
         },
     )
@@ -654,16 +709,28 @@ def test_duplicate_local_relation_cross_kind_emits_one_pie_s2001_without_winner(
         tmp_path / "exact-imported-causal-root",
         {
             "a.pietto": (
-                'import "b.pietto":\n    source Shared as Remote\n'
-                "query Uses:\n    from Remote\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    source Shared as Remote)\n"
+                "query Uses:\n"
+                "    from Remote\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source Shared: Row is postgres.table("shared")\n'
-                'source Rows: Row is postgres.table("rows")\n'
-                "table Shared:\n    from Rows\n    select:\n        id\n"
-                "table Other:\n    from Rows\n    select:\n        Shared\n"
-                "export:\n    source Shared\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source Shared: Row = postgres.table("shared")\n'
+                'source Rows: Row = postgres.table("rows")\n'
+                "table Shared:\n"
+                "    from Rows\n"
+                "    select:\n"
+                "        id\n"
+                "table Other:\n"
+                "    from Rows\n"
+                "    select:\n"
+                "        Shared\n"
+                "export (\n"
+                "    source Shared)\n"
             ),
         },
     )
@@ -709,9 +776,10 @@ def test_duplicate_local_sources_reuse_slice9_root_without_duplicate_diagnostic(
         tmp_path,
         {
             "a.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source rows: Row is postgres.table("one")\n'
-                'source rows: Row is postgres.table("two")\n'
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("one")\n'
+                'source rows: Row = postgres.table("two")\n'
             )
         },
     )
@@ -748,8 +816,12 @@ def test_wrong_kind_import_root_suppresses_derived_unknown_relation(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table reported as Local\n'
-                "query result:\n    from Local\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table reported as Local)\n"
+                "query result:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": _library_source(export_relation="query reported"),
         },
@@ -766,9 +838,16 @@ def test_repeated_consumers_of_one_failed_import_do_not_duplicate_root(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table reported as Local\n'
-                "query first:\n    from Local\n    select:\n        id\n"
-                "query second:\n    from Local\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table reported as Local)\n"
+                "query first:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        id\n"
+                "query second:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": _library_source(export_relation="query reported"),
         },
@@ -788,9 +867,16 @@ def test_independent_local_relation_error_remains_visible_with_module_root(
         tmp_path,
         {
             "a.pietto": (
-                'import "missing.pietto":\n    table absent as Blocked\n'
-                "query derived:\n    from Blocked\n    select:\n        id\n"
-                "query independent:\n    from local_missing\n    select:\n        id\n"
+                'from "missing.pietto" import (\n'
+                "    table absent as Blocked)\n"
+                "query derived:\n"
+                "    from Blocked\n"
+                "    select:\n"
+                "        id\n"
+                "query independent:\n"
+                "    from local_missing\n"
+                "    select:\n"
+                "        id\n"
             )
         },
     )
@@ -849,12 +935,13 @@ def test_source_row_fact_preserves_field_order_types_definitions_and_minimal_nul
         {
             "a.pietto": (
                 "type Identifier = Int\n"
-                "enum Status:\n    active\n"
+                "enum Status:\n"
+                "    active\n"
                 "shape Row:\n"
-                "    id: Identifier not null\n"
-                "    status: Status nullable\n"
+                "    id: Identifier\n"
+                "    status: Status | None\n"
                 "    label: Text\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             )
         },
     )
@@ -870,10 +957,11 @@ def test_source_row_fact_preserves_field_order_types_definitions_and_minimal_nul
         ProjectResolvedTypeKind.ENUM,
         ProjectResolvedTypeKind.BUILTIN,
     )
+    # A bare declared type is never None, through an alias or not.
     assert tuple(field.nullability for field in state.schema.fields.values()) == (
         ProjectRowFieldNullability.NON_NULL,
         ProjectRowFieldNullability.NULLABLE,
-        ProjectRowFieldNullability.UNKNOWN,
+        ProjectRowFieldNullability.NON_NULL,
     )
     assert all(field.field_def is not None for field in state.schema.fields.values())
     assert all(field.provenance is None for field in state.schema.fields.values())
@@ -886,10 +974,16 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         tmp_path,
         {
             "a.pietto": (
-                'source raw is postgres.table("raw")\n'
-                'source broken: Missing is postgres.table("broken")\n'
-                "query raw_query:\n    from raw\n    select:\n        id\n"
-                "query broken_query:\n    from broken\n    select:\n        id\n"
+                'source raw = postgres.table("raw")\n'
+                'source broken: Missing = postgres.table("broken")\n'
+                "query raw_query:\n"
+                "    from raw\n"
+                "    select:\n"
+                "        id\n"
+                "query broken_query:\n"
+                "    from broken\n"
+                "    select:\n"
+                "        id\n"
             )
         },
     )
@@ -903,10 +997,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         tmp_path / "foreign_shape",
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape Row\n'
-                'source rows: Row is postgres.table("rows")\n'
+                'from "b.pietto" import (\n'
+                "    shape Row)\n"
+                'source rows: Row = postgres.table("rows")\n'
             ),
-            "b.pietto": ("shape Row:\n    id: Missing\nexport:\n    shape Row\n"),
+            "b.pietto": ("shape Row:\n    id: Missing\nexport (\n    shape Row)\n"),
         },
     )
     assert tuple(item.code for item in foreign.diagnostics) == ("PIE-S2002",)
@@ -952,11 +1047,14 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             tmp_path / case,
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    shape Row\n'
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    shape Row)\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    aliases + "shape Row:\n    value: A\n" + "export:\n    shape Row\n"
+                    aliases
+                    + "shape Row:\n    value: A\n"
+                    + "export (\n    shape Row)\n"
                 ),
             },
         )
@@ -1047,7 +1145,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                 "shape Row:\n"
                 "    first: MissingA\n"
                 "    second: MissingB\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             )
         },
         public_codes=("PIE-S2002", "PIE-S2002"),
@@ -1060,7 +1158,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                 "shape Row:\n"
                 "    second: MissingB\n"
                 "    first: MissingA\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             )
         },
         public_codes=("PIE-S2002", "PIE-S2002"),
@@ -1074,7 +1172,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                 "shape Row:\n"
                 "    first: Alias\n"
                 "    second: Alias\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             )
         },
         public_codes=("PIE-S2002",),
@@ -1089,7 +1187,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                 "shape Row:\n"
                 "    first: Missing\n"
                 "    second: A\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             )
         },
         public_codes=("PIE-S2003", "PIE-S2002"),
@@ -1103,7 +1201,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                 "    repeated: Int\n"
                 "    repeated: Text\n"
                 "    missing: Missing\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             ),
         ),
         (
@@ -1113,17 +1211,17 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                 "    missing: Missing\n"
                 "    repeated: Int\n"
                 "    repeated: Text\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             ),
         ),
         (
             "known-invalid-known",
             (
                 "shape Row:\n"
-                "    before: Int not null\n"
+                "    before: Int\n"
                 "    missing: Missing\n"
-                "    after: Text nullable\n"
-                'source rows: Row is postgres.table("rows")\n'
+                "    after: Text | None\n"
+                'source rows: Row = postgres.table("rows")\n'
             ),
         ),
     )
@@ -1139,15 +1237,16 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         "imported-shape-distinct-unknown-fields",
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape Row\n'
-                'source rows: Row is postgres.table("rows")\n'
+                'from "b.pietto" import (\n'
+                "    shape Row)\n"
+                'source rows: Row = postgres.table("rows")\n'
             ),
             "b.pietto": (
                 "shape Row:\n"
                 "    first: MissingA\n"
                 "    second: MissingB\n"
-                "export:\n"
-                "    shape Row\n"
+                "export (\n"
+                "    shape Row)\n"
             ),
         },
         public_codes=("PIE-S2002", "PIE-S2002"),
@@ -1158,12 +1257,14 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         "two-exact-module-blocked-fields",
         {
             "a.pietto": (
-                'import "missing-a.pietto":\n    type HiddenA as LocalA\n'
-                'import "missing-b.pietto":\n    type HiddenB as LocalB\n'
+                'from "missing-a.pietto" import (\n'
+                "    type HiddenA as LocalA)\n"
+                'from "missing-b.pietto" import (\n'
+                "    type HiddenB as LocalB)\n"
                 "shape Row:\n"
                 "    first: LocalA\n"
                 "    second: LocalB\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             )
         },
         public_codes=("PIE-S2701", "PIE-S2701"),
@@ -1187,12 +1288,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             case,
             {
                 "a.pietto": (
-                    'import "missing.pietto":\n'
-                    "    type HiddenA as LocalA\n"
-                    "    type HiddenB as LocalB\n"
-                    "shape Row:\n"
-                    f"{field_lines}"
-                    'source rows: Row is postgres.table("rows")\n'
+                    f'from "missing.pietto" import (\n    type HiddenA as LocalA,\n    type HiddenB as LocalB)\nshape Row:\n{field_lines}source rows: Row = postgres.table("rows")\n'
                 )
             },
             public_codes=("PIE-S2701",),
@@ -1220,13 +1316,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             case,
             {
                 "a.pietto": (
-                    "type LocalB = Int\n"
-                    'import "missing.pietto":\n'
-                    "    type HiddenA as LocalA\n"
-                    "    source Remote as LocalB\n"
-                    "shape Row:\n"
-                    f"{field_lines}"
-                    'source rows: Row is postgres.table("rows")\n'
+                    f'type LocalB = Int\nfrom "missing.pietto" import (\n    type HiddenA as LocalA,\n    source Remote as LocalB)\nshape Row:\n{field_lines}source rows: Row = postgres.table("rows")\n'
                 )
             },
             public_codes=("PIE-S2701", "PIE-S2706"),
@@ -1241,17 +1331,17 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         "transitive-overlap-components",
         {
             "a.pietto": (
-                'import "missing-a.pietto":\n'
-                "    type HiddenA as LocalA\n"
-                "    source RemoteA as Shared\n"
-                'import "missing-b.pietto":\n'
-                "    type HiddenB as LocalB\n"
-                "    source RemoteB as Shared\n"
+                'from "missing-a.pietto" import (\n'
+                "    type HiddenA as LocalA,\n"
+                "    source RemoteA as Shared)\n"
+                'from "missing-b.pietto" import (\n'
+                "    type HiddenB as LocalB,\n"
+                "    source RemoteB as Shared)\n"
                 "shape Row:\n"
                 "    first: LocalA\n"
                 "    second: LocalB\n"
                 "    third: Shared\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'source rows: Row = postgres.table("rows")\n'
             )
         },
         public_codes=("PIE-S2701", "PIE-S2701", "PIE-S2706"),
@@ -1283,19 +1373,14 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             tmp_path / case,
             {
                 "a.pietto": (
-                    'import "b.pietto":\n'
-                    "    shape Shared as Alpha\n"
-                    "    shape Shared as Beta\n"
-                    "shape Input:\n"
-                    f"{field_lines}"
-                    'source rows: Input is postgres.table("rows")\n'
+                    f'from "b.pietto" import (\n    shape Shared as Alpha,\n    shape Shared as Beta)\nshape Input:\n{field_lines}source rows: Input = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
                     "shape Physical:\n"
                     "    id: Int\n"
-                    'source Shared: Physical is postgres.table("shared")\n'
-                    "export:\n"
-                    "    source Shared\n"
+                    'source Shared: Physical = postgres.table("shared")\n'
+                    "export (\n"
+                    "    source Shared)\n"
                 ),
             },
         )
@@ -1346,9 +1431,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "ambiguous-source-shape-root",
             {
                 "a.pietto": (
-                    "shape Row:\n    first: Int\n"
-                    "shape Row:\n    second: Text\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    "shape Row:\n"
+                    "    first: Int\n"
+                    "shape Row:\n"
+                    "    second: Text\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 )
             },
             ("PIE-S2001",),
@@ -1360,9 +1447,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             {
                 "a.pietto": (
                     "type Shared = Int\n"
-                    "enum Shared:\n    ONE\n"
-                    "shape Row:\n    value: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    "enum Shared:\n"
+                    "    ONE\n"
+                    "shape Row:\n"
+                    "    value: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 )
             },
             ("PIE-S2001",),
@@ -1374,10 +1463,12 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             {
                 "a.pietto": (
                     "type Shared = Int\n"
-                    "enum Shared:\n    ONE\n"
+                    "enum Shared:\n"
+                    "    ONE\n"
                     "type Alias = Shared\n"
-                    "shape Row:\n    value: Alias\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    "shape Row:\n"
+                    "    value: Alias\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 )
             },
             ("PIE-S2001",),
@@ -1389,9 +1480,12 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             {
                 "a.pietto": (
                     "type Shared = Int\n"
-                    "enum Shared:\n    ONE\n"
-                    "shape Row:\n    first: Shared\n    second: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    "enum Shared:\n"
+                    "    ONE\n"
+                    "shape Row:\n"
+                    "    first: Shared\n"
+                    "    second: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 )
             },
             ("PIE-S2001",),
@@ -1416,18 +1510,23 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
 
     cyclic_type_sources = {
         "a.pietto": (
-            'import "b.pietto":\n    type Public as Local\n'
-            "shape Row:\n    value: Local\n"
-            'source rows: Row is postgres.table("rows")\n'
+            'from "b.pietto" import (\n'
+            "    type Public as Local)\n"
+            "shape Row:\n"
+            "    value: Local\n"
+            'source rows: Row = postgres.table("rows")\n'
         ),
         "b.pietto": (
-            'import "c.pietto":\n    type Base as Public\n'
-            'import "d.pietto":\n    type D\n'
-            "export:\n    type Public\n"
+            'from "c.pietto" import (\n'
+            "    type Base as Public)\n"
+            'from "d.pietto" import (\n'
+            "    type D)\n"
+            "export (\n"
+            "    type Public)\n"
         ),
-        "c.pietto": "type Base = Text\nexport:\n    type Base\n",
+        "c.pietto": "type Base = Text\nexport (\n    type Base)\n",
         "d.pietto": (
-            'type D = Int\nexport:\n    type D\nimport "b.pietto":\n    type Public\n'
+            'type D = Int\nexport (\n    type D)\nfrom "b.pietto" import (\n    type Public)\n'
         ),
     }
     assert_complete_field_blockers(
@@ -1440,10 +1539,12 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
 
     cyclic_alias_sources = dict(cyclic_type_sources)
     cyclic_alias_sources["a.pietto"] = (
-        'import "b.pietto":\n    type Public as Local\n'
+        'from "b.pietto" import (\n'
+        "    type Public as Local)\n"
         "type Alias = Local\n"
-        "shape Row:\n    value: Alias\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n"
+        "    value: Alias\n"
+        'source rows: Row = postgres.table("rows")\n'
     )
     assert_complete_field_blockers(
         "cyclic-imported-alias-base-root",
@@ -1457,18 +1558,25 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         "cyclic-imported-source-shape-root",
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape Public as Local\n'
-                'source rows: Local is postgres.table("rows")\n'
+                'from "b.pietto" import (\n'
+                "    shape Public as Local)\n"
+                'source rows: Local = postgres.table("rows")\n'
             ),
             "b.pietto": (
-                'import "c.pietto":\n    shape Base as Public\n'
-                'import "d.pietto":\n    type D\n'
-                "export:\n    shape Public\n"
+                'from "c.pietto" import (\n'
+                "    shape Base as Public)\n"
+                'from "d.pietto" import (\n'
+                "    type D)\n"
+                "export (\n"
+                "    shape Public)\n"
             ),
-            "c.pietto": ("shape Base:\n    value: Text\nexport:\n    shape Base\n"),
+            "c.pietto": ("shape Base:\n    value: Text\nexport (\n    shape Base)\n"),
             "d.pietto": (
-                "type D = Int\nexport:\n    type D\n"
-                'import "b.pietto":\n    shape Public\n'
+                "type D = Int\n"
+                "export (\n"
+                "    type D)\n"
+                'from "b.pietto" import (\n'
+                "    shape Public)\n"
             ),
         },
         public_codes=("PIE-S2703",),
@@ -1481,9 +1589,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "unrelated-source-binding-field-type-spelling",
             {
                 "a.pietto": (
-                    'import "missing.pietto":\n    source Hidden as Shared\n'
-                    "shape Row:\n    value: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "missing.pietto" import (\n'
+                    "    source Hidden as Shared)\n"
+                    "shape Row:\n"
+                    "    value: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 )
             },
             ("PIE-S2701", "PIE-S2002"),
@@ -1494,8 +1604,9 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "unrelated-source-binding-shape-spelling",
             {
                 "a.pietto": (
-                    'import "missing.pietto":\n    source Hidden as Row\n'
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "missing.pietto" import (\n'
+                    "    source Hidden as Row)\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 )
             },
             ("PIE-S2701", "PIE-S2303"),
@@ -1506,21 +1617,29 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "unrelated-cyclic-source-binding-field-type-spelling",
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    source Public as Shared\n'
-                    "shape Row:\n    value: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    source Public as Shared)\n"
+                    "shape Row:\n"
+                    "    value: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    'import "c.pietto":\n    source Base as Public\n'
-                    'import "d.pietto":\n    type D\n'
-                    "export:\n    source Public\n"
+                    'from "c.pietto" import (\n'
+                    "    source Base as Public)\n"
+                    'from "d.pietto" import (\n'
+                    "    type D)\n"
+                    "export (\n"
+                    "    source Public)\n"
                 ),
                 "c.pietto": (
-                    'source Base is postgres.table("base")\nexport:\n    source Base\n'
+                    'source Base = postgres.table("base")\nexport (\n    source Base)\n'
                 ),
                 "d.pietto": (
-                    "type D = Int\nexport:\n    type D\n"
-                    'import "b.pietto":\n    source Public\n'
+                    "type D = Int\n"
+                    "export (\n"
+                    "    type D)\n"
+                    'from "b.pietto" import (\n'
+                    "    source Public)\n"
                 ),
             },
             ("PIE-S2703", "PIE-S2002"),
@@ -1531,11 +1650,13 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "unrelated-private-source-binding-field-type-spelling",
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    source Hidden as Shared\n'
-                    "shape Row:\n    value: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    source Hidden as Shared)\n"
+                    "shape Row:\n"
+                    "    value: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
-                "b.pietto": 'source Hidden is postgres.table("hidden")\n',
+                "b.pietto": 'source Hidden = postgres.table("hidden")\n',
             },
             ("PIE-S2705", "PIE-S2002"),
             (("PIE-S2002",),),
@@ -1545,9 +1666,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "unrelated-wrong-kind-source-binding-field-type-spelling",
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    source projected as Shared\n'
-                    "shape Row:\n    value: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    source projected as Shared)\n"
+                    "shape Row:\n"
+                    "    value: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": _library_source(),
             },
@@ -1577,13 +1700,16 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             {
                 "a.pietto": (
                     "type Shared = Int\n"
-                    'import "b.pietto":\n    source remote as Shared\n'
-                    "shape Row:\n    value: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    source remote as Shared)\n"
+                    "shape Row:\n"
+                    "    value: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    'source remote is postgres.table("remote")\n'
-                    "export:\n    source remote\n"
+                    'source remote = postgres.table("remote")\n'
+                    "export (\n"
+                    "    source remote)\n"
                 ),
             },
             ("PIE-S2706",),
@@ -1594,14 +1720,17 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             {
                 "a.pietto": (
                     "type Shared = Int\n"
-                    'import "b.pietto":\n    source remote as Shared\n'
+                    'from "b.pietto" import (\n'
+                    "    source remote as Shared)\n"
                     "type Alias = Shared\n"
-                    "shape Row:\n    value: Alias\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    "shape Row:\n"
+                    "    value: Alias\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    'source remote is postgres.table("remote")\n'
-                    "export:\n    source remote\n"
+                    'source remote = postgres.table("remote")\n'
+                    "export (\n"
+                    "    source remote)\n"
                 ),
             },
             ("PIE-S2706",),
@@ -1611,13 +1740,16 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "relation-import-collides-local-source-shape-root",
             {
                 "a.pietto": (
-                    "shape Row:\n    value: Int\n"
-                    'import "b.pietto":\n    source remote as Row\n'
-                    'source rows: Row is postgres.table("rows")\n'
+                    "shape Row:\n"
+                    "    value: Int\n"
+                    'from "b.pietto" import (\n'
+                    "    source remote as Row)\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    'source remote is postgres.table("remote")\n'
-                    "export:\n    source remote\n"
+                    'source remote = postgres.table("remote")\n'
+                    "export (\n"
+                    "    source remote)\n"
                 ),
             },
             ("PIE-S2706",),
@@ -1627,17 +1759,21 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "two-relation-imports-collide-field-type-root",
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    source left as Shared\n'
-                    'import "c.pietto":\n    source right as Shared\n'
-                    "shape Row:\n    value: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    source left as Shared)\n"
+                    'from "c.pietto" import (\n'
+                    "    source right as Shared)\n"
+                    "shape Row:\n"
+                    "    value: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    'source left is postgres.table("left")\nexport:\n    source left\n'
+                    'source left = postgres.table("left")\nexport (\n    source left)\n'
                 ),
                 "c.pietto": (
-                    'source right is postgres.table("right")\n'
-                    "export:\n    source right\n"
+                    'source right = postgres.table("right")\n'
+                    "export (\n"
+                    "    source right)\n"
                 ),
             },
             ("PIE-S2706",),
@@ -1647,16 +1783,19 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "two-relation-imports-collide-source-shape-root",
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    source left as Shared\n'
-                    'import "c.pietto":\n    source right as Shared\n'
-                    'source rows: Shared is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    source left as Shared)\n"
+                    'from "c.pietto" import (\n'
+                    "    source right as Shared)\n"
+                    'source rows: Shared = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    'source left is postgres.table("left")\nexport:\n    source left\n'
+                    'source left = postgres.table("left")\nexport (\n    source left)\n'
                 ),
                 "c.pietto": (
-                    'source right is postgres.table("right")\n'
-                    "export:\n    source right\n"
+                    'source right = postgres.table("right")\n'
+                    "export (\n"
+                    "    source right)\n"
                 ),
             },
             ("PIE-S2706",),
@@ -1667,9 +1806,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             {
                 "a.pietto": (
                     "type Shared = Int\n"
-                    'import "missing.pietto":\n    source remote as Shared\n'
-                    "shape Row:\n    value: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "missing.pietto" import (\n'
+                    "    source remote as Shared)\n"
+                    "shape Row:\n"
+                    "    value: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 )
             },
             ("PIE-S2701", "PIE-S2706"),
@@ -1680,13 +1821,17 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             {
                 "a.pietto": (
                     "type Shared = Int\n"
-                    'import "b.pietto":\n    source remote as Shared\n'
-                    "shape Row:\n    first: Shared\n    second: Shared\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    source remote as Shared)\n"
+                    "shape Row:\n"
+                    "    first: Shared\n"
+                    "    second: Shared\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    'source remote is postgres.table("remote")\n'
-                    "export:\n    source remote\n"
+                    'source remote = postgres.table("remote")\n'
+                    "export (\n"
+                    "    source remote)\n"
                 ),
             },
             ("PIE-S2706",),
@@ -1696,17 +1841,22 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "two-distinct-relation-collision-field-roots",
             {
                 "a.pietto": (
-                    "type LocalA = Int\ntype LocalB = Text\n"
-                    'import "b.pietto":\n'
-                    "    source first as LocalA\n"
-                    "    source second as LocalB\n"
-                    "shape Row:\n    first: LocalA\n    second: LocalB\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    "type LocalA = Int\n"
+                    "type LocalB = Text\n"
+                    'from "b.pietto" import (\n'
+                    "    source first as LocalA,\n"
+                    "    source second as LocalB)\n"
+                    "shape Row:\n"
+                    "    first: LocalA\n"
+                    "    second: LocalB\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    'source first is postgres.table("first")\n'
-                    'source second is postgres.table("second")\n'
-                    "export:\n    source first\n    source second\n"
+                    'source first = postgres.table("first")\n'
+                    'source second = postgres.table("second")\n'
+                    "export (\n"
+                    "    source first,\n"
+                    "    source second)\n"
                 ),
             },
             ("PIE-S2706", "PIE-S2706"),
@@ -1771,10 +1921,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "private-source-shape-import",
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    shape Row\n'
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    shape Row)\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
-                "b.pietto": "shape Row:\n    id: Int not null\n",
+                "b.pietto": "shape Row:\n    id: Int\n",
             },
             "PIE-S2705",
             "Row",
@@ -1783,9 +1934,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "private-field-type-import",
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    type Hidden as Local\n'
-                    "shape Row:\n    value: Local\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "b.pietto" import (\n'
+                    "    type Hidden as Local)\n"
+                    "shape Row:\n"
+                    "    value: Local\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": "type Hidden = Text\n",
             },
@@ -1796,10 +1949,12 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "private-alias-field-type-import",
             {
                 "a.pietto": (
-                    'import "b.pietto":\n    type Hidden as Local\n'
+                    'from "b.pietto" import (\n'
+                    "    type Hidden as Local)\n"
                     "type Alias = Local\n"
-                    "shape Row:\n    value: Alias\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    "shape Row:\n"
+                    "    value: Alias\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": "type Hidden = Text\n",
             },
@@ -1810,8 +1965,9 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "unresolved-source-shape-import",
             {
                 "a.pietto": (
-                    'import "missing.pietto":\n    shape Row\n'
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "missing.pietto" import (\n'
+                    "    shape Row)\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
             },
             "PIE-S2701",
@@ -1821,9 +1977,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "unresolved-field-type-import",
             {
                 "a.pietto": (
-                    'import "missing.pietto":\n    type Hidden as Local\n'
-                    "shape Row:\n    value: Local\n"
-                    'source rows: Row is postgres.table("rows")\n'
+                    'from "missing.pietto" import (\n'
+                    "    type Hidden as Local)\n"
+                    "shape Row:\n"
+                    "    value: Local\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
             },
             "PIE-S2701",
@@ -1833,12 +1991,14 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             "collision-source-shape-import",
             {
                 "a.pietto": (
-                    "shape Row:\n    id: Int not null\n"
-                    'import "b.pietto":\n    shape Shared as Row\n'
-                    'source rows: Row is postgres.table("rows")\n'
+                    "shape Row:\n"
+                    "    id: Int\n"
+                    'from "b.pietto" import (\n'
+                    "    shape Shared as Row)\n"
+                    'source rows: Row = postgres.table("rows")\n'
                 ),
                 "b.pietto": (
-                    "shape Shared:\n    id: Int not null\nexport:\n    shape Shared\n"
+                    "shape Shared:\n    id: Int\nexport (\n    shape Shared)\n"
                 ),
             },
             "PIE-S2706",
@@ -1857,10 +2017,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         tmp_path / "same-spelling-other-module",
         {
             "a.pietto": (
-                "shape Row:\n    value: Missing\n"
-                'source rows: Row is postgres.table("rows")\n'
+                "shape Row:\n"
+                "    value: Missing\n"
+                'source rows: Row = postgres.table("rows")\n'
             ),
-            "b.pietto": 'import "absent.pietto":\n    type Hidden as Missing\n',
+            "b.pietto": 'from "absent.pietto" import (\n    type Hidden as Missing)\n',
         },
     )
     other_module_source = _definition(other_module_parse, "a.pietto", "rows")
@@ -1883,9 +2044,11 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         tmp_path / "unrelated-same-module-binding",
         {
             "a.pietto": (
-                'import "absent.pietto":\n    type Hidden as Blocked\n'
-                "shape Row:\n    value: Missing\n"
-                'source rows: Row is postgres.table("rows")\n'
+                'from "absent.pietto" import (\n'
+                "    type Hidden as Blocked)\n"
+                "shape Row:\n"
+                "    value: Missing\n"
+                'source rows: Row = postgres.table("rows")\n'
             ),
         },
     )
@@ -1913,8 +2076,10 @@ def test_direct_bare_qualified_and_renamed_fields_produce_concrete_row_facts(
         tmp_path,
         {
             "a.pietto": (
-                "shape Row:\n    id: Int not null\n    name: Text nullable\n"
-                'source rows: Row is postgres.table("rows")\n'
+                "shape Row:\n"
+                "    id: Int\n"
+                "    name: Text | None\n"
+                'source rows: Row = postgres.table("rows")\n'
                 "table projected:\n"
                 "    from rows\n"
                 "    select:\n"
@@ -1941,14 +2106,23 @@ def test_import_alias_is_only_valid_immediate_qualifier_and_original_name_fails(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    source rows as Input\n'
-                "query valid:\n    from Input\n    select:\n        Input.id\n"
-                "query invalid:\n    from Input\n    select:\n        rows.id\n"
+                'from "b.pietto" import (\n'
+                "    source rows as Input)\n"
+                "query valid:\n"
+                "    from Input\n"
+                "    select:\n"
+                "        Input.id\n"
+                "query invalid:\n"
+                "    from Input\n"
+                "    select:\n"
+                "        rows.id\n"
             ),
             "b.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "export:\n    source rows\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "export (\n"
+                "    source rows)\n"
             ),
         },
     )
@@ -1972,9 +2146,18 @@ def test_query_to_query_multi_hop_propagates_concrete_rows_in_local_dependency_o
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    query reported as Imported\n'
-                "query local_one:\n    from Imported\n    select:\n        id\n        name\n"
-                "query local_two:\n    from local_one\n    select:\n        name\n        id\n"
+                'from "b.pietto" import (\n'
+                "    query reported as Imported)\n"
+                "query local_one:\n"
+                "    from Imported\n"
+                "    select:\n"
+                "        id\n"
+                "        name\n"
+                "query local_two:\n"
+                "    from local_one\n"
+                "    select:\n"
+                "        name\n"
+                "        id\n"
             ),
             "b.pietto": _library_source(export_relation="query reported"),
         },
@@ -1993,14 +2176,30 @@ def test_unknown_deferred_and_blocked_upstream_states_propagate_exact_reasons(
         tmp_path,
         {
             "a.pietto": (
-                'source unknown is postgres.table("unknown")\n'
-                "shape Row:\n    id: Int\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "query unknown_child:\n    from unknown\n    select:\n        id\n"
-                "query deferred:\n    from rows\n    select:\n        total = id + 1\n"
-                "query deferred_child:\n    from deferred\n    select:\n        total\n"
-                "query blocked:\n    from missing\n    select:\n        id\n"
-                "query blocked_child:\n    from blocked\n    select:\n        id\n"
+                'source unknown = postgres.table("unknown")\n'
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "query unknown_child:\n"
+                "    from unknown\n"
+                "    select:\n"
+                "        id\n"
+                "query deferred:\n"
+                "    from rows\n"
+                "    select:\n"
+                "        total = id + 1\n"
+                "query deferred_child:\n"
+                "    from deferred\n"
+                "    select:\n"
+                "        total\n"
+                "query blocked:\n"
+                "    from missing\n"
+                "    select:\n"
+                "        id\n"
+                "query blocked_child:\n"
+                "    from blocked\n"
+                "    select:\n"
+                "        id\n"
             )
         },
     )
@@ -2040,10 +2239,10 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
 ) -> None:
     source_prefix = (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    name: Text nullable\n"
-        "    score: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    name: Text | None\n"
+        "    score: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
     )
 
     def matrix_case(
@@ -2057,11 +2256,7 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
         tuple[tuple[str, str], ...],
         ProjectSemanticResult,
     ]:
-        let_clause = (
-            ""
-            if not let
-            else "    let:\n" + "".join(f"        {line}\n" for line in let)
-        )
+        let_clause = "".join(f"    let {line}\n" for line in let)
         query = (
             "query result:\n"
             f"    from {from_name}\n"
@@ -2094,8 +2289,10 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
 
     sources = {
         "a.pietto": (
-            "shape Row:\n    id: Int not null\n    name: Text nullable\n"
-            'source rows: Row is postgres.table("rows")\n'
+            "shape Row:\n"
+            "    id: Int\n"
+            "    name: Text | None\n"
+            'source rows: Row = postgres.table("rows")\n'
             "query duplicate:\n"
             "    from rows\n"
             "    select:\n"
@@ -2313,8 +2510,9 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
         tmp_path / "mixed",
         {
             "a.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source rows: Row is postgres.table("rows")\n'
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
                 "query mixed:\n"
                 "    from rows\n"
                 "    select:\n"

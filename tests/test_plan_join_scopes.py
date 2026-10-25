@@ -35,8 +35,8 @@ from _pietto_plan_joins import (
 
 MATCHING = tuple(
     (kind, predicate)
-    for kind in ("inner", "left", "right", "full", "semi", "anti")
-    for predicate in ("true", "false", "lhs.id == r.id")
+    for kind in ("inner", "left", "right", "full")
+    for predicate in ("True", "False", "lhs.id == r.id")
 ) + (("cross", None),)
 
 
@@ -52,7 +52,7 @@ def test_seven_kind_matching_and_output_images(
     assert len(view.joins) == 1 and len(view.join_inputs) == 2
     join = view.joins[0]
     assert join.kind is AuthoredJoinKind(kind)
-    assert len(join.outputs) == (3 if kind in ("semi", "anti") else 6)
+    assert len(join.outputs) == 6
     assert join.inputs == tuple(i.ref for i in view.join_inputs)
     assert all(
         i.producer is not None and i.predecessor is None for i in view.join_inputs
@@ -74,8 +74,6 @@ def test_seven_kind_matching_and_output_images(
         "cross": ("non_null", "non_null"),
         "right": ("nullable", "non_null"),
         "full": ("nullable", "nullable"),
-        "semi": ("non_null",),
-        "anti": ("non_null",),
     }[kind]
     assert tuple(p.field.effective_nullability.value for p in after)[::3] == expected
     assert all(
@@ -106,9 +104,8 @@ def test_seven_kind_matching_and_output_images(
     assert plan.diagnostics is roots[0].diagnostics
 
 
-TAIL = """    let:
-        first = lhs.id + 1
-        second = first + r.id
+TAIL = """    let first = lhs.id + 1
+    let second = first + r.id
     where lhs.allow_any and second > 0
     select:
         computed = second + first
@@ -155,23 +152,22 @@ def test_joined_tail_reuses_established_values_and_post_match_nullability(
     )
 
 
-@pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "semi", "anti"))
+@pytest.mark.parametrize("kind", ("inner", "left", "right", "full"))
 @pytest.mark.parametrize("refinement", (False, True))
-def test_relationship_base_and_refinement_are_separate_from_where(
+def test_predicate_and_extra_filter_are_separate_from_where(
     tmp_path: Path, kind, refinement
 ):
     source = _unique_source(
-        kind,
-        "r.key > 0" if refinement else None,
-        via="        via link: l -> r\n" if refinement else "",
+        kind, "Link(lhs, r)" + (" and r.key > 0" if refinement else "")
     )
     source = source.replace("    select:", "    where lhs.id > 0\n    select:")
     roots, _, view = _product(tmp_path, source, _requests)
     join = view.joins[0]
-    assert len(view.relationship_matches) == len(join.equalities) == 1
-    assert (join.on is not None) is refinement
-    assert len(view.filters) == 1
+    assert view.relationship_matches == join.equalities == ()
+    assert join.on is not None and len(view.filters) == 1
     assert view.filters[0].predicate is not join.on
+    condition = join.source.condition
+    assert condition.base_guarantee is None and len(condition.mandatory_equalities) == 1
     assert len(view.single_matches) == 1
     obligation = view.single_matches[0]
     assert obligation.assessment.state is ProjectSingleMatchState.PROVED
@@ -182,35 +178,47 @@ def test_relationship_base_and_refinement_are_separate_from_where(
     assert obligation.source is roots[1].root.requirements[0]
     assert view.obligations_for_join(join.ref) == (obligation,)
     assert view.single_match_proofs
+    assert all(
+        image.source.source.kind.value == "matched_key"
+        for image in view.single_match_proofs
+    )
 
 
 @pytest.mark.parametrize("kind", ("inner", "left"))
 @pytest.mark.parametrize("all_unique", (False, True))
-def test_multihop_scope_and_hidden_producer_closure(tmp_path: Path, kind, all_unique):
+def test_two_direct_boundaries_keep_complete_producers_and_independent_proofs(
+    tmp_path: Path, kind, all_unique
+):
     roots, plan, view = _product(
         tmp_path, _path_source(kind, all_unique=all_unique), _path_requests
     )
     assert len(view.joins) == 2 and len(view.join_inputs) == 4
-    assert len(view.definitions) == 3 and len(view.input_uses) == 2
+    assert len(view.definitions) == 3 and len(view.input_uses) == 3
     assert view.join_inputs[2].predecessor is view.joins[0].ref
     assert view.join_inputs[2].producer is None
     middle = view.join_inputs[1]
-    assert middle.producer is not None and middle.binding_use is None
+    assert middle.producer is not None and middle.binding_use is not None
     producer = next(d for d in view.definitions if d.ref is middle.producer)
     assert producer.entry.owner.definition.name == "rhs"
-    assert len(view.join_tails[0].fields) == 2 and len(view.joins[-1].outputs) == 3
-    assert len(view.relationship_matches) == 2
-    first, second = view.relationship_matches
-    assert first.source is not second.source and first.guarantee is not second.guarantee
-    assert len(view.single_matches) == 3
-    assert [len(item.joins) for item in view.single_matches] == [1, 1, 2]
-    whole = view.single_matches[-1]
-    assert whole.request.scope is ProjectSingleMatchScope.WHOLE_PATH
-    assert whole.assessment is roots[0].single_matches.entries[-1]
-    assert whole.assessment.state is (
+    assert len(view.join_tails[0].fields) == len(view.joins[-1].outputs) == 3
+    assert not view.relationship_matches
+    assert len(view.single_matches) == 2
+    for position, obligation in enumerate(view.single_matches):
+        assert obligation.request.scope is ProjectSingleMatchScope.DIRECT_BINARY
+        assert obligation.request.path is obligation.request.hop is None
+        assert obligation.joins == (view.joins[position].ref,)
+        assert obligation.input_pairs == (view.joins[position].inputs,)
+        assert obligation.assessment is roots[0].single_matches.entries[position]
+    first, second = view.single_matches
+    assert first.assessment.state is ProjectSingleMatchState.PROVED
+    assert second.assessment.state is (
         ProjectSingleMatchState.PROVED
         if all_unique
         else ProjectSingleMatchState.LEGAL_UNPROVED
+    )
+    assert all(
+        proof.parent is None and proof.children == ()
+        for proof in view.single_match_proofs
     )
     assert plan.diagnostics is roots[0].diagnostics
 
@@ -221,7 +229,7 @@ def test_accumulated_left_has_all_previous_and_current_nulling(
 ):
     source = _source("left").replace(
         "    select:",
-        f"    {kind} join rhs as last:\n        from lhs\n        on r.id == last.id\n    select:",
+        f"    let last = rhs\n    {kind} join last on r.id == last.id\n    select:",
     )
     _, _, view = _product(tmp_path, source)
     first, second = view.joins
@@ -236,18 +244,16 @@ def test_accumulated_left_has_all_previous_and_current_nulling(
 
 def test_named_imported_joined_result_keeps_immediate_exports(tmp_path: Path):
     producer = _source("left", tail=TAIL).replace("query result:", "table joined:")
-    (tmp_path / "producer.pietto").write_text(producer + "export:\n    table joined\n")
+    (tmp_path / "producer.pietto").write_text(producer + "export table joined\n")
     (tmp_path / "facade.pietto").write_text(
-        'import "producer.pietto":\n    table joined as Public\nexport:\n    table Public\n'
+        'from "producer.pietto" import table joined as Public\nexport table Public\n'
     )
     roots, _, view = _product(
         tmp_path,
-        """import "facade.pietto":
-    table Public as Input
+        """from "facade.pietto" import table Public as Input
 query result:
     from Input
-    let:
-        final_value = computed + repeated
+    let final_value = computed + repeated
     where final_value > 0
     select:
         final = final_value
@@ -268,8 +274,8 @@ query result:
 @pytest.fixture(scope="module")
 def join_plans(tmp_path_factory: pytest.TempPathFactory):
     source = _source("left", tail=TAIL).replace(
-        "    let:",
-        "    full join rhs as last:\n        from lhs\n        on r.id == last.id\n    let:",
+        "    let first =",
+        "    let last = rhs\n    full join last on r.id == last.id\n    let first =",
     )
     return tuple(
         _product(tmp_path_factory.mktemp("joined-plan"), source, _requests)
@@ -295,7 +301,6 @@ def proof_plans(tmp_path_factory: pytest.TempPathFactory):
         "joins",
         "join_inputs",
         "join_ports",
-        "relationship_matches",
         "join_tails",
         "single_matches",
         "single_match_proofs",
@@ -305,11 +310,7 @@ def proof_plans(tmp_path_factory: pytest.TempPathFactory):
 def test_every_join_inventory_is_complete(
     join_plans, proof_plans, section: str, change: str
 ):
-    products = (
-        proof_plans
-        if section in {"relationship_matches", "single_match_proofs"}
-        else join_plans
-    )
+    products = proof_plans if section == "single_match_proofs" else join_plans
     roots, plan, _ = products[0]
     foreign = products[1][1]
     values = getattr(plan, section)
@@ -482,70 +483,69 @@ def test_exact_join_fields_and_scope_corruption(join_plans, mutation: str):
 @pytest.mark.parametrize(
     "mutation",
     (
-        "equality_source",
-        "equality_direction",
-        "equality_left",
-        "authored_order",
         "proof_source",
         "proof_parent",
         "proof_children",
         "proof_boundary",
         "proof_obligation",
+        "proof_producer",
+        "proof_key",
+        "proof_equality",
+        "condition",
     ),
 )
-def test_relationship_and_proof_images_are_not_replaceable(proof_plans, mutation: str):
+def test_direct_proof_images_are_not_replaceable(proof_plans, mutation: str):
     roots, plan, _ = proof_plans[0]
     foreign = proof_plans[1][1]
-
-    def changed(section, index, **fields):
-        values = getattr(plan, section)
-        return _graft(
+    first = plan.single_match_proofs[0]
+    second = plan.single_match_proofs[1]
+    assert first.parent is None and first.children == first.producers == ()
+    assert len(first.source.source.roots) == 4
+    if mutation == "condition":
+        candidate = _graft(
             plan,
-            **{
-                section: (
-                    *values[:index],
-                    _graft(values[index], **fields),
-                    *values[index + 1 :],
+            joins=(
+                _graft(plan.joins[0], source=foreign.joins[0].source),
+                *plan.joins[1:],
+            ),
+        )
+    else:
+        fields = {
+            "proof_source": {"source": foreign.single_match_proofs[0].source},
+            "proof_parent": {"parent": first.ref},
+            "proof_children": {"children": (second.ref,)},
+            "proof_boundary": {"joins": (plan.joins[1].ref,)},
+            "proof_obligation": {"obligation": plan.single_matches[1].ref},
+            "proof_producer": {"producers": (plan.bindings.definitions[0].ref,)},
+            "proof_key": {
+                "source": _graft(
+                    first.source,
+                    source=_graft(
+                        first.source.source,
+                        roots=(
+                            *first.source.source.roots[:2],
+                            *first.source.source.roots[3:],
+                        ),
+                    ),
                 )
             },
+            "proof_equality": {
+                "source": _graft(
+                    first.source,
+                    source=_graft(
+                        first.source.source, roots=first.source.source.roots[:3]
+                    ),
+                )
+            },
+        }[mutation]
+        candidate = _graft(
+            plan,
+            single_match_proofs=(
+                _graft(first, **fields),
+                *plan.single_match_proofs[1:],
+            ),
         )
-
-    parent_index = next(
-        i for i, proof in enumerate(plan.single_match_proofs) if proof.children
-    )
-    equality = plan.relationship_matches[0]
-    mutations = {
-        "equality_source": lambda: changed(
-            "relationship_matches", 0, source=foreign.relationship_matches[0].source
-        ),
-        "equality_direction": lambda: changed(
-            "relationship_matches", 0, guarantee=plan.relationship_matches[1].guarantee
-        ),
-        "equality_left": lambda: changed(
-            "relationship_matches", 0, left=equality.right
-        ),
-        "authored_order": lambda: changed(
-            "relationship_matches",
-            0,
-            authored_operands=tuple(reversed(equality.authored_operands)),
-        ),
-        "proof_source": lambda: changed(
-            "single_match_proofs", 0, source=foreign.single_match_proofs[0].source
-        ),
-        "proof_parent": lambda: changed(
-            "single_match_proofs", 0, parent=plan.single_match_proofs[0].ref
-        ),
-        "proof_children": lambda: changed(
-            "single_match_proofs", parent_index, children=()
-        ),
-        "proof_boundary": lambda: changed(
-            "single_match_proofs", 0, joins=(plan.joins[1].ref,)
-        ),
-        "proof_obligation": lambda: changed(
-            "single_match_proofs", 0, obligation=plan.single_matches[-1].ref
-        ),
-    }
-    assert not verify_project_sql_plan(mutations[mutation](), *roots).verified, mutation
+    assert not verify_project_sql_plan(candidate, *roots).verified, mutation
 
 
 @pytest.mark.parametrize("kind", ("semi", "anti"))
@@ -553,13 +553,17 @@ def test_relationship_and_proof_images_are_not_replaceable(proof_plans, mutation
 def test_membership_only_right_cannot_enter_later_value_scopes(
     tmp_path: Path, kind, clause
 ):
+    test = f"{'not ' if kind == 'anti' else ''}any(lhs.id == r.id for r in r)"
     tail = {
-        "select": "    select:\n        id = r.id\n",
-        "let": "    let:\n        forbidden = r.id\n    select:\n        id = lhs.id\n",
-        "where": "    where r.id > 0\n    select:\n        id = lhs.id\n",
-        "later_on": "    inner join rhs as later:\n        from lhs\n        on r.id == later.id\n    select:\n        id = lhs.id\n",
+        "select": f"    where {test}\n    select:\n        id = r.id\n",
+        "let": f"    let forbidden = r.id\n    where {test}\n    select:\n        id = lhs.id\n",
+        "where": f"    where {test} and r.id > 0\n    select:\n        id = lhs.id\n",
+        "later_on": f"    where {test}\n    let later = rhs\n    inner join later on r.id == later.id\n    select:\n        id = lhs.id\n",
     }[clause]
-    roots = _roots(tmp_path, _source(kind, tail=tail))
+    source = _source("inner", tail=tail).replace(
+        "    inner join r on lhs.id == r.id\n", ""
+    )
+    roots = _roots(tmp_path, source)
     assert not roots[0].ok, roots[0].diagnostics
     assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
 
@@ -568,8 +572,8 @@ def test_membership_only_right_cannot_enter_later_value_scopes(
 def test_repeated_requests_and_unrelated_warning_scopes(
     tmp_path: Path, reuse_identity: bool
 ):
-    source = _source("semi", "true")
-    source += "query unused:" + _source("inner", "true").split("query result:", 1)[1]
+    source = _source("left", "True")
+    source += "query unused:" + _source("inner", "True").split("query result:", 1)[1]
 
     def requests(completed):
         first, second = _requests(completed)
@@ -593,7 +597,7 @@ def test_repeated_requests_and_unrelated_warning_scopes(
 
 @pytest.mark.parametrize("invalid", ("cross", "unit", "owner"))
 def test_invalid_single_match_blocks_the_project(tmp_path: Path, invalid: str):
-    source = _source("cross" if invalid == "cross" else "inner", "true")
+    source = _source("cross" if invalid == "cross" else "inner", "True")
 
     def requests(completed):
         request = _requests(completed)[0]
@@ -717,7 +721,7 @@ def test_self_join_same_field_evidence_keeps_distinct_occurrences(tmp_path: Path
     _, _, view = _product(
         tmp_path,
         _source("inner", tail=TAIL).replace(
-            "inner join rhs as r:", "inner join lhs as r:"
+            "let r = rhs\n    inner join r", "let r = lhs\n    inner join r"
         ),
     )
     join = view.joins[0]
@@ -740,17 +744,15 @@ def test_self_join_same_field_evidence_keeps_distinct_occurrences(tmp_path: Path
 
 def test_imported_joined_producer_can_feed_both_join_sides(tmp_path: Path):
     producer = _source("left").replace("query result:", "table joined:")
-    (tmp_path / "producer.pietto").write_text(producer + "export:\n    table joined\n")
+    (tmp_path / "producer.pietto").write_text(producer + "export table joined\n")
     _, _, view = _product(
         tmp_path,
-        """import "producer.pietto":
-    table joined as Input
+        """from "producer.pietto" import table joined as Input
 query result:
     from Input
-    inner join Input as other:
-        from Input
-        on Input.id == other.id
-    where other.right_id is not null
+    let other = Input
+    inner join other on Input.id == other.id
+    where other.right_id is not None
     select:
         left_id = Input.id
         right_id = other.id
@@ -772,19 +774,12 @@ query result:
     )
 
 
-@pytest.mark.parametrize("kind", ("right", "full", "semi", "anti", "cross"))
-def test_unsupported_path_combinations_stay_semantic_errors(tmp_path: Path, kind: str):
-    roots = _roots(tmp_path, _path_source(kind))
-    assert not roots[0].ok
-    assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
-
-
 @pytest.mark.parametrize("site", ("on", "select"))
 def test_missing_expression_evidence_is_a_planning_limitation_after_join(
     tmp_path: Path, site: str
 ):
     source = (
-        _source("inner", "(lhs.id + null) > 0")
+        _source("inner", "(lhs.id + None) > 0")
         if site == "on"
         else _source(
             "inner", tail='    select:\n        label = unsupported("value")\n'
@@ -876,7 +871,7 @@ def test_right_global_proof_survives_supported_producer_planning(tmp_path: Path)
     )
 
     source, _ = _tail_source("global")
-    source += "query result:\n    from lhs\n    semi join upstream as r:\n        from lhs\n        on true\n    select:\n        id = lhs.id\n"
+    source += "query result:\n    from lhs\n    let r = upstream\n    left join r on True\n    select:\n        id = lhs.id\n"
 
     def request(completed):
         return (_requests(completed)[-1],)

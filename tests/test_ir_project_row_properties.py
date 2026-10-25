@@ -70,9 +70,9 @@ def _configured_project(root: Path, source: str) -> Path:
 def _semantic_project(root: Path) -> ProjectSemanticResult:
     source = (
         "shape Row:\n"
-        "    status: Text not null\n"
-        "    gross: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    status: Text\n"
+        "    gross: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query grouped:\n"
         "    from rows\n"
         "    group by:\n"
@@ -92,9 +92,7 @@ def _semantic_project(root: Path) -> ProjectSemanticResult:
         "query ranked:\n"
         "    from rows\n"
         "    select:\n"
-        "        rank = row_number() window:\n"
-        "            order by:\n"
-        "                gross\n"
+        "        rank = row_number() window(order by gross)\n"
     )
     parse_result = project_check.check_project_parse_only(
         _configured_project(root, source)

@@ -47,8 +47,8 @@ def legacy_source(target: str) -> str:
     if target not in TARGETS:
         raise ValueError("unknown target")
     return (
-        "shape LegacyRow:\n    id: Int not null\n"
-        f'source source_rows: LegacyRow is {target}.table("phase66_rows")\n'
+        "shape LegacyRow:\n    id: Int\n"
+        f'source source_rows: LegacyRow = {target}.table("phase66_rows")\n'
         "table legacy_rows:\n    from source_rows\n    select:\n        id\n"
     )
 

@@ -26,9 +26,9 @@ def test_typed_source_builds_known_ordered_row_schema() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    id: UUID not null\n"
-            "    email: Text nullable\n"
-            'source users: User is postgres.table("public.users")\n'
+            "    id: UUID\n"
+            "    email: Text | None\n"
+            'source users: User = postgres.table("public.users")\n'
         )
     )
     source = _source(result, "users")
@@ -53,10 +53,10 @@ def test_typed_source_builds_known_ordered_row_schema() -> None:
 def test_source_row_field_preserves_user_resolved_type() -> None:
     result = analyze(
         _parse(
-            "type Email = Text not null\n"
+            "type Email = Text\n"
             "shape User:\n"
-            "    email: Email nullable\n"
-            'source users: User is postgres.table("public.users")\n'
+            "    email: Email | None\n"
+            'source users: User = postgres.table("public.users")\n'
         )
     )
     schema = result.model.source_row_schemas[_source(result, "users")]
@@ -68,9 +68,7 @@ def test_source_row_field_preserves_user_resolved_type() -> None:
 
 
 def test_missing_source_shape_reports_p2303_and_unknown_schema() -> None:
-    result = analyze(
-        _parse('source users: Missing is postgres.table("public.users")\n')
-    )
+    result = analyze(_parse('source users: Missing = postgres.table("public.users")\n'))
     source = _source(result, "users")
 
     assert _diagnostics(result, "PIE-S2303") == [
@@ -83,7 +81,7 @@ def test_missing_source_shape_reports_p2303_and_unknown_schema() -> None:
 @pytest.mark.parametrize(
     ("definition", "name"),
     [
-        ("type User = Text not null\n", "User"),
+        ("type User = Text\n", "User"),
         ("enum User:\n    active\n", "User"),
         ("", "Text"),
     ],
@@ -93,7 +91,7 @@ def test_source_shape_must_refer_to_shape(
     name: str,
 ) -> None:
     result = analyze(
-        _parse(f'{definition}source users: {name} is postgres.table("public.users")\n')
+        _parse(f'{definition}source users: {name} = postgres.table("public.users")\n')
     )
     source = _source(result, "users")
 
@@ -116,7 +114,7 @@ def test_untyped_source_mode_policy(
     expected: tuple[tuple[str, Severity], ...],
 ) -> None:
     result = analyze(
-        _parse('source events is postgres.table("public.events")\n'),
+        _parse('source events = postgres.table("public.events")\n'),
         mode_override=mode,
     )
     source = _source(result, "events")
@@ -133,7 +131,7 @@ def test_untyped_source_mode_policy(
 def test_untyped_source_diagnostic_uses_source_span() -> None:
     path = Path("examples/semantic/untyped-source.pietto")
     script = _parse(
-        'source events is postgres.table("public.events")\n',
+        'source events = postgres.table("public.events")\n',
         path=path,
     )
     source = script.definitions[0]
@@ -148,10 +146,10 @@ def test_source_checking_continues_after_invalid_source() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    id: UUID not null\n"
-            'source missing: Missing is postgres.table("missing")\n'
-            'source users: User is postgres.table("users")\n'
-            'source raw is postgres.table("raw")\n'
+            "    id: UUID\n"
+            'source missing: Missing = postgres.table("missing")\n'
+            'source users: User = postgres.table("users")\n'
+            'source raw = postgres.table("raw")\n'
         )
     )
 
@@ -171,8 +169,8 @@ def test_table_and_query_expressions_keep_existing_semantic_behavior() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    id: UUID not null\n"
-            'source users: User is postgres.table("users")\n'
+            "    id: UUID\n"
+            'source users: User = postgres.table("users")\n'
             "table projected:\n"
             "    from users\n"
             '    where matches("value", "value")\n'
@@ -185,16 +183,38 @@ def test_table_and_query_expressions_keep_existing_semantic_behavior() -> None:
         )
     )
 
-    assert result.diagnostics == ()
+    # Single-file SQL reads the same-file table `projected` by name.
+    assert [
+        (
+            item.code,
+            item.severity,
+            item.message,
+            item.location.line,
+            item.location.column,
+            item.location.end_line,
+            item.location.end_column,
+        )
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-S2382",
+            Severity.WARNING,
+            "`projected` is a table of this file; single-file SQL reads it by name, "
+            "so the SQL runs only where the database already has a relation named "
+            "projected (an EXPLICIT_MODULES project emits it as a CTE)",
+            10,
+            5,
+            10,
+            19,
+        )
+    ]
     assert list(result.model.source_row_schemas) == [_source(result, "users")]
 
 
 def test_source_schema_mappings_are_readonly() -> None:
     result = analyze(
         _parse(
-            "shape User:\n"
-            "    id: UUID not null\n"
-            'source users: User is postgres.table("users")\n'
+            'shape User:\n    id: UUID\nsource users: User = postgres.table("users")\n'
         )
     )
     source = _source(result, "users")
@@ -208,9 +228,7 @@ def test_source_schema_mappings_are_readonly() -> None:
 
 def test_source_checks_do_not_mutate_input_ast() -> None:
     script = _parse(
-        "shape User:\n"
-        "    id: UUID not null\n"
-        'source users: User is postgres.table("users")\n'
+        'shape User:\n    id: UUID\nsource users: User = postgres.table("users")\n'
     )
     original = deepcopy(script)
 
@@ -223,9 +241,9 @@ def test_source_semantic_results_do_not_expose_antlr_nodes() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    id: UUID not null\n"
-            'source users: User is postgres.table("users")\n'
-            'source raw is postgres.table("raw")\n'
+            "    id: UUID\n"
+            'source users: User = postgres.table("users")\n'
+            'source raw = postgres.table("raw")\n'
         )
     )
 

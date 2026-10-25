@@ -690,50 +690,49 @@ def test_the_first_violated_join_invariant_is_reported() -> None:
 
 
 # Lowering single-file JOIN facts (pietto.ir.joins), from hand-built facts over
-# parsed relations; the semantic analysis that will produce them is not used.
+# parsed relations; the semantic analysis that will produce them is used only
+# to name each JOIN target by its relation (`let` inputs) and to turn each
+# `where [not] any(...)` between JOINs into its hidden SEMI (ANTI) JOIN.
 PATH = "join-lowering.pietto"
 SOURCE = """shape Order:
-    id: Int not null
-    customer_id: Int nullable
-    amount: Int not null
+    id: Int
+    customer_id: Int | None
+    amount: Int
 shape Customer:
-    id: Int not null
-    name: Text not null
-    region_id: Int nullable
+    id: Int
+    name: Text
+    region_id: Int | None
 shape Region:
-    id: Int not null
-    label: Text not null
-source orders: Order is postgres.table("shop.orders")
-source customers: Customer is postgres.table("shop.customers")
-source regions: Region is postgres.table("shop.regions")
-relationship order_customer: orders.customer_id == customers.id
-relationship customer_region: customers.region_id == regions.id
+    id: Int
+    label: Text
+source orders: Order = postgres.table("shop.orders")
+source customers: Customer = postgres.table("shop.customers")
+source regions: Region = postgres.table("shop.regions")
 query customer_orders:
     from customers
-    semi join orders as placed
-    left join orders as last_order:
-        from customers
-        via order_customer
-        on last_order.amount > 100
-    inner join regions as region:
-        from customers
-        via customer_region: customers -> regions
-    cross join regions as slot: from customers
+    let placed = orders
+    where any(placed.customer_id == customers.id for placed in placed)
+    let last_order = orders
+    left join last_order on last_order.amount > 100
+    let region = regions
+    inner join region on customers.region_id == region.id
+    let slot = regions
+    cross join slot
     where customers.name != ""
     select:
         name
         last_amount = last_order.amount
         region_label = region.label
         slot_label = slot.label
-    order by:
-        customers.id desc
+    order by customers.id desc
 query customer_peers:
     from customers
-    full join customers as peer:
-        from customers
-        on peer.region_id == customers.region_id
-    right join regions as region: from customers
-    anti join orders as refund: from peer
+    let peer = customers
+    full join peer on peer.region_id == customers.region_id
+    let refund = orders
+    where not any(refund.customer_id == peer.id for refund in refund)
+    let region = regions
+    right join region on customers.region_id == region.id
     select:
         customer_id = customers.id
         peer_id = peer.id
@@ -744,45 +743,44 @@ query customer_names:
         name
 query windowed:
     from customers
-    inner join regions as region: from customers
+    let region = regions
+    inner join region on customers.region_id == region.id
+    let w = window(order by customers.id)
     select:
         name
         n = row_number() window w
-    window w:
-        order by:
-            customers.id
 query named_window:
     from customers
-    inner join regions as region: from customers
+    let region = regions
+    inner join region on customers.region_id == region.id
+    let w = window(order by customers.id)
     select:
         name
-    window w:
-        order by:
-            customers.id
 query grouped:
     from customers
-    inner join regions as region: from customers
-    group by: region.label, customers.name
+    let region = regions
+    inner join region on customers.region_id == region.id
+    group by region.label, customers.name
     select:
         label = region.label
         n = count()
 query aggregated:
     from customers
-    inner join regions as region: from customers
+    let region = regions
+    inner join region on customers.region_id == region.id
     select:
         label = region.label
         total = 1 + sum(customers.id)
         n = count()
 query grouped_window:
     from customers
-    inner join regions as region: from customers
-    group by: region.label
+    let region = regions
+    inner join region on customers.region_id == region.id
+    let w = window(order by region.label)
+    group by region.label
     select:
         label = region.label
         n = row_number() window w
-    window w:
-        order by:
-            region.label
 """
 
 
@@ -792,7 +790,15 @@ def _parse_script(source: str) -> Script:
     return result.ast
 
 
-SCRIPT = _parse_script(SOURCE)
+def _named_script(source: str) -> Script:
+    """The parsed relations with each `let` JOIN input named by its relation."""
+
+    script = analyze(_parse_script(source)).script
+    assert script is not None
+    return script
+
+
+SCRIPT = _named_script(SOURCE)
 INT_TYPE = ResolvedType("Int", TypeKind.BUILTIN)
 NON_NULL = EffectiveNullability.NON_NULL
 NULLABLE = EffectiveNullability.NULLABLE
@@ -825,62 +831,16 @@ def _at(line: int, column: int, end_line: int, end_column: int) -> SourceSpan:
     return SourceSpan(PATH, line, column, end_line, end_column)
 
 
-def _lowered_int(nullability: NullabilityIR) -> TypeRefIR:
-    symbol = SymbolId(SymbolNamespace.TYPE, "Int")
-    return TypeRefIR(
-        symbol=symbol,
-        canonical_symbol=symbol,
-        declared_name="Int",
-        canonical_name="Int",
-        kind=TypeKindIR.BUILTIN,
-        canonical_kind=TypeKindIR.BUILTIN,
-        nullability=nullability,
-    )
-
-
-def _equality(
-    relationship: str,
-    source: int,
-    target: int,
-    *,
-    against_declaration: bool,
-    source_nullability: EffectiveNullability = NON_NULL,
-    target_nullability: EffectiveNullability = NON_NULL,
-) -> JoinEqualityInfo:
-    """The relationship's one pair, oriented by the roles of the JOIN."""
-
-    match = next(
-        item for item in SCRIPT.relationships if item.name == relationship
-    ).base_match
-    assert match is not None
-    comparison = cast(ComparisonExpr, match.expression)
-    declared = (
-        cast(DottedNameExpr, comparison.left),
-        cast(DottedNameExpr, comparison.right),
-    )
-    source_operand, target_operand = declared[::-1] if against_declaration else declared
-    return JoinEqualityInfo(
-        left=JoinFieldRef(source, source_operand.parts[1]),
-        right=JoinFieldRef(target, target_operand.parts[1]),
-        left_type=ValueType(INT_TYPE, source_nullability),
-        right_type=ValueType(INT_TYPE, target_nullability),
-        comparison=comparison,
-        left_operand=source_operand,
-        right_operand=target_operand,
-    )
-
-
 def _join_info(
     definition: QueryDef,
     ordinal: int,
     source: int,
     *,
     mode: str,
-    relationship: str | None = None,
-    equalities: tuple[JoinEqualityInfo, ...] = (),
-    inferred: bool = False,
     null_extends: tuple[int, ...] = (),
 ) -> JoinInfo:
+    """A JOIN that states its match in `on` (M3), or a CROSS JOIN (M5)."""
+
     clause = definition.join_clauses[ordinal - 1]
     return JoinInfo(
         ordinal=ordinal,
@@ -888,11 +848,11 @@ def _join_info(
         kind=clause.kind,
         mode=mode,
         source_input=source,
-        source_inferred=inferred,
+        source_inferred=False,
         target_input=ordinal,
-        relationship=relationship,
-        step=clause.traversal_steps[0] if clause.traversal_steps else None,
-        equalities=equalities,
+        relationship=None,
+        step=None,
+        equalities=(),
         condition=None if clause.on_clause is None else clause.on_clause.expression,
         null_extends=null_extends,
     )
@@ -950,60 +910,16 @@ def _field_reads(
 
 
 def _customer_orders_facts() -> RelationJoinsInfo:
+    """Each JOIN states its match in `on`, except the CROSS JOIN; the first is
+    the hidden SEMI JOIN of `where any(...)`."""
+
     query = _query("customer_orders")
     return RelationJoinsInfo(
         inputs=_join_inputs(query),
         joins=(
-            _join_info(
-                query,
-                1,
-                0,
-                mode="M1",
-                relationship="order_customer",
-                equalities=(
-                    _equality(
-                        "order_customer",
-                        0,
-                        1,
-                        against_declaration=True,
-                        target_nullability=NULLABLE,
-                    ),
-                ),
-                inferred=True,
-            ),
-            _join_info(
-                query,
-                2,
-                0,
-                mode="M4",
-                relationship="order_customer",
-                equalities=(
-                    _equality(
-                        "order_customer",
-                        0,
-                        2,
-                        against_declaration=True,
-                        target_nullability=NULLABLE,
-                    ),
-                ),
-                null_extends=(2,),
-            ),
-            _join_info(
-                query,
-                3,
-                0,
-                mode="M2",
-                relationship="customer_region",
-                equalities=(
-                    _equality(
-                        "customer_region",
-                        0,
-                        3,
-                        against_declaration=False,
-                        source_nullability=NULLABLE,
-                    ),
-                ),
-            ),
+            _join_info(query, 1, 0, mode="M3"),
+            _join_info(query, 2, 0, mode="M3", null_extends=(2,)),
+            _join_info(query, 3, 0, mode="M3"),
             _join_info(query, 4, 0, mode="M5"),
         ),
         row_schema=RowSchema(joined=True),
@@ -1017,40 +933,8 @@ def _customer_peers_facts() -> RelationJoinsInfo:
         inputs=_join_inputs(query),
         joins=(
             _join_info(query, 1, 0, mode="M3", null_extends=(0, 1)),
-            _join_info(
-                query,
-                2,
-                0,
-                mode="M1",
-                relationship="customer_region",
-                equalities=(
-                    _equality(
-                        "customer_region",
-                        0,
-                        2,
-                        against_declaration=False,
-                        source_nullability=NULLABLE,
-                    ),
-                ),
-                null_extends=(0, 1),
-            ),
-            _join_info(
-                query,
-                3,
-                1,
-                mode="M1",
-                relationship="order_customer",
-                equalities=(
-                    _equality(
-                        "order_customer",
-                        1,
-                        3,
-                        against_declaration=True,
-                        source_nullability=NULLABLE,
-                        target_nullability=NULLABLE,
-                    ),
-                ),
-            ),
+            _join_info(query, 2, 0, mode="M3"),
+            _join_info(query, 3, 0, mode="M3", null_extends=(0, 1)),
         ),
         row_schema=RowSchema(joined=True),
         field_reads=_field_reads(query),
@@ -1058,28 +942,11 @@ def _customer_peers_facts() -> RelationJoinsInfo:
 
 
 def _region_join_facts(definition: QueryDef) -> RelationJoinsInfo:
-    """Facts of `from customers` plus `inner join regions as region`."""
+    """Facts of `from customers` plus `inner join region on ...`."""
 
     return RelationJoinsInfo(
         inputs=_join_inputs(definition),
-        joins=(
-            _join_info(
-                definition,
-                1,
-                0,
-                mode="M1",
-                relationship="customer_region",
-                equalities=(
-                    _equality(
-                        "customer_region",
-                        0,
-                        1,
-                        against_declaration=False,
-                        source_nullability=NULLABLE,
-                    ),
-                ),
-            ),
-        ),
+        joins=(_join_info(definition, 1, 0, mode="M3"),),
         row_schema=RowSchema(joined=True),
         field_reads={},
     )
@@ -1175,6 +1042,18 @@ def _failure(error: JoinLoweringError) -> tuple[str, str, int, int]:
     )
 
 
+def _field(
+    span: SourceSpan, name: str, binding: str, owner: SymbolId, input: int
+) -> FieldRefIR:
+    return FieldRefIR(
+        span=span,
+        value_type=INT,
+        name=name,
+        qualifier=(binding,),
+        field=FieldId(owner, name, input),
+    )
+
+
 def test_join_inputs_are_the_from_input_then_each_join_target() -> None:
     query = _query("customer_orders")
     orders = SymbolId(SymbolNamespace.RELATION, "orders")
@@ -1189,154 +1068,99 @@ def test_join_inputs_are_the_from_input_then_each_join_target() -> None:
             CUSTOMERS,
             "customers",
             True,
-            _at(18, 5, 18, 19),
+            _at(16, 5, 16, 19),
         ),
-        RelationInputIR(1, target, orders, "placed", False, _at(19, 5, 19, 31)),
-        RelationInputIR(2, target, orders, "last_order", True, _at(20, 5, 23, 35)),
-        RelationInputIR(3, target, REGIONS, "region", True, _at(24, 5, 26, 50)),
-        RelationInputIR(4, target, REGIONS, "slot", True, _at(27, 5, 27, 47)),
+        # The hidden SEMI JOIN of `where any(...)`, bound to a generated name.
+        RelationInputIR(1, target, orders, "_pietto_any_1", False, _at(18, 11, 18, 71)),
+        RelationInputIR(2, target, orders, "last_order", True, _at(20, 5, 20, 52)),
+        RelationInputIR(3, target, REGIONS, "region", True, _at(22, 5, 22, 58)),
+        RelationInputIR(4, target, REGIONS, "slot", True, _at(24, 5, 24, 20)),
     )
     # The FROM input carries the span RelationIR.source has (invariant 2).
     assert inputs[0].span == lower_span(query.from_clause.span)
 
 
-def test_join_facts_lower_to_joins_whose_hops_run_from_source_to_target() -> None:
+def test_join_facts_lower_to_joins_with_their_on_conditions() -> None:
     query = _query("customer_orders")
     orders = SymbolId(SymbolNamespace.RELATION, "orders")
-    non_null, nullable = (
-        _lowered_int(NullabilityIR.NON_NULL),
-        _lowered_int(NullabilityIR.NULLABLE),
-    )
 
     reads, joins, conditions = _lowered(query, _customer_orders_facts())
 
-    # `semi join orders` from customers runs against the declaration
-    # `orders.customer_id == customers.id`: the source side comes first, with
-    # the span of the conjunct's right operand.
-    assert joins[0] == JoinIR(
-        ordinal=1,
-        kind=JoinKindIR.SEMI,
-        source_input=0,
-        source_inferred=True,
-        target_input=1,
-        hops=(
-            JoinHopIR(
-                relationship="order_customer",
-                left_input=0,
-                right_input=1,
-                equalities=(
-                    JoinEqualityIR(
-                        left=FieldRefIR(
-                            span=_at(15, 52, 15, 64),
-                            value_type=non_null,
-                            name="id",
-                            qualifier=("customers",),
-                            field=FieldId(CUSTOMERS, "id", 0),
-                        ),
-                        right=FieldRefIR(
-                            span=_at(15, 30, 15, 48),
-                            value_type=nullable,
-                            name="customer_id",
-                            qualifier=("placed",),
-                            field=FieldId(orders, "customer_id", 1),
-                        ),
-                    ),
+    # Each `on` is lowered once, in JOIN order (the hidden SEMI JOIN's `on` is
+    # the `any` predicate); a JOIN that states its match in `on` has no
+    # relationship hop, and the CROSS JOIN has neither.
+    assert conditions == [
+        clause.on_clause.expression
+        for clause in query.join_clauses
+        if clause.on_clause is not None
+    ]
+    assert joins == (
+        JoinIR(
+            ordinal=1,
+            kind=JoinKindIR.SEMI,
+            source_input=0,
+            source_inferred=False,
+            target_input=1,
+            hops=(),
+            condition=ComparisonIR(
+                span=_at(18, 15, 18, 49),
+                value_type=BOOL,
+                left=_field(
+                    _at(18, 15, 18, 33), "customer_id", "_pietto_any_1", orders, 1
                 ),
-                span=_at(19, 5, 19, 31),
+                operator="==",
+                right=_field(_at(18, 37, 18, 49), "id", "customers", CUSTOMERS, 0),
             ),
+            null_extends=(),
+            span=_at(18, 11, 18, 71),
         ),
-        condition=None,
-        null_extends=(),
-        span=_at(19, 5, 19, 31),
-    )
-    # One `via` step plus `on`: the hop is at the step, the `on` is lowered.
-    on = query.join_clauses[1].on_clause
-    assert on is not None and conditions == [on.expression]
-    assert joins[1] == JoinIR(
-        ordinal=2,
-        kind=JoinKindIR.LEFT,
-        source_input=0,
-        source_inferred=False,
-        target_input=2,
-        hops=(
-            JoinHopIR(
-                relationship="order_customer",
-                left_input=0,
-                right_input=2,
-                equalities=(
-                    JoinEqualityIR(
-                        left=FieldRefIR(
-                            span=_at(15, 52, 15, 64),
-                            value_type=non_null,
-                            name="id",
-                            qualifier=("customers",),
-                            field=FieldId(CUSTOMERS, "id", 0),
-                        ),
-                        right=FieldRefIR(
-                            span=_at(15, 30, 15, 48),
-                            value_type=nullable,
-                            name="customer_id",
-                            qualifier=("last_order",),
-                            field=FieldId(orders, "customer_id", 2),
-                        ),
-                    ),
+        JoinIR(
+            ordinal=2,
+            kind=JoinKindIR.LEFT,
+            source_input=0,
+            source_inferred=False,
+            target_input=2,
+            hops=(),
+            condition=ComparisonIR(
+                span=_at(20, 29, 20, 52),
+                value_type=BOOL,
+                left=_field(_at(20, 29, 20, 46), "amount", "last_order", orders, 2),
+                operator=">",
+                right=LiteralIR(span=_at(20, 49, 20, 52), value_type=INT, value=100),
+            ),
+            null_extends=(2,),
+            span=_at(20, 5, 20, 52),
+        ),
+        JoinIR(
+            ordinal=3,
+            kind=JoinKindIR.INNER,
+            source_input=0,
+            source_inferred=False,
+            target_input=3,
+            hops=(),
+            condition=ComparisonIR(
+                span=_at(22, 26, 22, 58),
+                value_type=BOOL,
+                left=_field(
+                    _at(22, 26, 22, 45), "region_id", "customers", CUSTOMERS, 0
                 ),
-                span=_at(22, 9, 22, 27),
+                operator="==",
+                right=_field(_at(22, 49, 22, 58), "id", "region", REGIONS, 3),
             ),
+            null_extends=(),
+            span=_at(22, 5, 22, 58),
         ),
-        condition=ComparisonIR(
-            span=_at(23, 12, 23, 35),
-            value_type=BOOL,
-            left=FieldRefIR(
-                span=_at(23, 12, 23, 29),
-                value_type=INT,
-                name="amount",
-                qualifier=("last_order",),
-                field=FieldId(orders, "amount", 2),
-            ),
-            operator=">",
-            right=LiteralIR(span=_at(23, 32, 23, 35), value_type=INT, value=100),
+        JoinIR(
+            ordinal=4,
+            kind=JoinKindIR.CROSS,
+            source_input=0,
+            source_inferred=False,
+            target_input=4,
+            hops=(),
+            condition=None,
+            null_extends=(),
+            span=_at(24, 5, 24, 20),
         ),
-        null_extends=(2,),
-        span=_at(20, 5, 23, 35),
-    )
-    # Written roles in the declaration order keep the conjunct's own order.
-    assert joins[2].hops == (
-        JoinHopIR(
-            relationship="customer_region",
-            left_input=0,
-            right_input=3,
-            equalities=(
-                JoinEqualityIR(
-                    left=FieldRefIR(
-                        span=_at(16, 31, 16, 50),
-                        value_type=nullable,
-                        name="region_id",
-                        qualifier=("customers",),
-                        field=FieldId(CUSTOMERS, "region_id", 0),
-                    ),
-                    right=FieldRefIR(
-                        span=_at(16, 54, 16, 64),
-                        value_type=non_null,
-                        name="id",
-                        qualifier=("region",),
-                        field=FieldId(REGIONS, "id", 3),
-                    ),
-                ),
-            ),
-            span=_at(26, 9, 26, 50),
-        ),
-    )
-    assert joins[3] == JoinIR(
-        ordinal=4,
-        kind=JoinKindIR.CROSS,
-        source_input=0,
-        source_inferred=False,
-        target_input=4,
-        hops=(),
-        condition=None,
-        null_extends=(),
-        span=_at(27, 5, 27, 47),
     )
     assert reads.inputs == lower_join_inputs(query, _customer_orders_facts())
 
@@ -1358,11 +1182,14 @@ def test_join_kinds_null_extensions_and_self_join_reads_lower_from_the_facts() -
         for join in joins
     ] == [
         (JoinKindIR.FULL, 0, 1, [], True, (0, 1)),
-        (JoinKindIR.RIGHT, 0, 2, [("customer_region", 0, 2)], False, (0, 1)),
-        (JoinKindIR.ANTI, 1, 3, [("order_customer", 1, 3)], False, ()),
+        (JoinKindIR.ANTI, 0, 2, [], True, ()),
+        (JoinKindIR.RIGHT, 0, 3, [], True, (0, 1)),
     ]
-    on = query.join_clauses[0].on_clause
-    assert on is not None and conditions == [on.expression]
+    assert conditions == [
+        clause.on_clause.expression
+        for clause in query.join_clauses
+        if clause.on_clause is not None
+    ]
     # The two sides of the self-join stay two inputs of one relation.
     assert [
         (projection.expression.qualifier, projection.expression.field)
@@ -1371,7 +1198,7 @@ def test_join_kinds_null_extensions_and_self_join_reads_lower_from_the_facts() -
     ] == [
         (("customers",), FieldId(CUSTOMERS, "id", 0)),
         (("peer",), FieldId(CUSTOMERS, "id", 1)),
-        (("region",), FieldId(REGIONS, "label", 2)),
+        (("region",), FieldId(REGIONS, "label", 3)),
     ]
     assert {JoinKindIR(kind.value) for kind in AuthoredJoinKind} == set(JoinKindIR)
 
@@ -1392,9 +1219,9 @@ def test_a_bare_or_dotted_read_lowers_to_its_input_field_qualified_by_binding() 
         qualifier=("customers",),
         field=FieldId(CUSTOMERS, "name", 0),
     )
-    assert reads.field_ref(dotted, span=_at(31, 23, 31, 40), value_type=BOOL) == (
+    assert reads.field_ref(dotted, span=_at(28, 23, 28, 40), value_type=BOOL) == (
         FieldRefIR(
-            span=_at(31, 23, 31, 40),
+            span=_at(28, 23, 28, 40),
             value_type=BOOL,
             name="amount",
             qualifier=("last_order",),
@@ -1428,8 +1255,8 @@ def test_a_read_without_a_resolution_fails_closed_at_the_read() -> None:
         failures.append(_failure(caught.value))
 
     assert failures == [
-        ("PIE-I1000", f"{FACT_FAILURE}resolved JOIN field read", 31, 23),
-        ("PIE-I1000", f"{FACT_FAILURE}resolved JOIN field read", 50, 9),
+        ("PIE-I1000", f"{FACT_FAILURE}resolved JOIN field read", 28, 23),
+        ("PIE-I1000", f"{FACT_FAILURE}resolved JOIN field read", 47, 9),
     ]
 
 
@@ -1475,10 +1302,20 @@ def _with_fact_read(reference: JoinFieldRef) -> RelationJoinsInfo:
     return replace(facts, field_reads={**facts.field_reads, read: reference})
 
 
-def _with_equality_input_out_of_range() -> RelationJoinsInfo:
-    equality = _customer_orders_facts().joins[0].equalities[0]
-    return _with_fact_join(
-        0, equalities=(replace(equality, left=JoinFieldRef(9, "id")),)
+def _on_equality() -> JoinEqualityInfo:
+    """The INNER JOIN's `on` equality, as a pair from customers to region."""
+
+    on = _query("customer_orders").join_clauses[2].on_clause
+    assert on is not None
+    comparison = cast(ComparisonExpr, on.expression)
+    return JoinEqualityInfo(
+        left=JoinFieldRef(0, "region_id"),
+        right=JoinFieldRef(3, "id"),
+        left_type=ValueType(INT_TYPE, NULLABLE),
+        right_type=ValueType(INT_TYPE, NON_NULL),
+        comparison=comparison,
+        left_operand=cast(DottedNameExpr, comparison.left),
+        right_operand=cast(DottedNameExpr, comparison.right),
     )
 
 
@@ -1535,17 +1372,9 @@ UNDESCRIBED_FACTS: tuple[tuple[str, Callable[[], RelationJoinsInfo | None]], ...
         ),
     ),
     (
-        "hop-of-a-via-and-on-join-left-out",
-        lambda: _with_fact_join(1, relationship=None, equalities=()),
-    ),
-    ("hop-relationship-left-out", lambda: _with_fact_join(0, relationship=None)),
-    ("hop-equalities-left-out", lambda: _with_fact_join(2, equalities=())),
-    (
         "hop-on-a-cross-join",
         lambda: _with_fact_join(
-            3,
-            relationship="customer_region",
-            equalities=_customer_orders_facts().joins[2].equalities,
+            3, relationship="customer_region", equalities=(_on_equality(),)
         ),
     ),
     ("read-names-a-missing-input", lambda: _with_fact_read(JoinFieldRef(5, "amount"))),
@@ -1553,7 +1382,6 @@ UNDESCRIBED_FACTS: tuple[tuple[str, Callable[[], RelationJoinsInfo | None]], ...
         "read-names-a-negative-input",
         lambda: _with_fact_read(JoinFieldRef(-1, "amount")),
     ),
-    ("equality-names-a-missing-input", _with_equality_input_out_of_range),
 )
 
 
@@ -1575,8 +1403,8 @@ def test_facts_that_do_not_describe_the_join_clauses_fail_at_the_first_join(
     assert _failure(caught.value) == (
         "PIE-I1000",
         f"{FACT_FAILURE}resolved JOIN facts",
-        19,
-        5,
+        18,
+        11,
     )
 
 
@@ -1590,9 +1418,9 @@ def test_facts_that_do_not_describe_the_join_clauses_fail_at_the_first_join(
 @pytest.mark.parametrize(
     ("name", "fact", "line", "column"),
     (
-        ("windowed", "window over JOIN rows", 56, 13),
-        ("named_window", "window over JOIN rows", 65, 5),
-        ("grouped_window", "window over JOIN rows", 88, 13),
+        ("windowed", "window over JOIN rows", 55, 13),
+        ("named_window", "window over JOIN rows", 60, 5),
+        ("grouped_window", "window over JOIN rows", 87, 13),
     ),
 )
 def test_windows_never_lower_in_a_join_relation(
@@ -1637,7 +1465,7 @@ def test_a_broken_relation_invariant_fails_at_the_first_join(
         code="PIE-I1000",
         severity=Severity.ERROR,
         message=f"{FACT_FAILURE}JOIN invariant: {message}",
-        location=SourceLocation(PATH, 19, 5, 19, 31),
+        location=SourceLocation(PATH, 18, 11, 18, 71),
     )
 
 
@@ -1691,36 +1519,33 @@ def test_grouping_reaches_join_facts_in_mvp2(name: str) -> None:
 # Real analyzer -> builder integration; P0's hand-built facts remain the
 # independent witnesses for the JOIN structures and invariant failures above.
 INTEGRATION_PREFIX = """shape Node:
-    id: Int not null
-    parent_id: Int nullable
-    score: Float not null
-    unique node_key on id
-source nodes: Node is postgres.table("nodes")
+    id: Int
+    parent_id: Int | None
+    score: Float
+    node_key = unique(id)
+source nodes: Node = postgres.table("nodes")
 """
 ROW_JOIN = """query joined:
     from nodes
-    left join nodes as peer:
-        from nodes
-        on nodes.parent_id == peer.id
-    let:
-        peer_score = peer.score
-        renamed_score = peer_score
+    let peer = nodes
+    left join peer on nodes.parent_id == peer.id
+    let peer_score = peer.score
+    let renamed_score = peer_score
     where nodes.id > 0
     select:
         own = nodes.id
         other = peer.id
         score = renamed_score
-    order by:
-        peer.id desc
+    order by peer.id desc
 """
 GROUPED_JOIN = """query grouped:
     from nodes
-    cross join nodes as peer: from nodes
-    let:
-        peer_key = peer.id
-        key_again = peer_key
-        own_key = nodes.id
-        measure = peer.score
+    let peer = nodes
+    cross join peer
+    let peer_key = peer.id
+    let key_again = peer_key
+    let own_key = nodes.id
+    let measure = peer.score
     group by:
         nodes.id
         key_again
@@ -1729,7 +1554,7 @@ GROUPED_JOIN = """query grouped:
         other = peer.id
         total = count()
         score_total = sum(measure)
-    satisfying:
+    having:
         other > 0 and total > 0 and sum(measure) > 0.0
     order by:
         key_again desc
@@ -1805,10 +1630,10 @@ def test_builder_lowers_self_join_reads_and_let_expansion_in_all_row_clauses() -
         "peer.score + nodes.score",
         "peer.score if nodes.id > 0 else nodes.score",
         "peer.id in (nodes.id, 2)",
-        "cast(peer.id as Float)",
+        "Float(peer.id)",
         "peer.id == nodes.id",
-        "peer.id between nodes.id and 100",
-        "peer.id is null",
+        "nodes.id <= peer.id <= 100",
+        "peer.id is None",
         "coalesce(peer.score, nodes.score)",
     ),
 )
@@ -1818,7 +1643,8 @@ def test_recursive_expression_lowering_never_falls_back_to_from_fields(
     source = INTEGRATION_PREFIX + (
         "query joined:\n"
         "    from nodes\n"
-        "    cross join nodes as peer: from nodes\n"
+        "    let peer = nodes\n"
+        "    cross join peer\n"
         "    select:\n"
         f"        value = {expression}\n"
     )
@@ -1938,13 +1764,12 @@ def test_join_free_ir_is_unchanged_when_a_join_relation_is_appended() -> None:
         INTEGRATION_PREFIX
         + """query plain:
     from nodes
-    let:
-        key = id
-    group by: key
+    let key = id
+    group by key
     select:
         own = id
         total = count()
-    order by: key
+    order by key
 """
     )
     _, _, standalone, plain = _build_join(source)
@@ -2000,9 +1825,17 @@ def test_explain_join_refusal_uses_the_ir_failure_envelope(
 def test_real_builder_preserves_each_join_kind(
     kind: str, null_extends: tuple[int, ...], visible: bool
 ) -> None:
-    clause = f"    {kind} join nodes as peer:\n        from nodes"
+    clause = f"    let peer = nodes\n    {kind} join peer"
     if kind != "cross":
-        clause += "\n        on nodes.parent_id == peer.id"
+        clause += " on nodes.parent_id == peer.id"
+    if kind in {"semi", "anti"}:
+        # The JOIN-prefix `[not] any` is the hidden SEMI/ANTI JOIN before a later JOIN.
+        negation = "not " if kind == "anti" else ""
+        clause = (
+            "    let peer = nodes\n"
+            f"    where {negation}any(nodes.parent_id == peer.id for peer in peer)\n"
+            "    let later = nodes\n    cross join later"
+        )
     _, _, _, relation = _build_join(
         INTEGRATION_PREFIX
         + "query joined:\n    from nodes\n"
@@ -2025,10 +1858,9 @@ def test_join_group_key_type_comes_from_the_nullable_tail_row() -> None:
         INTEGRATION_PREFIX
         + """query grouped:
     from nodes
-    left join nodes as peer:
-        from nodes
-        on nodes.parent_id == peer.id
-    group by: nodes.id, peer.id
+    let peer = nodes
+    left join peer on nodes.parent_id == peer.id
+    group by nodes.id, peer.id
     select:
         own = nodes.id
         other = peer.id
@@ -2068,7 +1900,7 @@ def test_duplicate_join_group_keys_deduplicate_by_input_identity() -> None:
 def test_build_after_failed_tail_check_reports_the_unresolved_field_read() -> None:
     parsed = _parse_script(
         INTEGRATION_PREFIX
-        + "query bad:\n    from nodes\n    cross join nodes as peer: from nodes\n"
+        + "query bad:\n    from nodes\n    let peer = nodes\n    cross join peer\n"
         + "    select:\n        missing\n"
     )
     semantic = analyze(parsed)

@@ -10,26 +10,25 @@ import pietto.cli as cli
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    id: Int not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    discount: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float nullable\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    'source orders: Order is postgres.table("orders")\n'
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    discount: Int\n"
+    "    score: Float\n"
+    "    weight: Float | None\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
 COMBINED_APPROVED_RELATION = (
     "query phase43_report:\n"
     "    from orders\n"
-    "    let:\n"
-    "        gross = amount + tax\n"
-    "        weighted = score * weight\n"
-    "        normalized = lower(trim(status))\n"
-    "        key = orders.status\n"
+    "    let gross = amount + tax\n"
+    "    let weighted = score * weight\n"
+    "    let normalized = lower(trim(status))\n"
+    "    let key = orders.status\n"
     "    group by:\n"
     "        key\n"
     "    select:\n"
@@ -38,7 +37,7 @@ COMBINED_APPROVED_RELATION = (
     "        average_score = avg(weighted)\n"
     "        known_rows = count(gross)\n"
     "        unique_labels = count_distinct(normalized)\n"
-    "    satisfying:\n"
+    "    having:\n"
     "        sum(gross) > 10 and count(gross) > 0\n"
     "    order by:\n"
     "        key desc\n"
@@ -269,21 +268,19 @@ def test_emit_sql_output_writes_only_expanded_sql(
     [
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(gross)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        gross > 0\n",
             "PIE-S2324",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        amount\n"
             "    limit gross\n",
@@ -291,8 +288,7 @@ def test_emit_sql_output_writes_only_expanded_sql(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        total = sum(orders.gross)\n",
             "PIE-S2102",
@@ -306,32 +302,25 @@ def test_emit_sql_output_writes_only_expanded_sql(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        smallest = min(gross)\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    select:\n"
             "        largest = max(gross)\n",
             "PIE-S2315",
         ),
         (
-            "    from orders\n"
-            "    let:\n"
-            "        one = 1\n"
-            "    select:\n"
-            "        total = sum(one)\n",
+            "    from orders\n    let one = 1\n    select:\n        total = sum(one)\n",
             "PIE-S2315",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        gross\n"
             "    select:\n"
@@ -341,8 +330,7 @@ def test_emit_sql_output_writes_only_expanded_sql(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        one = 1\n"
+            "    let one = 1\n"
             "    group by:\n"
             "        one\n"
             "    select:\n"
@@ -352,8 +340,7 @@ def test_emit_sql_output_writes_only_expanded_sql(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
@@ -365,27 +352,25 @@ def test_emit_sql_output_writes_only_expanded_sql(
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = count()\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        sum(gross) > 10\n",
             "PIE-S2308",
         ),
         (
             "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
+            "    let gross = amount + tax\n"
             "    group by:\n"
             "        status\n"
             "    select:\n"
             "        status\n"
             "        total = sum(gross)\n"
-            "    satisfying:\n"
+            "    having:\n"
             "        sum(amount + tax) > 10\n",
             "PIE-S2308",
         ),
@@ -421,8 +406,7 @@ def test_failed_emit_sql_json_output_does_not_write_file(
         "bad_emit.pietto",
         "query bad_emit:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    select:\n"
         "        smallest = min(gross)\n",
     )
@@ -464,14 +448,13 @@ def test_failed_explain_json_keeps_artifact_error_envelope_without_metadata(
         "bad_explain.pietto",
         "query bad_explain:\n"
         "    from orders\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
+        "    let gross = amount + tax\n"
         "    group by:\n"
         "        status\n"
         "    select:\n"
         "        status\n"
         "        total = count()\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        sum(gross) > 10\n",
     )
 
@@ -528,12 +511,12 @@ def test_postgres_having_sql_covers_all_aggregate_let_families(
 
 DEF_SHAPES = (
     "shape Row:\n"
-    "    id: Int not null\n"
-    "    n: Int nullable\n"
-    "    text: Text not null\n"
-    "    note: Text nullable\n"
-    "    lower: Text not null\n"
-    'source rows: Row is postgres.table("rows")\n'
+    "    id: Int\n"
+    "    n: Int | None\n"
+    "    text: Text\n"
+    "    note: Text | None\n"
+    "    lower: Text\n"
+    'source rows: Row = postgres.table("rows")\n'
 )
 
 
@@ -543,7 +526,7 @@ def test_explain_lists_no_def_and_locates_each_argument_use_at_the_argument(
     path = _write_source(
         tmp_path,
         "twice.pietto",
-        "def twice(x: Int nullable) -> Int nullable: return x + x\n"
+        "def twice(x: Int | None) -> Int | None: return x + x\n"
         "table t:\n    from rows\n    select:\n        id\n        d = twice(n)\n",
         DEF_SHAPES,
     )
@@ -579,16 +562,19 @@ def test_reader_of_unknown_grouped_row_keeps_unknown_lineage(
     path = _write_source(
         tmp_path,
         "unknown-grouped-reader.pietto",
-        "query q:\n    from items\n    group by: kind\n"
+        "query q:\n    from items\n    group by kind\n"
         "    select:\n        kind\n        n = count()\n"
         f"query r:\n    from q\n    select:\n        kind = {field}\n",
-        prefix='source items is postgres.table("shop.items")\n',
+        prefix='source items = postgres.table("shop.items")\n',
     )
     assert cli.main(["explain", str(path)]) == 0
     captured = capsys.readouterr()
     assert captured.err == (
         f"{path}:1:1 PIE-S2303 warning: Source items has no bound shape; "
         "row schema is unknown\n"
+        f"{path}:9:5 PIE-S2382 warning: `q` is a query of this file; single-file "
+        "SQL reads it by name, so the SQL runs only where the database already "
+        "has a relation named q (an EXPLICIT_MODULES project emits it as a CTE)\n"
     )
     reader_text = captured.out.rsplit("  - r (query)\n", 1)[1].split("types:\n", 1)[0]
     assert reader_text == (

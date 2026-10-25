@@ -138,10 +138,10 @@ def test_public_compile_and_bundle_accept_a_joined_computed_key(tmp_path):
     ordering by the key's output cross the public compile and bundle layer."""
     project, _ = project_with(
         tmp_path / "joined-computed-key",
-        "table active_items:\n    from items\n    inner join items as r:\n"
-        "        from items\n        on items.id == r.id\n    let:\n"
-        "        later = items.id > r.id or r.id > 12\n"
-        "        level = r.id + items.id * 0\n    group by:\n        later\n"
+        "table active_items:\n    from items\n    let r = items\n"
+        "    inner join r on items.id == r.id\n"
+        "    let later = items.id > r.id or r.id > 12\n"
+        "    let level = r.id + items.id * 0\n    group by:\n        later\n"
         "    select:\n        later\n        total = count()\n"
         "        low = min(level)\n        top = max(level)\n"
         "    order by:\n        later\n",
@@ -1135,7 +1135,7 @@ def test_each_slot_is_one_literal_in_the_compiler_order(tmp_path, unconnected):
     the order."""
     stages, text = project_with(
         tmp_path / "stages",
-        "table active_items:\n    from items\n    let:\n        bonus = id + 30\n"
+        "table active_items:\n    from items\n    let bonus = id + 30\n"
         '    where id > 1 and label != "x"\n    select:\n        id\n'
         "        more = bonus + 7\n",
     )
@@ -1280,7 +1280,7 @@ def test_a_compiled_query_keeps_the_project_it_was_compiled_from(tmp_path, uncon
 
 
 LET_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table tagged_items:
     let tagged:
@@ -1289,9 +1289,8 @@ table tagged_items:
         select:
             tag_id = id
     from items
-    inner join tagged as t:
-        from items
-        on items.id == t.tag_id
+    let t = tagged
+    inner join t on items.id == t.tag_id
     select:
         id = items.id
         label = items.label
@@ -1494,9 +1493,8 @@ REUSED_LETS = {
         select:
             id
     from a
-    inner join a as b:
-        from a
-        on a.id == b.id
+    let b = a
+    inner join b on a.id == b.id
     select:
         x = a.id
 """,
@@ -1550,9 +1548,9 @@ def test_a_reused_let_is_one_producer_with_distinct_uses(tmp_path, case):
 
 VALUES_SEED = """
 query seeded:
-    values(id: Int not null, label: Text nullable):
+    values(id: Int, label: Text | None):
         1, "a"
-        2, null
+        2, None
 """
 
 
@@ -1658,7 +1656,7 @@ def test_a_parameterized_query_over_values_binds_without_io(tmp_path, unconnecte
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + "query picked(low: Int not null):\n    from seeded\n    where id > low\n"
+        + "query picked(low: Int):\n    from seeded\n    where id > low\n"
         "    select:\n        id\n        label\n",
         encoding="utf-8",
     )
@@ -1686,13 +1684,12 @@ def test_a_parameterized_query_over_values_binds_without_io(tmp_path, unconnecte
 
 VALUES_BESIDE = """query result:
     let seed:
-        values(rid: Int not null, label: Text nullable, flag: Bool nullable, ratio: Float nullable):
-            1, "a", true, 0.5
-            2, null, null, null
+        values(rid: Int, label: Text | None, flag: Bool | None, ratio: Float | None):
+            1, "a", True, 0.5
+            2, None, None, None
     from lhs
-    inner join seed as s:
-        from lhs
-        on lhs.id == s.rid
+    let s = seed
+    inner join s on lhs.id == s.rid
     select:
         a = lhs.id
         b = s.label
@@ -1702,11 +1699,10 @@ VALUES_BESIDE = """query result:
 # The header alone: every column's domain is its whole carrier.
 VALUES_EMPTY_BESIDE = """query result:
     let seed:
-        values(rid: Int not null, label: Text nullable, flag: Bool nullable, ratio: Float nullable)
+        values(rid: Int, label: Text | None, flag: Bool | None, ratio: Float | None)
     from lhs
-    left join seed as s:
-        from lhs
-        on lhs.id == s.rid
+    let s = seed
+    left join s on lhs.id == s.rid
     select:
         a = lhs.id
         b = s.label
@@ -1995,7 +1991,7 @@ def test_export_and_compiled_emission_check_values_records_against_their_unit(
 
 
 EXISTS_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table flagged_items:
     let tagged:
@@ -2220,7 +2216,7 @@ def test_each_route_prepares_an_existence_read_with_its_inner_source(
 
 
 SCALAR_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table priced_items:
     let top:
@@ -2325,7 +2321,7 @@ def test_a_compiled_scalar_read_carries_its_column_and_inner_source(tmp_path):
 
 # No FROM, JOIN, set or let reads `tags`: only scalar reads in WHERE and SELECT.
 SCALAR_ONLY = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table scalar_only:
     from items
@@ -2422,7 +2418,7 @@ def test_each_route_prepares_a_scalar_read_with_its_inner_source(tmp_path, uncon
 
 
 MEMBERSHIP_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table tag_ids:
     from tags
@@ -2599,7 +2595,7 @@ def test_a_null_left_value_takes_the_read_column_type_through_compile_and_load(
 ):
     text = MEMBERSHIP_TAGS.replace(
         "        flag = 3 in tag_ids\n",
-        "        flag = 3 in tag_ids\n        unknown = null not in tag_ids\n",
+        "        flag = 3 in tag_ids\n        unknown = None not in tag_ids\n",
     )
     assert text != MEMBERSHIP_TAGS
     query = _members(let_example(tmp_path, text), policy)
@@ -2620,7 +2616,7 @@ def test_a_null_left_value_takes_the_read_column_type_through_compile_and_load(
 
 
 PAIRED_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table tag_ids:
     from tags
@@ -2735,7 +2731,7 @@ def test_a_loaded_membership_read_rederives_its_operand_and_column_pair(tmp_path
 
 
 CROSS_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table tag_ids:
     from tags
@@ -2773,7 +2769,7 @@ CROSS_READS = {
         ],
     ),
     "computed_group_key": (
-        "    from items\n    let:\n        big = id > 2\n"
+        "    from items\n    let big = id > 2\n"
         "    where id in tag_ids and exists tags and id <= scalar tag_count.n\n"
         "    group by:\n        big\n    select:\n        big\n        n = count()\n",
         [
@@ -2785,10 +2781,10 @@ CROSS_READS = {
     # Typed VALUES lets, one of them with no row, read by all three kinds
     # (the contract's `tags` source is read too).
     "values": (
-        "    let seed:\n        values(rid: Int not null):\n            1\n"
+        "    let seed:\n        values(rid: Int):\n            1\n"
         "            2\n"
-        "    let top:\n        values(n: Int not null):\n            5\n"
-        "    let none:\n        values(rid: Int not null)\n"
+        "    let top:\n        values(n: Int):\n            5\n"
+        "    let none:\n        values(rid: Int)\n"
         "    from items\n"
         "    where id in seed and not exists none and id <= scalar top.n\n"
         "    select:\n        id = items.id\n        tagged = exists tags\n",
@@ -2833,7 +2829,7 @@ def test_read_kinds_combine_through_compile_bundle_and_load(
 # Phase70 S10: a let with capture lines reads the current row of its reader's
 # FROM input; it is compiled inline at the existence read that renders it.
 CAPTURE_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table matched_items:
     let same_label:
@@ -3100,8 +3096,8 @@ def test_a_capturing_let_read_by_another_operator_is_that_read_on_load(
 JOINED_CAPTURES = (
     "query result:\n    let matched:\n        capture r\n        capture lhs\n"
     "        from rhs\n        where rhs.key == r.key and rhs.id == lhs.id\n"
-    "        select:\n            id\n    from lhs\n    left join rhs as r:\n"
-    "        from lhs\n        on lhs.id == r.id\n    where exists matched\n"
+    "        select:\n            id\n    from lhs\n    let r = rhs\n"
+    "    left join r on lhs.id == r.id\n    where exists matched\n"
     "    select:\n        a = lhs.id\n        b = r.key\n"
 )
 
@@ -3288,26 +3284,26 @@ MATCHED = (
 MATCHED_JOIN = (
     "query result:\n    let matched:\n        capture r\n        capture lhs\n"
     "        from rhs\n        where rhs.key == r.key and rhs.id == lhs.id\n"
-    "        select:\n            id\n    from lhs\n    left join rhs as r:\n"
-    "        from lhs\n        on lhs.id == r.id\n"
+    "        select:\n            id\n    from lhs\n    let r = rhs\n"
+    "    left join r on lhs.id == r.id\n"
 )
 STAGED_READS = {
     "let_where": MATCHED
-    + "    from lhs\n    let:\n        k2 = lhs.id == 1\n"
+    + "    from lhs\n    let k2 = lhs.id == 1\n"
     + "    where exists matched\n    select:\n        a = lhs.id\n",
     "let_select": MATCHED
-    + "    from lhs\n    let:\n        k2 = lhs.id == 1\n"
+    + "    from lhs\n    let k2 = lhs.id == 1\n"
     + "    select:\n        a = lhs.id\n        e = exists matched\n",
     "join_where_select": MATCHED_JOIN
     + "    where lhs.id > 0\n    select:\n        a = lhs.id\n"
     + "        e = exists matched\n",
     "join_copy_let_where": MATCHED_JOIN
-    + "    let:\n        k2 = lhs.id\n    where exists matched\n"
+    + "    let k2 = lhs.id\n    where exists matched\n"
     + "    select:\n        a = lhs.id\n",
     "window_select": MATCHED
     + "    from lhs\n    select:\n        id\n        e = exists matched\n"
-    + "        rn = row_number() window:\n            order by:\n"
-    + "                id\n",
+    + "        rn = row_number() window(\n"
+    + "            order by id)\n",
 }
 
 
@@ -3348,7 +3344,7 @@ def test_a_capture_read_after_row_stages_compiles_and_loads(tmp_path, dialect, s
             )
 
 
-INNER_ON = "    inner join rhs as r:\n        from lhs\n        on lhs.key == r.key\n"
+INNER_ON = "    let r = rhs\n    inner join r on lhs.key == r.key\n"
 NARROWED_CAPTURES = {
     "join_target": (
         "query result:\n    let matched:\n        capture r\n        from rhs\n"
@@ -3369,7 +3365,7 @@ NARROWED_CAPTURES = {
         "        where rhs.id == lhs.key\n        select:\n            id\n"
         "            k = lhs.key\n    from lhs\n"
         + INNER_ON
-        + "    cross join m as x:\n        from lhs\n    select:\n"
+        + "    let x = m\n    cross join x\n    select:\n"
         "        a = lhs.id\n        b = x.k\n"
     ),
 }
@@ -3559,8 +3555,8 @@ ORDERED_JOIN_READER = (
     "query result:\n    let c:\n        capture lhs\n        from rhs\n"
     "        where rhs.id == lhs.id\n        select:\n            id\n"
     "        order by:\n            id desc\n        limit 1\n"
-    "    from lhs\n    inner join rhs as t:\n        from lhs\n"
-    "        on t.id == lhs.id\n"
+    "    from lhs\n    let t = rhs\n"
+    "    inner join t on t.id == lhs.id\n"
 )
 ORDERED_JOIN_READS = {
     "in": "    where lhs.id in c\n    select:\n        a = lhs.id\n",
@@ -3620,8 +3616,8 @@ DEFERRED_CAPTURES = {
         "        a = codes.id\n"
     ),
     "join_table": (
-        "table codes:\n    from lhs\n    inner join rhs as r:\n        from lhs\n"
-        "        on lhs.id == r.id\n    select:\n        id = lhs.id\n"
+        "table codes:\n    from lhs\n    let r = rhs\n"
+        "    inner join r on lhs.id == r.id\n    select:\n        id = lhs.id\n"
         "        key = r.key\nquery result:\n    let m:\n        capture codes\n"
         "        from rhs\n        where rhs.key == codes.key\n        select:\n"
         "            id\n    from codes\n    where exists m\n    select:\n"
@@ -3799,7 +3795,7 @@ def test_a_self_correlation_reads_its_input_through_another_let(tmp_path):
 # lines (the parameters themselves stay unavailable beside lets): its inline
 # literal binds first, then the one parameter PostgreSQL reads twice as $2.
 PARAMETER_OVER_CAPTURE = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table matched_tags:
     let same_label:
@@ -3814,7 +3810,7 @@ table matched_tags:
         id = items.id
         label = items.label
 
-query picked_items(cut: Int not null):
+query picked_items(cut: Int):
     from matched_tags
     where id > cut and id != cut
     select:
@@ -3842,7 +3838,7 @@ def test_a_parameter_after_a_capturing_let_binds_in_text_order(tmp_path, unconne
 # Lets are reused and read forward (Phase70 S05): the capturing let reads a let
 # written after it, which reads a third let the body also reads.
 CAPTURE_CHAIN = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table chained_items:
     let same_label:
@@ -3895,7 +3891,7 @@ def test_a_capturing_let_over_a_forward_let_chain_binds_slots_in_text_order(
 # Phase70 S12: a JOIN reads a let with capture lines LATERAL; the let compiles
 # inline at that JOIN's right input, correlated to the JOIN's own left input.
 LATERAL_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table lateral_items:
     let later_tags:
@@ -3905,8 +3901,8 @@ table lateral_items:
         select:
             tag_id = id
     from items
-    cross join later_tags as t:
-        from items
+    let t = later_tags
+    cross join t
     select:
         id = items.id
         tag_id = t.tag_id
@@ -4088,7 +4084,7 @@ def test_each_route_prepares_a_lateral_join_with_its_inner_source(
         "query result:\n    let m:\n        capture lhs\n        from rhs\n"
         "        where rhs.key == lhs.key\n        select:\n            id\n"
         + order
-        + "    from lhs\n    inner join m as m1:\n        from lhs\n        on true\n"
+        + "    from lhs\n    let m1 = m\n    inner join m1 on True\n"
         "    select:\n        a = lhs.id\n        b = m1.id\n",
     )
     root = tmp_path / "mysql"
@@ -4137,7 +4133,7 @@ def test_each_route_prepares_a_lateral_join_with_its_inner_source(
 # capture lines LATERAL and reads another by exists: the lateral let's literal
 # binds first, then the exists let's, then the one parameter read twice as $3.
 PARAMETER_OVER_LATERAL = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table later_tags:
     let later:
@@ -4153,14 +4149,14 @@ table later_tags:
         select:
             tag_id = id
     from items
-    cross join later as l:
-        from items
+    let l = later
+    cross join l
     where exists same_label
     select:
         id = items.id
         later_id = l.later_id
 
-query picked_later(cut: Int not null):
+query picked_later(cut: Int):
     from later_tags
     where id > cut and later_id != cut
     select:
@@ -4190,7 +4186,7 @@ def test_a_parameter_after_a_lateral_let_binds_in_text_order(tmp_path, unconnect
 # a let written after it, which reads a third let the body also reads.
 LATERAL_CHAIN = CAPTURE_CHAIN.replace("chained_items", "lateral_chain").replace(
     "    where exists same_label and exists base and items.id > 3\n",
-    "    cross join same_label as t:\n        from items\n"
+    "    let t = same_label\n    cross join t\n"
     "    where exists base and items.id > 3\n",
 )
 
@@ -4222,8 +4218,8 @@ def test_a_compiled_left_lateral_join_round_trips(tmp_path, unconnected):
     # Phase70 S13: the LEFT JOIN keeps every item; the let's tag_id is
     # null-extended in the compiled output and the bundle replays the bytes.
     text = LATERAL_TAGS.replace(
-        "    cross join later_tags as t:\n        from items\n",
-        "    left join later_tags as t:\n        from items\n        on true\n",
+        "    let t = later_tags\n    cross join t\n",
+        "    let t = later_tags\n    left join t on True\n",
     )
     query = execution.compile_query(
         let_example(tmp_path, text),
@@ -4264,7 +4260,7 @@ def test_a_compiled_left_lateral_join_round_trips(tmp_path, unconnected):
 # with capture lines; each let compiles inline at its own read, and each
 # capture_use record names that read's expression block use.
 CORRELATED_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
 table correlated_items:
     let same_label:
@@ -4595,9 +4591,9 @@ def test_correlated_declarations_compile_beside_each_other(tmp_path):
 # header, one joined LEFT LATERAL with its ORDER BY and LIMIT, one read by a
 # correlated scalar; the bundle carries the unbound template.
 HEADER_CAPTURE_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
-query tagged_since(low: Int not null, note: Text nullable):
+query tagged_since(low: Int, note: Text | None):
     let later_tags:
         capture items
         from tags
@@ -4614,9 +4610,8 @@ query tagged_since(low: Int not null, note: Text nullable):
         select:
             label
     from items
-    left join later_tags as t:
-        from items
-        on t.tag_id > low
+    let t = later_tags
+    left join t on t.tag_id > low
     where items.id > low
     select:
         id = items.id
@@ -4669,9 +4664,9 @@ def test_header_reads_inside_capturing_lets_bind_on_every_route(tmp_path, unconn
 # carry a binding obligation; the let renders inside its read, and the bound
 # statement images the obligation there like anywhere else.
 HEADER_OBLIGATION_TAGS = """
-source tags: Item is postgres.table("fixture.tags")
+source tags: Item = postgres.table("fixture.tags")
 
-query tagged_after(low: Int not null, note: Text nullable):
+query tagged_after(low: Int, note: Text | None):
     let same:
         capture items
         from tags
@@ -4731,7 +4726,7 @@ def test_obligations_inside_capturing_lets_bind_on_every_route(tmp_path, unconne
 
 INT_VALUES_SEED = """
 query seeded:
-    values(id: Int not null):
+    values(id: Int):
         7
         8
         9
@@ -5027,9 +5022,8 @@ query paired:
         select:
             n
     from generate_series(1, 2, 1) as n
-    inner join a as t:
-        from n
-        on n.n == t.n
+    let t = a
+    inner join t on n.n == t.n
     select:
         x = n.n
 """

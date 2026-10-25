@@ -124,27 +124,27 @@ def _replace_window_in_final_semantic(
 def _library_source(*, export_relation: str = "table projected") -> str:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        "    name: Text nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        "    name: Text | None\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"
         "        id\n"
         "        amount\n"
         "        name\n"
-        f"export:\n    {export_relation}\n"
+        f"export {export_relation}\n"
     )
 
 
 def _prefix() -> str:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    amount: Int not null\n"
-        "    category: Text nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    amount: Int\n"
+        "    category: Text | None\n"
+        'source rows: Row = postgres.table("rows")\n'
     )
 
 
@@ -157,12 +157,11 @@ def _unavailable_candidate_body(
     *,
     relation_qualifier: str,
 ) -> str:
-    lines = ["    let:"]
-    lines.extend(f"        key = {expression}" for expression in expressions)
+    lines = [f"    let key = {expression}" for expression in expressions]
     lines.extend(
         (
-            f"        qualified_key = {relation_qualifier}.id",
-            "        wrong_qualified_key = other.id",
+            f"    let qualified_key = {relation_qualifier}.id",
+            "    let wrong_qualified_key = other.id",
         )
     )
     lines.extend(
@@ -178,7 +177,7 @@ def _unavailable_candidate_body(
     lines.extend(f"        total = sum({expression})" for expression in expressions)
     lines.extend(
         (
-            "    satisfying:",
+            "    having:",
             "        total > 0",
             "    order by:",
             "        total",
@@ -319,13 +318,7 @@ def _window_call(identity: str) -> str:
 def _window_lines(identities: tuple[str, ...]) -> str:
     lines = ["    select:", "        id"]
     for position, identity in enumerate(identities):
-        lines.extend(
-            (
-                f"        w{position} = {_window_call(identity)} window:",
-                "            partition by:",
-                "                category",
-                "            order by:",
-                "                id desc",
-            )
+        lines.append(
+            f"        w{position} = {_window_call(identity)} window(partition by category order by id desc)"
         )
     return "\n".join(lines) + "\n"

@@ -8,18 +8,18 @@ from pietto.semantic import analyze
 
 SOURCE_PREFIX = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    customer_id: Text not null\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
-    "    price: Decimal not null\n"
-    "    discount: Decimal not null\n"
+    "    region: Text\n"
+    "    status: Text\n"
+    "    customer_id: Text\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
     "    order_date: Date\n"
     "    created_at: Timestamp\n"
-    'source orders: Order is postgres.table("orders")\n'
+    'source orders: Order = postgres.table("orders")\n'
 )
 
 
@@ -52,7 +52,7 @@ def _grouped_relation(
 ) -> str:
     select_body = "".join(f"        {projection}\n" for projection in projections)
     satisfying_body = (
-        "" if satisfying is None else f"    satisfying:\n        {satisfying}\n"
+        "" if satisfying is None else f"    having:\n        {satisfying}\n"
     )
     order_body = (
         ""
@@ -135,7 +135,7 @@ def test_no_group_aggregate_behavior_remains_distinct_from_grouped_behavior() ->
         "    from orders\n"
         "    select:\n"
         "        total_amount = sum(amount)\n"
-        "    satisfying:\n"
+        "    having:\n"
         "        total_amount > 1000\n"
     )
 

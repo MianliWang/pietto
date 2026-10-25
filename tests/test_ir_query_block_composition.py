@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from copy import copy
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -9,6 +8,7 @@ from typing import Any, cast
 import pytest
 
 import _pietto_project_completed_semantics as slice13
+from _pietto_project_query_block import SLICE14_SOURCE
 from pietto._project.project_grain import (
     ProjectGrainBasisState,
     ProjectGrainDomainFactor,
@@ -47,199 +47,9 @@ from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC = (
-    REPO_ROOT
-    / "docs/spec/phase63-slice14-query-block-project-ir-composition-verification-invalidation-v1.md"
-)
 PRODUCTION = REPO_ROOT / "src/pietto/_project/project_query_block_ir.py"
 VERIFICATION = REPO_ROOT / "src/pietto/_project/project_query_block_ir_verification.py"
 HISTORICAL_OPERATORS = REPO_ROOT / "src/pietto/_project/project_ir_operators.py"
-
-SLICE14_SOURCE = (
-    slice13.POSITIVE_SOURCE
-    + """
-query filtered:
-    from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    where event.id > 0
-    select:
-        event_id = event.id
-query satisfying:
-    from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    group by:
-        event.id
-    select:
-        event_id = event.id
-        total = sum(event.metric)
-    satisfying:
-        event_id > 0 and total > 0
-query hidden_qualify:
-    from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    select:
-        event_id = event.id
-    qualify:
-        row_number() window:
-            order by:
-                event.id
-        <= 3
-query ordered_limited:
-    from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    select:
-        event_id = event.id
-    order by:
-        event.id desc
-    limit 1
-query computed:
-    from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    select:
-        event_id = event.id
-        doubled = event.metric * 2
-query key_drop:
-    from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    select:
-        metric = event.metric
-query mixed:
-    from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    where event.id > 0
-    group by:
-        event.id
-    select:
-        event_id = event.id
-        total = sum(event.metric)
-        ranked = rank() window:
-            order by:
-                total
-    satisfying:
-        event_id > 0 and total > 0
-    qualify:
-        ranked <= 3
-    order by:
-        event_id desc
-        ranked
-    limit 5
-query replay_selected:
-    from accounts
-    select:
-        id
-        ranked = row_number() window:
-            order by:
-                id
-    qualify:
-        ranked <= 3
-query replay_full:
-    from accounts
-    where id > 0
-    select:
-        id
-        ranked = row_number() window:
-            order by:
-                id
-    qualify:
-        ranked <= 3
-    order by:
-        id desc
-        ranked
-    limit 2
-query rebound_one:
-    from replay_selected
-    select:
-        id
-query rebound_two:
-    from rebound_one
-    select:
-        id
-query qualified_events:
-    from events
-    select:
-        id
-        account_id
-        metric
-    qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
-relationship account_qualified_events:
-    endpoint account: accounts
-    endpoint event: qualified_events
-    on account.id == event.account_id
-query stale_join:
-    from accounts
-    inner join qualified_events as event:
-        from accounts
-        via account_qualified_events: account -> event
-    select:
-        event_id = event.id
-query downstream_stale:
-    from stale_join
-    select:
-        event_id
-shape DetailRow:
-    id: Int not null
-    event_id: Int not null
-    unique detail_key on id
-source details: DetailRow is postgres.table("details")
-relationship event_details:
-    endpoint event: events
-    endpoint detail: details
-    on event.id == detail.event_id
-query multi_join:
-    from accounts
-    inner join events as event:
-        from accounts
-        via account_events: account -> event
-    left join details as detail:
-        from event
-        via event_details: event -> detail
-    select:
-        account_id = accounts.id
-        event_id = event.id
-        detail_id = detail.id
-query left_selected_hidden:
-    from accounts
-    left join events as event:
-        from accounts
-        via account_events: account -> event
-    select:
-        event_id = event.id
-        ranked = row_number() window:
-            order by:
-                event.id
-    qualify:
-        ranked <= 3 and row_number() window:
-            order by:
-                event.id
-        <= 3
-query semantic_bad:
-    from missing
-    select:
-        id
-query semantic_bad_downstream:
-    from semantic_bad
-    select:
-        id
-"""
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -522,9 +332,21 @@ def test_row_shapes_final_identity_window_scalar_and_hidden_non_output_are_exact
     multi = _completed(built, "multi_join")
     multi_root = multi.semantic_entry.root
     assert type(multi_root) is ProjectConcreteJoinedQualify
-    region = multi_root.window_stage.input_aggregation.input_filter.joined_semantics.row_source.region
-    assert len(region.joins) == 2
+    (region,) = (
+        region
+        for region in built.completed.effective_outputs.current_regions
+        if region.ledger.owner is multi.owner
+    )
+    prefix = multi.join_prefix
+    assert prefix is not None and prefix.region is region
+    assert prefix.semantic_entry is multi.semantic_entry
+    assert len(region.joins) == len(prefix.joins) == 2
+    assert all(
+        joined.source is original
+        for joined, original in zip(prefix.joins, region.joins, strict=True)
+    )
     assert region.joins[1].input_uses[0].output is region.joins[0].output.occurrence
+    assert prefix.joins[1].input_uses[0].output is prefix.joins[0].output.occurrence
 
 
 def test_property_transfer_group_global_projection_order_and_limit_are_narrow(
@@ -742,21 +564,6 @@ def test_concrete_ledger_entries_retain_explicit_active_row_and_property_roots(
     assert downstream.relation_input.producer is joined.active_properties
 
 
-def test_active_root_authority_has_no_negative_one_subscript() -> None:
-    for path in (PRODUCTION, VERIFICATION):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        forbidden = tuple(
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Subscript)
-            and isinstance(node.slice, ast.UnaryOp)
-            and isinstance(node.slice.op, ast.USub)
-            and isinstance(node.slice.operand, ast.Constant)
-            and node.slice.operand.value == 1
-        )
-        assert forbidden == ()
-
-
 def test_effective_join_rebinds_and_semantic_terminals_allocate_no_fake_ir(
     built: _Built,
 ) -> None:
@@ -938,28 +745,6 @@ def test_private_boundary_historical_enum_and_verifier_independence_are_static()
         assert forbidden not in verification
 
 
-def test_spec_records_exact_frozen_closure_budgets_and_slice_boundaries() -> None:
-    document = " ".join(SPEC.read_text(encoding="utf-8").split())
-    for evidence in (
-        "8b56db95ab45933d05db2123b3e89fb81b8ac2fa",
-        "c07493ab11dcf308a0cde01f9ef33a567096eb3c",
-        "33855263140",
-        "push / main / attempt 1 / success",
-        "ProjectIRQueryBlockOperatorExtensionKind.QUALIFY",
-        "EFFECTIVE_JOIN_INPUT_REBIND_UNSUPPORTED",
-        "exact 11-path core closure",
-        "A4/M7/D0",
-        "175 -> 177",
-        "418 -> 419",
-        "production repairs 是 `10/12`",
-        "mechanical closure paths 是 `0/12`",
-        "authoritative validator starts 是 `0/4`",
-        "Slice 15 单独拥有 observation/pure/E2E",
-        "Phase 64 单独拥有 generic JOIN semantics",
-    ):
-        assert evidence in document
-
-
 def test_a_table_function_keeps_its_effects_on_its_own_occurrence(
     tmp_path: Path,
 ) -> None:
@@ -1060,14 +845,14 @@ query inner:
     from rows
     select:
         id
-source rows: Row is postgres.table("rows")
+source rows: Row = postgres.table("rows")
 shape Row:
-    id: Int not null
+    id: Int
 """
 # A grouped producer reached through two JOIN hops.
 GROUPED_JOIN_CHAIN_SOURCE = """shape Row:
-    id: Int not null
-source s: Row is postgres.table("s")
+    id: Int
+source s: Row = postgres.table("s")
 table up:
     from s
     group by:
@@ -1077,22 +862,22 @@ table up:
         n = count()
 query mid:
     from up
-    cross join s as m:
-        from up
+    let m = s
+    cross join m
     select:
         id = up.id
 query last:
     from mid
-    cross join s as z:
-        from mid
+    let z = s
+    cross join z
     select:
         id = mid.id
 """
 # Two grouped tables, each completed by its own JOIN reader; neither reads the
 # other.
 TWO_GROUPED_TABLES_SOURCE = """shape Row:
-    id: Int not null
-source s: Row is postgres.table("s")
+    id: Int
+source s: Row = postgres.table("s")
 table a:
     from s
     group by:
@@ -1109,14 +894,14 @@ table b:
         n = count()
 query ma:
     from a
-    cross join s as m:
-        from a
+    let m = s
+    cross join m
     select:
         id = a.id
 query mb:
     from b
-    cross join s as m:
-        from b
+    let m = s
+    cross join m
     select:
         id = b.id
 """
@@ -1218,9 +1003,9 @@ def test_only_a_base_plan_read_may_point_backwards(tmp_path: Path) -> None:
 # operator flow, a new operator flow, a JOIN tail's first flow, a rebound flow
 # and a retained JOIN input.
 WRONG_READ_SOURCE = """shape Row:
-    id: Int not null
-source early: Row is postgres.table("early")
-source lhs: Row is postgres.table("lhs")
+    id: Int
+source early: Row = postgres.table("early")
+source lhs: Row = postgres.table("lhs")
 query result:
     from lhs
     select distinct:
@@ -1230,45 +1015,34 @@ query ranked:
     select:
         id
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3
+        row_number() window(order by id) <= 3
 query rebound:
     from ranked
     select:
         id
 query joined:
     from lhs
-    inner join early as e:
-        from lhs
-        on lhs.id == e.id
+    let e = early
+    inner join e on lhs.id == e.id
     select:
         id = lhs.id
-source late: Row is postgres.table("late")
+source late: Row = postgres.table("late")
 """
 STALE_JOIN_SOURCE = """shape Row:
-    id: Int not null
-source early: Row is postgres.table("early")
-source lhs: Row is postgres.table("lhs")
+    id: Int
+source early: Row = postgres.table("early")
+source lhs: Row = postgres.table("lhs")
 query ranked:
     from lhs
     select:
         id
-        n = row_number() window:
-            order by:
-                id
+        n = row_number() window(order by id)
     qualify:
         n <= 3
-relationship lhs_ranked:
-    endpoint l: lhs
-    endpoint r: ranked
-    on l.id == r.id
 query stale:
     from lhs
-    inner join ranked as r:
-        from lhs
-        via lhs_ranked: l -> r
+    let r = ranked
+    inner join r on lhs.id == r.id
     select:
         id = r.id
 """
@@ -1295,6 +1069,36 @@ def _base_flow(snapshot: ProjectIRQueryBlockSnapshot, name: str) -> Any:
     return use
 
 
+def _stale_join_input(snapshot: ProjectIRQueryBlockSnapshot):
+    stale = _named(snapshot, "stale")
+    (region,) = (
+        region
+        for region in snapshot.completed.effective_outputs.current_regions
+        if region.ledger.owner is stale.owner
+    )
+    prefix = stale.join_prefix
+    assert prefix is not None and prefix.region is region
+    assert prefix.semantic_entry is stale.semantic_entry
+    (joined,) = prefix.joins
+    (original,) = region.joins
+    assert joined.source is original
+    left, right = joined.inputs
+    for ordinal, (image, producer) in enumerate(
+        zip(
+            (left, right),
+            (_owned(snapshot, "lhs"), _named(snapshot, "ranked")),
+            strict=True,
+        )
+    ):
+        assert image.producer is producer.owner
+        assert image.source is original.input_uses[ordinal]
+        assert image.use is joined.input_uses[ordinal]
+        assert image.use.slot.consumer is joined.node
+        assert image.use.slot.input_ordinal == ordinal
+        assert image.use.output is producer.active_output.occurrence
+    return left.use
+
+
 @pytest.mark.parametrize(
     ("source", "pick", "wrong"),
     (
@@ -1309,7 +1113,7 @@ def _base_flow(snapshot: ProjectIRQueryBlockSnapshot, name: str) -> Any:
             lambda s: _owned(s, "rebound").rebuilt_fragment.structural_stage.uses[0],
             "early",
         ),
-        (STALE_JOIN_SOURCE, lambda s: s.join_stage.structural.uses[0], "early"),
+        (STALE_JOIN_SOURCE, _stale_join_input, "early"),
     ),
     ids=(
         "base-read-later",
@@ -1333,9 +1137,12 @@ def test_each_use_reads_exactly_the_output_its_owner_names(
     object.__setattr__(use, "output", read)
     result = verify_project_query_block_ir(snapshot)
     assert result.status is ProjectIRQueryBlockVerificationStatus.INVALID
-    assert tuple(issue.kind for issue in result.issues) == (
-        ProjectIRQueryBlockVerificationIssueKind.STRUCTURAL_ENDPOINT,
+    expected_kind = (
+        ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE
+        if pick is _stale_join_input
+        else ProjectIRQueryBlockVerificationIssueKind.STRUCTURAL_ENDPOINT
     )
+    assert tuple(issue.kind for issue in result.issues) == (expected_kind,)
     with pytest.raises(ValueError, match="Only VERIFIED query-block IR"):
         build_project_query_block_ir_analysis_bundle(result)
 
@@ -1401,14 +1208,15 @@ def test_a_grouped_input_two_join_hops_back_keeps_its_exact_image(
     )
 
 
-# SEMI and ANTI JOINs over a projection that reorders the fields of a keyed
-# source: the projection keeps its key FD once per dependent order.
+# `any` and `not any` filters before a later JOIN over a projection that
+# reorders the fields of a keyed source: the projection keeps its key FD once
+# per dependent order.
 MEMBERSHIP_OVER_REORDERED_SOURCE = """shape Row:
-    id: Int not null
-    flag: Bool nullable
-    amount: Int not null
-    unique row_key on id
-source s: Row is postgres.table("s")
+    id: Int
+    flag: Bool | None
+    amount: Int
+    row_key = unique(id)
+source s: Row = postgres.table("s")
 table picked:
     from s
     select:
@@ -1417,16 +1225,18 @@ table picked:
         flag_copy = flag
 query semi_reader:
     from picked
-    semi join s as other:
-        from picked
-        on picked.amount_copy == other.id
+    let other = s
+    where any(picked.amount_copy == other.id for other in other)
+    let more = s
+    inner join more on picked.id == more.id
     select:
         n = count()
 query anti_reader:
     from picked
-    anti join s as other:
-        from picked
-        on picked.amount_copy == other.id
+    let other = s
+    where not any(picked.amount_copy == other.id for other in other)
+    let more = s
+    inner join more on picked.id == more.id
     select:
         id = picked.id
 """
@@ -1449,10 +1259,10 @@ def _fd_signatures(properties: Any) -> list[tuple[tuple[int, ...], ...]]:
 def test_a_membership_join_merges_the_fds_its_left_input_repeats(
     tmp_path: Path,
 ) -> None:
-    """A SEMI or ANTI JOIN output keeps one FD where its left input has one
-    in two dependent orders, as every other JOIN and the composed image of a
-    JOIN do, so the snapshot verifies. Before, the JOIN kept both, its
-    composed image one, and the JOIN_REUSE issue made `emit-sql --project`
+    """The SEMI or ANTI JOIN of an `any` filter keeps one FD where its left
+    input has one in two dependent orders, as every other JOIN and the composed
+    image of a JOIN do, so the snapshot verifies. Before, the JOIN kept both,
+    its composed image one, and the JOIN_REUSE issue made `emit-sql --project`
     reject every relation of the project as `Project planning roots are
     unavailable.`"""
     snapshot = _snapshot(tmp_path, MEMBERSHIP_OVER_REORDERED_SOURCE)
@@ -1466,9 +1276,9 @@ def test_a_membership_join_merges_the_fds_its_left_input_repeats(
     for name in ("semi_reader", "anti_reader"):
         entry = _named(snapshot, name)
         assert entry.join_prefix is not None
-        (joined,) = entry.join_prefix.joins
+        membership, _ = entry.join_prefix.joins
         assert (
-            _fd_signatures(joined.source_properties)
+            _fd_signatures(membership.source_properties)
             == _fd_signatures(entry.join_properties[0].relational)
             == [((0,), (1, 2), strict)]
         )

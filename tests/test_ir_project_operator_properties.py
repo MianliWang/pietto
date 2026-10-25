@@ -59,14 +59,15 @@ SPEC_HEADINGS = (
 
 def _source() -> str:
     return """shape Row:
-    id: Int not null
-    value: Int nullable
-    category: Text nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    category: Text | None
+source rows: Row = postgres.table("rows")
 query full:
     from rows
-    let:
-        floor = 0
+    let floor = 0
+    let child = window base
+    let base = window(partition by group_name order by total desc)
     where id > floor
     group by:
         category
@@ -74,13 +75,7 @@ query full:
         group_name = category
         total = sum(value)
         ranking = row_number() window child
-    window child = base
-    window base:
-        partition by:
-            group_name
-        order by:
-            total desc
-    satisfying:
+    having:
         total > 0
     order by:
         ranking
@@ -115,8 +110,8 @@ query literal_satisfying:
     select:
         group_name = category
         total = sum(value)
-    satisfying:
-        true
+    having:
+        True
 query consumer:
     from filtered
     select:

@@ -1,5 +1,38 @@
 # v0.2 Aggregate Surface Freeze v1
 
+## Reading this contract with current source
+
+This file retains the Phase 29 aggregate freeze, not a current release-number
+or complete feature inventory. In its historical record below, `satisfying:`
+and `Decimal nullable` are pre-migration spellings. Current source uses `having`
+and `Decimal | None`, for example:
+
+```pietto
+query counts_by_region:
+    from orders
+    group by region
+    select region, n = count()
+    having n > 1
+    order by n desc
+```
+
+The source rewrite does not unfreeze any aggregate argument or target domain.
+Current SQL/compiled emission still requires its aggregate proofs and does not
+acquire Bool aggregate emission merely because relationship predicates or ANY
+can supply Bool values. See [Aggregates and grouping](../language.md#aggregates-and-grouping)
+for later approved capability boundaries. All phase-specific restrictions and
+before-migration spellings below are preserved as historical evidence.
+
+The phase status, pinned baselines, decisions, delivery gates and later-slice
+handoffs below are retained historical records. They do not select a source
+syntax or a new release version. Current source defaults to the
+[modern language](../language.md); `pietto NUMBER` remains metadata. Retired
+spelling is read only for diagnostics/migration, and
+[`pietto migrate`](../language.md#migrating-old-source) writes a complete result
+or a manual-refusal diagnostic without editing the input. Exact diagnostic,
+SQL, JSON and internal enum/opcode spellings remain unchanged.
+
+
 ## Status
 
 Phase 29 Slice 3 is complete as an aggregate-surface freeze contract and static
@@ -44,15 +77,15 @@ The frozen direct aggregate vocabulary includes:
 - `max(field)`;
 - `max(source.field)`.
 
-`count()` remains SQL `COUNT(*)` and returns `Int not null`.
+`count()` remains SQL `COUNT(*)` and returns `Int`.
 
 `count(field)` and `count(source.field)` count non-null field values and return
-`Int not null` for the currently accepted concrete bound field types. Unknown,
+`Int` for the currently accepted concrete bound field types. Unknown,
 unresolved, or unsupported field references remain rejected through existing
 diagnostics.
 
 `count_distinct(field)` and `count_distinct(source.field)` count unique
-non-null field values and return `Int not null` for the current direct-field
+non-null field values and return `Int` for the current direct-field
 subset. The direct-field subset includes the supported concrete scalar field
 types already accepted by the current implementation.
 
@@ -73,7 +106,7 @@ The v0.2 freeze includes the current direct-field Decimal aggregate surface:
 - `min(Decimal)`;
 - `max(Decimal)`.
 
-Decimal aggregate results remain logical Pietto `Decimal nullable` values under
+Decimal aggregate results remain logical Pietto `Decimal | None` values under
 the current contract. The freeze does not add Decimal precision/scale syntax,
 precision/scale carriers, Decimal literal aggregate arguments, Decimal
 multiplication, Decimal division, mixed Decimal promotion, casts, schema

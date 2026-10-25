@@ -310,12 +310,12 @@ def test_public_type_surfaces_still_have_no_precision_scale_fields() -> None:
 
 def _source(connector: str, relation: str) -> str:
     return (
-        "type Money = Decimal(12, 2) not null\n"
+        "type Money = Decimal(12, 2)\n"
         "shape Order:\n"
-        "    amount: Decimal(12, 2) not null\n"
-        "    tax: Decimal(12, 2) not null\n"
-        "    money: Money not null\n"
-        f'source orders: Order is {connector}("orders")\n'
+        "    amount: Decimal(12, 2)\n"
+        "    tax: Decimal(12, 2)\n"
+        "    money: Money\n"
+        f'source orders: Order = {connector}("orders")\n'
         f"{relation}"
     )
 

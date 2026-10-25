@@ -19,7 +19,6 @@ from pietto._project.project_completed_semantics import (
 )
 from pietto._project.project_single_match import (
     ProjectSingleMatchRequest,
-    ProjectSingleMatchScope,
 )
 from pietto._project import project_sql_plan as plans
 from pietto._project import project_sql_plan_literals as literals
@@ -58,25 +57,24 @@ __all__ = ("observation", "render")
 SEED_ENVIRONMENT = "PIETTO_PHASE65_SLICE14_AMBIENT"
 
 BOUND_SOURCE = """shape Row:
-    id: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+source rows: Row = postgres.table("rows")
 query result:
     from rows
-    let:
-        added = id + 1
+    let added = id + 1
     where added > 0
     select:
         added
-        flag = true
+        flag = True
         floating = 1.25
         negative_zero = -0.0
         text = "https://example.invalid/0x/source/😀"
         large = 123456789012345678901234567890123456789012345678901234567890
 """
 SET_SOURCE = """shape Row:
-    id: Decimal(10, 2) nullable
-source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
+    id: Decimal(10, 2) | None
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
 table visible:
     from lhs
     select distinct:
@@ -85,30 +83,23 @@ table visible:
         id
     limit 2
 table combined:
-    union all:
-        from visible
-        from rhs
-        from visible
+    union all visible, rhs, visible
 query result:
-    except distinct:
-        from combined
-        from visible
+    except distinct combined, visible
 """
 STAGED_SOURCE = """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     group by:
         id
     select:
         total = count()
-        w = rank() window:
-            order by:
-                total
-    satisfying:
+        w = rank() window(order by total)
+    having:
         total > 0
     qualify:
         w <= 3
@@ -129,69 +120,64 @@ ROW_SHARED = (
     CONTROL.split("query result:")[0]
     + """query result:
     from rows
-    let:
-        a = 1
-        b = 1.0
-        c = true
-        d = "text"
-    where true and 1 == 1 and 1.0 > 0.0 and "x" == "x"
+    let a = 1
+    let b = 1.0
+    let c = True
+    let d = "text"
+    where True and 1 == 1 and 1.0 > 0.0 and "x" == "x"
     select:
         n = -3
         z = -0.0
         f = 1.25
         t = "é\\n😀"
-        flag = false
+        flag = False
         huge = 123456789012345678901234567890123456789
         first = a
         again = a
 """
 )
 JOIN_PREFIX = """shape Row:
-    id: Int not null
-    key: Int nullable
-    allow_any: Bool nullable
-source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
-relationship link:
-    endpoint l: lhs
-    endpoint r: rhs
-    on l.id == r.id
+    id: Int
+    key: Int | None
+    allow_any: Bool | None
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
+relationship Link(l: Row, r: Row):
+    l.id == r.id
 """
 
 
-def join_source(kind, predicate="true", *, via="", tail=""):
-    condition = "" if kind == "cross" else f"        on {predicate}\n"
+def join_source(kind, predicate="True", *, tail=""):
+    condition = "" if kind == "cross" else f" on {predicate}"
     return (
         JOIN_PREFIX
         + f"""query result:
     from lhs
-    {kind} join rhs as r:
-        from lhs
-{via}{condition}{tail}    select:
+    let r = rhs
+    {kind} join r{condition}
+{tail}    select:
         id = lhs.id
 """
     )
 
 
 def path_source(all_unique):
-    unique = "    unique key on id\n" if all_unique else ""
+    unique = "    key = unique(id)\n" if all_unique else ""
     return f"""shape LeftRow:
-    id: Int not null
+    id: Int
 {unique}shape RightRow:
-    id: Int not null
-    unique key on id
-source lhs: LeftRow is postgres.table("lhs")
-source rhs: RightRow is postgres.table("rhs")
-relationship link:
-    endpoint l: lhs
-    endpoint r: rhs
-    on l.id == r.id
+    id: Int
+    key = unique(id)
+source lhs: LeftRow = postgres.table("lhs")
+source rhs: RightRow = postgres.table("rhs")
+relationship Link(l: LeftRow, r: RightRow):
+    l.id == r.id
 query result:
     from lhs
-    inner join lhs as r:
-        from lhs
-        via link: l -> r
-        via link: r -> l
+    let mid = rhs
+    inner join mid on Link(lhs, mid)
+    let r = lhs
+    inner join r on Link(r, mid)
     select:
         id = lhs.id
 """
@@ -200,15 +186,14 @@ query result:
 def group_source(visible=""):
     return (
         """shape Row:
-    id: Int not null
-    key: Int nullable
-source lhs: Row is postgres.table("lhs")
-source rhs: Row is postgres.table("rhs")
+    id: Int
+    key: Int | None
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
 query result:
     from lhs
-    left join rhs as r:
-        from lhs
-        on lhs.id == r.id
+    let r = rhs
+    left join r on lhs.id == r.id
     group by:
         lhs.id
         r.id
@@ -220,16 +205,16 @@ query result:
 
 
 ORDINARY_PREFIX = """shape Row:
-    id: Int not null
-    value: Int nullable
-    flag: Bool nullable
-source rows: Row is postgres.table("rows")
+    id: Int
+    value: Int | None
+    flag: Bool | None
+source rows: Row = postgres.table("rows")
 """
 GLOBAL_EMPTY = (
     ORDINARY_PREFIX
     + """query result:
     from rows
-    where false
+    where False
     select:
         rows = count()
         fields = count(value)
@@ -240,29 +225,27 @@ GROUPED_SATISFYING = (
     ORDINARY_PREFIX
     + """query result:
     from rows
-    let:
-        key = id
-        amount = value + 1
-    where false
+    let key = id
+    let amount = value + 1
+    where False
     group by:
         key
     select:
         total = sum(amount)
-    satisfying:
+    having:
         total > 0 and sum(amount) > 1 and total < 10
 """
 )
 AGGREGATE_RISKS = (
     group_source()
     .replace(
-        "    key: Int nullable\n",
-        "    key: Int nullable\n    label: Text nullable\n    unique row_key on id\n",
+        "    key: Int | None\n",
+        "    key: Int | None\n    label: Text | None\n    row_key = unique(id)\n",
     )
     .replace(
         "    group by:\n        lhs.id\n        r.id\n",
-        """    let:
-        group_value = lhs.id
-        amount = r.key + 1
+        """    let group_value = lhs.id
+    let amount = r.key + 1
     where lhs.id > 0
     group by:
         group_value
@@ -278,7 +261,7 @@ AGGREGATE_RISKS = (
         minimum = min(r.key)
         maximum = max(r.key)
         repeated_total = sum(amount)
-    satisfying:
+    having:
         total > 0 and total > 1 and total < 10
 """,
     )
@@ -287,7 +270,7 @@ WINDOW_RANK_NAVIGATION = (
     ORDINARY_PREFIX
     + "query result:\n    from rows\n    select:\n        id\n"
     + "".join(
-        f"        {name} = {call} window:\n            order by:\n                id desc\n"
+        f"        {name} = {call} window(order by id desc)\n"
         for name, call in (
             ("numbered", "row_number()"),
             ("ranked", "rank()"),
@@ -304,23 +287,14 @@ WINDOW_VALUE_NAMED = (
     ORDINARY_PREFIX
     + """query result:
     from rows
+    let composed = window base
+    let base = window(order by id desc rows between unbounded preceding and current row)
     select:
         id
         first = first_value(value) window composed
         again = last_value(value) window composed
-        last = last_value(value) window:
-            order by:
-                id desc
-            range between unbounded preceding and current row
-        nth = nth_value(value, 2) from last ignore nulls window:
-            order by:
-                id desc
-            groups between 1 preceding and current row exclude current row
-    window composed = base
-    window base:
-        order by:
-            id desc
-        rows between unbounded preceding and current row
+        last = last_value(value) window(order by id desc range between unbounded preceding and current row)
+        nth = nth_value(value, 2) from last ignore nulls window(order by id desc groups between 1 preceding and current row exclude current row)
 """
 )
 MIXED_QUALIFY = (
@@ -329,82 +303,56 @@ MIXED_QUALIFY = (
     from rows
     select:
         id
-        w = row_number() window:
-            order by:
-                id
+        w = row_number() window(order by id)
     qualify:
-        row_number() window:
-            order by:
-                id
-        <= 3 and w <= 2
+        row_number() window(order by id) <= 3 and w <= 2
 """
 )
 HIDDEN_DISTINCT = """shape Row:
-    id: Int not null
-    other: Int not null
-source rows: Row is postgres.table("rows")
+    id: Int
+    other: Int
+source rows: Row = postgres.table("rows")
 query result:
     from rows
     select distinct:
         constant = 1
     qualify:
-        lag(rows.id, 1, rows.other) window:
-            partition by:
-                rows.other
-            order by:
-                rows.id
-        > 0
+        lag(rows.id, 1, rows.other) window(partition by rows.other order by rows.id) > 0
     limit 0
 """
 SET_FORMS = """type Base = Decimal(10, 2)
 type Money = Base
 shape Left:
-    id: Money not null
+    id: Money
 shape Right:
-    other: Money nullable
-source lhs: Left is postgres.table("lhs")
-source rhs: Right is postgres.table("rhs")
+    other: Money | None
+source lhs: Left = postgres.table("lhs")
+source rhs: Right = postgres.table("rhs")
 table united:
-    union distinct:
-        from lhs
-        from rhs
+    union distinct lhs, rhs
 table intersect_all:
-    intersect all:
-        from united
-        from lhs
+    intersect all united, lhs
 table intersect_distinct:
-    intersect distinct:
-        from intersect_all
-        from rhs
+    intersect distinct intersect_all, rhs
 table except_all:
-    except all:
-        from intersect_distinct
-        from rhs
-        from lhs
+    except all intersect_distinct, rhs, lhs
 query result:
-    except distinct:
-        from except_all
-        from united
+    except distinct except_all, united
 """
 SET_FLOAT = """shape Left:
-    id: Float not null
+    id: Float
 shape Right:
-    other: Float nullable
-source lhs: Left is postgres.table("lhs")
-source rhs: Right is postgres.table("rhs")
+    other: Float | None
+source lhs: Left = postgres.table("lhs")
+source rhs: Right = postgres.table("rhs")
 query result:
-    union all:
-        from lhs
-        from rhs
+    union all lhs, rhs
 """
 SHARING_DEPTH12 = (
     CONTROL.replace("query result:", "table p0:").replace(
         "        id\n", "        id = 17\n"
     )
-    + "".join(
-        f"table p{i}:\n    union all:\n        from p{i - 1}\n        from p{i - 1}\n"
-        for i in range(1, 13)
-    )
+    + "".join(f"table p{i}:\n    union all p{i - 1}, p{i - 1}\n" for i in range(1, 13))
     + "query result:\n    from p12\n    select:\n        id\n"
 )
 LIMIT_HEAD = (
@@ -415,32 +363,30 @@ LIMIT_CONSUMER = (
     "query result:\n    from bounded\n    where id > 0\n    select:\n        id\n"
 )
 IMPORTED_PRODUCER = (
-    CONTROL.replace("query result:", "table shared:") + "export:\n    table shared\n"
+    CONTROL.replace("query result:", "table shared:") + "export table shared\n"
 )
 IMPORTED_REEXPORT = (
     ("producer.pietto", IMPORTED_PRODUCER),
     ("other.pietto", IMPORTED_PRODUCER),
     (
         "facade.pietto",
-        'import "producer.pietto":\n    table shared as public\nexport:\n    table public\n',
+        'from "producer.pietto" import (table shared as public)\nexport table public\n',
     ),
     (
         "main.pietto",
-        """import "facade.pietto":
-    table public as a
-import "other.pietto":
-    table shared as b
+        """from "facade.pietto" import (table public as a)
+from "other.pietto" import (table shared as b)
 shape Local:
-    id: Int not null
-source extra: Local is mysql.table("extra")
+    id: Int
+source extra: Local = mysql.table("extra")
 query result:
     from a
-    cross join a as again:
-        from a
-    cross join b as second:
-        from a
-    cross join extra as third:
-        from a
+    let again = a
+    cross join again
+    let second = b
+    cross join second
+    let third = extra
+    cross join third
     select:
         first = a.id
         repeated = again.id
@@ -463,18 +409,15 @@ CORPUS = (
     ("imported_reexport", IMPORTED_REEXPORT, P.BIND_SAFE_LITERALS),
     ("join_cross", join_source("cross"), P.PRESERVE_LITERALS),
     ("join_right", join_source("right"), P.BIND_SAFE_LITERALS),
-    ("join_semi", join_source("semi"), P.BIND_SAFE_LITERALS),
-    ("join_anti", join_source("anti"), P.PRESERVE_LITERALS),
     (
         "join_refinement",
         join_source(
             "inner",
-            "r.key > 0",
-            via="        via link: l -> r\n",
+            "Link(lhs, r) and r.key > 0",
             tail="    where lhs.id > 0\n",
         ).replace(
-            "    allow_any: Bool nullable\n",
-            "    allow_any: Bool nullable\n    unique row_key on id\n",
+            "    allow_any: Bool | None\n",
+            "    allow_any: Bool | None\n    row_key = unique(id)\n",
         ),
         P.BIND_SAFE_LITERALS,
     ),
@@ -482,14 +425,14 @@ CORPUS = (
         "join_accumulated",
         join_source(
             "left",
-            tail="    full join rhs as last:\n        from lhs\n        on r.id == last.id\n",
+            tail="    let last = rhs\n    full join last on r.id == last.id\n",
         ),
         P.PRESERVE_LITERALS,
     ),
     (
         "proof_right_limit",
         JOIN_PREFIX
-        + "table right_named:\n    from rhs\n    select:\n        id\n    limit 1\nquery result:\n    from lhs\n    inner join right_named as r:\n        from lhs\n        on true\n    select:\n        id = lhs.id\n",
+        + "table right_named:\n    from rhs\n    select:\n        id\n    limit 1\nquery result:\n    from lhs\n    let r = right_named\n    inner join r on True\n    select:\n        id = lhs.id\n",
         P.BIND_SAFE_LITERALS,
     ),
     (
@@ -497,7 +440,7 @@ CORPUS = (
         join_source("inner", "lhs.id == r.id")
         .replace("query result:", "table upstream:")
         .replace("id = lhs.id", "total = count()")
-        + "query result:\n    from lhs\n    semi join upstream as r:\n        from lhs\n        on true\n    select:\n        id = lhs.id\n",
+        + "query result:\n    from lhs\n    let r = upstream\n    inner join r on True\n    select:\n        id = lhs.id\n",
         P.PRESERVE_LITERALS,
     ),
     ("path_complete", path_source(True), P.PRESERVE_LITERALS),
@@ -528,8 +471,6 @@ CORPUS = (
 )
 REQUEST_MODES = {
     "join_right": "direct",
-    "join_semi": "direct",
-    "join_anti": "direct",
     "join_refinement": "direct",
     "proof_right_limit": "direct",
     "proof_right_global": "result_direct",
@@ -560,28 +501,17 @@ def construction(workspace: Path, source, policy, *, requests=None):
     assert completed.ok, completed.diagnostics
     if requests is not None:
         conditions = completed.roots.join_conditions.entries
+        assert requests in ("path", "direct", "result_direct")
+        if requests == "result_direct":
+            conditions = tuple(
+                c for c in conditions if c.use.owner.definition.name == "result"
+            )
+            assert len(conditions) == 1
         if requests == "path":
-            (condition,) = conditions
-            path = condition.effective_use.path
-            assert path is not None and len(path.steps) == 2
-            request = ProjectSingleMatchRequest(
-                owner=condition.use.owner, use=condition.use, path=path
-            )
-            selected_requests = tuple(
-                replace(request, scope=ProjectSingleMatchScope.PATH_HOP, hop=hop)
-                for hop in path.steps
-            ) + (replace(request, scope=ProjectSingleMatchScope.WHOLE_PATH),)
-        else:
-            assert requests in ("direct", "result_direct")
-            if requests == "result_direct":
-                conditions = tuple(
-                    c for c in conditions if c.use.owner.definition.name == "result"
-                )
-                assert len(conditions) == 1
-            selected_requests = tuple(
-                ProjectSingleMatchRequest(owner=c.use.owner, use=c.use)
-                for c in conditions
-            )
+            assert len(conditions) == 2
+        selected_requests = tuple(
+            ProjectSingleMatchRequest(owner=c.use.owner, use=c.use) for c in conditions
+        )
         completed = with_project_single_match_requests(completed, selected_requests)
         assert completed.ok, completed.diagnostics
     bundle, owner = planning_inputs(completed)
@@ -1040,13 +970,6 @@ def mutations(name, verified, product):
             "rows",
             schema.Value(schema.Tag.ENUM, "left_preserved"),
         )
-    if name in ("join_semi", "join_anti"):
-        (join,) = plan.joins
-        (right,) = tuple(
-            i for i in plan.join_inputs if i.join is join.ref and i.ordinal == 1
-        )
-        assert len(right.ports) == len(join.outputs) == 3
-        reject("right_match_membership_missing", right, "ports", empty)
     if name == "global_empty":
         (aggregation,) = plan.aggregations
         assert aggregation.empty_input.value == "one_global_row"
@@ -1147,13 +1070,19 @@ def mutations(name, verified, product):
         assert proof.source.premise_nodes
         reject("producer_proof_premise_missing", proof.source, "premise_nodes", empty)
     if name == "path_complete":
-        (proof,) = tuple(
-            p
+        proof = next(
+            p.source.source
             for p in plan.single_match_proofs
-            if p.source.source.kind.value == "whole_path"
+            if p.source.source.kind.value == "matched_key"
         )
-        assert len(proof.children) == 2
-        reject("whole_path_child_missing", proof, "children", empty)
+        roots = _field(_record(product, proof), "roots").data
+        assert isinstance(roots, tuple) and len(roots) >= 4
+        reject(
+            "matched_key_equality_missing",
+            proof,
+            "roots",
+            schema.Value(schema.Tag.SEQUENCE, roots[:-1]),
+        )
     if name == "sharing_depth12":
         (definition,) = tuple(
             d
@@ -1274,12 +1203,12 @@ NEGATIVE_CORPUS = (
     ),
     (
         "unrelated_error",
-        CONTROL + "source broken: Row is postgres.table(1)\n",
+        CONTROL + "source broken: Row = postgres.table(1)\n",
         "PIE-S2306",
     ),
     (
         "general_call",
-        CONTROL.replace("    select:\n", "    where (id + null) > 0\n    select:\n"),
+        CONTROL.replace("    select:\n", "    where (id + None) > 0\n    select:\n"),
         "expression_evidence_unavailable",
     ),
     (
@@ -1311,14 +1240,14 @@ NEGATIVE_CORPUS = (
     (
         "global_satisfying",
         ORDINARY_PREFIX
-        + "query result:\n    from rows\n    select:\n        total = count()\n    satisfying:\n        total > 0\n",
+        + "query result:\n    from rows\n    select:\n        total = count()\n    having:\n        total > 0\n",
         "PIE-S2323",
     ),
     ("qualify_without_window", CONTROL + "    qualify:\n        id > 0\n", "PIE-S2331"),
     (
         "global_window",
         ORDINARY_PREFIX
-        + "query result:\n    from rows\n    select:\n        total = count()\n        w = row_number() window:\n            order by:\n                total\n",
+        + "query result:\n    from rows\n    select:\n        total = count()\n        w = row_number() window(order by total)\n",
         "PIE-S2333",
     ),
 )

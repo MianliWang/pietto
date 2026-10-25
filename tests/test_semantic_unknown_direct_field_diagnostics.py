@@ -168,8 +168,8 @@ def test_phase48_table_to_query_unknown_field_emits_pie_s2102(
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        'source users: User = postgres.table("users")\n'
         "table staged:\n"
         "    from users\n"
         "    select:\n"
@@ -204,8 +204,8 @@ def test_direct_field_diagnostics_are_ordered_by_file_definition_and_select_item
         root,
         "a_first.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    id: Int\n"
+        'source users: User = postgres.table("users")\n'
         "table first:\n"
         "    from users\n"
         "    select:\n"
@@ -273,10 +273,10 @@ def test_project_text_check_reports_unknown_direct_field_diagnostic_through_exis
         root,
         "text.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
+        "    id: Int\n"
+        "    email: Text | None\n"
         "    score: Int\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"
@@ -329,10 +329,10 @@ def _project_with_select(tmp_path: Path, select_body: str) -> Path:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
+        "    id: Int\n"
+        "    email: Text | None\n"
         "    score: Int\n"
-        'source users: User is postgres.table("users")\n'
+        'source users: User = postgres.table("users")\n'
         "table projected:\n"
         "    from users\n"
         "    select:\n"

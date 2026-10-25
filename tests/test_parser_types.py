@@ -7,10 +7,12 @@ from pietto.ast_nodes import (
     ComparisonExpr,
     DottedNameExpr,
     EnumDef,
+    FunctionDef,
     IsNullExpr,
     LiteralExpr,
     NameExpr,
     Nullability,
+    ShapeDef,
     TypeDef,
     UnaryExpr,
 )
@@ -27,32 +29,35 @@ def test_bare_type_definition_parses() -> None:
     assert definition.name == "UserId"
     assert definition.base.name == "UUID"
     assert definition.base.arguments == ()
-    assert definition.base.nullability is Nullability.IMPLICIT
+    assert definition.base.nullability is Nullability.NOT_NULL
     assert definition.ensures == ()
 
 
-def test_nullable_parameterized_type_definition_parses() -> None:
-    result = parse_source("type Nickname = Text(max = 32, encoding = utf8) nullable\n")
+def test_nullable_parameterized_field_type_parses() -> None:
+    result = parse_source(
+        "shape User:\n    nickname: Text(max = 32, encoding = utf8) | None\n"
+    )
 
     assert result.diagnostics == ()
     assert result.ast is not None
     definition = result.ast.definitions[0]
-    assert isinstance(definition, TypeDef)
-    assert definition.base.name == "Text"
-    assert definition.base.nullability is Nullability.NULLABLE
-    assert [argument.name for argument in definition.base.arguments] == [
+    assert isinstance(definition, ShapeDef)
+    field_type = definition.fields[0].type_expr
+    assert field_type.name == "Text"
+    assert field_type.nullability is Nullability.NULLABLE
+    assert [argument.name for argument in field_type.arguments] == [
         "max",
         "encoding",
     ]
-    assert isinstance(definition.base.arguments[0].value, LiteralExpr)
-    assert definition.base.arguments[0].value.value == 32
-    assert isinstance(definition.base.arguments[1].value, NameExpr)
-    assert definition.base.arguments[1].value.name == "utf8"
+    assert isinstance(field_type.arguments[0].value, LiteralExpr)
+    assert field_type.arguments[0].value.value == 32
+    assert isinstance(field_type.arguments[1].value, NameExpr)
+    assert field_type.arguments[1].value.name == "utf8"
 
 
 def test_maximum_supported_integer_literal_length_parses() -> None:
     literal = "9" * 4096
-    result = parse_source(f"type Huge = Int(max = {literal}) not null\n")
+    result = parse_source(f"type Huge = Int(max = {literal})\n")
 
     assert result.diagnostics == ()
     assert result.ast is not None
@@ -63,14 +68,66 @@ def test_maximum_supported_integer_literal_length_parses() -> None:
     assert argument.value == int(literal)
 
 
-def test_nullable_type_alias_parses() -> None:
-    result = parse_source("type MaybeAge = Int nullable\n")
+def test_type_alias_including_none_is_refused_where_the_alias_is_declared() -> None:
+    result = parse_source("type MaybeAge = Int | None\ntype Other = Int nullable\n")
 
-    assert result.diagnostics == ()
-    assert result.ast is not None
-    definition = result.ast.definitions[0]
-    assert isinstance(definition, TypeDef)
-    assert definition.base.nullability is Nullability.NULLABLE
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.suggestion)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            line,
+            column,
+            "Declare 'type Name = T' and write 'Name | None' where a value may be None.",
+        )
+        for line, column in ((1, 21), (2, 18))
+    ]
+
+
+def test_bare_types_are_not_null_and_not_null_is_a_retired_spelling() -> None:
+    bare = parse_source(
+        "shape Row:\n"
+        "    id: Int\n"
+        "    price: Decimal(12, 2)\n"
+        "    note: Text | None\n"
+        "def f(x: Int, y: Int | None) -> Int: return x\n"
+    )
+    assert bare.diagnostics == ()
+    assert bare.ast is not None
+    shape, function = bare.ast.definitions
+    assert isinstance(shape, ShapeDef) and isinstance(function, FunctionDef)
+    assert [item.type_expr.nullability for item in shape.fields] == [
+        Nullability.NOT_NULL,
+        Nullability.NOT_NULL,
+        Nullability.NULLABLE,
+    ]
+    assert [item.type.nullability for item in function.parameters] == [
+        Nullability.NOT_NULL,
+        Nullability.NULLABLE,
+    ]
+    assert function.return_type.nullability is Nullability.NOT_NULL
+
+    retired = parse_source(
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    price: Decimal(12, 2) not null\n"
+        "type Code = Text not null\n"
+    )
+    assert retired.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.suggestion)
+        for item in retired.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            line,
+            column,
+            "Write 'T' instead of 'T not null'; a bare type is never None.",
+        )
+        for line, column in ((2, 13), (3, 27), (4, 18))
+    ]
 
 
 def test_old_question_mark_nullability_is_rejected() -> None:
@@ -81,7 +138,7 @@ def test_old_question_mark_nullability_is_rejected() -> None:
 
 
 def test_inline_ensure_type_parses_between_expression() -> None:
-    result = parse_source("type Percent = Float ensure self between 0 and 1\n")
+    result = parse_source("type Percent = Float ensure 0 <= self <= 1\n")
 
     assert result.diagnostics == ()
     assert result.ast is not None
@@ -144,8 +201,7 @@ def test_block_type_allows_blank_lines_and_comments() -> None:
 
 def test_expression_precedence_and_null_tests_parse() -> None:
     result = parse_source(
-        "type Score = Int ensure score + 1 * 2 >= min_value "
-        "and user.id is not null or value between 1 and 10\n"
+        "type Score = Int ensure score + 1 * 2 >= min_value and user.id is not None or 1 <= value <= 10\n"
     )
 
     assert result.diagnostics == ()
@@ -164,7 +220,7 @@ def test_expression_precedence_and_null_tests_parse() -> None:
 
 
 def test_parentheses_unary_is_null_and_dotted_call_parse() -> None:
-    result = parse_source("type Check = Bool ensure (validator.check(-self)) is null\n")
+    result = parse_source("type Check = Bool ensure (validator.check(-self)) is None\n")
 
     assert result.diagnostics == ()
     assert result.ast is not None
@@ -221,6 +277,23 @@ def test_enum_members_may_share_lines_or_follow_the_header() -> None:
     assert (span.line, span.column, span.end_line, span.end_column) == (1, 1, 1, 41)
 
 
+def test_enum_header_line_without_colon_is_refused_with_a_suggestion() -> None:
+    result = parse_source("enum OrderStatus pending, paid\n")
+
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.suggestion)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1000",
+            1,
+            18,
+            "Write ':' after the enum name, as in 'enum Status: active, suspended'.",
+        )
+    ]
+
+
 def test_enum_header_line_rejects_a_trailing_comma_and_a_following_block() -> None:
     trailing = parse_source("enum S: a, b,\n")
     block = parse_source("enum S: a\n    b\n")
@@ -245,3 +318,45 @@ def test_enum_header_line_rejects_a_trailing_comma_and_a_following_block() -> No
             5,
         ),
     ]
+
+
+def test_modern_literals_nullability_and_numeric_separators() -> None:
+    result = parse_source(
+        "type A = Int\n"
+        "shape B:\n"
+        "    c: Int | None\n"
+        "type D = Int ensure 1_000 <= value <= 2_000 and value is not None\n"
+        "type E = Bool ensure True or False\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    a, b, d, e = result.ast.definitions
+    assert all(isinstance(item, TypeDef) for item in (a, d, e))
+    assert isinstance(a, TypeDef) and a.base.nullability is Nullability.NOT_NULL
+    assert isinstance(b, ShapeDef)
+    assert b.fields[0].type_expr.nullability is Nullability.NULLABLE
+    assert isinstance(d, TypeDef)
+    predicate = d.ensures[0].expression
+    assert isinstance(predicate, BinaryExpr)
+    assert isinstance(predicate.left, BetweenExpr)
+    assert isinstance(predicate.left.lower, LiteralExpr)
+    assert predicate.left.lower.value == 1000
+    assert isinstance(predicate.right, IsNullExpr) and predicate.right.negated
+
+
+def test_modern_inclusive_chain_preserves_nullable_between_node() -> None:
+    result = parse_source("type A = Int ensure None <= value <= 3\n")
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, TypeDef)
+    expression = definition.ensures[0].expression
+    assert isinstance(expression, BetweenExpr)
+    assert isinstance(expression.lower, LiteralExpr) and expression.lower.value is None
+
+
+def test_modern_version_metadata_does_not_gain_digit_separators() -> None:
+    result = parse_source("pietto 1_0\ntype A = Int\n")
+    assert result.ast is None
+    assert len(result.diagnostics) == 1
+    assert "version metadata" in (result.diagnostics[0].suggestion or "")

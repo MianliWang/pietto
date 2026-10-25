@@ -300,7 +300,7 @@ def test_mysql_refuses_a_zero_source_values_query_before_connect(tmp_path):
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + "\nquery seeded:\n    values(id: Int not null):\n        1\n",
+        + "\nquery seeded:\n    values(id: Int):\n        1\n",
         encoding="utf-8",
     )
     contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
@@ -335,7 +335,7 @@ def test_mysql_compile_blocks_a_statement_without_a_physical_source(tmp_path):
     project = api.write_join_witness(
         tmp_path / "mysql",
         "mysql",
-        "query result:\n    values(id: Int not null):\n        1\n",
+        "query result:\n    values(id: Int):\n        1\n",
     )
     with pytest.raises(execution.CompileRejected) as refused:
         execution.compile_query(

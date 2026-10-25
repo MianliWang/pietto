@@ -23,6 +23,7 @@ from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectParseCheckResult,
+    ProjectParsedInput,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
     ProjectResolvedType,
@@ -47,6 +48,7 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
 )
+from pietto.semantic.modern_inputs import normalize_query_names
 from pietto.errors import SourceLocation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -563,10 +565,9 @@ def test_direct_and_chained_group_key_lets_compose_with_direct_aggregates(
         tmp_path,
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = status\n"
-        "        region_key = users.region\n"
-        "        bucket = region_key\n"
+        "    let key = status\n"
+        "    let region_key = users.region\n"
+        "    let bucket = region_key\n"
         "    group by:\n"
         "        key\n"
         "        bucket\n"
@@ -598,8 +599,7 @@ def test_direct_and_chained_group_key_lets_compose_with_direct_aggregates(
         tmp_path / "select-let",
         "query grouped:\n"
         "    from users\n"
-        "    let:\n"
-        "        key = status\n"
+        "    let key = status\n"
         "    group by:\n"
         "        key\n"
         "    select:\n"
@@ -991,9 +991,29 @@ def _build_facts(
 def _project_semantic_result(
     root: Path,
 ) -> tuple[ProjectParseCheckResult, ProjectSemanticResult]:
-    parse_result = check_project_parse_only(root)
+    parse_result = _normalized_parse_result(check_project_parse_only(root))
     assert parse_result.ok
     return parse_result, build_empty_project_semantic_result(parse_result)
+
+
+def _normalized_parse_result(
+    parse_result: ProjectParseCheckResult,
+) -> ProjectParseCheckResult:
+    """Bind modern `let name = expression` names as the analyzer does.
+
+    The private LEGACY_FLAT scaffold reads its scalar let bindings from
+    `LetClause`, while modern spelling retains each `let name = expression`
+    as a query naming declaration until `normalize_query_names` runs before
+    semantics. Normalizing here keeps these private facts about the same
+    authored bindings under the modern spelling.
+    """
+
+    normalized_inputs: list[ProjectParsedInput] = []
+    for parsed_input in parse_result.parsed_inputs:
+        script, diagnostics = normalize_query_names(parsed_input.script)
+        assert diagnostics == ()
+        normalized_inputs.append(replace(parsed_input, script=script))
+    return replace(parse_result, parsed_inputs=tuple(normalized_inputs))
 
 
 def _project(root: Path, relations: str) -> Path:
@@ -1004,17 +1024,17 @@ def _project(root: Path, relations: str) -> Path:
     )
     (root / "models.pietto").write_text(
         "shape User:\n"
-        "    active: Bool not null\n"
-        "    amount: Int not null\n"
-        "    tax: Int nullable\n"
-        "    score: Float not null\n"
-        "    weight: Float nullable\n"
-        "    price: Decimal(12, 2) not null\n"
-        "    status: Text not null\n"
-        "    region: Text nullable\n"
-        "    created_at: Timestamp not null\n"
-        "    customer_id: UUID not null\n"
-        'source users: User is postgres.table("users")\n'
+        "    active: Bool\n"
+        "    amount: Int\n"
+        "    tax: Int | None\n"
+        "    score: Float\n"
+        "    weight: Float | None\n"
+        "    price: Decimal(12, 2)\n"
+        "    status: Text\n"
+        "    region: Text | None\n"
+        "    created_at: Timestamp\n"
+        "    customer_id: UUID\n"
+        'source users: User = postgres.table("users")\n'
         f"{relations}",
         encoding="utf-8",
     )

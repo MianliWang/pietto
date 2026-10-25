@@ -335,9 +335,7 @@ def test_saved_bytes_survive_live_damage_but_bound_consumer_does_not(contracts):
 
 
 def test_parameterized_descriptor_and_enum_field_descriptor(tmp_path):
-    source = probe.source("postgres").replace(
-        "id: Int not null", "id: Decimal(18, 4) not null"
-    )
+    source = probe.source("postgres").replace("id: Int", "id: Decimal(18, 4)")
     checked = probe.build_neutral(tmp_path / "decimal", {"main.pietto": source})
     contract = c.build_result_contract(checked)
     exported = writer.export_result_contract(contract, checked)
@@ -349,7 +347,7 @@ def test_parameterized_descriptor_and_enum_field_descriptor(tmp_path):
     # verifies and its contract names the enum as the field's type.
     enum_source = "enum Status:\n    active\n    inactive\n" + probe.source(
         "postgres"
-    ).replace("id: Int not null", "id: Status nullable")
+    ).replace("id: Int", "id: Status | None")
     checked = probe.build_neutral(tmp_path / "enum", {"main.pietto": enum_source})
     exported = writer.export_result_contract(c.build_result_contract(checked), checked)
     runtime.verify_bound_export(exported, checked)
@@ -417,9 +415,9 @@ def test_grouped_type_provenance_and_order_uses_cannot_lose_members(contracts):
 
 
 def test_document_limit_is_not_the_arrow_field_limit(tmp_path):
-    fields = "\n".join(f"    value{i}: Int not null" for i in range(65))
+    fields = "\n".join(f"    value{i}: Int" for i in range(65))
     projection = "\n".join(f"        value{i}" for i in range(65))
-    source = f'shape Row:\n{fields}\nsource rows: Row is postgres.table("rows")\ntable result:\n    from rows\n    select:\n{projection}\n'
+    source = f'shape Row:\n{fields}\nsource rows: Row = postgres.table("rows")\ntable result:\n    from rows\n    select:\n{projection}\n'
     checked = probe.build_neutral(tmp_path / "many-fields", {"main.pietto": source})
     contract = c.build_result_contract(checked)
     exported = writer.export_result_contract(contract, checked)

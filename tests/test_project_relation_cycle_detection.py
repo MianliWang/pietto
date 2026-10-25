@@ -57,7 +57,7 @@ def test_acyclic_project_has_no_private_cycles(tmp_path: Path) -> None:
     _write(
         root,
         "models/a_source.pietto",
-        'shape Row:\n    id: Int\nsource raw: Row is postgres.table("raw")\n',
+        'shape Row:\n    id: Int\nsource raw: Row = postgres.table("raw")\n',
     )
     _write(
         root,
@@ -220,7 +220,7 @@ def test_source_targets_and_unresolved_targets_do_not_create_cycles(
         "mixed_targets.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source raw: Row is postgres.table("raw")\n'
+        'source raw: Row = postgres.table("raw")\n'
         "table staged:\n"
         "    from raw\n"
         "    select:\n"

@@ -39,7 +39,7 @@ def test_table_query_dependencies_get_deterministic_private_edges(
     _write(
         root,
         "models/a_source.pietto",
-        'shape Row:\n    id: Int\nsource raw: Row is postgres.table("raw")\n',
+        'shape Row:\n    id: Int\nsource raw: Row = postgres.table("raw")\n',
     )
     _write(
         root,
@@ -115,7 +115,7 @@ def test_table_query_to_source_references_resolve_without_edges(
         "source_target.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source raw: Row is postgres.table("raw")\n'
+        'source raw: Row = postgres.table("raw")\n'
         "table staged:\n"
         "    from raw\n"
         "    select:\n"
@@ -145,7 +145,7 @@ def test_unresolved_relation_diagnostics_do_not_create_edges(
         "mixed_relations.pietto",
         "shape Row:\n"
         "    id: Int\n"
-        'source raw: Row is postgres.table("raw")\n'
+        'source raw: Row = postgres.table("raw")\n'
         "table staged:\n"
         "    from raw\n"
         "    select:\n"
@@ -231,7 +231,7 @@ def test_project_json_v2_does_not_expose_relation_dependency_edges(
     _write(
         root,
         "models/a_source.pietto",
-        'shape Row:\n    id: Int\nsource raw: Row is postgres.table("raw")\n',
+        'shape Row:\n    id: Int\nsource raw: Row = postgres.table("raw")\n',
     )
     _write(
         root,

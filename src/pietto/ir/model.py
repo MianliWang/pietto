@@ -128,6 +128,78 @@ class FieldRefIR(ExpressionIR):
 
 
 @dataclass(frozen=True, slots=True)
+class AnyFieldIR(ExpressionIR):
+    """A field of an enclosing scalar ANY binder, separate from outer inputs."""
+
+    binding: str
+    source_binding: str
+    name: str
+    relation: SymbolId
+
+    def __post_init__(self) -> None:
+        if (
+            not self.binding
+            or not self.source_binding
+            or not self.name
+            or self.relation.namespace is not SymbolNamespace.RELATION
+        ):
+            raise ValueError("ANY fields require a local binding and relation identity")
+
+
+@dataclass(frozen=True, slots=True)
+class ExistsIR(ExpressionIR):
+    """A scalar existential read with its checked local row and predicate."""
+
+    target: SymbolId
+    binding: str
+    connector: ConnectorIR | None
+    authored_span: SourceSpan
+    authored_occurrence: int
+    current_occurrence: int
+    authored_context_span: SourceSpan
+    context_span: SourceSpan
+    owner: SymbolId
+    authored_join_count: int
+    join_prefix_count: int
+    predicate: ExpressionIR
+    captures: tuple[FieldRefIR | AnyFieldIR, ...]
+
+    def __post_init__(self) -> None:
+        if (
+            self.target.namespace is not SymbolNamespace.RELATION
+            or not self.binding
+            or not isinstance(self.predicate, ExpressionIR)
+            or type(self.authored_span) is not SourceSpan
+            or type(self.authored_occurrence) is not int
+            or self.authored_occurrence < 0
+            or type(self.current_occurrence) is not int
+            or self.current_occurrence < 0
+            or type(self.authored_context_span) is not SourceSpan
+            or type(self.context_span) is not SourceSpan
+            or self.owner.namespace is not SymbolNamespace.RELATION
+            or type(self.authored_join_count) is not int
+            or self.authored_join_count < 0
+            or type(self.join_prefix_count) is not int
+            or self.join_prefix_count < 0
+            or type(self.captures) is not tuple
+            or any(type(item) not in {FieldRefIR, AnyFieldIR} for item in self.captures)
+            or (self.connector is not None and type(self.connector) is not ConnectorIR)
+            or self.value_type.canonical_name != "Bool"
+            or self.value_type.nullability is not NullabilityIR.NON_NULL
+            or (
+                self.predicate.value_type.canonical_name != "Bool"
+                and not (
+                    isinstance(self.predicate, LiteralIR)
+                    and self.predicate.value is None
+                )
+            )
+        ):
+            raise ValueError(
+                "Scalar ANY requires a resolved relation and Bool predicate"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class CallIR(ExpressionIR):
     """A lowered static call expression without execution behavior."""
 
@@ -767,7 +839,8 @@ class NamedWindowUseIR:
             raise ValueError("named window use target must stay relation-local")
         if (
             self.occurrence.kind is WindowUseKindIR.NAMED_DIRECT
-        ) is self.local_spec.has_components:
+            and self.local_spec.has_components
+        ):
             raise ValueError("named window use kind must match local components")
 
 
@@ -987,6 +1060,28 @@ def _input_of(reference: FieldRefIR) -> int | None:
     return getattr(getattr(reference, "field", None), "input", None)
 
 
+def _check_any_scopes(relation: RelationIR) -> None:
+    """Keep scalar ANY binders distinct from outer and sibling input identities."""
+    outer = {item.binding for item in relation.inputs} or {relation.source.name}
+    pending: list[tuple[object, dict[str, SymbolId]]] = [(relation, {})]
+    while pending:
+        value, scopes = pending.pop()
+        if isinstance(value, AnyFieldIR):
+            if scopes.get(value.binding) != value.relation:
+                raise ValueError("ANY field must belong to a visible local binder")
+        elif isinstance(value, ExistsIR):
+            if value.binding in outer or value.binding in scopes:
+                raise ValueError("ANY binder must not shadow a visible input")
+            pending.extend((capture, scopes) for capture in value.captures)
+            pending.append((value.predicate, {**scopes, value.binding: value.target}))
+        elif isinstance(value, tuple | list):
+            pending.extend((item, scopes) for item in value)
+        elif is_dataclass(value) and type(value) not in _FIELDLESS_TYPES:
+            pending.extend(
+                (getattr(value, item.name, None), scopes) for item in fields(value)
+            )
+
+
 def _check_join_invariants(relation: RelationIR) -> None:
     """Raise ValueError for the first JOIN invariant the relation violates."""
 
@@ -1184,6 +1279,7 @@ class RelationIR(DefinitionIR):
                 or target.name != named_use.reference_spelling
             ):
                 raise ValueError("named window call must retain its exact relation use")
+        _check_any_scopes(self)
         _check_join_invariants(self)
 
 

@@ -102,14 +102,14 @@ UNKNOWN_TYPE = TypeRefIR(
 
 BASE_SHAPE = (
     "shape Order:\n"
-    "    region: Text not null\n"
-    "    status: Text not null\n"
-    "    active: Bool not null\n"
-    "    optional_active: Bool nullable\n"
-    "    amount: Int not null\n"
-    "    tax: Int not null\n"
-    "    score: Float not null\n"
-    "    weight: Float not null\n"
+    "    region: Text\n"
+    "    status: Text\n"
+    "    active: Bool\n"
+    "    optional_active: Bool | None\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
 )
 
 
@@ -157,7 +157,7 @@ BASE_SHAPE = (
             "COUNT(CHAR_LENGTH(`status`))",
         ),
         (
-            "active_count = count(active and true)",
+            "active_count = count(active and True)",
             'COUNT(("active" AND TRUE))',
             "COUNT((`active` AND TRUE))",
         ),
@@ -255,11 +255,11 @@ def test_backends_emit_grouped_count_expression_sql(
     [
         ("value = count(1)", "PIE-S2315"),
         ('value = count("x")', "PIE-S2315"),
-        ("value = count(true)", "PIE-S2315"),
+        ("value = count(True)", "PIE-S2315"),
         ("value = count(1 + 2)", "PIE-S2315"),
         ("value = count(amount > 1)", "PIE-S2315"),
-        ("value = count(amount between 1 and 10)", "PIE-S2315"),
-        ("value = count(amount is null)", "PIE-S2315"),
+        ("value = count(1 <= amount <= 10)", "PIE-S2315"),
+        ("value = count(amount is None)", "PIE-S2315"),
         ('value = count(matches(status, "active"))', "PIE-S2315"),
         ("value = count_distinct(amount + tax)", "PIE-S2315"),
         ("value = min(amount + tax)", "PIE-S2315"),
@@ -344,7 +344,7 @@ def _source(
 ) -> str:
     group_by = "    group by:\n        region\n" if grouped else ""
     return (
-        BASE_SHAPE + f'source orders: Order is {connector}("orders")\n'
+        BASE_SHAPE + f'source orders: Order = {connector}("orders")\n'
         "table order_counts:\n"
         "    from orders\n"
         f"{group_by}"

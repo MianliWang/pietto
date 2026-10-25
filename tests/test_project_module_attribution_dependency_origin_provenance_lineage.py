@@ -128,9 +128,9 @@ def _lineage(
 def _simple_library() -> str:
     return (
         "shape Row:\n"
-        "    id: Int not null\n"
-        "    name: Text nullable\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "    id: Int\n"
+        "    name: Text | None\n"
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"
@@ -151,7 +151,7 @@ def _all_kind_library() -> str:
         "    active\n"
         "shape Row:\n"
         "    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        'source rows: Row = postgres.table("rows")\n'
         "table projected:\n"
         "    from rows\n"
         "    select:\n"
@@ -161,16 +161,16 @@ def _all_kind_library() -> str:
         "    select:\n"
         "        id\n"
         "constraint valid(value: Text) -> Bool:\n"
-        "    value == value\n"
+        "    return value == value\n"
         "derive normalized(value: Text) -> Text:\n"
-        "    value\n"
-        "export:\n"
-        "    type Email\n"
-        "    enum Status\n"
-        "    shape Row\n"
-        "    source rows\n"
-        "    table projected\n"
-        "    query reported\n"
+        "    return value\n"
+        "export (\n"
+        "    type Email,\n"
+        "    enum Status,\n"
+        "    shape Row,\n"
+        "    source rows,\n"
+        "    table projected,\n"
+        "    query reported)\n"
     )
 
 
@@ -309,10 +309,12 @@ def test_import_and_facade_occurrence_identities_preserve_positions_and_exact_na
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Public as Local\n'
-                "shape Uses:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Public as Local)\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
-            "b.pietto": "type Public = Text\nexport:\n    type Public\n",
+            "b.pietto": "type Public = Text\nexport (\n    type Public)\n",
         },
     )
     facts = _facts(semantic)
@@ -386,13 +388,23 @@ def test_all_eight_declaration_kinds_receive_source_ordered_module_attribution(
 ) -> None:
     source = (
         "type Email = Text\n"
-        "enum Status:\n    active\n"
-        "constraint valid(value: Text) -> Bool:\n    value == value\n"
-        "derive normalized(value: Text) -> Text:\n    value\n"
-        "shape Row:\n    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table projected:\n    from rows\n    select:\n        id\n"
-        "query reported:\n    from projected\n    select:\n        id\n"
+        "enum Status:\n"
+        "    active\n"
+        "constraint valid(value: Text) -> Bool:\n"
+        "    return value == value\n"
+        "derive normalized(value: Text) -> Text:\n"
+        "    return value\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table projected:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "query reported:\n"
+        "    from projected\n"
+        "    select:\n"
+        "        id\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": source})
     declarations = _facts(semantic).declarations
@@ -415,14 +427,16 @@ def test_all_six_import_export_kinds_preserve_local_binding_and_nominal_target(
     tmp_path: Path,
 ) -> None:
     consumer = (
-        'import "z.pietto":\n'
-        "    type Email as LocalEmail\n"
-        "    enum Status as LocalStatus\n"
-        "    shape Row as LocalRow\n"
-        "    source rows as local_rows\n"
-        "    table projected as local_projected\n"
-        "    query reported as local_reported\n"
-        "shape Uses:\n    email: LocalEmail\n    status: LocalStatus\n"
+        'from "z.pietto" import (\n'
+        "    type Email as LocalEmail,\n"
+        "    enum Status as LocalStatus,\n"
+        "    shape Row as LocalRow,\n"
+        "    source rows as local_rows,\n"
+        "    table projected as local_projected,\n"
+        "    query reported as local_reported)\n"
+        "shape Uses:\n"
+        "    email: LocalEmail\n"
+        "    status: LocalStatus\n"
     )
     _, semantic = _semantic_project(
         tmp_path,
@@ -486,10 +500,12 @@ def test_direct_import_origin_retains_local_alias_direct_facade_and_nominal_owne
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Public as Local\n'
-                "shape Uses:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Public as Local)\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
-            "b.pietto": "type Public = Text\nexport:\n    type Public\n",
+            "b.pietto": "type Public = Text\nexport (\n    type Public)\n",
         },
     )
     facts = _facts(semantic)
@@ -508,14 +524,18 @@ def test_explicit_reexport_origin_retains_every_exact_import_and_facade_hop(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Public as Local\n'
-                "shape Uses:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Public as Local)\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    type Base as Public\n'
-                "export:\n    type Public\n"
+                'from "c.pietto" import (\n'
+                "    type Base as Public)\n"
+                "export (\n"
+                "    type Public)\n"
             ),
-            "c.pietto": "type Base = Text\nexport:\n    type Base\n",
+            "c.pietto": "type Base = Text\nexport (\n    type Base)\n",
         },
     )
     origin = next(
@@ -541,10 +561,14 @@ def test_same_nominal_target_through_distinct_aliases_retains_distinct_origin_pa
         tmp_path,
         {
             "a.pietto": (
-                'import "z.pietto":\n    type Base as First\n    type Base as Second\n'
-                "shape Uses:\n    first: First\n    second: Second\n"
+                'from "z.pietto" import (\n'
+                "    type Base as First,\n"
+                "    type Base as Second)\n"
+                "shape Uses:\n"
+                "    first: First\n"
+                "    second: Second\n"
             ),
-            "z.pietto": "type Base = Text\nexport:\n    type Base\n",
+            "z.pietto": "type Base = Text\nexport (\n    type Base)\n",
         },
     )
     facts = _facts(semantic)
@@ -561,9 +585,9 @@ def test_origin_target_lookup_returns_complete_deterministic_tuple(
     _, semantic = _semantic_project(
         tmp_path,
         {
-            "a.pietto": 'import "z.pietto":\n    type Base as A\n',
-            "b.pietto": 'import "z.pietto":\n    type Base as B\n',
-            "z.pietto": "type Base = Text\nexport:\n    type Base\n",
+            "a.pietto": 'from "z.pietto" import (\n    type Base as A)\n',
+            "b.pietto": 'from "z.pietto" import (\n    type Base as B)\n',
+            "z.pietto": "type Base = Text\nexport (\n    type Base)\n",
         },
     )
     facts = _facts(semantic)
@@ -585,10 +609,14 @@ def test_module_import_dependencies_retain_every_graph_evidence_occurrence(
         tmp_path,
         {
             "a.pietto": (
-                'import "z.pietto":\n    type Base as First\n    type Base as Second\n'
-                "shape Uses:\n    first: First\n    second: Second\n"
+                'from "z.pietto" import (\n'
+                "    type Base as First,\n"
+                "    type Base as Second)\n"
+                "shape Uses:\n"
+                "    first: First\n"
+                "    second: Second\n"
             ),
-            "z.pietto": "type Base = Text\nexport:\n    type Base\n",
+            "z.pietto": "type Base = Text\nexport (\n    type Base)\n",
         },
     )
     facts = _facts(semantic)
@@ -623,7 +651,7 @@ def test_module_import_dependencies_retain_every_graph_evidence_occurrence(
 
     _, unresolved_semantic = _semantic_project(
         tmp_path / "unresolved",
-        {"main.pietto": 'import "missing.pietto":\n    shape Missing\n'},
+        {"main.pietto": 'from "missing.pietto" import (\n    shape Missing)\n'},
     )
     unresolved_facts = _facts(unresolved_semantic)
     assert len(unresolved_facts.imports) == 1
@@ -634,7 +662,7 @@ def test_module_import_dependencies_retain_every_graph_evidence_occurrence(
     _, empty_target_semantic = _semantic_project(
         tmp_path / "empty-target",
         {
-            "main.pietto": 'import "empty.pietto":\n    shape Missing\n',
+            "main.pietto": 'from "empty.pietto" import (\n    shape Missing)\n',
             "empty.pietto": "",
         },
     )
@@ -651,19 +679,31 @@ def test_module_dependency_diamond_retains_all_direct_edges_without_best_path(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape B\n'
-                'import "c.pietto":\n    shape C\n'
-                "shape A:\n    left: B\n    right: C\n"
+                'from "b.pietto" import (\n'
+                "    shape B)\n"
+                'from "c.pietto" import (\n'
+                "    shape C)\n"
+                "shape A:\n"
+                "    left: B\n"
+                "    right: C\n"
             ),
             "b.pietto": (
-                'import "d.pietto":\n    shape D\n'
-                "shape B:\n    value: D\nexport:\n    shape B\n"
+                'from "d.pietto" import (\n'
+                "    shape D)\n"
+                "shape B:\n"
+                "    value: D\n"
+                "export (\n"
+                "    shape B)\n"
             ),
             "c.pietto": (
-                'import "d.pietto":\n    shape D\n'
-                "shape C:\n    value: D\nexport:\n    shape C\n"
+                'from "d.pietto" import (\n'
+                "    shape D)\n"
+                "shape C:\n"
+                "    value: D\n"
+                "export (\n"
+                "    shape C)\n"
             ),
-            "d.pietto": "shape D:\n    id: Int\nexport:\n    shape D\n",
+            "d.pietto": "shape D:\n    id: Int\nexport (\n    shape D)\n",
         },
     )
     edges = tuple(
@@ -685,12 +725,20 @@ def test_module_cycle_retains_raw_attribution_and_dependencies_without_resolved_
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape B\n'
-                "shape A:\n    value: B\nexport:\n    shape A\n"
+                'from "b.pietto" import (\n'
+                "    shape B)\n"
+                "shape A:\n"
+                "    value: B\n"
+                "export (\n"
+                "    shape A)\n"
             ),
             "b.pietto": (
-                'import "a.pietto":\n    shape A\n'
-                "shape B:\n    value: A\nexport:\n    shape B\n"
+                'from "a.pietto" import (\n'
+                "    shape A)\n"
+                "shape B:\n"
+                "    value: A\n"
+                "export (\n"
+                "    shape B)\n"
             ),
         },
     )
@@ -775,12 +823,14 @@ def test_cross_module_alias_chain_retains_local_alias_and_canonical_target(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Public as Remote\n'
+                'from "b.pietto" import (\n'
+                "    type Public as Remote)\n"
                 "type Local = Remote\n"
-                "shape Uses:\n    value: Local\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
             "b.pietto": (
-                "type Base = Text\ntype Public = Base\nexport:\n    type Public\n"
+                "type Base = Text\ntype Public = Base\nexport (\n    type Public)\n"
             ),
         },
     )
@@ -809,15 +859,19 @@ def test_reexported_alias_chain_retains_each_facade_hop_and_nominal_occurrence(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    type Public as Local\n'
-                "shape Uses:\n    value: Local\n"
+                'from "b.pietto" import (\n'
+                "    type Public as Local)\n"
+                "shape Uses:\n"
+                "    value: Local\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    type Alias as Public\n'
-                "export:\n    type Public\n"
+                'from "c.pietto" import (\n'
+                "    type Alias as Public)\n"
+                "export (\n"
+                "    type Public)\n"
             ),
             "c.pietto": (
-                "type Base = UUID\ntype Alias = Base\nexport:\n    type Alias\n"
+                "type Base = UUID\ntype Alias = Base\nexport (\n    type Alias)\n"
             ),
         },
     )
@@ -872,10 +926,11 @@ def test_source_shape_provenance_retains_source_occurrence_shape_occurrence_and_
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    shape Row as RemoteRow\n'
-                'source rows: RemoteRow is postgres.table("rows")\n'
+                'from "b.pietto" import (\n'
+                "    shape Row as RemoteRow)\n"
+                'source rows: RemoteRow = postgres.table("rows")\n'
             ),
-            "b.pietto": "shape Row:\n    id: Int\nexport:\n    shape Row\n",
+            "b.pietto": "shape Row:\n    id: Int\nexport (\n    shape Row)\n",
         },
     )
     facts = _facts(semantic)
@@ -921,16 +976,25 @@ def test_imported_source_table_query_dependencies_preserve_distinct_kinds_and_al
     tmp_path: Path,
 ) -> None:
     consumer = (
-        'import "z.pietto":\n'
-        "    source rows as InputSource\n"
-        "    table projected as InputTable\n"
-        "    query reported as InputQuery\n"
-        "query from_source:\n    from InputSource\n    select:\n        id\n"
-        "query from_table:\n    from InputTable\n    select:\n        id\n"
-        "query from_query:\n    from InputQuery\n    select:\n        id\n"
+        'from "z.pietto" import (\n'
+        "    source rows as InputSource,\n"
+        "    table projected as InputTable,\n"
+        "    query reported as InputQuery)\n"
+        "query from_source:\n"
+        "    from InputSource\n"
+        "    select:\n"
+        "        id\n"
+        "query from_table:\n"
+        "    from InputTable\n"
+        "    select:\n"
+        "        id\n"
+        "query from_query:\n"
+        "    from InputQuery\n"
+        "    select:\n"
+        "        id\n"
     )
     library = _simple_library() + (
-        "export:\n    shape Row\n    source rows\n    table projected\n    query reported\n"
+        "export (\n    shape Row,\n    source rows,\n    table projected,\n    query reported)\n"
     )
     _, semantic = _semantic_project(
         tmp_path,
@@ -968,18 +1032,29 @@ def test_reexported_relation_dependency_retains_direct_facade_and_original_targe
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table Public as Local\n'
-                "query result:\n    from Local\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table Public as Local)\n"
+                "query result:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    table base as Public\n'
-                "export:\n    table Public\n"
+                'from "c.pietto" import (\n'
+                "    table base as Public)\n"
+                "export (\n"
+                "    table Public)\n"
             ),
             "c.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "table base:\n    from rows\n    select:\n        id\n"
-                "export:\n    table base\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "table base:\n"
+                "    from rows\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    table base)\n"
             ),
         },
     )
@@ -1008,12 +1083,16 @@ def test_source_field_origins_preserve_shape_field_position_order_and_field_iden
         tmp_path,
         {
             "a.pietto": (
-                'import "z.pietto":\n    shape Remote as LocalRow\n'
-                'source rows: LocalRow is postgres.table("rows")\n'
+                'from "z.pietto" import (\n'
+                "    shape Remote as LocalRow)\n"
+                'source rows: LocalRow = postgres.table("rows")\n'
             ),
             "z.pietto": (
-                "shape Remote:\n    id: Int\n    name: Text\n"
-                "export:\n    shape Remote\n"
+                "shape Remote:\n"
+                "    id: Int\n"
+                "    name: Text\n"
+                "export (\n"
+                "    shape Remote)\n"
             ),
         },
     )
@@ -1055,14 +1134,15 @@ def test_imported_relation_alias_lineage_uses_only_consumer_local_qualifier_rout
         tmp_path,
         {
             "a.pietto": (
-                'import "z.pietto":\n    table projected as Input\n'
+                'from "z.pietto" import (\n'
+                "    table projected as Input)\n"
                 "query result:\n"
                 "    from Input\n"
                 "    select:\n"
                 "        Input.id\n"
                 "        Input.label\n"
             ),
-            "z.pietto": _simple_library() + "export:\n    table projected\n",
+            "z.pietto": _simple_library() + "export (\n    table projected)\n",
         },
     )
     lineage = _lineage(_facts(semantic), "a.pietto", "result")
@@ -1104,11 +1184,18 @@ def test_cross_module_multi_hop_lineage_preserves_binding_and_facade_evidence(
         tmp_path,
         {
             "a.pietto": (
-                'import "z.pietto":\n    table projected as Input\n'
-                "query local:\n    from Input\n    select:\n        id\n"
-                "query final:\n    from local\n    select:\n        id\n"
+                'from "z.pietto" import (\n'
+                "    table projected as Input)\n"
+                "query local:\n"
+                "    from Input\n"
+                "    select:\n"
+                "        id\n"
+                "query final:\n"
+                "    from local\n"
+                "    select:\n"
+                "        id\n"
             ),
-            "z.pietto": _simple_library() + "export:\n    table projected\n",
+            "z.pietto": _simple_library() + "export (\n    table projected)\n",
         },
     )
     path = _lineage(_facts(semantic), "a.pietto", "final").fields[0].paths[0]
@@ -1132,18 +1219,29 @@ def test_explicit_reexport_row_lineage_reaches_original_source_without_identity_
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table Public as Local\n'
-                "query result:\n    from Local\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table Public as Local)\n"
+                "query result:\n"
+                "    from Local\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": (
-                'import "c.pietto":\n    table base as Public\n'
-                "export:\n    table Public\n"
+                'from "c.pietto" import (\n'
+                "    table base as Public)\n"
+                "export (\n"
+                "    table Public)\n"
             ),
             "c.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "table base:\n    from rows\n    select:\n        id\n"
-                "export:\n    table base\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "table base:\n"
+                "    from rows\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    table base)\n"
             ),
         },
     )
@@ -1162,19 +1260,32 @@ def test_same_spelling_cross_module_relations_and_fields_never_cross_wire(
     tmp_path: Path,
 ) -> None:
     library = (
-        "shape Row:\n    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "table shared:\n    from rows\n    select:\n        id\n"
-        "export:\n    table shared\n"
+        "shape Row:\n"
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table shared:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "export (\n"
+        "    table shared)\n"
     )
     _, semantic = _semantic_project(
         tmp_path,
         {
             "a.pietto": (
-                'import "b.pietto":\n    table shared as Left\n'
-                'import "c.pietto":\n    table shared as Right\n'
-                "query left_result:\n    from Left\n    select:\n        id\n"
-                "query right_result:\n    from Right\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    table shared as Left)\n"
+                'from "c.pietto" import (\n'
+                "    table shared as Right)\n"
+                "query left_result:\n"
+                "    from Left\n"
+                "    select:\n"
+                "        id\n"
+                "query right_result:\n"
+                "    from Right\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": library,
             "c.pietto": library,
@@ -1193,8 +1304,9 @@ def test_multiple_outputs_sharing_one_source_root_remain_distinct_paths(
     tmp_path: Path,
 ) -> None:
     source = (
-        "shape Row:\n    id: Int\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n"
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
         "query duplicated:\n"
         "    from rows\n"
         "    select:\n"
@@ -1221,15 +1333,28 @@ def test_same_target_through_distinct_relation_aliases_retains_two_lineage_route
         tmp_path,
         {
             "a.pietto": (
-                'import "z.pietto":\n    table base as First\n    table base as Second\n'
-                "query first_result:\n    from First\n    select:\n        id\n"
-                "query second_result:\n    from Second\n    select:\n        id\n"
+                'from "z.pietto" import (\n'
+                "    table base as First,\n"
+                "    table base as Second)\n"
+                "query first_result:\n"
+                "    from First\n"
+                "    select:\n"
+                "        id\n"
+                "query second_result:\n"
+                "    from Second\n"
+                "    select:\n"
+                "        id\n"
             ),
             "z.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "table base:\n    from rows\n    select:\n        id\n"
-                "export:\n    table base\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "table base:\n"
+                "    from rows\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    table base)\n"
             ),
         },
     )
@@ -1310,12 +1435,20 @@ def test_unknown_ambiguous_and_blocked_references_have_raw_attribution_but_no_pr
         },
         "blocked": {
             "a.pietto": (
-                'import "b.pietto":\n    shape B\n'
-                "shape A:\n    value: B\nexport:\n    shape A\n"
+                'from "b.pietto" import (\n'
+                "    shape B)\n"
+                "shape A:\n"
+                "    value: B\n"
+                "export (\n"
+                "    shape A)\n"
             ),
             "b.pietto": (
-                'import "a.pietto":\n    shape A\n'
-                "shape B:\n    value: A\nexport:\n    shape B\n"
+                'from "a.pietto" import (\n'
+                "    shape A)\n"
+                "shape B:\n"
+                "    value: A\n"
+                "export (\n"
+                "    shape B)\n"
             ),
         },
     }
@@ -1342,16 +1475,28 @@ def test_unknown_ambiguous_and_blocked_references_have_raw_attribution_but_no_pr
         tmp_path / "exact-imported-relation-causal-root",
         {
             "a.pietto": (
-                'import "b.pietto":\n    source Shared as Remote\n'
-                "query Uses:\n    from Remote\n    select:\n        id\n"
+                'from "b.pietto" import (\n'
+                "    source Shared as Remote)\n"
+                "query Uses:\n"
+                "    from Remote\n"
+                "    select:\n"
+                "        id\n"
             ),
             "b.pietto": (
-                "shape Row:\n    id: Int\n"
-                'source Shared: Row is postgres.table("shared")\n'
-                'source Rows: Row is postgres.table("rows")\n'
-                "table Shared:\n    from Rows\n    select:\n        id\n"
-                "table Other:\n    from Rows\n    select:\n        Shared\n"
-                "export:\n    source Shared\n"
+                "shape Row:\n"
+                "    id: Int\n"
+                'source Shared: Row = postgres.table("shared")\n'
+                'source Rows: Row = postgres.table("rows")\n'
+                "table Shared:\n"
+                "    from Rows\n"
+                "    select:\n"
+                "        id\n"
+                "table Other:\n"
+                "    from Rows\n"
+                "    select:\n"
+                "        Shared\n"
+                "export (\n"
+                "    source Shared)\n"
             ),
         },
     )
@@ -1436,20 +1581,20 @@ def test_unknown_ambiguous_and_blocked_references_have_raw_attribution_but_no_pr
         tmp_path / "equal-distinct-imported-type-roots",
         {
             "a.pietto": (
-                'import "b.pietto":\n'
-                "    shape Shared as Alpha\n"
-                "    shape Shared as Beta\n"
+                'from "b.pietto" import (\n'
+                "    shape Shared as Alpha,\n"
+                "    shape Shared as Beta)\n"
                 "shape Input:\n"
                 "    first: Alpha\n"
                 "    second: Beta\n"
-                'source rows: Input is postgres.table("rows")\n'
+                'source rows: Input = postgres.table("rows")\n'
             ),
             "b.pietto": (
                 "shape Physical:\n"
                 "    id: Int\n"
-                'source Shared: Physical is postgres.table("shared")\n'
-                "export:\n"
-                "    source Shared\n"
+                'source Shared: Physical = postgres.table("shared")\n'
+                "export (\n"
+                "    source Shared)\n"
             ),
         },
     )
@@ -1597,10 +1742,15 @@ def test_unknown_upstream_and_duplicate_output_publish_empty_nonconcrete_lineage
     tmp_path: Path,
 ) -> None:
     source = (
-        'source unknown is postgres.table("unknown")\n'
-        "shape Row:\n    id: Int\n    name: Text\n"
-        'source rows: Row is postgres.table("rows")\n'
-        "query unknown_child:\n    from unknown\n    select:\n        id\n"
+        'source unknown = postgres.table("unknown")\n'
+        "shape Row:\n"
+        "    id: Int\n"
+        "    name: Text\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query unknown_child:\n"
+        "    from unknown\n"
+        "    select:\n"
+        "        id\n"
         "query duplicate:\n"
         "    from rows\n"
         "    select:\n"
@@ -1627,8 +1777,10 @@ def test_computed_let_grouped_aggregate_and_window_rows_remain_outside_slice11_l
     tmp_path: Path,
 ) -> None:
     prefix = (
-        "shape Row:\n    id: Int not null\n    amount: Int not null\n"
-        'source rows: Row is postgres.table("rows")\n'
+        "shape Row:\n"
+        "    id: Int\n"
+        "    amount: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
     )
     cases = {
         "computed": (
@@ -1637,8 +1789,8 @@ def test_computed_let_grouped_aggregate_and_window_rows_remain_outside_slice11_l
         "let": (
             "query result:\n"
             "    from rows\n"
-            "    let:\n"
-            "        total = id + 1\n"
+            "\n"
+            "    let total = id + 1\n"
             "    select:\n"
             "        total\n"
         ),
@@ -1656,9 +1808,9 @@ def test_computed_let_grouped_aggregate_and_window_rows_remain_outside_slice11_l
             "    from rows\n"
             "    select:\n"
             "        id\n"
-            "        position = row_number() window:\n"
-            "            order by:\n"
-            "                id\n"
+            "        position = row_number() window(\n"
+            "            order by\n"
+            "                id)\n"
         ),
     }
     for name, query in cases.items():
@@ -1678,15 +1830,19 @@ def test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner(
         tmp_path / "origins",
         {
             "a.pietto": (
-                'import "z.pietto":\n    type Base as First\n    type Base as Second\n'
-                "shape Uses:\n    first: First\n    second: Second\n"
+                'from "z.pietto" import (\n'
+                "    type Base as First,\n"
+                "    type Base as Second)\n"
+                "shape Uses:\n"
+                "    first: First\n"
+                "    second: Second\n"
             ),
             "z.pietto": (
                 "type Base = Text\n"
                 "type Other = Int\n"
-                "export:\n"
-                "    type Base\n"
-                "    type Other\n"
+                "export (\n"
+                "    type Base,\n"
+                "    type Other)\n"
             ),
         },
     )
@@ -1785,15 +1941,19 @@ def test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner(
         tmp_path / "foreign-authority",
         {
             "a.pietto": (
-                'import "z.pietto":\n    type Base as First\n    type Base as Second\n'
-                "shape Uses:\n    first: First\n    second: Second\n"
+                'from "z.pietto" import (\n'
+                "    type Base as First,\n"
+                "    type Base as Second)\n"
+                "shape Uses:\n"
+                "    first: First\n"
+                "    second: Second\n"
             ),
             "z.pietto": (
                 "type Base = Text\n"
                 "type Other = Int\n"
-                "export:\n"
-                "    type Base\n"
-                "    type Other\n"
+                "export (\n"
+                "    type Base,\n"
+                "    type Other)\n"
             ),
         },
     )
@@ -1842,8 +2002,8 @@ def test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner(
         {
             "main.pietto": (
                 "shape Row:\n"
-                "    id: Int not null\n"
-                'source rows: Row is postgres.table("rows")\n'
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
                 "table projected:\n"
                 "    from rows\n"
                 "    select:\n"
@@ -1936,9 +2096,9 @@ def test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner(
         tmp_path / "alias-route",
         {
             "a.pietto": (
-                'import "z.pietto":\n'
-                "    source rows as First\n"
-                "    source rows as Second\n"
+                'from "z.pietto" import (\n'
+                "    source rows as First,\n"
+                "    source rows as Second)\n"
                 "table result:\n"
                 "    from First\n"
                 "    select:\n"
@@ -1946,10 +2106,10 @@ def test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner(
             ),
             "z.pietto": (
                 "shape Row:\n"
-                "    id: Int not null\n"
-                'source rows: Row is postgres.table("rows")\n'
-                "export:\n"
-                "    source rows\n"
+                "    id: Int\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "export (\n"
+                "    source rows)\n"
             ),
         },
     )
@@ -2006,7 +2166,7 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
             "    A\n"
             "shape Z:\n"
             "    id: E\n"
-            'source rows: Z is postgres.table("rows")\n'
+            'source rows: Z = postgres.table("rows")\n'
         ),
     }
     parse_result, semantic = _semantic_project(
@@ -2195,7 +2355,7 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
                 "    B\n"
                 "shape Z:\n"
                 "    id: E\n"
-                'source rows: Z is postgres.table("other_rows")\n'
+                'source rows: Z = postgres.table("other_rows")\n'
             ),
         },
     )
@@ -2259,7 +2419,7 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
 
     _, diagnostic_semantic = _semantic_project(
         tmp_path / "diagnostic-root",
-        {"main.pietto": 'import "missing.pietto":\n    shape Missing\n'},
+        {"main.pietto": 'from "missing.pietto" import (\n    shape Missing)\n'},
     )
     assert diagnostic_semantic.selected_input_index is not None
     assert diagnostic_semantic.module_catalogs is not None
@@ -2561,7 +2721,8 @@ def test_schema_v1_text_json_ir_sql_and_sidecar_absence_remain_byte_exact(
     assert parsed.ast is not None and parsed.diagnostics == ()
     analyzed = semantic_api.analyze(parsed.ast)
     assert not any(item.severity is Severity.ERROR for item in analyzed.diagnostics)
-    lowered = build_ir(parsed.ast, analyzed.model)
+    assert analyzed.script is not None
+    lowered = build_ir(analyzed.script, analyzed.model)
     assert lowered.ir is not None and lowered.diagnostics == ()
     sql = emit_postgres_sql(lowered.ir)
     assert sql.diagnostics == ()

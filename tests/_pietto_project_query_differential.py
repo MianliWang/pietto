@@ -44,15 +44,15 @@ EXPECTED_REVIEW_SUMMARY: dict[str, object] = {
         (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )["project"]["version"],
     "owner_count": 35,
-    "record_count": 2117,
-    "canonical_size": 350997,
-    "canonical_sha256": "9bff544416d55c8b1bcc156fba47826a0d38e180cbe20e110a6cd6e942958f06",
+    "record_count": 2612,
+    "canonical_size": 757358,
+    "canonical_sha256": "c8e3895b26c0eed7ab6b39a7d0ccc241f4c02f2b97ad31f75f345c24dabce0cd",
     "phase61_size": 90142,
     "phase61_sha256": "b01e22a5c6fc603b99da93267ce4f4f5e90a6ccb06e692e3690ca878cc464144",
-    "phase62_size": 204055,
-    "phase62_sha256": "13218f6e78e5d8cd373477f1823724fb59a9bb70808c5de5d1f7d94c29de5e27",
+    "phase62_size": 66441,
+    "phase62_sha256": "7563790e6c9ec043df244857f4d979e1b21efb8e08d63f1530738f25c7095d62",
     "metamorphics": {
-        "active_root_invariance": [105, 105, 105, 4, 4],
+        "active_root_invariance": [92, 92, 92, 4, 4],
         "selected_hidden": {
             "selected": [1, 1, True],
             "hidden": [
@@ -102,7 +102,7 @@ EXPECTED_REVIEW_SUMMARY: dict[str, object] = {
         "pure_rejections": [
             ["unknown_format", "unknown_format", 0, 0],
             ["section_order", "invalid_section_order", 0, 0],
-            ["dangling_ref", "dangling_ref", 516, 1],
+            ["dangling_ref", "dangling_ref", 512, 1],
         ],
     },
 }

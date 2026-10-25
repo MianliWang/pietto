@@ -3,6 +3,8 @@
 from pietto.ir.builder import build_ir
 from pietto.ir.model import (
     AggregateCallIR,
+    AnyFieldIR,
+    ExistsIR,
     BetweenIR,
     BinaryIR,
     CastIR,
@@ -58,6 +60,8 @@ from pietto.ir.model import (
 
 __all__ = [
     "AggregateCallIR",
+    "AnyFieldIR",
+    "ExistsIR",
     "BetweenIR",
     "BinaryIR",
     "CastIR",
