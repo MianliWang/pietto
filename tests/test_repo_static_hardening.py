@@ -111,8 +111,8 @@ def test_current_user_facing_commands_use_pietto_suffix() -> None:
         for line in block.splitlines()
     }
 
-    assert "pietto check active_users.pietto" in readme_commands
-    assert "pietto emit-sql active_users.pietto --dialect postgres" in readme_commands
+    assert "pietto check shop.pietto" in readme_commands
+    assert "pietto emit-sql shop.pietto --dialect postgres" in readme_commands
 
 
 def test_cli_remains_path_based_for_nonstandard_suffix(

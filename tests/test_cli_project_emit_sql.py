@@ -1759,7 +1759,7 @@ def test_readme_example_is_copyable_verified_and_shared_with_the_package_smoke(
     (root / "contract.json").write_text(blocks["json"], encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     first, second = (
-        shlex.split(command.replace("\\\n", " "))[3:] for command in commands
+        shlex.split(command.replace("\\\n", " "))[1:] for command in commands
     )
     assert all(c[0] == "emit-sql" for c in (first, second))
     code, out, err = run(first)

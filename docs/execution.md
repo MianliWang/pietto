@@ -67,15 +67,32 @@ execution or a supported Windows profile.
 
 ## Install
 
-The `0.1.5` distribution exposes `pietto.execution` when it is released. Install its selected
-`execute-postgres`, `execute-postgres-adbc`, or `execute-mysql` extra in a
-fresh environment, or build a wheel from the matching checkout. The PostgreSQL
-rows extra adds `psycopg[binary]==3.3.5`; PostgreSQL ADBC adds
-`adbc-driver-postgresql==1.12.0` and `adbc-driver-manager==1.12.0`; MySQL
-adds `mysql-connector-python==26.7.0`; all select `pyarrow==26.0.0`. Compiling,
+The `0.1.5` distribution exposes `pietto.execution`. Install the extra of the
+route you use from PyPI into a fresh virtual environment:
+
+```bash
+pip install "pietto[execute-postgres]"
+```
+
+| Extra | Route | Adds |
+| --- | --- | --- |
+| `execute-postgres` | `postgres_rows` | `psycopg[binary]==3.3.5` |
+| `execute-postgres-adbc` | `postgres_adbc` | `adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0` |
+| `execute-mysql` | `mysql_rows` | `mysql-connector-python==26.7.0` |
+
+Each extra also selects `pyarrow==26.0.0`, because captured results are Arrow
+IPC; saved-result use without any database driver needs only `pietto[arrow]`.
+Extras combine, for example `pip install "pietto[execute-postgres,execute-mysql]"`,
+and a wheel built from the matching checkout takes the same extras (see
+[install from a checkout](../README.md#install-from-a-checkout)). Compiling,
 exporting and loading a bundle and an unopened `execute()` need none of these
-extras. Without the selected route closure, opening an attempt is refused with
-`PIE-R2001` before any connection; another installed driver is never a fallback.
+extras. Without the selected route closure, opening an attempt is refused before
+any connection: an absent pinned driver with `PIE-R2001`
+(`EXECUTION_DEPENDENCY_MISSING`) and another installed version with the route's
+version refusal `PIE-R2002`; another installed driver is never a fallback.
+These extras were verified on CPython 3.13.13, Linux x86-64, with the lock's
+exact artifacts; other platforms, interpreters and driver versions are not
+covered.
 
 Pietto source examples below use the modern syntax of this checkout. Installed
 release documentation remains the authority for that release's source surface;

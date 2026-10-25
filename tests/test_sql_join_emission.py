@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import runpy
+import shlex
 import subprocess
 import sys
 from dataclasses import replace
@@ -1137,6 +1139,30 @@ def test_cli_join_golden_checks_and_emits_in_every_mode(
     emitted = capsys.readouterr()
     assert emitted.err == GOLDEN_WARNING
     assert emitted.out.encode() == (REPO_ROOT / GOLDEN_SQL).read_bytes()
+
+
+def test_readme_quick_start_checks_strictly_and_emits_the_sql_it_prints(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The README quick start runs as written and prints the SQL it shows."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    section = readme.split("## Quick start", 1)[1].split("\n## ", 1)[0]
+    blocks = re.findall(r"```(\w+)\n(.*?)```", section, re.S)
+    assert [language for language, _ in blocks] == ["pietto", "bash", "sql"]
+    source, commands, sql = (body for _, body in blocks)
+    assert "`check` prints `OK: shop.pietto`" in section
+    (tmp_path / "shop.pietto").write_text(source, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    check, emit = (shlex.split(line) for line in commands.splitlines())
+    assert check[:2] == ["pietto", "check"] and emit[:2] == ["pietto", "emit-sql"]
+    assert cli.main([*check[1:], "--check-mode", "strict", "--format", "json"]) == 0
+    assert json.loads(capsys.readouterr().out)["diagnostics"] == []
+    assert cli.main(check[1:]) == 0
+    assert capsys.readouterr() == ("OK: shop.pietto\n", "")
+    assert cli.main(emit[1:]) == 0
+    assert capsys.readouterr() == (sql, "")
 
 
 @pytest.mark.parametrize("output_format", ["text", "json"])

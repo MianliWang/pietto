@@ -409,6 +409,30 @@ broaden source representations, Bool aggregate emission or another project
 schema's capabilities. See [Boolean existence](language.md#boolean-existence-with-any)
 for the source and scope rules.
 
+## Installing a release
+
+Install a release from PyPI into a virtual environment, as the
+[README](../README.md#install) shows: `pip install pietto`, or
+`pip install "pietto[arrow]"` for an optional extra. The compiler and CLI were
+verified with CPython 3.12 and 3.13 on Linux x86-64; other platforms and
+Python versions are not covered by this evidence.
+
+The `0.1.5` wheel and sdist on PyPI are the files attached to the
+[v0.1.5 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.5),
+together with `SHA256SUMS`, which lists the SHA-256 of the wheel and the sdist.
+To check files downloaded from that release, keep their names and run
+`sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
+also offers an automatic source archive under the same name as the sdist,
+`pietto-0.1.5.tar.gz`; it is a snapshot of the v0.1.5 repository tag, not the
+sdist, and it is not listed in `SHA256SUMS`.
+
+Version `0.1.5` rejects bundles and saved jobs produced by `0.1.4` or earlier
+by code identity; Pietto neither migrates nor rewrites those bytes, so retained
+state needs its matching old environment (see
+[execution](execution.md#known-limitations)). The VS Code extension `0.1.0`
+accepts only the `0.1.2` wheel or its baseline fingerprint and refuses
+`0.1.5`.
+
 ## Optional Arrow dependency
 
 The core distribution depends only on `antlr4-python3-runtime==4.13.2`.
@@ -420,14 +444,14 @@ execution routes and saved-result APIs as public alpha under
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
 distribution availability once the accepted files are available.
 The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow26.0.0.
-See [checkout and local-wheel installation](../README.md#optional-arrow-interoperability).
+See [checkout and local-wheel installation](../README.md#install-from-a-checkout).
 This is not a broader platform/version support promise.
 
 Phase68 S18 adds three route selectors, each Arrow plus one route's exact pins:
 `execute-postgres` (`psycopg[binary]==3.3.5`), `execute-mysql`
 (`mysql-connector-python==26.7.0`) and `execute-postgres-adbc`
 (`adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0`); see the
-[execution extras](../README.md#execution-extras). Installation never chooses
+[execution install](execution.md#install). Installation never chooses
 a route, grants execution or qualifies storage; all three routes are
 [public alpha interfaces](execution.md). The
 [S18 contract](phases/phase-68/slice-18.md) records the verified domain.

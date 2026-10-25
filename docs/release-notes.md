@@ -2,10 +2,10 @@
 
 ## Modern-syntax public alpha release notes — 0.1.5
 
-**Status:** These notes cover the `0.1.5` public-alpha candidate. A release is
-established only when the accepted wheel and sdist are available from both the
-versioned GitHub pre-release and PyPI channels; this document neither creates
-those channels nor substitutes for their byte verification.
+**Status:** These notes cover the `0.1.5` public alpha, published from
+`6d0f6c6c` on the versioned GitHub pre-release and PyPI. Both channels carry the
+accepted wheel and sdist byte for byte; this document neither creates those
+channels nor substitutes for their byte verification.
 
 `0.1.5` is the first release whose compiler reads the modern source syntax. It
 also contains the single-file JOIN support and the
