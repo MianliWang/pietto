@@ -30,6 +30,43 @@ def _git(repo: Path, *args: str) -> str:
     return subprocess.check_output(("git", *args), cwd=repo, text=True).strip()
 
 
+def _commit(repo: Path, message: str) -> None:
+    environment = dict(os.environ)
+    for name in tuple(environment):
+        if name.startswith(
+            (
+                "GIT_AUTHOR_",
+                "GIT_COMMITTER_",
+                "GIT_CONFIG_KEY_",
+                "GIT_CONFIG_VALUE_",
+            )
+        ) or name in {
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_GLOBAL",
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG_SYSTEM",
+        }:
+            environment.pop(name)
+    subprocess.run(
+        (
+            "git",
+            "-c",
+            "user.name=Pietto test",
+            "-c",
+            "user.email=pietto-test@example.invalid",
+            "commit",
+            "--quiet",
+            "--no-gpg-sign",
+            "--allow-empty",
+            "-m",
+            message,
+        ),
+        cwd=repo,
+        env=environment,
+        check=True,
+    )
+
+
 def _clone(
     tmp_path: Path,
     name: str = "source",
@@ -101,18 +138,7 @@ def _bind_collection(monkeypatch, collection: dict[str, Any]) -> None:
 def _manifest(tmp_path: Path, monkeypatch):
     source = _clone(tmp_path)
     subprocess.run(("git", "add", *CANDIDATE_FILES), cwd=source, check=True)
-    subprocess.run(
-        (
-            "git",
-            "commit",
-            "--quiet",
-            "--allow-empty",
-            "-m",
-            "test: publish runner bootstrap",
-        ),
-        cwd=source,
-        check=True,
-    )
+    _commit(source, "test: publish runner bootstrap")
     readme = source / "README.md"
     readme.write_text(readme.read_text() + "\nVR1 synthetic candidate.\n")
     removed = source / "examples/basic/types.pietto"
@@ -238,22 +264,39 @@ def test_create_binds_candidate_repository_script_and_rebuilds_tree(
 ):
     committed_head = None
     if candidate_is_committed:
+        identity_home = tmp_path / "identity-home"
+        identity_home.mkdir()
+        monkeypatch.setenv("HOME", str(identity_home))
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(identity_home))
+        monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+        for name in tuple(os.environ):
+            if name.startswith(
+                (
+                    "GIT_AUTHOR_",
+                    "GIT_COMMITTER_",
+                    "GIT_CONFIG_KEY_",
+                    "GIT_CONFIG_VALUE_",
+                )
+            ) or name in {
+                "GIT_CONFIG_COUNT",
+                "GIT_CONFIG_GLOBAL",
+                "GIT_CONFIG_PARAMETERS",
+                "GIT_CONFIG_SYSTEM",
+            }:
+                monkeypatch.delenv(name)
         committed = _clone(tmp_path, "committed-candidate", candidate=False)
         for relative in CANDIDATE_FILES:
             shutil.copy2(runner.ROOT / relative, committed / relative)
         subprocess.run(("git", "add", *CANDIDATE_FILES), cwd=committed, check=True)
-        subprocess.run(
-            (
-                "git",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "test: commit candidate bytes",
-            ),
-            cwd=committed,
-            check=True,
+        assert (
+            subprocess.run(
+                ("git", "config", "--get", "user.name"),
+                cwd=committed,
+                check=False,
+            ).returncode
+            == 1
         )
+        _commit(committed, "test: commit candidate bytes")
         committed_head = _git(committed, "rev-parse", "HEAD")
         monkeypatch.setattr(runner, "ROOT", committed)
     (
