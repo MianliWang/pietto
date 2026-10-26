@@ -1269,3 +1269,54 @@ def test_admitted_join_lets_leave_out_the_reserved_names() -> None:
         "label",
         "total",
     ]
+
+
+_LET_INPUT = """shape Order:
+    id: Int
+    customer_id: Int | None
+shape Customer:
+    id: Int
+source orders: Order = postgres.table("orders")
+source customers: Customer = postgres.table("customers")
+query q:
+    from orders
+{lets}    inner join c on orders.customer_id == c.id
+    select:
+        x = orders.id
+"""
+
+
+@pytest.mark.parametrize(
+    ("lets", "expected"),
+    (
+        ("    let c = nosuch\n", [("PIE-S2301", "Unknown relation: nosuch", 10, 13)]),
+        (
+            "    let c = later\n    let later = customers\n",
+            [
+                (
+                    "PIE-S2330",
+                    "Let binding cannot reference a later binding: later",
+                    10,
+                    13,
+                )
+            ],
+        ),
+        ("    let c = customers\n", []),
+    ),
+    ids=("unknown", "later", "known"),
+)
+def test_a_let_that_a_join_reads_names_a_relation(
+    lets: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    """A later JOIN reads `c` as its input, so the value of `let c` names a
+    relation, as `from` does: an unknown name is an unknown relation, at the
+    value, not a misplaced row-value let (PIE-S2604)."""
+
+    from pietto.semantic import analyze
+
+    parsed = parse_source(_LET_INPUT.format(lets=lets))
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(parsed.ast).diagnostics
+    ] == expected

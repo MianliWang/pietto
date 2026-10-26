@@ -15,6 +15,11 @@ from pietto.semantic.model import CheckMode
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GATE_CODES = {f"PIE-S{number}" for number in range(2345, 2353)}
+LEGACY_JOIN = (
+    "A JOIN with `as`, `from` or `via` is retired; name the input with "
+    "`let alias = relation`, then write `inner join alias on predicate` or "
+    "another JOIN kind."
+)
 FAMILIES = {
     "let_relation": (
         "PIE-S2345",
@@ -78,21 +83,52 @@ FAMILIES = {
     ),
     "on_join_without_from": (
         "PIE-S2378",
-        "A JOIN with `on`, or a CROSS JOIN, must name its source binding with `from`.",
+        LEGACY_JOIN,
         "query q:\n    from rows\n    inner join others as o: on o.id == rows.id\n"
         "    select:\n        id\n",
         (3, 5, 3, 47),
     ),
     "cross_join_without_from": (
         "PIE-S2378",
-        "A JOIN with `on`, or a CROSS JOIN, must name its source binding with `from`.",
+        LEGACY_JOIN,
         "query q:\n    from rows\n    cross join others as o\n    select:\n        id\n",
         (3, 5, 3, 27),
     ),
+    "relationship_join_without_on": (
+        "PIE-S2378",
+        LEGACY_JOIN,
+        "query q:\n    from rows\n    left join others as o\n    select:\n        id\n",
+        (3, 5, 3, 26),
+    ),
+    "join_with_from_and_via": (
+        "PIE-S2378",
+        LEGACY_JOIN,
+        "query q:\n    from rows\n    inner join others as o:\n        from rows\n"
+        "        via link\n        on o.id == rows.id\n    select:\n        id\n",
+        (3, 5, 6, 27),
+    ),
+    "relationship_metadata": (
+        "PIE-S2378",
+        "Source-bound relationship metadata is retired; declare a shape-typed "
+        "`relationship Name(role: Shape, ...):` predicate and call it in a JOIN's "
+        "`on`.",
+        "relationship link: rows.id == others.id\n"
+        "query q:\n    from rows\n    select:\n        id\n",
+        (1, 1, 1, 40),
+    ),
 }
-# PIE-S2378 guards the legacy JOIN spelling, which only the private legacy
-# reader still builds; the modern parser refuses that spelling with PIE-P1000.
-LEGACY_FAMILIES = frozenset({"on_join_without_from", "cross_join_without_from"})
+# PIE-S2378 refuses every retired relationship-JOIN form, which only the
+# private legacy reader or a hand-built AST still carries; the modern parser
+# refuses that spelling with PIE-P1000.
+LEGACY_FAMILIES = frozenset(
+    {
+        "on_join_without_from",
+        "cross_join_without_from",
+        "relationship_join_without_on",
+        "join_with_from_and_via",
+        "relationship_metadata",
+    }
+)
 NESTED = (
     "query q(a: Int):\n"
     "    let l:\n"
@@ -315,10 +351,10 @@ def test_explicit_modules_admit_capture_lines() -> None:
 def test_on_and_cross_joins_without_from_stay_gated_and_def_only_where_inlined() -> (
     None
 ):
-    """Only a legacy relationship JOIN infers an omitted `from` or VIA roles
-    (read by the private legacy reader, in its spelling). Single files and
-    EXPLICIT_MODULES projects inline def calls; LEGACY_FLAT and PACKAGE_ROOT
-    projects keep every def gated."""
+    """Every legacy relationship JOIN (read by the private legacy reader, in
+    its spelling) is refused in every entry, with or without `from`, `via` or
+    `on`. Single files and EXPLICIT_MODULES projects inline def calls;
+    LEGACY_FLAT and PACKAGE_ROOT projects keep every def gated."""
     parsed = _parse_legacy_source(
         "def f(x: Int not null) -> Int not null:\n    return x\n"
         "query q:\n    from rows\n    inner join others as o: via link\n"
@@ -328,7 +364,7 @@ def test_on_and_cross_joins_without_from_stay_gated_and_def_only_where_inlined()
         path="gate.pietto",
     )
     assert parsed.diagnostics == () and parsed.ast is not None
-    joins = [("PIE-S2378", 7, 5), ("PIE-S2378", 8, 5)]
+    joins = [("PIE-S2378", line, 5) for line in (5, 6, 7, 8)]
     gated = unadmitted_syntax_diagnostics(parsed.ast)
     assert _located(gated) == [("PIE-S2379", 1, 1), *joins]
     assert gated[0].message == (
@@ -339,3 +375,31 @@ def test_on_and_cross_joins_without_from_stay_gated_and_def_only_where_inlined()
     assert (location.end_line, location.end_column) == (2, 13)
     for options in ({"explicit_modules": True}, {"single_file": True}):
         assert _located(unadmitted_syntax_diagnostics(parsed.ast, **options)) == joins
+
+
+def test_public_analyze_refuses_a_legacy_via_join_instead_of_dropping_its_match() -> (
+    None
+):
+    """pietto.semantic.analyze once read this hand-built (legacy reader) JOIN by
+    its `on` alone, dropping the relationship's equality from the SQL; every
+    retired form is now refused before any reader sees it."""
+    parsed = _parse_legacy_source(
+        "shape Order:\n    id: Int not null\n    customer_id: Int nullable\n"
+        "shape Customer:\n    id: Int not null\n    name: Text not null\n"
+        "    unique customer_key on id\n"
+        'source orders: Order is postgres.table("shop.orders")\n'
+        'source customers: Customer is postgres.table("shop.customers")\n'
+        "relationship order_customer: orders.customer_id == customers.id\n"
+        "query q:\n    from orders\n    left join customers as customer:\n"
+        "        from orders\n        via order_customer\n"
+        '        on customer.name != "x"\n'
+        "    select:\n        order_id = orders.id\n",
+        path="gate.pietto",
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+
+    result = analyze(parsed.ast)
+
+    assert _located(result.diagnostics) == [("PIE-S2378", 10, 1), ("PIE-S2378", 13, 5)]
+    assert result.diagnostics[1].message == LEGACY_JOIN
+    assert result.model.relation_joins == {}

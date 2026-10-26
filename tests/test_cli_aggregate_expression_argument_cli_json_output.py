@@ -109,7 +109,7 @@ def test_cli_text_emits_supported_expression_argument_sql(
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- aggregate_stats\n{expected_sql};\n"
 
 
 @pytest.mark.parametrize(
@@ -136,7 +136,7 @@ def test_cli_text_emits_grouped_supported_expression_argument_sql(
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- aggregate_stats\n{expected_sql};\n"
 
 
 @pytest.mark.parametrize(
@@ -234,7 +234,10 @@ def test_cli_text_output_replaces_file_with_supported_expression_argument_sql(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
-    assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- aggregate_stats\n{expected_sql};\n"
+    )
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -288,7 +291,10 @@ def test_cli_json_output_writes_file_and_keeps_expression_argument_artifacts(
             "sql": expected_sql,
         }
     ]
-    assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- aggregate_stats\n{expected_sql};\n"
+    )
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -342,7 +348,8 @@ def test_unsupported_expression_argument_json_output_does_not_write(
     codes = [diagnostic["code"] for diagnostic in diagnostics]
 
     assert result["ok"] is False
-    assert codes == [expected_code]
+    # A `/` of two Int values also warns that it truncates (PIE-S2106).
+    assert codes == [expected_code, *(["PIE-S2106"] if "/" in projection else [])]
     assert "PIE-B1000" not in codes
     assert result["cli_errors"] == []
     assert result["artifacts"] == []
@@ -408,7 +415,7 @@ def test_cli_text_grouped_satisfying_uses_underlying_aggregate_expression(
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- aggregate_stats\n{expected_sql};\n"
     having = _having_clause(captured.out)
     assert forbidden_alias not in having
 

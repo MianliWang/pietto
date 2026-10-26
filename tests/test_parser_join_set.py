@@ -158,7 +158,31 @@ _AS_REVIEW = "; relationship traversal requires an explicit migration review."
             "inner",
             20,
             "Name the input with 'let alias = relation', then write "
+            "'inner join alias on predicate'" + _AS_REVIEW,
+        ),
+        (
+            "left",
+            19,
+            "Name the input with 'let alias = relation', then write "
             "'left join alias on predicate'" + _AS_REVIEW,
+        ),
+        (
+            "right",
+            20,
+            "Name the input with 'let alias = relation', then write "
+            "'right join alias on predicate'" + _AS_REVIEW,
+        ),
+        (
+            "full",
+            19,
+            "Name the input with 'let alias = relation', then write "
+            "'full join alias on predicate'" + _AS_REVIEW,
+        ),
+        (
+            "cross",
+            20,
+            "Name the input with 'let alias = relation', then write "
+            "'cross join alias'" + _AS_REVIEW,
         ),
     ),
 )

@@ -992,6 +992,8 @@ def main(argv: list[str] | None = None) -> int:
             else (sys.executable, "-m", "pytest", "--collect-only", "-qq")
         )
         command += (
+            "-c",
+            str(ROOT / "pytest.ini"),
             "-p",
             "scripts.ci_validation",
             "--ci-report",

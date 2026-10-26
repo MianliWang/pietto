@@ -268,7 +268,6 @@ def test_typed_predicate_and_conjunct_joins_keep_distinct(
     result = _completed(tmp_path, source)
     assert result.ok, result.diagnostics
     condition = result.roots.join_conditions.entries[0]
-    assert condition.base_guarantee is None
     assert condition.environment.predicate_expression is not None
     assert len(condition.environment.predicate_expression.calls) == 1
     distinct = _entry(result).row_domain.distinct

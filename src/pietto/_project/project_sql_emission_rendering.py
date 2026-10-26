@@ -534,6 +534,82 @@ class _Writer:
                     "coalesce": "COALESCE",
                 },
             }[self.request.family].get(name)
+            if name == "round":
+                if self.request.family != "postgres":
+                    raise ValueError("unrenderable scalar call")
+                if len(value.operands) == 2:
+                    self.emit("round(", "syntax", "scalar_call_open", reference)
+                    self.scalar(value.operands[0], alias)
+                    self.emit(", CAST(", "syntax", "scalar_call_separator", reference)
+                    self.scalar(value.operands[1], alias)
+                    self.emit(
+                        " AS pg_catalog.int4))",
+                        "syntax",
+                        "scalar_call_close",
+                        reference,
+                    )
+                elif len(value.operands) == 1 and value.realization.tag == "Decimal":
+                    self.emit("round(", "syntax", "scalar_call_open", reference)
+                    self.scalar(value.operands[0], alias)
+                    self.emit(")", "syntax", "scalar_call_close", reference)
+                elif len(value.operands) == 1 and value.realization.tag == "Float":
+                    self.emit(
+                        "(CASE WHEN abs((", "syntax", "scalar_call_open", reference
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(
+                        ") - trunc(", "syntax", "scalar_call_separator", reference
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(
+                        ") ) >= 0.5 THEN trunc(",
+                        "syntax",
+                        "scalar_call_separator",
+                        reference,
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(
+                        " ) + (CASE WHEN ", "syntax", "scalar_call_separator", reference
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(
+                        " < 0 THEN -1.0 ELSE 1.0 END) ELSE trunc(",
+                        "syntax",
+                        "scalar_call_separator",
+                        reference,
+                    )
+                    self.scalar(value.operands[0], alias)
+                    self.emit(" ) END)", "syntax", "scalar_call_close", reference)
+                else:
+                    raise ValueError("unrenderable scalar call")
+                self.enclose("scalar_call", reference, start)
+                return
+            if name == "date_trunc":
+                if self.request.family != "postgres" or len(value.operands) != 2:
+                    raise ValueError("unrenderable scalar call")
+                if value.realization.tag == "Date":
+                    opening = "CAST(date_trunc("
+                else:
+                    opening = "date_trunc("
+                self.emit(opening, "syntax", "scalar_call_open", reference)
+                self.scalar(value.operands[0], alias)
+                self.emit(
+                    ", CAST(" if value.realization.tag == "Date" else ", ",
+                    "syntax",
+                    "scalar_call_separator",
+                    reference,
+                )
+                self.scalar(value.operands[1], alias)
+                self.emit(
+                    " AS timestamp))" if value.realization.tag == "Date" else ")",
+                    "syntax",
+                    "scalar_call_close",
+                    reference,
+                )
+                if value.realization.tag == "Date":
+                    self.emit(" AS date)", "syntax", "scalar_call_close", reference)
+                self.enclose("scalar_call", reference, start)
+                return
             if name == "substr":
                 self.emit(
                     "substring(" if self.request.family == "postgres" else "SUBSTRING(",
@@ -753,11 +829,28 @@ class _Writer:
             return
         if value.kind == "cast":
             physical = (
-                "pg_catalog.float8" if self.request.family == "postgres" else "DOUBLE"
+                "pg_catalog.float8"
+                if value.realization.tag == "Float"
+                and self.request.family == "postgres"
+                else "DOUBLE"
+                if value.realization.tag == "Float"
+                else "pg_catalog.text"
             )
-            self.emit("CAST(", "syntax", "cast_open", reference)
+            self.emit(
+                "(CAST(" if value.realization.tag == "Text" else "CAST(",
+                "syntax",
+                "cast_open",
+                reference,
+            )
             self.scalar(value.operands[0], alias)
-            self.emit(" AS " + physical + ")", "syntax", "cast_close", reference)
+            self.emit(
+                " AS " + physical + ') COLLATE "C")'
+                if value.realization.tag == "Text"
+                else " AS " + physical + ")",
+                "syntax",
+                "cast_close",
+                reference,
+            )
             self.enclose("cast", reference, start)
             return
         if value.kind == "comparison" and value.original.expression.operator in {
@@ -798,6 +891,29 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
         # count() consumes the complete input BAG, so COUNT(*) is the whole row
         # count, never SELECT * and never a column count.
         w.emit("*", "syntax", "aggregate_row_count", reference)
+    elif column.function == "string_agg":
+        if (
+            column.distinct
+            or column.argument_cast is not None
+            or column.delimiter is None
+        ):
+            raise ValueError("unrenderable string_agg")
+        w.scalar(column.argument, alias)
+        w.emit(", ", "syntax", "aggregate_separator", reference)
+        w.scalar(column.delimiter, alias)
+        w.emit(" ORDER BY ", "syntax", "aggregate_order", reference)
+        for position, item in enumerate(column.order_by):
+            if item.direction not in {"asc", "desc"}:
+                raise ValueError("unrenderable string_agg order")
+            if position:
+                w.emit(", ", "syntax", "aggregate_order_separator", reference)
+            w.scalar(item.value, alias)
+            w.emit(
+                " ASC" if item.direction == "asc" else " DESC",
+                "syntax",
+                "aggregate_order_direction",
+                reference,
+            )
     else:
         if column.distinct:
             w.emit("DISTINCT ", "syntax", "aggregate_distinct", reference)

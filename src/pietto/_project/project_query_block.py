@@ -9,7 +9,6 @@ from enum import StrEnum
 from typing import cast
 
 from pietto._project.model import (
-    ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
 )
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
@@ -24,7 +23,6 @@ from pietto._project.project_ir_construction import (
     ProjectIRSingleRelationFragment,
 )
 from pietto._project.project_ir_joins import (
-    ProjectIRConcreteJoinRegion,
     ProjectIRJoinRegion,
     ProjectIRNonConcreteJoinRegion,
 )
@@ -121,10 +119,7 @@ def _require_join_region_root(
 ) -> None:
     if type(verification) is not ProjectPhase62VerificationResult:
         raise TypeError("Joined row source requires an exact Phase-62 verification.")
-    if type(region) not in {
-        ProjectIRConcreteJoinRegion,
-        ProjectIRNonConcreteJoinRegion,
-    }:
+    if type(region) is not ProjectIRNonConcreteJoinRegion:
         raise TypeError("Joined row source requires an exact Phase-62 JOIN region.")
     if not any(
         region is retained for retained in verification.root.join_regions.regions
@@ -138,63 +133,6 @@ def _require_join_owner(
 ) -> None:
     if region.ledger.owner is not bridge.owner:
         raise ValueError("JOIN region must retain the exact query-block owner.")
-
-
-def _historical_join_semantic_facts(
-    verification: ProjectPhase62VerificationResult,
-    region: ProjectIRConcreteJoinRegion,
-) -> ProjectModuleRelationSemanticFacts:
-    matches = verification.root.evaluation.project_plan.semantic_facts.find_owner(
-        region.ledger.owner
-    )
-    if len(matches) != 1:
-        raise ValueError("Joined row source requires one exact historical fact root.")
-    historical = matches[0]
-    if (
-        historical.state.status is not ProjectRelationRowSchemaStatus.DEFERRED
-        or historical.state.reason
-        is not ProjectRelationRowSchemaReason.AUTHORED_JOIN_DEFERRED
-    ):
-        raise ValueError("Joined row source requires exact historical JOIN deferral.")
-    return historical
-
-
-@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
-class ProjectVerifiedJoinedRowSource:
-    """One VERIFIED Phase-62 JOIN region's exact final occurrence-complete row."""
-
-    verification: ProjectPhase62VerificationResult = field(
-        repr=False,
-        compare=False,
-        hash=False,
-    )
-    region: ProjectIRConcreteJoinRegion = field(
-        repr=False,
-        compare=False,
-        hash=False,
-    )
-    historical_semantic_facts: ProjectModuleRelationSemanticFacts = field(
-        init=False,
-        repr=False,
-        compare=False,
-        hash=False,
-    )
-    final_output: ProjectIRJoinRowOutput = field(init=False)
-    fields: tuple[ProjectIRJoinedRowField, ...] = field(init=False)
-
-    def __post_init__(self) -> None:
-        _require_join_region_root(self.verification, self.region)
-        if (
-            self.verification.status is not ProjectPhase62VerificationStatus.VERIFIED
-            or type(self.region) is not ProjectIRConcreteJoinRegion
-        ):
-            raise ValueError("Joined row source requires VERIFIED concrete authority.")
-        historical = _historical_join_semantic_facts(self.verification, self.region)
-        final_output = self.region.joins[-1].output
-        fields = final_output.row_shape.fields
-        object.__setattr__(self, "historical_semantic_facts", historical)
-        object.__setattr__(self, "final_output", final_output)
-        object.__setattr__(self, "fields", fields)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -235,9 +173,7 @@ class ProjectCurrentJoinedRowSource:
 
 
 type ProjectQueryBlockRowSource = (
-    ProjectExistingRelationRowSource
-    | ProjectVerifiedJoinedRowSource
-    | ProjectCurrentJoinedRowSource
+    ProjectExistingRelationRowSource | ProjectCurrentJoinedRowSource
 )
 
 
@@ -260,14 +196,8 @@ class ProjectConcreteQueryBlock:
             raise TypeError("Concrete query block requires an exact owner bridge.")
         if type(self.row_source) is ProjectExistingRelationRowSource:
             owner = self.row_source.semantic_facts.owner
-        elif type(self.row_source) in {
-            ProjectVerifiedJoinedRowSource,
-            ProjectCurrentJoinedRowSource,
-        }:
-            assert isinstance(
-                self.row_source,
-                (ProjectVerifiedJoinedRowSource, ProjectCurrentJoinedRowSource),
-            )
+        elif type(self.row_source) is ProjectCurrentJoinedRowSource:
+            assert isinstance(self.row_source, ProjectCurrentJoinedRowSource)
             owner = self.row_source.region.ledger.owner
             if self.row_source.historical_semantic_facts.owner is not owner:
                 raise ValueError("Joined row source lost its historical owner.")
@@ -477,21 +407,11 @@ def build_project_query_block_from_join_region(
             verification=verification,
             join_region=region,
         )
-    if type(region) is ProjectIRNonConcreteJoinRegion:
-        return ProjectNonConcreteQueryBlock(
-            compilation_mode=compilation_mode,
-            owner_bridge=bridge,
-            reason=ProjectQueryBlockNonConcreteReason.JOIN_REGION_NON_CONCRETE,
-            verification=verification,
-            join_region=region,
-        )
-    if type(region) is not ProjectIRConcreteJoinRegion:
-        raise AssertionError("concrete JOIN branch lost its exact region")
-    return ProjectConcreteQueryBlock(
+    # No authored JOIN joins by itself: the region never has a row of its own.
+    return ProjectNonConcreteQueryBlock(
         compilation_mode=compilation_mode,
         owner_bridge=bridge,
-        row_source=ProjectVerifiedJoinedRowSource(
-            verification=verification,
-            region=region,
-        ),
+        reason=ProjectQueryBlockNonConcreteReason.JOIN_REGION_NON_CONCRETE,
+        verification=verification,
+        join_region=region,
     )

@@ -151,8 +151,6 @@ def _syntax_image(parsed, replacements):
 
 def _requests(original, completed, image):
     """Rebind explicit request occurrences; proof owners run again afterwards."""
-    from pietto._project.project_relationship_paths import ProjectRelationshipPathStep
-
     requests = []
     images = {}
     for request in original.single_match_requests:
@@ -171,34 +169,11 @@ def _requests(original, completed, image):
         if len(matches) != 1 or old.condition is None or old.problems:
             raise BindingError("BINDING_OBLIGATION")
         condition = matches[0]
-        path = condition.effective_use.path if request.path is not None else None
-        hop = None
-        if request.hop is not None:
-            old_path = old.condition.effective_use.path
-            if (
-                isinstance(request.hop, ProjectRelationshipPathStep)
-                and old_path is None
-            ):
-                raise BindingError("BINDING_OBLIGATION")
-            old_hops = (
-                (old_path.steps if old_path is not None else ())
-                if isinstance(request.hop, ProjectRelationshipPathStep)
-                else old.condition.use.step_uses
-            )
-            new_hops = (
-                condition.effective_use.path.steps
-                if isinstance(request.hop, ProjectRelationshipPathStep)
-                else condition.use.step_uses
-            )
-            (position,) = tuple(i for i, h in enumerate(old_hops) if h is request.hop)
-            hop = new_hops[position]
         new = replace(
             request,
             owner=condition.use.owner,
             use=condition.use,
             condition=condition if request.condition is not None else None,
-            path=path,
-            hop=hop,
             input_pairs=None,
         )
         if request.input_pairs is not None:

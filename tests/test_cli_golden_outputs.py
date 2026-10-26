@@ -72,15 +72,14 @@ def test_emit_sql_matches_byte_exact_golden(
     assert cli.main(["emit-sql", example, "--dialect", "postgres"]) == 0
 
     captured = capsys.readouterr()
-    # A query reading a table of its own file warns that SQL reads it by name.
-    read = _SAME_FILE_READS.get(example)
+    # `/` of two Int values warns that it truncates.
+    division = _INT_DIVISIONS.get(example)
     assert captured.err == (
         ""
-        if read is None
-        else f"{example}:{read[0]}:5 PIE-S2382 warning: `{read[1]}` is a table of "
-        "this file; single-file SQL reads it by name, so the SQL runs only where "
-        f"the database already has a relation named {read[1]} (an "
-        "EXPLICIT_MODULES project emits it as a CTE)\n"
+        if division is None
+        else f"{example}:{division[0]}:{division[1]} PIE-S2106 warning: `/` of two "
+        "Int values truncates in SQL (`7 / 2` is 3, not 3.5); write "
+        "`Float(x) / y` for a fractional result\n"
     )
     assert captured.out.encode("utf-8") == (GOLDEN_ROOT / fixture).read_bytes()
 
@@ -110,12 +109,8 @@ def test_emit_sql_json_matches_structural_golden(
     assert json.loads(captured.out) == _load_json("emit_sql_active_users.json")
 
 
-_SAME_FILE_READS = {
-    "examples/queries/active_user_emails.pietto": (18, "active_users"),
-    "tests/fixtures/postgres/compatibility_ordering_metadata.pietto": (
-        33,
-        "FirstRelation",
-    ),
+_INT_DIVISIONS = {
+    "tests/fixtures/postgres/compatibility_expressions.pietto": (34, 19),
 }
 
 

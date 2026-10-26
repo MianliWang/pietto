@@ -772,6 +772,7 @@ def test_builder_is_hash_seed_cwd_independent_and_public_sql_relation_ir_zero_de
         "limit",
         "group_keys",
         "result_predicate",
+        "qualify",
         "named_windows",
         "inputs",
         "joins",

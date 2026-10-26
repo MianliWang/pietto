@@ -464,7 +464,9 @@ def test_emit_sql_for_expression_argument_aggregates_succeeds_after_sql_slice(
     assert "PIE-B1000" not in captured.out
     assert "PIE-I1000" not in captured.out
     assert "PIE-S2315" not in captured.out
-    assert output.read_text(encoding="utf-8") == expected_sql + "\n"
+    assert (
+        output.read_text(encoding="utf-8") == f"-- aggregate_stats\n{expected_sql};\n"
+    )
 
 
 def _parse(source: str) -> Script:

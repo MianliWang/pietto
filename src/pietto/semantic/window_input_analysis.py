@@ -35,6 +35,7 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
+from pietto.semantic.row_lookup import bare_field, qualified_field
 
 __all__: tuple[str, ...] = ()
 
@@ -387,10 +388,8 @@ def _populate_aggregate_value_types(
             continue
         function_name = semantic_aggregate_call_name(expression)
         assert function_name is not None
-        argument_type: ValueType | None = None
-        if len(expression.arguments) == 1:
-            argument = expression.arguments[0]
-            argument_type = infer_row_expression(
+        argument_types = tuple(
+            infer_row_expression(
                 argument,
                 input_schema,
                 value_types,
@@ -401,6 +400,12 @@ def _populate_aggregate_value_types(
                 bare_value_expressions=let_expressions,
                 type_expansions=type_expansions,
             )
+            for argument in (
+                *expression.arguments,
+                *(order.expression for order in expression.aggregate_order_by),
+            )
+        )
+        argument_type = argument_types[0] if argument_types else None
         result = semantic_projection_aggregate_result_value_type(
             function_name,
             argument_type,
@@ -492,8 +497,9 @@ def _resolve_field_expression(
     stack: frozenset[str],
 ) -> str | None:
     if type(expression) is NameExpr:
-        if expression.name in input_schema.fields:
-            return expression.name
+        field = bare_field(input_schema, expression.name)
+        if field is not None:
+            return field.name
         return _resolve_field_backed_let(
             expression.name,
             input_schema=input_schema,
@@ -501,13 +507,10 @@ def _resolve_field_expression(
             let_expressions=let_expressions,
             stack=stack,
         )
-    if (
-        type(expression) is DottedNameExpr
-        and len(expression.parts) == 2
-        and expression.parts[0] == field_qualifier
-        and expression.parts[1] in input_schema.fields
-    ):
-        return expression.parts[1]
+    if type(expression) is DottedNameExpr:
+        field = qualified_field(input_schema, expression.parts, field_qualifier)
+        if field is not None:
+            return field.name
     return None
 
 

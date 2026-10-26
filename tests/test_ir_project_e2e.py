@@ -471,6 +471,7 @@ def test_pipeline_is_hash_seed_cwd_independent_private_and_immutable(
         "limit",
         "group_keys",
         "result_predicate",
+        "qualify",
         "named_windows",
         "inputs",
         "joins",

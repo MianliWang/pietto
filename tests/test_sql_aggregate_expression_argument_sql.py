@@ -29,13 +29,14 @@ from pietto.ir import (
     TypeRefIR,
     build_ir,
 )
-from pietto.ir.model import StaticValue
+from pietto.ir.model import OrderDirectionIR, OrderItemIR, StaticValue
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.expressions import render_expression_sql
 from pietto.sql.mysql import emit_mysql_sql
 from pietto.sql.mysql_expressions import render_mysql_expression
+from pietto.sql.mysql_render import MySqlRenderError
 
 SPAN = SourceSpan(
     path="phase26-aggregate-expression-argument-sql.pietto",
@@ -84,6 +85,7 @@ TEXT_NON_NULL = TypeRefIR(
     canonical_kind=TypeKindIR.BUILTIN,
     nullability=NullabilityIR.NON_NULL,
 )
+TEXT_NULLABLE = replace(TEXT_NON_NULL, nullability=NullabilityIR.NULLABLE)
 TEXT_UNKNOWN = replace(TEXT_NON_NULL, nullability=NullabilityIR.UNKNOWN)
 
 BASE_SHAPE = (
@@ -495,7 +497,7 @@ def test_cli_text_emits_supported_expression_argument_sql(
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- aggregate_stats\n{expected_sql};\n"
 
 
 @pytest.mark.parametrize(
@@ -576,7 +578,10 @@ def test_cli_json_output_writes_supported_expression_argument_sql(
             "sql": expected_sql,
         }
     ]
-    assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- aggregate_stats\n{expected_sql};\n"
+    )
 
 
 DECIMAL_PRODUCT_SOURCE = (
@@ -665,7 +670,7 @@ def test_cli_emits_decimal_product_sum_and_avg_arguments(
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- decimal_products\n{expected_sql};\n"
 
 
 @pytest.mark.parametrize(
@@ -713,7 +718,8 @@ def test_unsupported_semantic_shapes_stop_before_sql_without_artifacts(
     codes = [diagnostic["code"] for diagnostic in diagnostics]
 
     assert result["ok"] is False
-    assert codes == [expected_code]
+    # A `/` of two Int values also warns that it truncates (PIE-S2106).
+    assert codes == [expected_code, *(["PIE-S2106"] if "/" in projection else [])]
     assert "PIE-B1000" not in codes
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output_path), "written": False}
@@ -808,7 +814,9 @@ def _compile(source: str) -> ScriptIR:
         for diagnostic in semantic_result.diagnostics
     )
 
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    ir_result = build_ir(
+        semantic_result.script or parse_result.ast, semantic_result.model
+    )
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir
@@ -888,16 +896,147 @@ def _direct_field_aggregate(case: str) -> AggregateCallIR:
     raise AssertionError(f"Unknown direct aggregate case: {case}")
 
 
+def test_c5_string_agg_preserves_all_internal_order_keys_and_refuses_mysql() -> None:
+    value = _field("status", TEXT_NON_NULL, qualifier=("orders",))
+    delimiter = _literal("//", TEXT_NON_NULL)
+    period_end = _field("period_end", INT_NON_NULL, qualifier=("orders",))
+    sequence = _field("sequence", INT_NON_NULL, qualifier=("orders",))
+    aggregate = _aggregate(
+        "string_agg",
+        TEXT_NULLABLE,
+        value,
+        delimiter,
+        order_by=(
+            OrderItemIR(
+                expression=period_end,
+                direction=OrderDirectionIR.DESC,
+                span=SPAN,
+            ),
+            OrderItemIR(
+                expression=sequence,
+                direction=OrderDirectionIR.ASC,
+                span=SPAN,
+            ),
+        ),
+    )
+    null_arguments = _aggregate(
+        "string_agg",
+        TEXT_NULLABLE,
+        _literal(None, TEXT_NULLABLE),
+        _literal(None, TEXT_NULLABLE),
+        order_by=(
+            OrderItemIR(
+                expression=sequence,
+                direction=OrderDirectionIR.ASC,
+                span=SPAN,
+            ),
+        ),
+    )
+
+    assert render_expression_sql(aggregate) == (
+        'string_agg("orders"."status", \'//\' ORDER BY '
+        '"orders"."period_end" DESC, "orders"."sequence" ASC)'
+    )
+    assert render_expression_sql(null_arguments) == (
+        "string_agg(CAST(NULL AS text), CAST(NULL AS text) ORDER BY "
+        '"orders"."sequence" ASC)'
+    )
+    with pytest.raises(MySqlRenderError, match="string_agg"):
+        render_mysql_expression(aggregate)
+
+    malformed_order = _aggregate(
+        "string_agg",
+        TEXT_NULLABLE,
+        value,
+        delimiter,
+        order_by=(
+            OrderItemIR(
+                expression=sequence,
+                direction=cast(OrderDirectionIR, "DESC"),
+                span=SPAN,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="ORDER BY is invalid"):
+        render_expression_sql(malformed_order)
+
+
+@pytest.mark.parametrize(
+    ("connector", "emitter", "expected_round", "expected_text_cast"),
+    [
+        (
+            "postgres.table",
+            emit_postgres_sql,
+            'round("price", (-2))',
+            'CAST("amount" AS text)',
+        ),
+        (
+            "mysql.table",
+            emit_mysql_sql,
+            "ROUND(`price`, (-2))",
+            "CAST(`amount` AS CHAR)",
+        ),
+    ],
+)
+def test_c5_signed_decimal_scale_reaches_both_sql_backends_from_source(
+    connector: str,
+    emitter: Callable[[ScriptIR], SqlResult],
+    expected_round: str,
+    expected_text_cast: str,
+) -> None:
+    result = emitter(
+        _compile(
+            _source(
+                connector,
+                "rounded = round(price, -2)\n        identifier = Text(amount)",
+            )
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert len(result.artifacts) == 1
+    assert expected_round in result.artifacts[0].sql
+    assert expected_text_cast in result.artifacts[0].sql
+
+
+def test_c5_mysql_source_preserves_proven_artifact_and_refuses_string_agg() -> None:
+    source = (
+        BASE_SHAPE
+        + 'source orders: Order = mysql.table("physical_orders")\n'
+        + "table allowed:\n"
+        + "    from orders\n"
+        + "    select:\n"
+        + "        rounded = round(price, -2)\n"
+        + "        identifier = Text(amount)\n"
+        + "table refused:\n"
+        + "    from orders\n"
+        + "    select:\n"
+        + '        summary = string_agg(status, ",", order by amount)\n'
+    )
+
+    result = emit_mysql_sql(_compile(source))
+
+    assert len(result.artifacts) == 1
+    assert result.artifacts[0].name == "allowed"
+    assert "ROUND(`price`, (-2))" in result.artifacts[0].sql
+    assert "CAST(`amount` AS CHAR)" in result.artifacts[0].sql
+    assert [(item.code, item.severity) for item in result.diagnostics] == [
+        ("PIE-B1000", Severity.ERROR)
+    ]
+
+
 def _aggregate(
     function: str,
     value_type: TypeRefIR,
     *arguments: ExpressionIR,
+    order_by: tuple[OrderItemIR, ...] = (),
 ) -> AggregateCallIR:
     return AggregateCallIR(
         span=SPAN,
         value_type=value_type,
         function=function,
         arguments=arguments,
+        order_by=order_by,
     )
 
 

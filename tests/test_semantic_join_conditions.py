@@ -21,8 +21,6 @@ from pietto._project.project_completion import (
 )
 from pietto._project.project_final_outputs import ProjectCompletedSetOutput
 from pietto._project import project_join_conditions as conditions
-from pietto._project import project_relationship_match_guarantees as guarantees
-from pietto._project.project_relationship_paths import ProjectRelationshipJoinShapeIndex
 from pietto._project.model import ProjectRowFieldNullability
 from pietto.ast_nodes import AuthoredJoinKind, FromClause, NameExpr, QueryDef
 from pietto.parser_api import parse_source
@@ -56,8 +54,6 @@ def test_generic_bool_readiness_is_separate_from_completion(
     assert fact.use.clause.on_clause is not None
     assert fact.ready and fact.value_type.resolved_type.name == "Bool"
     assert fact.mode == "M3" and fact.scope.value == "generic_join_match"
-    assert fact.base_conditions == () and fact.base_guarantee is None
-    assert fact.use.direct_result is None and fact.use.path is None
     assert fact.expression is fact.use.clause.on_clause.expression
     assert completed.ok and not fact.diagnostics
     assert not any(d.code == "PIE-S2334" for d in completed.diagnostics)
@@ -70,10 +66,6 @@ def test_predicate_filter_keeps_call_and_conjunct_occurrences(tmp_path: Path) ->
     fact = completed.roots.join_conditions.entries[0]
     assert fact.ready and fact.mode == "M3"
     assert fact.scope is not None and fact.scope.value == "generic_join_match"
-    assert (
-        fact.base_conditions == ()
-        and fact.base_guarantee is fact.refinement_guarantee is None
-    )
     assert len(fact.conjuncts) == 3
     assert fact.conjuncts[1] is not fact.conjuncts[2]
     predicate = fact.environment.predicate_expression
@@ -113,17 +105,6 @@ def test_foreign_root_and_forged_positive_are_rejected(tmp_path: Path) -> None:
         replace(fact, ready=True)
 
 
-def test_generic_never_calls_relationship_discovery(
-    tmp_path: Path, monkeypatch
-) -> None:
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Generic ON called relationship discovery")
-
-    monkeypatch.setattr(ProjectRelationshipJoinShapeIndex, "resolve_direct", forbidden)
-    result = _completed(tmp_path, _source("lhs.id == r.id"))
-    assert result.roots.join_conditions.entries[0].ready
-
-
 # SEMI and ANTI have no JOIN spelling: only an `any` filter before a later JOIN
 # makes one.
 @pytest.mark.parametrize(
@@ -144,8 +125,6 @@ def test_explicit_condition_kind_dispatch(tmp_path: Path, kind, predicate) -> No
     assert fact.ready is valid and completed.ok is valid
     assert fact.use.clause.kind is kind
     assert isinstance(fact.use, ProjectNonConcreteJoinUse)
-    assert fact.base_conditions == () and fact.base_guarantee is None
-    assert not completed.verification.root.join_regions.structural.nodes
     if kind is AuthoredJoinKind.CROSS:
         assert fact.mode == "M5"
     elif valid:
@@ -221,7 +200,6 @@ def test_previous_join_nullability_is_retained_without_prefix_ir(
     if kind == "left":
         assert left.null_extensions[0] is first.use.identity
     assert right.nullability is ProjectRowFieldNullability.NON_NULL
-    assert not completed.verification.root.join_regions.structural.nodes
 
 
 def test_extra_filter_preserves_matched_key_upper_bound_without_coverage(
@@ -232,12 +210,11 @@ def test_extra_filter_preserves_matched_key_upper_bound_without_coverage(
     fact = _completed(
         tmp_path, _unique_source("left", "Link(lhs, r) and r.key > 0")
     ).roots.join_conditions.entries[0]
-    assert fact.base_guarantee is fact.refinement_guarantee is None
     matches = tuple(m for m in fact.key_matches if m.binding is fact.use.target_binding)
     assert len(matches) == 1
     match = matches[0]
-    assert match.maximum is guarantees.ProjectRelationshipMaximumBound.AT_MOST_ONE
-    assert match.minimum is guarantees.ProjectRelationshipMinimumBound.ZERO_ALLOWED
+    assert match.maximum is conditions.ProjectRelationshipMaximumBound.AT_MOST_ONE
+    assert match.minimum is conditions.ProjectRelationshipMinimumBound.ZERO_ALLOWED
     assert match.condition is fact and match.equalities == fact.mandatory_equalities
     assert any(key is match.key for key in match.properties.keys)
 
@@ -933,8 +910,6 @@ def test_project_predicate_adapter_keeps_every_call_and_its_exact_row_occurrence
                 assert isinstance(call.mandatory_equalities[0], ComparisonExpr)
             else:
                 assert call.mandatory_equalities == ()
-    assert condition.base_guarantee is None
-    assert condition.base_conditions == ()
 
 
 def test_project_predicate_uses_current_outer_join_nullability(tmp_path: Path) -> None:
@@ -1103,3 +1078,95 @@ def test_project_any_in_where_or_and_select_keeps_binder_occurrences_local(
         for field in binding.fields
         if field.evidence.name == "id"
     )
+
+
+_UNKNOWN_ON_CALL = """shape Order:
+    id: Int
+    customer_id: Int | None
+shape Customer:
+    id: Int
+    name: Text
+source orders: Order = postgres.table("orders")
+source customers: Customer = postgres.table("customers")
+query q:
+    from orders
+    let c = customers
+    inner join c on {on}
+    select:
+        x = orders.id
+"""
+
+
+def _project_located(root: Path, files: dict[str, str], capsys) -> list:
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    for name, text in files.items():
+        (root / name).write_text(text, encoding="utf-8")
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    return [
+        (
+            d["code"],
+            d["message"],
+            d["location"]["path"],
+            d["location"]["line"],
+            d["location"]["column"],
+        )
+        for d in json.loads(capsys.readouterr().out)["diagnostics"]
+    ]
+
+
+@pytest.mark.parametrize(
+    ("on", "name"),
+    (
+        ("order_customer(orders, c)", "order_customer"),
+        ("lowr(orders) == c.name", "lowr"),
+        ("nosuch(orders, c, 1)", "nosuch"),
+    ),
+)
+def test_an_unknown_call_in_on_reports_the_call_not_its_rows(
+    tmp_path: Path, capsys, on: str, name: str
+) -> None:
+    """A bare JOIN input passed to an unknown function, as to a relationship
+    the file does not declare, is a row, not an unknown ON reference: the
+    call alone is reported (PIE-S2103), in a single file and in a project."""
+
+    source = _UNKNOWN_ON_CALL.format(on=on)
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    message = f"Unknown function: {name}"
+    assert located(analyze(parsed.ast).diagnostics) == [("PIE-S2103", message, 12, 21)]
+    assert _project_located(tmp_path / "p", {"main.pietto": source}, capsys) == [
+        ("PIE-S2103", message, "main.pietto", 12, 21)
+    ]
+
+
+def test_a_relationship_of_another_module_says_it_cannot_be_imported(
+    tmp_path: Path, capsys
+) -> None:
+    head, query = _UNKNOWN_ON_CALL.split("query q:\n")
+    models = (
+        head
+        + "relationship order_customer(o: Order, c: Customer): o.customer_id == c.id\n"
+        + "export (\n    shape Order,\n    shape Customer,\n    source orders,\n"
+        + "    source customers)\n"
+    )
+    main = (
+        'from "models.pietto" import (\n    shape Order,\n    shape Customer,\n'
+        "    source orders,\n    source customers)\n"
+        + "query q:\n"
+        + query.format(on="order_customer(orders, c)")
+    )
+    assert _project_located(
+        tmp_path / "p", {"main.pietto": main, "models.pietto": models}, capsys
+    ) == [
+        (
+            "PIE-S2103",
+            "Unknown function: order_customer; order_customer is a relationship of "
+            "models.pietto, which a module cannot import: declare it in this module",
+            "main.pietto",
+            9,
+            21,
+        )
+    ]

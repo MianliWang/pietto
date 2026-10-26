@@ -173,27 +173,6 @@ def test_installed_cli_uses_console_executable_and_reviewed_comparisons() -> Non
     assert "actual_mysql != expected_mysql" in source
 
 
-def test_installed_postgres_cell_expects_the_same_file_read_warning(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(REPO_ROOT)
-
-    arguments = ["emit-sql", smoke.POSTGRES_INPUT.as_posix(), "--dialect", "postgres"]
-    assert cli.main(arguments) == 0
-
-    captured = capsys.readouterr()
-    assert captured.out.encode() == (REPO_ROOT / smoke.POSTGRES_GOLDEN).read_bytes()
-    assert captured.err == (
-        "tests/fixtures/postgres/compatibility_ordering_metadata.pietto:33:5 "
-        "PIE-S2382 warning: `FirstRelation` is a table of this file; single-file "
-        "SQL reads it by name, so the SQL runs only where the database already "
-        "has a relation named FirstRelation (an EXPLICIT_MODULES project emits "
-        "it as a CTE)\n"
-    )
-    assert smoke.POSTGRES_STDERR == captured.err.encode()
-
-
 def test_smoke_pietto_sources_check_cleanly_in_the_modern_syntax(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

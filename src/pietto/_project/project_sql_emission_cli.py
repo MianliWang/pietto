@@ -81,17 +81,6 @@ KINDS = ("table", "query")
 EXITS = {"VERIFIED": 0, "BLOCKED": 1, "INPUT_REJECTED": 2}
 
 
-def project_mode_requested(arguments: Sequence[str]) -> bool:
-    """Return whether an emit-sql argv explicitly selects project mode."""
-
-    for argument in arguments:
-        if argument == "--":
-            return False
-        if argument == "--project" or argument.startswith("--project="):
-            return True
-    return False
-
-
 def text_presentation_requested(arguments: Sequence[str]) -> bool:
     """Return whether argv unambiguously asks for text before parsing succeeds."""
 

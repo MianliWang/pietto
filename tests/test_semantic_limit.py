@@ -236,7 +236,7 @@ def test_cli_text_and_json_v1_carry_limit_without_new_options(
 
     assert cli.main(["emit-sql", str(postgres_path), "--dialect", "postgres"]) == 0
     text = capsys.readouterr()
-    assert text.out.endswith('FROM "users"\nLIMIT 10\n')
+    assert text.out.endswith('FROM "users"\nLIMIT 10;\n')
     assert text.err == ""
 
     assert (

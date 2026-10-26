@@ -2631,7 +2631,8 @@ def _passes_unfit_field(
         reports_unfit_def_argument(
             argument,
             row_schema,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
         )
         for argument in arguments
     )
@@ -2702,7 +2703,8 @@ def _relation_row_state(
             continue
         decoded = _direct_field_names(
             item,
-            source_name=relation_definition.from_clause.source_name,
+            source_name=relation_definition.from_clause.binding_name
+            or relation_definition.from_clause.source_name,
         )
         if decoded is None:
             field_text = _field_text(item)

@@ -700,6 +700,10 @@ def test_runtime_launch_prepares_fresh_invocation_parent(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ci, "run_gate", gate)
     report = tmp_path / "reports" / "partition.json"
+    nodes = tmp_path / "external-nodes.json"
+    nodes.write_text(
+        '["tests/test_ci_workflow.py::test_runtime_launch_prepares_fresh_invocation_parent"]'
+    )
     arguments = [
         "run",
         "--python",
@@ -712,8 +716,21 @@ def test_runtime_launch_prepares_fresh_invocation_parent(tmp_path, monkeypatch):
         "shared-acquisition",
         "--report",
         str(report),
+        "--nodes-file",
+        str(nodes),
     ]
     assert ci.main(arguments) == 0 and len(commands) == 1
+    command = commands[0]
+    assert command[command.index("--ci-nodes-file") + 1] == str(nodes.resolve())
+    config = pytest.Config.fromdictargs({}, list(command[3:]))
+    try:
+        assert config.rootpath == ci.ROOT
+        assert config.inipath == ci.ROOT / "pytest.ini"
+        assert [Path(path).resolve() for path in config.getini("pythonpath")] == [
+            ci.ROOT
+        ]
+    finally:
+        config._ensure_unconfigure()
     report.write_text("preserve existing evidence")
     assert ci.main(arguments) == 1 and len(commands) == 1
     assert report.read_text() == "preserve existing evidence"

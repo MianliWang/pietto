@@ -25,6 +25,7 @@ from pietto._project.package_graph_inspection import (
     _inspect_package_graph,
 )
 from pietto.ast_nodes import QueryDef, WindowExpr
+from pietto.errors import Severity
 from pietto.ir import build_ir
 from pietto.ir.model import LiteralIR, RelationIR, WindowCallIR
 from pietto.parser_api import parse_file
@@ -174,6 +175,17 @@ NEGATIVE_CASES = (
     ),
 )
 
+_NEGATIVE_WARNING_NAMES = frozenset(
+    {
+        "postgres_ignore_nulls",
+        "postgres_from_last",
+        "postgres_range_offset",
+        "mysql_ignore_nulls",
+        "mysql_from_last",
+        "mysql_range_offset",
+    }
+)
+
 
 def _write_source(root: Path, name: str, source: str) -> Path:
     root.mkdir(parents=True, exist_ok=True)
@@ -182,11 +194,13 @@ def _write_source(root: Path, name: str, source: str) -> Path:
     return path
 
 
-def _compile(path: Path):
+def _compile(path: Path, *, expected_warning: bool = False):
     parsed = parse_file(path)
     assert parsed.ast is not None and parsed.diagnostics == ()
     semantic = analyze(parsed.ast)
-    assert semantic.diagnostics == ()
+    assert [(item.code, item.severity) for item in semantic.diagnostics] == (
+        [("PIE-S2385", Severity.WARNING)] if expected_warning else []
+    )
     lowered = build_ir(parsed.ast, semantic.model)
     assert lowered.ir is not None and lowered.diagnostics == ()
     definition = next(item for item in parsed.ast.definitions if type(item) is QueryDef)
@@ -375,9 +389,17 @@ def _diagnostic_value(diagnostic) -> dict[str, object]:
     }
 
 
-def _target_observation(root: Path, name: str, source: str, dialect):
+def _target_observation(
+    root: Path,
+    name: str,
+    source: str,
+    dialect,
+    *,
+    expected_warning: bool = False,
+):
     definition, semantic, script_ir, relation = _compile(
-        _write_source(root, f"{name}.pietto", source)
+        _write_source(root, f"{name}.pietto", source),
+        expected_warning=expected_warning,
     )
     decision = decide_named_window_lowering(relation, dialect)
     repeated_decision = decide_named_window_lowering(relation, dialect)
@@ -393,6 +415,9 @@ def _target_observation(root: Path, name: str, source: str, dialect):
     assert first == second
     return relation, {
         "semantic": _semantic_value(definition, semantic, relation),
+        "semantic_diagnostics": [
+            _diagnostic_value(item) for item in semantic.diagnostics
+        ],
         "decision": decision_value,
         "artifacts": [
             [item.name, item.kind.value, item.sql] for item in first.artifacts
@@ -595,9 +620,16 @@ def _construction(root: Path, reverse: bool):
     negatives = []
     for name, dialect, source in NEGATIVE_CASES:
         _negative_relation, value = _target_observation(
-            root / f"negative-{name}", name, source, dialect
+            root / f"negative-{name}",
+            name,
+            source,
+            dialect,
+            expected_warning=name in _NEGATIVE_WARNING_NAMES,
         )
         assert value["semantic"]
+        assert [item["code"] for item in value["semantic_diagnostics"]] == (
+            ["PIE-S2385"] if name in _NEGATIVE_WARNING_NAMES else []
+        )
         assert value["decision"]["strategy"] == "not_lowerable"
         assert value["artifacts"] == []
         assert [item["code"] for item in value["diagnostics"]] == ["PIE-B1000"]

@@ -1,3 +1,4 @@
+-- decimal_order_stats_by_status
 SELECT
     "status" AS "status",
     SUM("amount") AS "total_amount",
@@ -7,4 +8,4 @@ SELECT
 FROM "orders" AS "orders"
 WHERE "status" = 'paid'
 GROUP BY
-    "status"
+    "status";

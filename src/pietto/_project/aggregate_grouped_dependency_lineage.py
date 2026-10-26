@@ -421,7 +421,8 @@ def _add_group_key_edge(
 ) -> None:
     lookup_name = _direct_lookup_name(
         selected.item.expression,
-        relation_qualifier=definition.from_clause.source_name,
+        relation_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
     )
     if lookup_name is None:
         _conflicting_failure()
@@ -584,7 +585,8 @@ def _aggregate_field_dependencies(
         if isinstance(current, DottedNameExpr):
             lookup_name = _direct_lookup_name(
                 current,
-                relation_qualifier=definition.from_clause.source_name,
+                relation_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
             )
             if lookup_name is None:
                 _invalid_failure()
@@ -872,7 +874,8 @@ def _validate_graph_shape(
             selected_item = selected_items[output_name]
             lookup_name = _direct_lookup_name(
                 selected_item.expression,
-                relation_qualifier=definition.from_clause.source_name,
+                relation_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
             )
             expected_kind = (
                 ProjectRowDependencyEdgeKind.DIRECT_PROJECTION

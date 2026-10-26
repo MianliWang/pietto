@@ -164,7 +164,7 @@ def test_cli_json_group_by_sql_success_preserves_v1_shape(
         {
             "kind": "relation",
             "name": "revenue_by_status",
-            "sql": _golden_text(golden_name).removesuffix("\n"),
+            "sql": _golden_sql(golden_name),
         }
     ]
 
@@ -209,7 +209,7 @@ def test_cli_json_group_by_sql_output_writes_exact_sql(
     assert result["diagnostics"] == []
     assert result["output"] == {"path": str(output_path), "written": True}
     artifacts = cast(list[dict[str, object]], result["artifacts"])
-    assert artifacts[0]["sql"] == _golden_text(golden_name).removesuffix("\n")
+    assert artifacts[0]["sql"] == _golden_sql(golden_name)
     assert output_path.read_bytes() == _golden_bytes(golden_name)
 
 
@@ -375,7 +375,7 @@ def test_malformed_grouped_ir_fails_closed_with_pie_b1000(
         ("mysql.table", emit_mysql_sql, "FROM `grouped_orders`"),
     ],
 )
-def test_downstream_from_grouped_relation_uses_relation_name_without_expansion(
+def test_downstream_from_grouped_relation_defines_it_as_a_cte(
     connector: str,
     emitter: Callable[[ScriptIR], SqlResult],
     expected_from: str,
@@ -388,10 +388,13 @@ def test_downstream_from_grouped_relation_uses_relation_name_without_expansion(
         "downstream",
     ]
     downstream_sql = result.artifacts[1].sql
-    assert expected_from in downstream_sql
-    assert downstream_sql.count("SELECT") == 1
-    assert "WITH" not in downstream_sql
-    assert "GROUP BY" not in downstream_sql
+    assert downstream_sql.endswith(expected_from)
+    assert downstream_sql.startswith(
+        f"WITH {expected_from.removeprefix('FROM ')} AS (\n"
+        f"{result.artifacts[0].sql}\n)\nSELECT\n"
+    )
+    assert downstream_sql.count("SELECT") == 2
+    assert downstream_sql.count("GROUP BY") == 1
 
 
 def test_postgres_group_keys_render_in_ir_source_order_with_qualified_alias() -> None:
@@ -432,10 +435,6 @@ _DIALECTS = (
     ("postgres.table", emit_postgres_sql, "PostgreSQL"),
     ("mysql.table", emit_mysql_sql, "MySQL"),
 )
-
-
-def _dialect_sql(sql: str, target: str) -> str:
-    return sql if target == "PostgreSQL" else sql.replace('"', "`")
 
 
 @pytest.mark.parametrize(("connector", "emitter", "target"), _DIALECTS)
@@ -513,22 +512,17 @@ def test_reader_of_unknown_count_output_does_not_enable_aggregate_emission(
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics
     ] == [
+        # r defines q, the query it reads, as a CTE, so q's refusal is r's too.
         (
             "PIE-B1000",
-            f"{target} SQL emission is not implemented for RelationIR: q. "
+            f"{target} SQL emission is not implemented for RelationIR: {name}. "
             f"Unsupported {target} function identity: count",
-            2,
+            line,
             1,
         )
+        for name, line in (("q", 2), ("r", 7 if grouped else 6))
     ]
-    # The partial reader artifact remains available, but q prevents success.
-    length = 'length("n")' if target == "PostgreSQL" else 'CHAR_LENGTH("n")'
-    assert [(a.name, a.sql) for a in result.artifacts] == [
-        (
-            "r",
-            _dialect_sql(f'SELECT\n    {length} AS "m"\nFROM "q"\nWHERE "n"', target),
-        )
-    ]
+    assert result.artifacts == ()
 
 
 @pytest.mark.parametrize(("connector", "emitter", "target"), _DIALECTS)
@@ -764,14 +758,22 @@ def _golden_text(name: str) -> str:
     return (GOLDEN_ROOT / name).read_text(encoding="utf-8")
 
 
+def _golden_sql(name: str) -> str:
+    """The SQL of a one-artifact golden, without its `--` name line and `;`."""
+
+    return _golden_text(name).split("\n", 1)[1].removesuffix(";\n")
+
+
 def _golden_bytes(name: str) -> bytes:
     return (GOLDEN_ROOT / name).read_bytes()
 
 
 def _render_artifacts(result: SqlResult) -> bytes:
-    return ("\n\n".join(artifact.sql for artifact in result.artifacts) + "\n").encode(
-        "utf-8"
-    )
+    """The artifacts as `emit-sql` text prints them: named, `;`-terminated."""
+
+    return (
+        "\n\n".join(f"-- {item.name}\n{item.sql};" for item in result.artifacts) + "\n"
+    ).encode("utf-8")
 
 
 def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

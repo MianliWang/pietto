@@ -140,7 +140,7 @@ def test_emit_sql_json_and_output_keep_sql_unparameterized(
     assert len(artifacts) == 1
     sql = cast(str, artifacts[0]["sql"])
     written_sql = output_path.read_text(encoding="utf-8")
-    assert written_sql == f"{sql}\n"
+    assert written_sql == f"-- {artifacts[0]['name']}\n{sql};\n"
     _assert_no_sql_precision_scale(sql)
     _assert_no_sql_precision_scale(written_sql)
     _assert_no_precision_scale_keys(document)

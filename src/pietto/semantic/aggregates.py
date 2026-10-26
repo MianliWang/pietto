@@ -36,6 +36,7 @@ COUNT_AGGREGATE_NAME = "count"
 COUNT_DISTINCT_AGGREGATE_NAME = "count_distinct"
 SUM_AGGREGATE_NAME = "sum"
 AVG_AGGREGATE_NAME = "avg"
+STRING_AGGREGATE_NAME = "string_agg"
 # Keep this IR-facing aggregate set limited to the already lowered aggregate
 # vocabulary. Later semantic-only slices may run ahead of IR lowering.
 AGGREGATE_NAMES = frozenset(
@@ -43,6 +44,8 @@ AGGREGATE_NAMES = frozenset(
         COUNT_AGGREGATE_NAME,
         SUM_AGGREGATE_NAME,
         AVG_AGGREGATE_NAME,
+        STRING_AGGREGATE_NAME,
+        STRING_AGGREGATE_NAME,
     }
 )
 MIN_AGGREGATE_NAME = "min"
@@ -60,6 +63,7 @@ LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES = frozenset(
         COUNT_DISTINCT_AGGREGATE_NAME,
         SUM_AGGREGATE_NAME,
         AVG_AGGREGATE_NAME,
+        STRING_AGGREGATE_NAME,
     }
 )
 
@@ -258,7 +262,7 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
     """Return immediate expression children for supported AST nodes."""
 
     if isinstance(expression, CallExpr):
-        return expression.arguments
+        return (*expression.arguments, *aggregate_order_expressions(expression))
     if isinstance(expression, UnaryExpr):
         return (expression.operand,)
     if isinstance(expression, ConditionalExpr):
@@ -308,6 +312,8 @@ def expected_aggregate_arity(function_name: str) -> int:
 def expected_semantic_aggregate_arity(function_name: str) -> int:
     """Return the semantic argument count for one aggregate function."""
 
+    if function_name == STRING_AGGREGATE_NAME:
+        return 2
     if function_name in AGGREGATE_NAMES:
         return expected_aggregate_arity(function_name)
     if function_name in {
@@ -325,6 +331,14 @@ def expected_semantic_aggregate_arities(function_name: str) -> tuple[int, ...]:
     if function_name == COUNT_AGGREGATE_NAME:
         return (0, 1)
     return (expected_semantic_aggregate_arity(function_name),)
+
+
+def aggregate_order_expressions(expression: CallExpr) -> tuple[Expression, ...]:
+    """Return ordered keys only for the aggregate that owns that syntax."""
+
+    if semantic_aggregate_call_name(expression) != STRING_AGGREGATE_NAME:
+        return ()
+    return tuple(item.expression for item in expression.aggregate_order_by)
 
 
 def is_supported_semantic_aggregate_arity(
@@ -368,6 +382,8 @@ def is_supported_semantic_aggregate_argument_expression(
         return _is_builtin(value_type, "Text") and _is_lower_trim_text_transform_chain(
             expression
         )
+    if function_name == STRING_AGGREGATE_NAME:
+        return _is_builtin(value_type, "Text")
     if function_name not in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
         return False
     return _is_supported_sum_avg_numeric_expression_shape(
@@ -511,6 +527,18 @@ def _expand_let_references(
                     let_stack=let_stack,
                 )
                 for argument in expression.arguments
+            ),
+            aggregate_order_by=tuple(
+                ast.OrderItem(
+                    expression=_expand_let_references(
+                        item.expression,
+                        let_expansions=let_expansions,
+                        let_stack=let_stack,
+                    ),
+                    direction=item.direction,
+                    span=item.span,
+                )
+                for item in expression.aggregate_order_by
             ),
             span=expression.span,
         )
@@ -785,6 +813,8 @@ def is_supported_semantic_aggregate_argument(
         return is_supported_numeric_argument(value_type)
     if function_name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
         return is_supported_extrema_argument(value_type)
+    if function_name == STRING_AGGREGATE_NAME:
+        return _is_builtin(value_type, "Text")
     return False
 
 
@@ -819,6 +849,12 @@ def semantic_aggregate_result_value_type(
 ) -> ValueType | None:
     """Return the semantic aggregate result type when supported."""
 
+    if function_name == STRING_AGGREGATE_NAME:
+        return (
+            _TEXT_VALUE_TYPE
+            if argument_type is not None and _is_builtin(argument_type, "Text")
+            else None
+        )
     if function_name in AGGREGATE_NAMES:
         return aggregate_result_value_type(function_name, argument_type)
     if function_name == COUNT_DISTINCT_AGGREGATE_NAME:

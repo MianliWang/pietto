@@ -1,39 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from _pietto_semantic_join_facts import join_script, located
+from _pietto_semantic_join_facts import located
 from pietto._project import check as project_check
-from pietto._project import project_relationship_paths as paths
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
 )
-from pietto.ast_nodes import (
-    AuthoredJoinKind,
-    JoinClause,
-    JoinOnClause,
-    JoinTraversalStep,
-    LiteralExpr,
-    SourceDef,
-)
 from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-from pietto.semantic.join_relationships import resolve_join_relationship
-
-
-def test_closed_vocabulary_private_boundaries_and_contract() -> None:
-    assert tuple(paths.ProjectRelationshipFanoutEffect) == (
-        paths.ProjectRelationshipFanoutEffect.PRESERVES_SOURCE_MULTIPLICITY,
-        paths.ProjectRelationshipFanoutEffect.MAY_MULTIPLY,
-        paths.ProjectRelationshipFanoutEffect.UNKNOWN,
-        paths.ProjectRelationshipFanoutEffect.CONFLICT,
-    )
-    assert paths.__all__ == ()
 
 
 # A single-file JOIN without `on` (other than CROSS): a declared relationship
@@ -245,38 +224,6 @@ def test_single_file_relationship_join_failures_name_their_cause(
     # Only the JOINs without `on` fail; their inputs and the ON JOINs do not.
     assert set(resolution) == {name for name, _ in _FAILURES}
     assert located(resolution[query]) == _expected(_RESOLUTION_SOURCE, query, items)
-
-
-def test_relationship_resolution_takes_one_relationship_join_and_its_bindings() -> None:
-    facts = join_script(_RESOLUTION_SOURCE)
-    clause = facts.relation("declared_relationship").join_clauses[0]
-    target = facts.model.relation_symbols["customers"]
-    assert isinstance(target, SourceDef)
-    visible = facts.visible("declared_relationship", 1)
-    step = JoinTraversalStep(
-        span=clause.span,
-        relationship_name="OrderCustomer",
-        source_endpoint_role=None,
-        target_endpoint_role=None,
-    )
-    on = JoinOnClause(
-        span=clause.span, expression=LiteralExpr(span=clause.span, value=True)
-    )
-    for misuse, views in (
-        (replace(clause, kind=AuthoredJoinKind.CROSS), visible),
-        (replace(clause, on_clause=on), visible),
-        (replace(clause, traversal_steps=(step, step)), visible),
-        (clause, ()),
-    ):
-        assert isinstance(misuse, JoinClause)
-        with pytest.raises(ValueError, match="needs an M1, M2 or M4 JOIN"):
-            resolve_join_relationship(
-                misuse,
-                target=target,
-                visible=views,
-                written_source=None,
-                context=facts.context,
-            )
 
 
 # Where a project names the cause of a JOIN without `on` whose one earlier

@@ -12,6 +12,9 @@ from pietto._project.project_refinement import (
     RefinedQuery,
     TieRefinement,
     UnitRefinement,
+    conjuncts,
+    existence_reads,
+    existence_test,
     verify_sources,
 )
 from pietto._project.project_refinement_order import Coordinate, before, equality
@@ -199,6 +202,27 @@ class _Rules:
         _need(owner in self.inputs, "DEPENDENCY_ORDER")
         return self.inputs[owner]
 
+    def read_input(self, read):
+        owner = read.target.producer
+        _need(owner in self.inputs, "DEPENDENCY_ORDER")
+        return self.inputs[owner]
+
+    def where(self, value, alias):
+        """A `[not] any(...)` conjunct reads its refined input, as the EXISTS
+        of a semi or anti JOIN does; every other part is the original value."""
+        found = existence_test(value)
+        if found is not None:
+            read, negated = found
+            test = self.exists(
+                self.read_input(read).relation,
+                read.target.symbol.name,
+                Expr("original_scalar", (read.predicate, alias)),
+            )
+            return Expr("not", (test,)) if negated else test
+        if len(conjuncts(value)) > 1 and existence_reads(value):
+            return Expr("and", tuple(self.where(o, alias) for o in value.operands))
+        return Expr("original_scalar", (value, alias))
+
     def rows(self, unit, address, terminal, public):
         source = self.input(unit.scan)
         alias = unit.scan.symbol.name
@@ -212,11 +236,13 @@ class _Rules:
         orders = self.reads(alias, source.order_names)
         order_types, directions = source.order_coordinates, source.directions
         predicate = getattr(unit, "predicate", None)
-        predicate = (
-            None
-            if predicate is None
-            else Expr("original_scalar", (predicate.value, alias))
-        )
+        dependencies = (source.dependency,)
+        if predicate is not None:
+            dependencies += tuple(
+                self.read_input(read).dependency
+                for read in existence_reads(predicate.value)
+            )
+            predicate = self.where(predicate.value, alias)
         relation = source.relation
         if getattr(unit, "window", None) is not None and predicate is not None:
             relation = terminal + "filtered"
@@ -315,7 +341,7 @@ class _Rules:
         )
         return (
             rule,
-            (source.dependency,),
+            dependencies,
             _Input(
                 terminal,
                 public,

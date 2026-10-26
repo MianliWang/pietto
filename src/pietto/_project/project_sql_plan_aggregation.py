@@ -17,6 +17,7 @@ from pietto.ast_nodes import (
     SatisfyingClause,
 )
 from pietto.semantic.model import ValueType, SatisfyingResultPredicateInfo
+from pietto.ir.model import SymbolId
 from pietto._project.model import ProjectRowResultRole
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.aggregate_grouped_schema import (
@@ -365,6 +366,7 @@ class ProjectSQLAggregate:
     position: int
     source: Aggregate
     arguments: tuple[ProjectSQLPlanRef, ...]
+    order_by: tuple[ProjectSQLPlanRef, ...]
     result: ProjectSQLPlanRef
     value_type: ValueType
 
@@ -403,6 +405,7 @@ class ProjectSQLAggregateArgumentCall:
     site: ProjectSQLAggregateSite
     expression: CallExpr
     value_type: ValueType
+    callee_symbol: SymbolId
     arguments: tuple[ProjectSQLPlanRef, ...]
 
 

@@ -34,8 +34,10 @@ EXPECTED_SQL = (
     '    "id" AS "id",\n'
     '    "email" AS "email"\n'
     'FROM "users"\n'
-    'WHERE "active" = TRUE\n'
+    'WHERE "active" = TRUE'
 )
+# The output file holds the text form: the artifact's name line and `;`.
+EXPECTED_TEXT = f"-- active_users\n{EXPECTED_SQL};\n"
 
 
 @pytest.mark.parametrize(
@@ -70,8 +72,8 @@ def test_emit_sql_json_output_success_writes_raw_sql_and_keeps_artifacts(
     assert "version" not in result
     artifacts = cast(list[dict[str, object]], result["artifacts"])
     assert artifacts[0]["name"] == "active_users"
-    assert artifacts[0]["sql"] == EXPECTED_SQL.removesuffix("\n")
-    assert output.read_text(encoding="utf-8") == EXPECTED_SQL
+    assert artifacts[0]["sql"] == EXPECTED_SQL
+    assert output.read_text(encoding="utf-8") == EXPECTED_TEXT
     assert "\\n" in captured.out
     assert "SELECT\n" not in captured.out
 
@@ -102,7 +104,7 @@ def test_emit_sql_json_warning_writes_output_and_stays_ok(
     assert result["output"] == {"path": str(output), "written": True}
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
     assert [diagnostic["severity"] for diagnostic in diagnostics] == ["warning"]
-    assert output.read_text(encoding="utf-8").startswith("SELECT\n")
+    assert output.read_text(encoding="utf-8").startswith("-- user_emails\nSELECT\n")
 
 
 @pytest.mark.parametrize(
@@ -374,7 +376,7 @@ def test_emit_sql_json_output_write_error_reports_only_the_user_path(
     assert ".tmp" not in document
     assert json.dumps(str(tmp_path))[1:-1] not in document
     assert cast(list[dict[str, object]], result["artifacts"])[0]["sql"] == (
-        EXPECTED_SQL.removesuffix("\n")
+        EXPECTED_SQL
     )
     assert not (tmp_path / "missing").exists()
     assert (tmp_path / "existing-directory").is_dir()
@@ -480,7 +482,7 @@ def test_unreachable_output_parent_is_an_output_write_error_after_compilation(
     ]
     assert result["output"] == {"path": str(output), "written": False}
     assert cast(list[dict[str, object]], result["artifacts"])[0]["sql"] == (
-        EXPECTED_SQL.removesuffix("\n")
+        EXPECTED_SQL
     )
 
 
@@ -524,7 +526,7 @@ def test_output_parent_link_loop_is_an_output_write_error_after_compilation(
             for diagnostic in cast(list[dict[str, object]], result["diagnostics"])
         ] == ["PIE-S2303"]
         assert cast(list[dict[str, object]], result["artifacts"])[0]["sql"] == (
-            EXPECTED_SQL.removesuffix("\n")
+            EXPECTED_SQL
         )
         assert result["output"] == {"path": str(output), "written": False}
     else:
@@ -640,7 +642,7 @@ def test_emit_sql_text_output_and_check_json_remain_unchanged(
     text = capsys.readouterr()
     assert text.out == ""
     assert text.err == ""
-    assert output.read_text(encoding="utf-8") == EXPECTED_SQL
+    assert output.read_text(encoding="utf-8") == EXPECTED_TEXT
 
     assert cli.main(["check", str(path), "--format=json"]) == 0
     checked = _read_json_document(capsys)

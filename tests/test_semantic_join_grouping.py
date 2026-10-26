@@ -24,7 +24,7 @@ from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
 )
 from pietto.ast_nodes import DottedNameExpr, QueryDef
-from pietto.errors import Severity
+from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import EffectiveNullability
@@ -1251,7 +1251,7 @@ def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
     def at(name: str) -> int:
         return source[: source.index(f"query {name}:")].count("\n") + 1
 
-    event = " (an aggregate may read rows repeated by JOIN event; match a unique key of event whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)"
+    event = " (an aggregate may read rows repeated by JOIN event; match a unique key of event in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)"
     assert [
         (d.code, d.message, d.location.line, d.location.column)
         for d in completed.diagnostics
@@ -1259,7 +1259,7 @@ def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
         ("PIE-S2333", f"{_UNAVAILABLE}fanout_risk{event}", at("fanout_risk"), 1),
         (
             "PIE-S2333",
-            f"{_UNAVAILABLE}ambiguous_chasm (an aggregate may read rows repeated by JOIN event and JOIN signal; match unique keys of event and signal whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            f"{_UNAVAILABLE}ambiguous_chasm (an aggregate may read rows repeated by JOIN event and JOIN signal; match unique keys of event and signal in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
             at("ambiguous_chasm"),
             1,
         ),
@@ -1514,7 +1514,7 @@ def test_every_current_fanout_group_remedy_applied_alone_clears_the_refusal(
     # The remedy names the inputs whose unique keys close the refusal; grouping
     # by those keys proves the names here without changing the ON.
     grouped = re.search(
-        r"match (?:a unique key|unique keys) of (.+) whose fields are never None in",
+        r"match (?:a unique key|unique keys) of (.+) in `on`",
         message,
     )
     assert grouped is not None
@@ -1590,7 +1590,7 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
     assert _fanout_check(tmp_path, "target", _DECLARABLE_HEADER + target) == [
         (
             "PIE-S2333",
-            f"{bare}j0; match a unique key of orders whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            f"{bare}j0; match a unique key of orders in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
     with_order = _DECLARABLE_HEADER.replace(
@@ -1623,7 +1623,7 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
     ) == [
         (
             "PIE-S2333",
-            f"{bare}cust; match a unique key of cust whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            f"{bare}cust; match a unique key of cust in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
     files = {
@@ -2321,8 +2321,8 @@ def test_a_null_extended_join_side_proves_nothing_the_aggregate_may_read(
         (
             "PIE-S2333",
             f"{_UNAVAILABLE}{name} (an aggregate may read rows repeated by "
-            f"{refusal[0]}; match a unique key of {refusal[1]} whose fields are "
-            "never None in `on` with a relationship call, use `any(...)` for an "
+            f"{refusal[0]}; match a unique key of {refusal[1]} in `on`, use "
+            "`any(...)` for an "
             "input that only filters rows, or aggregate in a separate query first)",
             lines.index(f"query {name}:") + 1,
             1,
@@ -2334,6 +2334,166 @@ def test_a_null_extended_join_side_proves_nothing_the_aggregate_may_read(
     if actual != expected:
         pytest.fail(
             "Complete null-extension diagnostic vectors:\n"
+            + json.dumps({"expected": expected, "actual": actual}, indent=2),
+            pytrace=False,
+        )
+
+
+_CROSS_BY_ORDER = (
+    "    from orders\n"
+    "    let c = customers\n"
+    "    right join c on order_customer(orders, c)\n"
+    "    let r = regions\n"
+    "    {join}\n"
+    "{where}"
+    "    group by orders.id\n"
+    "    select:\n"
+    "        oid = orders.id\n"
+    "        {aggregate}\n"
+)
+
+
+def _value_case(where=None, *, join="cross join r", aggregate="n = count(r.id)"):
+    return _CROSS_BY_ORDER.format(
+        join=join,
+        where="" if where is None else f"    where {where}\n",
+        aggregate=aggregate,
+    )
+
+
+# Each value proof (a field that is never None where it is read, a constant
+# through `in ()`, `coalesce`, a conditional or `nullif`, contradictory bounds,
+# a customer key held to one value) is admitted. 0.1.4 admitted the first ten
+# and emitted VERIFIED SQL. Each neighbour that repeats leaves rows of two
+# customers that match no order readable, and the CROSS JOIN repeats them, so
+# such customers count each region twice. A conservative one reads no repeated
+# row only through a correlation the laws do not use: a key range that admits
+# a single Int, a FULL JOIN's unmatched customers (never None there), or a
+# WHERE that keeps only rows whose argument is None.
+_ADMITTED, _REPEATS, _CONSERVATIVE = "admitted", "repeats", "conservative"
+_VALUE_PROOF_CASES = {
+    "cross_field_is_none": (_value_case("r.id is None"), _ADMITTED),
+    "preserved_field_is_none": (_value_case("c.id is None"), _ADMITTED),
+    "or_with_a_vacuous_test": (
+        _value_case("orders.id is not None or r.id is None"),
+        _ADMITTED,
+    ),
+    "and_with_a_vacuous_test": (_value_case("r.id is None and c.vip"), _ADMITTED),
+    "not_of_never_none": (_value_case("not (r.id is not None)"), _ADMITTED),
+    "on_target_is_none": (_value_case(join="inner join r on r.id is None"), _ADMITTED),
+    "or_null_extended_comparison": (
+        _value_case("orders.amount > 0 or r.id is None"),
+        _ADMITTED,
+    ),
+    "on_or_with_a_vacuous_test": (
+        _value_case(join="inner join r on orders.id == r.id or r.id is None"),
+        _ADMITTED,
+    ),
+    "contradictory_bounds": (_value_case("c.id > 5 and c.id < 3"), _ADMITTED),
+    "bool_or_vacuous_test": (_value_case("orders.rush or c.id is None"), _ADMITTED),
+    "conditional_constant": (
+        _value_case("(orders.amount if orders.rush else 0) > 0"),
+        _ADMITTED,
+    ),
+    "conditional_of_constants": (
+        _value_case("(1 if orders.rush else 0) > 0"),
+        _ADMITTED,
+    ),
+    "in_empty_is_true": (_value_case("(orders.id in ()) == True"), _ADMITTED),
+    "coalesce_of_in_empty": (
+        _value_case("coalesce(orders.id in (), False)"),
+        _ADMITTED,
+    ),
+    "nullif_of_one_field": (
+        _value_case(aggregate="low = min(lv)").replace(
+            "    group by", "    let lv = nullif(r.id, r.id)\n    group by"
+        ),
+        _ADMITTED,
+    ),
+    "conjunct_never_none": (
+        _value_case("(c.region_id > 0) and (r.id is None)"),
+        _ADMITTED,
+    ),
+    "key_equals_a_constant": (_value_case("c.id == 3"), _ADMITTED),
+    "key_in_one_value": (_value_case("c.id in (3)"), _ADMITTED),
+    "equal_bounds": (_value_case("c.id >= 3 and c.id <= 3"), _ADMITTED),
+    "preserved_field_is_not_none": (_value_case("c.id is not None"), _REPEATS),
+    "no_where": (_value_case(), _REPEATS),
+    "bounds_of_two_ids": (_value_case("c.id > 2 and c.id < 5"), _REPEATS),
+    "or_of_contradictory_bounds": (_value_case("c.id > 5 or c.id < 3"), _REPEATS),
+    "in_empty_is_false": (_value_case("(orders.id in ()) == False"), _REPEATS),
+    "coalesce_of_not_in_empty": (
+        _value_case("coalesce(orders.id not in (), False)"),
+        _REPEATS,
+    ),
+    "conditional_reaching_a_true_constant": (
+        _value_case("(orders.amount if orders.rush else 1) > 0"),
+        _REPEATS,
+    ),
+    "vacuous_test_or_preserved_field": (_value_case("r.id is None or c.vip"), _REPEATS),
+    "non_key_field_equals_a_constant": (_value_case("c.region_id == 3"), _REPEATS),
+    "key_in_two_values": (_value_case("c.id in (3, 4)"), _REPEATS),
+    "cross_target_key_equals_a_constant": (_value_case("r.id == 1"), _REPEATS),
+    "bounds_of_one_id": (_value_case("c.id > 3 and c.id < 5"), _CONSERVATIVE),
+    "full_target_is_none": (
+        _value_case("c.id is None").replace("right join c", "full join c"),
+        _CONSERVATIVE,
+    ),
+    "left_target_is_none": (
+        _value_case("r.id is None", join="left join r on customer_region(c, r)"),
+        _CONSERVATIVE,
+    ),
+}
+
+
+def test_a_value_that_excludes_unmatched_rows_restores_the_match_proof(
+    tmp_path: Path,
+) -> None:
+    """D-11: the RIGHT JOIN's left side again determines its right input when
+    the aggregate reads no row that matches no order through values alone: a
+    field that its input declares never None and no JOIN may NULL-extend is
+    never None (CROSS and INNER targets, a RIGHT JOIN's preserved side), a
+    comparison or `== True` of constants, `in ()`, `coalesce`, a conditional
+    whose condition is decided there and `nullif` of one field are constants,
+    and `and` of comparisons that no value satisfies together is never TRUE;
+    a WHERE that holds a key of the customers to one value reads such rows of
+    one customer at most. Satisfiable or `or`-ed bounds, a TRUE constant, a
+    test that the preserved side passes and a value held for a field other
+    than a customer key still read such rows of two customers, which the CROSS
+    JOIN repeats; the conservative neighbours stay refused too."""
+
+    cases = _VALUE_PROOF_CASES
+    source = _NULLING_HEADER + "".join(
+        f"query {name}:\n{body}" for name, (body, _) in cases.items()
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    lines = source.splitlines()
+    actual = [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in completed.diagnostics
+    ]
+    expected = [
+        (
+            "PIE-S2333",
+            f"{_UNAVAILABLE}{name} (an aggregate may read rows repeated by "
+            f"{'JOIN c and JOIN r' if 'left join r' in body else 'JOIN c'}; "
+            "match a unique key of c in `on`, use `any(...)` for an input that "
+            "only filters rows, or aggregate in a separate query first)",
+            lines.index(f"query {name}:") + 1,
+            1,
+        )
+        for name, (body, status) in cases.items()
+        if status != _ADMITTED
+    ]
+    if actual != expected:
+        pytest.fail(
+            "Complete value-proof diagnostic vectors:\n"
             + json.dumps({"expected": expected, "actual": actual}, indent=2),
             pytrace=False,
         )
@@ -3141,7 +3301,7 @@ def test_equality_non_null_unique_group_key_protects_its_final_join_rows(
             (
                 "PIE-S2333",
                 _UNAVAILABLE
-                + "result (an aggregate may read rows repeated by JOIN c; match a unique key of o2 whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+                + "result (an aggregate may read rows repeated by JOIN c; match a unique key of o2 in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
             )
         ]
 
@@ -3173,12 +3333,15 @@ def test_null_proof_visits_only_demanded_operands_in_order() -> None:
     assert query.where_clause is not None
     visits = []
 
-    def leaf(expression, nulls, truth):
-        visits.append((expression.name, truth))
-        return True
+    def leaf(expression):
+        visits.append(expression.name)
+        return frozenset(("null", "value")), None
 
-    assert aggregation._never(query.where_clause.expression, True, frozenset(), leaf)
-    assert visits == [("c", True), ("c", True)]
+    values = aggregation.written_values(query.where_clause.expression, leaf)
+    # `a is None` reads whether `a` may be None; an empty list never reads
+    # its value, and `in ()` is FALSE, so the whole condition is never TRUE.
+    assert aggregation.never_true(values)
+    assert visits == ["a", "c", "c"]
 
 
 @pytest.mark.parametrize("filtered", (False, True))
@@ -3205,7 +3368,7 @@ def test_inverse_relationship_requires_the_same_unfiltered_source_domain(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "result (an aggregate may read rows repeated by JOIN o; match a unique key of o whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + "result (an aggregate may read rows repeated by JOIN o; match a unique key of o in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3229,7 +3392,7 @@ def test_later_outer_join_invalidates_equality_non_null_group_key(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "result (an aggregate may read rows repeated by JOIN c; match a unique key of c3 whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + "result (an aggregate may read rows repeated by JOIN c; match a unique key of c3 in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3243,10 +3406,10 @@ def test_null_argument_does_not_visit_a_where_let(
     def namespace(*args, **kwargs):
         answer = original(*args, **kwargs)
 
-        def leaf(expression, nulls, truth):
+        def leaf(expression):
             if getattr(expression, "name", None) == "w":
-                visits.append(truth)
-            return answer(expression, nulls, truth)
+                visits.append(expression)
+            return answer(expression)
 
         return leaf
 
@@ -3321,7 +3484,7 @@ def test_inverse_match_compares_complete_paired_equality_multisets(
             (
                 "PIE-S2333",
                 _UNAVAILABLE
-                + "reordered_reverse (an aggregate may read rows repeated by JOIN o; match a unique key of o whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+                + "reordered_reverse (an aggregate may read rows repeated by JOIN o; match a unique key of o in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
             )
         ]
     )
@@ -3381,7 +3544,7 @@ def test_nullable_holder_key_never_seeds_an_unrelated_unbounded_join(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "scope_unbounded_right (an aggregate may read rows repeated by JOIN p; match a unique key of c whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + "scope_unbounded_right (an aggregate may read rows repeated by JOIN p; match a unique key of c in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3457,7 +3620,7 @@ def test_disconnected_join_fanout_names_the_factor_introduction(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + f"result (an aggregate may read rows repeated by JOIN {repeated}; match a unique key of {grouped} whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + f"result (an aggregate may read rows repeated by JOIN {repeated}; match a unique key of {grouped} in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3477,7 +3640,7 @@ def test_join_fanout_retains_every_prior_predicate_binding(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "result (an aggregate may read rows repeated by JOIN c and JOIN r; match a unique key of c whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + "result (an aggregate may read rows repeated by JOIN c and JOIN r; match a unique key of c in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3538,7 +3701,7 @@ def test_join_fanout_reads_exact_any_outer_captures(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + f"result (an aggregate may read rows repeated by {joins}; match a unique key of c whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + f"result (an aggregate may read rows repeated by {joins}; match a unique key of c in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3564,35 +3727,467 @@ query revenue_by_region:
 """
 
 
+def _single_file_diagnostics(source: str) -> list[Diagnostic]:
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    return list(analyze(parsed.ast).diagnostics)
+
+
+def _single_file_check(source: str) -> list[tuple[str, str, int, int]]:
+    return [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in _single_file_diagnostics(source)
+    ]
+
+
 def test_single_file_fanout_remedy_keeps_the_grouping_the_query_asks_for() -> None:
     """Grouping by a customer key would pass but change the result's grain;
-    the remedy matches the key in `on` instead, which this release proves
-    for a relationship call."""
-
-    def check(source: str) -> list[tuple[str, str, int, int]]:
-        parsed = parse_source(source)
-        assert parsed.ast is not None and parsed.diagnostics == ()
-        return [
-            (d.code, d.message, d.location.line, d.location.column)
-            for d in analyze(parsed.ast).diagnostics
-        ]
+    the remedy matches the key in `on` instead."""
 
     remedy = (
-        "An aggregate may read rows that a JOIN repeats; match a declared unique "
-        "key of customers whose fields are never None in `on` with a relationship "
-        "call, use `any(...)` for an input that only filters rows, or aggregate in "
-        "a separate query first"
+        "An aggregate may read rows repeated by JOIN customers; match a unique "
+        "key of customers in `on`, use `any(...)` for "
+        "an input that only filters rows, or aggregate in a separate query first"
     )
-    assert check(_REGION_REVENUE) == [
+    unmatched = _REGION_REVENUE.replace(
+        "on orders.customer_id == customers.id", "on orders.customer_id >= customers.id"
+    )
+    assert _single_file_check(unmatched) == [
         ("PIE-S2381", remedy, 18, 43),
         ("PIE-S2381", remedy, 18, 69),
     ]
-    assert (
-        check(
-            _REGION_REVENUE.replace(
-                "on orders.customer_id == customers.id",
-                "on OrderCustomer(orders, customers)",
-            )
-        )
-        == []
+
+
+def test_handwritten_on_key_equality_earns_the_relationship_fanout_proof(
+    tmp_path: Path,
+) -> None:
+    """A hand-written ON equality to a declared unique key proves what the
+    relationship call proves, in a single file and in a project, and both
+    spellings emit the same SQL."""
+    from pietto.ir import build_ir
+    from pietto.sql.postgres import emit_postgres_sql
+
+    called = _REGION_REVENUE.replace(
+        "on orders.customer_id == customers.id",
+        "on OrderCustomer(orders, customers)",
     )
+    sql = []
+    for name, source in (("handwritten", _REGION_REVENUE), ("called", called)):
+        assert _single_file_check(source) == []
+        assert _fanout_check(tmp_path, name, source) == []
+        parsed = parse_source(source)
+        assert parsed.ast is not None
+        result = analyze(parsed.ast)
+        assert result.script is not None
+        lowered = build_ir(result.script, result.model)
+        assert lowered.diagnostics == () and lowered.ir is not None
+        emitted = emit_postgres_sql(lowered.ir)
+        assert emitted.diagnostics == ()
+        sql.append(emitted.artifacts[0].sql)
+    assert sql[0] == sql[1]
+    assert (
+        'INNER JOIN "customers" AS "customers" ON "orders"."customer_id" = '
+        '"customers"."id"'
+    ) in sql[0]
+
+
+_ON_PROOF_SOURCE = """shape Customer:
+    id: Int
+    tenant: Int
+    region: Text
+    customer_key = unique(id)
+    place_key = unique(tenant, region)
+shape Order:
+    customer_id: Int
+    tenant: Int
+    region: Text
+    amount: Int
+source customers: Customer = postgres.table("customers")
+source orders: Order = postgres.table("orders")
+relationship ByCustomer(order: Order, customer: Customer):
+    order.customer_id == customer.id
+relationship ByTenant(order: Order, customer: Customer):
+    order.tenant == customer.tenant
+relationship ByPlace(order: Order, customer: Customer):
+    order.tenant == customer.tenant and order.region == customer.region
+def same(a: Int, b: Int) -> Bool: return a == b
+query result:
+    from orders
+    {kind} join customers on {on}
+    group by customers.region
+    select region = customers.region, total = sum(orders.amount)
+"""
+
+
+@pytest.mark.parametrize(
+    ("handwritten", "called", "proved"),
+    (
+        ("orders.customer_id == customers.id", "ByCustomer(orders, customers)", True),
+        ("customers.id == orders.customer_id", "ByCustomer(orders, customers)", True),
+        ("customer_id == id", "ByCustomer(orders, customers)", True),
+        ("customer_id == customers.id", "ByCustomer(orders, customers)", True),
+        ("orders.customer_id == id", "ByCustomer(orders, customers)", True),
+        (
+            "same(orders.customer_id, customers.id)",
+            "ByCustomer(orders, customers)",
+            True,
+        ),
+        (
+            "orders.tenant == customers.tenant and orders.region == customers.region",
+            "ByPlace(orders, customers)",
+            True,
+        ),
+        (
+            "ByTenant(orders, customers) and orders.region == customers.region",
+            "ByPlace(orders, customers)",
+            True,
+        ),
+        (
+            'orders.customer_id == customers.id and customers.region != ""',
+            'ByCustomer(orders, customers) and customers.region != ""',
+            True,
+        ),
+        ("orders.tenant == customers.tenant", "ByTenant(orders, customers)", False),
+        (
+            "orders.customer_id == customers.id or orders.tenant == customers.tenant",
+            "ByCustomer(orders, customers) or ByTenant(orders, customers)",
+            False,
+        ),
+        (
+            "not (orders.customer_id != customers.id)",
+            "not (not ByCustomer(orders, customers))",
+            False,
+        ),
+    ),
+    ids=(
+        "key",
+        "reversed",
+        "bare",
+        "bare_source",
+        "bare_target",
+        "def",
+        "composite",
+        "mixed",
+        "filtered",
+        "partial",
+        "or",
+        "not",
+    ),
+)
+def test_handwritten_on_equalities_prove_exactly_what_relationship_calls_prove(
+    tmp_path: Path, handwritten: str, called: str, proved: bool
+) -> None:
+    """Only required positive equalities count, however their field reads are
+    spelled (bare, qualified, or through an inlined scalar def), and a declared
+    key must be matched in full: both spellings report the same diagnostics in
+    both modes, and both modes follow one rule. Single files keep refusing
+    RIGHT and FULL."""
+
+    for kind in ("inner", "left", "right", "full"):
+        observed = []
+        for name, on in (("handwritten", handwritten), ("called", called)):
+            source = _ON_PROOF_SOURCE.format(kind=kind, on=on)
+            observed.append(
+                (
+                    _single_file_diagnostics(source),
+                    _fanout_check(tmp_path, f"{kind}-{name}", source),
+                )
+            )
+        (handwritten_single, handwritten_project), (called_single, called_project) = (
+            observed
+        )
+        assert handwritten_project == called_project, kind
+        fanout = (
+            "PIE-S2381",
+            Severity.ERROR,
+            "An aggregate may read rows repeated by JOIN customers; match a unique "
+            "key of customers in `on`, use `any(...)` for an input that only filters "
+            "rows, or aggregate in a separate query first",
+            25,
+            47,
+        )
+
+        def facts(diagnostics: list[Diagnostic]) -> list[tuple[object, ...]]:
+            return [
+                (
+                    diagnostic.code,
+                    diagnostic.severity,
+                    diagnostic.message,
+                    diagnostic.location.line,
+                    diagnostic.location.column,
+                )
+                for diagnostic in diagnostics
+            ]
+
+        single_proved = proved and kind in ("inner", "left")
+        if kind == "full" and "region ==" in handwritten:
+            warning = (
+                "Single-file SQL emission is unavailable because this FULL JOIN "
+                "equality is not between canonical Int fields; this warning does "
+                "not change check's exit status, but emit-sql will refuse this "
+                "relation."
+            )
+            for name, on, diagnostics in (
+                ("handwritten", handwritten, handwritten_single),
+                ("called", called, called_single),
+            ):
+                token = "orders.region" if name == "handwritten" else "ByPlace"
+                column = (
+                    _ON_PROOF_SOURCE.format(kind=kind, on=on)
+                    .splitlines()[22]
+                    .index(token)
+                    + 1
+                )
+                assert facts(diagnostics) == [
+                    ("PIE-S2385", Severity.WARNING, warning, 23, column),
+                    fanout,
+                ]
+        else:
+            expected = [] if single_proved else [fanout]
+            assert facts(handwritten_single) == expected
+            assert facts(called_single) == expected
+        assert [item[0] for item in handwritten_project] == (
+            [] if proved else ["PIE-S2333"]
+        ), kind
+
+
+_KEY_PROOF_SOURCE = """shape Customer:
+    id: {customer_id}
+    region: Text
+{customer_key}shape Order:
+    id: Int
+    customer_id: Int
+    region: Text
+    amount: Int
+    order_key = unique(id)
+source customers: Customer = postgres.table("customers")
+source orders: Order = postgres.table("orders")
+relationship ByCustomer(order: Order, customer: Customer):
+    order.customer_id == customer.id
+relationship SameOrder(a: Order, b: Order):
+    a.id == b.id
+query result:
+    from orders
+    let other = {joined}
+    {kind} join other on {on}
+    group by other.region
+    select region = other.region, total = sum(orders.amount)
+"""
+
+
+@pytest.mark.parametrize(
+    ("customer_id", "customer_key", "joined", "handwritten", "called", "proved"),
+    (
+        (
+            "Int | None",
+            "    customer_key = unique(id)\n",
+            "customers",
+            "orders.customer_id == other.id",
+            "ByCustomer(orders, other)",
+            True,
+        ),
+        (
+            "Int",
+            "",
+            "customers",
+            "orders.customer_id == other.id",
+            "ByCustomer(orders, other)",
+            False,
+        ),
+        (
+            "Int",
+            "",
+            "orders",
+            "orders.id == other.id",
+            "SameOrder(orders, other)",
+            True,
+        ),
+        (
+            "Int",
+            "",
+            "orders",
+            "other.id == orders.id",
+            "SameOrder(other, orders)",
+            True,
+        ),
+    ),
+    ids=("nullable_key", "no_unique_key", "self_join", "self_join_reversed"),
+)
+def test_handwritten_on_equality_keeps_the_key_conditions_of_the_call(
+    tmp_path: Path,
+    customer_id: str,
+    customer_key: str,
+    joined: str,
+    handwritten: str,
+    called: str,
+    proved: bool,
+) -> None:
+    """The proof conditions stay those of the call: an equality never matches
+    None, so a unique key with a nullable field still bounds the match; no
+    declared key proves nothing; a self join on its own key proves its at most
+    one row. Single files keep refusing RIGHT and FULL."""
+
+    for kind in ("inner", "left", "right", "full"):
+        observed = []
+        for name, on in (("handwritten", handwritten), ("called", called)):
+            source = _KEY_PROOF_SOURCE.format(
+                customer_id=customer_id,
+                customer_key=customer_key,
+                joined=joined,
+                kind=kind,
+                on=on,
+            )
+            observed.append(
+                (
+                    _single_file_check(source),
+                    _fanout_check(tmp_path, f"{kind}-{name}", source),
+                )
+            )
+        assert observed[0] == observed[1], kind
+        single, project = observed[0]
+        single_proved = proved and kind in ("inner", "left")
+        assert [item[0] for item in single] == (
+            [] if single_proved else ["PIE-S2381"]
+        ), kind
+        assert [item[0] for item in project] == ([] if proved else ["PIE-S2333"]), kind
+
+
+def test_handwritten_on_equality_matches_the_keys_each_mode_knows(
+    tmp_path: Path,
+) -> None:
+    """A project also matches a key it carries through a query; a single file
+    knows only the keys a source's shape declares."""
+
+    source = (
+        _REGION_REVENUE
+        + """query named_customers:
+    from customers
+    where region != ""
+    select id, region
+query named_revenue:
+    from orders
+    let named = named_customers
+    inner join named on orders.customer_id == named.id
+    group by named.region
+    select region = named.region, total = sum(orders.amount)
+"""
+    )
+    assert _fanout_check(tmp_path, "project", source) == []
+    assert [item[0] for item in _single_file_check(source)] == ["PIE-S2381"]
+
+
+_FANOUT_PARITY = """shape Order:
+    id: Int
+    amount: Int
+    customer_id: Int | None
+    order_key = unique(id)
+shape Customer:
+    id: Int
+    name: Text
+    region_id: Int | None
+    customer_key = unique(id)
+shape Region:
+    id: Int
+    label: Text
+    region_key = unique(id)
+shape Line:
+    id: Int
+    order_id: Int | None
+    qty: Int
+    line_key = unique(id)
+source orders: Order = postgres.table("orders")
+source customers: Customer = postgres.table("customers")
+source regions: Region = postgres.table("regions")
+source lines: Line = postgres.table("lines")
+relationship order_customer(o: Order, c: Customer): o.customer_id == c.id
+query q:
+    from {source}
+{joins}    group by:
+        {key}
+    select:
+        k = {key}
+        total = sum({aggregate})
+"""
+_MATCH = (
+    " in `on`, use `any(...)` for an input that only filters rows, or aggregate "
+    "in a separate query first"
+)
+
+
+@pytest.mark.parametrize(
+    ("source", "joins", "key", "aggregate", "clause"),
+    (
+        (
+            "orders",
+            "    inner join customers on orders.customer_id == customers.region_id\n",
+            "customers.name",
+            "orders.amount",
+            "rows repeated by JOIN customers; match a unique key of customers",
+        ),
+        (
+            "orders",
+            "    let c = customers\n    inner join c on orders.customer_id == c.region_id\n",
+            "c.name",
+            "orders.amount",
+            "rows repeated by JOIN c; match a unique key of c",
+        ),
+        (
+            "lines",
+            "    inner join orders on lines.order_id == orders.customer_id\n"
+            "    inner join customers on orders.customer_id == customers.region_id\n",
+            "customers.name",
+            "lines.qty",
+            "rows repeated by JOIN orders; match unique keys of orders and customers",
+        ),
+        (
+            "orders",
+            "    inner join customers on order_customer(orders, customers)\n"
+            "    cross join regions\n",
+            "regions.label",
+            "customers.id",
+            "rows repeated by JOIN customers and JOIN regions; match unique keys of "
+            "orders and regions",
+        ),
+    ),
+    ids=("on", "let_input", "chain", "cross"),
+)
+def test_single_file_fanout_message_is_the_project_clause(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+    joins: str,
+    key: str,
+    aggregate: str,
+    clause: str,
+) -> None:
+    """Unproved ON keys report the same repeated JOINs in each mode,
+    a `let` input JOIN included."""
+
+    from pietto import cli
+
+    text = _FANOUT_PARITY.format(
+        source=source, joins=joins, key=key, aggregate=aggregate
+    )
+    parsed = parse_source(text)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    message = "An aggregate may read " + clause + _MATCH
+    line = text.splitlines().index(f"        total = sum({aggregate})") + 1
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(parsed.ast).diagnostics
+    ] == [("PIE-S2381", message, line, 17)]
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(text, encoding="utf-8")
+    assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 1
+    assert [
+        (d["code"], d["message"])
+        for d in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == [
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: q (an aggregate "
+            "may read " + clause + _MATCH + ")",
+        )
+    ]

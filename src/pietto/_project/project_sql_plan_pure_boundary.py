@@ -983,37 +983,46 @@ def _predicate_claims(fields, kinds, declared, require):
     for ordinals in owner_ordinals.values():
         require(sorted(ordinals) == list(range(len(ordinals))))
 
+    def calls_of(ref):
+        predicate = fields[ref]["predicate_expression"]
+        return () if predicate is None else fields[predicate]["calls"]
+
     predicate_conditions = (
         *kinds.get("project_predicate_join_condition", ()),
         *(
             ref
             for ref in kinds.get("project_any_join_condition", ())
-            if fields[ref]["predicate_expression"] is not None
-            and fields[fields[ref]["predicate_expression"]]["calls"]
+            if calls_of(ref) or fields[ref]["mandatory_equalities"]
         ),
     )
     for condition_ref in predicate_conditions:
         condition = fields[condition_ref]
-        predicate = fields[condition["predicate_expression"]]
-        require(bool(predicate["calls"]))
-        source_expression = condition["expression"]
-        require(source_expression == predicate["expression"])
+        calls = calls_of(condition_ref)
+        require(bool(calls) or bool(condition["mandatory_equalities"]))
         use = fields[condition["use"]]
-        require(
-            predicate["owner"] == use["owner"]
-            and predicate["context"] == fields[use["clause"]]["on_clause"]
-        )
-        required = tuple(
-            e
-            for e in conjuncts(condition["expression"])
-            if any(e in fields[c]["mandatory_equalities"] for c in predicate["calls"])
-        )
-        proofs = tuple(fields[p] for p in condition["mandatory_equalities"])
-        require(tuple(p["comparison"] for p in proofs) == required)
+        if condition["predicate_expression"] is not None:
+            predicate = fields[condition["predicate_expression"]]
+            require(condition["expression"] == predicate["expression"])
+            require(
+                predicate["owner"] == use["owner"]
+                and predicate["context"] == fields[use["clause"]]["on_clause"]
+            )
         resolved = {
             fields[r]["expression"]: fields[r]["target"]
             for r in condition["references"]
         }
+        # Every top-level equality of two exactly resolved field reads, written
+        # by hand or in a mandatory call's body, is a match equality.
+        required = tuple(
+            e
+            for e in conjuncts(condition["expression"])
+            if declared[e].kind == "comparison_expr"
+            and fields[e]["operator"] == "=="
+            and resolved.get(fields[e]["left"]) is not None
+            and resolved.get(fields[e]["right"]) is not None
+        )
+        proofs = tuple(fields[p] for p in condition["mandatory_equalities"])
+        require(tuple(p["comparison"] for p in proofs) == required)
         for proof in proofs:
             comparison = proof["comparison"]
             require(proof["condition"] == condition_ref)
@@ -1027,9 +1036,7 @@ def _predicate_claims(fields, kinds, declared, require):
             require(
                 proof["calls"]
                 == tuple(
-                    c
-                    for c in predicate["calls"]
-                    if comparison in fields[c]["mandatory_equalities"]
+                    c for c in calls if comparison in fields[c]["mandatory_equalities"]
                 )
             )
         inputs = condition["match_inputs"]

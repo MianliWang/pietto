@@ -280,8 +280,9 @@ def resolve_window_function_modifiers(
 ) -> ResolvedWindowFunctionModifiers:
     """Resolve exact use-local modifiers or reject inapplicable authorship."""
 
-    if type(expression) is not WindowExpr:
-        raise TypeError("window modifier resolution requires an exact expression")
+    error = window_function_modifier_error(expression)
+    if error is not None:
+        raise ValueError(error)
     name = expression.identity.name
     null_treatment_applies = name in {
         "lag",
@@ -290,10 +291,6 @@ def resolve_window_function_modifiers(
         "last_value",
         "nth_value",
     }
-    if expression.null_treatment is not None and not null_treatment_applies:
-        raise ValueError(f"{name} forbids NULL treatment")
-    if expression.nth_direction is not None and name != "nth_value":
-        raise ValueError(f"{name} forbids FROM direction")
     null_treatment = (
         None
         if not null_treatment_applies
@@ -319,6 +316,26 @@ def resolve_window_function_modifiers(
     )
 
 
+def window_function_modifier_error(expression: WindowExpr) -> str | None:
+    """Return the deterministic error for an inapplicable authored modifier."""
+
+    if type(expression) is not WindowExpr:
+        raise TypeError("window modifier resolution requires an exact expression")
+    name = expression.identity.name
+    null_treatment_applies = name in {
+        "lag",
+        "lead",
+        "first_value",
+        "last_value",
+        "nth_value",
+    }
+    if expression.null_treatment is not None and not null_treatment_applies:
+        return f"{name} forbids NULL treatment"
+    if expression.nth_direction is not None and name != "nth_value":
+        return f"{name} forbids FROM direction"
+    return None
+
+
 def analyze_navigation_computation_arguments(
     *,
     expression: WindowExpr,
@@ -330,10 +347,14 @@ def analyze_navigation_computation_arguments(
     bare_value_types: Mapping[str, ValueType] | None = None,
     allow_qualified_fields: bool = True,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    computed_let_names: frozenset[str] = frozenset(),
 ) -> NavigationWindowComputation | WindowComputationUnsupported:
     """Analyze occurrence-neutral value, offset, generic, and nullability facts.
 
-    A type alias value or default reads as the builtin type it expands to.
+    A type alias value or default reads as the builtin type it expands to. A
+    value or default that names a `let` in ``computed_let_names`` (one whose
+    value is not a field reference) is refused, as an argument that is no
+    direct field or literal is.
     """
 
     if type(expression) is not WindowExpr:
@@ -361,7 +382,7 @@ def analyze_navigation_computation_arguments(
         value_expression,
         field_qualifier,
         allow_qualified_fields=allow_qualified_fields,
-    ):
+    ) or _names_computed_let(value_expression, computed_let_names):
         return _unsupported(
             expression=expression,
             reason="navigation value must be a direct field or scalar literal",
@@ -369,6 +390,7 @@ def analyze_navigation_computation_arguments(
             message=(
                 f"Invalid arguments for function {direction.value}: value must be "
                 "a direct field or Bool, Text, Int, Float, or NULL literal"
+                + _computed_let_suffix(value_expression, computed_let_names)
             ),
         )
     value_before = len(diagnostics)
@@ -448,7 +470,7 @@ def analyze_navigation_computation_arguments(
             default_expression,
             field_qualifier,
             allow_qualified_fields=allow_qualified_fields,
-        ):
+        ) or _names_computed_let(default_expression, computed_let_names):
             return _unsupported(
                 expression=expression,
                 reason="navigation default must be a direct field or scalar literal",
@@ -456,6 +478,7 @@ def analyze_navigation_computation_arguments(
                 message=(
                     f"Invalid arguments for function {direction.value}: default must "
                     "be a direct field or Bool, Text, Int, Float, or NULL literal"
+                    + _computed_let_suffix(default_expression, computed_let_names)
                 ),
             )
         default_type = _canonical_value_type(
@@ -691,10 +714,12 @@ def analyze_frame_value_computation_arguments(
     bare_value_types: Mapping[str, ValueType] | None = None,
     allow_qualified_fields: bool = True,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    computed_let_names: frozenset[str] = frozenset(),
 ) -> FrameValueWindowComputation | WindowComputationUnsupported:
     """Analyze occurrence-neutral frame-value input and result semantics.
 
-    A type alias input reads as the builtin type it expands to.
+    A type alias input reads as the builtin type it expands to. An input that
+    names a `let` in ``computed_let_names`` is refused, as for navigation.
     """
 
     if type(expression) is not WindowExpr:
@@ -714,7 +739,7 @@ def analyze_frame_value_computation_arguments(
         value_expression,
         field_qualifier,
         allow_qualified_fields=allow_qualified_fields,
-    ):
+    ) or _names_computed_let(value_expression, computed_let_names):
         return _unsupported(
             expression=expression,
             reason="frame-value input must be a direct field or scalar literal",
@@ -722,6 +747,7 @@ def analyze_frame_value_computation_arguments(
             message=(
                 f"Invalid arguments for function {function.value}: value must be "
                 "a direct field or Bool, Text, Int, Float, or NULL literal"
+                + _computed_let_suffix(value_expression, computed_let_names)
             ),
         )
     value_before = len(diagnostics)
@@ -914,6 +940,20 @@ def _is_bounded_value_expression(
         int,
         float,
     }
+
+
+def _names_computed_let(expression: Expression, names: frozenset[str]) -> bool:
+    return type(expression) is NameExpr and expression.name in names
+
+
+def _computed_let_suffix(expression: Expression, names: frozenset[str]) -> str:
+    """Name the `let` an argument reads when its value is no field: a window
+    argument reads it as no field or literal, whatever that value is."""
+
+    if not _names_computed_let(expression, names):
+        return ""
+    assert type(expression) is NameExpr
+    return f", not the `let` name {expression.name}"
 
 
 def _is_null_literal(expression: Expression) -> bool:

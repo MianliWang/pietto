@@ -28,6 +28,7 @@ SPELLING = {
     "avg": "AVG",
     "min": "MIN",
     "max": "MAX",
+    "string_agg": "string_agg",
 }
 DISTINCT_FUNCTIONS = frozenset({"count_distinct"})
 COUNTING_FUNCTIONS = frozenset({"count", "count_distinct"})
@@ -177,6 +178,8 @@ class AggregateValueColumn:
     symbol: Any
     label: str
     column: rows.StageColumn
+    delimiter: Any = None
+    order_by: tuple[Any, ...] = ()
 
     def __repr__(self) -> str:
         """Summarize this occurrence; no retained product is formatted."""
@@ -189,6 +192,14 @@ class AggregateValueColumn:
             f"argument={_present(self.argument)}, aggregate=..., "
             "export=..., symbol=..., column=...)"
         )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class AggregateOrderItem:
+    """One authored string_agg ordering key and its realized pre-stage value."""
+
+    value: Any
+    direction: str
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -348,6 +359,29 @@ def result_realization(family: str, function: str, argument, retained):
     because an empty or all-null input has no extreme value.
     """
     tag, nullable = retained
+    if function == "string_agg":
+        if (
+            family != "postgres"
+            or argument is None
+            or tag != "Text"
+            or nullable is not True
+        ):
+            return None, ("PIE-B1002", "string_agg_result_logical_type_drift")
+        return (
+            rows.Realization(
+                "Text",
+                {"kind": "pg_text"},
+                True,
+                {
+                    "kind": "text",
+                    "max_characters": None,
+                    "encoding": "UTF8",
+                    "collation": "C",
+                    "padding": "NO PAD",
+                },
+            ),
+            None,
+        )
     if function in COUNTING_FUNCTIONS:
         if tag != "Int" or nullable is not False:
             return None, ("PIE-B1002", "count_result_not_non_null_int")
@@ -401,6 +435,23 @@ def argument_problem(function: str, argument):
     )
 
 
+def string_agg_argument_problem(argument):
+    """Require the reviewed PostgreSQL Text profile without a width fiction."""
+    realization = (
+        argument
+        if type(argument) is rows.Realization
+        else rows.realization_of(argument, "postgres")
+    )
+    if (
+        realization.tag != "Text"
+        or realization.storage != {"kind": "pg_text"}
+        or tuple(realization.domain.get(key) for key in TEXT_DOMAIN_KEYS)
+        != ("UTF8", "C", "NO PAD")
+    ):
+        return "PIE-B1003", "string_agg_argument_requires_postgres_text"
+    return None
+
+
 def resolved_argument_problem(function: str, direct_reference: bool, realization):
     """The same R13 argument law for an already-resolved input port."""
     if not direct_reference:
@@ -435,6 +486,15 @@ def argument_cast(family: str, function: str, argument) -> str | None:
     return "pg_catalog.float8" if family == "postgres" else "DOUBLE"
 
 
+def _input_terminals(value) -> tuple[Any, ...]:
+    """Preserve each established pre-aggregate input occurrence in source order."""
+    return tuple(
+        node.column.terminal
+        for node in rows.value_nodes(value)
+        if type(node) is rows.SQLStageReference
+    )
+
+
 def unsupported_function(function: str | None):
     """The exact typed blocker one non-promised aggregate keeps, in place."""
     if function in {"sum", "avg"}:
@@ -456,7 +516,12 @@ def node_count(stage: AggregateStage, value_nodes) -> int:
     """This stage's own generated nodes: each determinant and each occurrence."""
     total = len(stage.keys)
     for value in stage.values:
-        total += 1 if value.argument is None else 1 + value_nodes(value.argument)
+        total += 1
+        if value.argument is not None:
+            total += value_nodes(value.argument)
+        if value.delimiter is not None:
+            total += value_nodes(value.delimiter)
+        total += sum(value_nodes(order.value) for order in value.order_by)
     return total
 
 
@@ -669,7 +734,13 @@ def build_stage(
         if function is None or function not in SPELLING:
             return None, None, (*unsupported_function(function), value.ref, location)
         arguments = aggregation.arguments(value.source)
-        if len(arguments) != len(value.arguments) or len(arguments) > 1:
+        ordered = value.source.item.expression.aggregate_order_by
+        if (
+            len(arguments) != len(value.arguments)
+            or len(ordered) != len(value.order_by)
+            or (function == "string_agg") is not (len(arguments) == 2 and bool(ordered))
+            or (function != "string_agg" and (len(arguments) > 1 or ordered))
+        ):
             return (
                 None,
                 None,
@@ -681,7 +752,54 @@ def build_stage(
                 ),
             )
         argument = None
-        if value.arguments:
+        delimiter = None
+        order_by = ()
+        if function == "string_agg":
+            if family != "postgres":
+                return (
+                    None,
+                    None,
+                    (*unsupported_function(function), value.ref, location),
+                )
+            realized = []
+            for argument_ref in value.arguments:
+                current, problem = rows.build_row_value(
+                    request,
+                    available,
+                    argument_ref,
+                    uses,
+                    reference_type=reference_type,
+                )
+                if current is None:
+                    assert problem is not None
+                    return None, None, (*problem, value.ref, location)
+                problem = string_agg_argument_problem(current)
+                if problem is not None:
+                    return None, None, (*problem, value.ref, location)
+                realized.append(current)
+            argument, delimiter = realized
+            orders = []
+            for item, order_ref in zip(ordered, value.order_by, strict=True):
+                current, problem = rows.build_row_value(
+                    request,
+                    available,
+                    order_ref,
+                    uses,
+                    reference_type=reference_type,
+                )
+                if current is None:
+                    assert problem is not None
+                    return None, None, (*problem, value.ref, location)
+                problem = grouping_problem(rows.realization_of(current, family))
+                if problem is not None:
+                    return None, None, (*problem, value.ref, location)
+                orders.append(
+                    AggregateOrderItem(
+                        current, "asc" if item.direction is None else item.direction
+                    )
+                )
+            order_by = tuple(orders)
+        elif value.arguments:
             argument, problem = rows.build_row_value(
                 request,
                 available,
@@ -745,13 +863,25 @@ def build_stage(
                     export.ref,
                     # A row count has no scalar argument and still consumes the
                     # complete input BAG, so its dependency is that whole input.
-                    (argument.column.terminal,)
+                    tuple(
+                        terminal
+                        for current in (argument, delimiter)
+                        if current is not None
+                        for terminal in _input_terminals(current)
+                    )
+                    + tuple(
+                        terminal
+                        for order in order_by
+                        for terminal in _input_terminals(order.value)
+                    )
                     if argument is not None
                     else tuple(item.terminal for item in available.values()),
                     aggregate=value,
                     function=function,
                 ),
             ),
+            delimiter,
+            order_by,
         )
         columns.append(column)
         value_columns.append(column)
@@ -839,17 +969,20 @@ def build_compiled_stage(plan, record, arguments):
     facts = {f.address: f for f in plan.ir.completed.facts}
     stage = CompiledAggregateSubject(plan.references[record.address])
     keys, values, columns = [], [], []
-    for index, (address, argument) in enumerate(
+    for index, (address, supplied) in enumerate(
         zip(record.get("outputs"), arguments, strict=True)
     ):
         port = plan.ports[address]
         expression = records[records[address].get("source")]
         subject = CompiledAggregateSubject(plan.references[expression.address])
         symbol = SQLSymbol(index, port.ref, port.identity.name)
+        argument, delimiters, order_by_values = supplied
         if expression.address.kind == "read":
             if (
                 type(argument) is not rows.SQLStageReference
                 or grouping_problem(argument.realization) is not None
+                or delimiters
+                or order_by_values
             ):
                 raise CompiledError("COMPILED_GROUP_KEY")
             read = argument.column
@@ -874,10 +1007,28 @@ def build_compiled_stage(plan, record, arguments):
             )
             keys.append(column)
         else:
+            order_by = tuple(
+                AggregateOrderItem(value, direction)
+                for value, direction in order_by_values
+            )
             function = expression.get("function")
             if function not in SPELLING or (argument is None and function != "count"):
                 raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
-            if (
+            if function == "string_agg":
+                if (
+                    len(delimiters) != 1
+                    or not order_by
+                    or string_agg_argument_problem(argument) is not None
+                    or string_agg_argument_problem(delimiters[0]) is not None
+                    or any(
+                        grouping_problem(rows.realization_of(order.value, "postgres"))
+                        is not None
+                        or order.direction not in {"asc", "desc"}
+                        for order in order_by
+                    )
+                ):
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+            elif (
                 argument is not None
                 and argument_problem(function, argument) is not None
             ):
@@ -905,7 +1056,17 @@ def build_compiled_stage(plan, record, arguments):
             ):
                 raise CompiledError("COMPILED_AGGREGATE_REALIZATION")
             inputs = (
-                (argument.column.terminal,)
+                tuple(
+                    terminal
+                    for current in (argument, *delimiters)
+                    if current is not None
+                    for terminal in _input_terminals(current)
+                )
+                + tuple(
+                    terminal
+                    for order in order_by
+                    for terminal in _input_terminals(order.value)
+                )
                 if argument is not None
                 else tuple(
                     plan.references[p] for p in records[record.get("use")].get("ports")
@@ -939,6 +1100,8 @@ def build_compiled_stage(plan, record, arguments):
                 symbol,
                 port.identity.name,
                 terminal,
+                None if not delimiters else delimiters[0],
+                order_by,
             )
             values.append(column)
         columns.append(column)

@@ -936,7 +936,7 @@ def test_a_project_types_an_imported_enum_field_and_its_alias_as_the_enum(
 ) -> None:
     """A field of an enum, also imported under another name or through a type
     alias of it, is read as that enum, as in a single file: a WHERE needs a
-    Bool, an `in` list the same canonical type, `lower` a Text and a def its
+    Bool, an `in` list labels of the enum, `lower` a Text and a def its
     parameter's type, while a comparison stays Bool. Before, the field was of
     unknown type, so these passed or left the relation to PIE-S2333."""
     _, semantic = _semantic_project(
@@ -957,11 +957,12 @@ def test_a_project_types_an_imported_enum_field_and_its_alias_as_the_enum(
                 "    where st\n"
                 "    select:\n"
                 "        id\n"
-                '        a = st in ("active")\n'
+                '        a = st in ("held", "gone")\n'
                 "        b = tn(sa)\n"
                 "        c = lower(st)\n"
                 '        d = st == "active"\n'
                 "        e = sa\n"
+                '        f = sa in ("active", "held")\n'
             ),
             "b.pietto": "enum Status:\n    active\n    held\nexport (\n    enum Status)\n",
         },

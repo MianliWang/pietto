@@ -1,3 +1,4 @@
+-- decimal_order_stats
 SELECT
     SUM("amount") AS "total_amount",
     SUM("orders"."amount") AS "total_amount_qualified",
@@ -8,4 +9,4 @@ SELECT
     MAX("amount") AS "largest_amount",
     MAX("orders"."amount") AS "largest_amount_qualified"
 FROM "orders" AS "orders"
-WHERE "status" = 'paid'
+WHERE "status" = 'paid';

@@ -8,6 +8,7 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
+from pietto._project import model as project_model
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_JSON_V2_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
@@ -211,7 +212,9 @@ def _forbid_project_semantic_builder(monkeypatch: pytest.MonkeyPatch) -> None:
         del args, kwargs
         raise AssertionError("single-file surfaces must not build project semantics")
 
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", unexpected_builder)
+    monkeypatch.setattr(
+        project_model, "build_empty_project_semantic_result", unexpected_builder
+    )
 
 
 def _read_json_document(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

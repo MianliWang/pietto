@@ -66,6 +66,7 @@ from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
 from pietto._project.model import ProjectRowField
 from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.catalog import is_builtin_function_name
+from pietto.semantic.aggregates import semantic_aggregate_call_name
 from pietto.semantic.expressions import query_parameter_value_type
 from pietto._project.query_parameters import reads_header
 from pietto.ir.model import SymbolId, SymbolNamespace
@@ -289,7 +290,7 @@ def _closure(
             reached.add(key)
             pending.extend(_owner_key(d.target) for d in incoming[key])
             pending.extend(_owner_key(e.use.target) for e in reads[key])
-            for join in joining.join_images(root, entries_by_owner[key]):
+            for join in joining.join_images(entries_by_owner[key]):
                 for image in join.inputs:
                     producer = image.producer
                     if producer is not None:
@@ -448,7 +449,7 @@ def _blockers(
                 for clause in definition.join_clauses:
                     add(K.JOIN, owner, entry, clause)
             else:
-                for image in joining.join_images(bundle.root, entry):
+                for image in joining.join_images(entry):
                     condition = image.condition
                     if condition.expression is not None:
                         blocker = _match_blocker(condition)
@@ -1116,7 +1117,14 @@ def _aggregate_blockers(entry, rows, aggregate):
         return ((K.EXPRESSION_EVIDENCE, clause),)
     for source, references in zip(aggregate.aggregates, aggregate.argument_references):
         call = source.item.expression
-        if not isinstance(call, CallExpr) or len(call.arguments) > 1:
+        if not isinstance(call, CallExpr) or (
+            len(call.arguments) > 1
+            and (
+                semantic_aggregate_call_name(call) != "string_agg"
+                or len(call.arguments) != 2
+                or not call.aggregate_order_by
+            )
+        ):
             return ((K.EXPRESSION_EVIDENCE, source.item),)
         if isinstance(source, aggregation.ProjectAggregateExpressionAnalysis):
             if isinstance(rows, row.ProjectSQLJoinedRowAuthority) or (
@@ -1135,20 +1143,23 @@ def _aggregate_blockers(entry, rows, aggregate):
                 return ((K.EXPRESSION_EVIDENCE, source.item),)
         if call.arguments:
             evidence = aggregation.argument_evidence(source)
-            if (
-                evidence is None
-                or _scalar_blocker(
-                    _normalized_scalar_expression(call.arguments[0], evidence),
-                    evidence,
-                    source,
+            authored = (
+                *call.arguments,
+                *(item.expression for item in call.aggregate_order_by),
+            )
+            if evidence is None or any(
+                _scalar_blocker(
+                    _normalized_scalar_expression(argument, evidence), evidence, source
                 )
                 is not None
+                for argument in authored
             ):
                 return ((K.EXPRESSION_EVIDENCE, source.item),)
             leaves = tuple(
                 n
+                for argument in authored
                 for n in row.scalar_nodes(
-                    _normalized_scalar_expression(call.arguments[0], evidence)
+                    _normalized_scalar_expression(argument, evidence)
                 )
                 if isinstance(n, (NameExpr, DottedNameExpr))
             )
@@ -1242,8 +1253,16 @@ def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset(
     if aggregate is not None and (
         aggregation.argument_evidence(aggregate) is not evidence
         or not aggregation.arguments(aggregate)
-        or _normalized_scalar_expression(aggregation.arguments(aggregate)[0], evidence)
-        is not expression
+        or not any(
+            _normalized_scalar_expression(argument, evidence) is expression
+            for argument in (
+                *aggregation.arguments(aggregate),
+                *(
+                    item.expression
+                    for item in aggregate.item.expression.aggregate_order_by
+                ),
+            )
+        )
     ):
         return ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
     supported = {
@@ -2071,7 +2090,7 @@ def _root_inventory(
                 raise ValueError("Rebound input must use its active relation edge.")
             images[(key, deps[0].dependency_ordinal)] = entry.relation_input
         elif joining.joined_tail(entry) is not None:
-            joined_images = joining.join_images(root, entry)
+            joined_images = joining.join_images(entry)
             tail = joining.joined_tail(entry)
             assert tail is not None
             visible_bindings = (
@@ -2101,28 +2120,10 @@ def _root_inventory(
                     raise ValueError("JOIN input image has a different named producer.")
                 selected.append(image)
                 images[(key, dep.dependency_ordinal)] = image
-            # Hidden path hops have real external inputs, but no authored alias/use.
-            # They are retained by JOIN input images, never forged dependencies.
-            hidden = tuple(
-                image
-                for image in external
-                if not any(image is item for item in selected)
-            )
-            for image in hidden:
-                matches = tuple(j for j in joined_images if j.inputs[1] is image)
-                joined = _one(matches, "hidden path input")
-                source = joined.source
-                from pietto._project.project_ir_joins import (
-                    ProjectIRBinaryJoinOccurrence,
-                )
-
-                if (
-                    not isinstance(source, ProjectIRBinaryJoinOccurrence)
-                    or source.path_step is source.use.path.steps[-1]
-                ):
-                    raise ValueError(
-                        "Unbound external input requires a nonterminal path hop."
-                    )
+            # Every external JOIN input has its authored dependency: no JOIN
+            # is a relationship path with hidden hops.
+            if any(not any(image is item for item in selected) for image in external):
+                raise ValueError("Unbound external JOIN input has no authored use.")
             if tuple(
                 id(image)
                 for image in external
@@ -2700,7 +2701,6 @@ def build_project_sql_plan(
     joins: list[joining.ProjectSQLJoin] = []
     join_inputs: list[joining.ProjectSQLJoinInput] = []
     join_ports: list[joining.ProjectSQLJoinPort] = []
-    relationship_matches: list[joining.ProjectSQLRelationshipMatch] = []
     join_tails: list[joining.ProjectSQLJoinTail] = []
     obligations: list[joining.ProjectSQLSingleMatch] = []
     proof_images: list[joining.ProjectSQLSingleMatchProof] = []
@@ -3020,11 +3020,17 @@ def build_project_sql_plan(
                         raise ValueError(
                             "Scalar calls require retained aggregate argument authority"
                         )
+                    symbol = _callable_symbol(node)
+                    if symbol is None:
+                        raise ValueError(
+                            "Aggregate scalar call lacks canonical authority"
+                        )
                     value = aggregation.ProjectSQLAggregateArgumentCall(
                         ref=node_ref,
                         site=site,
                         expression=node,
                         value_type=value_type,
+                        callee_symbol=symbol,
                         arguments=children,
                     )
                 else:
@@ -3197,7 +3203,7 @@ def build_project_sql_plan(
 
     def join_body(definition, authority):
         entry = definition.entry
-        images = joining.join_images(analysis_bundle.root, entry)
+        images = joining.join_images(entry)
         local_joins = []
         for position, image in enumerate(images):
             join_ref = ref(K.JOIN)
@@ -3331,34 +3337,6 @@ def build_project_sql_plan(
                     local_symbols,
                     context,
                 )
-            equalities = []
-            for source, guarantee, left, right in joining.base_matches(image):
-                correspondence = (
-                    source.correspondence
-                    if isinstance(source, joining.ProjectIRJoinMatchFieldPair)
-                    else source
-                )
-                left_ref, right_ref = (
-                    input_values[0].ports[left],
-                    input_values[1].ports[right],
-                )
-                authored_operands = (
-                    (left_ref, right_ref)
-                    if correspondence.authored_left.endpoint
-                    is guarantee.direction.source
-                    else (right_ref, left_ref)
-                )
-                value = joining.ProjectSQLRelationshipMatch(
-                    ref=ref(K.RELATIONSHIP_MATCH),
-                    join=join_ref,
-                    source=source,
-                    guarantee=guarantee,
-                    left=left_ref,
-                    right=right_ref,
-                    authored_operands=authored_operands,
-                )
-                relationship_matches.append(value)
-                equalities.append(value.ref)
             output_ports = []
             original_fields = image.source.output.row_shape.fields
             for index, (field, original) in enumerate(
@@ -3419,7 +3397,8 @@ def build_project_sql_plan(
                 rows=rows,
                 inputs=(input_values[0].ref, input_values[1].ref),
                 outputs=tuple(p.ref for p in output_ports),
-                equalities=tuple(equalities),
+                # No authored JOIN matches by relationship equalities.
+                equalities=(),
                 on=on,
                 site=current_site,
                 properties=properties,
@@ -3645,6 +3624,7 @@ def build_project_sql_plan(
                     group_keys.append(value)
                     local_keys.append(value.ref)
                     aggregate_outgoing.append(output_port)
+                aggregate_site_ordinal = 0
                 for index, (source, references) in enumerate(
                     zip(
                         aggregate.aggregates, aggregate.argument_references, strict=True
@@ -3652,31 +3632,59 @@ def build_project_sql_plan(
                 ):
                     call = source.item.expression
                     assert isinstance(call, CallExpr)
-                    arguments = ()
-                    if call.arguments:
+                    arguments = []
+                    order_by = []
+                    authored_children = (
+                        *(call.arguments),
+                        *(item.expression for item in call.aggregate_order_by),
+                    )
+                    reference_position = 0
+                    for child_position, child in enumerate(authored_children):
                         evidence = aggregation.argument_evidence(source)
                         assert evidence is not None
+                        normalized_child = _normalized_scalar_expression(
+                            child, evidence
+                        )
+                        leaves = tuple(
+                            node
+                            for node in row.scalar_nodes(normalized_child)
+                            if isinstance(node, (NameExpr, DottedNameExpr))
+                        )
+                        child_references = references[
+                            reference_position : reference_position + len(leaves)
+                        ]
+                        if len(child_references) != len(leaves) or any(
+                            row.reference_expression(reference) is not leaf
+                            for reference, leaf in zip(
+                                child_references, leaves, strict=True
+                            )
+                        ):
+                            raise ValueError("Aggregate child references drift.")
+                        reference_position += len(leaves)
                         current_site = aggregation.ProjectSQLAggregateSite(
                             ref=ref(K.EXPRESSION_SITE),
                             owner=entry.owner,
                             block=block_ref,
                             role=row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT,
-                            ordinal=index,
+                            ordinal=aggregate_site_ordinal,
                             occurrence=source.item,
-                            expression=_normalized_scalar_expression(
-                                call.arguments[0], evidence
-                            ),
+                            expression=normalized_child,
                             aggregation=aggregate_ref,
                             authority=aggregate,
                             evidence=evidence,
-                            references=references,
+                            references=child_references,
                         )
                         sites.append(current_site)
-                        arguments = (
-                            expression(
-                                current_site, local_ports, local_symbols, stage_context
-                            ),
+                        aggregate_site_ordinal += 1
+                        child_ref = expression(
+                            current_site, local_ports, local_symbols, stage_context
                         )
+                        if child_position < len(call.arguments):
+                            arguments.append(child_ref)
+                        else:
+                            order_by.append(child_ref)
+                    if reference_position != len(references):
+                        raise ValueError("Aggregate references have no authored child.")
                     value_ref = ref(K.AGGREGATE)
                     value_type = aggregation.result_type(source)
                     output_port = stage_port(
@@ -3692,7 +3700,8 @@ def build_project_sql_plan(
                         aggregation=aggregate_ref,
                         position=index,
                         source=source,
-                        arguments=arguments,
+                        arguments=tuple(arguments),
+                        order_by=tuple(order_by),
                         result=output_port.ref,
                         value_type=value_type,
                     )
@@ -4486,7 +4495,6 @@ def build_project_sql_plan(
         *joins,
         *join_inputs,
         *join_ports,
-        *relationship_matches,
         *join_tails,
         *obligations,
         *proof_images,
@@ -4540,23 +4548,6 @@ def build_project_sql_plan(
                 (witness.source, witness.input)
                 if matching
                 else (witness.source, witness.block)
-            )
-        elif isinstance(witness, joining.ProjectSQLRelationshipMatch):
-            kind, role, provenance = (
-                joining.ProjectSQLJoinDemandKind.RELATIONSHIP_EQUALITY,
-                R.RELATIONSHIP_MATCH,
-                P.MEMBERSHIP,
-            )
-            join = join_by_ref[witness.join]
-            source = (
-                witness.source.correspondence
-                if isinstance(witness.source, joining.ProjectIRJoinMatchFieldPair)
-                else witness.source
-            )
-            owner, cause, antecedents = (
-                join.source.condition.use.owner,
-                source.comparison,
-                witness.authored_operands,
             )
         elif isinstance(witness, joining.ProjectSQLJoinTail):
             kind, role, provenance = (
@@ -4657,7 +4648,7 @@ def build_project_sql_plan(
             )
             cause, antecedents = (
                 witness.source.item,
-                (witness.aggregation, *witness.arguments),
+                (witness.aggregation, *witness.arguments, *witness.order_by),
             )
         elif isinstance(witness, aggregation.ProjectSQLAggregateProjection):
             kind, role, provenance = (
@@ -4822,7 +4813,7 @@ def build_project_sql_plan(
         joins=tuple(joins),
         join_inputs=tuple(join_inputs),
         join_ports=tuple(join_ports),
-        relationship_matches=tuple(relationship_matches),
+        relationship_matches=(),
         join_tails=tuple(join_tails),
         single_matches=tuple(obligations),
         single_match_proofs=tuple(proof_images),

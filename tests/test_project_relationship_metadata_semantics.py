@@ -204,20 +204,7 @@ def test_valid_relationship_metadata_does_not_change_semantic_ir_or_sql() -> Non
     baseline_semantic = analyze(baseline_script)
     metadata_semantic = analyze(metadata_script)
 
-    # The one diagnostic of both programs is the same-file read of `selected`.
-    assert baseline_semantic.diagnostics == metadata_semantic.diagnostics
-    assert [
-        (diagnostic.code, diagnostic.severity, diagnostic.message)
-        for diagnostic in metadata_semantic.diagnostics
-    ] == [
-        (
-            "PIE-S2382",
-            Severity.WARNING,
-            "`selected` is a table of this file; single-file SQL reads it by name, "
-            "so the SQL runs only where the database already has a relation named "
-            "selected (an EXPLICIT_MODULES project emits it as a CTE)",
-        )
-    ]
+    assert baseline_semantic.diagnostics == metadata_semantic.diagnostics == ()
     assert baseline_semantic.model.type_symbols == metadata_semantic.model.type_symbols
     assert (
         baseline_semantic.model.callable_symbols

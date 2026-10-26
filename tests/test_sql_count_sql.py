@@ -193,7 +193,7 @@ def test_cli_json_count_sql_success_preserves_v1_shape(
         {
             "kind": "relation",
             "name": "paid_order_stats",
-            "sql": _golden_text(golden_name).removesuffix("\n"),
+            "sql": _golden_sql(golden_name),
         }
     ]
 
@@ -238,7 +238,7 @@ def test_cli_json_count_sql_output_writes_exact_sql(
     assert result["diagnostics"] == []
     assert result["output"] == {"path": str(output_path), "written": True}
     artifacts = cast(list[dict[str, object]], result["artifacts"])
-    assert artifacts[0]["sql"] == _golden_text(golden_name).removesuffix("\n")
+    assert artifacts[0]["sql"] == _golden_sql(golden_name)
     assert output_path.read_bytes() == _golden_bytes(golden_name)
 
 
@@ -428,14 +428,22 @@ def _golden_text(name: str) -> str:
     return (GOLDEN_ROOT / name).read_text(encoding="utf-8")
 
 
+def _golden_sql(name: str) -> str:
+    """The SQL of a one-artifact golden, without its `--` name line and `;`."""
+
+    return _golden_text(name).split("\n", 1)[1].removesuffix(";\n")
+
+
 def _golden_bytes(name: str) -> bytes:
     return (GOLDEN_ROOT / name).read_bytes()
 
 
 def _render_artifacts(result: SqlResult) -> bytes:
-    return ("\n\n".join(artifact.sql for artifact in result.artifacts) + "\n").encode(
-        "utf-8"
-    )
+    """The artifacts as `emit-sql` text prints them: named, `;`-terminated."""
+
+    return (
+        "\n\n".join(f"-- {item.name}\n{item.sql};" for item in result.artifacts) + "\n"
+    ).encode("utf-8")
 
 
 def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

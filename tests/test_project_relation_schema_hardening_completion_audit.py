@@ -138,7 +138,6 @@ def test_unknown_and_invalid_computed_aliases_do_not_fake_downstream_precision()
             "Invalid operands for operator +: expected numeric operands; "
             "string concatenation is not supported yet",
         ),
-        ("PIE-S2382", Severity.WARNING, _same_file_read("first")),
     ]
     assert [diagnostic.code for diagnostic in semantic.diagnostics].count(
         "PIE-S2105"
@@ -201,13 +200,11 @@ def test_computed_alias_cycles_fail_closed_without_diagnostic_cascade() -> None:
     semantic = analyze(script)
 
     assert _diagnostics(semantic) == [
-        ("PIE-S2382", Severity.WARNING, _same_file_read("second")),
         (
             "PIE-S2302",
             Severity.ERROR,
             "Relation cycle detected: first -> second -> first",
-        ),
-        ("PIE-S2382", Severity.WARNING, _same_file_read("first")),
+        )
     ]
     assert semantic.model.relation_row_schemas[first].is_unknown is True
     assert semantic.model.relation_row_schemas[second].is_unknown is True
@@ -415,12 +412,3 @@ def _diagnostics(
         (diagnostic.code, diagnostic.severity, diagnostic.message)
         for diagnostic in result.diagnostics
     ]
-
-
-def _same_file_read(name: str) -> str:
-    """The PIE-S2382 warning at a read of a table of the file."""
-    return (
-        f"`{name}` is a table of this file; single-file SQL reads it by name, so "
-        "the SQL runs only where the database already has a relation named "
-        f"{name} (an EXPLICIT_MODULES project emits it as a CTE)"
-    )

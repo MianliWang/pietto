@@ -2969,7 +2969,8 @@ Phase 57 begins from the complete private Phase 56 capability chain.
 `CapabilityKey` remains release-free, exact profile targets retain database and
 extension releases separately, and current `EXTENSION_SIGNATURE` provider
 evidence remains empty and incomplete. `CONVERSION` includes the explicit
-Int-to-Float operation; other advanced-type conversions retain their later owner.
+Int-to-Float and Int-to-Text operations; other advanced-type conversions retain
+their later owner.
 
 Compiler acceptance, private capability facts, backend support, database
 installation, public exposure, local graph behavior, remote I/O, solving, and

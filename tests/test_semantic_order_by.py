@@ -380,12 +380,22 @@ def test_select_lists_a_let_name_that_order_by_reads() -> None:
         "SELECT\n    `id` AS `id`,\n    `id` * 2 AS `total`\nFROM `users`\n"
         "ORDER BY\n    `id` * 2 DESC"
     )
-    # A single file still selects no `let` name in a relation with GROUP BY.
+    # A single file still selects no `let` name in a relation with GROUP BY,
+    # and says what to write instead.
     assert [
         (d.code, d.message, d.location.line, d.location.column)
         for d in grouped_result.diagnostics
         if d.location is not None
-    ] == [("PIE-S2329", "Let binding conflicts with projection output name: g", 9, 5)]
+    ] == [
+        (
+            "PIE-S2329",
+            "Let binding conflicts with projection output name: g; a query with "
+            "GROUP BY cannot select a `let` name here yet: write created_at in "
+            "place of g",
+            9,
+            5,
+        )
+    ]
 
 
 _JOINED = (
@@ -1085,7 +1095,7 @@ def test_cli_text_and_json_v1_carry_order_sql_without_new_options(
     assert cli.main(["emit-sql", str(postgres_path), "--dialect", "postgres"]) == 0
     text = capsys.readouterr()
     assert text.err == ""
-    assert text.out.endswith('ORDER BY\n    "created_at" DESC,\n    "id" ASC\n')
+    assert text.out.endswith('ORDER BY\n    "created_at" DESC,\n    "id" ASC;\n')
 
     assert (
         cli.main(

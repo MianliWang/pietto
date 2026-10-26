@@ -316,7 +316,11 @@ def test_a_refused_let_group_key_reports_only_the_refusal() -> None:
 
     # The GROUP BY key and SELECT reads of the refused name report nothing more.
     assert _errors(semantic) == [
-        ("PIE-S2329", "Let binding conflicts with projection output name: key")
+        (
+            "PIE-S2329",
+            "Let binding conflicts with projection output name: key; a query with "
+            "GROUP BY cannot select a `let` name here yet: write status in place of key",
+        )
     ]
 
 
@@ -348,9 +352,15 @@ def test_computed_let_keys_and_let_extrema_follow_their_mode_law(
 ) -> None:
     """EXPLICIT_MODULES completes the relation; the other laws keep refusing it."""
 
-    # Reads of the refused binding name add no Unknown field diagnostics.
+    # Reads of the refused binding name add no Unknown field diagnostics; the
+    # refusal says where the relation is accepted.
     assert _errors(_semantic_for(COMPUTED_KEY_RELATION)) == [
-        ("PIE-S2329", "Let binding conflicts with projection output name: gross"),
+        (
+            "PIE-S2329",
+            "Let binding conflicts with projection output name: gross; a query with "
+            "GROUP BY cannot select a computed `let` value here yet: group by it and "
+            "select it in an EXPLICIT_MODULES project (schema version 2)",
+        ),
     ]
 
     root = tmp_path / "project"
@@ -567,3 +577,136 @@ def _field_refs(value: object) -> tuple[FieldRefIR, ...]:
         for field in fields(value):
             refs.extend(_field_refs(getattr(value, field.name)))
     return tuple(refs)
+
+
+_GROUPED_LET = """shape Order:
+    id: Int
+    status: Text
+source orders: Order = postgres.table("orders")
+query q:
+    from orders
+    let key = {value}
+    group by:
+        {key}
+    select:
+{items}        n = count()
+"""
+_LET_FIELD = "a query with GROUP BY cannot select a `let` name here yet: write {} in place of key"
+_COMPUTED_SELECT = (
+    "a query with GROUP BY cannot select a computed `let` value here yet: group by "
+    "it and select it in an EXPLICIT_MODULES project (schema version 2)"
+)
+_COMPUTED_KEY = (
+    "a query cannot group by a computed `let` value here yet: group by it in an "
+    "EXPLICIT_MODULES project (schema version 2)"
+)
+_CONFLICT = "Let binding conflicts with projection output name: key; "
+
+
+@pytest.mark.parametrize(
+    ("value", "key", "items", "expected"),
+    (
+        (
+            "status",
+            "key",
+            "        k = key\n",
+            [
+                (
+                    "PIE-S2102",
+                    "Unknown field: key; " + _LET_FIELD.format("status"),
+                    11,
+                    13,
+                )
+            ],
+        ),
+        (
+            "orders.status",
+            "key",
+            "        key\n",
+            [("PIE-S2329", _CONFLICT + _LET_FIELD.format("orders.status"), 7, 5)],
+        ),
+        (
+            "lower(status)",
+            "key",
+            "        key\n",
+            [("PIE-S2329", _CONFLICT + _COMPUTED_SELECT, 7, 5)],
+        ),
+        (
+            "lower(status)",
+            "key",
+            "",
+            [("PIE-S2102", "Unknown field: key; " + _COMPUTED_KEY, 9, 9)],
+        ),
+        # A `let` that is no GROUP BY key is named so, computed or not.
+        (
+            "lower(status)",
+            "status",
+            "        status\n        k = key\n",
+            [("PIE-S2102", "Unknown field: key; key is not a GROUP BY key", 12, 13)],
+        ),
+        (
+            "status",
+            "id",
+            "        id\n        k = key\n",
+            [("PIE-S2102", "Unknown field: key; key is not a GROUP BY key", 12, 13)],
+        ),
+        (
+            "orders.status",
+            "id",
+            "        key\n",
+            [("PIE-S2329", _CONFLICT + "key is not a GROUP BY key", 7, 5)],
+        ),
+        # A `let` of a field that a key groups by is that key.
+        (
+            "status",
+            "orders.status",
+            "        k = key\n",
+            [
+                (
+                    "PIE-S2102",
+                    "Unknown field: key; " + _LET_FIELD.format("status"),
+                    11,
+                    13,
+                )
+            ],
+        ),
+        # What the field hint says to write is accepted.
+        ("status", "key", "        k = status\n", []),
+    ),
+    ids=(
+        "select_field",
+        "self_field",
+        "self_computed",
+        "key_computed",
+        "select_computed_not_key",
+        "select_field_not_key",
+        "self_field_not_key",
+        "select_field_of_key",
+        "fixed",
+    ),
+)
+def test_single_file_grouped_let_reads_say_what_to_write(
+    value: str, key: str, items: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    parsed = parse_source(_GROUPED_LET.format(value=value, key=key, items=items))
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(parsed.ast).diagnostics
+    ] == expected
+
+
+def test_an_explicit_module_project_groups_by_and_selects_a_computed_let(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What the computed hints say to write is accepted in a project."""
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        _GROUPED_LET.format(value="lower(status)", key="key", items="        key\n"),
+        encoding="utf-8",
+    )
+    code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
+    assert (code, _read_json(capsys)["diagnostics"]) == (0, [])

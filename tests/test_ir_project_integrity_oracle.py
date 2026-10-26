@@ -293,17 +293,10 @@ def test_valid_phase62_root_verifies_with_fixed_empty_issue_order(
     assert tuple(verification.ProjectPhase62VerificationIssueKind) == (
         verification.ProjectPhase62VerificationIssueKind.ROOT_COHERENCE,
         verification.ProjectPhase62VerificationIssueKind.BASE_PROJECT_IR,
-        verification.ProjectPhase62VerificationIssueKind.JOIN_SCOPE_COORDINATE,
-        verification.ProjectPhase62VerificationIssueKind.JOIN_STRUCTURAL_ENDPOINT,
         verification.ProjectPhase62VerificationIssueKind.JOIN_REGION_COMPLETENESS,
-        verification.ProjectPhase62VerificationIssueKind.JOIN_CONDITION_MAPPING,
-        verification.ProjectPhase62VerificationIssueKind.JOIN_EFFECT_NULLING,
-        verification.ProjectPhase62VerificationIssueKind.JOIN_PROPERTY_TRANSFER,
-        verification.ProjectPhase62VerificationIssueKind.JOIN_KEY_FD_GRAIN,
         verification.ProjectPhase62VerificationIssueKind.MULTIFACT_CATALOG,
         verification.ProjectPhase62VerificationIssueKind.MULTIFACT_LOCALITY,
         verification.ProjectPhase62VerificationIssueKind.MULTIFACT_ALIGNMENT,
-        verification.ProjectPhase62VerificationIssueKind.CHASM_RISK,
         verification.ProjectPhase62VerificationIssueKind.COMBINED_ACTUAL_USE_CYCLE,
     )
 
@@ -315,29 +308,15 @@ def test_verified_bundle_freshly_covers_base_and_current_analyses(built) -> None
         verification.verify_project_phase62(root)
     )
     structural = root.evaluation.project_plan.structural_stage
-    historical_joins = root.join_regions.structural
-    assert len(base.combined_reverse_uses) == len(structural.outputs) + len(
-        historical_joins.outputs
-    )
-    assert len(base.combined_topological_order) == len(structural.nodes) + len(
-        historical_joins.nodes
-    )
-    assert len(base.nulling_provenance) == sum(
-        len(properties.join.output.row_shape.fields)
-        for properties in root.join_regions.properties.outputs
-    )
-    assert base.multifact_alignments.alignments == root.alignments
+    # The JOIN regions allocate nothing: the combined graph is the base plan's.
+    assert len(base.combined_reverse_uses) == len(structural.outputs)
+    assert len(base.combined_topological_order) == len(structural.nodes)
+    assert base.multifact_alignments.alignments == root.home_alignments
     assert len(base.fact_localities) == len(root.facts)
     assert len(root.home_localities) == len(root.facts)
     assert all(
-        entry.localities
-        == (
-            root.home_localities[position],
-            *(locality for locality in root.join_localities if locality.fact is fact),
-        )
-        for position, (entry, fact) in enumerate(
-            zip(base.fact_localities, root.facts, strict=True)
-        )
+        entry.localities == (root.home_localities[position],)
+        for position, entry in enumerate(base.fact_localities)
     )
     observed = product.inspection
     nulled = next(
@@ -387,7 +366,7 @@ def test_phase62_change_domains_derive_exact_invalidation_matrix() -> None:
     base_semantics = verification.assess_project_phase62_analysis_invalidation(
         (verification.ProjectPhase62ChangeDomain.BASE_SEMANTICS,)
     )
-    assert base_semantics.invalidated == all_kinds[3:]
+    assert base_semantics.invalidated == all_kinds[2:]
     alignment = verification.assess_project_phase62_analysis_invalidation(
         (verification.ProjectPhase62ChangeDomain.MULTIFACT_ALIGNMENT,)
     )

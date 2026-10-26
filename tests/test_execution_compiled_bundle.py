@@ -1528,7 +1528,8 @@ def test_compiled_any_values_preserve_selected_and_retained_lexical_occurrences(
     for join in (r for r in records.values() if r.address.kind == "join"):
         calls = wire.predicate_calls(records, join)
         if not calls:
-            assert wire.predicate_equalities(records, join) == ()
+            # `candidate.id == bounded.id`, written by hand.
+            assert len(wire.predicate_equalities(records, join)) == 1
             continue
         assert len(calls) == 2
         assert tuple(len(call.get("equalities")) for call in calls) == (1, 0)

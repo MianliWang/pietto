@@ -167,7 +167,7 @@ def test_predicate_and_extra_filter_are_separate_from_where(
     assert join.on is not None and len(view.filters) == 1
     assert view.filters[0].predicate is not join.on
     condition = join.source.condition
-    assert condition.base_guarantee is None and len(condition.mandatory_equalities) == 1
+    assert len(condition.mandatory_equalities) == 1
     assert len(view.single_matches) == 1
     obligation = view.single_matches[0]
     assert obligation.assessment.state is ProjectSingleMatchState.PROVED
@@ -205,7 +205,6 @@ def test_two_direct_boundaries_keep_complete_producers_and_independent_proofs(
     assert len(view.single_matches) == 2
     for position, obligation in enumerate(view.single_matches):
         assert obligation.request.scope is ProjectSingleMatchScope.DIRECT_BINARY
-        assert obligation.request.path is obligation.request.hop is None
         assert obligation.joins == (view.joins[position].ref,)
         assert obligation.input_pairs == (view.joins[position].inputs,)
         assert obligation.assessment is roots[0].single_matches.entries[position]

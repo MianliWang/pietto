@@ -108,7 +108,7 @@ def test_cli_text_emits_count_expression_sql(
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- aggregate_stats\n{expected_sql};\n"
 
 
 @pytest.mark.parametrize(
@@ -135,7 +135,7 @@ def test_cli_text_emits_grouped_count_expression_sql(
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- aggregate_stats\n{expected_sql};\n"
 
 
 @pytest.mark.parametrize(
@@ -232,7 +232,10 @@ def test_cli_text_output_writes_count_expression_sql_on_success(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
-    assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- aggregate_stats\n{expected_sql};\n"
+    )
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -290,7 +293,10 @@ def test_cli_json_output_writes_count_expression_sql_and_keeps_artifacts(
             "sql": expected_sql,
         }
     ]
-    assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- aggregate_stats\n{expected_sql};\n"
+    )
     assert not tuple(tmp_path.glob("*.tmp"))
 
 

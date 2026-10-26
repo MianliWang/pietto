@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import TypeGuard, cast
+from typing import Literal, TypeGuard, cast, overload
 
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
 from pietto.ast_nodes import (
@@ -25,9 +25,19 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    accepts_argument_form,
     child_expressions,
     contains_semantic_aggregate,
+    has_unknown_field_reference,
+    is_supported_semantic_aggregate_arity,
+    semantic_aggregate_result_value_type,
     semantic_aggregate_call_name,
+)
+from pietto.semantic.expressions import (
+    LetValues,
+    _aggregate_value_type,
+    _call_argument_types,
+    _reads_erroneous_let,
 )
 from pietto.semantic.generic_compatibility import (
     ConcreteTypeExpression,
@@ -43,6 +53,7 @@ from pietto.semantic.model import (
     RowSchema,
     TypeKind,
     ValueType,
+    ValueTypeKind,
 )
 from pietto.semantic.nullability_formulas import (
     NonNullFormula,
@@ -66,9 +77,11 @@ from pietto.semantic.window_semantics import (
     ResolvedNamedWindowNamespace,
     ResolvedNamedWindowUse,
     ValidatedWindowSpecification,
+    ValidatedFrame,
     WindowComputationAnalysis,
     WindowComputationUnsupported,
     WindowExpressionAnalysis,
+    AggregateWindowAnalysis,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowFunctionFramePolicy,
@@ -97,6 +110,7 @@ from pietto.semantic.window_navigation_analysis import (
     navigation_window_function_frame_policy,
     navigation_direction,
     resolve_window_function_modifiers,
+    window_function_modifier_error,
 )
 from pietto.semantic.window_order_analysis import bind_window_order_fields
 from pietto.semantic.window_partition_analysis import bind_window_partition_fields
@@ -250,6 +264,18 @@ def builtin_window_function_frame_policy(
     navigation_policy = navigation_window_function_frame_policy(identity)
     if navigation_policy is not None:
         matches = (*matches, navigation_policy)
+    if (
+        identity.namespace == ()
+        and identity.role is WindowFunctionRole.WINDOW_FUNCTION
+        and identity.name in {"sum", "count", "avg", "min", "max"}
+    ):
+        matches = (
+            *matches,
+            WindowFunctionFramePolicy(
+                identity=identity,
+                kind=WindowFunctionFramePolicyKind.FRAME_SENSITIVE,
+            ),
+        )
     if len(matches) > 1:
         raise ValueError("builtin frame policy identity must be unique")
     return matches[0] if matches else None
@@ -281,6 +307,7 @@ def _validate_recognized_window_specification(
     )
 
 
+@overload
 def analyze_window_expression(
     *,
     definition: TableDef | QueryDef,
@@ -296,7 +323,52 @@ def analyze_window_expression(
     named_window_namespace: ResolvedNamedWindowNamespace | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     let_extrema: bool = True,
-) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
+    allow_hidden: bool = False,
+    allow_aggregate_windows: Literal[False] = False,
+) -> WindowExpressionAnalysis | WindowExpressionUnsupported: ...
+
+
+@overload
+def analyze_window_expression(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
+    named_window_namespace: ResolvedNamedWindowNamespace | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    let_extrema: bool = True,
+    allow_hidden: bool = False,
+    allow_aggregate_windows: bool = False,
+) -> (
+    WindowExpressionAnalysis | AggregateWindowAnalysis | WindowExpressionUnsupported
+): ...
+
+
+def analyze_window_expression(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
+    named_window_namespace: ResolvedNamedWindowNamespace | None = None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+    let_extrema: bool = True,
+    allow_hidden: bool = False,
+    allow_aggregate_windows: bool = False,
+) -> WindowExpressionAnalysis | AggregateWindowAnalysis | WindowExpressionUnsupported:
     """Analyze one direct selected recognized window expression transiently.
 
     Without ``let_extrema``, as in a single file, a grouped input's `min` and
@@ -317,6 +389,8 @@ def analyze_window_expression(
         named_window_namespace=named_window_namespace,
         type_expansions=type_expansions,
         let_extrema=let_extrema,
+        allow_hidden=allow_hidden,
+        allow_aggregate_windows=allow_aggregate_windows,
     )
 
 
@@ -342,7 +416,9 @@ def _analyze_recognized_window_expression(
     named_window_namespace: ResolvedNamedWindowNamespace | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     let_extrema: bool = True,
-) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
+    allow_hidden: bool = False,
+    allow_aggregate_windows: bool = False,
+) -> WindowExpressionAnalysis | AggregateWindowAnalysis | WindowExpressionUnsupported:
     """Keep the selected-output API as a compatibility wrapper."""
 
     if type(definition) not in {TableDef, QueryDef}:
@@ -367,6 +443,19 @@ def _analyze_recognized_window_expression(
         selected_output_ordinal=selected_output_ordinal,
         span=source_expression.span,
     )
+    if source_expression.call.aggregate_order_by:
+        _append_call_diagnostic(
+            diagnostics,
+            source_expression.call,
+            code="PIE-S2104",
+            message="Internal ORDER BY is only supported by string_agg",
+        )
+        return WindowExpressionUnsupported(
+            occurrence=occurrence,
+            expression=source_expression,
+            identity=source_expression.identity,
+            reason="internal aggregate ORDER BY is not supported in a window",
+        )
     named_composition: ComposedNamedWindowUse | None = None
     if source_expression.use_kind is not WindowUseKind.INLINE:
         namespace = (
@@ -406,7 +495,7 @@ def _analyze_recognized_window_expression(
 
     admission: _WindowComputationAdmissionFailure | None = None
     input_scope = None
-    if item.alias is None:
+    if item.alias is None and not allow_hidden:
         admission = _WindowComputationAdmissionFailure(
             reason=(
                 f"{source_expression.identity.name} requires a direct selected "
@@ -466,6 +555,58 @@ def _analyze_recognized_window_expression(
                 code=None,
             )
 
+    if (
+        semantic_aggregate_call_name(source_expression.call)
+        in {
+            "sum",
+            "count",
+            "avg",
+            "min",
+            "max",
+        }
+        and allow_aggregate_windows
+    ):
+        aggregate_analysis = _analyze_aggregate_window_expression(
+            expression=source_expression,
+            occurrence=occurrence,
+            input_schema=input_schema
+            if input_scope is None
+            else input_scope.row_schema,
+            field_qualifier=field_qualifier,
+            value_types=value_types,
+            diagnostics=diagnostics,
+            aggregate_bare_value_types=(
+                let_value_types
+                if input_scope is None or input_scope.kind is WindowInputScopeKind.ROW
+                else input_scope.bare_value_types
+            ),
+            let_expressions=(
+                let_expressions
+                if input_scope is None or input_scope.kind is WindowInputScopeKind.ROW
+                else None
+            ),
+            allow_qualified_fields=(
+                True if input_scope is None else input_scope.allows_qualified_fields
+            ),
+            window_bare_value_types=(
+                let_value_types if input_scope is None else input_scope.bare_value_types
+            ),
+            named_composition=named_composition,
+            type_expansions=type_expansions,
+            admission_failure=admission,
+        )
+        if isinstance(aggregate_analysis, WindowComputationUnsupported):
+            return WindowExpressionUnsupported(
+                occurrence=occurrence,
+                expression=aggregate_analysis.expression,
+                identity=aggregate_analysis.identity,
+                reason=aggregate_analysis.reason,
+            )
+        assert isinstance(
+            aggregate_analysis, (AggregateWindowAnalysis, WindowExpressionUnsupported)
+        )
+        return aggregate_analysis
+
     computation = analyze_window_computation(
         expression=source_expression,
         input_schema=(input_schema if input_scope is None else input_scope.row_schema),
@@ -492,6 +633,242 @@ def _analyze_recognized_window_expression(
         )
     assert type(computation) is WindowComputationAnalysis
     return _window_expression_analysis_from_computation(occurrence, computation)
+
+
+def _analyze_aggregate_window_expression(
+    *,
+    expression: WindowExpr,
+    occurrence: WindowOccurrenceIdentity,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    aggregate_bare_value_types: Mapping[str, ValueType] | None,
+    let_expressions: Mapping[str, Expression] | None,
+    allow_qualified_fields: bool,
+    window_bare_value_types: Mapping[str, ValueType] | None,
+    named_composition: ComposedNamedWindowUse | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    admission_failure: _WindowComputationAdmissionFailure | None,
+) -> (
+    AggregateWindowAnalysis | WindowExpressionUnsupported | WindowComputationUnsupported
+):
+    """Admit one aggregate using the ordinary aggregate signature contract."""
+
+    name = semantic_aggregate_call_name(expression.call)
+    if expression.call.aggregate_order_by:
+        return _unsupported_computation(
+            expression=expression,
+            reason="internal aggregate ORDER BY is not supported in a window",
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message="Internal ORDER BY is only supported by string_agg",
+        )
+    if name == "string_agg":
+        return _unsupported_computation(
+            expression=expression,
+            reason="string_agg is not supported as a window function",
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message="Invalid window function string_agg",
+        )
+    assert name in {"sum", "count", "avg", "min", "max"}
+    if admission_failure is not None:
+        return (
+            _unsupported_computation(
+                expression=expression,
+                reason=admission_failure.reason,
+                diagnostics=diagnostics,
+                code=admission_failure.code,
+                message=admission_failure.message,
+            )
+            if admission_failure.code is not None
+            else WindowExpressionUnsupported(
+                occurrence=occurrence,
+                expression=expression,
+                identity=expression.identity,
+                reason=admission_failure.reason,
+            )
+        )
+    if not is_supported_semantic_aggregate_arity(name, len(expression.call.arguments)):
+        return _unsupported_computation(
+            expression=expression,
+            reason=f"{name} has unsupported argument arity",
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message=f"Invalid arguments for function {name}",
+        )
+    resolved_named_use: ResolvedNamedWindowUse | None = None
+    if named_composition is not None:
+        policy = builtin_window_function_frame_policy(expression.identity)
+        assert policy is not None
+        resolved_named_use = resolve_composed_named_window_use(
+            named_composition,
+            function_identity=expression.identity,
+            function_policy=policy,
+        )
+        expression = _effective_named_window_expression(resolved_named_use)
+    modifier_error = window_function_modifier_error(expression)
+    if modifier_error is not None:
+        return _unsupported_computation(
+            expression=expression,
+            reason=modifier_error,
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message=f"Invalid modifiers for function {name}: {modifier_error}",
+        )
+    argument_diagnostic_count = len(diagnostics)
+    argument_types, _ = _call_argument_types(
+        expression.call,
+        input_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=True,
+        field_qualifier=field_qualifier,
+        allow_aggregate_projection=True,
+        bare_value_types=aggregate_bare_value_types,
+        bare_value_expressions=let_expressions,
+        suppressed_unknown_names=None,
+        type_expansions=type_expansions,
+        relation_columns=None,
+    )
+    if any(item.kind is ValueTypeKind.UNKNOWN for item in argument_types):
+        argument = expression.call.arguments[0] if expression.call.arguments else None
+        explained = len(
+            diagnostics
+        ) > argument_diagnostic_count or _reads_erroneous_let(
+            expression.call,
+            input_schema,
+            let_expressions or {},
+            (
+                let_expressions.erroneous
+                if type(let_expressions) is LetValues
+                else set()
+            ),
+        )
+        if (
+            name == "count"
+            and not explained
+            and argument is not None
+            and has_unknown_field_reference(argument, value_types)
+            and accepts_argument_form(name, argument, let_expansions=let_expressions)
+        ):
+            result_type = semantic_aggregate_result_value_type(name)
+            assert result_type is not None
+        else:
+            return WindowExpressionUnsupported(
+                occurrence=occurrence,
+                expression=expression,
+                identity=expression.identity,
+                reason=f"{name} argument type is unavailable",
+            )
+    else:
+        result_type = _aggregate_value_type(
+            expression.call,
+            argument_types,
+            let_expansions=let_expressions,
+            row_schema=input_schema,
+            type_expansions=type_expansions,
+        )
+    if result_type is None:
+        return _unsupported_computation(
+            expression=expression,
+            reason=f"{name} has unsupported result contract",
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message=f"Invalid arguments for function {name}",
+        )
+    partition_expressions = expression.spec.partition_by
+    if any(
+        type(item) not in {NameExpr, DottedNameExpr} for item in partition_expressions
+    ):
+        return _unsupported_computation(
+            expression=expression,
+            reason="window partition expression must be a direct field",
+            diagnostics=diagnostics,
+        )
+    partition_bindings = bind_window_partition_fields(
+        partition_expressions=cast(
+            tuple[NameExpr | DottedNameExpr, ...], partition_expressions
+        ),
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+        bare_value_types=window_bare_value_types,
+        allow_qualified_fields=allow_qualified_fields,
+    )
+    if partition_bindings is None:
+        return WindowExpressionUnsupported(
+            occurrence=occurrence,
+            expression=expression,
+            identity=expression.identity,
+            reason="window partition field type must be concrete",
+        )
+    order_bindings = None
+    if expression.spec.order_by:
+        if any(
+            type(item) is not OrderItem
+            or type(item.expression) not in {NameExpr, DottedNameExpr}
+            for item in expression.spec.order_by
+        ):
+            return _unsupported_computation(
+                expression=expression,
+                reason="window order expression must be a direct field",
+                diagnostics=diagnostics,
+            )
+        bindings = bind_window_order_fields(
+            order_items=expression.spec.order_by,
+            input_schema=input_schema,
+            field_qualifier=field_qualifier,
+            value_types=value_types,
+            diagnostics=diagnostics,
+            bare_value_types=window_bare_value_types,
+            allow_qualified_fields=allow_qualified_fields,
+        )
+        if bindings is None:
+            return WindowExpressionUnsupported(
+                occurrence=occurrence,
+                expression=expression,
+                identity=expression.identity,
+                reason="window order field type must be concrete",
+            )
+        order_bindings = bindings
+    validation = _validate_recognized_window_specification(
+        expression, named_use=resolved_named_use
+    )
+    if type(validation) is WindowSpecificationValidationFailure:
+        return _unsupported_computation(
+            expression=expression,
+            reason="window frame validation failed",
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message=f"Invalid window frame for function {name}",
+        )
+    assert type(validation) is ValidatedWindowSpecification
+    assert type(validation.frame) is ValidatedFrame
+    result = WindowResultAvailability(
+        kind=WindowResultAvailabilityKind.CONCRETE, value_type=result_type
+    )
+    fact = WindowExpressionSemanticFact(
+        occurrence=occurrence,
+        expression=expression,
+        identity=expression.identity,
+        result=result,
+    )
+    return AggregateWindowAnalysis(
+        semantic_fact=fact,
+        partition_binding_fact=WindowPartitionBindingFact(
+            semantic_fact=fact, bindings=partition_bindings
+        ),
+        order_binding_fact=(
+            None
+            if order_bindings is None
+            else WindowOrderBindingFact(semantic_fact=fact, bindings=order_bindings)
+        ),
+        validated_specification=validation,
+        resolved_named_use=resolved_named_use,
+    )
 
 
 def analyze_window_computation(
@@ -790,6 +1167,7 @@ def analyze_window_computation(
             bare_value_types=bare_value_types,
             allow_qualified_fields=allow_qualified_fields,
             type_expansions=type_expansions,
+            computed_let_names=computed_let_names,
         )
         if type(frame_value_result) is WindowComputationUnsupported:
             return frame_value_result
@@ -819,6 +1197,7 @@ def analyze_window_computation(
             bare_value_types=bare_value_types,
             allow_qualified_fields=allow_qualified_fields,
             type_expansions=type_expansions,
+            computed_let_names=computed_let_names,
         )
         if type(navigation_result) is WindowComputationUnsupported:
             return navigation_result

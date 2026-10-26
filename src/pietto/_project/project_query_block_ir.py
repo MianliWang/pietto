@@ -19,11 +19,8 @@ from pietto._project.project_set_operations import ProjectSetOperandUse
 from pietto._project.project_single_match import (
     ProjectSingleMatchAssessment,
     ProjectSingleMatchProof,
-    ProjectSingleMatchProofKind,
     ProjectSingleMatchState,
 )
-from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
-from pietto._project.project_ir_joins import ProjectIRBinaryJoinOccurrence
 
 from pietto._project.project_query_block_ir_algebra import (
     ProjectIRComposedJoinPrefix,
@@ -145,10 +142,7 @@ from pietto._project.project_ir_construction import (
 from pietto._project.project_ir_evaluation_context import (
     ProjectIRGroupedEvaluationContext,
 )
-from pietto._project.project_ir_joins import (
-    ProjectIRConcreteJoinRegion,
-    ProjectIRJoinRegionStage,
-)
+from pietto._project.project_ir_joins import ProjectIRJoinRegionStage
 from pietto._project.project_ir_operators import (
     ProjectIRLogicalOperatorKind,
     ProjectIRLogicalOperatorOccurrence,
@@ -1840,16 +1834,8 @@ class ProjectIRQueryBlockStructuralExtension:
         ):
             if tuple(item.ref.position for item in values) != tuple(range(start, end)):
                 raise ValueError(f"Query-block {label} coordinates must be dense.")
-        available_nodes = {
-            *(self.base_plan.structural_stage.nodes),
-            *(self.join_stage.structural.nodes),
-            *self.nodes,
-        }
-        available_outputs = {
-            *(self.base_plan.structural_stage.outputs),
-            *(self.join_stage.structural.outputs),
-            *self.outputs,
-        }
+        available_nodes = {*(self.base_plan.structural_stage.nodes), *self.nodes}
+        available_outputs = {*(self.base_plan.structural_stage.outputs), *self.outputs}
         if (
             any(output.producer not in available_nodes for output in self.outputs)
             or any(slot.consumer not in self.nodes for slot in self.input_slots)
@@ -1864,7 +1850,7 @@ class ProjectIRQueryBlockStructuralExtension:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectIRSingleMatchProofImage:
     source: ProjectSingleMatchProof = field(repr=False)
-    boundaries: tuple[ProjectIRComposedJoin | ProjectIRBinaryJoinOccurrence, ...]
+    boundaries: tuple[ProjectIRComposedJoin, ...]
     producers: tuple[ProjectIRQueryBlockEntry, ...] = field(repr=False)
     premise_nodes: tuple[ProjectIRPlanNodeOccurrence, ...]
     children: tuple[ProjectIRSingleMatchProofImage, ...] = ()
@@ -1875,7 +1861,7 @@ class ProjectIRSingleMatchRetention:
     position: int
     assessment: ProjectSingleMatchAssessment = field(repr=False)
     owner_entry: ProjectIRQueryBlockEntry | None = field(repr=False)
-    boundaries: tuple[ProjectIRComposedJoin | ProjectIRBinaryJoinOccurrence, ...]
+    boundaries: tuple[ProjectIRComposedJoin, ...]
     proofs: tuple[ProjectIRSingleMatchProofImage, ...]
 
     @property
@@ -2208,7 +2194,6 @@ class ProjectIRQueryBlockSnapshot:
     grain_origins: ProjectIRQueryBlockGrainOriginExtension
     structural: ProjectIRQueryBlockStructuralExtension
     requirements: tuple[ProjectIRSingleMatchRetention, ...] = ()
-    retained_joins: tuple[ProjectIRComposedJoin, ...] = ()
     expression_uses: tuple[ProjectIRExpressionBlockUse, ...] = ()
     capture_uses: tuple[ProjectIRCaptureUse, ...] = ()
     captured_fields: tuple[ProjectIRCapturedField, ...] = ()
@@ -2908,7 +2893,11 @@ def _direct_source_position(
             elif type(expression) is DottedNameExpr:
                 definition = cast(TableDef | QueryDef, root.owner.definition)
                 if len(expression.parts) != 2 or (
-                    expression.parts[0] != definition.from_clause.source_name
+                    expression.parts[0]
+                    != (
+                        definition.from_clause.binding_name
+                        or definition.from_clause.source_name
+                    )
                 ):
                     return None
                 name = expression.parts[1]
@@ -3257,32 +3246,6 @@ def _owner_for_output(
     return matches[0] if matches else None
 
 
-def _stale_join_inputs(
-    *,
-    entry: ProjectCompletedEffectiveOutput,
-    owners: tuple[ProjectDeclarationOccurrence, ...],
-    pending_by_owner: dict[int, _PendingEntry],
-) -> tuple[ProjectIRJoinInputUseOccurrence, ...]:
-    root = entry.root
-    if type(root) is not ProjectConcreteJoinedQualify:
-        return ()
-    region = root.window_stage.input_aggregation.input_filter.joined_semantics.row_source.region
-    if type(region) is not ProjectIRConcreteJoinRegion:
-        raise ValueError("Joined completion requires one exact concrete JOIN region.")
-    region_nodes = tuple(join.node for join in region.joins)
-    stale: list[ProjectIRJoinInputUseOccurrence] = []
-    for join in region.joins:
-        for use in join.input_uses:
-            if any(use.output.producer is node for node in region_nodes):
-                continue
-            owner = _owner_for_output(owners, use.output)
-            active = None if owner is None else pending_by_owner.get(id(owner))
-            active_output = None if active is None else _pending_active_output(active)
-            if active_output is None or active_output.occurrence is not use.output:
-                stale.append(use)
-    return tuple(stale)
-
-
 def _historical_required_fields(
     entry: ProjectExistingEffectiveOutput,
 ) -> tuple[ProjectRowField, ...]:
@@ -3515,90 +3478,57 @@ def _build_pending_entries(
         elif type(semantic_entry) is ProjectCompletedEffectiveOutput:
             root = semantic_entry.root
             if type(root) is ProjectConcreteJoinedQualify:
-                current_regions = tuple(
+                # A joined tail reads its one current JOIN region: no authored
+                # JOIN joins by itself, so there is no historical region.
+                regions = tuple(
                     region
                     for region in overlay.current_regions
                     if region.ledger.owner is owner
                 )
-                stale = (
-                    ()
-                    if current_regions
-                    else _stale_join_inputs(
-                        entry=semantic_entry,
-                        owners=overlay.owners,
-                        pending_by_owner=pending_by_owner,
+                if len(regions) != 1:
+                    raise ValueError(
+                        "Composed JOIN requires one exact semantic region."
                     )
+                unavailable = tuple(
+                    pending_by_owner[id(d.target)]
+                    for d in semantic_entry.dependencies
+                    if _pending_active_output(pending_by_owner[id(d.target)]) is None
                 )
-                if current_regions or stale:
-                    regions = current_regions or tuple(
-                        region
-                        for region in verification.root.join_regions.regions
-                        if isinstance(region, ProjectIRConcreteJoinRegion)
-                        and region.ledger.owner is owner
-                    )
-                    if len(regions) != 1:
-                        raise ValueError(
-                            "Composed JOIN requires one exact semantic region."
-                        )
-                    unavailable = tuple(
-                        pending_by_owner[id(d.target)]
-                        for d in semantic_entry.dependencies
-                        if _pending_active_output(pending_by_owner[id(d.target)])
-                        is None
-                    )
-                    if unavailable:
-                        pending = _PendingTerminal(
-                            semantic_entry=semantic_entry,
-                            reason=ProjectIRQueryBlockTerminalReason.ACTIVE_INPUTS_IR_NON_CONCRETE,
-                            blocker=unavailable,
-                            allocation=current,
-                        )
-                    else:
-                        active = {
-                            identity: output
-                            for identity, item in pending_by_owner.items()
-                            if (output := _pending_active_output(item)) is not None
-                        }
-                        prefix = build_project_ir_join_prefix(
-                            completed,
-                            semantic_entry,
-                            regions[0],
-                            active,
-                            current,
-                            tuple(prefixes),
-                        )
-                        tail = _build_completed_structure(
-                            entry=semantic_entry,
-                            input_output=prefix.final_join.output,
-                            allocation=prefix.ending_allocation,
-                            source_owner=None,
-                            source_relational=None,
-                            dependency=None,
-                            authority=None,
-                            compatibility=None,
-                        )
-                        pending = replace(
-                            tail, starting_allocation=current, join_prefix=prefix
-                        )
-                        prefixes.append(prefix)
-                        current = pending.ending_allocation
-                else:
-                    bridge = root.window_stage.input_aggregation.input_filter.preservation.input_property_bridge
-                    input_output = bridge.relational.output
-                    if type(input_output) is not ProjectIRJoinRowOutput:
-                        raise ValueError(
-                            "Joined tail requires the exact Phase-62 JOIN output."
-                        )
-                    pending = _build_completed_structure(
-                        entry=semantic_entry,
-                        input_output=input_output,
+                if unavailable:
+                    pending = _PendingTerminal(
+                        semantic_entry=semantic_entry,
+                        reason=ProjectIRQueryBlockTerminalReason.ACTIVE_INPUTS_IR_NON_CONCRETE,
+                        blocker=unavailable,
                         allocation=current,
+                    )
+                else:
+                    active = {
+                        identity: output
+                        for identity, item in pending_by_owner.items()
+                        if (output := _pending_active_output(item)) is not None
+                    }
+                    prefix = build_project_ir_join_prefix(
+                        completed,
+                        semantic_entry,
+                        regions[0],
+                        active,
+                        current,
+                        tuple(prefixes),
+                    )
+                    tail = _build_completed_structure(
+                        entry=semantic_entry,
+                        input_output=prefix.final_join.output,
+                        allocation=prefix.ending_allocation,
                         source_owner=None,
-                        source_relational=bridge.relational,
+                        source_relational=None,
                         dependency=None,
                         authority=None,
                         compatibility=None,
                     )
+                    pending = replace(
+                        tail, starting_allocation=current, join_prefix=prefix
+                    )
+                    prefixes.append(prefix)
                     current = pending.ending_allocation
             elif type(root) is ProjectConcreteNoJoinReplay:
                 if len(semantic_entry.dependencies) != 1:
@@ -4867,7 +4797,6 @@ def build_project_query_block_ir(
         grain_origins=origins,
         structural=structural,
         requirements=_build_requirement_images(completed, entries),
-        retained_joins=_retain_historical_matches(completed, entries),
         expression_uses=expression_uses,
         capture_uses=capture_uses,
         captured_fields=captured_fields,
@@ -5147,12 +5076,6 @@ def _build_requirement_images(
         and entry.join_prefix is not None
         for join in entry.join_prefix.joins
     )
-    historical = tuple(
-        join
-        for region in completed.verification.root.join_regions.regions
-        if isinstance(region, ProjectIRConcreteJoinRegion)
-        for join in region.joins
-    )
     result: list[ProjectIRSingleMatchRetention] = []
     for position, assessment in enumerate(completed.single_matches.entries):
         owners = tuple(
@@ -5169,12 +5092,6 @@ def _build_requirement_images(
             matches = tuple(join for join in composed if join.source is original)
             if len(matches) == 1:
                 return matches[0]
-            if (
-                not matches
-                and isinstance(original, ProjectIRBinaryJoinOccurrence)
-                and any(original is join for join in historical)
-            ):
-                return original
             raise ValueError(
                 "Requirement boundary has no exact composed or retained image."
             )
@@ -5188,8 +5105,6 @@ def _build_requirement_images(
         ) -> ProjectIRSingleMatchProofImage:
             if not represented:
                 selected = ()
-            elif proof.kind is ProjectSingleMatchProofKind.WHOLE_PATH:
-                selected = boundaries
             else:
                 selected = tuple(
                     mapped
@@ -5197,11 +5112,7 @@ def _build_requirement_images(
                         assessment.joins, boundaries, strict=True
                     )
                     if any(
-                        root is original.input_uses[1]
-                        or isinstance(original, ProjectIRBinaryJoinOccurrence)
-                        and root is original.path_step
-                        or isinstance(original, ProjectCurrentBinaryJoin)
-                        and root is original.condition
+                        root is original.input_uses[1] or root is original.condition
                         for root in proof.roots
                     )
                 )
@@ -5261,76 +5172,6 @@ def _build_requirement_images(
             )
         )
     return tuple(result)
-
-
-def _retain_historical_matches(
-    completed: ProjectConcreteCompletedSemanticResult,
-    entries: tuple[ProjectIRQueryBlockEntry, ...],
-) -> tuple[ProjectIRComposedJoin, ...]:
-    values: list[ProjectIRComposedJoin] = []
-    conditions = completed.effective_outputs.operative_conditions
-    if conditions is None:
-        return ()
-    for entry in entries:
-        if (
-            not isinstance(entry, ProjectIRCompletedQueryBlockOutput)
-            or entry.join_prefix is not None
-            or not isinstance(entry.semantic_entry.root, ProjectConcreteJoinedQualify)
-        ):
-            continue
-        region = entry.semantic_entry.root.window_stage.input_aggregation.input_filter.joined_semantics.row_source.region
-        if not isinstance(region, ProjectIRConcreteJoinRegion):
-            raise ValueError(
-                "Historical matching retention requires an exact retained region."
-            )
-        outputs = tuple(join.output.occurrence for join in region.joins)
-        for join in region.joins:
-            matches = tuple(
-                c for c in conditions.entries if c.effective_use is join.use
-            )
-            properties = tuple(
-                p.relational
-                for p in completed.verification.root.join_regions.properties.outputs
-                if p.join is join
-            )
-            if len(matches) != 1 or len(properties) != 1:
-                raise ValueError(
-                    "Historical matching retention lost condition/property authority."
-                )
-            inputs: list[ProjectIRJoinInputCorrespondence] = []
-            for use, source in zip(
-                join.input_uses, (join.left_input, join.right_input), strict=True
-            ):
-                producers = tuple(
-                    e.owner
-                    for e in entries
-                    if not isinstance(e, ProjectIRQueryBlockTerminal)
-                    and e.active_output.occurrence is use.output
-                )
-                if not producers and any(use.output is output for output in outputs):
-                    producer = None
-                elif len(producers) == 1:
-                    producer = producers[0]
-                else:
-                    raise ValueError(
-                        "Historical match input is not an exact active producer."
-                    )
-                inputs.append(
-                    ProjectIRJoinInputCorrespondence(
-                        source=use, use=use, source_properties=source, producer=producer
-                    )
-                )
-            values.append(
-                ProjectIRComposedJoin(
-                    source=join,
-                    condition=matches[0],
-                    source_properties=properties[0],
-                    node=join.node,
-                    inputs=tuple(inputs),
-                    output=join.output,
-                )
-            )
-    return tuple(values)
 
 
 @dataclass(frozen=True, slots=True, eq=False)

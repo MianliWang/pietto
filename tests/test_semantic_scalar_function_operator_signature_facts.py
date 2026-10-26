@@ -150,6 +150,7 @@ def test_fixed_tail_key_encoding_preserves_identity_arity_result_and_nullability
             "Text",
             "Bool",
             "Date",
+            "Timestamp",
             "ValueTypeKind.KNOWN",
         }
         assert result_nullability in {"unknown", "non_null", "preserve_operand"}
@@ -194,6 +195,11 @@ def test_scalar_function_facts_cover_the_closed_builtin_catalog() -> None:
         ("Decimal", "sign", ("Int", "unknown")),
         *(("Timestamp", name, ("Int", "unknown")) for name in ("year", "month", "day")),
         *(("Date", name, ("Int", "unknown")) for name in ("year", "month", "day")),
+        ("Decimal", "round", ("Decimal", "unknown")),
+        ("Decimal", "round", ("Int", "Decimal", "unknown")),
+        ("Float", "round", ("Float", "unknown")),
+        ("Text", "date_trunc", ("Date", "Date", "unknown")),
+        ("Text", "date_trunc", ("Timestamp", "Timestamp", "unknown")),
         (
             "ValueTypeKind.KNOWN",
             "conditional",
@@ -351,16 +357,70 @@ def test_null_test_fact_is_exact(index: int, operation: str) -> None:
     )
 
 
-def test_explicit_int_to_float_conversion_is_the_only_closed_conversion_fact() -> None:
+def test_explicit_int_conversions_are_the_closed_conversion_facts() -> None:
     facts = _facts("_CONVERSION_FACTS")
-    assert len(facts) == 1
-    _assert_fact(
-        facts[0],
-        CapabilityDomain.CONVERSION,
-        "Int",
-        "cast",
-        ("Float", "unknown"),
+    assert len(facts) == 2
+    for fact, target in zip(facts, ("Float", "Text"), strict=True):
+        _assert_fact(
+            fact,
+            CapabilityDomain.CONVERSION,
+            "Int",
+            "cast",
+            (target, "unknown"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("subject", "operation", "operands"),
+    (
+        ("Decimal", "round", ("Decimal", "unknown")),
+        ("Decimal", "round", ("Int", "Decimal", "unknown")),
+        ("Float", "round", ("Float", "unknown")),
+        ("Text", "date_trunc", ("Date", "Date", "unknown")),
+        ("Text", "date_trunc", ("Timestamp", "Timestamp", "unknown")),
+    ),
+    ids=(
+        "decimal-round",
+        "decimal-round-scale",
+        "float-round",
+        "date-trunc-date",
+        "date-trunc-timestamp",
+    ),
+)
+def test_c5_scalar_function_fact_is_found(
+    subject: str, operation: str, operands: tuple[str, ...]
+) -> None:
+    fact = next(
+        item
+        for item in _facts("_SCALAR_FUNCTION_FACTS")
+        if (item.key.subject, item.key.operation, item.key.operands)
+        == (subject, operation, operands)
     )
+    _assert_fact(fact, CapabilityDomain.SCALAR_FUNCTION, subject, operation, operands)
+    assert _lookup(fact.key) == Found(fact)
+
+
+def test_c5_mysql_gaps_are_provenance_not_generic_fact_support() -> None:
+    scalar_facts = tuple(
+        fact
+        for fact in _facts("_SCALAR_FUNCTION_FACTS")
+        if fact.key.operation in {"round", "date_trunc"}
+    )
+    text_conversion = _facts("_CONVERSION_FACTS")[1]
+    for fact in (*scalar_facts, text_conversion):
+        backends = tuple(
+            item
+            for item in fact.evidence
+            if item.source is CapabilityEvidenceSource.BACKEND
+        )
+        assert tuple((item.dialect, item.backend) for item in backends) == (
+            ("postgresql", "postgresql"),
+            ("mysql", "private-mysql"),
+        )
+        assert tuple(item.reason for item in backends) == (
+            None,
+            CapabilityReasonCode.DIALECT_LOWERING_GAP,
+        )
 
 
 def test_scalar_catalog_excludes_aggregates_connectors_and_user_callables() -> None:
@@ -593,6 +653,13 @@ def test_signature_completeness_schemas_are_exact() -> None:
             operands=("Float", "unknown"),
             context="expression",
         ),
+        CapabilityKey(
+            CapabilityDomain.CONVERSION,
+            subject="Int",
+            operation="cast",
+            operands=("Text", "unknown"),
+            context="expression",
+        ),
     )
     assert all(_inputs(key)[1:] == (True, None) for key in complete_absences)
     incomplete = (
@@ -717,9 +784,36 @@ def test_incomplete_and_division_lookups_are_unknown_with_exact_reasons() -> Non
         ).key,
         dialect="mysql",
     )
+    float_round_mysql = CapabilityKey(
+        CapabilityDomain.SCALAR_FUNCTION,
+        subject="Float",
+        operation="round",
+        operands=("Float", "unknown"),
+        context="expression",
+        dialect="mysql",
+    )
+    date_trunc_mysql = CapabilityKey(
+        CapabilityDomain.SCALAR_FUNCTION,
+        subject="Text",
+        operation="date_trunc",
+        operands=("Date", "Date", "unknown"),
+        context="expression",
+        dialect="mysql",
+    )
+    text_conversion_mysql = CapabilityKey(
+        CapabilityDomain.CONVERSION,
+        subject="Int",
+        operation="cast",
+        operands=("Text", "unknown"),
+        context="expression",
+        dialect="mysql",
+    )
     expected = (
         (division, CapabilityReasonCode.NO_CURRENT_RESULT_RULE),
         (matches_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
+        (float_round_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
+        (date_trunc_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
+        (text_conversion_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
     )
     for key, reason in expected:
         _, complete, actual_reason = _inputs(key)

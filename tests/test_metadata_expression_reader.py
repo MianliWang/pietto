@@ -19,6 +19,7 @@ from pietto.ir import (
     TypeKindIR,
     TypeRefIR,
 )
+from pietto.ir.model import AggregateCallIR, OrderDirectionIR, OrderItemIR
 
 
 _SPAN = SourceSpan(
@@ -141,3 +142,27 @@ def test_metadata_reader_retains_nested_any_field_order_and_repetition() -> None
         ("records", "id", ("buyer",)),
         ("records", "order_id", ()),
     ]
+
+
+def test_metadata_reader_keeps_aggregate_order_keys_after_value_arguments() -> None:
+    text_type, int_type = _type("Text"), _type("Int")
+    aggregate = AggregateCallIR(
+        span=_SPAN,
+        value_type=TypeRefIR(
+            symbol=SymbolId(SymbolNamespace.TYPE, "Text"),
+            canonical_symbol=SymbolId(SymbolNamespace.TYPE, "Text"),
+            declared_name="Text",
+            canonical_name="Text",
+            kind=TypeKindIR.BUILTIN,
+            canonical_kind=TypeKindIR.BUILTIN,
+            nullability=NullabilityIR.NULLABLE,
+        ),
+        function="string_agg",
+        arguments=(_field("value", text_type), _field("delimiter", text_type)),
+        order_by=(
+            OrderItemIR(_field("first", int_type), OrderDirectionIR.DESC, _SPAN),
+            OrderItemIR(_field("second", int_type), OrderDirectionIR.ASC, _SPAN),
+        ),
+    )
+
+    assert _leaf_names(aggregate) == ["value", "delimiter", "first", "second"]

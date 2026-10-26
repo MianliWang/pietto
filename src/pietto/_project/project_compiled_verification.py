@@ -3,6 +3,8 @@
 from collections import Counter
 from typing import Any, cast
 
+from pietto.ast_nodes import CallExpr
+
 from pietto._project.project_verification_scope import once
 from pietto._project.project_compiled_schema import (
     BLOCK_READ_OPERATORS,
@@ -102,6 +104,9 @@ VALUES = frozenset(
         "set_value",
         "join_value",
     }
+)
+AGGREGATE_ROW_VALUES = frozenset(
+    {"literal", "null_literal", "parameter_read", "read", "operation"}
 )
 ROLES = frozenset(
     {
@@ -757,10 +762,8 @@ def verify_description(value: Description) -> None:
                 "RESULT_BOUNDARIES",
             )
         elif kind == "aggregate":
-            need(
-                get("risk_law") in (None, "current", "relationship"),
-                "AGGREGATE_RISK_LAW",
-            )
+            # Every JOIN is a current JOIN; no relationship law is compiled.
+            need(get("risk_law") in (None, "current"), "AGGREGATE_RISK_LAW")
             joins_here = tuple(
                 r
                 for r in records.values()
@@ -801,15 +804,95 @@ def verify_description(value: Description) -> None:
                 ),
                 "AGGREGATE_PORTS",
             )
-            reads = (*keys, *(records[a] for v in values for a in v.get("arguments")))
-            need(all(r.get("use") == use.address for r in reads), "AGGREGATE_SCOPE")
-        elif kind == "aggregate_value":
-            arguments = refs(get("arguments"), {"read"})
+
+            def same_preaggregate_scope(value):
+                if value.address.kind == "read":
+                    return value.get("use") == use.address
+                if value.address.kind in {"literal", "null_literal", "parameter_read"}:
+                    return True
+                if value.address.kind != "operation":
+                    return False
+                role, _token = value.get("operator")
+                if role not in {
+                    "unary",
+                    "not",
+                    "binary",
+                    "comparison",
+                    "null_test",
+                    "between",
+                    "conditional",
+                    "membership",
+                    "scalar_call",
+                    "cast",
+                }:
+                    return False
+                return all(
+                    same_preaggregate_scope(ref(operand, AGGREGATE_ROW_VALUES))
+                    for operand in value.get("operands")
+                )
+
+            reads = (
+                *keys,
+                *(records[a] for v in values for a in v.get("arguments")),
+                *(
+                    records[records[o].get("value")]
+                    for v in values
+                    for o in v.get("order_by")
+                ),
+            )
             need(
-                get("function")
-                in ("count", "count_distinct", "sum", "avg", "min", "max")
-                and len(arguments) <= 1
-                and (bool(arguments) or get("function") == "count"),
+                all(same_preaggregate_scope(value) for value in reads),
+                "AGGREGATE_SCOPE",
+            )
+        elif kind == "aggregate_value":
+            arguments = refs(get("arguments"), {"read", "literal", "null_literal"})
+            order_by = refs(get("order_by"), {"aggregate_order"})
+
+            def aggregate_row_value(value):
+                if value.address.kind == "read":
+                    return value.get("use") == use.address
+                if value.address.kind in {"literal", "null_literal", "parameter_read"}:
+                    return True
+                if value.address.kind != "operation":
+                    return False
+                role, _token = value.get("operator")
+                if role not in {
+                    "unary",
+                    "not",
+                    "binary",
+                    "comparison",
+                    "null_test",
+                    "between",
+                    "conditional",
+                    "membership",
+                    "scalar_call",
+                    "cast",
+                }:
+                    return False
+                return all(
+                    aggregate_row_value(ref(operand, AGGREGATE_ROW_VALUES))
+                    for operand in value.get("operands")
+                )
+
+            need(
+                type(order_by) is tuple
+                and all(
+                    item.get("direction") in {"asc", "desc"}
+                    and aggregate_row_value(
+                        ref(item.get("value"), AGGREGATE_ROW_VALUES)
+                    )
+                    for item in order_by
+                )
+                and (
+                    get("function") == "string_agg"
+                    and len(arguments) == 2
+                    and bool(order_by)
+                    or get("function")
+                    in ("count", "count_distinct", "sum", "avg", "min", "max")
+                    and len(arguments) <= 1
+                    and not order_by
+                    and (bool(arguments) or get("function") == "count")
+                ),
                 "AGGREGATE_SIGNATURE",
             )
         elif kind == "join":
@@ -820,9 +903,9 @@ def verify_description(value: Description) -> None:
                 "JOIN_KIND",
             )
             uses = refs(get("inputs"), {"use"})
+            # Every JOIN is a current JOIN; no relationship law is compiled.
             need(
-                get("law") in ("relationship", "current")
-                and type(get("source_positions")) is tuple,
+                get("law") == "current" and type(get("source_positions")) is tuple,
                 "JOIN_LAW",
             )
             need(
@@ -843,15 +926,6 @@ def verify_description(value: Description) -> None:
                 "JOIN_SOURCE_POSITIONS",
             )
             equalities = refs(get("equalities"), {"join_equality"})
-            need(
-                get("law") != "relationship"
-                or (
-                    get("kind") in ("inner", "left")
-                    and bool(positions)
-                    and bool(equalities)
-                ),
-                "JOIN_RELATIONSHIP_LAW",
-            )
             for equality in equalities:
                 need(
                     equality.get("owner") == record.address
@@ -1276,7 +1350,7 @@ def verify_description(value: Description) -> None:
                 "between": ({"between"}, 3),
                 "conditional": ({"if_else"}, 3),
                 "membership": ({"in", "not_in"}, None),
-                "cast": ({"int_to_float"}, 1),
+                "cast": ({"int_to_float", "int_to_text"}, 1),
                 "exists": ({"exists"}, None),
                 "scalar": ({"scalar"}, 0),
                 "relation_membership": ({"in", "not_in"}, 1),
@@ -1301,6 +1375,8 @@ def verify_description(value: Description) -> None:
                         "day",
                         "hour",
                         "minute",
+                        "round",
+                        "date_trunc",
                     },
                     None,
                 ),
@@ -1430,6 +1506,9 @@ def verify_description(value: Description) -> None:
             roots.append(record.get("predicate"))
         if kind == "aggregate_value":
             roots.extend(record.get("arguments"))
+            roots.extend(
+                records[order].get("value") for order in record.get("order_by")
+            )
     need(sum(costs[a] for a in roots) <= MAX_RECORDS, "EXPRESSION_EXPANSION")
     _verify_parameter_owners(records, entry)
     policy = records[Address("policy", 0)]
@@ -3116,7 +3195,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                     if role == "membership" and actual.original.expression.negated
                     else "in"
                     if role == "membership"
-                    else "int_to_float"
+                    else "int_to_" + actual.original.expression.target.name.lower()
                     if role == "cast"
                     else "if_else"
                     if role == "conditional"
@@ -3277,27 +3356,17 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 and len(record.get("equalities")) == len(unit.equalities),
                 "EXPORT_JOIN",
             )
-            from pietto._project.project_ir_joins import (
-                ProjectIRBinaryJoinOccurrence,
-                _source_slice_fields,
-            )
             from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
 
             actual_join = unit.join.source.source
-            if type(actual_join) is ProjectIRBinaryJoinOccurrence:
-                expected_law = "relationship"
-                positions = tuple(
-                    f.field_position for f in _source_slice_fields(actual_join)
-                )
-            else:
-                need(type(actual_join) is ProjectCurrentBinaryJoin, "EXPORT_JOIN_LAW")
-                expected_law = "current"
-                candidates = actual_join.condition.environment.source_candidates
-                positions = tuple(
-                    i
-                    for i, (binding, _) in enumerate(actual_join.left_fields)
-                    if len(candidates) == 1 and binding is candidates[0]
-                )
+            need(type(actual_join) is ProjectCurrentBinaryJoin, "EXPORT_JOIN_LAW")
+            expected_law = "current"
+            candidates = actual_join.condition.environment.source_candidates
+            positions = tuple(
+                i
+                for i, (binding, _) in enumerate(actual_join.left_fields)
+                if len(candidates) == 1 and binding is candidates[0]
+            )
             need(
                 record.get("law") == expected_law
                 and record.get("source_positions") == positions,
@@ -3613,12 +3682,33 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                     value.address.kind == "aggregate_value"
                     and value.get("function") == actual.function
                     and len(value.get("arguments"))
-                    == (0 if actual.argument is None else 1),
+                    == (
+                        0
+                        if actual.argument is None
+                        else 2
+                        if actual.function == "string_agg"
+                        else 1
+                    )
+                    and len(value.get("order_by")) == len(actual.order_by),
                     "EXPORT_AGGREGATE",
                 )
                 if actual.argument is not None:
                     check_scalar(
                         value.get("arguments")[0], actual.argument, producer, use
+                    )
+                if actual.delimiter is not None:
+                    check_scalar(
+                        value.get("arguments")[1], actual.delimiter, producer, use
+                    )
+                for order, address in zip(
+                    actual.order_by, value.get("order_by"), strict=True
+                ):
+                    need(
+                        records[address].get("direction") == order.direction,
+                        "EXPORT_AGGREGATE_ORDER",
+                    )
+                    check_scalar(
+                        records[address].get("value"), order.value, producer, use
                     )
             elif type(actual) is sql.RowValueColumn:
                 check_scalar(port.get("source"), actual.value, producer, use)
@@ -3673,25 +3763,17 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             from pietto._project.project_joined_aggregation import (
                 ProjectConcreteJoinedAggregation,
             )
-            from pietto._project.project_multifact import (
-                ProjectCurrentMultiFactRegion,
-                ProjectMultiFactConcreteRegion,
-            )
+            from pietto._project.project_multifact import ProjectCurrentMultiFactRegion
 
             authority = stage.aggregation.authority.source
             risk_law = None
             if type(authority) is ProjectConcreteJoinedAggregation:
                 region = authority.input_filter.joined_semantics.multifact_region
                 need(
-                    type(region)
-                    in (ProjectCurrentMultiFactRegion, ProjectMultiFactConcreteRegion),
+                    type(region) is ProjectCurrentMultiFactRegion,
                     "EXPORT_AGGREGATE_RISK_OWNER",
                 )
-                risk_law = (
-                    "current"
-                    if type(region) is ProjectCurrentMultiFactRegion
-                    else "relationship"
-                )
+                risk_law = "current"
             need(record.get("risk_law") == risk_law, "EXPORT_AGGREGATE_RISK_LAW")
             need(
                 type(stage) is grouping.AggregateStage
@@ -3757,7 +3839,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         if any(r.owner is owner for owner in reached_owners)
     )
     need(len(entry.get("requests")) == len(requests), "EXPORT_REQUESTS")
-    request_ids, use_ids, path_ids = {}, {}, {}
+    request_ids, use_ids = {}, {}
     for address, request in zip(entry.get("requests"), requests, strict=True):
         record = records[address]
         previous = request_ids.setdefault(id(request), address)
@@ -3809,68 +3891,10 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         )
         positions = tuple(i for i, c in enumerate(authority.entries) if c is condition)
         need(positions == (use.get("position"),), "EXPORT_REQUEST_ORDER")
-        path = condition.effective_use.path
-        need((use.get("path") is None) is (path is None), "EXPORT_REQUEST_PATH")
-        if path is not None:
-            previous_path = path_ids.setdefault(id(path), use.get("path"))
-            need(previous_path == use.get("path"), "EXPORT_PATH_ALIAS")
-            described_path = records[use.get("path")]
-            need(
-                len(described_path.get("steps")) == len(path.steps), "EXPORT_PATH_STEPS"
-            )
-            for step_address, step in zip(
-                described_path.get("steps"), path.steps, strict=True
-            ):
-                direction = step.guarantee.direction
-                declared = direction.declaration
-                need(
-                    records[step_address].values
-                    == (
-                        step.position,
-                        declared.module.path,
-                        declared.module_position,
-                        declared.relationship_position,
-                        direction.source.identity.endpoint_position,
-                        direction.target.identity.endpoint_position,
-                    ),
-                    "EXPORT_PATH_STEP",
-                )
-        need(
-            (record.get("path") is None) is (request.path is None),
-            "EXPORT_REQUEST_PATH_PRESENCE",
-        )
-        if request.path is not None:
-            need(
-                record.get("path") == path_ids[id(request.path)],
-                "EXPORT_REQUEST_PATH_IDENTITY",
-            )
-        if request.hop is None:
-            need(record.get("hop") is None, "EXPORT_REQUEST_HOP")
-        else:
-            from pietto._project.project_relationship_paths import (
-                ProjectRelationshipPathStep,
-            )
-            from pietto._project.project_relationship_uses import (
-                ProjectTraversalStepUse,
-            )
-
-            if type(request.hop) is ProjectRelationshipPathStep:
-                if request.path is None:
-                    raise CompiledError("COMPILED_EXPORT_REQUEST_HOP")
-                candidates = tuple(
-                    i for i, s in enumerate(request.path.steps) if s is request.hop
-                )
-                tag = "path_step"
-            else:
-                need(type(request.hop) is ProjectTraversalStepUse, "EXPORT_REQUEST_HOP")
-                candidates = tuple(
-                    i for i, s in enumerate(condition.use.step_uses) if s is request.hop
-                )
-                tag = "traversal_step"
-            need(
-                len(candidates) == 1 and record.get("hop") == (tag, candidates[0]),
-                "EXPORT_REQUEST_HOP",
-            )
+        # No JOIN is a relationship path: no use, request or hop names one.
+        need(use.get("path") is None, "EXPORT_REQUEST_PATH")
+        need(record.get("path") is None, "EXPORT_REQUEST_PATH_PRESENCE")
+        need(record.get("hop") is None, "EXPORT_REQUEST_HOP")
     policy = records[Address("policy", 0)]
     need(policy.get("guarded") is (guarded is not None), "EXPORT_GUARD_POLICY")
     if refinement is None:
@@ -4754,16 +4778,44 @@ def _verify_compiled_emission(artifact, request):
                     "EMISSION_AGGREGATE_VALUE",
                 )
                 arguments = value.get("arguments")
+                order_by = value.get("order_by")
                 need(
-                    (column.argument is None) == (not arguments),
+                    len(arguments)
+                    == (
+                        0
+                        if column.argument is None
+                        else 2
+                        if function == "string_agg"
+                        else 1
+                    )
+                    and len(order_by) == len(column.order_by),
                     "EMISSION_AGGREGATE_ARGUMENT",
                 )
                 if arguments:
                     scalar(column.argument, arguments[0], producer, use)
                     need(
-                        grouping.argument_problem(function, column.argument) is None,
+                        (
+                            grouping.string_agg_argument_problem(column.argument)
+                            is None
+                            and column.delimiter is not None
+                            and grouping.string_agg_argument_problem(column.delimiter)
+                            is None
+                            if function == "string_agg"
+                            else grouping.argument_problem(function, column.argument)
+                            is None
+                        ),
                         "EMISSION_AGGREGATE_ARGUMENT",
                     )
+                    if column.delimiter is not None:
+                        scalar(column.delimiter, arguments[1], producer, use)
+                    for order, address in zip(column.order_by, order_by, strict=True):
+                        need(
+                            records[address].get("direction") == order.direction,
+                            "EMISSION_AGGREGATE_ORDER",
+                        )
+                        scalar(
+                            order.value, records[address].get("value"), producer, use
+                        )
                 need(
                     column.argument_cast
                     == grouping.argument_cast(
@@ -4773,7 +4825,17 @@ def _verify_compiled_emission(artifact, request):
                 )
                 origin = column.column.aggregate
                 expected_inputs = (
-                    (column.argument.column.terminal,)
+                    tuple(
+                        terminal
+                        for current in (column.argument, column.delimiter)
+                        if current is not None
+                        for terminal in grouping._input_terminals(current)
+                    )
+                    + tuple(
+                        terminal
+                        for order in column.order_by
+                        for terminal in grouping._input_terminals(order.value)
+                    )
                     if arguments
                     else tuple(refs[p] for p in records[use].get("ports"))
                 )
@@ -6259,7 +6321,7 @@ def verify_logical_export(description, checked, references):
             expected = ("membership", "not_in" if original.expression.negated else "in")
             inputs = (original.value, *original.options)
         elif type(original) is scalar.ProjectSQLCast:
-            expected = ("cast", "int_to_float")
+            expected = ("cast", "int_to_" + original.expression.target.name.lower())
             inputs = (original.value,)
         elif type(original) is scalar.ProjectSQLRelationExists:
             expected, inputs = ("exists", "exists"), ()
@@ -6624,13 +6686,33 @@ def verify_logical_export(description, checked, references):
                     need(
                         value.address.kind == "aggregate_value"
                         and value.get("function") == function_name(item.source)
-                        and len(value.get("arguments")) == len(item.arguments),
+                        and len(value.get("arguments")) == len(item.arguments)
+                        and len(value.get("order_by")) == len(item.order_by),
                         "RETAINED_AGGREGATE_VALUE",
                     )
                     for address, ref in zip(
                         value.get("arguments"), item.arguments, strict=True
                     ):
                         expression(address, ref, input_uses)
+                    for position, (address, ref) in enumerate(
+                        zip(value.get("order_by"), item.order_by, strict=True)
+                    ):
+                        order = records[address]
+                        call = item.source.item.expression
+                        need(type(call) is CallExpr, "RETAINED_AGGREGATE_ORDER")
+                        if type(call) is not CallExpr:
+                            raise CompiledError("COMPILED_RETAINED_AGGREGATE_ORDER")
+                        authored = call.aggregate_order_by[position]
+                        need(
+                            order.get("direction")
+                            == (
+                                "asc"
+                                if authored.direction is None
+                                else authored.direction
+                            ),
+                            "RETAINED_AGGREGATE_ORDER",
+                        )
+                        expression(order.get("value"), ref, input_uses)
             elif block.kind.value == "window":
                 need(record.address.kind == "window", "RETAINED_WINDOW")
                 windows = tuple(w for w in plan.windows if w.block is block.ref)

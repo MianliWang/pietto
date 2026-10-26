@@ -139,6 +139,34 @@ def test_pipeline_emits_decimal_int_membership_as_written() -> None:
     assert result.diagnostics == ()
 
 
+def test_pipeline_emits_an_enum_label_list_as_written() -> None:
+    # `status in ("paid", "shipped")` checks like `status == "paid" or
+    # status == "shipped"`; PostgreSQL reads each label as the enum.
+    result = _compile_and_emit(
+        "enum Status: paid, shipped, open\n"
+        "shape Order:\n"
+        "    id: Int\n"
+        "    status: Status\n"
+        "    born: Date\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "table q:\n"
+        "    from orders\n"
+        '    where status in ("paid", "shipped")\n'
+        "    select:\n"
+        "        id\n"
+        '        later = born not in ("2020-01-01")\n'
+    )
+
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n"
+        '    "id" AS "id",\n'
+        '    "born" NOT IN (\'2020-01-01\') AS "later"\n'
+        'FROM "orders"\n'
+        "WHERE \"status\" IN ('paid', 'shipped')"
+    ]
+    assert result.diagnostics == ()
+
+
 def test_pipeline_refuses_null_arithmetic_and_read_null_outputs_on_postgresql() -> None:
     """PostgreSQL types an arithmetic from its operands and finds no operator
     when every one is an untyped NULL, and it makes an untyped NULL output a
@@ -190,16 +218,19 @@ def test_pipeline_refuses_null_arithmetic_and_read_null_outputs_on_postgresql() 
         for name, reason, line in (
             ("sums", "cannot type operator + when every operand is NULL", 4),
             ("signs", "cannot type operator - when every operand is NULL", 8),
-            (
-                "nothing",
-                "types a NULL output that another relation reads as text, "
-                "which Pietto leaves untyped",
-                12,
+            *(
+                (
+                    name,
+                    "types a NULL output that another relation reads as text, "
+                    "which Pietto leaves untyped",
+                    line,
+                )
+                # `later` defines `nothing`, the table it reads, as a CTE.
+                for name, line in (("nothing", 12), ("later", 18))
             ),
         )
     ]
     assert [artifact.sql for artifact in result.artifacts] == [
-        'SELECT\n    "c" AS "c"\nFROM "nothing"',
         'SELECT\n    "n" + NULL AS "e",\n    NULL AS "f"\nFROM "accts"',
     ]
 
@@ -212,7 +243,8 @@ def test_pipeline_refuses_read_outputs_whose_every_value_is_null_on_postgresql()
     `CASE WHEN "b" THEN NULL ELSE NULL END AS "v"` and `COALESCE(NULL, NULL)
     AS "c"` for a relation that another relation reads, whose `"v" + 1` then
     failed with `operator does not exist: text + integer`. One typed value
-    types them, and an output no relation reads emits as written."""
+    types them, and an output no relation reads emits as written. A relation
+    that reads one defines it as a CTE, so it is refused for the same reason."""
     result = _compile_and_emit(
         "shape S:\n"
         "    n: Int | None\n"
@@ -272,13 +304,17 @@ def test_pipeline_refuses_read_outputs_whose_every_value_is_null_on_postgresql()
             line,
             1,
         )
-        for name, line in (("cases", 5), ("coalesced", 9), ("nested", 13))
+        for name, line in (
+            ("cases", 5),
+            ("coalesced", 9),
+            ("nested", 13),
+            ("later", 24),
+            ("again", 28),
+            ("deeper", 32),
+        )
     ]
     assert [artifact.name for artifact in result.artifacts] == [
         "typed",
-        "later",
-        "again",
-        "deeper",
         "fine",
         "unread",
     ]
@@ -459,7 +495,7 @@ def test_artifacts_and_diagnostics_preserve_their_definition_order() -> None:
     assert result.diagnostics == ()
 
 
-def test_relation_dependency_uses_quoted_upstream_name_without_expansion() -> None:
+def test_relation_dependency_is_a_cte_with_the_quoted_upstream_name() -> None:
     result = _compile_and_emit(
         "shape Customer:\n"
         "    Email: Text\n"
@@ -478,6 +514,9 @@ def test_relation_dependency_uses_quoted_upstream_name_without_expansion() -> No
         "CustomerRows",
         "CustomerEmails",
     ]
+    assert result.artifacts[1].sql.startswith(
+        f'WITH "CustomerRows" AS (\n{result.artifacts[0].sql}\n)\nSELECT\n'
+    )
     assert result.artifacts[1].sql.endswith('FROM "CustomerRows"')
 
 

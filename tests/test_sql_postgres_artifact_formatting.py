@@ -89,6 +89,7 @@ def test_relation_dependency_uses_exact_quoted_upstream_name() -> None:
         "active_user_emails",
     ]
     assert result.artifacts[1].sql == (
+        'WITH "active_users" AS (\nSELECT\n    "email" AS "email"\nFROM "users"\n)\n'
         'SELECT\n    lower("email") AS "normalized_email"\nFROM "active_users"'
     )
 

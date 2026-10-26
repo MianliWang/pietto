@@ -258,7 +258,17 @@ def project_grouped_schema(
                     isinstance(item.expression, NameExpr)
                     and item.expression.name not in rejected_lets
                 ):
-                    diagnostics.append(_unknown_field_diagnostic(item.expression))
+                    diagnostics.append(
+                        _unknown_field_diagnostic(
+                            item.expression,
+                            grouped_let_select_hint(
+                                definition,
+                                item.expression.name,
+                                input_schema,
+                                let_expansions,
+                            ),
+                        )
+                    )
                 if output_name is not None:
                     fields[output_name] = _unknown_row_field(output_name)
                     grouped_order_outputs[output_name] = _GroupedOrderOutput(
@@ -321,7 +331,18 @@ def _resolve_group_keys(
         if identity is None:
             unknown_key_texts.add(_field_text(item.key))
             if not (isinstance(item.key, NameExpr) and item.key.name in rejected_lets):
-                diagnostics.append(_unknown_field_diagnostic(item.key))
+                computed = (
+                    isinstance(item.key, NameExpr)
+                    and grouped_let_value(
+                        definition, item.key.name, input_schema, let_expansions
+                    )
+                    == ""
+                )
+                diagnostics.append(
+                    _unknown_field_diagnostic(
+                        item.key, _COMPUTED_GROUP_KEY if computed else ""
+                    )
+                )
             continue
         field = input_schema.fields[identity]
         if identity in seen_identities:
@@ -437,6 +458,21 @@ def _aggregate_output_field(
         ):
             diagnostics.append(wrong_arity_diagnostic(expression))
         return _unknown_row_field(item.alias), diagnostics, False
+
+    if function_name == "string_agg" and expression_value_types is not None:
+        argument_types = tuple(
+            expression_value_types.get(argument) for argument in expression.arguments
+        )
+        if any(
+            value_type is None
+            or value_type.kind is not ValueTypeKind.KNOWN
+            or _canonical_value_type(
+                value_type, type_expansions, enum=True
+            ).resolved_type.name
+            != "Text"
+            for value_type in argument_types
+        ):
+            return _unknown_row_field(item.alias), diagnostics, False
 
     argument_type = None
     if expression.arguments:
@@ -1384,12 +1420,113 @@ def _unknown_row_field(name: str) -> RowField:
     )
 
 
-def _unknown_field_diagnostic(expression: NameExpr | DottedNameExpr) -> Diagnostic:
+def _unknown_field_diagnostic(
+    expression: NameExpr | DottedNameExpr, hint: str = ""
+) -> Diagnostic:
     name = _field_text(expression)
     return _diagnostic(
         expression,
         code="PIE-S2102",
-        message=f"Unknown field: {name}",
+        message=f"Unknown field: {name}" + (f"; {hint}" if hint else ""),
+    )
+
+
+_EXPLICIT_MODULES_PROJECT = "an EXPLICIT_MODULES project (schema version 2)"
+_COMPUTED_GROUP_KEY = (
+    "a query cannot group by a computed `let` value here yet: group by it in "
+    f"{_EXPLICIT_MODULES_PROJECT}"
+)
+
+
+def _let_value(name: str, lets: Mapping[str, Expression]) -> Expression | None:
+    """The value of the `let` ``name`` through the `let` names it reads."""
+
+    if name not in lets:
+        return None
+    seen = {name}
+    value = lets[name]
+    while type(value) is NameExpr and value.name in lets and value.name not in seen:
+        seen.add(value.name)
+        value = lets[value.name]
+    return value
+
+
+def grouped_let_value(
+    definition: DerivedRelation,
+    name: str,
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression] | None,
+) -> str | None:
+    """The input field that the `let` ``name`` names, through other `let`
+    names, as written (``orders.status``); "" when its value is computed;
+    None when ``name`` is no `let` or names no input field of the row, such as
+    an unknown name, which its binding reports."""
+
+    value = _let_value(name, let_expansions or {})
+    if value is None:
+        return None
+    if not isinstance(value, (NameExpr, DottedNameExpr)):
+        return ""
+    if _resolve_input_field(definition, value, input_schema) is not None:
+        return _field_text(value)
+    return None
+
+
+def _is_group_key(
+    definition: DerivedRelation,
+    name: str,
+    input_schema: RowSchema,
+    lets: Mapping[str, Expression],
+) -> bool:
+    """Whether a GROUP BY key names the `let` ``name`` or, when its value is
+    a field, that field (directly or through another `let`)."""
+
+    value = _let_value(name, lets)
+    identity = (
+        _field_identity(definition, value, input_schema)
+        if isinstance(value, (NameExpr, DottedNameExpr))
+        else None
+    )
+    assert definition.group_by_clause is not None
+    for item in definition.group_by_clause.items:
+        key = item.key
+        if type(key) is NameExpr and key.name == name:
+            return True
+        if type(key) is NameExpr and key.name in lets:
+            key = _let_value(key.name, lets)
+        if (
+            identity is not None
+            and isinstance(key, (NameExpr, DottedNameExpr))
+            and _field_identity(definition, key, input_schema) == identity
+        ):
+            return True
+    return False
+
+
+def grouped_let_select_hint(
+    definition: DerivedRelation,
+    name: str,
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression] | None,
+) -> str:
+    """What to write for a grouped `select` that reads the `let` name
+    ``name``, which only an explicit-module project's can, as a GROUP BY key;
+    that it is no GROUP BY key when none names it or its field; "" when
+    ``name`` is no `let`."""
+
+    value = grouped_let_value(definition, name, input_schema, let_expansions)
+    if value is None:
+        return ""
+    if not _is_group_key(definition, name, input_schema, let_expansions or {}):
+        return f"{name} is not a GROUP BY key"
+    if value:
+        return (
+            "a query with GROUP BY cannot select a `let` name here yet: "
+            f"write {value} in place of {name}"
+        )
+    return (
+        "a query with GROUP BY cannot select a computed `let` value here yet: "
+        f"group by it and select it in {_EXPLICIT_MODULES_PROJECT}"
     )
 
 

@@ -51,7 +51,10 @@ def _counted_builder(
         calls.append(Path(root))
         return _build_project_explain_runtime(root)
 
-    monkeypatch.setattr(cli, "_build_project_explain_runtime", build)
+    monkeypatch.setattr(
+        "pietto._project_explain.runtime_builder._build_project_explain_runtime",
+        build,
+    )
     return calls
 
 
@@ -182,7 +185,10 @@ def test_explain_parser_enforces_file_xor_project_and_exact_formats(
     def unexpected(_root: str | Path) -> ProjectExplainRuntimeBuildResult:
         raise AssertionError("parser/file mode must not enter project runtime")
 
-    monkeypatch.setattr(cli, "_build_project_explain_runtime", unexpected)
+    monkeypatch.setattr(
+        "pietto._project_explain.runtime_builder._build_project_explain_runtime",
+        unexpected,
+    )
     assert cli.main(["explain"]) == 2
     missing = capsys.readouterr()
     assert missing.out == ""

@@ -169,6 +169,7 @@ from pietto._project.project_relationship_predicates import (
     ProjectRelationshipPredicateExpression,
 )
 from pietto._project.project_join_conditions import (
+    ProjectJoinCondition,
     ProjectJoinConditionEquality,
     ProjectJoinConditionKeyMatch,
 )
@@ -278,7 +279,6 @@ class ProjectIRQueryBlockInspection:
     slice14_input_slots: tuple[ProjectIRInputSlotOccurrence, ...]
     slice14_uses: tuple[ProjectIRQueryBlockInspectionUse, ...]
     algebra_joins: tuple[ProjectIRComposedJoin, ...]
-    historical_matches: tuple[ProjectIRComposedJoin, ...]
     existence_uses: tuple[AnyUseInfo, ...]
     scalar_existence_uses: tuple[AnyValueInfo, ...]
     scalar_existence_values: tuple[ProjectAnyValue, ...]
@@ -526,8 +526,6 @@ def _scalar_existence_values(
                 retain(semantic.root.where.expression_analysis.existence_values)
         for selected in semantic.fields:
             retain(getattr(selected.source, "existence_values", ()))
-    for joined in root.retained_joins:
-        retain(joined.condition.environment.existence_values)
     uses = _scalar_existence_uses(root)
     result = tuple(
         value
@@ -540,6 +538,20 @@ def _scalar_existence_values(
             "Scalar ANY inspection lost canonical source occurrence authority."
         )
     return result
+
+
+def _recorded_predicate(
+    predicate: ProjectRelationshipPredicateExpression | None,
+) -> bool:
+    return predicate is not None and bool(predicate.calls or predicate.any_bindings)
+
+
+def _inspected_condition(condition: ProjectJoinCondition) -> bool:
+    """A JOIN condition with predicate uses or match equalities, which may be
+    hand-written ON conjuncts without any call."""
+    return _recorded_predicate(condition.environment.predicate_expression) or bool(
+        condition.mandatory_equalities
+    )
 
 
 def _predicate_expressions(
@@ -558,7 +570,7 @@ def _predicate_expressions(
         value
         for owner in root.owners
         for value in (*joined, *replayed)
-        if value.owner is owner and (value.calls or value.any_bindings)
+        if value.owner is owner and _recorded_predicate(value)
     )
     if len({(id(value.owner), id(value.context)) for value in result}) != len(result):
         raise ValueError(
@@ -620,28 +632,19 @@ def _runtime_sections(
         joined.condition
         for joined in sorted(
             (
-                *root.retained_joins,
-                *(
-                    joined
-                    for entry in completed
-                    if entry.join_prefix is not None
-                    for joined in entry.join_prefix.joins
-                ),
+                joined
+                for entry in completed
+                if entry.join_prefix is not None
+                for joined in entry.join_prefix.joins
             ),
             key=lambda joined: joined.node.ref.position,
         )
-        if joined.condition.environment.predicate_expression is not None
-        and (
-            joined.condition.environment.predicate_expression.calls
-            or joined.condition.environment.predicate_expression.any_bindings
-        )
+        if _inspected_condition(joined.condition)
     )
     base = root.base_plan.structural_stage
-    join = root.join_stage.structural
     values: dict[str, tuple[object, ...]] = {
         "owners": root.owners,
         "requirements": root.requirements,
-        "historical_matches": root.retained_joins,
         "existence_uses": _existence_uses(root),
         "scalar_existence_uses": _scalar_existence_uses(root),
         "scalar_existence_values": _scalar_existence_values(root),
@@ -671,14 +674,10 @@ def _runtime_sections(
         "terminal_blockers": tuple(entry.blocker for entry in terminals),
         "active_outputs": tuple(pair[0] for pair in active_pairs),
         "active_properties": tuple(pair[1] for pair in active_pairs),
-        "combined_nodes": (*base.nodes, *join.nodes, *root.structural.nodes),
-        "combined_outputs": (*base.outputs, *join.outputs, *root.structural.outputs),
-        "combined_input_slots": (
-            *base.input_slots,
-            *join.input_slots,
-            *root.structural.input_slots,
-        ),
-        "combined_uses": (*base.uses, *join.uses, *root.structural.uses),
+        "combined_nodes": (*base.nodes, *root.structural.nodes),
+        "combined_outputs": (*base.outputs, *root.structural.outputs),
+        "combined_input_slots": (*base.input_slots, *root.structural.input_slots),
+        "combined_uses": (*base.uses, *root.structural.uses),
         "slice14_nodes": root.structural.nodes,
         "slice14_outputs": root.structural.outputs,
         "slice14_input_slots": root.structural.input_slots,
@@ -1051,15 +1050,7 @@ def _entry_for_output(
     matches = tuple(
         entry
         for entry in inspection.entries
-        if (
-            _uses_flat_format(inspection)
-            and any(
-                match.output.occurrence is output
-                and match.condition.use.owner is entry.owner
-                for match in inspection.historical_matches
-            )
-        )
-        or any(
+        if any(
             properties.output.occurrence is output
             for properties in _entry_result_properties(entry)
         )
@@ -1087,15 +1078,7 @@ def _entry_for_use(
     matches = tuple(
         entry
         for entry in inspection.entries
-        if (
-            _uses_flat_format(inspection)
-            and any(
-                match.condition.use.owner is entry.owner
-                and any(use is item for item in match.input_uses)
-                for match in inspection.historical_matches
-            )
-        )
-        or any(edge.use is use for edge in _entry_relation_inputs(entry))
+        if any(edge.use is use for edge in _entry_relation_inputs(entry))
         or (
             type(entry) is ProjectIRReboundExistingOutput
             and any(
@@ -1336,8 +1319,6 @@ def _stage_for_node(
 ) -> str:
     if any(item is node for item in inspection.base_plan.structural_stage.nodes):
         return "phase61"
-    if any(item is node for item in inspection.join_stage.structural.nodes):
-        return "phase62"
     if any(item.node is node for item in inspection.algebra_joins):
         return "phase64"
     if any(item is node for item in inspection.slice14_nodes):
@@ -1387,8 +1368,6 @@ def _output_kind(
         return "relation_row"
     if any(item is output for item in inspection.base_plan.structural_stage.outputs):
         return "phase61_output"
-    if any(item is output for item in inspection.join_stage.structural.outputs):
-        return "phase62_output"
     owner = _entry_for_output(inspection, output)
     if type(owner) is ProjectIRReboundExistingOutput:
         return "rebound_auxiliary"
@@ -2778,7 +2757,8 @@ def _authored_text(value: object, module_path: str) -> str:
 
 
 def _predicate_records(inspection, records):
-    """Formal predicate-use and proof records, emitted only for actual calls."""
+    """Formal predicate-use and proof records, emitted only for actual calls
+    and match equalities."""
     K, D = ProjectQueryBlockIRRecordKind, ProjectQueryBlockIRPortableRefDomain
     text = project_query_block_ir_pure_text
     integer = project_query_block_ir_pure_integer
@@ -2807,20 +2787,9 @@ def _predicate_records(inspection, records):
         for i, value in enumerate(matches)
     }
     joined = tuple(
-        sorted(
-            (*inspection.historical_matches, *inspection.algebra_joins),
-            key=lambda value: value.node.ref.position,
-        )
+        sorted(inspection.algebra_joins, key=lambda value: value.node.ref.position)
     )
-    joined = tuple(
-        value
-        for value in joined
-        if value.condition.environment.predicate_expression is not None
-        and (
-            value.condition.environment.predicate_expression.calls
-            or value.condition.environment.predicate_expression.any_bindings
-        )
-    )
+    joined = tuple(value for value in joined if _inspected_condition(value.condition))
     input_keys = tuple(
         (value.condition, binding, properties, i, key)
         for value in joined
@@ -2975,7 +2944,14 @@ def _predicate_records(inspection, records):
             records,
             K.PREDICATE_JOIN,
             ("node", join_ref(condition)),
-            ("expression", reference(expression_refs[id(predicate)])),
+            (
+                "expression",
+                _optional_ref(
+                    expression_refs[id(predicate)]
+                    if _recorded_predicate(predicate)
+                    else None
+                ),
+            ),
             (
                 "equalities",
                 refs(
@@ -3067,7 +3043,7 @@ def _predicate_records(inspection, records):
 def _existence_records(inspection, records):
     """Project inter-JOIN authored filters and their actual generated stages."""
     K, D = ProjectQueryBlockIRRecordKind, ProjectQueryBlockIRPortableRefDomain
-    joins = (*inspection.historical_matches, *inspection.algebra_joins)
+    joins = inspection.algebra_joins
     for i, use in enumerate(inspection.existence_uses):
         owners = tuple(
             owner for owner in inspection.owners if owner.definition is use.owner
@@ -3538,10 +3514,7 @@ def _algebra_records(
     records: list[ProjectQueryBlockIRPureRecord],
 ) -> None:
     joins = tuple(
-        sorted(
-            (*inspection.historical_matches, *inspection.algebra_joins),
-            key=lambda item: item.node.ref.position,
-        )
+        sorted(inspection.algebra_joins, key=lambda item: item.node.ref.position)
     )
     for joined in joins:
         condition = joined.condition
@@ -3640,18 +3613,8 @@ def _algebra_records(
                     )
                 ),
             ),
-            (
-                "base",
-                project_query_block_ir_pure_texts(
-                    tuple(
-                        _authored_text(
-                            base.clause,
-                            base.relationship.occurrence.identity.module.path,
-                        )
-                        for base in condition.base_conditions
-                    )
-                ),
-            ),
+            # No JOIN matches by a relationship's own condition.
+            ("base", project_query_block_ir_pure_texts(())),
             ("references", project_query_block_ir_pure_texts(references)),
         )
     for joined in joins:
@@ -4694,14 +4657,6 @@ def _proof_root_data(
 ) -> dict[str, object]:
     from pietto._project.project_single_match import ProjectSingleMatchProof
     from pietto._project.project_completion import ProjectExistingEffectiveOutput
-    from pietto._project.project_relationship_paths import (
-        ProjectRelationshipPath,
-        ProjectRelationshipPathStep,
-    )
-    from pietto._project.project_relationship_match_guarantees import (
-        ProjectDirectionalRelationshipMatchGuarantee,
-        ProjectRefinedMatchBounds,
-    )
     from pietto._project.project_join_conditions import ProjectJoinCondition
     from pietto._project.project_final_outputs import (
         ProjectRelationLimit,
@@ -4712,7 +4667,6 @@ def _proof_root_data(
         ProjectConcreteJoinedAggregation,
     )
     from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
-    from pietto._project.project_ir_joins import ProjectIRBinaryJoinOccurrence
 
     data: dict[str, object] = {"kind": type(root).__name__}
     if isinstance(
@@ -4734,41 +4688,6 @@ def _proof_root_data(
             tuple(child.source for child in proof.children), root, "proof child"
         )
         data["proof_kind"] = root.kind.value
-    elif isinstance(root, ProjectRelationshipPath):
-        data["steps"] = [
-            _proof_root_data(step, requirement, proof, inspection)
-            for step in root.steps
-        ]
-    elif isinstance(root, ProjectRelationshipPathStep):
-        data["position"] = root.position
-        data["guarantee"] = _proof_root_data(
-            root.guarantee, requirement, proof, inspection
-        )
-    elif isinstance(root, ProjectRefinedMatchBounds):
-        data["base"] = _proof_root_data(root.base, requirement, proof, inspection)
-        data["maximum"] = root.maximum.value
-        data["minimum"] = root.minimum.value
-    elif isinstance(root, ProjectDirectionalRelationshipMatchGuarantee):
-        direction = root.direction
-        data.update(
-            {
-                "module": direction.declaration.module.path,
-                "relationship_position": direction.declaration.relationship_position,
-                "source_endpoint": direction.source.identity.endpoint_position,
-                "target_endpoint": direction.target.identity.endpoint_position,
-                "maximum": root.maximum.value,
-                "minimum": root.minimum.value,
-                "maximum_evidence": type(root.maximum_evidence).__name__,
-                "source_matched": [
-                    [field.field_position for field in group.members]
-                    for group in root.source_matched_classes
-                ],
-                "target_matched": [
-                    [field.field_position for field in group.members]
-                    for group in root.target_matched_classes
-                ],
-            }
-        )
     elif isinstance(root, ProjectJoinConditionKeyMatch):
         data["key_match"] = _position(
             inspection.predicate_key_matches, root, "predicate key match"
@@ -4802,14 +4721,8 @@ def _proof_root_data(
                 "clause": _authored_data(root.clause, root.owner.identity.module_path),
             }
         )
-    elif isinstance(root, (ProjectIRBinaryJoinOccurrence, ProjectCurrentBinaryJoin)):
-        matches = tuple(
-            join
-            for join in requirement.boundaries
-            if join is root
-            or isinstance(join, ProjectIRComposedJoin)
-            and join.source is root
-        )
+    elif isinstance(root, ProjectCurrentBinaryJoin):
+        matches = tuple(join for join in requirement.boundaries if join.source is root)
         data["nodes"] = [join.node.ref.position for join in matches]
     elif isinstance(root, ProjectIRJoinInputUseOccurrence):
         pairs = tuple(

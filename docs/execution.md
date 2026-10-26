@@ -331,14 +331,19 @@ input, even one read beside a physical source
 (`PUBLIC_R2_TABLE_FUNCTION_COORDINATE_BASIS`: a generated row has none
 either), then a query with an `exists`, `scalar` or `in` read, including such
 a read of a let with `capture` lines, with or without its ORDER BY and LIMIT,
-or with an `any` or `not any` test that is not a filter of a JOIN prefix (as a
-JOIN-prefix filter it is a JOIN; elsewhere it is such a read)
+or with an `any` or `not any` test that is not an AND-composed part of a
+WHERE, that reads a let with `capture` lines, or whose predicate reads a
+block (`exists`, `scalar`, `in` or another `any`)
 (`REFINEMENT_EXPRESSION_BLOCK_READ`), then a query with a JOIN that reads a
 let with `capture` lines LATERAL, with or without its ORDER BY and LIMIT
 (`REFINEMENT_LATERAL_JOIN`). These checks read the live query alone, so
 `recover` makes them in this order also when its restated `values` or
 `parameters` cannot bind. Ordinary execution on every route, an ordinary
 `save` and bundles accept them.
+A `where any(...)` or `where not any(...)` test, with or without a later JOIN,
+alone or AND-composed with other filters, refines as the semi or anti JOIN it
+stands for: R2 reads the tested source or relation through its own refined
+input, and the rows the test keeps keep their recovery coordinates.
 `save_recoverable(workspace, query, *, source_requirements, operation, route,
 access, premise, limits, isolation="stable", values=None, job=None,
 parameters=None) -> SaveReply` records R2 retention before progress. `recover(workspace, *, job,
@@ -1460,15 +1465,13 @@ or a successful semantic check alone establishes none of those premises.
   corresponding SQL operations and do not remove this boundary. An R2 attempt
   whose statement contains such an unsupported form fails closed at its first
   page.
-- `semi join` and `anti join` are retired; `where any(...)` and
-  `where not any(...)` replace them. A filter before a later JOIN is a
-  JOIN-prefix filter, which R2 treats as the JOIN it replaces. A trailing
-  `where any(...)` or `where not any(...)` after the last JOIN, including the
-  form that `pietto migrate` writes for a last `semi join` or `anti join`, is an
-  existence read, so `save_recoverable` and `recover` refuse it with
-  `PIE-R1004` (`REFINEMENT_EXPRESSION_BLOCK_READ`) where R2 accepted that last
-  JOIN. Ordinary execution, an ordinary `save` and bundles accept it. R2
-  support for a trailing correlated EXISTS is planned for a later release.
+- R2 refines a `where any(...)` or `where not any(...)` test, the rewrite of
+  a retired `semi join` or `anti join`, as the JOIN it replaces only when it
+  is an AND-composed part of a WHERE. `save_recoverable` and `recover` refuse
+  one under `or` or in a `select` item, one over a let with `capture` lines
+  and one whose predicate reads another block with `PIE-R1004`
+  (`REFINEMENT_EXPRESSION_BLOCK_READ`); ordinary execution, an ordinary `save`
+  and bundles accept them.
 - `cancel()` asks the route's control owner to cancel a running attempt and
   returns `None`; its `Outcome` keeps the observed cancellation, transaction and
   cleanup facts. A deadline and server-side statement limit remain separate, and

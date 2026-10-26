@@ -902,7 +902,7 @@ def test_nesting_accepted_before_the_layout_rules_still_parses(
 ) -> None:
     depth, build = _BASE_NESTING[shape]
     result = parse_source(_NESTING_POSITIONS[position](build(depth)))
-    assert result.diagnostics == () and result.ast is not None
+    _assert_parses(shape, result)
 
 
 # In an argument list the parser itself sets the limit; these are the depths a
@@ -951,7 +951,16 @@ def test_nesting_in_an_argument_list_still_parses(shape: str, position: str) -> 
     depth = _ARGUMENT_NESTING[position][shape]
     _, build = _BASE_NESTING[shape]
     result = parse_source(_ARGUMENT_POSITIONS[position](build(depth)))
-    assert result.diagnostics == () and result.ast is not None
+    _assert_parses(shape, result)
+
+
+def _assert_parses(shape: str, result: ParseResult) -> None:
+    # The minus signs of a unary nesting are written together, so they warn
+    # once that `--` is no comment (PIE-P1009).
+    assert [item.code for item in result.diagnostics] == (
+        ["PIE-P1009"] if shape == "unary" else []
+    )
+    assert result.ast is not None
 
 
 def test_recursion_exhaustion_is_reported_at_its_declaration() -> None:

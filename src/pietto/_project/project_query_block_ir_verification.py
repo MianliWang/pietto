@@ -28,15 +28,11 @@ from pietto._project.project_current_joins import (
 from pietto._project.project_query_block import ProjectCurrentJoinedRowSource
 from pietto._project.project_single_match import (
     ProjectSingleMatchProof,
-    ProjectSingleMatchProofKind,
     ProjectSingleMatchState,
 )
 
 from pietto._project.project_ir_joins import (
-    ProjectIRConcreteJoinRegion,
-    ProjectIRBinaryJoinOccurrence,
     ProjectIRJoinUnavailableProperty,
-    ProjectIRJoinOutputProperties,
 )
 
 
@@ -122,10 +118,7 @@ from pietto._project.project_ir_verification import (
     ProjectIRVerificationRequirement,
 )
 from pietto._project.project_phase62_verification import (
-    _verify_join_structural_endpoints,
     _comparison_valid,
-    _expected_join_effects,
-    ProjectPhase62VerificationIssue,
 )
 from pietto._project.project_joined_aggregation import (
     ProjectJoinedAggregationMode,
@@ -385,21 +378,9 @@ def _combined_parts(
     tuple[ProjectIRQueryBlockCombinedUse, ...],
 ]:
     return (
-        (
-            *root.base_plan.structural_stage.nodes,
-            *root.join_stage.structural.nodes,
-            *root.structural.nodes,
-        ),
-        (
-            *root.base_plan.structural_stage.outputs,
-            *root.join_stage.structural.outputs,
-            *root.structural.outputs,
-        ),
-        (
-            *root.base_plan.structural_stage.uses,
-            *root.join_stage.structural.uses,
-            *root.structural.uses,
-        ),
+        (*root.base_plan.structural_stage.nodes, *root.structural.nodes),
+        (*root.base_plan.structural_stage.outputs, *root.structural.outputs),
+        (*root.base_plan.structural_stage.uses, *root.structural.uses),
     )
 
 
@@ -988,7 +969,8 @@ def _capture_binding_name(dependency) -> str | None:
     if type(evidence) is ProjectRelationBindingOccurrence:
         return evidence.name
     if type(evidence) is ProjectResolvedModuleRelationReference:
-        return evidence.reference.from_clause.source_name
+        source = evidence.reference.from_clause
+        return source.binding_name or source.source_name
     return None
 
 
@@ -1705,20 +1687,16 @@ def _verify_structural_endpoints(
     nodes, outputs, uses = _combined_parts(root)
     slots = (
         *root.base_plan.structural_stage.input_slots,
-        *root.join_stage.structural.input_slots,
         *root.structural.input_slots,
     )
     # Each historical use reads exactly the output its Phase-62 owner names:
-    # a relation read its edge producer's root at the edge slot, an operator
-    # flow its previous operator's row and a JOIN input its retained input.
+    # a relation read its edge producer's root at the edge slot and an
+    # operator flow its previous operator's row.
     historical: list[ProjectIRVerificationIssue] = []
     _verify_cross_relation_endpoints(root.base_plan, historical)
     _verify_operator_flow(root.base_plan, historical)
-    joins: list[ProjectPhase62VerificationIssue] = []
-    _verify_join_structural_endpoints(root.completed.verification.root, joins)
     valid = (
         not historical
-        and not joins
         and len({node.ref for node in nodes}) == len(nodes)
         and len({output.ref for output in outputs}) == len(outputs)
         and len({slot.ref for slot in slots}) == len(slots)
@@ -1739,7 +1717,7 @@ def _verify_structural_endpoints(
         )
         and all(
             use.output.producer.ref.position < use.slot.consumer.ref.position
-            for use in (*root.join_stage.structural.uses, *root.structural.uses)
+            for use in root.structural.uses
         )
         and len({use.slot.ref for use in uses}) == len(uses)
     )
@@ -2052,7 +2030,9 @@ def _direct_query_input_position(
                 ):
                     return None
                 derived = cast(TableDef | QueryDef, definition)
-                if expression.parts[0] != derived.from_clause.source_name:
+                if expression.parts[0] != (
+                    derived.from_clause.binding_name or derived.from_clause.source_name
+                ):
                     return None
                 name = expression.parts[1]
             else:
@@ -3195,18 +3175,12 @@ def _check_current_join_properties(region) -> None:
     previous = None
     for join, properties in zip(region.joins, region.join_properties, strict=True):
         if (
-            type(properties)
-            is not (
-                ProjectCurrentJoinProperties
-                if type(join) is ProjectCurrentBinaryJoin
-                else ProjectIRJoinOutputProperties
-            )
+            type(properties) is not ProjectCurrentJoinProperties
             or properties.join is not join
             or properties.relational.output is not join.output
             or previous is not None
             and join.left_input is not previous.relational
-            or type(join) is ProjectCurrentBinaryJoin
-            and join.properties is not properties
+            or join.properties is not properties
             or not _property_shape_valid(properties.relational)
             or not _fd_index_valid(properties.relational)
         ):
@@ -3222,37 +3196,12 @@ def _check_current_join_properties(region) -> None:
         )
         if len(fields) != len(inputs):
             raise ValueError("Current JOIN must retain every surviving row occurrence.")
-        if type(join) not in {ProjectCurrentBinaryJoin, ProjectIRBinaryJoinOccurrence}:
+        if type(join) is not ProjectCurrentBinaryJoin:
             raise ValueError("Current region requires an exact binary JOIN variant.")
-        current = type(join) is ProjectCurrentBinaryJoin
-        rejected: set[tuple[int, int]] = set()
-        right_nulling: tuple[ProjectIRPlanNodeRef, ...] = ()
-        matched_left: set[int] = set()
-        matched_right: set[int] = set()
-        if current:
-            rejected = {
-                (id(proof.field.binding), id(proof.field.input_field))
-                for proof in join.condition.null_rejections
-            } | {
-                (id(item.binding), id(item.input_field))
-                for item in join.condition.legacy_matched_fields
-            }
-        elif type(join) is ProjectIRBinaryJoinOccurrence:
-            kind, fanout, survival, extension, barrier, right_nulling = (
-                _expected_join_effects(join)
-            )
-            if (
-                join.kind,
-                join.fanout,
-                join.survival,
-                join.null_extension,
-                join.outer_join_barrier,
-            ) != (kind, fanout, survival, extension, barrier):
-                raise ValueError(
-                    "Historical JOIN must retain its exact guaranteed effects."
-                )
-            matched_left = {pair.left.field_position for pair in join.matches}
-            matched_right = {pair.right.field_position for pair in join.matches}
+        rejected = {
+            (id(proof.field.binding), id(proof.field.input_field))
+            for proof in join.condition.null_rejections
+        }
         for position, (retained, incoming) in enumerate(
             zip(fields, inputs, strict=True)
         ):
@@ -3267,36 +3216,20 @@ def _check_current_join_properties(region) -> None:
                 nullability = previous_field.effective_nullability
             else:
                 introduction, nulling_refs = join.input_uses[1 if is_right else 0], ()
-            if current:
-                null_extended = join.kind in (
-                    {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
-                    if is_right
-                    else {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
-                )
-                if null_extended:
-                    nulling_refs = (*nulling_refs, join.node.ref)
-                binding, original = join.field_inputs[position]
-                nullability = resolved_join_field_nullability(
-                    join.kind,
-                    incoming.effective_nullability,
-                    bool(nulling_refs),
-                    (id(binding), id(original)) in rejected,
-                )
-            elif is_right:
-                nulling_refs = right_nulling
-                nullability = (
-                    ProjectRowFieldNullability.NULLABLE
-                    if right_nulling
-                    else ProjectRowFieldNullability.NON_NULL
-                    if position in matched_right
-                    else incoming.effective_nullability
-                )
-            elif (
-                join.kind.value == "inner"
-                and position in matched_left
-                and not nulling_refs
-            ):
-                nullability = ProjectRowFieldNullability.NON_NULL
+            null_extended = join.kind in (
+                {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
+                if is_right
+                else {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+            )
+            if null_extended:
+                nulling_refs = (*nulling_refs, join.node.ref)
+            binding, original = join.field_inputs[position]
+            nullability = resolved_join_field_nullability(
+                join.kind,
+                incoming.effective_nullability,
+                bool(nulling_refs),
+                (id(binding), id(original)) in rejected,
+            )
             if (
                 retained.field_position != position
                 or retained.evidence is not incoming.evidence
@@ -3455,8 +3388,6 @@ def _current_orphan_dependencies(aggregate, keys, region):
     groups = joined_aggregation._protection_members(
         tuple(key for key in keys if type(key) is ProjectJoinedGroupKeyOccurrence)
     )
-    leaf = joined_aggregation._namespace_leaf(input_filter, input_filter.namespace)
-    argument, where = aggregate.call.arguments[0], input_filter.where_clause
 
     def grouped_holder(target):
         return any(
@@ -3482,14 +3413,9 @@ def _current_orphan_dependencies(aggregate, keys, region):
             joined_aggregation._region_join(region.region, join)
             for join in region.region.joins
         ),
-        lambda nulls: (
-            joined_aggregation._null_when(argument, nulls, leaf)
-            or (
-                where is not None
-                and joined_aggregation._never(where.expression, True, nulls, leaf)
-            )
-        ),
+        joined_aggregation.current_unread(input_filter, aggregate.call.arguments[0]),
         grouped_holder,
+        joined_aggregation.current_held(input_filter),
     )
 
 
@@ -3755,12 +3681,7 @@ def _check_current_aggregate_result(result, readiness) -> None:
         if (
             len(link.multiplicity_exposures) != len(exposures)
             or any(
-                type(exposure)
-                is not (
-                    multifact.ProjectCurrentMultiplicityExposure
-                    if type(join) is ProjectCurrentBinaryJoin
-                    else multifact.ProjectFactMultiplicityExposure
-                )
+                type(exposure) is not multifact.ProjectCurrentMultiplicityExposure
                 or exposure.join is not join
                 or not _same_objects(exposure.factor_additions, factors)
                 for exposure, (join, factors) in zip(
@@ -4379,76 +4300,20 @@ def _verify_composed_joins(
         for join in prefix.joins
         for item in join.inputs
     }
-    historical_uses = root.join_stage.structural.uses
-    expected_historical = tuple(
-        join
-        for entry in root.entries
-        if isinstance(entry, ProjectIRCompletedQueryBlockOutput)
+    # Every joined tail reads a composed JOIN prefix: no authored JOIN joins
+    # by itself, so no historical JOIN is retained.
+    if any(
+        isinstance(entry, ProjectIRCompletedQueryBlockOutput)
         and entry.join_prefix is None
         and isinstance(entry.semantic_entry.root, ProjectConcreteJoinedQualify)
-        for join in entry.semantic_entry.root.window_stage.input_aggregation.input_filter.joined_semantics.row_source.region.joins
-    )
-    if len(root.retained_joins) != len(expected_historical) or any(
-        item.source is not original
-        or item.node is not original.node
-        or item.output is not original.output
-        or not _same_objects(
-            tuple(image.source for image in item.inputs), original.input_uses
-        )
-        or not _same_objects(item.input_uses, original.input_uses)
-        for item, original in zip(root.retained_joins, expected_historical, strict=True)
+        for entry in root.entries
     ):
         _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
-    operative = root.completed.effective_outputs.operative_conditions
-    for item, original in zip(root.retained_joins, expected_historical, strict=True):
-        conditions = (
-            ()
-            if operative is None
-            else tuple(
-                condition
-                for condition in operative.entries
-                if condition.effective_use is original.use
-            )
-        )
-        properties = tuple(
-            value.relational
-            for value in root.join_stage.properties.outputs
-            if value.join is original
-        )
-        valid = _same_objects(conditions, (item.condition,)) and _same_objects(
-            properties, (item.source_properties,)
-        )
-        for image, source in zip(
-            item.inputs, (original.left_input, original.right_input), strict=True
-        ):
-            producers = tuple(
-                entry.owner
-                for entry in root.entries
-                if not isinstance(entry, ProjectIRQueryBlockTerminal)
-                and entry.active_output.occurrence is image.use.output
-            )
-            internal = any(
-                image.use.output is join.output.occurrence
-                and join.node.ref.position < original.node.ref.position
-                for join in expected_historical
-            )
-            valid = (
-                valid
-                and image.source_properties is source
-                and (
-                    (len(producers) == 1 and image.producer is producers[0])
-                    or (not producers and internal and image.producer is None)
-                )
-            )
-        if not valid:
-            _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
     historical_refs = tuple(
         item.ref
         for items in (
             root.base_plan.structural_stage.nodes,
             root.base_plan.structural_stage.uses,
-            root.join_stage.structural.nodes,
-            historical_uses,
         )
         for item in items
     )
@@ -4478,15 +4343,9 @@ def _verify_composed_joins(
         ):
             _record(issues, ProjectIRQueryBlockVerificationIssueKind.JOIN_REUSE)
             continue
-        available_regions = regions or tuple(
-            region
-            for region in root.join_stage.regions
-            if isinstance(region, ProjectIRConcreteJoinRegion)
-            and region.ledger.owner is semantic.owner
-        )
         valid = (
-            len(available_regions) == 1
-            and prefix.region is available_regions[0]
+            len(regions) == 1
+            and prefix.region is regions[0]
             and len(prefix.joins)
             == len(prefix.region.joins)
             == len(entry.join_properties)
@@ -4593,21 +4452,12 @@ def _verify_composed_joins(
             conditions = tuple(
                 c
                 for c in operative.entries
-                if c.ledger is prefix.region.ledger
-                and (c.use is original.use or c.effective_use is original.use)
+                if c.ledger is prefix.region.ledger and c.use is original.use
             )
-            sources = (
-                tuple(
-                    p.relational
-                    for p in prefix.region.join_properties
-                    if p.join is original
-                )
-                if isinstance(prefix.region, ProjectCurrentJoinRegion)
-                else tuple(
-                    p.relational
-                    for p in root.join_stage.properties.outputs
-                    if p.join is original
-                )
+            sources = tuple(
+                p.relational
+                for p in prefix.region.join_properties
+                if p.join is original
             )
             valid = (
                 valid
@@ -4682,10 +4532,6 @@ def _verify_composed_joins(
                 strict=True,
             ):
                 introduction = use_images.get(id(old.introduction_use))
-                if introduction is None and any(
-                    old.introduction_use is use for use in historical_uses
-                ):
-                    introduction = old.introduction_use
                 nulling = tuple(
                     ref_images.get(
                         id(ref),
@@ -5072,12 +4918,6 @@ def _verify_single_match_retention(
     ) != len(source.entries):
         _record(issues, ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE)
         return
-    historical = tuple(
-        join
-        for region in root.join_stage.regions
-        if isinstance(region, ProjectIRConcreteJoinRegion)
-        for join in region.joins
-    )
     for position, (retained, assessment) in enumerate(
         zip(root.requirements, source.entries, strict=True)
     ):
@@ -5119,8 +4959,6 @@ def _verify_single_match_retention(
                 )
                 if len(candidates) == 1:
                     expected_boundaries.append(candidates[0])
-                elif not candidates and any(original is join for join in historical):
-                    expected_boundaries.append(original)
                 else:
                     valid = False
         valid = (
@@ -5139,25 +4977,18 @@ def _verify_single_match_retention(
                 return False
             selected = ()
             if represented:
-                if proof.kind is ProjectSingleMatchProofKind.WHOLE_PATH:
-                    selected = tuple(expected_boundaries)
-                else:
-                    selected = tuple(
-                        mapped
-                        for original, mapped in zip(
-                            assessment.joins, expected_boundaries, strict=True
-                        )
-                        if any(
-                            item is original.input_uses[1]
-                            or isinstance(original, ProjectIRBinaryJoinOccurrence)
-                            and item is original.path_step
-                            or isinstance(original, ProjectCurrentBinaryJoin)
-                            and item is original.condition
-                            for item in proof.roots
-                        )
+                selected = tuple(
+                    mapped
+                    for original, mapped in zip(
+                        assessment.joins, expected_boundaries, strict=True
                     )
-                    if len(selected) != 1:
-                        return False
+                    if any(
+                        item is original.input_uses[1] or item is original.condition
+                        for item in proof.roots
+                    )
+                )
+                if len(selected) != 1:
+                    return False
             producers = tuple(
                 entry
                 for item in proof.roots
@@ -5795,8 +5626,9 @@ def _compiled_join_inputs(root, operator, built):
             and any(set(k[0]) == set(matched[0]) for k in left_keys)
             and reverse
         )
-        # Modern key bounds come only from validated mandatory predicate-call
-        # comparisons. Keep these separate from the retained legacy equalities.
+        # Modern key bounds come only from the ON's positive equalities, written
+        # by hand or in a mandatory predicate call's body. Keep these separate
+        # from the retained legacy equalities.
         predicate_positions = (set(), set())
         for equality in predicate_equalities(records, record):
             operands = equality.get("operands")
@@ -5830,13 +5662,12 @@ def _compiled_join_inputs(root, operator, built):
 def compiled_join_property_signatures(root, operator, built):
     from pietto._project.project_compiled_verification import need
 
-    records, record = root.completed.root.records, operator.record
-    _uses, _parents, left, right, matched, forward, reverse = _compiled_join_inputs(
+    record = operator.record
+    _uses, _parents, left, right, _matched, forward, reverse = _compiled_join_inputs(
         root, operator, built
     )
     actual = operator.properties.relational
     kind = record.get("kind")
-    historical = record.get("law") == "relationship"
     left_only = kind in ("semi", "anti")
     offset = len(left.value_classes)
     classes = _class_signatures(left) + (
@@ -5875,11 +5706,7 @@ def compiled_join_property_signatures(root, operator, built):
     left_keys = mapped_keys(left, 0, left_null)
     right_keys = () if left_only else mapped_keys(right, offset, right_null)
     candidates = list(left_keys) if left_only or forward else []
-    if (
-        not left_only
-        and reverse
-        and (not historical or any(set(k[0]) == set(matched[0]) for k in left_keys))
-    ):
+    if not left_only and reverse:
         candidates.extend(right_keys)
     if not left_only:
         for lhs, rhs in ((a, b) for a in left_keys for b in right_keys):
@@ -5915,9 +5742,7 @@ def compiled_join_property_signatures(root, operator, built):
                 )
                 for i in determinants
             )
-            if weaken and (
-                (not historical and kind in ("right", "full")) or not non_null
-            ):
+            if weaken and (kind in ("right", "full") or not non_null):
                 strength = ProjectRowUniquenessStrength.LAX
             item = (
                 tuple(i + shift for i in determinants),
@@ -5926,56 +5751,6 @@ def compiled_join_property_signatures(root, operator, built):
             )
             if item not in fds:
                 fds.append(item)
-    if historical:
-        left_match = matched[0]
-        right_match = tuple(i + offset for i in matched[1])
-        source_slice = tuple(
-            i
-            for i, c in enumerate(actual.value_classes)
-            if any(
-                m.field_position in record.get("source_positions") for m in c.members
-            )
-        )
-        if forward and left_match and right.value_classes:
-            fds.append(
-                (
-                    left_match,
-                    tuple(range(offset, len(classes))),
-                    ProjectRowUniquenessStrength.STRICT,
-                )
-            )
-        if reverse and right_match and source_slice:
-            fds.append(
-                (
-                    right_match,
-                    source_slice,
-                    ProjectRowUniquenessStrength.LAX
-                    if right_null
-                    else ProjectRowUniquenessStrength.STRICT,
-                )
-            )
-        if kind == "inner" or not right_null:
-            for equality in record.get("equalities"):
-                pairs = []
-                for side, parent in enumerate((left, right)):
-                    read = records[
-                        records[equality].get("left" if side == 0 else "right")
-                    ]
-                    position = records[read.get("port")].get("ordinal")
-                    pairs.append(
-                        next(
-                            i
-                            for i, c in enumerate(parent.value_classes)
-                            if any(m.field_position == position for m in c.members)
-                        )
-                        + (offset if side else 0)
-                    )
-                fds.extend(
-                    (
-                        ((pairs[0],), (pairs[1],), ProjectRowUniquenessStrength.STRICT),
-                        ((pairs[1],), (pairs[0],), ProjectRowUniquenessStrength.STRICT),
-                    )
-                )
     for determinants, strength in keys:
         dependent = tuple(i for i in range(len(classes)) if i not in determinants)
         if dependent:
@@ -5988,11 +5763,11 @@ def verify_compiled_join_grain(root, operator, built):
     from pietto._project.project_grain import CompiledGrainFactorIdentity
 
     refs, record = root.references, operator.record
-    uses, parents, left, right, _matched, forward, reverse = _compiled_join_inputs(
+    uses, _parents, left, right, _matched, forward, reverse = _compiled_join_inputs(
         root, operator, built
     )
     actual = operator.properties.relational.grain
-    kind, historical = record.get("kind"), record.get("law") == "relationship"
+    kind = record.get("kind")
     left_only = kind in ("semi", "anti")
     named_left = uses[0].get("producer").kind != "join"
     left_nulling = (operator.ref,) if kind in ("right", "full") else ()
@@ -6012,20 +5787,12 @@ def verify_compiled_join_grain(root, operator, built):
             position += 1
             need(type(new) is CompiledGrainFactorIdentity, "PROPERTY_JOIN_FACTOR_TYPE")
             old_join = old.base is not None
-            reuse = (
-                side == 0
-                and old_join
-                and (historical or not named_left)
-                and not left_nulling
-            )
+            reuse = side == 0 and old_join and not named_left and not left_nulling
             if reuse:
                 need(new is old, "PROPERTY_JOIN_FACTOR_REUSE")
             else:
                 keep_intro = (
-                    side == 0
-                    and old_join
-                    and bool(left_nulling)
-                    and (historical or not named_left)
+                    side == 0 and old_join and bool(left_nulling) and not named_left
                 )
                 introduction = (
                     old.introduction_use if keep_intro else refs[uses[side].address]
@@ -6039,9 +5806,7 @@ def verify_compiled_join_grain(root, operator, built):
                     if side == 0
                     else right_nulling
                 )
-                source = (
-                    old if old_join and (not historical or bool(left_nulling)) else None
-                )
+                source = old if old_join else None
                 need(
                     new.base is (old.base if old_join else old)
                     and new.introduction_use is introduction
@@ -6065,15 +5830,6 @@ def verify_compiled_join_grain(root, operator, built):
             for d in parent.grain.dependencies
         )
     source_active = left_active
-    if historical and not named_left:
-        introduction = (
-            parents[0].fields[record.get("source_positions")[0]].fact.introduction
-        )
-        source_active = tuple(
-            images[0][f]
-            for f in left.grain.active
-            if f.introduction_use is refs[introduction]
-        )
     # No left-to-right edge when the JOIN NULL-extends its left side.
     if (
         not left_only
@@ -6091,7 +5847,7 @@ def verify_compiled_join_grain(root, operator, built):
         and source_active
     ):
         edges.append((right_active, source_active))
-    if not historical and not reverse and not right_nulling and right_active:
+    if not reverse and not right_nulling and right_active:
         from pietto._project.project_current_joins import compiled_local_reverse_sources
 
         for source in compiled_local_reverse_sources(

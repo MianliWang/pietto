@@ -443,17 +443,18 @@ pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 ```
 
 stdout still contains the complete JSON result, including generated
-`artifacts`. The output file receives raw SQL artifact text, not JSON and not
-plain-text presentation escaping. The output file is UTF-8 with LF line
-endings on every platform; text stdout keeps the platform's newline
+`artifacts`. The output file receives the SQL text that text mode writes, not
+JSON and not plain-text presentation escaping. The output file is UTF-8 with
+LF line endings on every platform; text stdout keeps the platform's newline
 convention.
 
 Text mode (without `--format json`) writes the same SQL text to stdout or to
-the `--output` file: the artifact SQL bodies in backend order, separated by
-one blank line, followed by one final newline. It carries no artifact names,
-kinds, or statement terminators; `--format json` is the channel for artifact
-identity. When the backend reports errors, text stdout may contain only the
-artifacts the backend still returned, and the command exits `1`.
+the `--output` file: for each artifact in backend order, a `-- <name>` line
+with the artifact `name`, then its SQL followed by `;`, the artifacts separated
+by one blank line, followed by one final newline. A JSON artifact's `sql` is
+the SQL alone, without the name line or `;`. When the backend reports errors,
+text stdout may contain only the artifacts the backend still returned, and the
+command exits `1`.
 
 The implemented outcomes are:
 

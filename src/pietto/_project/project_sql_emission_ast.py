@@ -8,6 +8,7 @@ from typing import Any, cast
 from pietto.ast_nodes import AuthoredJoinKind, SourceDef, ValuesRelationDef
 
 from pietto._project import project_sql_plan_expressions as row
+from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_sql_emission_scopes import (
     ScopeDefinition,
@@ -533,12 +534,9 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
     if (
         not admitted
         and not refused
-        and (
-            admitted_row_shape(plan)
-            or joining.admitted_join_shape(plan, _guarded=_guarded)
-        )
+        and (admitted_row_shape(plan) or joining.admitted_join_shape(plan))
     ):
-        realization = realize_rows(request, _guarded=_guarded)
+        realization = realize_rows(request)
         result.extend(realization.problems)
     elif not admitted and not refused:
         shape_start = len(result)
@@ -1084,6 +1082,7 @@ def ordered_inline_read_blockers(plan, family):
 
 ADMITTED_STAGE_EXPRESSIONS = (
     *ADMITTED_EXPRESSIONS,
+    plan_aggregation.ProjectSQLAggregateArgumentCall,
     grouping.ProjectSQLResultReference,
     plan_windows.ProjectSQLWindowReference,
 )
@@ -1347,7 +1346,6 @@ def _join_input(
     join_inputs,
     join_ports,
     *,
-    _guarded=None,
     inline=None,
 ):
     """One JOIN input relation and the exact pre-match column it publishes.
@@ -1430,78 +1428,6 @@ def _join_input(
                 reads.append(
                     replace(column, position=position, name=f"c{position}", scope=alias)
                 )
-    elif joining.guarded_path_input(_guarded, request.plan, original):
-        (definition,) = tuple(
-            d for d in request.plan.bindings.definitions if d.ref is original.producer
-        )
-        if original.producer in source_refs:
-            source = source_refs[original.producer]
-            matches = tuple(
-                s for s in request.sources if s.owner is source.source.owner
-            )
-            if len(matches) != 1:
-                return None, ("PIE-B1001", "source_mapping_missing", source.ref, None)
-            producer, source_ref = matches[0], source.ref
-            for position, export in enumerate(definition.exports):
-                fields = tuple(f for f in producer.fields if f.field is export.field)
-                if len(fields) != 1:
-                    return None, (
-                        "PIE-B1001",
-                        "guarded_path_source_field",
-                        original.ref,
-                        None,
-                    )
-                realization = rows.field_realization(fields[0])
-                if realization is None:
-                    return None, (
-                        "PIE-B1004",
-                        "join_input_field_representation_missing",
-                        original.ref,
-                        None,
-                    )
-                reads.append(
-                    rows.StageColumn(
-                        position,
-                        fields[0].column,
-                        export.ref,
-                        realization,
-                        field=fields[0],
-                        source_port=export.ref,
-                        scope=alias,
-                    )
-                )
-        else:
-            producer = by_definition.get(original.producer)
-            if producer is None:
-                return None, (
-                    "PIE-B1001",
-                    "named_producer_not_realized",
-                    original.ref,
-                    None,
-                )
-            (layout,) = tuple(
-                d for d in request.layout.definitions if d.original is definition
-            )
-            if len(layout.terminals) != len(producer.columns):
-                return None, ("PIE-B1001", "guarded_path_terminal", original.ref, None)
-            for position, (column, terminal) in enumerate(
-                zip(producer.columns, layout.terminals, strict=True)
-            ):
-                if column.column.terminal is not terminal.ref:
-                    return None, (
-                        "PIE-B1001",
-                        "guarded_path_terminal",
-                        original.ref,
-                        None,
-                    )
-                reads.append(
-                    replace(
-                        column.column,
-                        position=position,
-                        name="c" + str(position),
-                        scope=alias,
-                    )
-                )
     else:
         producer = by_join.get(original.predecessor)
         if producer is None:
@@ -1563,7 +1489,6 @@ def _join_body(
     equalities,
     uses,
     *,
-    _guarded=None,
     lateral=None,
 ):
     """Realize one JOIN occurrence as its own closed generated SELECT.
@@ -1588,7 +1513,6 @@ def _join_body(
             by_join,
             join_inputs,
             join_ports,
-            _guarded=_guarded,
             inline=inline,
         )
         if value is None:
@@ -1751,7 +1675,7 @@ def _join_node_count(unit) -> int:
     return total
 
 
-def realize_rows(request, *, _guarded=None):
+def realize_rows(request):
     """Realize every stage body once; construction and checking share this walk."""
     plan = request.plan
     family = request.family
@@ -2543,7 +2467,6 @@ def realize_rows(request, *, _guarded=None):
                 join_ports,
                 equalities,
                 uses,
-                _guarded=_guarded,
                 lateral=_lateral_input,
             )
             if unit is None:
@@ -3034,6 +2957,10 @@ def _row_body_requirements(request, body, naming):
             )
             if column.argument is not None:
                 result.extend(value_requirements(request, column.argument))
+            if column.delimiter is not None:
+                result.extend(value_requirements(request, column.delimiter))
+            for order in column.order_by:
+                result.extend(value_requirements(request, order.value))
             continue
         if type(column) is grouping.AggregateProjectionColumn:
             result.append(
@@ -3190,6 +3117,9 @@ def row_parameter_leaves(query):
                     and column.argument is not None
                 ):
                     values.append(column.argument)
+                    if column.delimiter is not None:
+                        values.append(column.delimiter)
+                    values.extend(order.value for order in column.order_by)
                 elif type(column) is windowing.WindowColumn:
                     values.extend(column.arguments)
             if body.predicate is not None:
@@ -3257,6 +3187,9 @@ def row_value_roots(query):
                 and column.argument is not None
             ):
                 result.append(column.argument)
+                if column.delimiter is not None:
+                    result.append(column.delimiter)
+                result.extend(order.value for order in column.order_by)
             elif type(column) is windowing.WindowColumn:
                 result.extend(column.arguments)
         if body.predicate is not None:

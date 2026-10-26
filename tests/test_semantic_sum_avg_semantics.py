@@ -251,7 +251,7 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             (
                 "PIE-S2103",
                 "Unknown function: median; the available aggregates are avg, "
-                "count, count_distinct, max, min and sum",
+                "count, count_distinct, max, min, string_agg and sum",
             ),
         ),
     ],

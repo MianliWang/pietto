@@ -13,7 +13,6 @@ from pietto._project.project_current_join_inputs import (
 from pietto._project.project_grain import (
     ProjectCompositeGrainOriginAuthority,
     ProjectGrainBasisState,
-    ProjectJoinGrainFactorIdentity,
 )
 from pietto._project.project_ir import (
     ProjectIRInputSlotOccurrence,
@@ -28,8 +27,6 @@ from pietto._project.project_ir import (
 )
 from pietto._project.project_ir_construction import ProjectIRAllocationState
 from pietto._project.project_ir_joins import (
-    ProjectIRBinaryJoinOccurrence,
-    ProjectIRJoinOutputProperties,
     ProjectIRJoinUnavailableProperty,
     _all_non_null,
     _classes_for_output,
@@ -38,8 +35,6 @@ from pietto._project.project_ir_joins import (
     _image_fd,
     _image_key,
     _ordered_classes,
-    _build_join,
-    _reverse_guarantee,
 )
 from pietto._project.project_ir_properties import (
     ProjectIRJoinedRowField,
@@ -61,14 +56,10 @@ from pietto._project.project_ir_relational_properties import (
 from pietto._project.project_join_conditions import (
     ProjectJoinCondition,
     ProjectJoinConditionSet,
-)
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectRelationshipMaximumBound,
     resolved_matching_keys,
 )
 from pietto._project.project_relationship_uses import (
-    ProjectConcreteJoinUse,
-    ProjectJoinUse,
+    ProjectNonConcreteJoinUse,
     ProjectRelationBindingOccurrence,
     ProjectRelationJoinUseLedger,
 )
@@ -92,8 +83,8 @@ class ProjectCurrentJoinGrainWitness:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class _CurrentPrefix:
     condition: ProjectJoinCondition
-    join: ProjectCurrentBinaryJoin | ProjectIRBinaryJoinOccurrence
-    properties: ProjectCurrentJoinProperties | ProjectIRJoinOutputProperties
+    join: ProjectCurrentBinaryJoin
+    properties: ProjectCurrentJoinProperties
     origins: tuple[ProjectCurrentFieldInput, ...]
     allocation: ProjectIRAllocationState
 
@@ -107,20 +98,9 @@ class _CurrentPrefix:
             raise ValueError(
                 "Current prefix requires exact previous operator and field roots."
             )
-        if (
-            isinstance(self.join, ProjectCurrentBinaryJoin)
-            and self.origins is not self.join.field_inputs
-        ):
+        if self.origins is not self.join.field_inputs:
             raise ValueError(
                 "Current prefix must retain exact output field-role authority."
-            )
-        if isinstance(self.join, ProjectIRBinaryJoinOccurrence) and (
-            self.join.use is not self.condition.effective_use
-            or self.join.identity.path_step_position
-            != len(self.join.use.path.steps) - 1
-        ):
-            raise ValueError(
-                "Current prefix must end at its exact authored path boundary."
             )
         if (
             self.allocation.scope is not self.join.node.ref.scope
@@ -156,7 +136,7 @@ class ProjectCurrentBinaryJoin:
     starting_allocation: ProjectIRAllocationState
     prefix: _CurrentPrefix | None = field(default=None, repr=False)
     input_scope: ProjectCurrentJoinInputScope | None = field(default=None, repr=False)
-    use: ProjectJoinUse = field(init=False, repr=False)
+    use: ProjectNonConcreteJoinUse = field(init=False, repr=False)
     kind: AuthoredJoinKind = field(init=False)
     node: ProjectIRPlanNodeOccurrence = field(init=False)
     input_slots: tuple[ProjectIRInputSlotOccurrence, ...] = field(init=False)
@@ -172,28 +152,11 @@ class ProjectCurrentBinaryJoin:
             raise ValueError("Current binary JOIN requires exact ready authority.")
         kind = condition.use.kind
         valid_mode = (
-            (
-                kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
-                and condition.mode in {"M3", "M4"}
-            )
-            or (
-                kind is AuthoredJoinKind.CROSS
-                and condition.mode == "M5"
-                and condition.expression is None
-                and condition.scope is None
-                and not condition.base_conditions
-            )
-            or (
-                kind
-                in {
-                    AuthoredJoinKind.RIGHT,
-                    AuthoredJoinKind.FULL,
-                    AuthoredJoinKind.SEMI,
-                    AuthoredJoinKind.ANTI,
-                }
-                and condition.mode in {"M1", "M2", "M3", "M4"}
-            )
-        )
+            kind is AuthoredJoinKind.CROSS
+            and condition.mode == "M5"
+            and condition.expression is None
+            and condition.scope is None
+        ) or (kind is not AuthoredJoinKind.CROSS and condition.mode == "M3")
         if not valid_mode:
             raise ValueError("Current binary JOIN kind/mode is not supported here.")
         if (
@@ -337,10 +300,6 @@ class ProjectCurrentBinaryJoin:
             (id(proof.field.binding), id(proof.field.input_field))
             for proof in condition.null_rejections
         }
-        rejected.update(
-            (id(field.binding), id(field.input_field))
-            for field in condition.legacy_matched_fields
-        )
         fields: list[ProjectIRJoinedRowField] = []
         left_nulling = kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
         right_nulling = kind in {AuthoredJoinKind.LEFT, AuthoredJoinKind.FULL}
@@ -471,12 +430,9 @@ def resolved_join_field_nullability(kind, incoming, null_extended, rejected):
 
 
 def current_forward_at_most_one(condition: ProjectJoinCondition) -> bool:
-    """Each left row has at most one RHS match; keep all applicable proofs."""
+    """Each left row has at most one RHS match: a key of the JOIN's target is
+    matched by its `on`."""
     return any(
-        bound is not None
-        and bound.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
-        for bound in (condition.refinement_guarantee, condition.base_guarantee)
-    ) or any(
         proof.binding is condition.use.target_binding for proof in condition.key_matches
     )
 
@@ -518,43 +474,11 @@ def _properties(join: ProjectCurrentBinaryJoin) -> ProjectIROutputRelationalProp
         )
         for key in right.keys
     )
-    base = join.condition.base_guarantee
     forward_at_most_one = (
         current_forward_at_most_one(join.condition)
         or right.grain.state is ProjectGrainBasisState.GLOBAL
     )
-    source_is_key = False
     reverse_at_most_one = left.grain.state is ProjectGrainBasisState.GLOBAL
-    if base is not None and len(join.condition.environment.source_candidates) == 1:
-        source = join.condition.environment.source_candidates[0]
-        matched = tuple(
-            member
-            for value_class in base.source_matched_classes
-            for member in value_class.members
-        )
-        positions = {
-            position
-            for position, (binding, original) in enumerate(join.left_fields)
-            if binding is source and any(original is member for member in matched)
-        }
-        source_classes = _ordered_classes(
-            tuple(
-                value_class
-                for value_class in left_classes
-                if any(
-                    member.field_position in positions for member in value_class.members
-                )
-            ),
-            classes,
-        )
-        source_is_key = bool(source_classes) and any(
-            set(key.determinants) == set(source_classes) for key in left_keys
-        )
-        reverse_at_most_one |= (
-            source_is_key
-            and _reverse_guarantee(join.condition.root.uses, base).maximum
-            is ProjectRelationshipMaximumBound.AT_MOST_ONE
-        )
     # Bound the accumulated left row, not one named input inside that row.
     matched_left_positions = {
         position
@@ -726,7 +650,6 @@ def resolved_join_properties(
     )
     fds = _key_fds(output, classes, frontier, inherited)
     grain, _ = _grain(
-        join_identity=None,
         output=output,
         left=left.grain,
         right=right.grain,
@@ -825,7 +748,6 @@ def resolved_left_subset_properties(
         ),
     )
     grain, _ = _grain(
-        join_identity=None,
         output=output,
         left=left.grain,
         right=right.grain,
@@ -862,20 +784,11 @@ class ProjectCurrentJoinRegion:
         default=(), repr=False
     )
     operative: tuple[ProjectJoinCondition, ...] = field(default=(), repr=False)
-    joins: tuple[ProjectCurrentBinaryJoin | ProjectIRBinaryJoinOccurrence, ...] = field(
-        init=False
-    )
-    join_properties: tuple[
-        ProjectCurrentJoinProperties | ProjectIRJoinOutputProperties, ...
-    ] = field(init=False)
+    joins: tuple[ProjectCurrentBinaryJoin, ...] = field(init=False)
+    join_properties: tuple[ProjectCurrentJoinProperties, ...] = field(init=False)
     ending_allocation: ProjectIRAllocationState = field(init=False)
-    final_properties: ProjectCurrentJoinProperties | ProjectIRJoinOutputProperties = (
-        field(init=False)
-    )
+    final_properties: ProjectCurrentJoinProperties = field(init=False)
     binding_introductions: tuple[ProjectIRJoinInputUseOccurrence, ...] = field(
-        init=False
-    )
-    hidden_introductions: tuple[ProjectIRJoinInputUseOccurrence, ...] = field(
         init=False
     )
 
@@ -954,14 +867,10 @@ class ProjectCurrentJoinRegion:
                 else self.input_scope.bindings[0].fields
             )
         )
-        positions = {id(base): tuple(range(len(left.fields)))}
         allocation = self.starting_allocation
-        built: list[ProjectCurrentBinaryJoin | ProjectIRBinaryJoinOccurrence] = []
-        properties: list[
-            ProjectCurrentJoinProperties | ProjectIRJoinOutputProperties
-        ] = []
+        built: list[ProjectCurrentBinaryJoin] = []
+        properties: list[ProjectCurrentJoinProperties] = []
         introductions: list[ProjectIRJoinInputUseOccurrence] = []
-        hidden: list[ProjectIRJoinInputUseOccurrence] = []
         for position, condition in enumerate(conditions):
             right = (
                 condition.use.target_binding.output
@@ -972,128 +881,33 @@ class ProjectCurrentJoinRegion:
                 raise ValueError(
                     "Current JOIN region requires an available right input."
                 )
-            if condition.mode in {"M1", "M2"} and condition.use.kind in {
-                AuthoredJoinKind.INNER,
-                AuthoredJoinKind.LEFT,
-            }:
-                use = condition.effective_use
-                if not isinstance(use, ProjectConcreteJoinUse):
-                    raise ValueError(
-                        "Current relationship path requires exact available use evidence."
-                    )
-                source_positions = positions[id(use.source_binding)]
-                source_nulling = ()
-                source_factors = None
-                if isinstance(left.output, ProjectIRJoinRowOutput):
-                    source_fields = tuple(
-                        left.output.row_shape.fields[i] for i in source_positions
-                    )
-                    source_nulling = tuple(
-                        dict.fromkeys(
-                            ref for item in source_fields for ref in item.nulling_joins
-                        )
-                    )
-                    intro = source_fields[0].introduction_use.ref
-                    source_factors = tuple(
-                        item
-                        for item in left.grain.active
-                        if isinstance(item, ProjectJoinGrainFactorIdentity)
-                        and item.introduction_use == intro
-                    )
-                for ordinal, step in enumerate(use.path.steps):
-                    step_right = step.guarantee.target_output
-                    terminal = ordinal == len(use.path.steps) - 1
-                    if terminal and step_right is not right:
-                        raise ValueError(
-                            "Current relationship cannot promote a changed effective endpoint."
-                        )
-                    origin_set = (
-                        None
-                        if left.grain.origin_set is step_right.grain.origin_set
-                        else ProjectCompositeGrainOriginAuthority(
-                            left=left.grain.origin_set,
-                            right=step_right.grain.origin_set,
-                            witness=condition,
-                        )
-                    )
-                    (
-                        node,
-                        prop,
-                        ending,
-                        right_positions,
-                        source_nulling,
-                        source_factors,
-                    ) = _build_join(
-                        uses=self.conditions.uses,
-                        use=use,
-                        path_step=step,
-                        left=left,
-                        right=step_right,
-                        source_positions=source_positions,
-                        source_nulling=source_nulling,
-                        source_factors=source_factors,
-                        allocation=allocation,
-                        origin_set=origin_set,
-                    )
-                    built.append(node)
-                    properties.append(prop)
-                    originals = (
-                        (
-                            step_right.fields
-                            if self.input_scope is None
-                            else self.input_scope.bindings[position + 1].fields
-                        )
-                        if terminal
-                        else step_right.fields
-                    )
-                    origins = (
-                        *origins,
-                        *(
-                            (condition.use.target_binding if terminal else None, member)
-                            for member in originals
-                        ),
-                    )
-                    if not terminal:
-                        hidden.append(node.input_uses[1])
-                    left, allocation, source_positions = (
-                        prop.relational,
-                        ending,
-                        right_positions,
-                    )
-                positions[id(condition.use.target_binding)] = source_positions
-            else:
-                prefix = (
-                    None
-                    if not built
-                    else _CurrentPrefix(
-                        condition=conditions[position - 1],
-                        join=built[-1],
-                        properties=properties[-1],
-                        origins=origins,
-                        allocation=allocation,
-                    )
+            prefix = (
+                None
+                if not built
+                else _CurrentPrefix(
+                    condition=conditions[position - 1],
+                    join=built[-1],
+                    properties=properties[-1],
+                    origins=origins,
+                    allocation=allocation,
                 )
-                offset = len(left.fields)
-                node = ProjectCurrentBinaryJoin(
-                    condition=condition,
-                    left_input=left,
-                    right_input=right,
-                    left_fields=origins,
-                    starting_allocation=allocation,
-                    prefix=prefix,
-                    input_scope=self.input_scope,
-                )
-                built.append(node)
-                properties.append(node.properties)
-                origins, left, allocation = (
-                    node.field_inputs,
-                    node.properties.relational,
-                    node.ending_allocation,
-                )
-                if node.kind not in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}:
-                    positions[id(condition.use.target_binding)] = tuple(
-                        range(offset, offset + len(right.fields))
-                    )
+            )
+            node = ProjectCurrentBinaryJoin(
+                condition=condition,
+                left_input=left,
+                right_input=right,
+                left_fields=origins,
+                starting_allocation=allocation,
+                prefix=prefix,
+                input_scope=self.input_scope,
+            )
+            built.append(node)
+            properties.append(node.properties)
+            origins, left, allocation = (
+                node.field_inputs,
+                node.properties.relational,
+                node.ending_allocation,
+            )
             if not introductions:
                 introductions.append(built[0].input_uses[0])
             introductions.append(built[-1].input_uses[1])
@@ -1102,7 +916,6 @@ class ProjectCurrentJoinRegion:
         object.__setattr__(self, "ending_allocation", allocation)
         object.__setattr__(self, "final_properties", properties[-1])
         object.__setattr__(self, "binding_introductions", tuple(introductions))
-        object.__setattr__(self, "hidden_introductions", tuple(hidden))
 
     def introduction(
         self, binding: ProjectRelationBindingOccurrence
@@ -1133,7 +946,7 @@ def _compiled_matched_classes(records, record, incoming, side):
 
 
 def _compiled_predicate_matched_classes(records, record, incoming, side):
-    """Project exact validated call-scoped comparisons onto one current JOIN side."""
+    """Project the exact positive ON equalities onto one current JOIN side."""
     from pietto._project.project_compiled_schema import predicate_equalities
 
     uses = record.get("inputs")
@@ -1156,10 +969,6 @@ def _compiled_predicate_matched_classes(records, record, incoming, side):
 def compiled_forward_at_most_one(records, record, right) -> bool:
     """`current_forward_at_most_one` for a compiled JOIN: a key of its right
     input is matched by the JOIN's equalities."""
-    from pietto._project.project_relationship_match_guarantees import (
-        resolved_matching_keys,
-    )
-
     matched = _compiled_matched_classes(records, record, right, 1)
     predicate_matched = _compiled_predicate_matched_classes(records, record, right, 1)
     return bool(resolved_matching_keys(right.keys, matched)) or bool(
@@ -1217,16 +1026,7 @@ def compiled_local_reverse_sources(records, record, left, built, references):
 
 
 def compiled_join_properties(completed, record, output, built, origin, references):
-    """Bind compiled inputs to the existing current or relationship JOIN kernel."""
-    from pietto._project.project_compiled_schema import CompiledError
-    from pietto._project.project_relationship_match_guarantees import (
-        resolved_matching_keys,
-    )
-    from pietto._project.project_ir_joins import (
-        ProjectIRBinaryJoinKind,
-        resolved_relationship_join_properties,
-    )
-
+    """Bind compiled inputs to the existing current JOIN kernel."""
     records = completed.root.records
     uses = tuple(records[a] for a in record.get("inputs"))
     left, right = (built[u.get("producer")].properties.relational for u in uses)
@@ -1253,53 +1053,6 @@ def compiled_join_properties(completed, record, output, built, origin, reference
     reverse_keys = (
         resolved_matching_keys(left.keys, matched_left) if matched_left else ()
     )
-    if record.get("law") == "relationship":
-        matches = []
-        for address in record.get("equalities"):
-            equality = records[address]
-            lhs = records[records[equality.get("left")].get("port")].get("ordinal")
-            rhs = records[records[equality.get("right")].get("port")].get("ordinal")
-            matches.append((lhs, len(left.fields) + rhs, equality))
-        if not matches:
-            raise CompiledError("COMPILED_RELATIONSHIP_MATCHES")
-        right_nulling = (
-            (references[record.address],) if kind is AuthoredJoinKind.LEFT else ()
-        )
-        # The first hop consumes the complete left domain; a later hop consumes
-        # the factors introduced by the exact preceding right input occurrence.
-        source_factors = None
-        if not named_left:
-            from pietto._project.project_grain import CompiledGrainFactorIdentity
-
-            source_positions = record.get("source_positions")
-            previous = built[uses[0].get("producer")]
-            introduced = previous.fields[source_positions[0]].fact.introduction
-            source_factors = tuple(
-                f
-                for f in left.grain.active
-                if type(f) is CompiledGrainFactorIdentity
-                and f.introduction_use is references.get(introduced)
-            )
-        result, _ = resolved_relationship_join_properties(
-            output=output,
-            kind=ProjectIRBinaryJoinKind(kind.value),
-            left=left,
-            right=right,
-            matches=tuple(matches),
-            source_positions=record.get("source_positions"),
-            actual_nulling=kind is AuthoredJoinKind.LEFT,
-            forward_at_most_one=bool(forward_keys),
-            reverse_at_most_one=bool(reverse_keys),
-            forward_support=forward_keys,
-            reverse_support=reverse_keys,
-            input_uses=input_uses,
-            source_factors=source_factors,
-            right_nulling=right_nulling,
-            origin_set=origin,
-            witness=record,
-            grain_witness=record,
-        )
-        return result
     source_is_key = bool(matched_left) and any(
         set(k.determinants) == set(matched_left) for k in left.keys
     )

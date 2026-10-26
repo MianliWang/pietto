@@ -16,7 +16,6 @@ from pietto._project.existence_values import (
     analyze_any_values,
     validate_any_values,
 )
-from pietto._project.project_current_joins import ProjectCurrentJoinRegion
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
@@ -472,7 +471,6 @@ class ProjectConcreteJoinedNamespaceExpression:
         if (
             record.owner is not self.namespace.binding_environment.ledger.owner
             or record.authored is not self.expression
-            or not isinstance(region, ProjectCurrentJoinRegion)
             or not any(
                 anchor is retained
                 for retained in region.conditions.predicate_expressions
@@ -565,7 +563,6 @@ class ProjectNonConcreteJoinedNamespaceExpression:
         if (
             record.owner is not self.namespace.binding_environment.ledger.owner
             or record.authored is not self.expression
-            or not isinstance(region, ProjectCurrentJoinRegion)
             or not any(
                 anchor is retained
                 for retained in region.conditions.predicate_expressions
@@ -683,9 +680,7 @@ def analyze_project_joined_namespace_expression(
         raise TypeError("Joined expression analysis requires an expression root.")
     region = namespace.binding_environment.region
     record = select_project_predicate_expression(
-        region.conditions.predicate_expressions
-        if isinstance(region, ProjectCurrentJoinRegion)
-        else (),
+        region.conditions.predicate_expressions,
         namespace.binding_environment.ledger.owner,
         expression,
     )
@@ -810,17 +805,10 @@ def _joined_any_values(
     expression: Expression,
     record: ProjectRelationshipPredicateExpression | None = None,
 ) -> tuple[ProjectAnyValue, ...]:
-    from pietto._project.project_query_block import ProjectVerifiedJoinedRowSource
-
     source = namespace.binding_environment.row_source
-    verification = (
-        source.verification
-        if isinstance(source, ProjectVerifiedJoinedRowSource)
-        else source.base_verification
-    )
     region = namespace.binding_environment.region
     return analyze_any_values(
-        root=verification.root.join_regions.uses.relationships.semantic_result,
+        root=source.base_verification.root.join_regions.uses.semantic_result,
         owner=namespace.binding_environment.ledger.owner,
         authored=authored,
         expression=expression,
@@ -842,8 +830,7 @@ def _joined_any_values(
             for value in namespace.let_values
         ),
         available=region.input_scope.available_entries
-        if isinstance(region, ProjectCurrentJoinRegion)
-        and region.input_scope is not None
+        if region.input_scope is not None
         else (),
     )
 
@@ -857,13 +844,8 @@ def _name_admissibility(
     region = environment.region
     generated = {
         id(use.clause)
-        for use in (
-            existence_uses_for_owner(
-                region.conditions.uses.relationships.semantic_result,
-                environment.ledger.owner,
-            )
-            if isinstance(region, ProjectCurrentJoinRegion)
-            else ()
+        for use in existence_uses_for_owner(
+            region.conditions.uses.semantic_result, environment.ledger.owner
         )
     }
     input_relation_names = {
@@ -1107,9 +1089,7 @@ def build_project_joined_let_namespaces(
         binding_namespaces.append(namespace)
         region = binding_environment.region
         record = select_project_predicate_expression(
-            region.conditions.predicate_expressions
-            if isinstance(region, ProjectCurrentJoinRegion)
-            else (),
+            region.conditions.predicate_expressions,
             occurrence.owner,
             occurrence.expression,
         )

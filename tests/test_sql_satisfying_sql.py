@@ -314,7 +314,7 @@ def test_source_satisfying_text_emit_sql_succeeds_with_having(
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    assert captured.out == f"{_expected_postgres_satisfying_sql()}\n"
+    assert captured.out == f"-- revenue\n{_expected_postgres_satisfying_sql()};\n"
 
 
 def test_source_satisfying_having_uses_underlying_expressions_not_aliases(
@@ -409,7 +409,7 @@ def test_source_satisfying_text_output_writes_having_sql(
     assert captured.out == ""
     assert captured.err == ""
     assert output.read_text(encoding="utf-8") == (
-        f"{_expected_postgres_satisfying_sql()}\n"
+        f"-- revenue\n{_expected_postgres_satisfying_sql()};\n"
     )
 
 
@@ -443,7 +443,7 @@ def test_source_satisfying_json_output_writes_having_sql(
     artifacts = cast(list[dict[str, object]], result["artifacts"])
     assert artifacts[0]["sql"] == _expected_postgres_satisfying_sql()
     assert output.read_text(encoding="utf-8") == (
-        f"{_expected_postgres_satisfying_sql()}\n"
+        f"-- revenue\n{_expected_postgres_satisfying_sql()};\n"
     )
 
 

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 from pietto.ir.model import (
     AggregateCallIR,
+    AggregateWindowCallIR,
     ExpressionIR,
     FieldId,
     FieldRefIR,
     OrderDirectionIR,
     OrderItemIR,
+    QualifyIR,
     NamedWindowDeclarationIR,
     RelationIR,
     SourceIR,
@@ -30,9 +33,10 @@ from pietto.sql.mysql_render import (
     quote_identifier,
 )
 from pietto.sql.relations import (
+    _qualify_outer_stage,
     has_untyped_result_predicate,
     hidden_table_read,
-    _exists_relation_dependencies,
+    _relation_dependencies,
     _validate_exists_targets,
     qualify_alias_captured_order_fields,
 )
@@ -49,15 +53,20 @@ def render_mysql_relation(
     *,
     sources: Mapping[SymbolId, SourceIR],
     relations: Mapping[SymbolId, RelationIR],
-    _include_exists_dependencies: bool = True,
+    _include_dependencies: bool = True,
 ) -> str:
-    """Render a minimal relation using a MySQL source or relation-name input."""
+    """Render a minimal relation, defining the relations it reads as CTEs."""
+
+    if relation.qualify is not None:
+        return _render_mysql_qualify_relation(
+            relation,
+            sources=sources,
+            relations=relations,
+        )
 
     try:
         dependencies = (
-            _exists_relation_dependencies(relation, relations)
-            if _include_exists_dependencies
-            else ()
+            _relation_dependencies(relation, relations) if _include_dependencies else ()
         )
         _validate_exists_targets(relation, sources, relations)
     except ValueError as error:
@@ -151,7 +160,7 @@ def render_mysql_relation(
     sql = "\n".join(lines)
     if dependencies:
         definitions = ",\n".join(
-            f"{quote_identifier(item.name, context='relation identifier')} AS (\n{render_mysql_relation(item, sources=sources, relations=relations, _include_exists_dependencies=False)}\n)"
+            f"{quote_identifier(item.name, context='relation identifier')} AS (\n{render_mysql_relation(item, sources=sources, relations=relations, _include_dependencies=False)}\n)"
             for item in dependencies
         )
         hidden = hidden_table_read(
@@ -159,12 +168,76 @@ def render_mysql_relation(
         )
         if hidden is not None:
             raise MySqlRenderError(
-                f"MySQL scalar ANY defines relation {hidden[0]} as a CTE, which "
-                f"would hide table {hidden[1]} read in the same SQL; rename the "
+                f"Its SQL defines relation {hidden[0]} as a CTE, which would "
+                f"hide table {hidden[1]} read in the same SQL; rename the "
                 "relation or read the table with its schema"
             )
+        # MySQL may compare CTE names without case: one WITH cannot hold both.
+        names: dict[str, str] = {}
+        for item in dependencies:
+            other = names.setdefault(item.name.casefold(), item.name)
+            if other != item.name:
+                raise MySqlRenderError(
+                    f"Its SQL defines relations {other} and {item.name} as CTEs, "
+                    "whose names MySQL may compare without case; rename one of them"
+                )
         return f"WITH {definitions}\n{sql}"
     return sql
+
+
+def _render_mysql_qualify_relation(
+    relation: RelationIR,
+    *,
+    sources: Mapping[SymbolId, SourceIR],
+    relations: Mapping[SymbolId, RelationIR],
+) -> str:
+    qualify = relation.qualify
+    if type(qualify) is not QualifyIR:
+        raise MySqlRenderError("MySQL QUALIFY requires an exact predicate")
+    names = tuple(
+        projection.name
+        for projection in relation.projections
+        if type(projection.name) is str
+    )
+    if len(names) != len(relation.projections) or any(not name for name in names):
+        raise MySqlRenderError("MySQL QUALIFY requires named selected outputs")
+    try:
+        hidden, predicate, order_by = _qualify_outer_stage(relation)
+    except ValueError as error:
+        raise MySqlRenderError(str(error)) from error
+    inner = replace(
+        relation,
+        qualify=None,
+        projections=(*relation.projections, *hidden),
+        order_by=(),
+        limit=None,
+    )
+    try:
+        inner_sql = render_mysql_relation(inner, sources=sources, relations=relations)
+    except MySqlRenderError:
+        raise
+    selected = ",\n".join(
+        f"    {quote_identifier(name, context='select-list alias')}" for name in names
+    )
+    lines = [
+        "SELECT",
+        selected,
+        "FROM (",
+        inner_sql,
+        ") AS `__pietto_qualify`",
+        "WHERE",
+        f"    {render_mysql_expression(predicate)}",
+    ]
+    if order_by:
+        lines.extend(
+            (
+                "ORDER BY",
+                ",\n".join(f"    {_render_order_item(item)}" for item in order_by),
+            )
+        )
+    if relation.limit is not None:
+        lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
+    return "\n".join(lines)
 
 
 def _render_input(input_sql: str, alias: str | None) -> str:
@@ -237,10 +310,10 @@ def _render_projection(
     name: str | None,
     named_decision: NamedWindowLoweringDecision | None,
 ) -> str:
-    if isinstance(expression, WindowCallIR) and name is None:
+    if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)) and name is None:
         raise MySqlRenderError("MySQL window projections require an explicit alias")
     if (
-        isinstance(expression, WindowCallIR)
+        isinstance(expression, (WindowCallIR, AggregateWindowCallIR))
         and getattr(expression, "named_use", None) is not None
     ):
         if named_decision is None:
@@ -254,6 +327,9 @@ def _render_projection(
             }
             else None
         )
+        if type(expression) is AggregateWindowCallIR:
+            raise MySqlRenderError("MySQL aggregate windows are not supported")
+        assert type(expression) is WindowCallIR
         sql = render_mysql_window_call(expression, over_sql=over_sql)
     else:
         sql = render_mysql_expression(expression)
@@ -267,7 +343,7 @@ def _render_projection(
     return f"{sql} AS {alias}"
 
 
-def _render_named_over(expression: WindowCallIR) -> str:
+def _render_named_over(expression: WindowCallIR | AggregateWindowCallIR) -> str:
     named = expression.named_use
     if named is None:
         raise MySqlRenderError("native named OVER requires named use evidence")
@@ -337,7 +413,7 @@ def _validate_grouped_relation(relation: RelationIR) -> None:
         if isinstance(expression, FieldRefIR) and expression.field in group_fields:
             orderable_expressions.append(expression)
             continue
-        if isinstance(expression, WindowCallIR):
+        if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):
             if type(projection.name) is not str or not projection.name:
                 raise MySqlRenderError(
                     "MySQL grouped window projections require an explicit alias"
@@ -387,16 +463,22 @@ def _validate_window_clause_boundaries(relation: RelationIR) -> None:
     """Reject direct windows outside an explicitly aliased projection."""
 
     if relation.filter is not None and isinstance(
-        relation.filter.expression, WindowCallIR
+        relation.filter.expression, (WindowCallIR, AggregateWindowCallIR)
     ):
         raise MySqlRenderError("MySQL WHERE does not support direct window calls")
     if relation.result_predicate is not None and isinstance(
-        relation.result_predicate.expression, WindowCallIR
+        relation.result_predicate.expression, (WindowCallIR, AggregateWindowCallIR)
     ):
         raise MySqlRenderError("MySQL HAVING does not support direct window calls")
-    if any(isinstance(key, WindowCallIR) for key in relation.group_keys):
+    if any(
+        isinstance(key, (WindowCallIR, AggregateWindowCallIR))
+        for key in relation.group_keys
+    ):
         raise MySqlRenderError("MySQL GROUP BY does not support direct window calls")
-    if any(isinstance(item.expression, WindowCallIR) for item in relation.order_by):
+    if any(
+        isinstance(item.expression, (WindowCallIR, AggregateWindowCallIR))
+        for item in relation.order_by
+    ):
         raise MySqlRenderError(
             "MySQL relation ORDER BY does not support direct windows"
         )

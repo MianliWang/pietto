@@ -1,3 +1,4 @@
+-- paid_order_stats
 SELECT
     COUNT(*) AS "total",
     SUM("amount") AS "revenue",
@@ -5,4 +6,4 @@ SELECT
     AVG(CAST("amount" AS double precision)) AS "average_amount",
     AVG("score") AS "average_score"
 FROM "orders"
-WHERE "status" = 'paid'
+WHERE "status" = 'paid';

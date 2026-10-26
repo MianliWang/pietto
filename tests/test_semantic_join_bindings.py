@@ -297,7 +297,6 @@ def test_explicit_intermediate_binding_keeps_all_fields_and_exact_uses(
     assert second.left_input is first.properties.relational
     assert first.use is not second.use
     assert first.condition.use is first.use and second.condition.use is second.use
-    assert first.condition.use.path is second.condition.use.path is None
     assert all(
         type(item.source_field) is ProjectIRJoinedRowField
         and item.source_field.introduction_use is middle.introduction_use

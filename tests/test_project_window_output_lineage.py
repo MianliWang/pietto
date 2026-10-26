@@ -32,7 +32,6 @@ from pietto._project.row_lineage import (
 from pietto._project.window_persistence import ProjectWindowPersistenceBundle
 from pietto._project.window_semantics import WindowResultProjectFact
 from pietto.ast_nodes import NameExpr, QueryDef, Script, TableDef, WindowExpr
-from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import EffectiveNullability, SemanticResult
@@ -542,11 +541,7 @@ def test_downstream_relation_accepts_exact_immediate_upstream_qualifier() -> Non
         "        copied = windows.row_position\n"
     )
     _, result, relation = _semantic(source)
-    # Only the read of a query of the file is warned about (PIE-S2382).
-    assert [
-        (item.code, item.severity, item.location.line, item.location.column)
-        for item in result.diagnostics
-    ] == [("PIE-S2382", Severity.WARNING, 23, 5)]
+    assert result.diagnostics == ()
     assert "copied" in result.model.relation_row_schemas[relation].fields
 
 
@@ -599,11 +594,7 @@ def test_downstream_group_and_aggregate_consumers_treat_window_as_row_field() ->
         "        seen = count(prior_amount)\n"
     )
     _, result, relation = _semantic(source)
-    # Only the read of a query of the file is warned about (PIE-S2382).
-    assert [
-        (item.code, item.severity, item.location.line, item.location.column)
-        for item in result.diagnostics
-    ] == [("PIE-S2382", Severity.WARNING, 23, 5)]
+    assert result.diagnostics == ()
     assert tuple(result.model.relation_row_schemas[relation].fields) == (
         "grouped_rank",
         "seen",

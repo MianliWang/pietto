@@ -756,6 +756,42 @@ def test_real_scalar_transform_signatures_leave_composite_aggregate_unmapped(
     )
 
 
+def test_string_agg_internal_order_maps_its_exact_signature_only(tmp_path):
+    text = _ordinary(
+        '    select:\n        summary = string_agg(label, "//", order by lower(label))\n'
+    ).replace("    value: Int | None\n", "    value: Int | None\n    label: Text\n")
+    record = _reported(_roots(tmp_path, text), P.PRESERVE_LITERALS)
+    product, _, _ = _assessed(record)
+    key = CapabilityKey(
+        D.AGGREGATE,
+        "string_agg",
+        "signature",
+        (
+            "2",
+            "two_text_arguments_with_internal_order",
+            "Text",
+            "Text",
+            "nullable",
+            "GROUP",
+            "aggregate_result",
+        ),
+        "aggregate_signature",
+    )
+    mapped = [
+        aspect
+        for aspect in product.aspects
+        if aspect.proposition.kind is mapping.K.AGGREGATE
+    ]
+    assert len(mapped) == 1
+    assert mapped[0].proposition.key == key
+    assert mapped[0].proposition.gap is None
+    assert any(
+        aspect.proposition.kind is mapping.K.RESIDUAL
+        and aspect.proposition.gap is mapping.MappingGap.AGGREGATE
+        for aspect in product.aspects
+    )
+
+
 def test_original_alias_decimal_provenance_is_not_a_builtin_rewrite(tmp_path):
     text = 'type Money = Decimal(12, 2)\nshape Row:\n    amount: Money | None\nsource rows: Row = postgres.table("rows")\nquery result:\n    from rows\n    select:\n        amount\n'
     record = _reported(_roots(tmp_path, text), P.PRESERVE_LITERALS)

@@ -118,7 +118,7 @@ def test_text_emit_sql_carries_numeric_literal_aggregate_sql(
     assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- aggregate_stats\n{expected_sql};\n"
     assert captured.err == ""
     assert sum_fragment in captured.out
     assert avg_fragment in captured.out
@@ -207,7 +207,10 @@ def test_text_output_writes_numeric_literal_aggregate_sql_on_success(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
-    assert output_path.read_text(encoding="utf-8") == POSTGRES_SQL + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- aggregate_stats\n{POSTGRES_SQL};\n"
+    )
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -255,7 +258,10 @@ def test_json_output_writes_numeric_literal_aggregate_sql_and_keeps_artifacts(
             "sql": POSTGRES_SQL,
         }
     ]
-    assert output_path.read_text(encoding="utf-8") == POSTGRES_SQL + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- aggregate_stats\n{POSTGRES_SQL};\n"
+    )
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -351,7 +357,11 @@ def test_invalid_numeric_literal_aggregate_json_output_does_not_replace_file(
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
 
     assert result["ok"] is False
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2315"]
+    # `amount / tax` divides two Int values, so it also warns (PIE-S2106).
+    assert [diagnostic["code"] for diagnostic in diagnostics] == [
+        "PIE-S2315",
+        "PIE-S2106",
+    ]
     assert result["cli_errors"] == []
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output_path), "written": False}

@@ -80,7 +80,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                 ["previous", "lag", "named_direct", 0, None, "respect_nulls", None],
             ],
             ["e87b1294b483f3ab42473a1e05cbe908fb0559849af5e53cd336a9d7ef2ffacb"],
-            "7d9ed1afb5f467701b65c3ae9d831bdd6d18429dc35cfabd439fa7f3780f32aa",
+            "fd6534e9f93c0546ed325ed854a311642e2a4cfcbf6110fbdc592fd9698696b1",
         ],
         [
             "mysql_native",
@@ -107,7 +107,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                 ]
             ],
             ["1344775321c50d9417853a6fd789166602bcf368caf7f6d8c956c8206b46c171"],
-            "5c6e78b3e0bb745fee824833087dd5efa202835f0f18dd536393c844ea2d1a3a",
+            "59063e5415432f0b9ef25635c4ad3290a0ae59721138d5712a8cd8c9c82245a3",
         ],
         [
             "postgres_fallback",
@@ -134,7 +134,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                 ]
             ],
             ["9bb688fdaad623bdd5d58ba029032c22c69963403f3a67ba7ddf526fd409296d"],
-            "0a9be95b8c5e10e075a0c9436cab70312fe0bbaa6862353f7683ec66eeea24c1",
+            "25fc035e665903fcd89c3db255aada56e2db75fc526e61d564776808a7eaf71f",
         ],
         [
             "postgres_inline",
@@ -161,7 +161,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                 ]
             ],
             ["9bb688fdaad623bdd5d58ba029032c22c69963403f3a67ba7ddf526fd409296d"],
-            "c1e3b641068c33ea4b6d225dd2e6b9bef7b1ea18c3e77f9f5e436926e444c440",
+            "9d1c8154c4f35ef7be3669e9f3ba406c194874fc30a5ea9381cdf04e2fe37ae4",
         ],
         [
             "postgres_frames",
@@ -205,7 +205,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                 ],
             ],
             ["d876db36cc1f4e20894c632cd25c21a362c190320d4c2806d43f4ddf8bd0e9df"],
-            "ea786360190f55eaeb5f502749d47f04917906504f9afcbe5faad491929c9017",
+            "3014fde04d339f03f5de3d545efe899a3dbf268cf88d531465f7b980454bd506",
         ],
     ],
     "negatives": [
@@ -223,7 +223,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "location": ["postgres_ignore_nulls.pietto", 6, 1, 12, 67],
                 }
             ],
-            "91f0adcc280515ccf4fd5d9b97143288c47d6eb4d0958378228ead20cbdc9af4",
+            "74c3309991403cf3397cf8d5018946b4ca4187d15a7a6733570e35bee97ca818",
         ],
         [
             "postgres_from_last",
@@ -239,7 +239,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "location": ["postgres_from_last.pietto", 6, 1, 12, 65],
                 }
             ],
-            "ffaef720fcc6c7247b8777b9965fb6f23e36a66ee2a0ff37a2228e97ba1ff3ad",
+            "1eea4bc839d03e9fd8fc0a6d2f871ebc71783bf120519c0fce07a3d4b9050f3e",
         ],
         [
             "postgres_range_offset",
@@ -255,7 +255,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "location": ["postgres_range_offset.pietto", 6, 1, 13, 54],
                 }
             ],
-            "4210647b0f1501106e603f7347633dbd4211d74a3067fd7aca9800d803db7bca",
+            "bcb53d743bce9a3a873a8ce08a4e5675cd478683ec2fe7f0a598c74472567b99",
         ],
         [
             "mysql_groups",
@@ -271,7 +271,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "location": ["mysql_groups.pietto", 6, 1, 13, 54],
                 }
             ],
-            "bb470bd789be7a787cb3a5f17c11eea4ff508347a400cf37828fa14dbf9d8c6e",
+            "e93916a1eb9252a3e6965fc4085b4b3dd851fda97ba9c95ed14cda5f08986281",
         ],
         [
             "mysql_exclude",
@@ -287,7 +287,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "location": ["mysql_exclude.pietto", 6, 1, 13, 54],
                 }
             ],
-            "468ff91c44cbd8fd51e33e10b6266a6444070fb59fd74a05b93bfa0e953b0db3",
+            "2e7eda78de16c613edc8036cdeff5c4bb628c48f4d82d1749c43d7a0498dec2d",
         ],
         [
             "mysql_ignore_nulls",
@@ -303,7 +303,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "location": ["mysql_ignore_nulls.pietto", 6, 1, 12, 67],
                 }
             ],
-            "d8a2479c2139a6483c7cdb826b57c03791916cc18edd7b5b6d4bcb4c359525aa",
+            "1f5dd941fe38920930808216dedbb4499fdcdab57606bc9def3b8fe0b7e4b456",
         ],
         [
             "mysql_from_last",
@@ -319,7 +319,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "location": ["mysql_from_last.pietto", 6, 1, 12, 65],
                 }
             ],
-            "8674f31539d9aa957389b96dcae064d0e0feed8880ce04bfc37250997b51ec2b",
+            "04574fdd9b0542dd6f93e695bdb88af9ee69ce2b1d98c81d961851fe16d76804",
         ],
         [
             "mysql_range_offset",
@@ -335,7 +335,7 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                     "location": ["mysql_range_offset.pietto", 6, 1, 13, 54],
                 }
             ],
-            "121b6d543f8331037accdd38979a386677e003c006e508d7bd3fb330ca58b199",
+            "dd8edb7ab1a6e920306c53e5eb3f61fd5ef068df757e41c444857ff7c1552f20",
         ],
     ],
     "negative_project": {
@@ -422,20 +422,20 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
         [
             "postgres",
             0,
-            "a2da477a9042e5eb7269c7e537ba252cd0a1f796b9bfe1dea326a3a0f6b21eeb",
-            617,
+            "354e40f887f7d554da32f2ad20d1ad0c79431c1b777e6fa34a6f0b712d27c5d0",
+            628,
             "",
         ],
         [
             "mysql",
             0,
-            "cacddefeda512e14ad3f70ad7755cc3ded88c43cf161a4503cf75bca43fa0b3d",
-            229,
+            "a8d2bc5d44392a9d604f7d2a2379ba474a045d4030524e3013ba381ee45433a3",
+            240,
             "",
         ],
     ],
-    "observation_sha256": "5d0fda10c364439340f4b0a23a3385ccd74ee1c1a34bf27115fbd7ee72486dc1",
-    "observation_size": 48240,
+    "observation_sha256": "31bedd3b0dae83217ebe581ea4e1854bbaf012acf162d52d03f4b0d12cc94d70",
+    "observation_size": 50265,
 }
 
 

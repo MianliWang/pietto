@@ -57,6 +57,7 @@ from pietto.ir.lowering import (
 )
 from pietto.ir.model import (
     AggregateCallIR,
+    AggregateWindowCallIR,
     BinaryIR,
     ComparisonIR,
     ConnectorIR,
@@ -76,6 +77,7 @@ from pietto.ir.model import (
     OrderItemIR,
     ParameterIR,
     ProjectionIR,
+    QualifyIR,
     RelationIR,
     RelationKindIR,
     RelationSourceIR,
@@ -456,15 +458,6 @@ def _lower_relation(
     """Lower one minimal table or query from existing semantic facts."""
 
     join_info = join_relation_facts(definition, semantic_model)
-    if definition.qualify_clause is not None:
-        raise _MissingSemanticFact(
-            definition.qualify_clause,
-            "Single-file explain and emit-sql cannot lower QUALIFY; it is lowered "
-            "only in EXPLICIT_MODULES projects (schema version 2)",
-            "Put the query in an EXPLICIT_MODULES project (schema version 2) and "
-            "emit it with `pietto emit-sql --project`.",
-        )
-
     target = semantic_model.from_resolutions.get(definition.from_clause)
     if target is None:
         raise _MissingSemanticFact(definition.from_clause, "resolved relation input")
@@ -491,8 +484,6 @@ def _lower_relation(
         if join_info is None or join_reads is None
         else lower_joins(
             join_info,
-            join_reads,
-            semantic_model,
             lower_condition=lambda expression: _require_lowered_expression(
                 expression,
                 semantic_model,
@@ -543,6 +534,44 @@ def _lower_relation(
         let_expansions=let_expansions,
         join_reads=join_reads,
     )
+    namespace = semantic_model.named_window_namespaces.get(definition)
+    if definition.named_windows and namespace is None:
+        raise _MissingSemanticFact(definition, "resolved named window namespace")
+    window_input_expressions = (
+        {}
+        if definition.group_by_clause is None
+        else _grouped_window_input_expressions(
+            tuple(
+                projection
+                for projection in projections
+                if not isinstance(
+                    projection.expression, (WindowCallIR, AggregateWindowCallIR)
+                )
+            ),
+            group_keys=group_keys,
+            input_schema=input_schema,
+            field_owner=target_symbol,
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
+            let_expansions=let_expansions,
+            join_reads=join_reads,
+        )
+    )
+    if join_reads is not None:
+        counts: dict[str, int] = {}
+        for projection in projections:
+            if projection.name is not None:
+                counts[projection.name] = counts.get(projection.name, 0) + 1
+        join_reads = replace(
+            join_reads,
+            output_aliases={
+                projection.name: projection.expression.value_type
+                for projection in projections
+                if projection.name is not None and counts[projection.name] == 1
+            },
+        )
     order_by = _lower_order_by(
         definition,
         semantic_model,
@@ -562,29 +591,24 @@ def _lower_relation(
         let_expansions=let_expansions,
         join_reads=join_reads,
     )
-    namespace = semantic_model.named_window_namespaces.get(definition)
-    if definition.named_windows and namespace is None:
-        raise _MissingSemanticFact(definition, "resolved named window namespace")
-    window_input_expressions = (
-        {}
-        if namespace is None or definition.group_by_clause is None
-        else _grouped_window_input_expressions(
-            tuple(
-                projection
-                for projection in projections
-                if not isinstance(projection.expression, WindowCallIR)
+    qualify = None
+    if definition.qualify_clause is not None:
+        qualify = QualifyIR(
+            expression=_require_lowered_expression(
+                definition.qualify_clause.expression,
+                semantic_model,
+                fields=input_schema.fields,
+                field_owner=target_symbol,
+                field_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
+                let_expansions=let_expansions,
+                join_reads=join_reads,
+                window_input_expressions=window_input_expressions,
             ),
-            group_keys=group_keys,
-            input_schema=input_schema,
-            field_owner=target_symbol,
-            field_qualifier=(
-                definition.from_clause.binding_name
-                or definition.from_clause.source_name
-            ),
-            let_expansions=let_expansions,
-            join_reads=join_reads,
+            span=lower_span(definition.qualify_clause.span),
         )
-    )
     named_windows = (
         ()
         if namespace is None
@@ -599,6 +623,7 @@ def _lower_relation(
             ),
             let_expansions=let_expansions,
             window_input_expressions=window_input_expressions,
+            join_reads=join_reads,
         )
     )
     with report_join_invariants(definition):
@@ -626,6 +651,7 @@ def _lower_relation(
             limit=limit,
             group_keys=group_keys,
             result_predicate=result_predicate,
+            qualify=qualify,
             named_windows=named_windows,
             inputs=() if join_reads is None else join_reads.inputs,
             joins=joins,
@@ -808,15 +834,19 @@ def _selected_order_expression(
         )
     ):
         return None
-    return next(
-        (
-            projection.expression
-            for projection in projections
-            if projection.name == expression.name
-            and not isinstance(projection.expression, WindowCallIR)
-        ),
-        None,
-    )
+    for projection in projections:
+        if projection.name != expression.name:
+            continue
+        if isinstance(projection.expression, (WindowCallIR, AggregateWindowCallIR)):
+            return FieldRefIR(
+                name=expression.name,
+                qualifier=(),
+                field=None,
+                span=lower_span(expression.span),
+                value_type=projection.expression.value_type,
+            )
+        return projection.expression
+    return None
 
 
 def _lower_grouped_order_by(
@@ -891,7 +921,7 @@ def _grouped_order_output_expressions(
                 field_identity=expression.field,
             )
             continue
-        if isinstance(expression, WindowCallIR):
+        if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):
             output_expressions[projection.name] = _GroupedOrderExpression(
                 FieldRefIR(
                     name=projection.name,

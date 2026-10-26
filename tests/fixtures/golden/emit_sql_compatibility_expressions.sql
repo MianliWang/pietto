@@ -1,3 +1,4 @@
+-- expression_compatibility
 SELECT
     lower(trim("email")) AS "normalized",
     length("email") AS "text_length",
@@ -21,4 +22,4 @@ SELECT
     "score" + (2 * 3) AS "precedence",
     ("score" + 2) * 3 AS "grouped"
 FROM "analytics"."metrics"
-WHERE (("age" >= 18) AND ("deleted_at" IS NULL)) OR ("email" ~ '.+@.+')
+WHERE (("age" >= 18) AND ("deleted_at" IS NULL)) OR ("email" ~ '.+@.+');

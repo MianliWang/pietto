@@ -42,7 +42,7 @@ from pietto._project.project_query_block_ir_verification import (
     ProjectIRQueryBlockVerificationStatus,
     verify_project_query_block_ir,
 )
-from pietto._project.project_relationship_match_guarantees import (
+from pietto._project.project_join_conditions import (
     ProjectRelationshipMinimumBound,
     ProjectRelationshipMaximumBound,
 )
@@ -141,7 +141,7 @@ query inner_one_explicit:
     inner join b on one_to_one(a_rows, b)
     select:
         id = a_rows.id
-query inner_unproved:
+query inner_handwritten:
     from a_rows
     let b = b_rows
     inner join b on a_rows.id == b.id
@@ -317,7 +317,6 @@ def test_actual_effects_use_direction_and_prior_null_source(built: _Built) -> No
     many = cast(ProjectCurrentBinaryJoin, _properties(built, "inner_many")[0].join)
     assert current_forward_at_most_one(inner.condition)
     assert not current_forward_at_most_one(many.condition)
-    assert inner.condition.base_guarantee is None
     assert inner.condition.key_matches
     for proof in inner.condition.key_matches:
         assert proof.condition is inner.condition
@@ -328,12 +327,18 @@ def test_actual_effects_use_direction_and_prior_null_source(built: _Built) -> No
             equality.condition is inner.condition and equality.calls
             for equality in proof.equalities
         )
-    unproved = cast(
-        ProjectCurrentBinaryJoin, _properties(built, "inner_unproved")[0].join
+    # A hand-written ON equality matches the same keys with no call.
+    handwritten = cast(
+        ProjectCurrentBinaryJoin, _properties(built, "inner_handwritten")[0].join
     )
-    assert unproved.condition.ready and unproved.condition.key_matches == ()
-    assert unproved.condition.mandatory_equalities == ()
-    assert not current_forward_at_most_one(unproved.condition)
+    assert handwritten.condition.ready
+    assert current_forward_at_most_one(handwritten.condition)
+    (equality,) = handwritten.condition.mandatory_equalities
+    assert equality.calls == ()
+    assert [
+        (proof.binding.name, proof.equalities)
+        for proof in handwritten.condition.key_matches
+    ] == [(proof.binding.name, (equality,)) for proof in inner.condition.key_matches]
     left = _properties(built, "left_one")[0]
     assert type(left.null_extension) is ProjectIRProvidedNullExtension
     assert all(
@@ -539,8 +544,10 @@ def test_empty_global_source_factor_set_is_not_replaced_by_accumulated_factors(
     source = """shape Row:
     id: Int
     row_key = unique(id)
+shape RightRow:
+    id: Int
 source factor_rows: Row = postgres.table("factor_rows")
-source right_rows: Row = postgres.table("right_rows")
+source right_rows: RightRow = postgres.table("right_rows")
 query global_rows:
     from factor_rows
     select:

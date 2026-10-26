@@ -48,31 +48,7 @@ def test_unique_definitions_populate_expected_namespaces() -> None:
         )
     )
 
-    # Single-file SQL reads the same-file table `active_users` by name.
-    assert [
-        (
-            item.code,
-            item.severity,
-            item.message,
-            item.location.line,
-            item.location.column,
-            item.location.end_line,
-            item.location.end_column,
-        )
-        for item in result.diagnostics
-    ] == [
-        (
-            "PIE-S2382",
-            Severity.WARNING,
-            "`active_users` is a table of this file; single-file SQL reads it by name, "
-            "so the SQL runs only where the database already has a relation named "
-            "active_users (an EXPLICIT_MODULES project emits it as a CTE)",
-            16,
-            5,
-            16,
-            22,
-        )
-    ]
+    assert result.diagnostics == ()
     assert list(result.model.type_symbols) == ["Age", "Status", "User"]
     assert isinstance(result.model.type_symbols["Age"], TypeDef)
     assert isinstance(result.model.type_symbols["Status"], EnumDef)
@@ -279,31 +255,7 @@ def test_symbol_collection_coexists_with_valid_builtin_calls() -> None:
         )
     )
 
-    # Single-file SQL reads the same-file table `projected` by name.
-    assert [
-        (
-            item.code,
-            item.severity,
-            item.message,
-            item.location.line,
-            item.location.column,
-            item.location.end_line,
-            item.location.end_column,
-        )
-        for item in result.diagnostics
-    ] == [
-        (
-            "PIE-S2382",
-            Severity.WARNING,
-            "`projected` is a table of this file; single-file SQL reads it by name, "
-            "so the SQL runs only where the database already has a relation named "
-            "projected (an EXPLICIT_MODULES project emits it as a CTE)",
-            10,
-            5,
-            10,
-            19,
-        )
-    ]
+    assert result.diagnostics == ()
     assert list(result.model.relation_symbols) == ["input", "projected", "output"]
 
 

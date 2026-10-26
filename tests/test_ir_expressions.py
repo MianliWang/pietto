@@ -38,6 +38,7 @@ from pietto.ir import (
     UnaryIR,
 )
 from pietto.ir.lowering import lower_expr
+from pietto.ir.model import AggregateCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import CheckMode, RowField, RowSchema, SemanticModel, analyze
 
@@ -124,7 +125,12 @@ def test_builtin_call_lowers_with_callable_symbol() -> None:
     )
     fields, owner = _input_fields(model, table)
 
-    result = lower_expr(expression, model, fields=fields, field_owner=owner)
+    result = lower_expr(
+        expression,
+        model,
+        fields=fields,
+        field_owner=owner,
+    )
 
     assert isinstance(result.expression, CallIR)
     assert result.expression.callee == "lower"
@@ -136,6 +142,39 @@ def test_builtin_call_lowers_with_callable_symbol() -> None:
     argument = result.expression.arguments[0]
     assert isinstance(argument, FieldRefIR)
     assert argument.field == FieldId(owner=owner, name="email")
+
+
+def test_string_agg_lowers_nested_row_lets_in_both_value_roles() -> None:
+    expression, model, table = _table_expression(
+        "shape Row:\n"
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table projected:\n"
+        "    from rows\n"
+        "    let line = Text(id)\n"
+        '    let delimiter = "//"\n'
+        "    select:\n"
+        '        summary = string_agg(lower(line), coalesce(delimiter, "/"), order by id)\n'
+    )
+    fields, owner = _input_fields(model, table)
+
+    assert table.let_clause is not None
+    result = lower_expr(
+        expression,
+        model,
+        fields=fields,
+        field_owner=owner,
+        let_expansions={
+            binding.name: binding.expression for binding in table.let_clause.bindings
+        },
+    )
+
+    assert result.diagnostics == ()
+    assert isinstance(result.expression, AggregateCallIR)
+    assert len(result.expression.arguments) == 2
+    assert len(result.expression.order_by) == 1
+    assert isinstance(result.expression.arguments[0], CallIR)
+    assert isinstance(result.expression.arguments[0].arguments[0], CastIR)
 
 
 def test_nested_call_lowers_recursively() -> None:

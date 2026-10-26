@@ -1,3 +1,4 @@
+-- unique_customers_by_status
 SELECT
     `status` AS `status`,
     COUNT(DISTINCT `customer_id`) AS `unique_customers`,
@@ -5,4 +6,4 @@ SELECT
 FROM `orders` AS `orders`
 WHERE `status` = 'paid'
 GROUP BY
-    `status`
+    `status`;

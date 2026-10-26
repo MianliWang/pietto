@@ -517,6 +517,18 @@ def test_migrated_literals_require_manual_confirmation_when_reinterpreted() -> N
     )
 
 
+@pytest.mark.parametrize(("operator",), [("==",), ("!=",)])
+def test_migrate_keeps_legacy_null_equality_as_a_mechanical_literal_rewrite(
+    operator: str,
+) -> None:
+    source = f"type T = Bool ensure self {operator} null\n"
+
+    result = migrate_source(source)
+
+    assert result.diagnostics == ()
+    assert result.source == source.replace("null", "None")
+
+
 @pytest.mark.parametrize("header", ["", "pietto 3.7\n"])
 def test_shared_syntax_literal_ambiguity_refuses_all_spans_and_preserves_input(
     header: str, tmp_path: Path
@@ -1482,6 +1494,49 @@ def test_existence_join_before_later_lets_or_where_needs_manual_migration(
     ]
 
 
+@pytest.mark.parametrize(
+    ("kind", "rewrite"),
+    [
+        ("semi", "rewriting it as `where any(predicate for o in orders)`"),
+        ("anti", "rewriting it as `where not any(predicate for o in orders)`"),
+        ("inner", "introducing let and on"),
+        ("cross", "introducing let"),
+    ],
+)
+def test_join_written_with_as_needs_manual_migration_to_its_rewrite(
+    kind: str, rewrite: str
+) -> None:
+    # A semi or anti JOIN becomes `where [not] any(...)`, never a let and on;
+    # a CROSS JOIN takes no `on`.
+    on = "" if kind == "cross" else ": on o.customer_id == customers.id"
+    result = migrate_source(
+        _EXISTENCE + f"    {kind} join orders as o{on}\n    select: customers.id\n",
+        path="as.pietto",
+    )
+
+    assert result.source is None
+    assert [
+        (
+            item.code,
+            item.location.line,
+            item.location.column,
+            item.location.end_line,
+            item.message,
+        )
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-P1011",
+            10,
+            5,
+            None,
+            "Legacy JOIN bindings need manual migration: preserve the exact input "
+            "occurrence, roles, inferred source, and relationship metadata when "
+            f"{rewrite}.",
+        )
+    ]
+
+
 @pytest.mark.parametrize(("kind", "negation"), [("semi", ""), ("anti", "not ")])
 def test_last_existence_join_stays_the_where_after_moved_named_windows(
     kind: str, negation: str
@@ -1710,3 +1765,15 @@ def test_a_legacy_body_reading_the_name_return_gains_the_keyword() -> None:
 
     assert result.diagnostics == ()
     assert result.source == "derive d(return: Int) -> Int:\n    return return * 2\n"
+
+
+def test_migrate_reports_no_parse_warning_of_the_source_it_writes() -> None:
+    # `check` warns that `--` is two minus signs (PIE-P1009); `migrate` keeps
+    # the bytes, of an old source too, and reports only what stops it.
+    modern = "type T = Int ensure self > 100 -- 50\n"
+    old = "type T = Int not null ensure self > 100 -- 50\n"
+
+    assert [item.code for item in parse_source(modern).diagnostics] == ["PIE-P1009"]
+    for source in (modern, old):
+        result = migrate_source(source)
+        assert (result.source, result.diagnostics) == (modern, ())

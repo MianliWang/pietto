@@ -209,7 +209,6 @@ def test_satisfying_that_cannot_be_validated_reports_s2327(
         )
         for diagnostic in result.diagnostics
     ] == [
-        ("PIE-S2382", Severity.WARNING, _RATES_READ, 14, 5),
         (
             "PIE-S2327",
             Severity.ERROR,
@@ -245,14 +244,6 @@ def test_unsupported_satisfying_forms_are_named_in_plain_words(
     ]
 
 
-# The warning at a read of the same-file table `rates` in single-file mode.
-_RATES_READ = (
-    "`rates` is a table of this file; single-file SQL reads it by name, so the "
-    "SQL runs only where the database already has a relation named rates (an "
-    "EXPLICIT_MODULES project emits it as a CTE)"
-)
-
-
 def test_satisfying_over_an_output_of_unknown_type_is_not_refused_at_check() -> None:
     result = analyze(
         _parse(
@@ -272,29 +263,7 @@ def test_satisfying_over_an_output_of_unknown_type_is_not_refused_at_check() -> 
         )
     )
 
-    # buckets reads the same-file table rates by name (PIE-S2382 at its FROM).
-    assert [
-        (
-            diagnostic.code,
-            diagnostic.severity,
-            diagnostic.message,
-            diagnostic.location.line,
-            diagnostic.location.column,
-            diagnostic.location.end_line,
-            diagnostic.location.end_column,
-        )
-        for diagnostic in result.diagnostics
-    ] == [
-        (
-            "PIE-S2382",
-            Severity.WARNING,
-            _RATES_READ,
-            14,
-            5,
-            14,
-            15,
-        )
-    ]
+    assert result.diagnostics == ()
     # Kept for lowering, so that emission refuses it (PIE-B1000) deterministically.
     assert result.model.relation_symbols["buckets"] in result.model.result_predicates
 

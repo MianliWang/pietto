@@ -60,9 +60,6 @@ from pietto._project import project_set_operations as project_set_operations
 from pietto._project import module_resolution as module_resolution
 from pietto._project import project_row_keys as project_row_keys
 from pietto._project import (
-    project_relationship_conditions as project_relationship_conditions,
-)
-from pietto._project import (
     aggregate_grouped_clause_facts as aggregate_grouped_clause_facts,
 )
 from pietto._project import aggregate_grouped_schema as aggregate_grouped_schema
@@ -100,11 +97,6 @@ from pietto._project import project_joined_row_semantics as project_joined_row_s
 from pietto._project import project_multifact as project_multifact
 from pietto._project import project_query_block as project_query_block
 from pietto._project import project_ir_joins as project_ir_joins
-from pietto._project import (
-    project_relationship_match_guarantees as project_relationship_match_guarantees,
-)
-from pietto._project import project_relationship_paths as project_relationship_paths
-from pietto._project import project_relationships as project_relationships
 from pietto._project import project_current_join_inputs as project_current_join_inputs
 from pietto._project import extension_signature_provider as extension_signature_provider
 from pietto.semantic import (
@@ -325,7 +317,7 @@ def _fields(value: Any) -> tuple[str, tuple[tuple[str, Any], ...]]:
             )
     elif isinstance(value, project_join_conditions.ProjectJoinCondition):
         predicate = value.environment.predicate_expression
-        if predicate is not None and predicate.calls:
+        if (predicate is not None and predicate.calls) or value.mandatory_equalities:
             kind = "project_predicate_join_condition"
     elif isinstance(
         value, project_scalar_namespaces.ProjectConcreteJoinedNamespaceExpression
@@ -832,7 +824,7 @@ _ADAPTERS: Mapping[type, str] = {
     project_row_keys.ProjectRowUniquenessEvidence: "project_row_uniqueness_evidence",
     project_row_keys.ProjectRowUniquenessEvidenceIdentity: "project_row_uniqueness_evidence_identity",
     project_row_keys.ProjectUniqueDeclarationOccurrence: "project_unique_declaration_occurrence",
-    project_relationship_conditions.ProjectExactRowOutputConstraintScope: "project_exact_row_output_constraint_scope",
+    project_row_keys.ProjectExactRowOutputConstraintScope: "project_exact_row_output_constraint_scope",
     project_row_keys.ProjectUniqueDeterminantField: "project_unique_determinant_field",
     project_row_keys.ProjectUniqueDeclarationIdentity: "project_unique_declaration_identity",
     ast_nodes.UniqueDef: "unique_def",
@@ -1020,36 +1012,12 @@ _ADAPTERS: Mapping[type, str] = {
     project_ir_properties.ProjectIRProvidedNullExtension: "project_ir_provided_null_extension",
     project_ir_joins.ProjectIRJoinUnavailableProperty: "project_ir_join_unavailable_property",
     project_multifact.ProjectActualGrainAuthority: "project_actual_grain_authority",
-    project_ir_joins.ProjectIRJoinMatchFieldPair: "project_ir_join_match_field_pair",
-    project_relationship_match_guarantees.ProjectDirectionalRelationshipMatchGuarantee: "project_directional_relationship_match_guarantee",
     project_query_block_ir.ProjectIRSingleMatchProofImage: "project_ir_single_match_proof_image",
     ast_nodes.RelationshipMetadata: "relationship_metadata",
-    project_ir_joins.ProjectIRBinaryJoinOccurrence: "project_ir_binary_join_occurrence",
-    project_relationship_uses.ProjectConcreteJoinUse: "project_concrete_join_use",
-    project_relationship_paths.ProjectRelationshipPath: "project_relationship_path",
-    project_relationship_paths.ProjectRelationshipPathStep: "project_relationship_path_step",
     ast_nodes.JoinTraversalStep: "join_traversal_step",
-    project_ir_joins.ProjectIRJoinGrainWitness: "project_ir_join_grain_witness",
     project_single_match.ProjectSingleMatchProof: "project_single_match_proof",
-    project_relationship_conditions.ProjectRelationshipEqualityCorrespondence: "project_relationship_equality_correspondence",
-    project_relationship_match_guarantees.ProjectRelationshipDirectionIdentity: "project_relationship_direction_identity",
-    project_relationship_match_guarantees.ProjectAtMostOneEvidence: "project_at_most_one_evidence",
-    project_relationship_match_guarantees.ProjectAbsentReferentialCoverage: "project_absent_referential_coverage",
     ast_nodes.RelationshipMatchClause: "relationship_match_clause",
-    project_ir_joins.ProjectIRBinaryJoinIdentity: "project_ir_binary_join_identity",
-    project_relationship_conditions.ProjectConcreteRelationshipCondition: "project_concrete_relationship_condition",
-    project_relationship_conditions.ProjectRelationshipCorrespondenceIdentity: "project_relationship_correspondence_identity",
-    project_relationship_conditions.ProjectRelationshipEndpointFieldReferenceOccurrence: "project_relationship_endpoint_field_reference_occurrence",
     ast_nodes.RelationshipEndpoint: "relationship_endpoint",
-    project_relationship_uses.ProjectTraversalStepUse: "project_traversal_step_use",
-    project_relationships.ProjectRelationshipDeclarationIdentity: "project_relationship_declaration_identity",
-    project_relationships.ProjectRelationshipEndpointOccurrence: "project_relationship_endpoint_occurrence",
-    project_relationship_conditions.ProjectRelationshipBaseMatchIdentity: "project_relationship_base_match_identity",
-    project_relationships.ProjectConcreteRelationshipSubject: "project_concrete_relationship_subject",
-    project_relationship_conditions.ProjectRelationshipEndpointFieldReferenceIdentity: "project_relationship_endpoint_field_reference_identity",
-    project_relationship_uses.ProjectTraversalStepUseIdentity: "project_traversal_step_use_identity",
-    project_relationships.ProjectRelationshipEndpointIdentity: "project_relationship_endpoint_identity",
-    project_relationships.ProjectRelationshipDeclarationOccurrence: "project_relationship_declaration_occurrence",
     project_ir_properties.ProjectIRPropertyStage: "project_ir_property_stage",
     project_ir_properties.ProjectIRProvidedCardinalityUpperBound: "project_ir_provided_cardinality_upper_bound",
     project_ir_properties.ProjectIRProvidedRelationOrdering: "project_ir_provided_relation_ordering",
@@ -1134,7 +1102,6 @@ _ADAPTERS: Mapping[type, str] = {
     project_joined_windows.ProjectJoinedWindowInputResolution: "project_joined_window_input_resolution",
     aggregate_grouped_schema.ProjectAggregateSelectedResult: "project_aggregate_selected_result",
     project_ir_evaluation_context.ProjectIRAggregateEvaluationContext: "project_ir_aggregate_evaluation_context",
-    project_relationship_match_guarantees.ProjectRefinedMatchBounds: "project_refined_match_bounds",
     project_query_block_ir.ProjectIRReboundExistingOutput: "project_ir_rebound_existing_output",
 }
 
@@ -1226,7 +1193,7 @@ _ENUMS: tuple[type[Enum], ...] = (
     project_row_keys.ProjectConstraintEvidenceOrigin,
     project_row_keys.ProjectConstraintEvidenceTrust,
     project_row_keys.ProjectConstraintEnforcementPosture,
-    project_relationship_conditions.ProjectRelationshipConstraintScopeKind,
+    project_row_keys.ProjectRelationshipConstraintScopeKind,
     project_final_outputs.ProjectNoJoinQualifyKind,
     aggregate_grouped_clause_facts.ProjectRelationClauseDependencyKind,
     aggregate_grouped_clause_facts.ProjectAggregateGroupedClauseReadinessStatus,
@@ -1290,14 +1257,10 @@ _ENUMS: tuple[type[Enum], ...] = (
     project_ir_properties.ProjectIRProvidedPropertySlot,
     project_ir_properties.ProjectIRPropertyAvailability,
     project_multifact.ProjectActualGrainAuthorityKind,
-    project_relationship_match_guarantees.ProjectRelationshipMinimumBound,
-    project_relationship_match_guarantees.ProjectMatchGuaranteeFallbackReason,
-    project_relationship_match_guarantees.ProjectRelationshipMaximumBound,
-    project_ir_joins.ProjectIRBinaryJoinKind,
+    project_join_conditions.ProjectRelationshipMinimumBound,
+    project_join_conditions.ProjectRelationshipMaximumBound,
     project_single_match.ProjectSingleMatchProofKind,
-    project_relationship_conditions.ProjectRelationshipEqualitySemantics,
-    project_relationship_match_guarantees.ProjectReferentialCoverageState,
-    project_relationship_conditions.ProjectRelationshipConditionScope,
+    project_join_conditions.ProjectRelationshipConditionScope,
     ast_nodes.WindowNthDirectionKind,
     capability_composition.CapabilityProfileCompositionBlockerKind,
     extension_catalog_availability.ExtensionCatalogSelectionOutcome,

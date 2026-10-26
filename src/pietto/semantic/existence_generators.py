@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
 
@@ -186,6 +186,22 @@ def rebind_any_values(
     ):
         raise AssertionError("ANY current inventory does not match uses")
     return collect_any_values(after, trace=trace)
+
+
+def any_binders(uses: Sequence[AnyUseInfo]) -> dict[str, str]:
+    """The binder as written of each hidden JOIN binding, by its generated name."""
+
+    return {use.clause.target_binding_name: use.expression.binding_name for use in uses}
+
+
+def written_read(
+    node: ast.NameExpr | ast.DottedNameExpr, binders: Mapping[str, str]
+) -> str:
+    """``node`` as written: a read of a hidden JOIN's generated binding names
+    the binder of its `any` (``binders``, from `any_binders`)."""
+
+    head, *rest = node.parts if isinstance(node, ast.DottedNameExpr) else (node.name,)
+    return ".".join((binders.get(head, head), *rest))
 
 
 def without_any(script: ast.Script) -> ast.Script:

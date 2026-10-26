@@ -1,3 +1,4 @@
+-- recent_active_users
 SELECT
     "id" AS "id",
     lower("email") AS "normalized"
@@ -6,4 +7,4 @@ WHERE "active" = TRUE
 ORDER BY
     "created_at" DESC,
     "id" ASC
-LIMIT 100
+LIMIT 100;

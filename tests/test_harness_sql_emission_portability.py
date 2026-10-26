@@ -274,7 +274,17 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
     failures = []
     statuses = {}
     root = tmp_path_factory.mktemp("slice14-corpus-" + target)
-    for number, item in enumerate(emission.generation_inputs(target)):
+    inputs = emission.generation_inputs(target)
+    if target == "postgres":
+        inputs = [
+            *inputs,
+            {
+                "id": "C5_ordered_string_agg",
+                "variant": "duplicate_desc",
+                **emission.ordered_string_agg_witness(target),
+            },
+        ]
+    for number, item in enumerate(inputs):
         case, variant = item["id"], item["variant"]
         assert (case, variant) not in statuses
         # Built and released one at a time; nothing retains the corpus graphs.
@@ -387,7 +397,10 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
     assert legacy_only <= absent, absent
     absent -= legacy_only
     assert (
-        absent <= {"window_frame", "window_definition"}
+        # C5's explicit MySQL-blocked ordered string_agg witness has no
+        # admitted MySQL artifact, so its aggregate_order_item is absent only
+        # on this target.
+        absent <= {"window_frame", "window_definition", "aggregate_order_item"}
         if target == "mysql"
         else (absent == set())
     ), absent
@@ -1491,6 +1504,20 @@ def test_variants_outside_the_generation_corpus_have_real_witnesses(
         if any(_record(document, ref)["position"] == position for ref in g["premises"])
     }
     assert bound == {"source_representation", "field_projection"}
+
+
+def test_c5_ordered_string_agg_mysql_is_explicitly_blocked(tmp_path_factory):
+    item = emission.ordered_string_agg_witness("mysql")
+    _, outcome = emission.build_case(
+        tmp_path_factory.mktemp("c5-ordered-string-agg-mysql"),
+        item["source"],
+        item["contract"],
+        item["policy"],
+    )
+
+    assert outcome.status == "BLOCKED"
+    assert outcome.artifact is None
+    assert outcome.blockers
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))

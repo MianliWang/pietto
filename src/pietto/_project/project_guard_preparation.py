@@ -205,13 +205,7 @@ def prepare_guarded_request(request) -> GuardedPreparation[EmissionArtifact]:
             blockers=blockers,
             diagnostics=request.verification.completed.diagnostics,
         )
-    from pietto._project.project_sql_emission_joins import guarded_path_input
-
-    private_path = any(
-        guarded_path_input(scope, request.plan, item)
-        for item in request.plan.join_inputs
-    )
-    if not scope.enforcement and not private_path:
+    if not scope.enforcement:
         result = realize_project_sql(request)
         if result.status != "VERIFIED" or result.artifact is None:
             raise GuardPreparationError(
@@ -221,7 +215,7 @@ def prepare_guarded_request(request) -> GuardedPreparation[EmissionArtifact]:
     else:
         # Reuse the original typed realization and renderers. No request is
         # removed, semantic root cloned, or VERIFIED outcome manufactured.
-        realized = realize_rows(request, _guarded=scope)
+        realized = realize_rows(request)
         query: Any = realized.query
         if query is None:
             raise GuardPreparationError(

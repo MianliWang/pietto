@@ -35,7 +35,6 @@ from pietto.ast_nodes import (
     RelationExistsExpr,
     RelationMembershipExpr,
     RelationScalarExpr,
-    RelationshipMetadata,
     RelationshipTemplate,
     Script,
     SelectBody,
@@ -101,7 +100,6 @@ _REFUSED_POSITIONS: MappingProxyType[type[Node], str] = MappingProxyType(
         TableFunctionFromClause: "in a table-function input",
         LimitClause: "in LIMIT",
         ValuesBody: "in a VALUES row",
-        RelationshipMetadata: "in a relationship condition",
         SourceDef: "in a source connector",
         TypeArgument: "in a type argument",
     }
@@ -209,9 +207,7 @@ def inline_functions(
         raise AssertionError("Every def is checked before it is inlined.")
     others = tuple(item for item in script.definitions if type(item) is not FunctionDef)
     found.extend(
-        _position_diagnostics(
-            (*others, *script.relationships, *script.relationship_templates), defined
-        )
+        _position_diagnostics((*others, *script.relationship_templates), defined)
     )
     if found:
         return script, _ordered(found)
@@ -229,16 +225,12 @@ def inline_functions(
         for item in script.definitions
         if type(item) is not FunctionDef
     )
-    relationships = cast(
-        tuple[RelationshipMetadata, ...], expansion.expand_tree(script.relationships)
-    )
     relationship_templates = expansion.expand_tree(script.relationship_templates)
     if found:
         return script, _ordered(found)
     return replace(
         script,
         definitions=definitions,
-        relationships=relationships,
         relationship_templates=cast(
             tuple[RelationshipTemplate, ...], relationship_templates
         ),
@@ -410,6 +402,16 @@ class _Expansion:
         function = self.defined.get(cast(NameExpr, call.callee).name)
         if function is None:
             return rebuilt
+        if call.aggregate_order_by:
+            self._refuse(call)
+            self.found.append(
+                _diagnostic(
+                    "PIE-S2104",
+                    "Internal ORDER BY is only supported by string_agg",
+                    call.span,
+                )
+            )
+            return call
         checked = self.templates.get(function.name)
         if checked is None:
             # The callee failed its own checks, which reported it.
@@ -886,9 +888,8 @@ def _position_diagnostics(
     """Refuse a def call where the hand-written form must be a literal, a
     field or a window call, which Pietto checks by a rule of its own: inside
     a window computation, as a table function or in its input, LIMIT, a VALUES
-    row, a relationship condition, a source connector, a type argument, and
-    the ORDER BY of a grouped relation. The innermost such position names the
-    refusal."""
+    row, a source connector, a type argument, and the ORDER BY of a grouped
+    relation. The innermost such position names the refusal."""
 
     found: list[Diagnostic] = []
     pending: list[tuple[object, str | None]] = [(root, None) for root in roots]
@@ -1051,18 +1052,20 @@ def _callee_order(defined: dict[str, FunctionDef]) -> list[FunctionDef]:
     return [defined[name] for name in ordered]
 
 
-def _check_body(
-    function: FunctionDef, body: Expression, found: list[Diagnostic]
-) -> None:
-    """Type the expanded body over the declared parameters, each argument of
-    a call in it fitting its parameter as it does anywhere else. Its canonical
-    type is the declared result type, and it is never null when that says so:
-    typed again, a comparison, `between` or `+`, `-`, `*` of non-null operands
-    is non-null (`DefBodyTypes`). A body that is always null fits only a
-    nullable result; a body whose type stays unknown without an error fits
-    none."""
+def def_body_schemas(script: Script) -> tuple[tuple[FunctionDef, RowSchema], ...]:
+    """Each ``def`` of ``script`` with the row of its declared parameters that
+    its body is typed over, an alias read as the scalar type it expands to."""
 
-    schema = RowSchema(
+    aliases = _scalar_aliases(script)
+    return tuple(
+        (definition, _parameter_schema(_with_alias_bases(definition, aliases)))
+        for definition in script.definitions
+        if type(definition) is FunctionDef
+    )
+
+
+def _parameter_schema(function: FunctionDef) -> RowSchema:
+    return RowSchema(
         fields={
             parameter.name: RowField(
                 name=parameter.name,
@@ -1074,6 +1077,20 @@ def _check_body(
             for parameter in function.parameters
         }
     )
+
+
+def _check_body(
+    function: FunctionDef, body: Expression, found: list[Diagnostic]
+) -> None:
+    """Type the expanded body over the declared parameters, each argument of
+    a call in it fitting its parameter as it does anywhere else. Its canonical
+    type is the declared result type, and it is never null when that says so:
+    typed again, a comparison, `between` or `+`, `-`, `*` of non-null operands
+    is non-null (`DefBodyTypes`). A body that is always null fits only a
+    nullable result; a body whose type stays unknown without an error fits
+    none."""
+
+    schema = _parameter_schema(function)
     before = len(found)
     actual = infer_row_expression(body, schema, {}, found, report_unknown_name=True)
     if len(found) != before:

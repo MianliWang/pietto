@@ -453,7 +453,8 @@ def test_a_relationship_via_route_keeps_its_retained_equality(tmp_path, target, 
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_via_route_refined_by_an_authored_predicate_keeps_both(tmp_path, target):
     """The relationship call and an authored refinement share one ON: the plan
-    keeps both conjuncts and exactly the relationship's mandatory equality."""
+    keeps both conjuncts and both mandatory equalities, the relationship's from
+    its call and the hand-written refinement's from none."""
     checked, outcome = build(
         tmp_path,
         target,
@@ -470,8 +471,9 @@ def test_a_via_route_refined_by_an_authored_predicate_keeps_both(tmp_path, targe
     (join,) = verified_plan(checked).joins
     assert join.equalities == () and join.on is not None
     condition = join.source.condition
-    (equality,) = condition.mandatory_equalities
-    assert equality.conjunct_position == 0
+    equality, handwritten = condition.mandatory_equalities
+    assert equality.conjunct_position == 0 and equality.calls
+    assert handwritten.conjunct_position == 1 and handwritten.calls == ()
     assert isinstance(equality.comparison.left, DottedNameExpr)
     assert isinstance(equality.comparison.right, DottedNameExpr)
     assert (equality.comparison.left.parts, equality.comparison.right.parts) == (
@@ -481,6 +483,7 @@ def test_a_via_route_refined_by_an_authored_predicate_keeps_both(tmp_path, targe
     assert isinstance(condition.expression, BinaryExpr)
     refinement = condition.expression.right
     assert isinstance(refinement, ComparisonExpr)
+    assert handwritten.comparison is refinement
     assert isinstance(refinement.left, DottedNameExpr)
     assert isinstance(refinement.right, DottedNameExpr)
     assert (refinement.left.parts, refinement.operator, refinement.right.parts) == (

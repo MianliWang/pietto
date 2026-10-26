@@ -388,7 +388,51 @@ def _parse_source(
 
     if trees is not None:
         trees.append(tree)
+    if modern and admit:
+        ordered_diagnostics = _source_ordered(
+            (*ordered_diagnostics, *_double_minus_warnings(raw_tokens, path))
+        )
     return ParseResult(ast=ast, diagnostics=ordered_diagnostics)
+
+
+_DOUBLE_MINUS = (
+    "`--` is not a comment in Pietto: it is two minus signs, so `a -- b` is "
+    "`a - (-b)`; start a comment with `#`, or write `- -b` for the minus signs"
+)
+
+
+def _double_minus_warnings(
+    tokens: Sequence[Token], path: str | Path | None
+) -> Iterator[Diagnostic]:
+    """PIE-P1009 at the first two of each run of minus signs written together,
+    which SQL reads as the start of a comment (owner decision S4)."""
+
+    previous: Token | None = None
+    reported = False
+    for token in tokens:
+        if (
+            token.type == PiettoLexer.MINUS
+            and previous is not None
+            and previous.type == PiettoLexer.MINUS
+            and previous.stop + 1 == token.start
+        ):
+            if not reported:
+                yield Diagnostic(
+                    code="PIE-P1009",
+                    severity=Severity.WARNING,
+                    message=_DOUBLE_MINUS,
+                    location=SourceLocation(
+                        path=source_path(path),
+                        line=previous.line,
+                        column=previous.column + 1,
+                        end_line=token.line,
+                        end_column=token.column + 2,
+                    ),
+                )
+            reported = True
+        else:
+            reported = False
+        previous = token
 
 
 class _PiettoParser(PiettoParser):

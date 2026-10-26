@@ -102,7 +102,7 @@ def test_emitter_has_no_sqlglot_or_ddl_emission() -> None:
     assert all(
         keyword not in artifact.sql.upper()
         for artifact in result.artifacts
-        for keyword in ("CREATE", "ALTER", "DROP", "WITH")
+        for keyword in ("CREATE", "ALTER", "DROP")
     )
     assert not hasattr(ir_api, "compile_to_ir")
 

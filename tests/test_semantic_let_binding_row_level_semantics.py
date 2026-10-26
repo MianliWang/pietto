@@ -283,8 +283,10 @@ def test_reads_of_a_refused_let_name_report_only_the_refusal(body: str) -> None:
     assert relation.let_clause is not None
     binding = relation.let_clause.bindings[0]
 
+    # In the grouped body `gross` is selected by its own name but no key.
+    hint = "; gross is not a GROUP BY key" if relation.group_by_clause else ""
     assert [(d.code, d.message) for d in semantic.diagnostics] == [
-        ("PIE-S2329", "Let binding conflicts with projection output name: gross")
+        ("PIE-S2329", "Let binding conflicts with projection output name: gross" + hint)
     ]
     location = semantic.diagnostics[0].location
     assert (location.line, location.column) == (binding.span.line, binding.span.column)
@@ -365,6 +367,24 @@ def test_let_inline_expansion_is_bounded_on_read_paths(
     node = relation.select_items[0].expression
     location = semantic.diagnostics[0].location
     assert (location.line, location.column) == (node.span.line, node.span.column)
+
+
+def test_qualify_reads_let_bindings_under_the_existing_expansion_limit() -> None:
+    relation, semantic = _analyze_relation(
+        "query chained:\n    from orders\n"
+        + _let_chain(17, "{previous} + {previous}")
+        + "    select:\n        rn = row_number() window(order by id)\n"
+        + "    qualify:\n        lag(v16) window(order by id) > 0\n"
+    )
+
+    diagnostic = next(item for item in semantic.diagnostics if item.code == "PIE-S2328")
+    assert diagnostic.message == (
+        "Expression exceeds the single-file let inline expansion limit of "
+        "100000 expression nodes after inlining the let bindings it reads "
+        "(first at let binding v16)"
+    )
+    assert relation.qualify_clause is not None
+    assert diagnostic.location.line == relation.qualify_clause.expression.span.line
 
 
 @pytest.mark.parametrize("ones", [314, 315])
@@ -520,6 +540,14 @@ def test_a_let_name_bound_through_null_is_typed_as_its_value_written_there() -> 
             13,
             "Invalid operands for operator ==: expected comparable operands",
         ),
+        # `q` divides two Int values, so it warns that it truncates.
+        (
+            "PIE-S2106",
+            16,
+            13,
+            "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
+            "write `Float(x) / y` for a fractional result",
+        ),
     ]
     assert _value_type_name(semantic, relation.select_items[2].expression) == "Int"
 
@@ -548,6 +576,14 @@ def test_a_let_name_over_an_unknown_row_is_typed_as_its_binding() -> None:
             13,
             "Invalid argument types for function coalesce: "
             "expected same canonical type",
+        ),
+        # `q` divides two Int values, so it warns that it truncates.
+        (
+            "PIE-S2106",
+            16,
+            13,
+            "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
+            "write `Float(x) / y` for a fractional result",
         ),
     ]
     assert _value_type_name(semantic, relation.select_items[3].expression) == "Int"

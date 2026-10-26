@@ -817,6 +817,97 @@ def test_a_membership_read_is_refused_after_its_source_closure_before_any_worksp
     )
 
 
+# A `[not] any(...)` conjunct of a WHERE, what a last `semi join` or `anti join`
+# migrates to, refines as that JOIN did: one EXISTS over the read source's own
+# refined input, which projects the columns the test reads. The same read under
+# `or` or around another block read still fails closed.
+TAIL_ANY = {
+    "any": "any(t.label == items.label for t in tags)",
+    "not_any": "not any(t.label == items.label for t in tags)",
+    "and": "id > 1 and any(t.id < items.id for t in tags)",
+    "or": "id > 1 or any(t.label == items.label for t in tags)",
+    "nested": "any(any(u.id == t.id for u in tags) for t in tags)",
+}
+
+
+@pytest.mark.parametrize("name", sorted(TAIL_ANY))
+def test_live_refinement_refines_a_tail_any_as_its_semi_or_anti_join(tmp_path, name):
+    import _pietto_execution_api as api
+    from pietto._project.project_execution_template import bind_values
+    from pietto._project.project_refinement_rendering import render
+    from pietto._project.project_refinement_verification import verify_native
+    from pietto.execution import R2SourceInput, compile_query
+
+    project = api.write_example(Path(tmp_path) / "r2-tail-any")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + 'source tags: Item = postgres.table("fixture.tags")\n'
+        "table tagged_items:\n    from items\n"
+        f"    where {TAIL_ANY[name]}\n    select:\n        id = items.id\n",
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    tags = json.loads(json.dumps(contract["sources"][0]))
+    tags["selector"]["name"] = tags["relation"]["name"] = "tags"
+    contract["sources"].append(tags)
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    query = compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="tagged_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    values = tuple(
+        slot.original.site.position.literal.value for slot in query._template.slots
+    )
+    binding = bind_values(query._template, tuple(zip(query._template.slots, values)))
+    inputs = tuple(
+        R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in binding.artifact.request.sources
+    )
+    assert [i.name for i in inputs] == ["items", "tags"]
+    with pytest.raises(ValueError, match="^PUBLIC_R2_SOURCE_CLOSURE$"):
+        proposal.prepare_live_refinement(query, binding, inputs[:1])
+    if name in ("or", "nested"):
+        with pytest.raises(ValueError, match="^REFINEMENT_EXPRESSION_BLOCK_READ$"):
+            proposal.check_live_refinement(query, inputs)
+        with pytest.raises(ValueError, match="^REFINEMENT_EXPRESSION_BLOCK_READ$"):
+            proposal.prepare_live_refinement(query, binding, inputs)
+        return
+    # recover's template checks and save_recoverable's preparation accept it.
+    proposal.check_live_refinement(query, inputs)
+    refinement = proposal.prepare_live_refinement(query, binding, inputs).refinement
+    prefix = refinement.prefix
+    (tags_input,) = (
+        c for c in refinement.statement.ctes if c.name == prefix + "source1"
+    )
+    read = "item_id" if name == "and" else "item_label"
+    assert tags_input.columns == (read, prefix + "k0", prefix + "k1")
+    native = render(refinement.statement, refinement.original)
+    assert verify_native(native, refinement) == ()
+    sql = native.sql.decode("utf-8")
+    # `tags` is read once, by its refined input; the test reads that input.
+    assert sql.count('"fixture"."tags"') == 1
+    test = 'EXISTS (SELECT 1 AS "' + prefix + 'one" FROM "' + prefix + 'source1" AS '
+    assert sql.count(test) == 1
+    assert sql.count("(NOT " + test) == (name == "not_any")
+
+
 @pytest.mark.parametrize(
     "text",
     (

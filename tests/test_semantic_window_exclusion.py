@@ -658,7 +658,6 @@ def test_lowering_filter_later_owner_and_public_boundaries_remain_exact() -> Non
     )
     assert hasattr(ir_model, "WindowFrameIR")
     assert not hasattr(ir_model, "ExcludedFrameIR")
-    assert not hasattr(ir_model, "AggregateWindowCallIR")
     for relative in (
         "src/pietto/sql/expressions.py",
         "src/pietto/sql/mysql_expressions.py",

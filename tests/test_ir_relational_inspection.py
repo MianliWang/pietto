@@ -311,10 +311,7 @@ def test_single_match_retains_actual_boundary_proof_and_warning(
             for image, source in zip(requirement.proofs, assessment.proofs, strict=True)
         )
         assert assessment.downstream_enforcement_required is (scenario == "unproved")
-        assert (
-            assessment.condition is not None
-            and assessment.condition.base_guarantee is None
-        )
+        assert assessment.condition is not None
         if scenario in {"matched_key", "guarded_key"}:
             assert [proof.kind.value for proof in assessment.proofs] == ["matched_key"]
         elif scenario == "right_limit":
@@ -391,10 +388,7 @@ def test_explicit_join_requirements_keep_distinct_composed_boundaries(
         assert retained.input_pairs == (
             (boundary.input_uses[0], boundary.input_uses[1]),
         )
-        assert (
-            assessment.condition is not None
-            and assessment.condition.base_guarantee is None
-        )
+        assert assessment.condition is not None
         for image, proof in zip(retained.proofs, assessment.proofs, strict=True):
             assert image.source is proof and proof.kind.value == "matched_key"
             condition, match, key, *equalities = proof.roots

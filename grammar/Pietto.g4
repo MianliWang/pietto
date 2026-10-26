@@ -817,7 +817,7 @@ identifier
     ;
 
 callSuffix
-    : LPAREN (expression (COMMA expression)* COMMA?)? RPAREN
+    : LPAREN (expression (COMMA (ORDER BY orderItem (COMMA orderItem)* | expression))* COMMA?)? RPAREN
     ;
 
 literal

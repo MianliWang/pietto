@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from _pietto_execution_rows_cases import BLOCK_READS, CASES, build
+from _pietto_execution_rows_cases import CASES, build
 from _pietto_execution_refinement import capabilities, refined, rewrite_cte
 from pietto._project.project_refinement import TieRefinement, prepare_refinement
 from pietto._project.project_refinement_rendering import Expr, Select, render
@@ -28,10 +28,6 @@ def test_complete_admitted_family_correspondence(tmp_path, target, case, variant
         return
     artifact = outcome.artifact
     assert artifact is not None
-    if (case, variant) in BLOCK_READS:
-        with pytest.raises(ValueError, match="^REFINEMENT_EXPRESSION_BLOCK_READ$"):
-            prepare_refinement(artifact, capabilities(artifact), policy=TieRefinement())
-        return
     original_sql = artifact.rendered.sql
     query = prepare_refinement(artifact, capabilities(artifact), policy=TieRefinement())
     assert verify_refinement(query) is query.units[-1]
@@ -229,3 +225,84 @@ def test_mysql_internal_prefix_avoids_case_folded_physical_names(tmp_path):
     )
     assert query.prefix == "__pietto_r2_1_"
     verify_refinement(query)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("variant", ("semi", "anti"))
+def test_a_tail_any_reads_its_refined_input_as_its_join_did(tmp_path, target, variant):
+    """A `[not] any(...)` WHERE (what a last semi or anti JOIN migrates to) is
+    the EXISTS of that JOIN's refinement: over the read relation's refined
+    input under the read's own alias, with the unit depending on that input."""
+    from pietto._project.project_refinement_rendering import Relation
+
+    query = refined(tmp_path, target, "W_join_shapes", variant)
+    (position,) = (
+        i
+        for i, c in enumerate(query.statement.ctes)
+        if c.name == query.prefix + "unit0"
+    )
+    cte = query.statement.ctes[position]
+    assert type(cte.query) is Select and type(cte.query.where) is Expr
+    where = cte.query.where
+    negated = variant == "anti"
+    test = where.args[0] if negated else where
+    assert (where.kind == "not") is negated and test.kind == "exists"
+    (inner,) = test.args
+    assert type(inner) is Select and type(inner.source) is Relation
+    assert inner.source.name == (query.prefix + "source0",)
+    assert query.units[0].dependencies == (-1, -1)
+    (source,) = query.original.request.sources
+    physical = replace(
+        inner, source=Relation((source.namespace, source.name), inner.source.alias)
+    )
+    renamed = replace(inner, source=replace(inner.source, alias="other"))
+
+    def wrapped(value):
+        return Expr("not", (value,)) if negated else value
+
+    for damage in (
+        wrapped(Expr("exists", (physical,))),  # the table, not its refined input
+        wrapped(Expr("exists", (renamed,))),  # not the read's own alias
+        test if negated else Expr("not", (test,)),  # the negation dropped or added
+    ):
+        damaged = rewrite_cte(
+            query, position, replace(cte, query=replace(cte.query, where=damage))
+        )
+        with pytest.raises(ValueError, match="^REFINEMENT_NATIVE_RULE_CORRESPONDENCE$"):
+            verify_refinement(damaged)
+    unit = replace(query.units[0], dependencies=(-1,))
+    with pytest.raises(ValueError, match="^REFINEMENT_FACT_CORRESPONDENCE$"):
+        verify_refinement(replace(query, units=(unit, *query.units[1:])))
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_tail_any_observes_the_source_columns_its_test_reads(tmp_path, target):
+    import _pietto_sql_emission as probe
+
+    def built(directory, body):
+        item = probe.join_witness(target, "query result:\n    from lhs\n" + body)
+        _, outcome = probe.build_case(
+            directory, item["source"], item["contract"], item["policy"]
+        )
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        return outcome.artifact
+
+    artifact = built(
+        tmp_path / "read",
+        "    where any(r.key == lhs.id for r in rhs)\n    select:\n        a = lhs.id\n",
+    )
+    # `rhs` is read only inside `any`: its key column, as an ON would read it.
+    assert source_read_columns(prepare_output(artifact))[1] == ("key value",)
+    query = prepare_refinement(artifact, capabilities(artifact), policy=TieRefinement())
+    (rhs,) = (c for c in query.statement.ctes if c.name == query.prefix + "source1")
+    assert rhs.columns == ("key value", query.prefix + "k0", query.prefix + "k1")
+    assert verify_native(render(query.statement, artifact), query) == ()
+    for name, body in (
+        ("or", "    where lhs.id > 1 or any(r.key == lhs.id for r in rhs)\n"),
+        ("item", "    select:\n        f = any(r.key == lhs.id for r in rhs)\n"),
+    ):
+        if name == "or":
+            body += "    select:\n        a = lhs.id\n"
+        other = built(tmp_path / name, body)
+        with pytest.raises(ValueError, match="^REFINEMENT_EXPRESSION_BLOCK_READ$"):
+            prepare_refinement(other, capabilities(other), policy=TieRefinement())

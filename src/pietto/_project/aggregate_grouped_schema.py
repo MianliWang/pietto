@@ -53,6 +53,7 @@ from pietto.errors import SourceLocation
 from pietto.semantic.aggregates import (
     MAX_AGGREGATE_NAME,
     MIN_AGGREGATE_NAME,
+    aggregate_order_expressions,
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
@@ -244,7 +245,10 @@ class ProjectAggregateExpressionAnalysis:
             )
         values = MappingProxyType(dict(self.argument_value_types))
         if call.arguments:
-            if not any(expression is call.arguments[0] for expression in values):
+            if any(
+                not any(expression is authored for expression in values)
+                for authored in (*call.arguments, *aggregate_order_expressions(call))
+            ):
                 raise ValueError("Aggregate analysis lost its authored argument type")
         elif values:
             raise ValueError("Row count cannot retain scalar argument types")
@@ -896,7 +900,8 @@ def _build_project_group_key_schema_attempt(
         )
         declared_identity = _direct_expression_identity(
             effective_expression,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
         )
         if declared_identity is not None:
             if declared_identity in declared_group_identities:
@@ -1311,7 +1316,8 @@ def _build_project_grouped_schema_attempt(
         )
         selected_identity = _direct_expression_identity(
             item.expression,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
         )
         is_group_key = group_key_field is not None or (
             group_key_facts is None and selected_identity in declared_group_identities
@@ -1362,7 +1368,8 @@ def _build_project_grouped_schema_attempt(
             continue
         selected_identity = _direct_expression_identity(
             item.expression,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
         )
         if group_key_facts is None and selected_identity in declared_group_identities:
             continue
@@ -1692,13 +1699,13 @@ def _build_project_aggregate_selected_result_attempt(
     assert output_name
 
     arguments = call.arguments
+    order_expressions = aggregate_order_expressions(call)
     argument_type: ValueType | None = None
     argument_attempt: _ProjectAggregateArgumentTypeAttempt | None = None
-    if arguments:
-        assert len(arguments) == 1
-        argument = arguments[0]
+    argument_values: dict[Expression, ValueType] = {}
+    for position, argument in enumerate(arguments):
         argument_attempt = _project_aggregate_argument_type_attempt(
-            pretyped_arguments=pretyped_arguments,
+            pretyped_arguments=pretyped_arguments if position == 0 else None,
             definition=definition,
             function_name=function_name,
             argument=argument,
@@ -1709,7 +1716,26 @@ def _build_project_aggregate_selected_result_attempt(
         if argument_attempt.value_type is None:
             assert argument_attempt.failure_reason is not None
             return _failed_selected_result_attempt(argument_attempt.failure_reason)
-        argument_type = argument_attempt.value_type
+        if position == 0:
+            argument_type = argument_attempt.value_type
+        assert argument_attempt.value_types is not None
+        argument_values.update(argument_attempt.value_types)
+    if order_expressions:
+        key_types = build_project_row_expression_value_types(
+            expressions=order_expressions,
+            input_schema=input_schema,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
+        )
+        if any(
+            key_types.get(expression) is None
+            or key_types[expression].kind is not ValueTypeKind.KNOWN
+            for expression in order_expressions
+        ):
+            return _failed_selected_result_attempt(
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+            )
+        argument_values.update(key_types)
 
     result_type = semantic_projection_aggregate_result_value_type(
         function_name,
@@ -1755,10 +1781,6 @@ def _build_project_aggregate_selected_result_attempt(
         argument_count=len(arguments),
         location=location,
     )
-    argument_values: Mapping[Expression, ValueType] = {}
-    if argument_attempt is not None:
-        assert argument_attempt.value_types is not None
-        argument_values = argument_attempt.value_types
     return _ProjectAggregateSelectedResultAttempt(
         result=ProjectAggregateSelectedResult(
             field=field,
@@ -1975,7 +1997,8 @@ def _project_aggregate_argument_type_attempt(
         effective_value_types = build_project_row_expression_value_types(
             expressions=(effective_argument,),
             input_schema=input_schema,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
         )
         argument_type = effective_value_types.get(effective_argument)
 
@@ -2123,7 +2146,8 @@ def _declared_group_key_identities(
         )
         identity = _direct_expression_identity(
             effective_expression,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
         )
         if identity is not None:
             identities.add(identity)
@@ -2260,7 +2284,8 @@ def _resolve_input_field(
 ) -> tuple[str, ProjectRowField] | None:
     identity = _direct_expression_identity(
         expression,
-        relation_qualifier=definition.from_clause.source_name,
+        relation_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
     )
     if identity is None:
         return None

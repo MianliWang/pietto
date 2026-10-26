@@ -137,6 +137,8 @@ def _bare_name_references(expression: Expression) -> Iterator[str]:
     elif isinstance(expression, CallExpr):
         for argument in expression.arguments:
             yield from _bare_name_references(argument)
+        for item in expression.aggregate_order_by:
+            yield from _bare_name_references(item.expression)
     elif isinstance(expression, UnaryExpr):
         yield from _bare_name_references(expression.operand)
     elif isinstance(expression, ConditionalExpr):

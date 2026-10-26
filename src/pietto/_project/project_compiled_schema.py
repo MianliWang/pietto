@@ -163,7 +163,8 @@ FIELDS = {
         "outputs",
         "layout",
     ),
-    "aggregate_value": ("function", "arguments", "logical"),
+    "aggregate_value": ("function", "arguments", "order_by", "logical"),
+    "aggregate_order": ("value", "direction"),
     "window": ("owner", "use", "input", "definitions", "values", "outputs", "layout"),
     "window_spec": ("partition", "ordering", "frame", "named"),
     "window_definition": ("ordinal", "label", "specification"),
@@ -856,20 +857,11 @@ def positive_equalities(records, root):
 
 
 def predicate_equalities(records, owner):
-    """Call-authorized equalities in normalized ON order, once per occurrence."""
-    authorized = {
-        address
-        for call in predicate_calls(records, owner)
-        if call.get("role") == "on"
-        for address in call.get("equalities")
-    }
-    if not authorized:
+    """A JOIN's positive ON equalities in normalized ON order, once per occurrence,
+    written by hand or in a mandatory call's body."""
+    if owner.address.kind != "join":
         return ()
-    return tuple(
-        item
-        for item in positive_equalities(records, owner.get("predicate"))
-        if item.address in authorized
-    )
+    return positive_equalities(records, owner.get("predicate"))
 
 
 def predicate_identity(node):

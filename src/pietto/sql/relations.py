@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import fields, is_dataclass
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 from typing import Any
 
 from pietto.ir.model import (
     AggregateCallIR,
+    AggregateWindowCallIR,
     ExpressionIR,
     ExistsIR,
     FieldId,
@@ -18,11 +18,13 @@ from pietto.ir.model import (
     OrderItemIR,
     NamedWindowDeclarationIR,
     ProjectionIR,
+    QualifyIR,
     RelationIR,
     SourceIR,
     SymbolId,
     TypeKindIR,
     WindowCallIR,
+    WindowOrderItemIR,
     WindowUseKindIR,
 )
 from pietto.sql.expressions import (
@@ -30,6 +32,7 @@ from pietto.sql.expressions import (
     is_untyped_null,
     refuse_text_null_condition,
     render_expression_sql,
+    render_aggregate_window_call_sql,
     render_window_call_sql,
     render_window_components_sql,
 )
@@ -48,14 +51,19 @@ def render_relation_sql(
     *,
     sources: Mapping[SymbolId, SourceIR],
     relations: Mapping[SymbolId, RelationIR],
-    _include_exists_dependencies: bool = True,
+    _include_dependencies: bool = True,
 ) -> str:
-    """Render a minimal relation using a source table or relation-name input."""
+    """Render a minimal relation, defining the relations it reads as CTEs."""
+
+    if relation.qualify is not None:
+        return _render_qualify_relation_sql(
+            relation,
+            sources=sources,
+            relations=relations,
+        )
 
     dependencies = (
-        _exists_relation_dependencies(relation, relations)
-        if _include_exists_dependencies
-        else ()
+        _relation_dependencies(relation, relations) if _include_dependencies else ()
     )
     _validate_exists_targets(relation, sources, relations)
     input_name = _relation_input_name(
@@ -154,7 +162,7 @@ def render_relation_sql(
             (
                 "WINDOW",
                 ",\n".join(
-                    f"    {_render_named_declaration(declaration)}"
+                    f"    {_render_named_declaration(declaration, named_decision.emission_declarations)}"
                     for declaration in named_decision.emission_declarations
                 ),
             )
@@ -173,7 +181,7 @@ def render_relation_sql(
     sql = "\n".join(lines)
     if dependencies:
         definitions = ",\n".join(
-            f"{quote_identifier(item.name)} AS (\n{render_relation_sql(item, sources=sources, relations=relations, _include_exists_dependencies=False)}\n)"
+            f"{quote_identifier(item.name)} AS (\n{render_relation_sql(item, sources=sources, relations=relations, _include_dependencies=False)}\n)"
             for item in dependencies
         )
         hidden = hidden_table_read(
@@ -181,12 +189,161 @@ def render_relation_sql(
         )
         if hidden is not None:
             raise ValueError(
-                f"PostgreSQL scalar ANY defines relation {hidden[0]} as a CTE, "
-                f"which would hide table {hidden[1]} read in the same SQL; rename "
-                "the relation or read the table with its schema"
+                f"Its SQL defines relation {hidden[0]} as a CTE, which would "
+                f"hide table {hidden[1]} read in the same SQL; rename the "
+                "relation or read the table with its schema"
             )
         return f"WITH {definitions}\n{sql}"
     return sql
+
+
+def _render_qualify_relation_sql(
+    relation: RelationIR,
+    *,
+    sources: Mapping[SymbolId, SourceIR],
+    relations: Mapping[SymbolId, RelationIR],
+) -> str:
+    """Render QUALIFY as an exact derived-table post-window predicate."""
+
+    qualify = relation.qualify
+    if type(qualify) is not QualifyIR:
+        raise ValueError("PostgreSQL QUALIFY requires an exact predicate")
+    names = tuple(
+        projection.name
+        for projection in relation.projections
+        if type(projection.name) is str
+    )
+    if len(names) != len(relation.projections) or any(not name for name in names):
+        raise ValueError("PostgreSQL QUALIFY requires named selected outputs")
+    hidden, predicate, order_by = _qualify_outer_stage(relation)
+    inner = replace(
+        relation,
+        qualify=None,
+        projections=(*relation.projections, *hidden),
+        order_by=(),
+        limit=None,
+    )
+    inner_sql = render_relation_sql(inner, sources=sources, relations=relations)
+    selected = ",\n".join(f"    {quote_identifier(name)}" for name in names)
+    lines = [
+        "SELECT",
+        selected,
+        "FROM (",
+        inner_sql,
+        ') AS "__pietto_qualify"',
+        "WHERE",
+        f"    {render_expression_sql(predicate)}",
+    ]
+    if order_by:
+        lines.extend(
+            (
+                "ORDER BY",
+                ",\n".join(f"    {_render_order_item(item)}" for item in order_by),
+            )
+        )
+    if relation.limit is not None:
+        lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
+    return "\n".join(lines)
+
+
+def _qualify_outer_stage(
+    relation: RelationIR,
+) -> tuple[tuple[ProjectionIR, ...], ExpressionIR, tuple[OrderItemIR, ...]]:
+    """Carry every outer QUALIFY/ORDER input as a private derived-table port."""
+
+    qualify = relation.qualify
+    if type(qualify) is not QualifyIR:
+        raise ValueError("QUALIFY stage requires an exact predicate")
+    used = {projection.name for projection in relation.projections if projection.name}
+    hidden: list[ProjectionIR] = []
+    windows: dict[int, FieldRefIR] = {}
+    inputs: dict[FieldId, FieldRefIR] = {}
+    counter = 0
+
+    def port(expression: ExpressionIR) -> FieldRefIR:
+        nonlocal counter
+        while True:
+            alias = f"__pietto_qualify_{counter}"
+            counter += 1
+            if alias not in used:
+                used.add(alias)
+                break
+        value = FieldRefIR(
+            name=alias,
+            qualifier=(),
+            field=None,
+            span=expression.span,
+            value_type=expression.value_type,
+        )
+        hidden.append(
+            ProjectionIR(
+                name=alias,
+                expression=expression,
+                type_ref=None,
+                span=expression.span,
+            )
+        )
+        return value
+
+    def outer(expression: ExpressionIR) -> ExpressionIR:
+        if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):
+            saved = windows.get(id(expression))
+            if saved is None:
+                saved = windows[id(expression)] = port(expression)
+            return saved
+        if isinstance(expression, AggregateCallIR):
+            saved = windows.get(id(expression))
+            if saved is None:
+                saved = windows[id(expression)] = port(expression)
+            return saved
+        if isinstance(expression, FieldRefIR) and expression.field is not None:
+            saved = inputs.get(expression.field)
+            if saved is None:
+                saved = inputs[expression.field] = port(expression)
+            return saved
+        changes: dict[str, object] = {}
+        for field in fields(expression):
+            value = getattr(expression, field.name)
+            if isinstance(value, ExpressionIR):
+                changes[field.name] = outer(value)
+            elif type(value) is tuple and any(
+                isinstance(item, ExpressionIR) for item in value
+            ):
+                changes[field.name] = tuple(
+                    outer(item) if isinstance(item, ExpressionIR) else item
+                    for item in value
+                )
+        return replace(expression, **changes) if changes else expression
+
+    # Hidden named windows retain source-selected ordinals, so they must occupy
+    # the slots immediately after visible projections, before carried inputs.
+    for expression in _qualify_windows(qualify.expression):
+        outer(expression)
+    predicate = outer(qualify.expression)
+    order_by = tuple(
+        replace(item, expression=outer(item.expression)) for item in relation.order_by
+    )
+    return tuple(hidden), predicate, order_by
+
+
+def _qualify_windows(
+    expression: ExpressionIR,
+) -> tuple[WindowCallIR | AggregateWindowCallIR, ...]:
+    found: list[WindowCallIR | AggregateWindowCallIR] = []
+    pending = [expression]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, (WindowCallIR, AggregateWindowCallIR)):
+            found.append(item)
+            continue
+        if isinstance(item, ExpressionIR):
+            for field in reversed(fields(item)):
+                value = getattr(item, field.name)
+                if isinstance(value, ExpressionIR):
+                    pending.append(value)
+                elif type(value) is tuple:
+                    pending.extend(reversed(value))
+    return tuple(found)
 
 
 def qualify_alias_captured_order_fields(
@@ -321,13 +478,24 @@ def _exists_reads(value: object) -> tuple[ExistsIR, ...]:
     return tuple(reads)
 
 
-def _exists_relation_dependencies(
+def _read_targets(relation: RelationIR) -> tuple[SymbolId, ...]:
+    """What one relation reads, in order: FROM, each JOIN input, each ANY."""
+
+    return (
+        relation.source.target,
+        *(item.target for item in relation.inputs),
+        *(item.target for item in _exists_reads(relation)),
+    )
+
+
+def _relation_dependencies(
     relation: RelationIR, relations: Mapping[SymbolId, RelationIR]
 ) -> tuple[RelationIR, ...]:
-    """Order named iterators and all of their dependencies before this reader."""
+    """Order the tables and queries of the file that a reader's SQL defines.
 
-    def scalar_targets(value: object) -> tuple[SymbolId, ...]:
-        return tuple(item.target for item in _exists_reads(value))
+    Each table or query that the reader reads (by FROM, a JOIN or ANY), and
+    each one those read, becomes a CTE named after it, after the ones it reads.
+    """
 
     done: set[SymbolId] = set()
     active: set[SymbolId] = {relation.symbol}
@@ -338,19 +506,15 @@ def _exists_relation_dependencies(
         if dependency is None or symbol in done:
             return
         if symbol in active:
-            raise ValueError("Scalar ANY relation dependency contains a cycle")
+            raise ValueError("Relation dependency contains a cycle")
         active.add(symbol)
-        for child in (
-            dependency.source.target,
-            *(item.target for item in dependency.inputs),
-            *scalar_targets(dependency),
-        ):
+        for child in _read_targets(dependency):
             visit(child)
         active.remove(symbol)
         done.add(symbol)
         result.append(dependency)
 
-    for target in scalar_targets(relation):
+    for target in _read_targets(relation):
         visit(target)
     return tuple(result)
 
@@ -463,10 +627,10 @@ def _render_projection(
 ) -> str:
     """Render one expression with a stable explicit output alias when present."""
 
-    if isinstance(expression, WindowCallIR) and name is None:
+    if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)) and name is None:
         raise ValueError("PostgreSQL window projections require an explicit alias")
     if (
-        isinstance(expression, WindowCallIR)
+        isinstance(expression, (WindowCallIR, AggregateWindowCallIR))
         and getattr(expression, "named_use", None) is not None
     ):
         if named_decision is None:
@@ -480,7 +644,11 @@ def _render_projection(
             }
             else None
         )
-        sql = render_window_call_sql(expression, over_sql=over_sql)
+        if type(expression) is WindowCallIR:
+            sql = render_window_call_sql(expression, over_sql=over_sql)
+        else:
+            assert type(expression) is AggregateWindowCallIR
+            sql = render_aggregate_window_call_sql(expression, over_sql=over_sql)
     else:
         sql = render_expression_sql(expression)
     if name is None:
@@ -488,7 +656,7 @@ def _render_projection(
     return f"{sql} AS {quote_identifier(name)}"
 
 
-def _render_named_over(expression: WindowCallIR) -> str:
+def _render_named_over(expression: WindowCallIR | AggregateWindowCallIR) -> str:
     named = expression.named_use
     if named is None:
         raise ValueError("native named OVER requires named use evidence")
@@ -505,6 +673,7 @@ def _render_named_over(expression: WindowCallIR) -> str:
         local.partition_by,
         local.order_by,
         frame,
+        effective_order_by=expression.spec.order_by,
     )
     reference = quote_identifier(named.reference_spelling)
     if not components:
@@ -516,13 +685,17 @@ def _render_named_over(expression: WindowCallIR) -> str:
     return f"({reference} {' '.join(components)})"
 
 
-def _render_named_declaration(declaration: NamedWindowDeclarationIR) -> str:
+def _render_named_declaration(
+    declaration: NamedWindowDeclarationIR,
+    declarations: tuple[NamedWindowDeclarationIR, ...],
+) -> str:
     if type(declaration) is not NamedWindowDeclarationIR:
         raise TypeError("PostgreSQL named declaration must be exact")
     components = render_window_components_sql(
         declaration.local_spec.partition_by,
         declaration.local_spec.order_by,
         declaration.local_spec.frame,
+        effective_order_by=_named_declaration_order_by(declaration, declarations),
     )
     parts = (
         ()
@@ -530,6 +703,25 @@ def _render_named_declaration(declaration: NamedWindowDeclarationIR) -> str:
         else (quote_identifier(declaration.base.spelling),)
     ) + components
     return f"{quote_identifier(declaration.name)} AS ({' '.join(parts)})"
+
+
+def _named_declaration_order_by(
+    declaration: NamedWindowDeclarationIR,
+    declarations: tuple[NamedWindowDeclarationIR, ...],
+) -> tuple[WindowOrderItemIR, ...]:
+    by_occurrence = {item.occurrence: item for item in declarations}
+    current = declaration
+    seen = set()
+    while not current.local_spec.order_by:
+        if current.occurrence in seen:
+            raise ValueError("named window declaration graph contains a cycle")
+        seen.add(current.occurrence)
+        if current.base is None:
+            return ()
+        current = by_occurrence.get(current.base.target)
+        if current is None:
+            raise ValueError("named window declaration base is absent")
+    return current.local_spec.order_by
 
 
 def _validate_grouped_relation(relation: RelationIR) -> None:
@@ -548,7 +740,7 @@ def _validate_grouped_relation(relation: RelationIR) -> None:
         if isinstance(expression, FieldRefIR) and expression.field in group_fields:
             orderable_expressions.append(expression)
             continue
-        if isinstance(expression, WindowCallIR):
+        if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):
             if type(projection.name) is not str or not projection.name:
                 raise ValueError(
                     "PostgreSQL grouped window projections require an explicit alias"
@@ -616,16 +808,22 @@ def _validate_window_clause_boundaries(relation: RelationIR) -> None:
     """Reject direct windows outside an explicitly aliased projection."""
 
     if relation.filter is not None and isinstance(
-        relation.filter.expression, WindowCallIR
+        relation.filter.expression, (WindowCallIR, AggregateWindowCallIR)
     ):
         raise ValueError("PostgreSQL WHERE does not support direct window calls")
     if relation.result_predicate is not None and isinstance(
-        relation.result_predicate.expression, WindowCallIR
+        relation.result_predicate.expression, (WindowCallIR, AggregateWindowCallIR)
     ):
         raise ValueError("PostgreSQL HAVING does not support direct window calls")
-    if any(isinstance(key, WindowCallIR) for key in relation.group_keys):
+    if any(
+        isinstance(key, (WindowCallIR, AggregateWindowCallIR))
+        for key in relation.group_keys
+    ):
         raise ValueError("PostgreSQL GROUP BY does not support direct window calls")
-    if any(isinstance(item.expression, WindowCallIR) for item in relation.order_by):
+    if any(
+        isinstance(item.expression, (WindowCallIR, AggregateWindowCallIR))
+        for item in relation.order_by
+    ):
         raise ValueError(
             "PostgreSQL relation ORDER BY does not support direct window calls"
         )

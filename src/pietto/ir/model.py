@@ -109,6 +109,7 @@ class AggregateCallIR(ExpressionIR):
 
     function: str
     arguments: tuple[ExpressionIR, ...]
+    order_by: tuple[OrderItemIR, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -524,6 +525,14 @@ class ResultPredicateIR:
 
 
 @dataclass(frozen=True, slots=True)
+class QualifyIR:
+    """A typed predicate evaluated after the relation window stage."""
+
+    expression: ExpressionIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectionIR:
     """An ordered relation projection and its stable output metadata."""
 
@@ -866,8 +875,6 @@ class WindowSpecIR:
             raise TypeError("order_by must be an exact tuple")
         if any(type(item) is not WindowOrderItemIR for item in self.order_by):
             raise TypeError("order_by items must be exact WindowOrderItemIR instances")
-        if not self.order_by:
-            raise ValueError("window IR requires at least one order item")
         if type(self.span) is not SourceSpan:
             raise TypeError("span must be an exact SourceSpan")
         if self.frame is not None and type(self.frame) is not WindowFrameIR:
@@ -917,6 +924,8 @@ class WindowCallIR(ExpressionIR):
             raise TypeError("arguments must be ExpressionIR instances")
         if type(self.spec) is not WindowSpecIR:
             raise TypeError("spec must be an exact WindowSpecIR")
+        if not self.spec.order_by:
+            raise ValueError("window call requires at least one order item")
         if (
             self.null_treatment is not None
             and type(self.null_treatment) is not WindowNullTreatmentIR
@@ -1015,6 +1024,390 @@ class WindowCallIR(ExpressionIR):
 
 
 @dataclass(frozen=True, slots=True)
+class AggregateWindowCallIR(ExpressionIR):
+    """A separately validated ordinary aggregate evaluated over a window."""
+
+    function: str
+    arguments: tuple[ExpressionIR, ...]
+    spec: WindowSpecIR
+    named_use: NamedWindowUseIR | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.span) is not SourceSpan or type(self.value_type) is not TypeRefIR:
+            raise TypeError("aggregate window requires exact source and type")
+        if type(self.function) is not str or self.function not in {
+            "sum",
+            "count",
+            "avg",
+            "min",
+            "max",
+        }:
+            raise ValueError("aggregate window function is unsupported")
+        if type(self.arguments) is not tuple or any(
+            not isinstance(argument, ExpressionIR) for argument in self.arguments
+        ):
+            raise TypeError("aggregate window arguments must be exact expressions")
+        arities = {"count": {0, 1}, "sum": {1}, "avg": {1}, "min": {1}, "max": {1}}
+        if len(self.arguments) not in arities[self.function]:
+            raise ValueError("aggregate window argument arity is invalid")
+        if type(self.spec) is not WindowSpecIR:
+            raise TypeError("aggregate window specification must be exact")
+        if (
+            self.spec.frame is not None
+            and self.spec.frame.unit is WindowFrameUnitIR.GROUPS
+            and not self.spec.order_by
+        ):
+            raise ValueError("GROUPS aggregate windows require an ORDER BY")
+        if self.named_use is not None and type(self.named_use) is not NamedWindowUseIR:
+            raise TypeError("aggregate named window use must be exact or absent")
+        if self.named_use is not None and self.named_use.occurrence.span != self.span:
+            raise ValueError("aggregate named window use must retain its source span")
+        if any(
+            _aggregate_window_contains_window(item)
+            for item in (*self.arguments, *self.spec.partition_by)
+        ) or any(
+            _aggregate_window_contains_window(item.expression)
+            for item in self.spec.order_by
+        ):
+            raise ValueError("aggregate windows cannot contain nested window calls")
+        if not aggregate_call_contract(
+            self.function,
+            self.arguments,
+            self.value_type,
+            allow_grouped_value=True,
+        ):
+            raise ValueError(
+                "aggregate window arguments or result violate its contract"
+            )
+
+
+def _aggregate_window_builtin_type(expression: ExpressionIR) -> str | None:
+    value_type = expression.value_type
+    if (
+        type(value_type) is not TypeRefIR
+        or value_type.canonical_kind is not TypeKindIR.BUILTIN
+    ):
+        return None
+    return value_type.canonical_name
+
+
+def _aggregate_window_has_type(
+    value_type: TypeRefIR,
+    name: str,
+    nullability: NullabilityIR,
+) -> bool:
+    return (
+        value_type.canonical_kind is TypeKindIR.BUILTIN
+        and value_type.canonical_name == name
+        and value_type.nullability is nullability
+    )
+
+
+def aggregate_call_contract(
+    function: str,
+    arguments: tuple[ExpressionIR, ...],
+    value_type: TypeRefIR,
+    *,
+    order_by: tuple[OrderItemIR, ...] = (),
+    allow_grouped_value: bool = False,
+) -> bool:
+    """Validate the shared ordinary aggregate contract at an IR boundary."""
+
+    if (
+        type(function) is not str
+        or type(arguments) is not tuple
+        or type(order_by) is not tuple
+        or any(
+            type(item) is not OrderItemIR
+            or not isinstance(item.expression, ExpressionIR)
+            or type(item.direction) is not OrderDirectionIR
+            for item in order_by
+        )
+    ):
+        return False
+    if any(not isinstance(argument, ExpressionIR) for argument in arguments):
+        return False
+    if function == "string_agg":
+        return (
+            len(arguments) == 2
+            and bool(order_by)
+            and all(
+                _aggregate_window_builtin_type(argument) == "Text"
+                for argument in arguments
+            )
+            and all(
+                not _aggregate_call_contains_nested_stage(argument)
+                for argument in (*arguments, *(item.expression for item in order_by))
+            )
+            and _aggregate_window_has_type(value_type, "Text", NullabilityIR.NULLABLE)
+        )
+    if order_by:
+        return False
+    if function == "count":
+        return _aggregate_window_has_type(
+            value_type, "Int", NullabilityIR.NON_NULL
+        ) and (
+            not arguments
+            or len(arguments) == 1
+            and _aggregate_window_is_count_argument(
+                arguments[0], allow_grouped_value=allow_grouped_value
+            )
+        )
+    if function == "count_distinct":
+        return (
+            len(arguments) == 1
+            and _aggregate_window_has_type(value_type, "Int", NullabilityIR.NON_NULL)
+            and _aggregate_window_is_count_distinct_argument(arguments[0])
+        )
+    if function in {"sum", "avg"} and len(arguments) == 1:
+        argument = arguments[0]
+        argument_type = _aggregate_window_builtin_type(argument)
+        valid, has_input, has_literal = _aggregate_window_numeric_argument_shape(
+            argument, allow_grouped_value=allow_grouped_value
+        )
+        result = (
+            "Decimal"
+            if argument_type == "Decimal"
+            else "Int"
+            if function == "sum" and argument_type == "Int"
+            else "Float"
+        )
+        return (
+            argument_type in {"Int", "Float", "Decimal"}
+            and valid
+            and has_input
+            and (not has_literal or argument_type in {"Int", "Float"})
+            and _aggregate_window_has_type(value_type, result, NullabilityIR.NULLABLE)
+        )
+    if function in {"min", "max"} and len(arguments) == 1:
+        argument = arguments[0]
+        argument_type = _aggregate_window_builtin_type(argument)
+        return (
+            _aggregate_window_is_extrema_argument(
+                argument, allow_grouped_value=allow_grouped_value
+            )
+            and argument_type in {"Int", "Float", "Decimal", "Date", "Timestamp"}
+            and _aggregate_window_has_type(
+                value_type, argument_type, NullabilityIR.NULLABLE
+            )
+        )
+    return False
+
+
+def _aggregate_window_contains_window(expression: ExpressionIR) -> bool:
+    pending = [expression]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, (WindowCallIR, AggregateWindowCallIR)):
+            return True
+        if isinstance(item, ExpressionIR):
+            for field in fields(item):
+                value = getattr(item, field.name)
+                if isinstance(value, ExpressionIR):
+                    pending.append(value)
+                elif type(value) is tuple:
+                    pending.extend(
+                        child for child in value if isinstance(child, ExpressionIR)
+                    )
+    return False
+
+
+def _aggregate_call_contains_nested_stage(expression: ExpressionIR) -> bool:
+    pending = [expression]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, (AggregateCallIR, WindowCallIR, AggregateWindowCallIR)):
+            return True
+        for field in fields(item):
+            value = getattr(item, field.name)
+            if isinstance(value, ExpressionIR):
+                pending.append(value)
+            elif type(value) is tuple:
+                pending.extend(
+                    child for child in value if isinstance(child, ExpressionIR)
+                )
+    return False
+
+
+def _aggregate_window_is_grouped_value(expression: ExpressionIR) -> bool:
+    if not isinstance(expression, AggregateCallIR):
+        return False
+    return aggregate_call_contract(
+        expression.function,
+        expression.arguments,
+        expression.value_type,
+        order_by=expression.order_by,
+    )
+
+
+def _aggregate_window_numeric_argument_shape(
+    expression: ExpressionIR,
+    *,
+    allow_grouped_value: bool = True,
+) -> tuple[bool, bool, bool]:
+    expression_type = _aggregate_window_builtin_type(expression)
+    if expression_type not in {"Int", "Float", "Decimal"}:
+        return False, False, False
+    if isinstance(expression, FieldRefIR):
+        valid = expression.field is not None
+        return valid, valid, False
+    if allow_grouped_value and _aggregate_window_is_grouped_value(expression):
+        return True, True, False
+    if isinstance(expression, LiteralIR):
+        return (
+            (type(expression.value) is int and expression_type == "Int")
+            or (type(expression.value) is float and expression_type == "Float"),
+            False,
+            True,
+        )
+    if isinstance(expression, UnaryIR):
+        valid, has_input, has_literal = _aggregate_window_numeric_argument_shape(
+            expression.operand, allow_grouped_value=allow_grouped_value
+        )
+        return (
+            expression.operator in {"+", "-"}
+            and valid
+            and (_aggregate_window_builtin_type(expression.operand) == expression_type),
+            has_input,
+            has_literal,
+        )
+    if isinstance(expression, BinaryIR):
+        if expression.operator not in {"+", "-", "*"}:
+            return False, False, False
+        left_valid, left_input, left_literal = _aggregate_window_numeric_argument_shape(
+            expression.left, allow_grouped_value=allow_grouped_value
+        )
+        right_valid, right_input, right_literal = (
+            _aggregate_window_numeric_argument_shape(
+                expression.right, allow_grouped_value=allow_grouped_value
+            )
+        )
+        left_type = _aggregate_window_builtin_type(expression.left)
+        right_type = _aggregate_window_builtin_type(expression.right)
+        if not left_valid or not right_valid:
+            return False, False, False
+        if expression_type == "Decimal":
+            allowed = {"Decimal"} if expression.operator == "*" else {"Decimal", "Int"}
+            valid = (
+                left_type in allowed
+                and right_type in allowed
+                and "Decimal" in {left_type, right_type}
+            )
+        elif expression_type == "Int":
+            valid = left_type == right_type == "Int"
+        else:
+            valid = {left_type, right_type} <= {"Int", "Float"}
+        return valid, left_input or right_input, left_literal or right_literal
+    return False, False, False
+
+
+def _aggregate_window_is_count_argument(
+    expression: ExpressionIR,
+    *,
+    allow_grouped_value: bool = True,
+) -> bool:
+    valid, has_input = _aggregate_window_count_argument_shape(
+        expression, allow_grouped_value=allow_grouped_value
+    )
+    return valid and has_input
+
+
+def _aggregate_window_count_argument_shape(
+    expression: ExpressionIR,
+    *,
+    allow_grouped_value: bool = True,
+) -> tuple[bool, bool]:
+    if _aggregate_window_builtin_type(expression) in {None, "Any"}:
+        return False, False
+    if isinstance(expression, FieldRefIR):
+        valid = (
+            expression.field is not None
+            and expression.value_type.canonical_kind is TypeKindIR.BUILTIN
+            and _aggregate_window_builtin_type(expression) != "Any"
+        )
+        return valid, valid
+    if allow_grouped_value and _aggregate_window_is_grouped_value(expression):
+        return True, True
+    if isinstance(expression, LiteralIR):
+        return _aggregate_window_builtin_type(expression) not in {None, "Any"}, False
+    if isinstance(expression, UnaryIR):
+        valid, has_input = _aggregate_window_count_argument_shape(
+            expression.operand, allow_grouped_value=allow_grouped_value
+        )
+        return expression.operator in {"+", "-", "not"} and valid, has_input
+    if isinstance(expression, BinaryIR):
+        left_valid, left_input = _aggregate_window_count_argument_shape(
+            expression.left, allow_grouped_value=allow_grouped_value
+        )
+        right_valid, right_input = _aggregate_window_count_argument_shape(
+            expression.right, allow_grouped_value=allow_grouped_value
+        )
+        return (
+            expression.operator in {"+", "-", "*", "%", "and", "or"}
+            and left_valid
+            and right_valid,
+            left_input or right_input,
+        )
+    if isinstance(expression, CallIR):
+        valid = (
+            expression.callee in {"lower", "trim", "len"}
+            and expression.callee_symbol
+            == SymbolId(SymbolNamespace.CALLABLE, expression.callee)
+            and len(expression.arguments) == 1
+        )
+        argument_valid, has_input = (
+            _aggregate_window_count_argument_shape(
+                expression.arguments[0], allow_grouped_value=allow_grouped_value
+            )
+            if valid
+            else (False, False)
+        )
+        return valid and argument_valid, has_input
+    return False, False
+
+
+def _aggregate_window_is_count_distinct_argument(expression: ExpressionIR) -> bool:
+    allowed = {"Bool", "Int", "Float", "Decimal", "Text", "Date", "Timestamp", "UUID"}
+    if isinstance(expression, FieldRefIR):
+        return (
+            expression.field is not None
+            and _aggregate_window_builtin_type(expression) in allowed
+        )
+    return _aggregate_window_is_count_distinct_text_transform(expression)
+
+
+def _aggregate_window_is_count_distinct_text_transform(
+    expression: ExpressionIR,
+) -> bool:
+    if isinstance(expression, FieldRefIR):
+        return (
+            expression.field is not None
+            and _aggregate_window_builtin_type(expression) == "Text"
+        )
+    if not isinstance(expression, CallIR):
+        return False
+    if (
+        expression.callee not in {"lower", "trim"}
+        or expression.callee_symbol
+        != SymbolId(SymbolNamespace.CALLABLE, expression.callee)
+        or len(expression.arguments) != 1
+        or _aggregate_window_builtin_type(expression) != "Text"
+    ):
+        return False
+    return _aggregate_window_is_count_distinct_text_transform(expression.arguments[0])
+
+
+def _aggregate_window_is_extrema_argument(
+    expression: ExpressionIR,
+    *,
+    allow_grouped_value: bool = True,
+) -> bool:
+    return (isinstance(expression, FieldRefIR) and expression.field is not None) or (
+        allow_grouped_value and _aggregate_window_is_grouped_value(expression)
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class OrderItemIR:
     """A typed sorting expression with an explicit direction."""
 
@@ -1060,6 +1453,17 @@ def _input_of(reference: FieldRefIR) -> int | None:
     return getattr(getattr(reference, "field", None), "input", None)
 
 
+def _output_aliases(relation: RelationIR) -> dict[str, TypeRefIR]:
+    counts: dict[str, int] = {}
+    values: dict[str, TypeRefIR] = {}
+    for projection in relation.projections:
+        if projection.name is None:
+            continue
+        counts[projection.name] = counts.get(projection.name, 0) + 1
+        values[projection.name] = projection.expression.value_type
+    return {name: values[name] for name, count in counts.items() if count == 1}
+
+
 def _check_any_scopes(relation: RelationIR) -> None:
     """Keep scalar ANY binders distinct from outer and sibling input identities."""
     outer = {item.binding for item in relation.inputs} or {relation.source.name}
@@ -1090,7 +1494,6 @@ def _check_join_invariants(relation: RelationIR) -> None:
         relation.projections,
         relation.filter,
         relation.group_keys,
-        relation.order_by,
         relation.result_predicate,
         relation.named_windows,
     )
@@ -1098,13 +1501,30 @@ def _check_join_invariants(relation: RelationIR) -> None:
     if inputs or joins:
         mismatched = not joins or len(inputs) != len(joins) + 1
     else:
-        mismatched = any(_input_of(item) is not None for item in _field_refs(tail))
+        mismatched = any(
+            _input_of(item) is not None
+            for item in _field_refs(tail, relation.qualify, relation.order_by)
+        )
     if mismatched:
         raise ValueError(
             "relation inputs must be one more than its joins; "
             "join-free fields name no input"
         )
+    aliases = _output_aliases(relation)
+
+    def is_output_alias(reference: FieldRefIR) -> bool:
+        return (
+            reference.field is None
+            and reference.qualifier == ()
+            and aliases.get(reference.name) == reference.value_type
+        )
+
     if not joins:
+        for reference in _field_refs(relation.qualify, relation.order_by):
+            if reference.field is None and not is_output_alias(reference):
+                raise ValueError(
+                    "relation output aliases must retain exact projection identity"
+                )
         return
     # 2. The relation's source as FROM, then one target per JOIN, with unique
     #    bindings.
@@ -1189,17 +1609,23 @@ def _check_join_invariants(relation: RelationIR) -> None:
     # 8. Every field reference names a readable input, that input's relation as
     #    owner and its binding as qualifier.
     readable = {ordinal for ordinal, item in enumerate(inputs) if item.visible}
-    regions: list[tuple[object, set[int]]] = [(tail, readable)]
+    regions: list[tuple[object, set[int], bool]] = [(tail, readable, False)]
+    if relation.qualify is not None:
+        regions.append(((relation.qualify,), readable, True))
+    if relation.order_by:
+        regions.append((relation.order_by, readable, True))
     visible_before = {0}
     for join in joins:
         regions.append(
-            ((join.condition, join.hops), visible_before | {join.target_input})
+            ((join.condition, join.hops), visible_before | {join.target_input}, False)
         )
         if join.kind not in _EXISTENCE_JOIN_KINDS:
             visible_before = visible_before | {join.target_input}
-    for values, allowed in regions:
+    for values, allowed, allow_output_aliases in regions:
         for reference in _field_refs(values):
             ordinal = _input_of(reference)
+            if allow_output_aliases and ordinal is None and is_output_alias(reference):
+                continue
             if (
                 ordinal is None
                 or ordinal not in allowed
@@ -1228,6 +1654,7 @@ class RelationIR(DefinitionIR):
     limit: LimitIR | None = None
     group_keys: tuple[FieldRefIR, ...] = ()
     result_predicate: ResultPredicateIR | None = None
+    qualify: QualifyIR | None = None
     named_windows: tuple[NamedWindowDeclarationIR, ...] = ()
     inputs: tuple[RelationInputIR, ...] = ()
     joins: tuple[JoinIR, ...] = ()
@@ -1265,7 +1692,7 @@ class RelationIR(DefinitionIR):
             expression = projection.expression
             named_use = (
                 None
-                if not isinstance(expression, WindowCallIR)
+                if not isinstance(expression, (WindowCallIR, AggregateWindowCallIR))
                 else getattr(expression, "named_use", None)
             )
             if named_use is None:

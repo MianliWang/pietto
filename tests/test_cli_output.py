@@ -128,19 +128,20 @@ def test_emit_sql_output_file_preserves_multiple_artifact_formatting(
         == 0
     )
 
+    # The query defines the table of its own file that it reads as a CTE.
     assert output.read_text(encoding="utf-8") == (
-        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        "-- active_users\n"
+        'SELECT\n    "email" AS "email"\nFROM "users";\n'
         "\n"
-        'SELECT\n    "email" AS "email"\nFROM "active_users"\n'
+        "-- active_user_emails\n"
+        'WITH "active_users" AS (\n'
+        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        ")\n"
+        'SELECT\n    "email" AS "email"\nFROM "active_users";\n'
     )
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == (
-        f"{path}:11:5 PIE-S2382 warning: `active_users` is a table of this file; "
-        "single-file SQL reads it by name, so the SQL runs only where the database "
-        "already has a relation named active_users (an EXPLICIT_MODULES project "
-        "emits it as a CTE)\n"
-    )
+    assert captured.err == ""
 
 
 def test_emit_sql_output_keeps_warnings_on_stderr(
@@ -178,7 +179,7 @@ def test_emit_sql_output_keeps_warnings_on_stderr(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "PIE-S2303 warning:" in captured.err
-    assert output.read_text(encoding="utf-8").startswith("SELECT\n")
+    assert output.read_text(encoding="utf-8").startswith("-- user_emails\nSELECT\n")
 
 
 @pytest.mark.parametrize(
@@ -512,9 +513,7 @@ def test_terminal_encoding_failure_returns_safe_output_error(
         assert json_result.returncode == 0
         assert json_result.stderr == b""
         assert json_result.stdout.isascii()
-        assert json.loads(json_result.stdout)["artifacts"][0]["sql"] == (
-            _expected_emoji_sql().rstrip("\n")
-        )
+        assert json.loads(json_result.stdout)["artifacts"][0]["sql"] == _EMOJI_SQL
         assert output.read_bytes() == _expected_emoji_sql().encode("utf-8")
 
         diagnostic = _run_cli(
@@ -824,7 +823,9 @@ def test_failing_stderr_keeps_the_command_result(
     if stdout_sink is None and command[0] == "check":
         assert completed.stdout == f"OK: {warning}\n".encode()
     elif stdout_sink is None:
-        assert completed.stdout.startswith(b'SELECT\n    "email" AS "email"\n')
+        assert completed.stdout.startswith(
+            b'-- user_emails\nSELECT\n    "email" AS "email"\n'
+        )
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="needs POSIX descriptors")
@@ -881,16 +882,20 @@ def _relation_file(tmp_path: Path) -> Path:
 
 def _expected_sql() -> str:
     return (
+        "-- active_users\n"
         "SELECT\n"
         '    "id" AS "id",\n'
         '    "email" AS "email"\n'
         'FROM "users"\n'
-        'WHERE "active" = TRUE\n'
+        'WHERE "active" = TRUE;\n'
     )
 
 
 def _expected_emoji_sql() -> str:
-    return 'SELECT\n    "id" AS "id"\nFROM "secret😀"\n'
+    return f"-- active_users\n{_EMOJI_SQL};\n"
+
+
+_EMOJI_SQL = 'SELECT\n    "id" AS "id"\nFROM "secret😀"'
 
 
 def _run_cli(

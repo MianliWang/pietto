@@ -388,3 +388,29 @@ def test_header_parameters_and_reads_keep_their_own_positions(
         "    where id in p and exists p and id <= scalar p.id\n    select:\n"
         "        id\n",
     ) == (1, [(*read, 13, 11), (*read, 13, 23), (*read, 13, 42)])
+
+
+def test_a_text_literal_left_value_pairs_with_a_column_it_compares_with(
+    tmp_path: Path,
+) -> None:
+    """A Text literal left value is a label of an enum column, or a constant of
+    a Date column, as such an option of a literal list is; before, both were
+    refused as Text. A literal that is not a label still is."""
+    columns = (
+        "enum Status: paid, shipped\n"
+        "shape Order:\n    id: Int\n    status: Status\n    born: Date\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "query sts:\n    from orders\n    select:\n        status\n"
+        "query dts:\n    from orders\n    select:\n        born\n"
+    )
+    assert _check(
+        tmp_path / "label",
+        columns + "query result:\n    from lhs\n"
+        '    where "paid" in sts and "2020-01-01" not in dts\n'
+        "    select:\n        id\n",
+    ) == (0, [])
+    assert _check(
+        tmp_path / "other",
+        columns + 'query result:\n    from lhs\n    where "gone" in sts\n'
+        "    select:\n        id\n",
+    ) == (1, [("PIE-S2105", PAIR.format("in"), 22, 11)])

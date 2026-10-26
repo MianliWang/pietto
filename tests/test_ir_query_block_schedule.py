@@ -207,10 +207,10 @@ def test_historical_join_terminals_and_current_outputs_keep_distinct_authority(
     authority = derived_region.input_scope.bindings[1].authority
     assert authority is not None
     assert authority.entry is producer
-    assert all(
-        condition.ready and condition.key_matches == ()
-        for condition in derived_region.operative
-    )
+    # Its hand-written equality matches the declared key of customers only.
+    (condition,) = derived_region.operative
+    assert condition.ready
+    assert [match.binding.name for match in condition.key_matches] == ["customers"]
     assert tuple(derived.schema.fields) == ("id",)
 
 

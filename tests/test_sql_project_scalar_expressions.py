@@ -132,6 +132,223 @@ Q1_BODY = """table result:
 """
 
 
+C5_POSTGRES_SCALAR_BODY = """table result:
+    from rows
+    let whole_money = round(money, 0)
+    let whole_ratio = round(ratio)
+    let decimal_id = Text(id)
+    select:
+        whole_money
+        whole_ratio
+        decimal_id
+"""
+
+
+C5_POSTGRES_LET_SCALE_BODY = """table result:
+    from rows
+    let scale = -1
+    let rounded = round(money, scale)
+    select:
+        rounded
+"""
+
+
+def test_c5_postgres_scalar_project_forms_are_verified(tmp_path):
+    checked, outcome = emit(tmp_path, "postgres", C5_POSTGRES_SCALAR_BODY)
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    document = json.loads(serialize_project_sql_emission(outcome).decode())
+    sql = document["sql"]
+    assert "round(" in sql and " AS pg_catalog.int4))" in sql and "trunc(" in sql
+    assert 'COLLATE "C"' in sql
+    assert (
+        probe.decode_public(serialize_project_sql_emission(outcome))["status"]
+        == "VERIFIED"
+    )
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    )
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    replayed = emit_compiled(loaded, ())
+    assert replayed.request.family == "postgres"
+
+
+def test_c5_postgres_high_precision_decimal_rounds_emit(tmp_path):
+    base = probe.fixture("postgres")
+    source = base["source"].replace("money: Decimal(9, 2)", "money: Decimal(65, 30)")
+    header = source.split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    representation = contract["sources"][0]["fields"][3]["representation"]
+    representation["storage"].update(precision=65, scale=30)
+    representation["domain"].update(precision=65, scale=30)
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact",
+        }
+    )
+    source = (
+        header
+        + """table result:
+    from rows
+    select:
+        default = round(money)
+        explicit_zero = round(money, 0)
+        retained_scale = round(money, 30)
+"""
+    )
+
+    _, outcome = probe.build_case(
+        tmp_path,
+        source,
+        probe.encoded(contract).decode(),
+        "preserve_literals",
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+
+
+def test_c5_postgres_literal_let_scale_survives_compiled_replay(tmp_path):
+    checked, outcome = emit(tmp_path, "postgres", C5_POSTGRES_LET_SCALE_BODY)
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == "postgres"
+
+
+def test_c5_postgres_literal_let_date_unit_survives_compiled_replay(tmp_path):
+    source = (
+        temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
+        + """table result:
+    from rows
+    let unit = "month"
+    let month_stamp = date_trunc(unit, stamp)
+    select:
+        month_stamp
+"""
+    )
+    checked = temporal_probe.build_neutral(
+        tmp_path / "project", {"main.pietto": source}
+    )
+    contract = json.loads(temporal_probe.temporal_input("postgres"))
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact",
+        }
+    )
+    outcome = emit_project_sql(checked, json.dumps(contract).encode())
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    assert (
+        probe.decode_public(serialize_project_sql_emission(outcome))["status"]
+        == "VERIFIED"
+    )
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == "postgres"
+
+
+def test_c5_postgres_date_trunc_date_units_preserve_date_carrier(tmp_path):
+    source = (
+        temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
+        + """table result:
+    from rows
+    let day = date_of(stamp)
+    select:
+        date_year = date_trunc("year", day)
+        date_month = date_trunc("month", day)
+        date_day = date_trunc("day", day)
+"""
+    )
+    checked = temporal_probe.build_neutral(
+        tmp_path / "project", {"main.pietto": source}
+    )
+    contract = json.loads(temporal_probe.temporal_input("postgres"))
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact",
+        }
+    )
+    outcome = emit_project_sql(checked, json.dumps(contract).encode())
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    sql = json.loads(serialize_project_sql_emission(outcome))["sql"]
+    assert sql.count(" AS timestamp)) AS date)") == 3
+    assert verify_project_sql_emission(
+        outcome.artifact, outcome.artifact.request
+    ).verified
+    assert (
+        probe.decode_public(serialize_project_sql_emission(outcome))["status"]
+        == "VERIFIED"
+    )
+
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    )
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, outcome.artifact, outcome.artifact.request
+    ).corresponds
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == "postgres"
+
+
 ORDER_BODY = """query result:
     from rows
     select:
@@ -1266,3 +1483,97 @@ def test_comparison_chains_emit_the_project_sql_of_their_comparisons_written_out
             f"AND ({field} < CAST(10 AS {integer}))) AS {quote}inside{quote} "
             f"FROM {relation} AS {quote}s0{quote}"
         )
+
+
+# `let r = lhs` then `from r` reads the input as `r`; the query is the one that
+# reads `lhs` directly, so its artifact is that query's.
+_FROM_ALIAS_TAILS = {
+    "select": "    select:\n        a = {0}.id\n        {0}.key\n",
+    "where_order": "    where {0}.id > 1\n    select:\n        a = {0}.id\n"
+    "    order by:\n        {0}.id\n",
+    "group_having": "    group by:\n        {0}.id\n    select:\n        a = {0}.id\n"
+    "        n = count()\n    having:\n        n > 1\n",
+    "aggregate": "    select:\n        m = max({0}.key)\n",
+    "window": "    select:\n        a = {0}.id\n"
+    "        n = row_number() window(order by {0}.id)\n",
+    "distinct": "    select distinct:\n        a = {0}.id\n",
+}
+_LET_BODY = (
+    "query result:\n    let b:\n{0}        select:\n            a = {1}.id\n"
+    "    from b\n    select:\n        a\n"
+)
+_CAPTURE = (
+    "query result:\n    let recent:\n        capture {0}\n        from rhs\n"
+    "        where rhs.key == {0}.id\n        select:\n            id\n"
+    "{1}    where exists recent\n    select:\n        a = {0}.id\n"
+)
+FROM_ALIAS_PROJECTS = {
+    **{
+        name: (
+            "query result:\n    let r = lhs\n    from r\n" + tail.format("r"),
+            "query result:\n    from lhs\n" + tail.format("lhs"),
+        )
+        for name, tail in _FROM_ALIAS_TAILS.items()
+    },
+    "relation_let_body": (
+        _LET_BODY.format("        let r = lhs\n        from r\n", "r"),
+        _LET_BODY.format("        from lhs\n", "lhs"),
+    ),
+    "alias_of_a_relation_let": (
+        "query result:\n    let b:\n        from lhs\n        select:\n"
+        "            id\n    let r = b\n    from r\n    select:\n        a = r.id\n",
+        "query result:\n    let b:\n        from lhs\n        select:\n"
+        "            id\n    from b\n    select:\n        a = b.id\n",
+    ),
+    "capture": (
+        _CAPTURE.format("r", "    let r = lhs\n    from r\n"),
+        _CAPTURE.format("lhs", "    from lhs\n"),
+    ),
+    "source_name": (
+        "query result:\n    let r = lhs\n    from r\n    select:\n        a = lhs.id\n",
+        "query result:\n    from lhs\n    select:\n        a = lhs.id\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("alias", "direct"), FROM_ALIAS_PROJECTS.values(), ids=FROM_ALIAS_PROJECTS
+)
+def test_a_from_alias_emits_the_project_sql_of_the_relation_read_directly(
+    tmp_path, target, alias, direct
+):
+    documents = []
+    for name, body in (("alias", alias), ("direct", direct)):
+        item = probe.join_witness(target, body)
+        _, outcome = probe.build_case(
+            tmp_path / name, item["source"], item["contract"], item["policy"]
+        )
+        documents.append(json.loads(serialize_project_sql_emission(outcome)))
+    assert documents[0]["status"] == documents[1]["status"] == "VERIFIED"
+    for key in ("sql", "columns", "fixed_values", "parameter_uses", "requirements"):
+        assert documents[0][key] == documents[1][key], key
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_from_alias_qualify_window_keeps_source_and_binding_spellings(
+    tmp_path, target
+):
+    bodies = (
+        "query result:\n    from lhs\n    select:\n        id\n"
+        "    qualify row_number() window(order by lhs.id) <= 3\n",
+        "query result:\n    let r = lhs\n    from r\n    select:\n        id\n"
+        "    qualify row_number() window(order by r.id) <= 3\n",
+        "query result:\n    let r = lhs\n    from r\n    select:\n        id\n"
+        "    qualify row_number() window(order by lhs.id) <= 3\n",
+    )
+    documents = []
+    for name, body in zip(("direct", "binding", "source"), bodies, strict=True):
+        item = probe.join_witness(target, body)
+        _, outcome = probe.build_case(
+            tmp_path / name, item["source"], item["contract"], item["policy"]
+        )
+        documents.append(json.loads(serialize_project_sql_emission(outcome)))
+    assert {document["status"] for document in documents} == {"VERIFIED"}
+    for key in ("sql", "columns", "fixed_values", "parameter_uses", "requirements"):
+        assert all(document[key] == documents[0][key] for document in documents), key

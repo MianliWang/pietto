@@ -85,7 +85,7 @@ def test_phase_6_emit_json_schema_artifact_and_output_contract(
     output_status = cast(dict[str, object], result["output"])
     assert set(output_status) == OUTPUT_KEYS
     assert output_status == {"path": str(output), "written": True}
-    assert output.read_text(encoding="utf-8") == f"{artifact['sql']}\n"
+    assert output.read_text(encoding="utf-8") == f"-- user_emails\n{artifact['sql']};\n"
 
 
 def test_phase_6_cli_error_schema_is_stable(
@@ -457,7 +457,7 @@ def test_phase_6_default_text_cli_remains_compatible(
 
     assert cli.main(["emit-sql", str(relation_path), "--dialect", "postgres"]) == 0
     default_emit = capsys.readouterr()
-    assert default_emit.out.startswith("SELECT\n")
+    assert default_emit.out.startswith("-- user_emails\nSELECT\n")
     assert default_emit.err == ""
 
     assert (
@@ -517,7 +517,7 @@ def test_phase_6_committed_examples_work_in_json_modes(
     assert _emit_json(relation_example, output=output) == 0
     written = _read_json_document(capsys, command="emit-sql")
     assert written["output"] == {"path": str(output), "written": True}
-    assert output.read_text(encoding="utf-8").startswith("SELECT\n")
+    assert output.read_text(encoding="utf-8").startswith("-- active_users\nSELECT\n")
 
 
 def test_phase_6_boundaries_dependencies_and_diagnostic_codes_remain_clean() -> None:

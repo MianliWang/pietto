@@ -39,7 +39,9 @@ def test_count_emit_sql_succeeds_with_sql_artifact(
     assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == expected_sql
+    assert captured.out == (
+        "-- paid_order_stats\n" + expected_sql.removesuffix("\n") + ";\n"
+    )
     assert captured.err == ""
 
 
@@ -130,7 +132,8 @@ def test_count_emit_sql_output_path_is_written_on_success(
     assert result["diagnostics"] == []
     assert result["output"] == {"path": str(output_path), "written": True}
     assert output_path.read_text(encoding="utf-8") == (
-        'SELECT\n    COUNT(*) AS "total"\nFROM "orders"\nWHERE "status" = \'paid\'\n'
+        "-- paid_order_stats\n"
+        'SELECT\n    COUNT(*) AS "total"\nFROM "orders"\nWHERE "status" = \'paid\';\n'
     )
 
 

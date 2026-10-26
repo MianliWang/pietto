@@ -114,24 +114,16 @@ def test_gate_a_sections_retain_complete_slice14_objects_in_canonical_order(
 ) -> None:
     root = observed.root
     base = root.base_plan.structural_stage
-    join = root.join_stage.structural
     assert _same_objects(observed.entries, root.entries)
+    assert _same_objects(observed.combined_nodes, (*base.nodes, *root.structural.nodes))
     assert _same_objects(
-        observed.combined_nodes,
-        (*base.nodes, *join.nodes, *root.structural.nodes),
-    )
-    assert _same_objects(
-        observed.combined_outputs,
-        (*base.outputs, *join.outputs, *root.structural.outputs),
+        observed.combined_outputs, (*base.outputs, *root.structural.outputs)
     )
     assert _same_objects(
         observed.combined_input_slots,
-        (*base.input_slots, *join.input_slots, *root.structural.input_slots),
+        (*base.input_slots, *root.structural.input_slots),
     )
-    assert _same_objects(
-        observed.combined_uses,
-        (*base.uses, *join.uses, *root.structural.uses),
-    )
+    assert _same_objects(observed.combined_uses, (*base.uses, *root.structural.uses))
     concrete_entries = cast(
         tuple[
             ProjectIRReusedEffectiveOutput

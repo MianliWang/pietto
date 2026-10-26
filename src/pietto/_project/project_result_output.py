@@ -240,6 +240,7 @@ def source_read_columns(output):
     from pietto._project.project_sql_emission_sets import SetBody
     from pietto._project.project_sql_emission_values import ValuesBody
     from pietto._project.project_sql_emission_rows import (
+        SQLBlockRead,
         SQLStageReference,
         SQLOperation,
     )
@@ -262,7 +263,8 @@ def source_read_columns(output):
             continue  # VALUES reads no physical column.
         elif type(unit.scan) in (SQLScan, RowScan):
             scopes[unit.scan.symbol.name] = unit.scan.realization
-        if not scopes:
+        # A row body over a relation still reads a source through a block read.
+        if not scopes and type(unit) is not RowBody:
             continue
 
         def read(scope, name):
@@ -278,6 +280,16 @@ def source_read_columns(output):
             elif type(value) is SQLOperation:
                 for operand in value.operands:
                     expression(operand, alias)
+            elif type(value) is SQLBlockRead:
+                # Its operands and an `any` predicate read columns as a JOIN's
+                # ON does, including the read source's own under its alias.
+                producer = value.target.producer
+                if any(producer is source for source in sources):
+                    scopes[value.target.symbol.name] = producer
+                for operand in value.operands:
+                    expression(operand, alias)
+                if value.predicate is not None:
+                    expression(value.predicate, alias)
 
         if type(unit) is JoinBody:
             for column in unit.columns:
@@ -309,6 +321,10 @@ def source_read_columns(output):
             elif type(column) is AggregateValueColumn:
                 if column.argument is not None:
                     expression(column.argument, alias)
+                if column.delimiter is not None:
+                    expression(column.delimiter, alias)
+                for order in column.order_by:
+                    expression(order.value, alias)
             elif type(column) is WindowColumn:
                 for argument in column.arguments:
                     if argument.read is not None:

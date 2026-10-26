@@ -22,7 +22,10 @@ from pietto.semantic.relationship_predicates import (
 
 __all__ = ()
 
-_RELATIONS = (ast.SourceDef, ast.TableDef, ast.QueryDef)
+# A set operation is a relation too: a `let` names it as a FROM or JOIN does,
+# which then reports that a single file cannot read it.
+_RELATIONS = (ast.SourceDef, ast.TableDef, ast.QueryDef, ast.SetRelationDef)
+type _Relation = ast.SourceDef | ast.TableDef | ast.QueryDef | ast.SetRelationDef
 
 
 def normalize_query_names(
@@ -40,7 +43,7 @@ def normalize_query_names(
     generated_ids = {id(use.clause) for use in existence_generators}
     # A lowered WHERE ANY still binds its row name over its hidden ON condition.
     lowered = {id(use.clause.on_clause): use.expression for use in existence_generators}
-    relations: dict[str, list[ast.SourceDef | ast.TableDef | ast.QueryDef]] = {}
+    relations: dict[str, list[_Relation]] = {}
     shapes: dict[str, list[ast.ShapeDef]] = {}
     for item in script.definitions:
         if isinstance(item, _RELATIONS):
@@ -57,9 +60,9 @@ def normalize_query_names(
         ):
             definitions.append(definition)
             continue
-        aliases: dict[str, list[ast.SourceDef | ast.TableDef | ast.QueryDef]] = {}
+        aliases: dict[str, list[_Relation]] = {}
         alias_positions: dict[str, tuple[int, int]] = {}
-        visible: list[ast.SourceDef | ast.TableDef | ast.QueryDef] = []
+        visible: list[_Relation] = []
         scalar_names = {parameter.name for parameter in _owner_parameters(definition)}
         declared: set[str] = set()
         scalar_bindings: list[ast.LetBinding] = []
@@ -68,9 +71,7 @@ def normalize_query_names(
         # The input names a let cannot take, as PIE-S2329 refuses them.
         input_names: set[str] = set()
 
-        def relation_candidates(
-            name: str,
-        ) -> list[ast.SourceDef | ast.TableDef | ast.QueryDef]:
+        def relation_candidates(name: str) -> list[_Relation]:
             return [*aliases.get(name, ()), *relations.get(name, ())]
 
         def input_fields() -> set[str | None]:
@@ -84,6 +85,9 @@ def normalize_query_names(
                         for field in shape.fields
                     )
                     if isinstance(source, ast.SourceDef)
+                    # A single file reads no field of a set operation.
+                    else ()
+                    if isinstance(source, ast.SetRelationDef)
                     else map(_projection_output_name, source.select_items)
                 )
             }
@@ -147,6 +151,20 @@ def normalize_query_names(
                         node.name, (node.span.line, node.span.column)
                     )
                 else:
+                    unknown = (
+                        None
+                        if isinstance(value, ast.NameExpr)
+                        and scalar_candidate(value.name)
+                        else unknown_let_input(
+                            node,
+                            definition.naming_declarations,
+                            definition.join_clauses,
+                            generated_ids,
+                        )
+                    )
+                    if unknown is not None:
+                        diagnostics.append(unknown)
+                        continue
                     position = (node.span.line, node.span.column)
                     last_input = max(
                         (item.span.line, item.span.column)
@@ -283,6 +301,55 @@ def normalize_query_names(
     return replace(script, definitions=tuple(definitions)), tuple(diagnostics)
 
 
+def unknown_let_input(
+    let: ast.QueryLetDeclaration,
+    declarations: Sequence[ast.QueryLetDeclaration],
+    joins: Sequence[ast.JoinClause],
+    generated: Container[int],
+) -> Diagnostic | None:
+    """The error at the value of a `let` whose bare name names no relation
+    (nor a scalar, which the caller checks) when a later JOIN reads the let
+    as its input: the let names a relation for that JOIN, as `from` names
+    one, so its value is an unknown relation (PIE-S2301), or a `let` of the
+    body declared after it (PIE-S2330), not a misplaced row value. A value
+    that names an earlier `let` of the body, which is then no relation, keeps
+    the row-value error."""
+
+    value = let.expression
+    position = (let.span.line, let.span.column)
+    if type(value) is not ast.NameExpr or not any(
+        join.target_relation_name == let.name
+        and id(join) not in generated
+        and (join.span.line, join.span.column) > position
+        for join in joins
+    ):
+        return None
+    later = [
+        (item.span.line, item.span.column) > position
+        for item in declarations
+        if item.name == value.name and item is not let
+    ]
+    if not all(later):
+        return None
+    span = value.span
+    return Diagnostic(
+        code="PIE-S2330" if later else "PIE-S2301",
+        severity=Severity.ERROR,
+        message=(
+            f"Let binding cannot reference a later binding: {value.name}"
+            if later
+            else f"Unknown relation: {value.name}"
+        ),
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
 def shadowed_input(
     window: ast.NamedWindowDeclaration,
     fields: Container[str | None],
@@ -384,7 +451,7 @@ def bind_script_relationship_predicates(
     declared_names = frozenset(
         template.name for template in script.relationship_templates
     )
-    relations: dict[str, list[ast.SourceDef | ast.TableDef | ast.QueryDef]] = {}
+    relations: dict[str, list[_Relation]] = {}
     for item in script.definitions:
         if isinstance(item, _RELATIONS):
             relations.setdefault(item.name, []).append(item)

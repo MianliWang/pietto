@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pietto.ir.model import (
     AggregateCallIR,
+    AggregateWindowCallIR,
+    aggregate_call_contract,
     AnyFieldIR,
     ExistsIR,
     BetweenIR,
@@ -18,6 +20,7 @@ from pietto.ir.model import (
     LiteralIR,
     MembershipIR,
     NullabilityIR,
+    OrderItemIR,
     OrderDirectionIR,
     SourceSpan,
     SymbolId,
@@ -156,7 +159,7 @@ def expression_uses_qualified_field(expression: ExpressionIR) -> bool:
         return bool(expression.qualifier)
     if isinstance(expression, ExistsIR):
         return expression_uses_qualified_field(expression.predicate)
-    if isinstance(expression, WindowCallIR):
+    if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):
         arguments = getattr(expression, "arguments", ())
         if type(arguments) is tuple and any(
             expression_uses_qualified_field(argument)
@@ -188,6 +191,10 @@ def expression_uses_qualified_field(expression: ExpressionIR) -> bool:
         return any(
             expression_uses_qualified_field(argument)
             for argument in expression.arguments
+        ) or any(
+            expression_uses_qualified_field(item.expression)
+            for item in expression.order_by
+            if type(item) is OrderItemIR
         )
     if isinstance(expression, CallIR):
         return any(
@@ -256,6 +263,10 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         return quote_identifier(expression.name)
     if isinstance(expression, AggregateCallIR):
         return _render_aggregate_call(expression)
+    if isinstance(expression, AggregateWindowCallIR):
+        if nested:
+            raise ValueError("PostgreSQL aggregate windows are direct projections")
+        return render_aggregate_window_call_sql(expression)
     if isinstance(expression, WindowCallIR):
         if nested:
             raise ValueError(
@@ -291,18 +302,30 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         )
         sql = f"{value_sql} {operator} ({options})"
     elif isinstance(expression, CastIR):
-        if not (
+        if (
             expression.value.value_type.canonical_kind is TypeKindIR.BUILTIN
             and expression.value.value_type.canonical_name == "Int"
             and expression.target.canonical_kind is TypeKindIR.BUILTIN
             and expression.target.canonical_name == "Float"
         ):
-            raise ValueError("PostgreSQL supports only explicit Int to Float casts")
-        sql = (
-            "CAST("
-            f"{_render_expression_sql(expression.value, nested=True)} "
-            "AS double precision)"
-        )
+            sql = (
+                "CAST("
+                f"{_render_expression_sql(expression.value, nested=True)} "
+                "AS double precision)"
+            )
+        elif (
+            expression.value.value_type.canonical_kind is TypeKindIR.BUILTIN
+            and expression.value.value_type.canonical_name == "Int"
+            and expression.target.canonical_kind is TypeKindIR.BUILTIN
+            and expression.target.canonical_name == "Text"
+        ):
+            sql = (
+                f"CAST({_render_expression_sql(expression.value, nested=True)} AS text)"
+            )
+        else:
+            raise ValueError(
+                "PostgreSQL supports only explicit Int to Float or Text casts"
+            )
     elif isinstance(expression, ComparisonIR):
         operator = _supported_operator(
             _COMPARISON_OPERATORS,
@@ -559,10 +582,42 @@ def render_window_call_sql(
     return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER {over_sql}"
 
 
+def render_aggregate_window_call_sql(
+    expression: AggregateWindowCallIR,
+    *,
+    over_sql: str | None = None,
+) -> str:
+    """Render the five admitted aggregate windows."""
+
+    if type(expression) is not AggregateWindowCallIR:
+        raise ValueError("PostgreSQL aggregate window requires an exact carrier")
+    aggregate_sql = _render_aggregate_call(
+        AggregateCallIR(
+            span=expression.span,
+            value_type=expression.value_type,
+            function=expression.function,
+            arguments=expression.arguments,
+        ),
+        allow_grouped_aggregate=True,
+    )
+    if over_sql is None:
+        components = render_window_components_sql(
+            expression.spec.partition_by,
+            expression.spec.order_by,
+            expression.spec.frame,
+        )
+        over_sql = f"({' '.join(components)})"
+    if type(over_sql) is not str or not over_sql:
+        raise ValueError("PostgreSQL aggregate window OVER SQL must be nonempty")
+    return f"{aggregate_sql} OVER {over_sql}"
+
+
 def render_window_components_sql(
     partition_by: tuple[ExpressionIR, ...],
     order_by: tuple[WindowOrderItemIR, ...],
     frame: WindowFrameIR | None,
+    *,
+    effective_order_by: tuple[WindowOrderItemIR, ...] | None = None,
 ) -> tuple[str, ...]:
     """Render exact target-neutral window components without an OVER wrapper."""
 
@@ -573,6 +628,12 @@ def render_window_components_sql(
     if type(order_by) is not tuple:
         raise ValueError("PostgreSQL window order requires an exact tuple")
     _validate_window_order_items(order_by)
+    if effective_order_by is not None:
+        if type(effective_order_by) is not tuple:
+            raise ValueError(
+                "PostgreSQL effective window order requires an exact tuple"
+            )
+        _validate_window_order_items(effective_order_by)
     clauses: list[str] = []
     if partition_by:
         clauses.append(
@@ -588,6 +649,12 @@ def render_window_components_sql(
             + ", ".join(_render_window_order_item(item) for item in order_by)
         )
     if frame is not None:
+        if type(frame) is not WindowFrameIR:
+            raise ValueError("PostgreSQL window frame must be exact")
+        if frame.unit is WindowFrameUnitIR.GROUPS and not (
+            order_by if effective_order_by is None else effective_order_by
+        ):
+            raise ValueError("PostgreSQL GROUPS frames require ORDER BY")
         clauses.append(_render_window_frame(frame))
     return tuple(clauses)
 
@@ -669,23 +736,88 @@ def _render_window_order_item(item: WindowOrderItemIR) -> str:
     )
 
 
-def _render_aggregate_call(expression: AggregateCallIR) -> str:
-    if expression.function == "count":
-        return _render_count_aggregate(expression)
-    if expression.function == "count_distinct":
-        return _render_count_distinct_aggregate(expression)
-    function_name = _EXTREMA_AGGREGATE_NAMES.get(expression.function)
-    if function_name is not None:
-        return _render_extrema_aggregate(expression, function_name=function_name)
-    function_name = _NUMERIC_AGGREGATE_NAMES.get(expression.function)
-    if function_name is None:
-        raise ValueError(
-            f"Unsupported PostgreSQL aggregate call: {expression.function}"
+def _render_aggregate_call(
+    expression: AggregateCallIR,
+    *,
+    allow_grouped_aggregate: bool = False,
+) -> str:
+    if expression.function == "string_agg":
+        sql = _render_string_agg(expression)
+    elif expression.function == "count":
+        sql = _render_count_aggregate(
+            expression, allow_grouped_aggregate=allow_grouped_aggregate
         )
-    return _render_numeric_aggregate(expression, function_name=function_name)
+    elif expression.function == "count_distinct":
+        sql = _render_count_distinct_aggregate(expression)
+    elif (
+        function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
+    ) is not None:
+        sql = _render_extrema_aggregate(
+            expression,
+            function_name=function_name,
+            allow_grouped_aggregate=allow_grouped_aggregate,
+        )
+    else:
+        function_name = _NUMERIC_AGGREGATE_NAMES.get(expression.function)
+        if function_name is None:
+            raise ValueError(
+                f"Unsupported PostgreSQL aggregate call: {expression.function}"
+            )
+        sql = _render_numeric_aggregate(
+            expression,
+            function_name=function_name,
+            allow_grouped_aggregate=allow_grouped_aggregate,
+        )
+    if not aggregate_call_contract(
+        expression.function,
+        expression.arguments,
+        expression.value_type,
+        order_by=expression.order_by,
+        allow_grouped_value=allow_grouped_aggregate,
+    ):
+        raise ValueError("PostgreSQL aggregate call violates its IR contract")
+    return sql
 
 
-def _render_count_aggregate(expression: AggregateCallIR) -> str:
+def _render_string_agg(expression: AggregateCallIR) -> str:
+    if len(expression.arguments) != 2:
+        raise ValueError("PostgreSQL aggregate string_agg expects 2 argument(s)")
+    if not expression.order_by:
+        raise ValueError("PostgreSQL aggregate string_agg requires ORDER BY")
+    if not _has_builtin_type(expression, "Text", NullabilityIR.NULLABLE):
+        raise ValueError("PostgreSQL aggregate string_agg expects Text nullable result")
+    if any(
+        type(item) is not OrderItemIR
+        or type(item.direction) is not OrderDirectionIR
+        or not isinstance(item.expression, ExpressionIR)
+        for item in expression.order_by
+    ):
+        raise ValueError("PostgreSQL aggregate string_agg ORDER BY is invalid")
+    value, delimiter = expression.arguments
+    if any(_builtin_type_name(argument) != "Text" for argument in (value, delimiter)):
+        raise ValueError("PostgreSQL aggregate string_agg expects Text arguments")
+    order_sql = ", ".join(
+        f"{_render_expression_sql(item.expression, nested=True)} {item.direction.value}"
+        for item in expression.order_by
+    )
+    return (
+        "string_agg("
+        f"{_render_string_agg_text_argument(value)}, "
+        f"{_render_string_agg_text_argument(delimiter)} ORDER BY {order_sql})"
+    )
+
+
+def _render_string_agg_text_argument(expression: ExpressionIR) -> str:
+    if type(expression) is LiteralIR and expression.value is None:
+        return "CAST(NULL AS text)"
+    return _render_expression_sql(expression, nested=True)
+
+
+def _render_count_aggregate(
+    expression: AggregateCallIR,
+    *,
+    allow_grouped_aggregate: bool = False,
+) -> str:
     if not _has_builtin_type(expression, "Int", NullabilityIR.NON_NULL):
         raise ValueError("PostgreSQL aggregate count expects Int non-null result")
     if not expression.arguments:
@@ -704,7 +836,9 @@ def _render_count_aggregate(expression: AggregateCallIR) -> str:
         raise ValueError(
             "PostgreSQL aggregate count supports only concrete non-Any field arguments"
         )
-    if not _is_count_argument_expression(argument):
+    if not _is_count_argument_expression(
+        argument, allow_grouped_aggregate=allow_grouped_aggregate
+    ):
         raise ValueError(
             "PostgreSQL aggregate count expects a direct field argument or approved "
             "field-bearing expression argument"
@@ -748,13 +882,16 @@ def _render_numeric_aggregate(
     expression: AggregateCallIR,
     *,
     function_name: str,
+    allow_grouped_aggregate: bool = False,
 ) -> str:
     if len(expression.arguments) != 1:
         raise ValueError(
             f"PostgreSQL aggregate {expression.function} expects 1 argument(s)"
         )
     argument = expression.arguments[0]
-    argument_type = _numeric_aggregate_argument_type(argument)
+    argument_type = _numeric_aggregate_argument_type(
+        argument, allow_grouped_aggregate=allow_grouped_aggregate
+    )
     if argument_type is None:
         raise ValueError(
             f"PostgreSQL aggregate {expression.function} expects a field-only "
@@ -783,9 +920,13 @@ def _render_numeric_aggregate(
     return f"{function_name}({argument_sql})"
 
 
-def _numeric_aggregate_argument_type(expression: ExpressionIR) -> str | None:
+def _numeric_aggregate_argument_type(
+    expression: ExpressionIR,
+    *,
+    allow_grouped_aggregate: bool = False,
+) -> str | None:
     expression_type, has_field, has_literal = _numeric_aggregate_argument_shape(
-        expression
+        expression, allow_grouped_aggregate=allow_grouped_aggregate
     )
     if expression_type is None:
         return None
@@ -796,6 +937,8 @@ def _numeric_aggregate_argument_type(expression: ExpressionIR) -> str | None:
 
 def _numeric_aggregate_argument_shape(
     expression: ExpressionIR,
+    *,
+    allow_grouped_aggregate: bool = False,
 ) -> tuple[str | None, bool, bool]:
     """Return (builtin type, has resolved field, has Int/Float literal)."""
 
@@ -806,6 +949,9 @@ def _numeric_aggregate_argument_shape(
     if isinstance(expression, FieldRefIR):
         if expression.field is None:
             return None, False, False
+        return expression_type, True, False
+
+    if isinstance(expression, AggregateCallIR) and allow_grouped_aggregate:
         return expression_type, True, False
 
     if isinstance(expression, LiteralIR):
@@ -822,7 +968,9 @@ def _numeric_aggregate_argument_shape(
             operand_type,
             operand_has_field,
             operand_has_literal,
-        ) = _numeric_aggregate_argument_shape(expression.operand)
+        ) = _numeric_aggregate_argument_shape(
+            expression.operand, allow_grouped_aggregate=allow_grouped_aggregate
+        )
         if operand_type != expression_type:
             return None, False, False
         return expression_type, operand_has_field, operand_has_literal
@@ -831,10 +979,12 @@ def _numeric_aggregate_argument_shape(
         if expression.operator not in {"+", "-", "*"}:
             return None, False, False
         left_type, left_has_field, left_has_literal = _numeric_aggregate_argument_shape(
-            expression.left
+            expression.left, allow_grouped_aggregate=allow_grouped_aggregate
         )
         right_type, right_has_field, right_has_literal = (
-            _numeric_aggregate_argument_shape(expression.right)
+            _numeric_aggregate_argument_shape(
+                expression.right, allow_grouped_aggregate=allow_grouped_aggregate
+            )
         )
         if left_type is None or right_type is None:
             return None, False, False
@@ -885,13 +1035,21 @@ def _is_count_distinct_text_transform_argument(expression: ExpressionIR) -> bool
     return _is_count_distinct_text_transform_argument(argument)
 
 
-def _is_count_argument_expression(expression: ExpressionIR) -> bool:
-    is_valid, has_field = _count_argument_expression_shape(expression)
+def _is_count_argument_expression(
+    expression: ExpressionIR,
+    *,
+    allow_grouped_aggregate: bool = False,
+) -> bool:
+    is_valid, has_field = _count_argument_expression_shape(
+        expression, allow_grouped_aggregate=allow_grouped_aggregate
+    )
     return is_valid and has_field
 
 
 def _count_argument_expression_shape(
     expression: ExpressionIR,
+    *,
+    allow_grouped_aggregate: bool = False,
 ) -> tuple[bool, bool]:
     """Return (valid shape, has resolved field leaf) for count expressions."""
 
@@ -900,18 +1058,24 @@ def _count_argument_expression_shape(
 
     if isinstance(expression, FieldRefIR):
         return expression.field is not None, expression.field is not None
+    if isinstance(expression, AggregateCallIR) and allow_grouped_aggregate:
+        return True, True
     if isinstance(expression, LiteralIR):
         return True, False
     if isinstance(expression, UnaryIR):
         if expression.operator not in _UNARY_OPERATORS:
             return False, False
-        return _count_argument_expression_shape(expression.operand)
+        return _count_argument_expression_shape(
+            expression.operand, allow_grouped_aggregate=allow_grouped_aggregate
+        )
     if isinstance(expression, BinaryIR):
         if expression.operator not in {"+", "-", "*", "%", "and", "or"}:
             return False, False
-        left_valid, left_has_field = _count_argument_expression_shape(expression.left)
+        left_valid, left_has_field = _count_argument_expression_shape(
+            expression.left, allow_grouped_aggregate=allow_grouped_aggregate
+        )
         right_valid, right_has_field = _count_argument_expression_shape(
-            expression.right
+            expression.right, allow_grouped_aggregate=allow_grouped_aggregate
         )
         return left_valid and right_valid, left_has_field or right_has_field
     if isinstance(expression, CallIR):
@@ -922,7 +1086,9 @@ def _count_argument_expression_shape(
             return False, False
         if len(expression.arguments) != 1:
             return False, False
-        return _count_argument_expression_shape(expression.arguments[0])
+        return _count_argument_expression_shape(
+            expression.arguments[0], allow_grouped_aggregate=allow_grouped_aggregate
+        )
     return False, False
 
 
@@ -936,13 +1102,19 @@ def _render_extrema_aggregate(
     expression: AggregateCallIR,
     *,
     function_name: str,
+    allow_grouped_aggregate: bool = False,
 ) -> str:
     if len(expression.arguments) != 1:
         raise ValueError(
             f"PostgreSQL aggregate {expression.function} expects 1 argument(s)"
         )
     argument = expression.arguments[0]
-    if not isinstance(argument, FieldRefIR) or argument.field is None:
+    if not (
+        isinstance(argument, FieldRefIR)
+        and argument.field is not None
+        or allow_grouped_aggregate
+        and isinstance(argument, AggregateCallIR)
+    ):
         raise ValueError(
             f"PostgreSQL aggregate {expression.function} expects a direct field "
             "argument"
@@ -997,6 +1169,10 @@ def _render_call(expression: CallIR) -> str:
             )
             + ")"
         )
+    if expression.callee == "round":
+        return _render_round_call(expression)
+    if expression.callee == "date_trunc":
+        return _render_date_trunc_call(expression)
     if expression.callee not in _FUNCTION_ARITIES:
         raise ValueError(f"Unsupported PostgreSQL function call: {expression.callee}")
     expected_arity = _FUNCTION_ARITIES[expression.callee]
@@ -1050,6 +1226,104 @@ def _render_call(expression: CallIR) -> str:
         # PostgreSQL sign() returns double precision or numeric; Pietto says Int.
         return f"CAST(sign({arguments[0]}) AS bigint)"
     return f"{_FUNCTION_NAMES[expression.callee]}({arguments[0]})"
+
+
+def _render_round_call(expression: CallIR) -> str:
+    if len(expression.arguments) not in {1, 2}:
+        raise ValueError("PostgreSQL function round expects 1 or 2 argument(s)")
+    value = expression.arguments[0]
+    value_kind = _builtin_type_name(value)
+    if value_kind not in {"Decimal", "Float"} or not _same_value_type(
+        expression, value
+    ):
+        raise ValueError("PostgreSQL function round has an invalid typed shape")
+    if value_kind == "Decimal":
+        value_sql = _render_typed_null(value, "numeric")
+        if len(expression.arguments) == 1:
+            return f"round({value_sql})"
+        scale = expression.arguments[1]
+        if not _approved_round_scale(scale):
+            raise ValueError(
+                "PostgreSQL function round scale must be an Int literal from -30 to 30"
+            )
+        return f"round({value_sql}, {_render_expression_sql(scale, nested=True)})"
+    if len(expression.arguments) != 1:
+        raise ValueError("PostgreSQL function round(Float) expects 1 argument")
+    value_sql = _render_typed_null(value, "double precision")
+    trunc_sql = f"trunc({value_sql})"
+    residual_sql = f"({value_sql} - {trunc_sql})"
+    return (
+        "CASE WHEN "
+        f"abs({residual_sql}) >= 0.5 THEN {trunc_sql} + "
+        f"CASE WHEN {value_sql} < 0 THEN -1.0 ELSE 1.0 END "
+        f"ELSE {trunc_sql} END"
+    )
+
+
+def _approved_round_scale(expression: ExpressionIR) -> bool:
+    if (
+        type(expression) is LiteralIR
+        and type(expression.value) is int
+        and _builtin_type_name(expression) == "Int"
+    ):
+        return -30 <= expression.value <= 30
+    return (
+        type(expression) is UnaryIR
+        and expression.operator == "-"
+        and _builtin_type_name(expression) == "Int"
+        and type(expression.operand) is LiteralIR
+        and type(expression.operand.value) is int
+        and _builtin_type_name(expression.operand) == "Int"
+        and 0 <= expression.operand.value <= 30
+    )
+
+
+def _same_value_type(left: ExpressionIR, right: ExpressionIR) -> bool:
+    return (
+        left.value_type.canonical_kind is TypeKindIR.BUILTIN
+        and right.value_type.canonical_kind is TypeKindIR.BUILTIN
+        and left.value_type.canonical_name == right.value_type.canonical_name
+        and left.value_type.nullability is right.value_type.nullability
+    )
+
+
+def _render_typed_null(expression: ExpressionIR, sql_type: str) -> str:
+    if type(expression) is LiteralIR and expression.value is None:
+        return f"CAST(NULL AS {sql_type})"
+    return _render_expression_sql(expression, nested=True)
+
+
+def _render_date_trunc_call(expression: CallIR) -> str:
+    if len(expression.arguments) != 2:
+        raise ValueError("PostgreSQL function date_trunc expects 2 argument(s)")
+    unit, value = expression.arguments
+    if (
+        type(unit) is not LiteralIR
+        or type(unit.value) is not str
+        or _builtin_type_name(unit) != "Text"
+    ):
+        raise ValueError("PostgreSQL function date_trunc unit must be a Text literal")
+    value_kind = _builtin_type_name(value)
+    if value_kind not in {"Date", "Timestamp"} or not _same_value_type(
+        expression, value
+    ):
+        raise ValueError("PostgreSQL function date_trunc has an invalid typed shape")
+    units = {"year", "month", "day"}
+    if value_kind == "Timestamp":
+        units |= {"hour", "minute"}
+    if unit.value not in units:
+        raise ValueError("PostgreSQL function date_trunc unit is unsupported")
+    unit_sql = _render_expression_sql(unit, nested=True)
+    if value_kind == "Date":
+        if type(value) is LiteralIR and value.value is None:
+            value_sql = "CAST(NULL AS timestamp)"
+        else:
+            value_sql = (
+                f"CAST({_render_expression_sql(value, nested=True)} AS timestamp)"
+            )
+        return f"CAST(date_trunc({unit_sql}, {value_sql}) AS date)"
+    value_sql = _render_typed_null(value, "timestamp")
+    return f"date_trunc({unit_sql}, {value_sql})"
 
 
 def _supported_operator(

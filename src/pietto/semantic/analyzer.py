@@ -8,7 +8,7 @@ from pietto._syntax_admission import unadmitted_syntax_diagnostics
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import fields, is_dataclass, replace
-from heapq import heappop, heappush
+from heapq import heappop, heappush, merge
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -67,6 +67,7 @@ from pietto.semantic.callables import (
 )
 from pietto.semantic.catalog import BUILTIN_TYPE_NAMES
 from pietto.semantic.expressions import (
+    null_numbers,
     type_callable_bodies,
     type_relation_expressions,
     type_shape_field_derives,
@@ -77,11 +78,13 @@ from pietto.semantic.existence_generators import (
     AnyUseInfo,
     AnyValueInfo,
     AnyValueTrace,
+    any_binders,
     collect_any_values,
     normalize_existence_generators,
     rebind_existence_generators,
 )
 from pietto.semantic.field_derive_cycles import check_field_derive_cycles
+from pietto.semantic.habit_warnings import habit_warnings
 from pietto.semantic.inline_functions import (
     drop_repeated_call_diagnostics,
     drop_repeated_operand_diagnostics,
@@ -96,6 +99,7 @@ from pietto.semantic.joins import (
     join_post_pass,
     joined_input_rows,
 )
+from pietto.semantic.null_warnings import null_warnings
 from pietto.semantic.let_bindings import (
     analyze_relation_let_bindings,
     join_reserved_let_names,
@@ -123,13 +127,8 @@ from pietto.semantic.relation_schemas import (
     propagate_relation_schemas,
     reads_relation_input,
 )
-from pietto.semantic.relationship_metadata import (
-    check_relationship_conditions,
-    check_relationship_metadata,
-)
 from pietto.semantic.relations import (
     resolve_relation_inputs,
-    same_file_relation_reads,
 )
 from pietto.semantic.modern_inputs import (
     bind_script_relationship_predicates,
@@ -148,6 +147,7 @@ from pietto.semantic.type_aliases import expand_type_aliases
 
 if TYPE_CHECKING:
     from pietto.semantic.window_semantics import (
+        AggregateWindowAnalysis,
         ResolvedNamedWindowNamespace,
         WindowExpressionAnalysis,
     )
@@ -172,7 +172,8 @@ def analyze(
 ) -> SemanticResult:
     """Build the incremental semantic model and ordered diagnostics."""
 
-    return _analyze_script(script, mode_override=mode_override, single_file=True)
+    with null_numbers():
+        return _analyze_script(script, mode_override=mode_override, single_file=True)
 
 
 def analyze_project_namespace(script: Script) -> SemanticResult:
@@ -186,8 +187,8 @@ def analyze_project_namespace(script: Script) -> SemanticResult:
     ungrouped ORDER BY key other than an integer literal (which the parser
     refuses, PIE-P1000), no ROWS or GROUPS frame offset or window count
     literal range check (a RANGE offset of a selected window is checked, as
-    in an explicit-module check, and one of a QUALIFY window is not, as in a
-    single file), no refusal of a `min` or `max` whose argument is a `let:`
+    in an explicit-module check, and one of a QUALIFY window is not), no
+    refusal of a `min` or `max` whose argument is a `let:`
     name in a relation without GROUP BY (PIE-S2315) and no connector
     table-name check, so source connectors get the diagnostics of an
     explicit-module check. An ungrouped ORDER BY key reads input fields,
@@ -288,12 +289,22 @@ def _analyze_script(
                 any_uses=any_uses,
                 any_trace=any_trace,
             )
+            diagnostics = name_uncallable_calls(
+                drop_repeated_call_diagnostics(parsed, result.diagnostics),
+                parsed,
+                shared=not single_file,
+            )
+            warnings = habit_warnings(
+                parsed, result.script or script, result.model, diagnostics
+            )
             return replace(
                 result,
-                diagnostics=name_uncallable_calls(
-                    drop_repeated_call_diagnostics(parsed, result.diagnostics),
-                    parsed,
-                    shared=not single_file,
+                diagnostics=tuple(
+                    merge(
+                        diagnostics,
+                        sorted(warnings, key=_diagnostic_order),
+                        key=_diagnostic_order,
+                    )
                 ),
             )
     except RecursionError:
@@ -313,11 +324,13 @@ def name_uncallable_calls(
     and order. With ``shared`` the scripts' files are one callable namespace,
     as a LEGACY_FLAT project's are, so the name may be declared in any of
     them. The first declaration of a name in a file, or in the shared
-    namespace, holds it, as in the callable namespace. With no such call the
-    same tuple is returned, since readers may compare diagnostics by
-    identity."""
+    namespace, holds it, as in the callable namespace. Without ``shared``, a
+    call of a relationship that only other files declare says so: a module
+    cannot import a relationship. With no such call the same tuple is
+    returned, since readers may compare diagnostics by identity."""
 
     kinds: dict[tuple[str | None, str], str] = {}
+    relationships: dict[str, dict[str | None, None]] = {}
     for script in scripts:
         for definition in script.definitions:
             if type(definition) in (ConstraintDef, DeriveDef):
@@ -325,20 +338,35 @@ def name_uncallable_calls(
                     (None if shared else definition.span.path, definition.name),
                     "constraint" if type(definition) is ConstraintDef else "derive",
                 )
+        for template in () if shared else script.relationship_templates:
+            relationships.setdefault(template.name, {})[template.span.path] = None
     named = list(diagnostics)
     for position, diagnostic in enumerate(diagnostics):
+        if diagnostic.code != "PIE-S2103" or not diagnostic.message.startswith(
+            _UNKNOWN_FUNCTION
+        ):
+            continue
         # The called name, before any hint for it.
         name = diagnostic.message.removeprefix(_UNKNOWN_FUNCTION).partition(";")[0]
         kind = kinds.get((None if shared else diagnostic.location.path, name))
-        if (
-            diagnostic.code == "PIE-S2103"
-            and diagnostic.message.startswith(_UNKNOWN_FUNCTION)
-            and kind is not None
-        ):
+        files = tuple(
+            str(path)
+            for path in relationships.get(name, ())
+            if path != diagnostic.location.path
+        )
+        if kind is not None:
             named[position] = replace(
                 diagnostic,
                 message=f"{_UNKNOWN_FUNCTION}{name}; {name} is a {kind}, which "
                 "cannot be called; write a `def` instead",
+            )
+        elif files:
+            where = files[0] if len(files) == 1 else ", ".join(files[:-1])
+            where += "" if len(files) == 1 else f" and {files[-1]}"
+            named[position] = replace(
+                diagnostic,
+                message=f"{_UNKNOWN_FUNCTION}{name}; {name} is a relationship of "
+                f"{where}, which a module cannot import: declare it in this module",
             )
     if all(new is old for new, old in zip(named, diagnostics, strict=True)):
         return diagnostics
@@ -436,12 +464,6 @@ def _analyze(
             diagnostics.append(_duplicate_diagnostic(definition, namespace_name))
             continue
         namespace[definition.name] = definition
-
-    relationships, relationship_diagnostics = check_relationship_metadata(
-        script,
-        relation_symbols,
-    )
-    diagnostics.extend(relationship_diagnostics)
 
     for type_expr in (
         *_iter_type_expressions(script),
@@ -555,11 +577,7 @@ def _analyze(
     diagnostics.extend(relation_diagnostics)
     if single_file:
         structures, join_resolutions, join_diagnostics = build_join_structures(
-            script,
-            relation_symbols=relation_symbols,
-            relationships=relationships,
-            source_row_schemas=source_row_schemas,
-            type_expansions=type_expansions,
+            script, relation_symbols=relation_symbols
         )
         diagnostics.extend(join_diagnostics)
     else:
@@ -569,16 +587,6 @@ def _analyze(
         any_uses if single_file else (), relation_symbols, existence_generators
     )
     diagnostics.extend(any_resolution_diagnostics)
-    if single_file:
-        # Only single-file SQL reads a table or query of the file by name.
-        diagnostics.extend(
-            same_file_relation_reads(
-                script,
-                from_resolutions,
-                relation_symbols,
-                {id(use.clause): use.expression for use in existence_generators},
-            )
-        )
     cyclic_relations, cycle_diagnostics = check_relation_cycles(
         script,
         from_resolutions,
@@ -602,6 +610,7 @@ def _analyze(
         relation_expression_diagnostics,
         let_scopes,
         window_expression_analyses,
+        aggregate_window_analyses,
         named_window_namespaces,
     ) = _analyze_relation_schema_expressions(
         script,
@@ -618,15 +627,6 @@ def _analyze(
         failed_relationship_calls=failed_relationship_calls,
     )
     diagnostics.extend(schema_diagnostics)
-    diagnostics.extend(
-        check_relationship_conditions(
-            script,
-            relationships,
-            source_row_schemas=source_row_schemas,
-            relation_row_schemas=relation_row_schemas,
-            type_expansions=type_expansions,
-        )
-    )
     expression_value_types, expression_diagnostics = type_shape_predicates(
         script,
         type_resolutions=type_resolutions,
@@ -672,6 +672,7 @@ def _analyze(
         type_expansions=type_expansions,
         cyclic_relations=cyclic_relations,
         failed_relationship_calls=failed_relationship_calls,
+        any_binders=any_binders(existence_generators),
     )
     diagnostics.extend(
         d for d in any_diagnostics if id(d) not in failure_diagnostic_ids
@@ -761,6 +762,7 @@ def _analyze(
             expression_value_types=expression_value_types,
             type_expansions=type_expansions,
             failed_relationship_calls=failed_relationship_calls,
+            any_binders=any_binders(existence_generators),
         )
         diagnostics.extend(checks.diagnostics)
         for definition, info in checks.facts.items():
@@ -774,6 +776,31 @@ def _analyze(
                     relationship_calls=relationship_calls,
                 )
             )
+        diagnostics.extend(
+            null_warnings(
+                script,
+                checks.facts,
+                expression_value_types=expression_value_types,
+                source_row_schemas=source_row_schemas,
+                relation_row_schemas=relation_row_schemas,
+                reported=diagnostics,
+            )
+        )
+        from pietto.semantic.emission_warnings import emission_warnings
+
+        diagnostics.extend(
+            emission_warnings(
+                script,
+                window_expression_analyses=window_expression_analyses,
+                aggregate_window_analyses=aggregate_window_analyses,
+                relation_joins=checks.facts,
+                let_scopes=let_scopes,
+                type_expansions=type_expansions,
+                expression_value_types=expression_value_types,
+                from_resolutions=from_resolutions,
+                reported=diagnostics,
+            )
+        )
 
     diagnostics.extend(
         diagnostic
@@ -797,11 +824,11 @@ def _analyze(
             relation_row_schemas=relation_row_schemas,
             expression_value_types=expression_value_types,
             window_expression_analyses=window_expression_analyses,
+            aggregate_window_analyses=aggregate_window_analyses,
             named_window_namespaces=named_window_namespaces,
             result_predicates=result_predicates,
             let_scopes=let_scopes,
             relation_joins={} if checks is None else checks.facts,
-            relationships=relationships,
             relationship_templates=relationship_templates,
             relationship_calls=relationship_calls,
             existence_generators=existence_generators,
@@ -1191,6 +1218,7 @@ def _analyze_relation_schema_expressions(
     list[Diagnostic],
     dict[DerivedRelation, LetScopeSemanticInfo],
     dict[WindowExpr, WindowExpressionAnalysis],
+    dict[WindowExpr, AggregateWindowAnalysis],
     dict[DerivedRelation, ResolvedNamedWindowNamespace],
 ]:
     """Refine relation schemas from computed projection expression types."""
@@ -1398,7 +1426,7 @@ def _analyze_relation_schema_expressions(
     (
         relation_value_types,
         relation_expression_diagnostics,
-        window_expression_analyses,
+        analyzed_windows,
         named_window_namespaces,
     ) = type_relation_expressions(
         script,
@@ -1449,13 +1477,27 @@ def _analyze_relation_schema_expressions(
     if stabilized:
         relation_row_schemas = final_schemas
 
+    from pietto.semantic.window_semantics import (
+        AggregateWindowAnalysis,
+        WindowExpressionAnalysis,
+    )
+
     return (
         relation_row_schemas,
         schema_diagnostics,
         relation_value_types,
         relation_expression_diagnostics,
         let_scopes,
-        window_expression_analyses,
+        {
+            expression: analysis
+            for expression, analysis in analyzed_windows.items()
+            if type(analysis) is WindowExpressionAnalysis
+        },
+        {
+            expression: analysis
+            for expression, analysis in analyzed_windows.items()
+            if type(analysis) is AggregateWindowAnalysis
+        },
         named_window_namespaces,
     )
 
@@ -1640,9 +1682,6 @@ def _iter_cast_target_type_expressions(script: Script) -> Iterator[TypeExpr]:
             yield from _cast_targets_in_expression(definition.connector)
         elif isinstance(definition, (TableDef, QueryDef)):
             yield from _relation_cast_targets(definition)
-    for relationship in script.relationships:
-        if relationship.base_match is not None:
-            yield from _cast_targets_in_expression(relationship.base_match.expression)
     for template in script.relationship_templates:
         yield from _cast_targets_in_expression(template.body)
 

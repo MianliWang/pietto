@@ -24,24 +24,13 @@ MYSQL_JSON_GOLDEN = REPO_ROOT / (
 )
 
 
-def _same_file_read(path: Path, line: int, name: str) -> str:
-    """The PIE-S2382 line of a query reading table ``name`` of its own file."""
-
-    return (
-        f"{path}:{line}:5 PIE-S2382 warning: `{name}` is a table of this file; "
-        "single-file SQL reads it by name, so the SQL runs only where the "
-        f"database already has a relation named {name} (an EXPLICIT_MODULES "
-        "project emits it as a CTE)\n"
-    )
-
-
 def test_mysql_text_cli_matches_reviewed_golden(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     assert cli.main(["emit-sql", str(MYSQL_SOURCE), "--dialect", "mysql"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.err == _same_file_read(MYSQL_SOURCE, 33, "FirstRelation")
+    assert captured.err == ""
     assert captured.out.encode("utf-8") == MYSQL_SQL_GOLDEN.read_bytes()
 
 
@@ -78,12 +67,12 @@ def test_mysql_backend_diagnostics_use_exit_one_and_preserve_order(
     assert cli.main(["emit-sql", str(MYSQL_FAILURES), "--dialect", "mysql"]) == 1
 
     captured = capsys.readouterr()
-    assert captured.out.count("SELECT\n") == 3
+    # second_ok defines first_ok, the table it reads, as a CTE.
+    assert captured.out.count("SELECT\n") == 4
     assert captured.out.index("FROM `users`") < captured.out.index("FROM `first_ok`")
-    assert captured.err.startswith(_same_file_read(MYSQL_FAILURES, 29, "first_ok"))
     assert [
         line.split(": ", maxsplit=1)[1].split(".", maxsplit=1)[0]
-        for line in captured.err.splitlines()[1:]
+        for line in captured.err.splitlines()
     ] == [
         "MySQL SQL emission is not implemented for RelationIR: first_bad",
     ]
@@ -118,7 +107,6 @@ def test_mysql_json_backend_failure_preserves_artifacts_and_diagnostics(
         "second_ok",
     ]
     assert [diagnostic["code"] for diagnostic in diagnostics] == [
-        "PIE-S2382",
         "PIE-B1000",
     ]
 
@@ -146,7 +134,7 @@ def test_mysql_output_file_success_is_atomic(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == _same_file_read(MYSQL_SOURCE, 33, "FirstRelation")
+    assert captured.err == ""
     assert output.read_bytes() == MYSQL_SQL_GOLDEN.read_bytes()
     assert not tuple(tmp_path.glob("*.tmp"))
 
@@ -267,7 +255,7 @@ def test_explicit_dialect_does_not_infer_from_header_connector_or_suffix(
 
     assert cli.main(["emit-sql", str(mysql_path), "--dialect", "mysql"]) == 0
     selected = capsys.readouterr()
-    assert selected.out.endswith("FROM `users`\n")
+    assert selected.out.endswith("FROM `users`;\n")
     assert selected.err == ""
 
     assert cli.main(["emit-sql", str(mysql_path), "--dialect", "postgres"]) == 1

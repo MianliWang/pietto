@@ -3,12 +3,7 @@
 import json
 
 import _pietto_sql_emission as emission
-from _pietto_execution_rows_cases import (
-    BLOCK_READS,
-    CASES as ORIGINAL_CASES,
-    build,
-    seven_artifact,
-)
+from _pietto_execution_rows_cases import CASES as ORIGINAL_CASES, build, seven_artifact
 
 CASES = (
     ORIGINAL_CASES
@@ -22,8 +17,6 @@ CASES = (
         for state in ("values", "empty", "null")
     )
 )
-# The admitted R2 families: R2 refines no expression block read yet.
-REFINED = tuple(case for case in CASES if case not in BLOCK_READS)
 
 R2_BOUND_RELATION = "phase66 r2 bound"
 R2_BOUND_MAX = 2147483645

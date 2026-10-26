@@ -34,10 +34,6 @@ from pietto._project.project_ir import (
     _declaration_identity,
 )
 from pietto._project.project_ir_construction import ProjectIRAllocationState
-from pietto._project.project_ir_joins import (
-    ProjectIRBinaryJoinOccurrence,
-    ProjectIRConcreteJoinRegion,
-)
 from pietto._project.project_ir_properties import (
     ProjectIRJoinedRowField,
     ProjectIRJoinedRowShape,
@@ -63,11 +59,9 @@ if TYPE_CHECKING:
 
 __all__: tuple[str, ...] = ()
 
-type ProjectIRSemanticJoin = ProjectCurrentBinaryJoin | ProjectIRBinaryJoinOccurrence
+type ProjectIRSemanticJoin = ProjectCurrentBinaryJoin
 
-type ProjectIRSemanticJoinRegion = (
-    ProjectCurrentJoinRegion | ProjectIRConcreteJoinRegion
-)
+type ProjectIRSemanticJoinRegion = ProjectCurrentJoinRegion
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -123,19 +117,9 @@ def _historical_refs(
     completed: ProjectConcreteCompletedSemanticResult,
 ) -> tuple[object, ...]:
     plan = completed.verification.root.evaluation.project_plan.structural_stage
-    joins = completed.verification.root.join_regions.structural
     return tuple(
         item.ref
-        for items in (
-            plan.nodes,
-            plan.outputs,
-            plan.input_slots,
-            plan.uses,
-            joins.nodes,
-            joins.outputs,
-            joins.input_slots,
-            joins.uses,
-        )
+        for items in (plan.nodes, plan.outputs, plan.input_slots, plan.uses)
         for item in items
     )
 
@@ -190,20 +174,13 @@ def build_project_ir_join_prefix(
         matches = tuple(
             c
             for c in conditions.entries
-            if c.ledger is region.ledger
-            and (c.use is original.use or c.effective_use is original.use)
+            if c.ledger is region.ledger and c.use is original.use
         )
         if len(matches) != 1:
             raise ValueError("Composed JOIN requires its exact operative condition.")
         condition = matches[0]
-        source_results = (
-            tuple(p.relational for p in region.join_properties if p.join is original)
-            if isinstance(region, ProjectCurrentJoinRegion)
-            else tuple(
-                p.relational
-                for p in completed.verification.root.join_regions.properties.outputs
-                if p.join is original
-            )
+        source_results = tuple(
+            p.relational for p in region.join_properties if p.join is original
         )
         if len(source_results) != 1:
             raise ValueError(
@@ -285,12 +262,7 @@ def build_project_ir_join_prefix(
         for old_field in original.output.row_shape.fields:
             introduction = use_images.get(id(old_field.introduction_use))
             if introduction is None:
-                if not any(
-                    old_field.introduction_use is use
-                    for use in completed.verification.root.join_regions.structural.uses
-                ):
-                    raise ValueError("Composed field lost its introduction-use image.")
-                introduction = old_field.introduction_use
+                raise ValueError("Composed field lost its introduction-use image.")
             fields.append(
                 ProjectIRJoinedRowField(
                     field_position=old_field.field_position,

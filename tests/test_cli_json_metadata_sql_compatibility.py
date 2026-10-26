@@ -572,9 +572,6 @@ def test_reader_of_unknown_grouped_row_keeps_unknown_lineage(
     assert captured.err == (
         f"{path}:1:1 PIE-S2303 warning: Source items has no bound shape; "
         "row schema is unknown\n"
-        f"{path}:9:5 PIE-S2382 warning: `q` is a query of this file; single-file "
-        "SQL reads it by name, so the SQL runs only where the database already "
-        "has a relation named q (an EXPLICIT_MODULES project emits it as a CTE)\n"
     )
     reader_text = captured.out.rsplit("  - r (query)\n", 1)[1].split("types:\n", 1)[0]
     assert reader_text == (

@@ -34,13 +34,6 @@ POSTGRES_INPUT = Path("tests/fixtures/postgres/compatibility_ordering_metadata.p
 POSTGRES_GOLDEN = Path(
     "tests/fixtures/golden/emit_sql_compatibility_ordering_metadata.sql"
 )
-# The input's query reads a table of its own file, so the text output warns.
-POSTGRES_STDERR = (
-    f"{POSTGRES_INPUT.as_posix()}:33:5 PIE-S2382 warning: `FirstRelation` is a "
-    "table of this file; single-file SQL reads it by name, so the SQL runs only "
-    "where the database already has a relation named FirstRelation (an "
-    "EXPLICIT_MODULES project emits it as a CTE)\n"
-).encode()
 MYSQL_INPUT = Path("tests/fixtures/mysql/compatibility_ordering_metadata.pietto")
 MYSQL_GOLDEN = Path(
     "tests/fixtures/golden/emit_mysql_compatibility_ordering_metadata.json"
@@ -1086,7 +1079,7 @@ def _smoke_installed_cli(
         environment=environment,
     )
     expected_postgres = (REPO_ROOT / POSTGRES_GOLDEN).read_bytes()
-    if postgres.stdout != expected_postgres or postgres.stderr != POSTGRES_STDERR:
+    if postgres.stdout != expected_postgres or postgres.stderr:
         raise SmokeFailure(
             "installed PostgreSQL text output differs from reviewed golden bytes"
         )

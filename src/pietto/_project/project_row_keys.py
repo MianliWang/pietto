@@ -34,15 +34,51 @@ from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleRelationSemanticFacts,
     ProjectModuleSemanticFactSet,
 )
-from pietto._project.project_relationship_conditions import (
-    ProjectExactRowOutputConstraintScope,
-    ProjectRelationshipConstraintScopeKind,
-)
 from pietto.ast_nodes import FieldDef, Node, ShapeDef, SourceDef, UniqueDef
 from pietto.errors import Diagnostic, SourceLocation
 from pietto.semantic.shapes import check_shape_structures
 
 __all__: tuple[str, ...] = ()
+
+
+class ProjectRelationshipConstraintScopeKind(StrEnum):
+    """Constraint evidence scopes without constructing later evidence."""
+
+    UNCONDITIONAL_ON_EXACT_ROW_OUTPUT = "unconditional_on_exact_row_output"
+    UNDER_PREDICATE = "under_predicate"
+    UNDER_POLICY = "under_policy"
+    UNDER_MATCH_CONTEXT = "under_match_context"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectExactRowOutputConstraintScope:
+    """One constructible unconditional scope for one exact relation output."""
+
+    kind: ProjectRelationshipConstraintScopeKind
+    owner: ProjectDeclarationOccurrenceIdentity
+    relation: ProjectModuleRelationSemanticFacts = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.kind) is not ProjectRelationshipConstraintScopeKind
+            or self.kind
+            is not ProjectRelationshipConstraintScopeKind.UNCONDITIONAL_ON_EXACT_ROW_OUTPUT
+        ):
+            raise ValueError("Slice 3 constructs only exact-row-output scope.")
+        if type(self.owner) is not ProjectDeclarationOccurrenceIdentity:
+            raise TypeError("Constraint scope requires an exact output owner.")
+        if type(self.relation) is not ProjectModuleRelationSemanticFacts:
+            raise TypeError("Constraint scope requires exact semantic facts.")
+        if (
+            _declaration_identity(self.relation.owner) != self.owner
+            or self.relation.state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+        ):
+            raise ValueError("Constraint scope must bind one concrete exact output.")
+
 
 _SHAPE_DIAGNOSTIC_CODES = frozenset({"PIE-S2501", "PIE-S2502", "PIE-S2503"})
 _AMBIGUOUS_SOURCE_STATUSES = frozenset(

@@ -335,7 +335,8 @@ def _add_output_edges(
         builder.add_node(output_node)
         lookup_name = _direct_lookup_name(
             item.expression,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
         )
         if lookup_name is not None and lookup_name in input_schema.fields:
             edge_kind = (
@@ -475,7 +476,8 @@ def _expression_dependency_nodes(
         if isinstance(current, DottedNameExpr):
             lookup_name = _direct_lookup_name(
                 current,
-                relation_qualifier=definition.from_clause.source_name,
+                relation_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
             )
             if lookup_name is not None and lookup_name in input_schema.fields:
                 add(_upstream_field_node(upstream_symbol, lookup_name))

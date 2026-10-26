@@ -1,4 +1,4 @@
-"""Private per-aggregate locality, chasm, and multi-fact analysis."""
+"""Private per-aggregate locality and multi-fact analysis."""
 
 from __future__ import annotations
 
@@ -25,22 +25,17 @@ from pietto._project.project_ir import (
     ProjectIRJoinInputUseOccurrence,
     ProjectIRPlanNodeRef,
     ProjectIROutputValueRef,
-    ProjectIRUseRef,
 )
 from pietto._project.project_ir_evaluation_context import (
     ProjectIRAggregateEvaluationContext,
     ProjectIREvaluationContextStage,
 )
 from pietto._project.project_ir_joins import (
-    ProjectIRBinaryJoinOccurrence,
-    ProjectIRConcreteJoinRegion,
-    ProjectIRJoinOutputProperties,
     ProjectIRJoinRegionStage,
     ProjectIRNonConcreteJoinRegion,
 )
 from pietto._project.project_ir_properties import (
     ProjectIRJoinRowOutput,
-    ProjectIRJoinedRowField,
     ProjectIRRelationRowOutput,
     ProjectIRScalarFieldOutput,
 )
@@ -53,11 +48,7 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIROutputRelationalProperties,
     ProjectIROutputValueClass,
 )
-from pietto._project.project_relationship_paths import ProjectRelationshipPathStep
-from pietto._project.project_relationship_uses import (
-    ProjectJoinUseIssueKind,
-    ProjectNonConcreteJoinUse,
-)
+from pietto._project.project_relationship_uses import ProjectNonConcreteJoinUse
 from pietto._project.project_current_joins import (
     ProjectCurrentBinaryJoin,
     ProjectCurrentJoinProperties,
@@ -342,21 +333,6 @@ class ProjectFactGrainComparison:
             raise ValueError("Grain comparison must derive from both directions.")
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectFactMultiplicityExposure:
-    join: ProjectIRBinaryJoinOccurrence = field(repr=False, compare=False, hash=False)
-    factor_additions: tuple[ProjectJoinGrainFactorIdentity, ...]
-
-    def __post_init__(self) -> None:
-        if type(self.join) is not ProjectIRBinaryJoinOccurrence:
-            raise TypeError("Multiplicity exposure requires one exact JOIN.")
-        if not self.factor_additions or any(
-            type(factor) is not ProjectJoinGrainFactorIdentity
-            for factor in self.factor_additions
-        ):
-            raise ValueError("Multiplicity exposure requires exact added factors.")
-
-
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectCurrentMultiplicityExposure:
     join: ProjectCurrentBinaryJoin = field(repr=False)
@@ -387,9 +363,6 @@ class ProjectAggregateFactHomeLocality:
     )
     home_field: ProjectIROutputFieldOccurrence
     contextual_grain: ProjectFactContextualGrain
-    relationship_entry_path: None = field(init=False, default=None)
-    introduction_use: None = field(init=False, default=None)
-    introduction_join: None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         if (
@@ -404,141 +377,8 @@ class ProjectAggregateFactHomeLocality:
             raise ValueError("Home locality requires exact fact result authority.")
 
 
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectAggregateFactJoinLocality:
-    fact: ProjectAggregateFactOccurrence
-    region: ProjectIRConcreteJoinRegion = field(repr=False, compare=False, hash=False)
-    introduction_use: ProjectIRJoinInputUseOccurrence
-    introduction_join: ProjectIRBinaryJoinOccurrence = field(
-        repr=False, compare=False, hash=False
-    )
-    side: ProjectFactJoinInputSide
-    relationship_entry_path: ProjectRelationshipPathStep | None = field(
-        repr=False, compare=False, hash=False
-    )
-    carried_fields: tuple[ProjectIRJoinedRowField, ...]
-    final_region_properties: ProjectIRJoinOutputProperties = field(
-        repr=False, compare=False, hash=False
-    )
-    final_field: ProjectIRJoinedRowField
-    contextual_grain: ProjectFactContextualGrain
-    final_grain_comparison: ProjectFactGrainComparison
-    multiplicity_exposures: tuple[ProjectFactMultiplicityExposure, ...] = ()
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.fact) is not ProjectAggregateFactOccurrence
-            or type(self.region) is not ProjectIRConcreteJoinRegion
-            or not any(self.introduction_join is join for join in self.region.joins)
-            or type(self.introduction_use) is not ProjectIRJoinInputUseOccurrence
-            or self.side
-            not in {ProjectFactJoinInputSide.LEFT, ProjectFactJoinInputSide.RIGHT}
-        ):
-            raise ValueError("JOIN locality requires exact fact and region roots.")
-        side_position = 0 if self.side is ProjectFactJoinInputSide.LEFT else 1
-        if (
-            self.introduction_join.input_uses[side_position]
-            is not self.introduction_use
-        ):
-            raise ValueError("JOIN locality side must match its introduction use.")
-        expected_input = (
-            self.introduction_join.left_input
-            if side_position == 0
-            else self.introduction_join.right_input
-        )
-        if expected_input is not self.fact.home_relation_properties:
-            raise ValueError("JOIN locality must introduce the exact fact home output.")
-        if (
-            self.side is ProjectFactJoinInputSide.LEFT
-            and self.relationship_entry_path is not None
-        ) or (
-            self.side is ProjectFactJoinInputSide.RIGHT
-            and self.relationship_entry_path is not self.introduction_join.path_step
-        ):
-            raise ValueError("JOIN locality path authority must match its side.")
-        start = self.region.joins.index(self.introduction_join)
-        expected_fields: list[ProjectIRJoinedRowField] = []
-        for join in self.region.joins[start:]:
-            matches = tuple(
-                joined_field
-                for joined_field in join.output.row_shape.fields
-                if joined_field.evidence is self.fact.home_field.evidence
-                and joined_field.introduction_use is self.introduction_use
-            )
-            if len(matches) != 1:
-                raise ValueError("JOIN locality requires one carried field per output.")
-            expected_fields.append(matches[0])
-        if self.carried_fields != tuple(expected_fields):
-            raise ValueError("JOIN locality carried fields must retain region order.")
-        if (
-            self.final_region_properties.join is not self.region.joins[-1]
-            or self.final_field is not self.carried_fields[-1]
-            or self.contextual_grain.authority
-            is not self.final_region_properties.relational.grain
-            or self.contextual_grain.state is not self.fact.result_intrinsic_grain.state
-            or self.contextual_grain.evidence is not self.introduction_use
-            or self.final_grain_comparison.left is not self.contextual_grain
-            or self.final_grain_comparison.right.authority
-            is not self.final_region_properties.relational.grain
-            or self.final_grain_comparison.right.state
-            is not self.final_region_properties.relational.grain.state
-            or self.final_grain_comparison.right.factors
-            != self.final_region_properties.relational.grain.active
-            or self.final_grain_comparison.right.evidence
-            is not self.final_region_properties
-        ):
-            raise ValueError("JOIN locality requires exact final field and grain.")
-        home_factors = self.fact.result_intrinsic_grain.active
-        if len(home_factors) != len(self.contextual_grain.factors) or any(
-            type(contextual) is not ProjectJoinGrainFactorIdentity
-            or contextual.base != home
-            or contextual.introduction_use != self.introduction_use.ref
-            or contextual.nulling_joins != self.final_field.nulling_joins
-            for home, contextual in zip(
-                home_factors, self.contextual_grain.factors, strict=True
-            )
-        ):
-            raise ValueError("JOIN locality factors must preserve base/use identity.")
-        exposure_joins = tuple(
-            exposure.join for exposure in self.multiplicity_exposures
-        )
-        exposure_positions = tuple(
-            self.region.joins.index(join) for join in exposure_joins
-        )
-        if any(position < start for position in exposure_positions) or any(
-            left >= right
-            for left, right in zip(
-                exposure_positions, exposure_positions[1:], strict=False
-            )
-        ):
-            raise ValueError("Multiplicity exposures must retain later JOIN order.")
-        expected_unresolved = tuple(
-            factor
-            for factor in self.final_grain_comparison.right.factors
-            if factor not in self.final_grain_comparison.left_to_right.closure.factors
-        )
-        retained_additions = tuple(
-            factor
-            for exposure in self.multiplicity_exposures
-            for factor in exposure.factor_additions
-        )
-        if (
-            self.final_grain_comparison.status
-            is ProjectIRGrainComparisonStatus.RIGHT_FINER
-        ):
-            if len(set(retained_additions)) != len(retained_additions) or set(
-                retained_additions
-            ) != set(expected_unresolved):
-                raise ValueError(
-                    "Multiplicity exposures must cover exact finer-region factors."
-                )
-        elif retained_additions:
-            raise ValueError("Non-finer final grain cannot invent multiplicity risk.")
-
-
-type ProjectAggregateFactLocality = (
-    ProjectAggregateFactHomeLocality | ProjectAggregateFactJoinLocality
-)
+# No authored JOIN joins by itself, so a fact is only ever at its home.
+type ProjectAggregateFactLocality = ProjectAggregateFactHomeLocality
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -636,63 +476,6 @@ class ProjectCommonGrainResult:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectFactChasmCandidate:
-    region: ProjectIRConcreteJoinRegion = field(repr=False, compare=False, hash=False)
-    common_grain: ProjectActualGrainCandidate
-    localities: tuple[ProjectAggregateFactJoinLocality, ...]
-    introduction_joins: tuple[ProjectIRBinaryJoinOccurrence, ...] = field(
-        repr=False, compare=False, hash=False
-    )
-    contextual_factor_sets: tuple[ProjectGrainFactorSet, ...]
-    pairwise_comparisons: tuple[ProjectFactGrainComparison, ...]
-    common_determinations: tuple[ProjectFactGrainDetermination, ...]
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.region) is not ProjectIRConcreteJoinRegion
-            or len(self.localities) < 2
-        ):
-            raise ValueError("Chasm candidate requires one region and multiple facts.")
-        if any(locality.region is not self.region for locality in self.localities):
-            raise ValueError("Chasm localities must share one exact region.")
-        if len(self.contextual_factor_sets) != len(self.localities) or any(
-            factor_set.factors != locality.contextual_grain.factors
-            for factor_set, locality in zip(
-                self.contextual_factor_sets, self.localities, strict=True
-            )
-        ):
-            raise ValueError("Chasm must retain every contextual factor set.")
-        expected_pairs = len(self.localities) * (len(self.localities) - 1) // 2
-        if len(self.pairwise_comparisons) != expected_pairs or any(
-            comparison.status is not ProjectIRGrainComparisonStatus.INCOMPARABLE
-            for comparison in self.pairwise_comparisons
-        ):
-            raise ValueError("Chasm facts must remain mutually incomparable.")
-        if len(self.common_determinations) != len(self.localities) or any(
-            determination.requested is not self.common_grain.factors
-            or determination.status is not ProjectFactGrainDirectionStatus.PROVEN
-            for determination in self.common_determinations
-        ):
-            raise ValueError("Every chasm fact must determine the common grain.")
-        expected_joins = tuple(
-            join
-            for join in self.region.joins
-            if any(locality.introduction_join is join for locality in self.localities)
-        )
-        if self.introduction_joins != expected_joins:
-            raise ValueError("Chasm JOIN evidence must retain region order.")
-
-    def contains_pair(
-        self,
-        left: ProjectAggregateFactJoinLocality,
-        right: ProjectAggregateFactJoinLocality,
-    ) -> bool:
-        return any(left is item for item in self.localities) and any(
-            right is item for item in self.localities
-        )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectMultiFactAlignment:
     left: ProjectAggregateFactLocality = field(repr=False, compare=False, hash=False)
     right: ProjectAggregateFactLocality = field(repr=False, compare=False, hash=False)
@@ -702,9 +485,6 @@ class ProjectMultiFactAlignment:
     finer: ProjectAggregateFactLocality | None
     multiplicity_risks: tuple[ProjectMultiFactMultiplicityRisk, ...]
     requirements: tuple[ProjectMultiFactRequirement, ...]
-    chasms: tuple[ProjectFactChasmCandidate, ...] = field(
-        default=(), repr=False, compare=False, hash=False
-    )
 
     def __post_init__(self) -> None:
         if (
@@ -745,12 +525,6 @@ class ProjectMultiFactAlignment:
             not in self.requirements
         ):
             raise ValueError("Multiplicity risk requires aggregate algebra authority.")
-        if (
-            ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION
-            in self.multiplicity_risks
-            and not self.chasms
-        ):
-            raise ValueError("Cross-fact multiplication requires exact chasm evidence.")
         if self.grain_comparison is not None:
             comparison = self.grain_comparison
             if (
@@ -798,129 +572,17 @@ class ProjectMultiFactAlignment:
                 or self.finer is not expected_finer
             ):
                 raise ValueError("Alignment structure must replay exact grain proof.")
-        expected_risks: list[ProjectMultiFactMultiplicityRisk] = []
-        if self.grain_comparison is not None and (
-            (
-                type(self.left) is ProjectAggregateFactJoinLocality
-                and self.left.multiplicity_exposures
-            )
-            or (
-                type(self.right) is ProjectAggregateFactJoinLocality
-                and self.right.multiplicity_exposures
-            )
-        ):
-            expected_risks.append(ProjectMultiFactMultiplicityRisk.FANOUT_RISK)
-        if self.chasms:
-            if (
-                type(self.left) is not ProjectAggregateFactJoinLocality
-                or type(self.right) is not ProjectAggregateFactJoinLocality
-                or any(
-                    not chasm.contains_pair(self.left, self.right)
-                    for chasm in self.chasms
-                )
-            ):
-                raise ValueError("Alignment chasms must retain this exact pair.")
-            expected_risks.append(
-                ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION
-            )
-        if self.multiplicity_risks != tuple(expected_risks):
+        # Two home localities expose no JOIN multiplicity.
+        if self.multiplicity_risks:
             raise ValueError("Alignment risks must replay exact locality evidence.")
         expected_requirements = (
             (ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,)
             if self.structural
             is ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
-            or expected_risks
             else ()
         )
         if self.requirements != expected_requirements:
             raise ValueError("Alignment requirements must derive independently.")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectMultiFactConcreteRegion:
-    region: ProjectIRConcreteJoinRegion = field(repr=False, compare=False, hash=False)
-    final_properties: ProjectIRJoinOutputProperties = field(
-        repr=False, compare=False, hash=False
-    )
-    grain_index: ProjectGrainDependencyIndex = field(
-        repr=False, compare=False, hash=False
-    )
-    localities: tuple[ProjectAggregateFactJoinLocality, ...]
-    actual_candidates: tuple[ProjectActualGrainCandidate, ...]
-    fact_buckets: Mapping[
-        ProjectActualGrainCandidate,
-        tuple[ProjectAggregateFactJoinLocality, ...],
-    ] = field(repr=False, compare=False, hash=False)
-    chasms: tuple[ProjectFactChasmCandidate, ...]
-    alignments: tuple[ProjectMultiFactAlignment, ...]
-
-    def __post_init__(self) -> None:
-        if (
-            type(self.region) is not ProjectIRConcreteJoinRegion
-            or self.final_properties.join is not self.region.joins[-1]
-            or self.grain_index.universe.factors
-            != self.final_properties.relational.grain.factors
-            or self.grain_index.facts
-            != self.final_properties.relational.grain.dependencies
-        ):
-            raise ValueError("Concrete multi-fact region requires exact final roots.")
-        if any(locality.region is not self.region for locality in self.localities):
-            raise ValueError("Concrete region localities must share one region.")
-        if any(
-            candidate.factors.universe is not self.grain_index.universe
-            for candidate in self.actual_candidates
-        ):
-            raise ValueError("Actual candidates require the exact region universe.")
-        if len(self.fact_buckets) != len(self.actual_candidates) or any(
-            retained is not candidate
-            for retained, candidate in zip(
-                self.fact_buckets, self.actual_candidates, strict=True
-            )
-        ):
-            raise ValueError("Candidate fact buckets must retain authority order.")
-        for candidate in self.actual_candidates:
-            expected = tuple(
-                locality
-                for locality in self.localities
-                if _determine(
-                    self.grain_index,
-                    _factor_set(self.grain_index, locality.contextual_grain.factors),
-                    candidate.factors,
-                ).status
-                is ProjectFactGrainDirectionStatus.PROVEN
-            )
-            supplied = self.fact_buckets[candidate]
-            if len(supplied) != len(expected) or any(
-                actual is not retained
-                for actual, retained in zip(supplied, expected, strict=True)
-            ):
-                raise ValueError("Candidate fact bucket must be complete and ordered.")
-        if any(chasm.region is not self.region for chasm in self.chasms):
-            raise ValueError("Concrete region chasms must share one region.")
-        expected_pairs = tuple(
-            (self.localities[left], self.localities[right])
-            for left in range(len(self.localities))
-            for right in range(left + 1, len(self.localities))
-        )
-        if len(self.alignments) != len(expected_pairs) or any(
-            alignment.left is not left or alignment.right is not right
-            for alignment, (left, right) in zip(
-                self.alignments, expected_pairs, strict=True
-            )
-        ):
-            raise ValueError("Region alignments must retain deterministic i < j order.")
-        object.__setattr__(
-            self, "fact_buckets", MappingProxyType(dict(self.fact_buckets))
-        )
-
-
-_PATH_AMBIGUITY_ISSUES = frozenset(
-    {
-        ProjectJoinUseIssueKind.DIRECT_RELATIONSHIP_AMBIGUOUS,
-        ProjectJoinUseIssueKind.AMBIGUOUS_RELATIONSHIP,
-        ProjectJoinUseIssueKind.AMBIGUOUS_ENDPOINT_DIRECTION,
-    }
-)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -945,17 +607,11 @@ class ProjectMultiFactNonConcreteRegionSubject:
             }
         ):
             raise ValueError("Non-concrete multi-fact subject requires exact blockers.")
-        path_ambiguous = bool(self.identifiable_facts) and any(
-            issue.kind in _PATH_AMBIGUITY_ISSUES
-            for blocker in self.blockers
-            for issue in blocker.issues
-        )
-        expected = (
-            ProjectMultiFactStructuralAlignment.AMBIGUOUS_PATH
-            if path_ambiguous
-            else ProjectMultiFactStructuralAlignment.INSUFFICIENT_EVIDENCE
-        )
-        if self.structural is not expected:
+        # No blocker is an ambiguous relationship path: no JOIN resolves one.
+        if (
+            self.structural
+            is not ProjectMultiFactStructuralAlignment.INSUFFICIENT_EVIDENCE
+        ):
             raise ValueError("Non-concrete classification must retain exact cause.")
 
 
@@ -972,7 +628,6 @@ class ProjectMultiFactAnalysis:
     )
     facts: tuple[ProjectAggregateFactOccurrence, ...]
     home_localities: tuple[ProjectAggregateFactHomeLocality, ...]
-    concrete_regions: tuple[ProjectMultiFactConcreteRegion, ...]
     non_concrete_regions: tuple[ProjectMultiFactNonConcreteRegionSubject, ...]
     home_alignments: tuple[ProjectMultiFactAlignment, ...]
     facts_by_context: Mapping[
@@ -980,9 +635,6 @@ class ProjectMultiFactAnalysis:
     ] = field(repr=False, compare=False, hash=False)
     facts_by_home_output: Mapping[
         ProjectIROutputValueRef, tuple[ProjectAggregateFactOccurrence, ...]
-    ] = field(repr=False, compare=False, hash=False)
-    localities_by_introduction_use: Mapping[
-        ProjectIRUseRef, tuple[ProjectAggregateFactJoinLocality, ...]
     ] = field(repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
@@ -1014,20 +666,9 @@ class ProjectMultiFactAnalysis:
             for locality, fact in zip(self.home_localities, self.facts, strict=True)
         ):
             raise ValueError("Every aggregate fact requires one home locality.")
-        expected_concrete = tuple(
-            region
-            for region in self.join_regions.regions
-            if type(region) is ProjectIRConcreteJoinRegion
-        )
-        expected_non_concrete = tuple(
-            region
-            for region in self.join_regions.regions
-            if type(region) is ProjectIRNonConcreteJoinRegion
-        )
-        if (
-            tuple(item.region for item in self.concrete_regions) != expected_concrete
-            or tuple(item.region for item in self.non_concrete_regions)
-            != expected_non_concrete
+        # Every JOIN region is non-concrete: no authored JOIN joins by itself.
+        if tuple(item.region for item in self.non_concrete_regions) != (
+            self.join_regions.regions
         ):
             raise ValueError("Multi-fact analysis must retain every JOIN region.")
         expected_home_pairs = tuple(
@@ -1060,24 +701,10 @@ class ProjectMultiFactAnalysis:
                 *expected_by_home.get(output_ref, ()),
                 fact,
             )
-        expected_by_use: dict[
-            ProjectIRUseRef, tuple[ProjectAggregateFactJoinLocality, ...]
-        ] = {use.ref: () for use in self.join_regions.structural.uses}
-        for locality in (
-            locality
-            for region in self.concrete_regions
-            for locality in region.localities
-        ):
-            use_ref = locality.introduction_use.ref
-            expected_by_use[use_ref] = (*expected_by_use[use_ref], locality)
         if not _same_object_index(self.facts_by_context, expected_by_context):
             raise ValueError("Multi-fact context facts index must be complete.")
         if not _same_object_index(self.facts_by_home_output, expected_by_home):
             raise ValueError("Multi-fact home facts index must be complete.")
-        if not _same_object_index(self.localities_by_introduction_use, expected_by_use):
-            raise ValueError(
-                "Multi-fact introduction localities index must be complete."
-            )
         object.__setattr__(
             self, "facts_by_context", MappingProxyType(dict(self.facts_by_context))
         )
@@ -1085,30 +712,6 @@ class ProjectMultiFactAnalysis:
             self,
             "facts_by_home_output",
             MappingProxyType(dict(self.facts_by_home_output)),
-        )
-        object.__setattr__(
-            self,
-            "localities_by_introduction_use",
-            MappingProxyType(dict(self.localities_by_introduction_use)),
-        )
-
-    @property
-    def join_localities(self) -> tuple[ProjectAggregateFactJoinLocality, ...]:
-        return tuple(
-            locality
-            for region in self.concrete_regions
-            for locality in region.localities
-        )
-
-    @property
-    def alignments(self) -> tuple[ProjectMultiFactAlignment, ...]:
-        return (
-            *self.home_alignments,
-            *(
-                alignment
-                for region in self.concrete_regions
-                for alignment in region.alignments
-            ),
         )
 
 
@@ -1298,16 +901,6 @@ def _home_locality(
     )
 
 
-def _join_properties(
-    properties: Mapping[ProjectIRPlanNodeRef, ProjectIRJoinOutputProperties],
-    join: ProjectIRBinaryJoinOccurrence,
-) -> ProjectIRJoinOutputProperties:
-    item = properties.get(join.node.ref)
-    if item is None or item.join is not join:
-        raise ValueError("Binary JOIN requires one exact property output.")
-    return item
-
-
 def _localized_input_factors(
     *,
     grain: ProjectIRProvidedIntrinsicGrain,
@@ -1363,113 +956,6 @@ def _localized_input_factors(
     return tuple(localized)
 
 
-def _multiplicity_exposures(
-    *,
-    join_properties: Mapping[ProjectIRPlanNodeRef, ProjectIRJoinOutputProperties],
-    region: ProjectIRConcreteJoinRegion,
-    introduction_join: ProjectIRBinaryJoinOccurrence,
-    contextual: ProjectFactContextualGrain,
-    comparison: ProjectFactGrainComparison,
-) -> tuple[ProjectFactMultiplicityExposure, ...]:
-    if comparison.status is not ProjectIRGrainComparisonStatus.RIGHT_FINER:
-        return ()
-    final_active = comparison.right.factors
-    reachable = set(comparison.left_to_right.closure.factors)
-    unresolved = tuple(factor for factor in final_active if factor not in reachable)
-    start = region.joins.index(introduction_join)
-    previous = set(contextual.factors)
-    exposures: list[ProjectFactMultiplicityExposure] = []
-    covered: set[ProjectGrainFactorIdentity] = set()
-    for join in region.joins[start:]:
-        current = set(_join_properties(join_properties, join).relational.grain.active)
-        additions = tuple(
-            cast(ProjectJoinGrainFactorIdentity, factor)
-            for factor in final_active
-            if factor in unresolved and factor in current and factor not in previous
-        )
-        if additions:
-            exposures.append(
-                ProjectFactMultiplicityExposure(
-                    join=join,
-                    factor_additions=additions,
-                )
-            )
-            covered.update(additions)
-        previous = current
-    if covered != set(unresolved):
-        raise ValueError("Fact multiplicity exposure must retain every added factor.")
-    return tuple(exposures)
-
-
-def _join_locality(
-    *,
-    join_properties: Mapping[ProjectIRPlanNodeRef, ProjectIRJoinOutputProperties],
-    region: ProjectIRConcreteJoinRegion,
-    fact: ProjectAggregateFactOccurrence,
-    introduction_join: ProjectIRBinaryJoinOccurrence,
-    side: ProjectFactJoinInputSide,
-    final_properties: ProjectIRJoinOutputProperties,
-    index: ProjectGrainDependencyIndex,
-) -> ProjectAggregateFactJoinLocality:
-    side_position = 0 if side is ProjectFactJoinInputSide.LEFT else 1
-    introduction_use = introduction_join.input_uses[side_position]
-    contextual_factors = _localized_input_factors(
-        grain=fact.result_intrinsic_grain,
-        introduction_use=introduction_use,
-        final_grain=final_properties.relational.grain,
-    )
-    contextual = ProjectFactContextualGrain(
-        authority=final_properties.relational.grain,
-        state=fact.result_intrinsic_grain.state,
-        factors=contextual_factors,
-        evidence=introduction_use,
-    )
-    full = ProjectFactContextualGrain(
-        authority=final_properties.relational.grain,
-        state=final_properties.relational.grain.state,
-        factors=final_properties.relational.grain.active,
-        evidence=final_properties,
-    )
-    comparison = _compare_grains(index, contextual, full)
-    start = region.joins.index(introduction_join)
-    carried: list[ProjectIRJoinedRowField] = []
-    for join in region.joins[start:]:
-        matches = tuple(
-            joined_field
-            for joined_field in join.output.row_shape.fields
-            if joined_field.evidence is fact.home_field.evidence
-            and joined_field.introduction_use is introduction_use
-        )
-        if len(matches) != 1:
-            raise ValueError("Fact locality requires one exact carried JOIN field.")
-        carried.append(matches[0])
-    exposures = _multiplicity_exposures(
-        join_properties=join_properties,
-        region=region,
-        introduction_join=introduction_join,
-        contextual=contextual,
-        comparison=comparison,
-    )
-    return ProjectAggregateFactJoinLocality(
-        fact=fact,
-        region=region,
-        introduction_use=introduction_use,
-        introduction_join=introduction_join,
-        side=side,
-        relationship_entry_path=(
-            introduction_join.path_step
-            if side is ProjectFactJoinInputSide.RIGHT
-            else None
-        ),
-        carried_fields=tuple(carried),
-        final_region_properties=final_properties,
-        final_field=carried[-1],
-        contextual_grain=contextual,
-        final_grain_comparison=comparison,
-        multiplicity_exposures=exposures,
-    )
-
-
 def _add_actual_candidate(
     candidates: list[ProjectActualGrainCandidate],
     *,
@@ -1504,78 +990,6 @@ def _add_actual_candidate(
         factors=existing.factors,
         authorities=(*existing.authorities, authority),
     )
-
-
-def _actual_region_candidates(
-    *,
-    join_properties: Mapping[ProjectIRPlanNodeRef, ProjectIRJoinOutputProperties],
-    region: ProjectIRConcreteJoinRegion,
-    localities: tuple[ProjectAggregateFactJoinLocality, ...],
-    final_properties: ProjectIRJoinOutputProperties,
-    index: ProjectGrainDependencyIndex,
-) -> tuple[ProjectActualGrainCandidate, ...]:
-    candidates: list[ProjectActualGrainCandidate] = []
-    for locality in localities:
-        _add_actual_candidate(
-            candidates,
-            index=index,
-            kind=ProjectActualGrainAuthorityKind.FACT_LOCALITY,
-            evidence=(locality,),
-            factors=locality.contextual_grain.factors,
-            allow_empty=(
-                locality.contextual_grain.state is ProjectGrainBasisState.GLOBAL
-            ),
-        )
-    final_grain = final_properties.relational.grain
-    for join in region.joins:
-        for side_position, (kind, properties) in enumerate(
-            (
-                (ProjectActualGrainAuthorityKind.JOIN_LEFT_INPUT, join.left_input),
-                (ProjectActualGrainAuthorityKind.JOIN_RIGHT_INPUT, join.right_input),
-            )
-        ):
-            introduction_use = join.input_uses[side_position]
-            factors = _localized_input_factors(
-                grain=properties.grain,
-                introduction_use=introduction_use,
-                final_grain=final_grain,
-            )
-            _add_actual_candidate(
-                candidates,
-                index=index,
-                kind=kind,
-                evidence=(join, introduction_use, properties.grain),
-                factors=factors,
-                allow_empty=properties.grain.state is ProjectGrainBasisState.GLOBAL,
-            )
-        source_introduction = join.matches[0].left.introduction_use.ref
-        source_factors = tuple(
-            factor
-            for factor in final_grain.active
-            if type(factor) is ProjectJoinGrainFactorIdentity
-            and factor.introduction_use == source_introduction
-        )
-        source_output = join.use.source_binding.output
-        if source_output is None:
-            raise ValueError("Concrete JOIN source binding requires exact grain.")
-        _add_actual_candidate(
-            candidates,
-            index=index,
-            kind=ProjectActualGrainAuthorityKind.JOIN_SOURCE_SLICE,
-            evidence=(join, join.use.source_binding, source_output.grain),
-            factors=source_factors,
-            allow_empty=source_output.grain.state is ProjectGrainBasisState.GLOBAL,
-        )
-        output_grain = _join_properties(join_properties, join).relational.grain
-        _add_actual_candidate(
-            candidates,
-            index=index,
-            kind=ProjectActualGrainAuthorityKind.JOIN_OUTPUT,
-            evidence=(join, output_grain),
-            factors=output_grain.active,
-            allow_empty=output_grain.state is ProjectGrainBasisState.GLOBAL,
-        )
-    return tuple(candidates)
 
 
 def current_candidate_grounds(
@@ -1645,9 +1059,7 @@ class ProjectCurrentMultiFactRegion:
     """Current row-grain evidence for the existing tail safety consumers only."""
 
     region: ProjectCurrentJoinRegion = field(repr=False)
-    final_properties: ProjectCurrentJoinProperties | ProjectIRJoinOutputProperties = (
-        field(init=False, repr=False)
-    )
+    final_properties: ProjectCurrentJoinProperties = field(init=False, repr=False)
     grain_index: ProjectGrainDependencyIndex = field(init=False, repr=False)
     actual_candidates: tuple[ProjectActualGrainCandidate, ...] = field(init=False)
 
@@ -1785,140 +1197,15 @@ def _common_grain(
     )
 
 
-def _candidate_fact_buckets(
-    *,
-    localities: tuple[ProjectAggregateFactJoinLocality, ...],
-    candidates: tuple[ProjectActualGrainCandidate, ...],
-    determinations: Mapping[
-        ProjectActualGrainCandidate,
-        tuple[ProjectFactGrainDetermination, ...],
-    ],
-) -> Mapping[
-    ProjectActualGrainCandidate,
-    tuple[ProjectAggregateFactJoinLocality, ...],
-]:
-    return {
-        candidate: tuple(
-            locality
-            for locality, determination in zip(
-                localities, determinations[candidate], strict=True
-            )
-            if determination.status is ProjectFactGrainDirectionStatus.PROVEN
-        )
-        for candidate in candidates
-    }
-
-
-def _build_chasms(
-    *,
-    region: ProjectIRConcreteJoinRegion,
-    localities: tuple[ProjectAggregateFactJoinLocality, ...],
-    index: ProjectGrainDependencyIndex,
-    actual_candidates: tuple[ProjectActualGrainCandidate, ...],
-    comparisons: Mapping[tuple[int, int], ProjectFactGrainComparison],
-    common_results: Mapping[tuple[int, int], ProjectCommonGrainResult],
-    determinations: Mapping[
-        ProjectActualGrainCandidate,
-        tuple[ProjectFactGrainDetermination, ...],
-    ],
-) -> tuple[ProjectFactChasmCandidate, ...]:
-    chasms: list[ProjectFactChasmCandidate] = []
-    factor_sets = tuple(
-        _factor_set(index, locality.contextual_grain.factors) for locality in localities
-    )
-    for candidate in actual_candidates:
-        qualifying: list[tuple[int, int]] = []
-        for left_position in range(len(localities)):
-            for right_position in range(left_position + 1, len(localities)):
-                comparison = comparisons[(left_position, right_position)]
-                if (
-                    comparison.status is not ProjectIRGrainComparisonStatus.INCOMPARABLE
-                    or not factor_sets[left_position].factors
-                    or not factor_sets[right_position].factors
-                    or not any(
-                        candidate is retained
-                        for retained in (
-                            evidence.candidate
-                            for evidence in common_results[
-                                (left_position, right_position)
-                            ].candidates
-                        )
-                    )
-                ):
-                    continue
-                left_to_common = _determine(
-                    index, factor_sets[left_position], candidate.factors
-                )
-                right_to_common = _determine(
-                    index, factor_sets[right_position], candidate.factors
-                )
-                if (
-                    left_to_common.status is ProjectFactGrainDirectionStatus.PROVEN
-                    and right_to_common.status is ProjectFactGrainDirectionStatus.PROVEN
-                ):
-                    qualifying.append((left_position, right_position))
-        if not qualifying:
-            continue
-        positions = tuple(
-            position
-            for position in range(len(localities))
-            if any(position in pair for pair in qualifying)
-        )
-        complete_count = len(positions) * (len(positions) - 1) // 2
-        groups = (
-            (positions,)
-            if len(qualifying) == complete_count
-            else tuple((left, right) for left, right in qualifying)
-        )
-        for group in groups:
-            pairwise = tuple(
-                comparisons[(left, right)]
-                for offset, left in enumerate(group)
-                for right in group[offset + 1 :]
-            )
-            if any(
-                item.status is not ProjectIRGrainComparisonStatus.INCOMPARABLE
-                for item in pairwise
-            ):
-                continue
-            grouped_localities = tuple(localities[position] for position in group)
-            common_determinations = tuple(
-                determinations[candidate][position] for position in group
-            )
-            chasms.append(
-                ProjectFactChasmCandidate(
-                    region=region,
-                    common_grain=candidate,
-                    localities=grouped_localities,
-                    introduction_joins=tuple(
-                        join
-                        for join in region.joins
-                        if any(
-                            locality.introduction_join is join
-                            for locality in grouped_localities
-                        )
-                    ),
-                    contextual_factor_sets=tuple(
-                        factor_sets[position] for position in group
-                    ),
-                    pairwise_comparisons=pairwise,
-                    common_determinations=common_determinations,
-                )
-            )
-    return tuple(chasms)
-
-
 def _build_alignment(
     *,
     left: ProjectAggregateFactLocality,
     right: ProjectAggregateFactLocality,
     index: ProjectGrainDependencyIndex,
     actual_candidates: tuple[ProjectActualGrainCandidate, ...],
-    chasms: tuple[ProjectFactChasmCandidate, ...],
-    common_grain: ProjectCommonGrainResult | None = None,
 ) -> ProjectMultiFactAlignment:
     comparison = _compare_grains(index, left.contextual_grain, right.contextual_grain)
-    common = common_grain or _common_grain(
+    common = _common_grain(
         index=index,
         left=left.contextual_grain,
         right=right.contextual_grain,
@@ -1945,35 +1232,9 @@ def _build_alignment(
         structural = ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
     else:
         structural = ProjectMultiFactStructuralAlignment.INCOMPATIBLE
-
-    exact_chasms = (
-        tuple(
-            chasm
-            for chasm in chasms
-            if chasm.contains_pair(
-                cast(ProjectAggregateFactJoinLocality, left),
-                cast(ProjectAggregateFactJoinLocality, right),
-            )
-        )
-        if (
-            type(left) is ProjectAggregateFactJoinLocality
-            and type(right) is ProjectAggregateFactJoinLocality
-        )
-        else ()
-    )
-    risks: list[ProjectMultiFactMultiplicityRisk] = []
-    if (
-        type(left) is ProjectAggregateFactJoinLocality and left.multiplicity_exposures
-    ) or (
-        type(right) is ProjectAggregateFactJoinLocality and right.multiplicity_exposures
-    ):
-        risks.append(ProjectMultiFactMultiplicityRisk.FANOUT_RISK)
-    if exact_chasms:
-        risks.append(ProjectMultiFactMultiplicityRisk.CROSS_FACT_MULTIPLICATION)
     requirements = (
         (ProjectMultiFactRequirement.AGGREGATE_ALGEBRA_REQUIRED,)
         if structural is ProjectMultiFactStructuralAlignment.REAGGREGATION_REQUIRED
-        or risks
         else ()
     )
     return ProjectMultiFactAlignment(
@@ -1983,119 +1244,8 @@ def _build_alignment(
         grain_comparison=comparison,
         common_grain=common,
         finer=finer,
-        multiplicity_risks=tuple(risks),
+        multiplicity_risks=(),
         requirements=requirements,
-        chasms=exact_chasms,
-    )
-
-
-def _build_concrete_region(
-    *,
-    join_properties: Mapping[ProjectIRPlanNodeRef, ProjectIRJoinOutputProperties],
-    region: ProjectIRConcreteJoinRegion,
-    facts: tuple[ProjectAggregateFactOccurrence, ...],
-    facts_by_home_output: Mapping[
-        ProjectIROutputValueRef, tuple[ProjectAggregateFactOccurrence, ...]
-    ],
-) -> ProjectMultiFactConcreteRegion:
-    final_properties = _join_properties(join_properties, region.joins[-1])
-    index = _grain_index(final_properties.relational.grain)
-    positions = {fact.identity: position for position, fact in enumerate(facts)}
-    sites: list[
-        list[tuple[ProjectIRBinaryJoinOccurrence, ProjectFactJoinInputSide]]
-    ] = [[] for _fact in facts]
-    for join in region.joins:
-        for side, properties in (
-            (ProjectFactJoinInputSide.LEFT, join.left_input),
-            (ProjectFactJoinInputSide.RIGHT, join.right_input),
-        ):
-            for fact in facts_by_home_output.get(properties.output.occurrence.ref, ()):
-                if fact.home_relation_properties is not properties:
-                    raise ValueError("Fact home index must retain exact JOIN input.")
-                sites[positions[fact.identity]].append((join, side))
-    localities: list[ProjectAggregateFactJoinLocality] = []
-    for fact_position, fact in enumerate(facts):
-        localities.extend(
-            _join_locality(
-                join_properties=join_properties,
-                region=region,
-                fact=fact,
-                introduction_join=join,
-                side=side,
-                final_properties=final_properties,
-                index=index,
-            )
-            for join, side in sites[fact_position]
-        )
-    retained_localities = tuple(localities)
-    actual_candidates = _actual_region_candidates(
-        join_properties=join_properties,
-        region=region,
-        localities=retained_localities,
-        final_properties=final_properties,
-        index=index,
-    )
-    candidate_determinations = _candidate_determinations(
-        index=index,
-        grains=tuple(locality.contextual_grain for locality in retained_localities),
-        candidates=actual_candidates,
-    )
-    dominator_masks = _candidate_dominator_masks(index, actual_candidates)
-    fact_buckets = _candidate_fact_buckets(
-        localities=retained_localities,
-        candidates=actual_candidates,
-        determinations=candidate_determinations,
-    )
-    comparisons = {
-        (left_position, right_position): _compare_grains(
-            index,
-            retained_localities[left_position].contextual_grain,
-            retained_localities[right_position].contextual_grain,
-        )
-        for left_position in range(len(retained_localities))
-        for right_position in range(left_position + 1, len(retained_localities))
-    }
-    common_results = {
-        (left_position, right_position): _indexed_common_grain(
-            actual_candidates=actual_candidates,
-            determinations=candidate_determinations,
-            dominator_masks=dominator_masks,
-            left_position=left_position,
-            right_position=right_position,
-        )
-        for left_position in range(len(retained_localities))
-        for right_position in range(left_position + 1, len(retained_localities))
-    }
-    chasms = _build_chasms(
-        region=region,
-        localities=retained_localities,
-        index=index,
-        actual_candidates=actual_candidates,
-        comparisons=comparisons,
-        common_results=common_results,
-        determinations=candidate_determinations,
-    )
-    alignments = tuple(
-        _build_alignment(
-            left=retained_localities[left_position],
-            right=retained_localities[right_position],
-            index=index,
-            actual_candidates=actual_candidates,
-            chasms=chasms,
-            common_grain=common_results[(left_position, right_position)],
-        )
-        for left_position in range(len(retained_localities))
-        for right_position in range(left_position + 1, len(retained_localities))
-    )
-    return ProjectMultiFactConcreteRegion(
-        region=region,
-        final_properties=final_properties,
-        grain_index=index,
-        localities=retained_localities,
-        actual_candidates=actual_candidates,
-        fact_buckets=fact_buckets,
-        chasms=chasms,
-        alignments=alignments,
     )
 
 
@@ -2141,7 +1291,6 @@ def _home_alignments(
                 right=home_localities[right_position],
                 index=index,
                 actual_candidates=actual_candidates,
-                chasms=(),
             )
             for offset, left_position in enumerate(positions)
             for right_position in positions[offset + 1 :]
@@ -2175,20 +1324,11 @@ def _non_concrete_subject(
             for binding in region.ledger.bindings
         )
     )
-    path_ambiguous = bool(identifiable) and any(
-        issue.kind in _PATH_AMBIGUITY_ISSUES
-        for blocker in region.blockers
-        for issue in blocker.issues
-    )
     return ProjectMultiFactNonConcreteRegionSubject(
         region=region,
         blockers=region.blockers,
         identifiable_facts=identifiable,
-        structural=(
-            ProjectMultiFactStructuralAlignment.AMBIGUOUS_PATH
-            if path_ambiguous
-            else ProjectMultiFactStructuralAlignment.INSUFFICIENT_EVIDENCE
-        ),
+        structural=ProjectMultiFactStructuralAlignment.INSUFFICIENT_EVIDENCE,
     )
 
 
@@ -2212,12 +1352,7 @@ def build_project_multifact_analysis(
     base_properties = {
         item.output.occurrence.ref: item for item in base_relational.outputs
     }
-    join_properties = {
-        item.join.node.ref: item for item in join_regions.properties.outputs
-    }
-    if len(base_properties) != len(base_relational.outputs) or len(
-        join_properties
-    ) != len(join_regions.properties.outputs):
+    if len(base_properties) != len(base_relational.outputs):
         raise ValueError("Multi-fact property indexes require distinct outputs.")
     facts = tuple(
         _build_fact(
@@ -2243,43 +1378,20 @@ def build_project_multifact_analysis(
         )
         output_ref = fact.home_relation_properties.output.occurrence.ref
         facts_by_home[output_ref] = (*facts_by_home.get(output_ref, ()), fact)
-    concrete_regions = tuple(
-        _build_concrete_region(
-            join_properties=join_properties,
-            region=region,
-            facts=facts,
-            facts_by_home_output=facts_by_home,
-        )
-        for region in join_regions.regions
-        if type(region) is ProjectIRConcreteJoinRegion
-    )
     non_concrete_regions = tuple(
         _non_concrete_subject(region=region, facts=facts)
         for region in join_regions.regions
-        if type(region) is ProjectIRNonConcreteJoinRegion
     )
-    localities_by_use: dict[
-        ProjectIRUseRef, tuple[ProjectAggregateFactJoinLocality, ...]
-    ] = {use.ref: () for use in join_regions.structural.uses}
-    for region in concrete_regions:
-        for locality in region.localities:
-            use_ref = locality.introduction_use.ref
-            localities_by_use[use_ref] = (
-                *localities_by_use.get(use_ref, ()),
-                locality,
-            )
     return ProjectMultiFactAnalysis(
         evaluation=evaluation,
         base_relational=base_relational,
         join_regions=join_regions,
         facts=facts,
         home_localities=home_localities,
-        concrete_regions=concrete_regions,
         non_concrete_regions=non_concrete_regions,
         home_alignments=_home_alignments(facts, home_localities),
         facts_by_context=facts_by_context,
         facts_by_home_output=facts_by_home,
-        localities_by_introduction_use=localities_by_use,
     )
 
 
@@ -2292,36 +1404,21 @@ def analyze_project_fact_locality_pair(
 
     if (
         type(analysis) is not ProjectMultiFactAnalysis
-        or type(left)
-        not in {
-            ProjectAggregateFactHomeLocality,
-            ProjectAggregateFactJoinLocality,
-        }
-        or type(right)
-        not in {
-            ProjectAggregateFactHomeLocality,
-            ProjectAggregateFactJoinLocality,
-        }
+        or type(left) is not ProjectAggregateFactHomeLocality
+        or type(right) is not ProjectAggregateFactHomeLocality
     ):
         raise TypeError("Pair query requires one exact analysis and two localities.")
     if left is right:
         raise ValueError("Pair query requires two distinct fact localities.")
-    retained_localities: tuple[ProjectAggregateFactLocality, ...] = (
-        *analysis.home_localities,
-        *analysis.join_localities,
-    )
+    retained_localities = analysis.home_localities
     if not any(left is item for item in retained_localities) or not any(
         right is item for item in retained_localities
     ):
         raise ValueError("Pair query localities must belong to the exact analysis.")
-    for alignment in analysis.alignments:
+    for alignment in analysis.home_alignments:
         if alignment.left is left and alignment.right is right:
             return alignment
-    if (
-        type(left) is ProjectAggregateFactHomeLocality
-        and type(right) is ProjectAggregateFactHomeLocality
-        and left.fact.context is right.fact.context
-    ):
+    if left.fact.context is right.fact.context:
         existing = next(
             item
             for item in analysis.home_alignments
@@ -2334,22 +1431,6 @@ def analyze_project_fact_locality_pair(
             if existing.grain_comparison is not None
             else _grain_index(left.contextual_grain.authority),
             actual_candidates=existing.common_grain.actual_candidates,
-            chasms=(),
-        )
-    if (
-        type(left) is ProjectAggregateFactJoinLocality
-        and type(right) is ProjectAggregateFactJoinLocality
-        and left.region is right.region
-    ):
-        region = next(
-            item for item in analysis.concrete_regions if item.region is left.region
-        )
-        return _build_alignment(
-            left=left,
-            right=right,
-            index=region.grain_index,
-            actual_candidates=region.actual_candidates,
-            chasms=region.chasms,
         )
     return ProjectMultiFactAlignment(
         left=left,
@@ -2365,7 +1446,6 @@ def analyze_project_fact_locality_pair(
         finer=None,
         multiplicity_risks=(),
         requirements=(),
-        chasms=(),
     )
 
 

@@ -32,6 +32,7 @@ from pietto.ast_nodes import (
     TypeDef,
     UnaryExpr,
 )
+from pietto.errors import Severity
 from pietto.generated.PiettoParser import PiettoParser
 from pietto.parser_api import parse_source
 
@@ -170,6 +171,20 @@ def test_float_call_retains_the_value_and_callee_spans() -> None:
     assert expression.callee.name == "Float"
     assert expression.callee.span.line == 1
     assert expression.callee.span.column == 27
+
+
+def test_string_agg_preserves_its_internal_order_items() -> None:
+    expression = _ensure_expression(
+        'string_agg(value, ",", order by first desc, second)'
+    )
+
+    assert isinstance(expression, CallExpr)
+    assert [item.direction for item in expression.aggregate_order_by] == ["desc", None]
+    names = []
+    for item in expression.aggregate_order_by:
+        assert isinstance(item.expression, NameExpr)
+        names.append(item.expression.name)
+    assert names == ["first", "second"]
 
 
 def test_new_expression_keywords_remain_compatible_identifier_and_call_names() -> None:
@@ -444,4 +459,37 @@ def test_modern_constraint_and_derive_bodies_require_explicit_return() -> None:
     assert retired.ast is None
     assert (
         retired.diagnostics[0].suggestion == "Add 'return' before the body expression."
+    )
+
+
+def test_minus_signs_written_together_warn_that_they_are_no_comment() -> None:
+    # `100 -- 50` is `100 - (-50)`, which SQL would read as `100` and a
+    # comment. Each run of minus signs written together warns once, at its
+    # first two; spaced signs, a `#` comment and text do not warn.
+    result = parse_source(
+        "type A = Int ensure self > 100 -- 50\n"
+        "type B = Int ensure self == --1 + 1 --- 2\n"
+        "type C = Int ensure self > 100 - -50 # -- not code\n"
+        'type D = Text ensure self != "a--b"\n',
+        path="minus.pietto",
+    )
+
+    assert result.ast is not None
+    assert [
+        (
+            item.code,
+            item.severity,
+            item.location.line,
+            item.location.column,
+            item.location.end_column,
+        )
+        for item in result.diagnostics
+    ] == [
+        ("PIE-P1009", Severity.WARNING, 1, 32, 34),
+        ("PIE-P1009", Severity.WARNING, 2, 29, 31),
+        ("PIE-P1009", Severity.WARNING, 2, 37, 39),
+    ]
+    assert result.diagnostics[0].message == (
+        "`--` is not a comment in Pietto: it is two minus signs, so `a -- b` is "
+        "`a - (-b)`; start a comment with `#`, or write `- -b` for the minus signs"
     )

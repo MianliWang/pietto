@@ -1,4 +1,11 @@
-"""Private authored relationship JOIN uses over exact Project authority."""
+"""Private authored JOIN uses over exact Project authority.
+
+A use records each authored JOIN occurrence of a join-bearing owner with its
+exact relation bindings. No relationship joins by itself: every JOIN's rows
+come from its `on` (or CROSS), which the JOIN condition owner analyzes, so a
+use is never concrete; its issues say why its input is not a relationship
+traversal.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +15,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import cast
 
+from pietto._project.model import ProjectSemanticResult
 from pietto._project.module_attribution import ProjectDeclarationOccurrenceIdentity
+from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_relation_resolution import (
     ProjectModuleRelationResolutionEnvironment,
@@ -18,37 +27,13 @@ from pietto._project.module_relation_resolution import (
 )
 from pietto._project.project_ir_relational_properties import (
     ProjectIROutputRelationalProperties,
+    ProjectIRRelationalPropertyStage,
 )
 from pietto._project.project_ir_properties import ProjectIRRowShape
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectDirectionalRelationshipMatchGuarantee,
-    ProjectNonConcreteMatchGuaranteeSubject,
-)
-from pietto._project.project_relationship_paths import (
-    ProjectDirectRelationshipCandidateStatus,
-    ProjectRelationshipDirectCandidateResult,
-    ProjectRelationshipFanoutEffect,
-    ProjectRelationshipInnerSurvivalEffect,
-    ProjectRelationshipJoinShapeIndex,
-    ProjectRelationshipLeftNullingEffect,
-    ProjectRelationshipPath,
-    ProjectRelationshipPathAnalysis,
-    analyze_relationship_path,
-    build_explicit_relationship_path,
-)
-from pietto._project.project_relationships import (
-    ProjectConcreteRelationshipSubject,
-    ProjectNonConcreteRelationshipSubject,
-    ProjectRelationshipDeclarationOccurrence,
-    ProjectRelationshipConstructionState,
-    ProjectRelationshipSet,
-    ProjectRelationshipSubject,
-)
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     FromClause,
     JoinClause,
-    JoinTraversalStep,
     QueryDef,
     TableDef,
 )
@@ -57,7 +42,7 @@ __all__: tuple[str, ...] = ()
 
 
 class ProjectJoinUseState(StrEnum):
-    """Closed construction states for one binding, step, or authored JOIN use."""
+    """Closed construction states for one binding or authored JOIN use."""
 
     CONCRETE = "concrete"
     UNKNOWN = "unknown"
@@ -70,49 +55,19 @@ class ProjectJoinUseIssueKind(StrEnum):
 
     SYNTAX_UNSUPPORTED = "syntax_unsupported"
     UNKNOWN_SOURCE_BINDING = "unknown_source_binding"
-    FORWARD_SOURCE_BINDING = "forward_source_binding"
-    AMBIGUOUS_SOURCE_BINDING = "ambiguous_source_binding"
     BLOCKED_SOURCE_BINDING = "blocked_source_binding"
     UNKNOWN_TARGET_RELATION = "unknown_target_relation"
     AMBIGUOUS_TARGET_RELATION = "ambiguous_target_relation"
     BLOCKED_TARGET_RELATION = "blocked_target_relation"
-    DIRECT_RELATIONSHIP_ABSENT = "direct_relationship_absent"
-    DIRECT_RELATIONSHIP_AMBIGUOUS = "direct_relationship_ambiguous"
-    UNKNOWN_RELATIONSHIP = "unknown_relationship"
-    AMBIGUOUS_RELATIONSHIP = "ambiguous_relationship"
-    BLOCKED_RELATIONSHIP = "blocked_relationship"
-    UNKNOWN_ENDPOINT_DIRECTION = "unknown_endpoint_direction"
-    AMBIGUOUS_ENDPOINT_DIRECTION = "ambiguous_endpoint_direction"
-    BLOCKED_ENDPOINT_DIRECTION = "blocked_endpoint_direction"
-    NON_CONTIGUOUS_PATH = "non_contiguous_path"
-    PATH_START_MISMATCH = "path_start_mismatch"
-    PATH_END_MISMATCH = "path_end_mismatch"
 
 
 _ISSUE_STATES = {
     ProjectJoinUseIssueKind.SYNTAX_UNSUPPORTED: ProjectJoinUseState.BLOCKED,
     ProjectJoinUseIssueKind.UNKNOWN_SOURCE_BINDING: ProjectJoinUseState.UNKNOWN,
-    ProjectJoinUseIssueKind.FORWARD_SOURCE_BINDING: ProjectJoinUseState.BLOCKED,
-    ProjectJoinUseIssueKind.AMBIGUOUS_SOURCE_BINDING: ProjectJoinUseState.AMBIGUOUS,
     ProjectJoinUseIssueKind.BLOCKED_SOURCE_BINDING: ProjectJoinUseState.BLOCKED,
     ProjectJoinUseIssueKind.UNKNOWN_TARGET_RELATION: ProjectJoinUseState.UNKNOWN,
     ProjectJoinUseIssueKind.AMBIGUOUS_TARGET_RELATION: ProjectJoinUseState.AMBIGUOUS,
     ProjectJoinUseIssueKind.BLOCKED_TARGET_RELATION: ProjectJoinUseState.BLOCKED,
-    ProjectJoinUseIssueKind.DIRECT_RELATIONSHIP_ABSENT: ProjectJoinUseState.UNKNOWN,
-    ProjectJoinUseIssueKind.DIRECT_RELATIONSHIP_AMBIGUOUS: (
-        ProjectJoinUseState.AMBIGUOUS
-    ),
-    ProjectJoinUseIssueKind.UNKNOWN_RELATIONSHIP: ProjectJoinUseState.UNKNOWN,
-    ProjectJoinUseIssueKind.AMBIGUOUS_RELATIONSHIP: ProjectJoinUseState.AMBIGUOUS,
-    ProjectJoinUseIssueKind.BLOCKED_RELATIONSHIP: ProjectJoinUseState.BLOCKED,
-    ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION: ProjectJoinUseState.UNKNOWN,
-    ProjectJoinUseIssueKind.AMBIGUOUS_ENDPOINT_DIRECTION: (
-        ProjectJoinUseState.AMBIGUOUS
-    ),
-    ProjectJoinUseIssueKind.BLOCKED_ENDPOINT_DIRECTION: ProjectJoinUseState.BLOCKED,
-    ProjectJoinUseIssueKind.NON_CONTIGUOUS_PATH: ProjectJoinUseState.BLOCKED,
-    ProjectJoinUseIssueKind.PATH_START_MISMATCH: ProjectJoinUseState.BLOCKED,
-    ProjectJoinUseIssueKind.PATH_END_MISMATCH: ProjectJoinUseState.BLOCKED,
 }
 
 _AMBIGUOUS_RELATION_ISSUES = frozenset(
@@ -188,19 +143,6 @@ class ProjectJoinUseIdentity:
         if type(self.owner) is not ProjectDeclarationOccurrenceIdentity:
             raise TypeError("JOIN-use identity requires an owner occurrence.")
         _require_position(self.join_position, "JOIN use")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectTraversalStepUseIdentity:
-    """One authored VIA occurrence subordinate to one JOIN use."""
-
-    join: ProjectJoinUseIdentity
-    step_position: int
-
-    def __post_init__(self) -> None:
-        if type(self.join) is not ProjectJoinUseIdentity:
-            raise TypeError("Traversal-step use requires a JOIN-use identity.")
-        _require_position(self.step_position, "Traversal-step use")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -288,7 +230,7 @@ class ProjectJoinUseIssue:
 
     kind: ProjectJoinUseIssueKind
     state: ProjectJoinUseState
-    site: JoinClause | JoinTraversalStep = field(repr=False, compare=False, hash=False)
+    site: JoinClause = field(repr=False, compare=False, hash=False)
     causes: tuple[object, ...] = field(
         default=(), repr=False, compare=False, hash=False
     )
@@ -298,7 +240,7 @@ class ProjectJoinUseIssue:
             raise TypeError("JOIN-use issue requires an exact kind.")
         if self.state is not _ISSUE_STATES[self.kind]:
             raise ValueError("JOIN-use issue kind and state disagree.")
-        if type(self.site) not in {JoinClause, JoinTraversalStep}:
+        if type(self.site) is not JoinClause:
             raise TypeError("JOIN-use issue requires an authored site.")
         if type(self.causes) is not tuple or any(item is None for item in self.causes):
             raise TypeError("JOIN-use issue causes must be an exact object tuple.")
@@ -316,211 +258,15 @@ def _dominant_state(issues: tuple[ProjectJoinUseIssue, ...]) -> ProjectJoinUseSt
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectTraversalStepUse:
-    """One authored VIA occurrence and its exact direction outcome."""
-
-    identity: ProjectTraversalStepUseIdentity
-    step: JoinTraversalStep = field(repr=False, compare=False, hash=False)
-    state: ProjectJoinUseState
-    relationships: tuple[ProjectRelationshipSubject, ...] = field(
-        default=(), repr=False, compare=False, hash=False
-    )
-    directions: tuple[ProjectDirectionalRelationshipMatchGuarantee, ...] = field(
-        default=(), repr=False, compare=False, hash=False
-    )
-    issues: tuple[ProjectJoinUseIssue, ...] = ()
-
-    def __post_init__(self) -> None:
-        if type(self.identity) is not ProjectTraversalStepUseIdentity:
-            raise TypeError("Traversal-step use requires an exact identity.")
-        if type(self.step) is not JoinTraversalStep:
-            raise TypeError("Traversal-step use requires an authored VIA step.")
-        for values, expected in (
-            (
-                self.relationships,
-                (
-                    ProjectConcreteRelationshipSubject,
-                    ProjectNonConcreteRelationshipSubject,
-                ),
-            ),
-            (self.directions, (ProjectDirectionalRelationshipMatchGuarantee,)),
-            (self.issues, (ProjectJoinUseIssue,)),
-        ):
-            if type(values) is not tuple or any(
-                type(item) not in expected for item in values
-            ):
-                raise TypeError("Traversal-step evidence must be exact typed tuples.")
-        if self.state is ProjectJoinUseState.CONCRETE:
-            if len(self.relationships) != 1 or len(self.directions) != 1 or self.issues:
-                raise ValueError(
-                    "Concrete traversal step requires one exact direction."
-                )
-        elif not self.issues or self.state is not _dominant_state(self.issues):
-            raise ValueError("Non-concrete traversal step requires causal evidence.")
-        if any(
-            relationship.occurrence.name != self.step.relationship_name
-            for relationship in self.relationships
-        ):
-            raise ValueError("Traversal relationship candidates must match its name.")
-        # A step without roles takes its direction from the relation it reaches.
-        if any(
-            (
-                self.step.source_endpoint_role is not None
-                and (
-                    direction.direction.source.authored_role
-                    != self.step.source_endpoint_role
-                    or direction.direction.target.authored_role
-                    != self.step.target_endpoint_role
-                )
-            )
-            or not any(
-                type(relationship) is ProjectConcreteRelationshipSubject
-                and relationship.occurrence.identity == direction.direction.declaration
-                for relationship in self.relationships
-            )
-            for direction in self.directions
-        ):
-            raise ValueError(
-                "Traversal directions must match relationship and endpoint roles."
-            )
-        if any(issue.site is not self.step for issue in self.issues):
-            raise ValueError("Traversal-step issues must retain their exact VIA site.")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectConcreteJoinUse:
-    """One exact relationship traversal use without a joined row output."""
-
-    identity: ProjectJoinUseIdentity
-    owner: ProjectDeclarationOccurrence = field(repr=False, compare=False, hash=False)
-    clause: JoinClause = field(repr=False, compare=False, hash=False)
-    kind: AuthoredJoinKind
-    source_binding: ProjectRelationBindingOccurrence
-    target_binding: ProjectRelationBindingOccurrence
-    target_relation: ProjectResolvedModuleRelationSymbol = field(
-        repr=False, compare=False, hash=False
-    )
-    path: ProjectRelationshipPath
-    analysis: ProjectRelationshipPathAnalysis
-    step_uses: tuple[ProjectTraversalStepUse, ...] = ()
-
-    def __post_init__(self) -> None:
-        _validate_use_site(self.identity, self.owner, self.clause)
-        if unsupported_join(self.clause):
-            raise ValueError(
-                "New JOIN syntax cannot construct concrete relationship uses."
-            )
-        if self.kind is not self.clause.kind:
-            raise ValueError("Concrete JOIN use must retain its authored kind.")
-        # A JOIN without `from` retains the source its lookup inferred.
-        if (
-            self.source_binding.state is not ProjectJoinUseState.CONCRETE
-            or self.target_binding.state is not ProjectJoinUseState.CONCRETE
-            or self.source_binding.owner is not self.owner
-            or self.clause.source_binding_name not in {None, self.source_binding.name}
-            or self.source_binding.identity.binding_position
-            > self.identity.join_position
-            or self.target_binding.owner is not self.owner
-            or self.target_binding.identity.binding_position
-            != self.identity.join_position + 1
-            or self.target_binding.target is not self.target_relation
-            or self.analysis.path is not self.path
-        ):
-            raise ValueError("Concrete JOIN use requires exact binding and path roots.")
-        if (
-            type(self.target_relation) is not ProjectResolvedModuleRelationSymbol
-            or self.source_binding.output is None
-            or self.target_binding.output is None
-            or self.path.steps[0].guarantee.source_output
-            is not self.source_binding.output
-            or self.path.steps[-1].guarantee.target_output
-            is not self.target_binding.output
-        ):
-            raise ValueError("Concrete JOIN path must match its exact binding outputs.")
-        if len(self.step_uses) != len(self.clause.traversal_steps) or any(
-            use.identity.join != self.identity
-            or use.identity.step_position != position
-            or use.step is not step
-            or use.state is not ProjectJoinUseState.CONCRETE
-            for position, (use, step) in enumerate(
-                zip(self.step_uses, self.clause.traversal_steps, strict=True)
-            )
-        ):
-            raise ValueError("Concrete JOIN use must retain every authored VIA use.")
-        if self.step_uses:
-            if len(self.path.steps) != len(self.step_uses) or any(
-                path_step.guarantee is not step_use.directions[0]
-                for path_step, step_use in zip(
-                    self.path.steps, self.step_uses, strict=True
-                )
-            ):
-                raise ValueError("Explicit JOIN path must match every exact VIA use.")
-        else:
-            direct = self.path.index.resolve_direct(
-                self.source_binding.output,
-                self.target_binding.output,
-            )
-            if (
-                len(self.path.steps) != 1
-                or direct.status
-                is not ProjectDirectRelationshipCandidateStatus.CONCRETE
-                or next(iter(direct.candidates)) is not self.path.steps[0].guarantee
-            ):
-                raise ValueError(
-                    "Direct JOIN path must retain its sole exact candidate."
-                )
-
-    @property
-    def fanout_readiness(self) -> ProjectRelationshipFanoutEffect:
-        return self.analysis.fanout
-
-    @property
-    def inner_survival_readiness(
-        self,
-    ) -> ProjectRelationshipInnerSurvivalEffect | None:
-        return (
-            self.analysis.inner_survival
-            if self.kind is AuthoredJoinKind.INNER
-            else None
-        )
-
-    @property
-    def left_null_readiness(self) -> ProjectRelationshipLeftNullingEffect | None:
-        return (
-            self.analysis.left_nulling if self.kind is AuthoredJoinKind.LEFT else None
-        )
-
-    @property
-    def left_source_preserved(self) -> bool:
-        return self.kind is AuthoredJoinKind.LEFT
-
-    @property
-    def left_potential_null_target(
-        self,
-    ) -> ProjectRelationBindingOccurrence | None:
-        return self.target_binding if self.kind is AuthoredJoinKind.LEFT else None
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectNonConcreteJoinUse:
-    """One failed authored JOIN occurrence with no partial path winner."""
+    """One authored JOIN occurrence, which no relationship joins by itself."""
 
     identity: ProjectJoinUseIdentity
     owner: ProjectDeclarationOccurrence = field(repr=False, compare=False, hash=False)
     clause: JoinClause = field(repr=False, compare=False, hash=False)
-    source_binding: ProjectRelationBindingOccurrence | None = field(
-        default=None, repr=False, compare=False, hash=False
-    )
     target_binding: ProjectRelationBindingOccurrence
     state: ProjectJoinUseState
-    step_uses: tuple[ProjectTraversalStepUse, ...] = ()
     issues: tuple[ProjectJoinUseIssue, ...]
-    direct_result: ProjectRelationshipDirectCandidateResult | None = field(
-        default=None, repr=False, compare=False, hash=False
-    )
-    path: ProjectRelationshipPath | None = field(
-        default=None, repr=False, compare=False, hash=False
-    )
 
     def __post_init__(self) -> None:
         _validate_use_site(self.identity, self.owner, self.clause)
@@ -530,27 +276,8 @@ class ProjectNonConcreteJoinUse:
             self.target_binding.owner is not self.owner
             or self.target_binding.identity.binding_position
             != self.identity.join_position + 1
-            or (
-                self.source_binding is not None
-                and (
-                    self.source_binding.owner is not self.owner
-                    or self.clause.source_binding_name
-                    not in {None, self.source_binding.name}
-                    or self.source_binding.identity.binding_position
-                    > self.identity.join_position
-                )
-            )
         ):
             raise ValueError("Non-concrete JOIN bindings must match authored order.")
-        if len(self.step_uses) != len(self.clause.traversal_steps) or any(
-            use.identity.join != self.identity
-            or use.identity.step_position != position
-            or use.step is not step
-            for position, (use, step) in enumerate(
-                zip(self.step_uses, self.clause.traversal_steps, strict=True)
-            )
-        ):
-            raise ValueError("Non-concrete JOIN use must retain every VIA occurrence.")
         if (
             type(self.issues) is not tuple
             or not self.issues
@@ -559,57 +286,14 @@ class ProjectNonConcreteJoinUse:
             or self.state is not _dominant_state(self.issues)
         ):
             raise ValueError("Non-concrete JOIN use requires exact causal state.")
-        allowed_sites = (self.clause, *self.clause.traversal_steps)
-        if any(
-            not any(issue.site is site for site in allowed_sites)
-            for issue in self.issues
-        ) or any(
-            not any(retained is issue for retained in self.issues)
-            for step_use in self.step_uses
-            for issue in step_use.issues
-        ):
+        if any(issue.site is not self.clause for issue in self.issues):
             raise ValueError(
                 "Non-concrete JOIN issues must retain exact authored sites."
             )
-        if self.direct_result is not None:
-            if (
-                type(self.direct_result) is not ProjectRelationshipDirectCandidateResult
-                or self.clause.traversal_steps
-                or self.source_binding is None
-                or self.source_binding.output is None
-                or self.target_binding.output is None
-                or self.direct_result.source is not self.source_binding.output
-                or self.direct_result.target is not self.target_binding.output
-                or self.direct_result.status
-                is ProjectDirectRelationshipCandidateStatus.CONCRETE
-                or self.path is not None
-            ):
-                raise ValueError("Non-concrete direct JOIN evidence is detached.")
-        if self.path is not None:
-            if (
-                type(self.path) is not ProjectRelationshipPath
-                or not self.clause.traversal_steps
-                or self.direct_result is not None
-                or any(
-                    step.state is not ProjectJoinUseState.CONCRETE
-                    for step in self.step_uses
-                )
-                or len(self.path.steps) != len(self.step_uses)
-                or any(
-                    path_step.guarantee is not step_use.directions[0]
-                    for path_step, step_use in zip(
-                        self.path.steps, self.step_uses, strict=True
-                    )
-                )
-            ):
-                raise ValueError("Non-concrete explicit path evidence is detached.")
 
     @property
     def kind(self) -> AuthoredJoinKind:
         return self.clause.kind
-
-
-type ProjectJoinUse = ProjectConcreteJoinUse | ProjectNonConcreteJoinUse
 
 
 def _validate_use_site(
@@ -637,7 +321,7 @@ class ProjectRelationJoinUseLedger:
 
     owner: ProjectDeclarationOccurrence = field(repr=False, compare=False, hash=False)
     bindings: tuple[ProjectRelationBindingOccurrence, ...]
-    uses: tuple[ProjectJoinUse, ...]
+    uses: tuple[ProjectNonConcreteJoinUse, ...]
 
     def __post_init__(self) -> None:
         definition = _derived_definition(self.owner)
@@ -663,33 +347,32 @@ class ProjectRelationJoinUseLedger:
         for position, use in enumerate(self.uses):
             if use.target_binding is not self.bindings[position + 1]:
                 raise ValueError("JOIN use must retain its exact target binding.")
-            source = use.source_binding
-            if source is not None and not any(
-                source is binding for binding in self.bindings[: position + 1]
-            ):
-                raise ValueError("JOIN use source must be one exact earlier binding.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectRelationshipUseSet:
     """Selected-module/declaration-ordered authored JOIN-use product."""
 
-    relationships: ProjectRelationshipSet = field(repr=False, compare=False, hash=False)
-    index: ProjectRelationshipJoinShapeIndex = field(
+    semantic_result: ProjectSemanticResult = field(
+        repr=False, compare=False, hash=False
+    )
+    relational: ProjectIRRelationalPropertyStage = field(
         repr=False, compare=False, hash=False
     )
     ledgers: tuple[ProjectRelationJoinUseLedger, ...]
 
     def __post_init__(self) -> None:
+        semantic = self.semantic_result
         if (
-            type(self.relationships) is not ProjectRelationshipSet
-            or type(self.index) is not ProjectRelationshipJoinShapeIndex
-            or self.index.guarantees.conditions.relationships is not self.relationships
+            type(semantic) is not ProjectSemanticResult
+            or semantic.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES
+            or semantic.module_relation_resolutions is None
+            or type(self.relational) is not ProjectIRRelationalPropertyStage
+            or self.relational.analyses.stage.project_plan.semantic_facts
+            is not semantic.module_semantic_facts
         ):
-            raise ValueError(
-                "JOIN uses require one exact Slice-2 through Slice-9 root."
-            )
-        catalogs = self.relationships.semantic_result.module_catalogs
+            raise ValueError("JOIN uses require one exact semantic snapshot.")
+        catalogs = semantic.module_catalogs
         if catalogs is None:
             raise ValueError("JOIN uses require exact module catalog authority.")
         expected = tuple(
@@ -704,40 +387,9 @@ class ProjectRelationshipUseSet:
             for ledger, owner in zip(self.ledgers, expected, strict=True)
         ):
             raise ValueError("JOIN-use ledgers must retain module/declaration order.")
-        subjects = self.relationships.subjects
-        for ledger in self.ledgers:
-            for use in ledger.uses:
-                if use.path is not None and use.path.index is not self.index:
-                    raise ValueError("JOIN path must retain the exact Slice-9 index.")
-                if (
-                    type(use) is ProjectNonConcreteJoinUse
-                    and use.direct_result is not None
-                    and any(
-                        not any(
-                            candidate is retained for retained in self.index.directions
-                        )
-                        for candidate in use.direct_result.candidates
-                    )
-                ):
-                    raise ValueError(
-                        "Direct candidates must belong to the exact index."
-                    )
-                for step_use in use.step_uses:
-                    if any(
-                        not any(relationship is retained for retained in subjects)
-                        for relationship in step_use.relationships
-                    ) or any(
-                        not any(
-                            direction is retained for retained in self.index.directions
-                        )
-                        for direction in step_use.directions
-                    ):
-                        raise ValueError(
-                            "Traversal-step evidence must retain exact shared roots."
-                        )
 
     @property
-    def uses(self) -> tuple[ProjectJoinUse, ...]:
+    def uses(self) -> tuple[ProjectNonConcreteJoinUse, ...]:
         return tuple(use for ledger in self.ledgers for use in ledger.uses)
 
 
@@ -777,13 +429,12 @@ def _state_from_relation_issues(
 
 
 def _final_output(
-    index: ProjectRelationshipJoinShapeIndex,
+    relational: ProjectIRRelationalPropertyStage,
     target: ProjectResolvedModuleRelationSymbol,
 ) -> ProjectIROutputRelationalProperties | None:
-    stage = index.guarantees.relational
     fragments = tuple(
         fragment
-        for fragment in stage.analyses.stage.project_plan.concrete_fragments
+        for fragment in relational.analyses.stage.project_plan.concrete_fragments
         if fragment.semantic_facts.owner is target.target_occurrence
     )
     if not fragments:
@@ -792,7 +443,7 @@ def _final_output(
         raise ValueError("Relation binding has multiple concrete Project IR roots.")
     matches = tuple(
         output
-        for output in stage.outputs
+        for output in relational.outputs
         if output.output is fragments[0].root_relation_output
     )
     if len(matches) != 1:
@@ -805,7 +456,7 @@ def _binding(
     owner: ProjectDeclarationOccurrence,
     position: int,
     environment: ProjectModuleRelationResolutionEnvironment,
-    index: ProjectRelationshipJoinShapeIndex,
+    relational: ProjectIRRelationalPropertyStage,
     duplicate: bool,
 ) -> ProjectRelationBindingOccurrence:
     definition = _derived_definition(owner)
@@ -824,7 +475,7 @@ def _binding(
         targets = environment.find_scoped_relation_name(owner, relation_name)
         issues = _relation_issues(environment, owner, relation_name)
     target = targets[0] if len(targets) == 1 else None
-    output = None if target is None else _final_output(index, target)
+    output = None if target is None else _final_output(relational, target)
     if duplicate or len(targets) > 1:
         state = ProjectJoinUseState.AMBIGUOUS
     elif target is None:
@@ -850,7 +501,7 @@ def _binding(
 
 def _issue(
     kind: ProjectJoinUseIssueKind,
-    site: JoinClause | JoinTraversalStep,
+    site: JoinClause,
     *causes: object,
 ) -> ProjectJoinUseIssue:
     return ProjectJoinUseIssue(
@@ -861,389 +512,36 @@ def _issue(
     )
 
 
-def _binding_issue(
-    binding: ProjectRelationBindingOccurrence,
-    clause: JoinClause,
-    *,
-    source: bool,
+def _target_issue(
+    binding: ProjectRelationBindingOccurrence, clause: JoinClause
 ) -> ProjectJoinUseIssue:
     kinds = {
-        (
-            True,
-            ProjectJoinUseState.UNKNOWN,
-        ): ProjectJoinUseIssueKind.UNKNOWN_SOURCE_BINDING,
-        (
-            True,
-            ProjectJoinUseState.BLOCKED,
-        ): ProjectJoinUseIssueKind.BLOCKED_SOURCE_BINDING,
-        (
-            True,
-            ProjectJoinUseState.AMBIGUOUS,
-        ): ProjectJoinUseIssueKind.AMBIGUOUS_SOURCE_BINDING,
-        (
-            False,
-            ProjectJoinUseState.UNKNOWN,
-        ): ProjectJoinUseIssueKind.UNKNOWN_TARGET_RELATION,
-        (
-            False,
-            ProjectJoinUseState.BLOCKED,
-        ): ProjectJoinUseIssueKind.BLOCKED_TARGET_RELATION,
-        (
-            False,
-            ProjectJoinUseState.AMBIGUOUS,
-        ): ProjectJoinUseIssueKind.AMBIGUOUS_TARGET_RELATION,
+        ProjectJoinUseState.UNKNOWN: ProjectJoinUseIssueKind.UNKNOWN_TARGET_RELATION,
+        ProjectJoinUseState.BLOCKED: ProjectJoinUseIssueKind.BLOCKED_TARGET_RELATION,
+        ProjectJoinUseState.AMBIGUOUS: (
+            ProjectJoinUseIssueKind.AMBIGUOUS_TARGET_RELATION
+        ),
     }
-    return _issue(kinds[(source, binding.state)], clause, binding)
-
-
-def _step_use(
-    *,
-    identity: ProjectTraversalStepUseIdentity,
-    step: JoinTraversalStep,
-    relationships: tuple[ProjectRelationshipSubject, ...],
-    index: ProjectRelationshipJoinShapeIndex,
-    reached: ProjectIROutputRelationalProperties | None,
-) -> ProjectTraversalStepUse:
-    candidates: tuple[ProjectRelationshipSubject, ...] = tuple(
-        relationship
-        for relationship in relationships
-        if relationship.occurrence.name == step.relationship_name
-    )
-    if not candidates:
-        issues = (_issue(ProjectJoinUseIssueKind.UNKNOWN_RELATIONSHIP, step),)
-        return ProjectTraversalStepUse(
-            identity=identity,
-            step=step,
-            state=ProjectJoinUseState.UNKNOWN,
-            relationships=(),
-            issues=issues,
-        )
-    if len(candidates) > 1:
-        issues = (
-            _issue(ProjectJoinUseIssueKind.AMBIGUOUS_RELATIONSHIP, step, *candidates),
-        )
-        return ProjectTraversalStepUse(
-            identity=identity,
-            step=step,
-            state=ProjectJoinUseState.AMBIGUOUS,
-            relationships=candidates,
-            issues=issues,
-        )
-    relationship = next(iter(candidates))
-    if type(relationship) is ProjectNonConcreteRelationshipSubject:
-        kind = {
-            ProjectRelationshipConstructionState.UNKNOWN: ProjectJoinUseIssueKind.UNKNOWN_RELATIONSHIP,
-            ProjectRelationshipConstructionState.BLOCKED: ProjectJoinUseIssueKind.BLOCKED_RELATIONSHIP,
-            ProjectRelationshipConstructionState.AMBIGUOUS: ProjectJoinUseIssueKind.AMBIGUOUS_RELATIONSHIP,
-        }[relationship.state]
-        issue = _issue(kind, step, relationship)
-        return ProjectTraversalStepUse(
-            identity=identity,
-            step=step,
-            state=issue.state,
-            relationships=candidates,
-            issues=(issue,),
-        )
-    endpoints = relationship.occurrence.endpoints
-    declared = index.by_declaration.get(relationship.occurrence.identity, ())
-    if step.source_endpoint_role is None:
-        # Without roles the step takes the one direction that ends at the
-        # relation it reaches; a relationship of one relation to itself has
-        # two such directions, so its roles stay required.
-        relations = {
-            id(endpoint.target.target_occurrence)
-            for endpoint in endpoints
-            if endpoint.target is not None
-        }
-        if reached is None and len(relations) != 1:
-            issue = _issue(
-                ProjectJoinUseIssueKind.BLOCKED_ENDPOINT_DIRECTION, step, relationship
-            )
-            return ProjectTraversalStepUse(
-                identity=identity,
-                step=step,
-                state=issue.state,
-                relationships=candidates,
-                issues=(issue,),
-            )
-        directions = tuple(
-            direction
-            for direction in declared
-            if reached is None or direction.target_output is reached
-        )
-        if not directions and declared:
-            issue = _issue(
-                ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION, step, relationship
-            )
-            return ProjectTraversalStepUse(
-                identity=identity,
-                step=step,
-                state=issue.state,
-                relationships=candidates,
-                issues=(issue,),
-            )
-    else:
-        sources = tuple(
-            endpoint
-            for endpoint in endpoints
-            if endpoint.authored_role == step.source_endpoint_role
-        )
-        targets = tuple(
-            endpoint
-            for endpoint in endpoints
-            if endpoint.authored_role == step.target_endpoint_role
-        )
-        if len(sources) != 1 or len(targets) != 1 or sources[0] is targets[0]:
-            issue = _issue(
-                ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION, step, relationship
-            )
-            return ProjectTraversalStepUse(
-                identity=identity,
-                step=step,
-                state=issue.state,
-                relationships=candidates,
-                issues=(issue,),
-            )
-        directions = tuple(
-            direction
-            for direction in declared
-            if direction.direction.source is sources[0]
-            and direction.direction.target is targets[0]
-        )
-    if len(directions) == 1:
-        return ProjectTraversalStepUse(
-            identity=identity,
-            step=step,
-            state=ProjectJoinUseState.CONCRETE,
-            relationships=candidates,
-            directions=directions,
-        )
-    if len(directions) > 1:
-        issue = _issue(
-            ProjectJoinUseIssueKind.AMBIGUOUS_ENDPOINT_DIRECTION, step, *directions
-        )
-    else:
-        fallbacks = tuple(
-            item
-            for item in index.non_concrete
-            if type(item) is ProjectNonConcreteMatchGuaranteeSubject
-            and item.relationship is relationship
-        )
-        issue = _issue(
-            (
-                ProjectJoinUseIssueKind.BLOCKED_ENDPOINT_DIRECTION
-                if fallbacks
-                else ProjectJoinUseIssueKind.UNKNOWN_ENDPOINT_DIRECTION
-            ),
-            step,
-            *(fallbacks or (relationship,)),
-        )
-    return ProjectTraversalStepUse(
-        identity=identity,
-        step=step,
-        state=issue.state,
-        relationships=candidates,
-        directions=directions,
-        issues=(issue,),
-    )
-
-
-def _step_uses(
-    *,
-    join: ProjectJoinUseIdentity,
-    clause: JoinClause,
-    target: ProjectRelationBindingOccurrence,
-    relationships: tuple[ProjectRelationshipSubject, ...],
-    index: ProjectRelationshipJoinShapeIndex,
-) -> tuple[ProjectTraversalStepUse, ...]:
-    """Resolve VIA steps from the JOIN target back toward its source.
-
-    A step reaches the JOIN target or the start of the next step; a step
-    without roles cannot resolve once the relation it reaches is unknown.
-    """
-    reached = target.output
-    resolved: list[ProjectTraversalStepUse] = []
-    for position in reversed(range(len(clause.traversal_steps))):
-        use = _step_use(
-            identity=ProjectTraversalStepUseIdentity(join=join, step_position=position),
-            step=clause.traversal_steps[position],
-            relationships=relationships,
-            index=index,
-            reached=reached,
-        )
-        reached = (
-            use.directions[0].source_output
-            if use.state is ProjectJoinUseState.CONCRETE
-            else None
-        )
-        resolved.append(use)
-    return tuple(reversed(resolved))
-
-
-def _inferred_sources(
-    earlier: tuple[ProjectRelationBindingOccurrence, ...],
-    target: ProjectRelationBindingOccurrence,
-    step_uses: tuple[ProjectTraversalStepUse, ...],
-    index: ProjectRelationshipJoinShapeIndex,
-) -> tuple[ProjectRelationBindingOccurrence, ...] | None:
-    """Every visible earlier binding a JOIN without `from` may start at.
-
-    With VIA steps that is each binding of the relation the first step starts
-    at; without them, each binding with a direct relationship direction to the
-    target. Nothing is chosen (None) while the target or a step is not
-    concrete, or while an earlier binding without concrete relationship
-    authority may still be a candidate, since the candidates are then unknown.
-    """
-    if (
-        target.output is None
-        or any(use.state is not ProjectJoinUseState.CONCRETE for use in step_uses)
-        or project_join_blocking_bindings(index, earlier, target, step_uses)
-    ):
-        return None
-    if step_uses:
-        start = step_uses[0].directions[0].source_output
-        return tuple(binding for binding in earlier if binding.output is start)
-    return tuple(
-        binding
-        for binding in earlier
-        if binding.output is not None
-        and (
-            index.resolve_direct(binding.output, target.output).candidates
-            or project_unusable_relationships(index, binding, target)
-        )
-    )
-
-
-def project_join_blocking_bindings(
-    index: ProjectRelationshipJoinShapeIndex,
-    earlier: tuple[ProjectRelationBindingOccurrence, ...],
-    target: ProjectRelationBindingOccurrence,
-    step_uses: tuple[ProjectTraversalStepUse, ...],
-) -> tuple[ProjectRelationBindingOccurrence, ...]:
-    """Earlier bindings without concrete relationship authority that may still
-    be the source of a JOIN without `from`, in binding order.
-
-    Such a binding (a JOIN query, set, VALUES body or table function, an
-    unresolved relation, or a name bound twice) is left out only when it
-    provably is not a candidate: its relation has no declared relationship to
-    the target or, with VIA steps, is not the relation the first step starts
-    at. Requires a concrete target and concrete steps.
-    """
-    if (
-        target.output is None
-        or target.target is None
-        or any(use.state is not ProjectJoinUseState.CONCRETE for use in step_uses)
-    ):
-        return ()
-    target_relation = target.target.target_occurrence
-    relationships = index.guarantees.conditions.relationships.subjects
-
-    def candidate(binding: ProjectRelationBindingOccurrence) -> bool:
-        if binding.target is None:
-            return True
-        relation = binding.target.target_occurrence
-        if step_uses:
-            start = step_uses[0].directions[0].direction.source.target
-            return start is None or relation is start.target_occurrence
-        return any(
-            _relates(subject.occurrence, relation, target_relation)
-            for subject in relationships
-        )
-
-    return tuple(
-        binding for binding in earlier if binding.output is None and candidate(binding)
-    )
-
-
-def _relates(
-    occurrence: ProjectRelationshipDeclarationOccurrence,
-    first: object,
-    second: object,
-) -> bool:
-    """Whether a relationship's two endpoints are exactly these relations."""
-    ends = tuple(
-        endpoint.target.target_occurrence
-        for endpoint in occurrence.endpoints
-        if endpoint.target is not None
-    )
-    return len(ends) == 2 and {id(end) for end in ends} == {id(first), id(second)}
-
-
-def project_unusable_relationships(
-    index: ProjectRelationshipJoinShapeIndex,
-    source: ProjectRelationBindingOccurrence,
-    target: ProjectRelationBindingOccurrence,
-) -> tuple[ProjectNonConcreteMatchGuaranteeSubject, ...]:
-    """Every declared relationship between the two bindings' relations that
-    gives no direction a JOIN can use, in declaration order.
-
-    A JOIN without `from` counts such a relationship as a candidate, so it is
-    never passed over for another binding.
-    """
-    if source.target is None or target.target is None:
-        return ()
-    return tuple(
-        item
-        for item in index.non_concrete
-        if _relates(
-            item.relationship.occurrence,
-            source.target.target_occurrence,
-            target.target.target_occurrence,
-        )
-    )
-
-
-def _non_concrete_use(
-    *,
-    identity: ProjectJoinUseIdentity,
-    owner: ProjectDeclarationOccurrence,
-    clause: JoinClause,
-    target: ProjectRelationBindingOccurrence,
-    issues: tuple[ProjectJoinUseIssue, ...],
-    source: ProjectRelationBindingOccurrence | None = None,
-    step_uses: tuple[ProjectTraversalStepUse, ...] = (),
-    direct_result: ProjectRelationshipDirectCandidateResult | None = None,
-    path: ProjectRelationshipPath | None = None,
-) -> ProjectNonConcreteJoinUse:
-    return ProjectNonConcreteJoinUse(
-        identity=identity,
-        owner=owner,
-        clause=clause,
-        source_binding=source,
-        target_binding=target,
-        state=_dominant_state(issues),
-        step_uses=step_uses,
-        issues=issues,
-        direct_result=direct_result,
-        path=path,
-    )
+    return _issue(kinds[binding.state], clause, binding)
 
 
 def project_join_mode(clause: JoinClause) -> str:
-    """Classify authored authority without discovering a relationship."""
+    """Classify the authored JOIN: CROSS is M5, a JOIN with `on` M3, and a
+    JOIN without `on` M1, which no relationship joins by itself."""
     if clause.kind is AuthoredJoinKind.CROSS:
         return "M5"
-    if clause.on_clause is not None:
-        return "M4" if clause.traversal_steps else "M3"
-    return "M2" if clause.traversal_steps else "M1"
+    return "M1" if clause.on_clause is None else "M3"
 
 
 def project_join_combination_error(clause: JoinClause) -> str | None:
-    if clause.kind is AuthoredJoinKind.CROSS and (
-        clause.on_clause is not None or clause.traversal_steps
-    ):
+    if clause.kind is AuthoredJoinKind.CROSS and clause.on_clause is not None:
         return "CROSS JOIN cannot have ON or VIA."
-    if len(clause.traversal_steps) > 1:
-        if clause.on_clause is not None:
-            return "JOIN-local ON refinement requires exactly one VIA step."
-        if clause.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}:
-            return "This JOIN kind requires a direct binary input."
     return None
 
 
 def project_join_binding_visible(
     binding: ProjectRelationBindingOccurrence,
-    prior_uses: tuple[ProjectJoinUse, ...],
+    prior_uses: tuple[ProjectNonConcreteJoinUse, ...],
 ) -> bool:
     """Keep structural dependencies distinct from accumulated-row visibility."""
     return not any(
@@ -1254,7 +552,7 @@ def project_join_binding_visible(
 
 
 def project_join_visible_bindings(
-    ledger: ProjectRelationJoinUseLedger, use: ProjectJoinUse
+    ledger: ProjectRelationJoinUseLedger, use: ProjectNonConcreteJoinUse
 ) -> tuple[ProjectRelationBindingOccurrence, ...]:
     """The earlier bindings a JOIN may read its source rows from."""
     if not any(use is retained for retained in ledger.uses):
@@ -1268,32 +566,20 @@ def project_join_visible_bindings(
     )
 
 
-def project_join_source_lookup(
-    ledger: ProjectRelationJoinUseLedger,
-    use: ProjectJoinUse,
-    index: ProjectRelationshipJoinShapeIndex,
-) -> tuple[ProjectRelationBindingOccurrence, ...] | None:
-    """Every available earlier source, or None while a JOIN without `from`
-    cannot look its source up (a binding, its target or a VIA step is not
-    concrete)."""
-    visible = project_join_visible_bindings(ledger, use)
-    if use.clause.source_binding_name is None:
-        return _inferred_sources(visible, use.target_binding, use.step_uses, index)
-    return tuple(
-        binding for binding in visible if binding.name == use.clause.source_binding_name
-    )
-
-
-def project_join_source_candidates(
-    ledger: ProjectRelationJoinUseLedger,
-    use: ProjectJoinUse,
-    index: ProjectRelationshipJoinShapeIndex,
+def project_join_blocking_bindings(
+    ledger: ProjectRelationJoinUseLedger, use: ProjectNonConcreteJoinUse
 ) -> tuple[ProjectRelationBindingOccurrence, ...]:
-    """Keep every available earlier source; never choose a duplicate winner.
-
-    A JOIN without `from` keeps every source its relationship lookup finds.
-    """
-    return project_join_source_lookup(ledger, use, index) or ()
+    """Every visible earlier binding whose relation is not resolved, in binding
+    order, while the JOIN's target is concrete: such a binding keeps a JOIN
+    without `on` from naming the inputs it would match. Empty while the
+    target is not concrete."""
+    if use.target_binding.output is None:
+        return ()
+    return tuple(
+        binding
+        for binding in project_join_visible_bindings(ledger, use)
+        if binding.output is None and binding.target is None
+    )
 
 
 def validate_project_join_input_bindings(
@@ -1302,7 +588,7 @@ def validate_project_join_input_bindings(
     """Rebind pre-match inputs to existing exact resolution/output authority."""
     if not any(ledger is retained for retained in roots.ledgers):
         raise ValueError("Pre-match bindings require their exact ledger.")
-    resolutions = roots.relationships.semantic_result.module_relation_resolutions
+    resolutions = roots.semantic_result.module_relation_resolutions
     if resolutions is None:
         raise ValueError("Pre-match bindings require exact module resolutions.")
     environments = resolutions.find_module_path(ledger.owner.identity.module_path)
@@ -1314,7 +600,7 @@ def validate_project_join_input_bindings(
             owner=ledger.owner,
             position=position,
             environment=environments[0],
-            index=roots.index,
+            relational=roots.relational,
             duplicate=names.count(binding.name) > 1,
         )
         if (
@@ -1339,327 +625,65 @@ def _build_use(
     owner: ProjectDeclarationOccurrence,
     position: int,
     bindings: tuple[ProjectRelationBindingOccurrence, ...],
-    prior_uses: tuple[ProjectJoinUse, ...],
-    relationship_subjects: tuple[ProjectRelationshipSubject, ...],
-    index: ProjectRelationshipJoinShapeIndex,
-    available_prior_bindings: tuple[ProjectRelationBindingOccurrence, ...] = (),
-    retained_steps: tuple[ProjectTraversalStepUse, ...] | None = None,
-) -> ProjectJoinUse:
+    prior_uses: tuple[ProjectNonConcreteJoinUse, ...],
+) -> ProjectNonConcreteJoinUse:
     definition = _derived_definition(owner)
     clause = definition.join_clauses[position]
     identity = ProjectJoinUseIdentity(
         owner=_owner_identity(owner), join_position=position
     )
     target = bindings[position + 1]
-    step_uses = (
-        retained_steps
-        if retained_steps is not None
-        else _step_uses(
-            join=identity,
-            clause=clause,
-            target=target,
-            relationships=relationship_subjects,
-            index=index,
-        )
-    )
-    step_issues = tuple(issue for use in step_uses for issue in use.issues)
+    issues: tuple[ProjectJoinUseIssue, ...]
     if unsupported_join(clause):
-        return _non_concrete_use(
-            identity=identity,
-            owner=owner,
-            clause=clause,
-            target=target,
-            step_uses=step_uses,
-            issues=(
-                _issue(ProjectJoinUseIssueKind.SYNTAX_UNSUPPORTED, clause),
-                *step_issues,
-            ),
-        )
-    earlier = bindings[: position + 1]
-    if clause.source_binding_name is None:
+        issues = (_issue(ProjectJoinUseIssueKind.SYNTAX_UNSUPPORTED, clause),)
+    elif target.state is not ProjectJoinUseState.CONCRETE:
+        issues = (_target_issue(target, clause),)
+    else:
+        # An INNER or LEFT JOIN without `on`: it retains every earlier binding
+        # it could have read, or every one whose relation is not resolved.
         visible = tuple(
             binding
-            for binding in earlier
+            for binding in bindings[: position + 1]
             if project_join_binding_visible(binding, prior_uses)
         )
-        inferred = _inferred_sources(visible, target, step_uses, index)
-        if inferred is None:
-            unavailable = project_join_blocking_bindings(
-                index, visible, target, step_uses
-            )
-            return _non_concrete_use(
-                identity=identity,
-                owner=owner,
-                clause=clause,
-                target=target,
-                step_uses=step_uses,
-                issues=(
-                    *(
-                        (
-                            _issue(
-                                ProjectJoinUseIssueKind.BLOCKED_SOURCE_BINDING,
-                                clause,
-                                *unavailable,
-                            ),
-                        )
-                        if unavailable
-                        else ()
-                    ),
-                    *(
-                        (_binding_issue(target, clause, source=False),)
-                        if target.state is not ProjectJoinUseState.CONCRETE
-                        else ()
-                    ),
-                    *step_issues,
-                ),
-            )
-        if not inferred:
-            # Retains every binding the lookup checked.
-            return _non_concrete_use(
-                identity=identity,
-                owner=owner,
-                clause=clause,
-                target=target,
-                step_uses=step_uses,
-                issues=(
-                    _issue(
-                        ProjectJoinUseIssueKind.UNKNOWN_SOURCE_BINDING, clause, *visible
-                    ),
-                ),
-            )
-        matches = inferred
-    else:
-        matches = tuple(
+        blocking = tuple(
             binding
-            for binding in earlier
-            if binding.name == clause.source_binding_name
-            and project_join_binding_visible(binding, prior_uses)
+            for binding in visible
+            if binding.output is None and binding.target is None
         )
-    if not matches:
-        later = tuple(
-            binding
-            for binding in bindings[position + 1 :]
-            if binding.name == clause.source_binding_name
-        )
-        issue = _issue(
-            (
-                ProjectJoinUseIssueKind.FORWARD_SOURCE_BINDING
-                if later
-                else ProjectJoinUseIssueKind.UNKNOWN_SOURCE_BINDING
+        issues = (
+            _issue(ProjectJoinUseIssueKind.BLOCKED_SOURCE_BINDING, clause, *blocking)
+            if blocking
+            else _issue(
+                ProjectJoinUseIssueKind.UNKNOWN_SOURCE_BINDING, clause, *visible
             ),
-            clause,
-            *later,
         )
-        return _non_concrete_use(
-            identity=identity,
-            owner=owner,
-            clause=clause,
-            target=target,
-            step_uses=step_uses,
-            issues=(issue, *step_issues),
-        )
-    if len(matches) > 1:
-        issue = _issue(
-            ProjectJoinUseIssueKind.AMBIGUOUS_SOURCE_BINDING, clause, *matches
-        )
-        return _non_concrete_use(
-            identity=identity,
-            owner=owner,
-            clause=clause,
-            target=target,
-            step_uses=step_uses,
-            issues=(issue, *step_issues),
-        )
-    source = next(iter(matches))
-    issues: list[ProjectJoinUseIssue] = []
-    if source.state is not ProjectJoinUseState.CONCRETE:
-        issues.append(_binding_issue(source, clause, source=True))
-    elif source.identity.binding_position > 0:
-        producer = prior_uses[source.identity.binding_position - 1]
-        if type(producer) is ProjectNonConcreteJoinUse and not any(
-            source is binding for binding in available_prior_bindings
-        ):
-            issues.append(
-                _issue(
-                    ProjectJoinUseIssueKind.BLOCKED_SOURCE_BINDING,
-                    clause,
-                    source,
-                    producer,
-                )
-            )
-    if target.state is not ProjectJoinUseState.CONCRETE:
-        issues.append(_binding_issue(target, clause, source=False))
-    if issues:
-        return _non_concrete_use(
-            identity=identity,
-            owner=owner,
-            clause=clause,
-            source=source,
-            target=target,
-            step_uses=step_uses,
-            issues=(*issues, *step_issues),
-        )
-    assert source.output is not None and target.output is not None
-    assert target.target is not None
-
-    if step_uses:
-        if step_issues:
-            return _non_concrete_use(
-                identity=identity,
-                owner=owner,
-                clause=clause,
-                source=source,
-                target=target,
-                step_uses=step_uses,
-                issues=step_issues,
-            )
-        directions = tuple(use.directions[0] for use in step_uses)
-        try:
-            path = build_explicit_relationship_path(index, directions)
-        except ValueError:
-            issue = _issue(
-                ProjectJoinUseIssueKind.NON_CONTIGUOUS_PATH, clause, *directions
-            )
-            return _non_concrete_use(
-                identity=identity,
-                owner=owner,
-                clause=clause,
-                source=source,
-                target=target,
-                step_uses=step_uses,
-                issues=(issue,),
-            )
-        endpoint_issues: list[ProjectJoinUseIssue] = []
-        if path.steps[0].guarantee.source_output is not source.output:
-            endpoint_issues.append(
-                _issue(ProjectJoinUseIssueKind.PATH_START_MISMATCH, clause, path)
-            )
-        if path.steps[-1].guarantee.target_output is not target.output:
-            endpoint_issues.append(
-                _issue(ProjectJoinUseIssueKind.PATH_END_MISMATCH, clause, path)
-            )
-        if endpoint_issues:
-            return _non_concrete_use(
-                identity=identity,
-                owner=owner,
-                clause=clause,
-                source=source,
-                target=target,
-                step_uses=step_uses,
-                issues=tuple(endpoint_issues),
-                path=path,
-            )
-    else:
-        direct = index.resolve_direct(source.output, target.output)
-        if direct.status is not ProjectDirectRelationshipCandidateStatus.CONCRETE:
-            issue = _issue(
-                (
-                    ProjectJoinUseIssueKind.DIRECT_RELATIONSHIP_ABSENT
-                    if direct.status is ProjectDirectRelationshipCandidateStatus.ABSENT
-                    else ProjectJoinUseIssueKind.DIRECT_RELATIONSHIP_AMBIGUOUS
-                ),
-                clause,
-                direct,
-            )
-            return _non_concrete_use(
-                identity=identity,
-                owner=owner,
-                clause=clause,
-                source=source,
-                target=target,
-                issues=(issue,),
-                direct_result=direct,
-            )
-        path = build_explicit_relationship_path(index, direct.candidates)
-
-    analysis = analyze_relationship_path(path)
-    return ProjectConcreteJoinUse(
+    return ProjectNonConcreteJoinUse(
         identity=identity,
         owner=owner,
         clause=clause,
-        kind=clause.kind,
-        source_binding=source,
         target_binding=target,
-        target_relation=target.target,
-        path=path,
-        analysis=analysis,
-        step_uses=step_uses,
-    )
-
-
-def rebuild_available_relationship_use(
-    roots: ProjectRelationshipUseSet,
-    ledger: ProjectRelationJoinUseLedger,
-    original: ProjectJoinUse,
-    available: tuple[ProjectRelationBindingOccurrence, ...],
-) -> ProjectJoinUse:
-    """Reuse relationship resolution after a current prefix makes bindings available."""
-    if (
-        not any(ledger is item for item in roots.ledgers)
-        or not any(original is item for item in ledger.uses)
-        or any(
-            not any(
-                binding is item
-                for item in ledger.bindings[: original.identity.join_position + 1]
-            )
-            or binding.state is not ProjectJoinUseState.CONCRETE
-            or not project_join_binding_visible(
-                binding, ledger.uses[: original.identity.join_position]
-            )
-            for binding in available
-        )
-    ):
-        raise ValueError(
-            "Current relationship use requires exact earlier binding authority."
-        )
-    if isinstance(original, ProjectConcreteJoinUse) or unsupported_join(
-        original.clause
-    ):
-        return original
-    environments = roots.relationships.find_module_path(
-        ledger.owner.identity.module_path
-    )
-    if len(environments) != 1:
-        raise ValueError("Current relationship use requires one exact module root.")
-    return _build_use(
-        owner=ledger.owner,
-        position=original.identity.join_position,
-        bindings=ledger.bindings,
-        prior_uses=ledger.uses[: original.identity.join_position],
-        relationship_subjects=environments[0].subjects,
-        index=roots.index,
-        available_prior_bindings=available,
-        retained_steps=original.step_uses,
+        state=_dominant_state(issues),
+        issues=issues,
     )
 
 
 def build_project_relationship_uses(
-    relationships: ProjectRelationshipSet,
-    index: ProjectRelationshipJoinShapeIndex,
+    semantic_result: ProjectSemanticResult,
+    relational: ProjectIRRelationalPropertyStage,
 ) -> ProjectRelationshipUseSet:
     """Build complete authored JOIN uses without constructing joined row outputs."""
 
-    if (
-        type(relationships) is not ProjectRelationshipSet
-        or type(index) is not ProjectRelationshipJoinShapeIndex
-        or index.guarantees.conditions.relationships is not relationships
-    ):
-        raise ValueError(
-            "JOIN-use construction requires exact Slice-2 through Slice-9 roots."
-        )
-    semantic = relationships.semantic_result
-    catalogs = semantic.module_catalogs
-    resolutions = semantic.module_relation_resolutions
+    catalogs = semantic_result.module_catalogs
+    resolutions = semantic_result.module_relation_resolutions
     if catalogs is None or resolutions is None:
         raise ValueError("JOIN-use construction requires module resolution authority.")
     ledgers: list[ProjectRelationJoinUseLedger] = []
     for catalog in catalogs.catalogs:
         relation_environments = resolutions.find_module_path(catalog.module_path)
-        relationship_environments = relationships.find_module_path(catalog.module_path)
-        if len(relation_environments) != 1 or len(relationship_environments) != 1:
+        if len(relation_environments) != 1:
             raise ValueError("JOIN-use module roots must be exact and complete.")
         relation_environment = relation_environments[0]
-        relationship_subjects = relationship_environments[0].subjects
         for owner in catalog.relation_owners:
             if not _is_join_bearing(owner):
                 continue
@@ -1675,12 +699,12 @@ def build_project_relationship_uses(
                     owner=owner,
                     position=position,
                     environment=relation_environment,
-                    index=index,
+                    relational=relational,
                     duplicate=name in duplicates,
                 )
                 for position, name in enumerate(names)
             )
-            uses: list[ProjectJoinUse] = []
+            uses: list[ProjectNonConcreteJoinUse] = []
             for position in range(len(definition.join_clauses)):
                 uses.append(
                     _build_use(
@@ -1688,8 +712,6 @@ def build_project_relationship_uses(
                         position=position,
                         bindings=bindings,
                         prior_uses=tuple(uses),
-                        relationship_subjects=relationship_subjects,
-                        index=index,
                     )
                 )
             ledgers.append(
@@ -1698,7 +720,7 @@ def build_project_relationship_uses(
                 )
             )
     return ProjectRelationshipUseSet(
-        relationships=relationships,
-        index=index,
+        semantic_result=semantic_result,
+        relational=relational,
         ledgers=tuple(ledgers),
     )

@@ -158,20 +158,12 @@ def _single_window_source(identity: str, *, dialect: str = "postgresql") -> str:
 
 
 @lru_cache(maxsize=None)
-def _compile(
-    source: str, *, warnings: tuple[tuple[str, int, int], ...] = ()
-) -> tuple[Script, SemanticResult, ScriptIR]:
+def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:
     parsed = parse_source(source, path="slice15.pietto")
     assert parsed.diagnostics == ()
     assert parsed.ast is not None
     semantic = analyze(parsed.ast)
-    assert (
-        tuple(
-            (item.code, item.location.line, item.location.column)
-            for item in semantic.diagnostics
-        )
-        == warnings
-    )
+    assert semantic.diagnostics == ()
     ir_result = build_ir(parsed.ast, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
@@ -563,7 +555,7 @@ def test_window_ir_order_item_constructor_validation_is_exact(_case: int) -> Non
         WindowOrderItemIR(**values)  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("_case", range(8))
+@pytest.mark.parametrize("_case", range(7))
 def test_window_ir_spec_constructor_validation_is_exact(_case: int) -> None:
     if _case == 0:
         spec = _spec()
@@ -576,13 +568,17 @@ def test_window_ir_spec_constructor_validation_is_exact(_case: int) -> None:
         assert spec.partition_by == (field, field)
         assert spec.order_by == (item, item)
         return
+    if _case == 6:
+        spec = WindowSpecIR(partition_by=(), order_by=(), span=SPAN)
+        assert spec.order_by == ()
+        with pytest.raises((TypeError, ValueError)):
+            WindowSpecIR(partition_by=(), order_by=(), span=object())  # type: ignore[arg-type]
+        return
     invalid = (
         {"partition_by": [_field("id")]},
         {"partition_by": (object(),)},
         {"order_by": [_order_item()]},
         {"order_by": (object(),)},
-        {"order_by": ()},
-        {"span": object()},
     )[_case - 2]
     values: dict[str, object] = {
         "partition_by": (),
@@ -930,8 +926,7 @@ def test_downstream_window_fields_lower_through_ordinary_row_rules(_case: int) -
         "    from windows\n"
         "    select:\n" + downstream_items[_case]
     )
-    # The query reads a query of its own file.
-    _, _, script_ir = _compile(source, warnings=(("PIE-S2382", 16, 5),))
+    _, _, script_ir = _compile(source)
     downstream = _relation(script_ir, "downstream")
     expression = downstream.projections[0].expression
     if _case < 3:
@@ -1492,7 +1487,7 @@ def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_ar
         grammar = " ".join(_read("grammar/Pietto.g4").split())
         assert "qualifyClause : QUALIFY" in grammar
         assert "QUALIFY: 'qualify';" in grammar
-        assert "qualify" not in {field.name for field in dataclasses.fields(RelationIR)}
+        assert "qualify" in {field.name for field in dataclasses.fields(RelationIR)}
     else:
         identity = ("first_value", "last_value", "nth_value")[_case - 7]
         assert identity in capability_windows._WINDOW_IDENTITIES

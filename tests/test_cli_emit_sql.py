@@ -37,11 +37,12 @@ def test_emit_sql_valid_file_prints_postgres_sql(
 
     captured = capsys.readouterr()
     assert captured.out == (
+        "-- active_users\n"
         "SELECT\n"
         '    "id" AS "id",\n'
         '    "email" AS "email"\n'
         'FROM "users"\n'
-        'WHERE "active" = TRUE\n'
+        'WHERE "active" = TRUE;\n'
     )
     assert captured.err == ""
 
@@ -66,18 +67,19 @@ def test_emit_sql_preserves_multiple_artifact_order(
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
 
     captured = capsys.readouterr()
+    # Each statement is named and ends with `;`; the query defines the table of
+    # its own file that it reads as a CTE.
     assert captured.out == (
-        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        "-- active_users\n"
+        'SELECT\n    "email" AS "email"\nFROM "users";\n'
         "\n"
-        'SELECT\n    "email" AS "email"\nFROM "active_users"\n'
+        "-- active_user_emails\n"
+        'WITH "active_users" AS (\n'
+        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        ")\n"
+        'SELECT\n    "email" AS "email"\nFROM "active_users";\n'
     )
-    # The query reads a table of its own file (PIE-S2382).
-    assert captured.err == (
-        f"{path}:11:5 PIE-S2382 warning: `active_users` is a table of this file; "
-        "single-file SQL reads it by name, so the SQL runs only where the database "
-        "already has a relation named active_users (an EXPLICIT_MODULES project "
-        "emits it as a CTE)\n"
-    )
+    assert captured.err == ""
 
 
 def test_emit_sql_parser_error_stops_before_later_stages(
@@ -264,7 +266,7 @@ def test_emit_sql_can_print_artifacts_and_backend_diagnostics_together(
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
 
     captured = capsys.readouterr()
-    assert captured.out == 'SELECT "id" AS "id"\nFROM "users"\n'
+    assert captured.out == '-- supported\nSELECT "id" AS "id"\nFROM "users";\n'
     assert "PIE-B1000 error: one relation unsupported" in captured.err
 
 
@@ -289,7 +291,10 @@ def test_emit_sql_warning_does_not_prevent_later_stages(
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
 
     captured = capsys.readouterr()
-    assert 'SELECT\n    "email" AS "email"\nFROM "users"\n' == captured.out
+    assert (
+        '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
+        == captured.out
+    )
     assert "PIE-S2303 warning:" in captured.err
 
 

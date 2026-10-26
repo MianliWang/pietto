@@ -18,15 +18,12 @@ from pietto.ast_nodes import (
     Node,
     QueryDef,
     TableDef,
-    WindowExpr,
 )
 from pietto.ir.lowering import lower_span, lower_value_type
 from pietto.ir.model import (
     ExpressionIR,
     FieldId,
     FieldRefIR,
-    JoinEqualityIR,
-    JoinHopIR,
     JoinIR,
     JoinKindIR,
     RelationInputIR,
@@ -37,12 +34,7 @@ from pietto.ir.model import (
     TypeRefIR,
 )
 from pietto.semantic import RowSchema, SemanticModel, ValueType
-from pietto.semantic.model import (
-    JoinEqualityInfo,
-    JoinFieldRef,
-    JoinInfo,
-    RelationJoinsInfo,
-)
+from pietto.semantic.model import JoinFieldRef, JoinInfo, RelationJoinsInfo
 
 __all__ = ()
 
@@ -62,16 +54,11 @@ def join_relation_facts(
 ) -> RelationJoinsInfo | None:
     """The JOIN facts ``definition`` lowers from; None without JOIN clauses.
 
-    Windows fail before the facts are looked up, because a relation that
-    failed check for them has none. Then facts that are missing, or that do
-    not describe the relation's JOIN clauses, fail at the first JOIN.
+    Missing or non-describing facts fail at the first JOIN.
     """
 
     if not definition.join_clauses:
         return None
-    window = _first_window(definition)
-    if window is not None:
-        raise JoinLoweringError(window, "window over JOIN rows")
     info = semantic_model.relation_joins.get(definition)
     if info is None or not _facts_describe(definition, info):
         raise JoinLoweringError(definition.join_clauses[0], "resolved JOIN facts")
@@ -110,6 +97,7 @@ class JoinReads:
 
     inputs: tuple[RelationInputIR, ...]
     field_reads: Mapping[Expression, JoinFieldRef]
+    output_aliases: Mapping[str, TypeRefIR] | None = None
 
     def field_ref(
         self,
@@ -123,6 +111,16 @@ class JoinReads:
 
         reference = self.field_reads.get(expression)
         if reference is None:
+            if self.output_aliases is not None and type(expression) is NameExpr:
+                alias_type = self.output_aliases.get(expression.name)
+                if alias_type is not None:
+                    return FieldRefIR(
+                        name=expression.name,
+                        qualifier=(),
+                        field=None,
+                        span=span,
+                        value_type=alias_type,
+                    )
             raise JoinLoweringError(expression, "resolved JOIN field read")
         return _field_ref(self.inputs, reference, span=span, value_type=value_type)
 
@@ -167,16 +165,12 @@ class JoinReads:
 
 def lower_joins(
     info: RelationJoinsInfo,
-    reads: JoinReads,
-    semantic_model: SemanticModel,
     *,
     lower_condition: Callable[[Expression], ExpressionIR],
 ) -> tuple[JoinIR, ...]:
-    """Each JOIN in source order, with its relationship hop and its ``on``."""
+    """Each JOIN in source order, with its ``on``."""
 
-    return tuple(
-        _lower_join(join, reads, semantic_model, lower_condition) for join in info.joins
-    )
+    return tuple(_lower_join(join, lower_condition) for join in info.joins)
 
 
 @contextmanager
@@ -196,20 +190,18 @@ def report_join_invariants(definition: TableDef | QueryDef) -> Iterator[None]:
 
 def _facts_describe(definition: TableDef | QueryDef, info: RelationJoinsInfo) -> bool:
     """Whether the facts hold one target input and one JOIN per JOIN clause, in
-    order, with the clause's target, kind and ``on``, a relationship hop
-    exactly for a relationship JOIN, and field references to these inputs only.
+    order, with the clause's target, kind and ``on``, no relationship hop, and
+    field references to these inputs only.
 
-    A JOIN, an ``on`` or a hop that the facts left out would otherwise be
-    left out of the SQL.
+    Only an ``on`` JOIN or a CROSS JOIN lowers: a JOIN or an ``on`` that the
+    facts left out would otherwise be left out of the SQL, and no relationship
+    joins by itself.
     """
 
     clauses = definition.join_clauses
     if len(info.joins) != len(clauses) or len(info.inputs) != len(clauses) + 1:
         return False
     for item, join, clause in zip(info.inputs[1:], info.joins, clauses):
-        uses_relationship = bool(clause.traversal_steps) or (
-            clause.on_clause is None and clause.kind is not AuthoredJoinKind.CROSS
-        )
         if (
             item.clause != clause
             or join.clause != clause
@@ -218,86 +210,29 @@ def _facts_describe(definition: TableDef | QueryDef, info: RelationJoinsInfo) ->
             or join.kind != clause.kind
             or join.condition
             != (None if clause.on_clause is None else clause.on_clause.expression)
-            or (join.relationship is not None) != uses_relationship
-            or bool(join.equalities) != uses_relationship
+            or (clause.on_clause is None and clause.kind is not AuthoredJoinKind.CROSS)
+            or join.relationship is not None
+            or join.equalities
         ):
             return False
     ordinals = range(len(info.inputs))
-    references = (
-        *info.field_reads.values(),
-        *(
-            reference
-            for join in info.joins
-            for equality in join.equalities
-            for reference in (equality.left, equality.right)
-        ),
-    )
-    return all(reference.input in ordinals for reference in references)
-
-
-def _first_window(definition: TableDef | QueryDef) -> Node | None:
-    """The first selected window call, else the first named window."""
-
-    for item in definition.select_items:
-        if type(item.expression) is WindowExpr:
-            return item.expression
-    return definition.named_windows[0] if definition.named_windows else None
+    return all(reference.input in ordinals for reference in info.field_reads.values())
 
 
 def _lower_join(
     join: JoinInfo,
-    reads: JoinReads,
-    semantic_model: SemanticModel,
     lower_condition: Callable[[Expression], ExpressionIR],
 ) -> JoinIR:
-    hops: tuple[JoinHopIR, ...] = ()
-    if join.relationship is not None:
-        hops = (
-            JoinHopIR(
-                relationship=join.relationship,
-                left_input=join.source_input,
-                right_input=join.target_input,
-                equalities=tuple(
-                    _lower_equality(equality, reads, semantic_model)
-                    for equality in join.equalities
-                ),
-                span=lower_span((join.clause if join.step is None else join.step).span),
-            ),
-        )
     return JoinIR(
         ordinal=join.ordinal,
         kind=JoinKindIR(join.kind.value),
         source_input=join.source_input,
         source_inferred=join.source_inferred,
         target_input=join.target_input,
-        hops=hops,
+        hops=(),
         condition=None if join.condition is None else lower_condition(join.condition),
         null_extends=join.null_extends,
         span=lower_span(join.clause.span),
-    )
-
-
-def _lower_equality(
-    equality: JoinEqualityInfo,
-    reads: JoinReads,
-    semantic_model: SemanticModel,
-) -> JoinEqualityIR:
-    """Source side first: the roles decided which conjunct operand that is,
-    so the sides come from the oriented facts, never from the comparison."""
-
-    return JoinEqualityIR(
-        left=_field_ref(
-            reads.inputs,
-            equality.left,
-            span=lower_span(equality.left_operand.span),
-            value_type=lower_value_type(equality.left_type, semantic_model),
-        ),
-        right=_field_ref(
-            reads.inputs,
-            equality.right,
-            span=lower_span(equality.right_operand.span),
-            value_type=lower_value_type(equality.right_type, semantic_model),
-        ),
     )
 
 

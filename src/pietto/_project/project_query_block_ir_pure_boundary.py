@@ -655,10 +655,10 @@ _SCHEMAS: dict[ProjectQueryBlockIRRecordKind, tuple[_FieldSpec, ...]] = {
     ),
     _K.PREDICATE_JOIN: (
         _spec("node", _R, _D.PLAN_NODE),
-        _spec("expression", _R, _D.PREDICATE_EXPRESSION),
+        _spec("expression", _R, _D.PREDICATE_EXPRESSION, optional=True),
         _spec("equalities", _RS, _D.PREDICATE_EQUALITY, optional=True),
-        _spec("bindings", ProjectQueryBlockIRPureTag.INTEGERS),
-        _spec("key_counts", ProjectQueryBlockIRPureTag.INTEGERS),
+        _spec("bindings", ProjectQueryBlockIRPureTag.INTEGERS, optional=True),
+        _spec("key_counts", ProjectQueryBlockIRPureTag.INTEGERS, optional=True),
         _spec("keys", _RS, _D.PREDICATE_INPUT_KEY, optional=True),
         _spec("matches", _RS, _D.PREDICATE_KEY_MATCH, optional=True),
     ),
@@ -671,7 +671,7 @@ _SCHEMAS: dict[ProjectQueryBlockIRRecordKind, tuple[_FieldSpec, ...]] = {
         _spec("left_field", _I),
         _spec("right_binding", _I),
         _spec("right_field", _I),
-        _spec("calls", _RS, _D.PREDICATE_CALL),
+        _spec("calls", _RS, _D.PREDICATE_CALL, optional=True),
     ),
     _K.PREDICATE_INPUT_KEY: (
         _spec("ref", _R, _D.PREDICATE_INPUT_KEY),
@@ -3607,7 +3607,11 @@ def _validate_predicates(document, declared):
         if _enumeration(expression, "role") == "on"
         and _enumeration(declared[_ref(expression, "owner")], "variant") != "terminal"
     )
-    observed_on = tuple(_ref(join, "expression") for join in joins)
+    observed_on = tuple(
+        _ref(join, "expression")
+        for join in joins
+        if _ref(join, "expression") is not None
+    )
     need(
         len(observed_on) == len(represented_on)
         and set(observed_on) == set(represented_on)
@@ -3621,33 +3625,59 @@ def _validate_predicates(document, declared):
     algebra = {_ref(value, "node"): value for value in _records(document, _K.ALGEBRA)}
     for join in joins:
         node = _ref(join, "node")
-        expression = declared[_ref(join, "expression")]
-        need(
-            node in algebra
-            and _ref(expression, "owner") == _ref(algebra[node], "owner")
+        need(node in algebra and node in conditions)
+        if _ref(join, "expression") is None:
+            # Hand-written ON equalities without any predicate use.
+            normalized = syntax(conditions[node], "expression")
+            local_calls = ()
+        else:
+            expression = declared[_ref(join, "expression")]
+            need(_ref(expression, "owner") == _ref(algebra[node], "owner"))
+            need(_enumeration(expression, "role") == "on")
+            normalized = syntax(expression, "normalized")
+            need(strip(normalized) == syntax(conditions[node], "expression"))
+            local_calls = tuple(declared[ref] for ref in _refs(expression, "calls"))
+        references = tuple(
+            json.loads(value) for value in _field(conditions[node], "references").texts
         )
-        need(_enumeration(expression, "role") == "on" and node in conditions)
-        normalized = syntax(expression, "normalized")
-        need(strip(normalized) == syntax(conditions[node], "expression"))
-        local_calls = tuple(declared[ref] for ref in _refs(expression, "calls"))
+        leaves = _authored_field_leaves(normalized)
+
+        def exact_read(operand):
+            # The exactly resolved field reference an operand reads, if any.
+            if operand.get("node") not in {"NameExpr", "DottedNameExpr"}:
+                return None
+            positions = tuple(i for i, leaf in enumerate(leaves) if leaf == operand)
+            need(len(positions) == 1 and positions[0] < len(references))
+            reference = references[positions[0]]
+            return None if reference["target"] is None else reference
+
+        # Every top-level equality of two exactly resolved field reads, written
+        # by hand or in a mandatory call's body, is a match equality.
         required = tuple(
             (i, value)
             for i, value in enumerate(conjuncts(normalized))
-            if any(
-                value in tuple(json.loads(e) for e in _field(call, "mandatory").texts)
-                for call in local_calls
-            )
+            if value.get("node") == "ComparisonExpr"
+            and value.get("operator") == "=="
+            and exact_read(value["left"]) is not None
+            and exact_read(value["right"]) is not None
         )
+        need(_ref(join, "expression") is not None or bool(required))
         local_equalities = equalities[equality_cursor : equality_cursor + len(required)]
         equality_cursor += len(required)
         need(
             _refs(join, "equalities") == tuple(_ref(e, "ref") for e in local_equalities)
         )
         for equality, (position, value) in zip(local_equalities, required, strict=True):
+            comparison = syntax(equality, "comparison")
             need(
                 _ref(equality, "node") == node
                 and _integer(equality, "position") == position
-                and syntax(equality, "comparison") == value
+                and (
+                    comparison
+                    if _ref(join, "expression") is not None
+                    else strip(comparison)
+                )
+                == value
             )
             need(
                 _refs(equality, "calls")
@@ -3658,11 +3688,6 @@ def _validate_predicates(document, declared):
                     in tuple(json.loads(e) for e in _field(call, "mandatory").texts)
                 )
             )
-            references = tuple(
-                json.loads(value)
-                for value in _field(conditions[node], "references").texts
-            )
-            leaves = _authored_field_leaves(normalized)
             for side in ("left", "right"):
                 positions = tuple(
                     i for i, leaf in enumerate(leaves) if leaf == value[side]
@@ -3692,7 +3717,7 @@ def _validate_predicates(document, declared):
         need(_refs(join, "keys") == tuple(_ref(key, "ref") for key in local_keys))
         cursor = 0
         expected_matches = []
-        target = max(bindings)
+        target = max(bindings, default=None)
         for binding, count in zip(bindings, counts, strict=True):
             supporting = tuple(
                 equality

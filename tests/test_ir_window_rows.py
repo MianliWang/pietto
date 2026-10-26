@@ -508,7 +508,6 @@ def test_slice9_function_ownership_is_active_without_phase65() -> None:
     assert {"first_value", "last_value", "nth_value"}.issubset(
         ir_model._WINDOW_ARGUMENT_ARITIES
     )
-    assert not hasattr(ir_model, "AggregateWindowCallIR")
 
 
 def test_slice4_spec_locks_canonical_lowering_and_activation_sequence() -> None:

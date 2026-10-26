@@ -1,3 +1,4 @@
+-- LiteralCompatibility
 SELECT
     'O''Reilly' AS `QuotedText`,
     '\\''; --' AS `EscapedText`,
@@ -11,4 +12,4 @@ SELECT
     `order` AS `ReservedName`,
     `Rows`.`email` AS `QualifiedEmail`
 FROM `Sales`.`Compat``ibilityRows` AS `Rows`
-WHERE `email` = '\\''; --'
+WHERE `email` = '\\''; --';

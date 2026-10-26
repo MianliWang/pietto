@@ -139,7 +139,7 @@ documentation does not supersede that evidence.
 | Phase69 | `COMPLETED / PUBLISHED`; S01–S21 closed at `177c2e18`, natural exact-head CI `38342155897` attempt 1 accepted all required consumers |
 | Post-Phase69 inserted phase and maintenance | `COMPLETED / PUBLISHED`; failed first head `8dcc610c` preserved; repair child `de887b62`, natural exact-head CI `38489278446` attempt 1 accepted all required consumers |
 | Phase70 | `COMPLETED / PUBLISHED`; 25 actual slices, including `0.1.3` at `6ac82d68` with natural CI `38809622132` (19/19 jobs, 36 artifacts); under the [S20 closure rule](phases/phase-70/completion-audit.md#closure-rule-and-write-boundary) the S20 audit commit `51cac2ab` passed natural exact-head CI `38844191993` attempt 1 |
-| Phase71 | Route candidate: the [brief](phases/phase-71/brief.md) and the [24-Slice route](phases/phase-71/slices.md) (capacity 25) become `ROUTE_LOCKED` only when their documentation-only commit is fast-forward pushed and its natural exact-head CI accepts all jobs; before that they are a candidate, and no Phase71 Slice is integrated |
+| Phase71 | `ROUTE_LOCKED`; the [24-Slice route](phases/phase-71/slices.md) (capacity 25) was published by `6e9d7be6` with natural exact-head CI `40250919248` attempt 1 accepting all 19 required jobs; no Phase71 product Slice is integrated |
 | Next | `Phase71 S01 through its own Gate 0 on the integrated 0.1.6 next-release candidate after the route publication; the owner-authorized S02 carrier experiment may run on Teach before it, outside the repository` |
 
 ## Phase67 当前路线

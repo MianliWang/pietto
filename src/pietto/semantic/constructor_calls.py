@@ -1,4 +1,4 @@
-"""Resolve the unshadowed Float call spelling to the existing cast node."""
+"""Resolve unshadowed scalar constructor spellings to existing cast nodes."""
 
 from __future__ import annotations
 
@@ -25,12 +25,15 @@ def normalize_float_calls(
         _tree_nodes,
     )
 
-    if any(
-        type(item) in (ast.FunctionDef, ast.ConstraintDef, ast.DeriveDef)
-        and item.name == "Float"
+    constructors = frozenset({"Float", "Text"})
+    shadowed = frozenset(
+        item.name
         for item in script.definitions
-    ) or any(item.name == "Float" for item in script.relationship_templates):
-        return script, ()
+        if type(item) in (ast.FunctionDef, ast.ConstraintDef, ast.DeriveDef)
+        and item.name in constructors
+    ) | frozenset(
+        item.name for item in script.relationship_templates if item.name in constructors
+    )
     diagnostics: list[Diagnostic] = []
     # A window's or a table function's own call stays a call, whose reader
     # checks its name: `Float(x) window(...)` is an unknown window function,
@@ -46,13 +49,22 @@ def normalize_float_calls(
             id(original) not in calls
             and type(rebuilt) is ast.CallExpr
             and type(rebuilt.callee) is ast.NameExpr
-            and rebuilt.callee.name == "Float"
+            and rebuilt.callee.name in constructors - shadowed
         ):
+            if rebuilt.aggregate_order_by:
+                diagnostics.append(
+                    _diagnostic(
+                        "PIE-S2104",
+                        "Internal ORDER BY is only supported by string_agg",
+                        rebuilt.span,
+                    )
+                )
+                return rebuilt
             if len(rebuilt.arguments) != 1:
                 diagnostics.append(
                     _diagnostic(
                         "PIE-S2104",
-                        "Invalid arguments for constructor Float: expected 1, "
+                        f"Invalid arguments for constructor {rebuilt.callee.name}: expected 1, "
                         f"got {len(rebuilt.arguments)}",
                         rebuilt.span,
                     )
@@ -63,7 +75,7 @@ def normalize_float_calls(
                     value=rebuilt.arguments[0],
                     target=ast.TypeExpr(
                         span=rebuilt.callee.span,
-                        name="Float",
+                        name=rebuilt.callee.name,
                         arguments=(),
                         nullability=ast.Nullability.IMPLICIT,
                     ),

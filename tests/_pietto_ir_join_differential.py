@@ -739,9 +739,9 @@ def _region_value(region):
         "binding_introductions": [
             use.ref.position for use in region.binding_introductions
         ],
-        "hidden_introductions": [
-            use.ref.position for use in region.hidden_introductions
-        ],
+        # No JOIN is a relationship path with hidden hops; the reviewed
+        # observation keeps the empty list.
+        "hidden_introductions": [],
     }
 
 
@@ -927,11 +927,11 @@ _TERMINAL_FIELDS = {
     ProjectEffectiveOutputTerminal: "owner fragment reason dependencies joined_completion resolution pending_dependencies pending_entries cycle_blocker output",
     ProjectNonConcreteQueryBlock: "compilation_mode owner_bridge reason relation_fragment verification join_region state row_source",
     ProjectIRNonConcreteJoinRegion: "ledger starting_allocation ending_allocation state blockers",
-    ProjectNonConcreteJoinUse: "identity owner clause source_binding target_binding state step_uses issues direct_result path",
+    ProjectNonConcreteJoinUse: "identity owner clause target_binding state issues",
     ProjectJoinUseIssue: "kind state site causes",
     ProjectRelationBindingOccurrence: "identity owner site name relation_name state target output relation_issues",
     ProjectRelationshipPredicateExpression: "owner context authored expression calls argument_bindings diagnostics failed_calls any_expressions any_bindings parent",
-    ProjectJoinCondition: "root ledger use inputs effective_use environment mode scope expression conjuncts references base_conditions base_guarantee refinement_guarantee base_guarantees mandatory_equalities match_inputs key_matches legacy_matched_fields value_type value_types state ready diagnostics null_rejections",
+    ProjectJoinCondition: "root ledger use inputs environment mode scope expression conjuncts references mandatory_equalities match_inputs key_matches value_type value_types state ready diagnostics null_rejections",
     ProjectNonConcreteJoinedNamespaceExpression: "namespace expression resolutions reason blocking_resolutions kernel_value_type value_types diagnostics existence_values predicate_expression value_type",
     ProjectConcreteJoinedQualify: "window_set window_stage kind qualify_clause references hidden_computations predicate_value_type value_types diagnostics retention_effects preservation post_qualify",
     ProjectNonConcreteJoinedQualify: "window_set window_stage reason qualify_clause references hidden_attempts kernel_value_type value_types diagnostics preservation post_qualify",
@@ -1108,14 +1108,16 @@ def _terminal_graph(root, completed):
                 join_position=value.identity.join_position,
                 state=value.state.value,
                 clause=asdict(value.clause),
-                source=_binding_value(value.source_binding),
+                # No JOIN use has a source binding, steps, a direct result or
+                # a path; the reviewed observation keeps their empty values.
+                source=None,
                 target=_binding_value(value.target_binding),
-                source_ref=visit(value.source_binding),
+                source_ref=None,
                 target_ref=visit(value.target_binding),
                 issues=visit(value.issues),
-                steps=visit(value.step_uses),
-                direct_result=visit(value.direct_result),
-                path=visit(value.path),
+                steps=visit(()),
+                direct_result=None,
+                path=None,
             )
         elif type(value) is ProjectJoinUseIssue:
             node.update(
@@ -1138,11 +1140,6 @@ def _terminal_graph(root, completed):
                 relation_issues=visit(value.relation_issues),
             )
         elif type(value) is ProjectJoinCondition:
-            _require_unused(
-                value,
-                absent=("base_guarantee", "refinement_guarantee"),
-                empty=("base_conditions", "base_guarantees", "legacy_matched_fields"),
-            )
             _require_unused(value.environment, empty=("existence_values",))
             predicate = value.environment.predicate_expression
             assert predicate is not None
@@ -1152,7 +1149,6 @@ def _terminal_graph(root, completed):
             assert predicate.authored is value.use.clause.on_clause.expression
             assert predicate.expression is value.expression
             assert value.mode == "M3" and not value.ready
-            assert value.effective_use is value.use
             assert value.environment.root is value.root
             assert value.environment.ledger is value.ledger
             assert (

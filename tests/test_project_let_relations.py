@@ -2278,7 +2278,13 @@ def test_modern_capture_admission_keeps_raw_diagnostics_when_naming_is_blocked(
         )
     else:
         assert len(normalizations) == 1
-        naming = [item for item in result.diagnostics if item.code == "PIE-S2604"]
+        # The naming checks: a `let` that a JOIN reads names a relation, so
+        # an unknown or later name there is PIE-S2301 or PIE-S2330.
+        naming = [
+            item
+            for item in result.diagnostics
+            if item.code in {"PIE-S2604", "PIE-S2301", "PIE-S2330"}
+        ]
         assert naming
         assert [
             (item.location.line, item.location.column) for item in result.diagnostics
@@ -2295,11 +2301,14 @@ def test_modern_capture_admission_keeps_raw_diagnostics_when_naming_is_blocked(
                 item.message == "Ambiguous relation name: near" for item in naming
             )
         else:
-            assert any(
-                item.message
-                == "A row-value let must follow FROM and every JOIN and precede WHERE"
-                for item in naming
-            )
+            assert [(item.code, item.message) for item in naming] == [
+                ("PIE-S2301", "Unknown relation: absent")
+                if variant == "unknown"
+                else (
+                    "PIE-S2330",
+                    "Let binding cannot reference a later binding: future",
+                )
+            ]
 
 
 @pytest.mark.parametrize("module_relation", (False, True))
@@ -2369,3 +2378,286 @@ query result(low: Int):
         6,
         column + 4,
     )
+
+
+@pytest.mark.parametrize(
+    ("imports", "lets", "expected"),
+    (
+        (
+            "    source lhs,\n",
+            "    let r = rhs\n",
+            [("PIE-S2301", "Unknown relation: rhs", "main.pietto", 7, 13)],
+        ),
+        (
+            "    source lhs,\n    source rhs,\n",
+            "    let r = nosuch\n",
+            [("PIE-S2301", "Unknown relation: nosuch", "main.pietto", 8, 13)],
+        ),
+        (
+            "    source lhs,\n    source rhs,\n",
+            "    let r = later\n    let later = rhs\n",
+            [
+                (
+                    "PIE-S2330",
+                    "Let binding cannot reference a later binding: later",
+                    "main.pietto",
+                    8,
+                    13,
+                )
+            ],
+        ),
+        ("    source lhs,\n    source rhs,\n", "    let r = rhs\n", []),
+    ),
+    ids=("not_imported", "unknown", "later", "imported"),
+)
+def test_a_let_that_a_join_reads_names_a_module_relation(
+    tmp_path: Path, imports: str, lets: str, expected: list
+) -> None:
+    """`let r = rhs` names the relation the later JOIN of `r` reads, so a
+    name the module neither declares nor imports is an unknown relation at
+    the value, as for `from`, not a misplaced row-value let (PIE-S2604)."""
+
+    (tmp_path / "pietto.toml").write_text(probe.CONFIG)
+    (tmp_path / "base.pietto").write_text(
+        HEAD + "export (\n    shape Row,\n    source lhs,\n    source rhs)\n"
+    )
+    (tmp_path / "main.pietto").write_text(
+        f'from "base.pietto" import (\n    shape Row,\n{imports})\n'
+        f"query q:\n    from lhs\n{lets}    inner join r on lhs.id == r.id\n"
+        "    select:\n        id = lhs.id\n"
+    )
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
+    assert (
+        code,
+        [
+            (
+                d["code"],
+                d["message"],
+                d["location"]["path"],
+                d["location"]["line"],
+                d["location"]["column"],
+            )
+            for d in json.loads(out.getvalue())["diagnostics"]
+        ],
+    ) == (1 if expected else 0, expected)
+
+
+def _check_file(
+    tmp_path: Path, body: str
+) -> tuple[int, list[tuple[str, str, int, int]]]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path = tmp_path / "single.pietto"
+    path.write_text(HEAD + body, encoding="utf-8")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = cli.main(["check", str(path), "--format", "json"])
+    return code, [
+        (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+        for d in json.loads(out.getvalue())["diagnostics"]
+        # A single file warns that it reads a table of its own file by name.
+        if d["code"] != "PIE-S2382"
+    ]
+
+
+# The FROM input's name is the name written after `from`: after `let r = lhs`
+# and `from r` a query reads `r.id`, not `lhs.id` (language.md, Single-file
+# JOINs). A project reads it so in every clause, as a single file does; before,
+# most of its clauses read the relation's name instead, and selecting `lhs.id`
+# stopped `check --project` with a canonical-inspection ValueError.
+_FROM_ALIAS = "query q:\n    let r = lhs\n    from r\n"
+FROM_ALIAS_READS = {
+    "select": (_FROM_ALIAS, "    select:\n        id = {}.id\n", "r", "lhs", ()),
+    "select_unaliased": (_FROM_ALIAS, "    select:\n        {}.key\n", "r", "lhs", ()),
+    "where": (
+        _FROM_ALIAS,
+        "    where {}.id > 1\n    select:\n        id\n",
+        "r",
+        "lhs",
+        (),
+    ),
+    "expression": (
+        _FROM_ALIAS,
+        "    select:\n        id = {}.id + 1\n",
+        "r",
+        "lhs",
+        (),
+    ),
+    "window": (
+        _FROM_ALIAS,
+        "    select:\n        id\n        n = row_number() window(order by {}.id)\n",
+        "r",
+        "lhs",
+        (),
+    ),
+    "alias_of_an_alias": (
+        "query q:\n    let r = lhs\n    let s = r\n    from s\n",
+        "    select:\n        id = {}.id\n",
+        "s",
+        "lhs",
+        ("r",),
+    ),
+    "alias_of_a_table": (
+        "table base:\n    from lhs\n    select:\n        id\n"
+        "query q:\n    let r = base\n    from r\n",
+        "    select:\n        id = {}.id\n",
+        "r",
+        "base",
+        ("lhs",),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FROM_ALIAS_READS))
+def test_a_from_alias_names_the_input_in_a_project_as_in_a_single_file(
+    tmp_path: Path, case: str
+) -> None:
+    head, tail, alias, source_name, invalid_names = FROM_ALIAS_READS[case]
+    field = "key" if case == "select_unaliased" else "id"
+    body = head + tail.format(alias)
+    assert _check(tmp_path / "project", body) == (0, [])
+    assert _check_file(tmp_path / "file", body) == (0, [])
+    source_body = head + tail.format(source_name)
+    assert _check(tmp_path / "project-source", source_body) == (0, [])
+    source = (HEAD + source_body).splitlines()
+    line = next(
+        number
+        for number, text in enumerate(source, 1)
+        if f"{source_name}.{field}" in text
+    )
+    column = source[line - 1].index(f"{source_name}.{field}") + 1
+    assert _check_file(tmp_path / "file-source", source_body) == (
+        1,
+        [("PIE-S2102", f"Unknown field: {source_name}.{field}", line, column)],
+    )
+    for name in invalid_names:
+        body = head + tail.format(name)
+        source = (HEAD + body).splitlines()
+        line = next(
+            number for number, text in enumerate(source, 1) if f"{name}.{field}" in text
+        )
+        column = source[line - 1].index(f"{name}.{field}") + 1
+        expected = (1, [("PIE-S2102", f"Unknown field: {name}.{field}", line, column)])
+        assert _check(tmp_path / f"project-{name}", body) == expected
+        assert _check_file(tmp_path / f"file-{name}", body) == expected
+
+
+def test_a_from_alias_source_name_keeps_an_inner_any_binding(tmp_path: Path) -> None:
+    body = (
+        "query q:\n    let c = lhs\n    from c\n"
+        "    where any(lhs.id == c.id for lhs in rhs)\n"
+        "    select:\n        id\n"
+    )
+    assert _check(tmp_path, body) == (0, [])
+
+
+def test_a_from_alias_source_name_stays_refused_when_an_any_shadows_the_alias(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "query q:\n    let c = lhs\n    from c\n"
+        "    where any(lhs.id == c.key for c in rhs)\n"
+        "    select:\n        id\n"
+    )
+    code, diagnostics = _check(tmp_path, body)
+    assert code == 1
+    assert [item[0] for item in diagnostics] == ["PIE-S2334"]
+
+
+def test_a_from_alias_source_name_outside_an_any_still_reads_the_from_input(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "query q:\n    let c = lhs\n    from c\n"
+        "    where any(c.id == r.key for r in rhs) and lhs.id > 0\n"
+        "    select:\n        id\n"
+    )
+    assert _check(tmp_path, body) == (0, [])
+
+
+def test_a_from_alias_source_name_keeps_an_unknown_field_diagnostic(
+    tmp_path: Path,
+) -> None:
+    body = _FROM_ALIAS + "    select:\n        a = lhs.missing\n"
+    source = (HEAD + body).splitlines()
+    line = next(
+        number for number, text in enumerate(source, 1) if "lhs.missing" in text
+    )
+    column = source[line - 1].index("lhs.missing") + 1
+    assert _check(tmp_path, body) == (
+        1,
+        [("PIE-S2102", "Unknown field: lhs.missing", line, column)],
+    )
+
+
+@pytest.mark.parametrize("argument", ("{}.text", "lower({}.text)"))
+def test_a_from_alias_source_name_keeps_inline_def_argument_checks(
+    tmp_path: Path, argument: str
+) -> None:
+    prefix = (
+        "shape TextRow:\n    text: Text\n"
+        'source texts: TextRow = postgres.table("texts")\n'
+        "def need_int(x: Int) -> Int: return x\n"
+    )
+    bodies = (
+        "query q:\n    from texts\n    select:\n        a = need_int("
+        + argument.format("texts")
+        + ")\n",
+        "query q:\n    let r = texts\n    from r\n"
+        "    select:\n        a = need_int(" + argument.format("r") + ")\n",
+        "query q:\n    let r = texts\n    from r\n"
+        "    select:\n        a = need_int(" + argument.format("texts") + ")\n",
+    )
+    results = []
+    for name, body in zip(("direct", "binding", "source"), bodies, strict=True):
+        results.append(_check(tmp_path / name, prefix + body))
+    assert [
+        [(code, message) for code, message, _, _ in result[1]] for result in results
+    ] == [
+        [
+            (
+                "PIE-S2395",
+                "Invalid argument for def need_int at position 1 (x): expected Int, got Text",
+            )
+        ]
+    ] * 3
+
+
+# Clauses whose refusal of a name that is no input differs between the two
+# modes for any such name, or that only a project has: their reads by the
+# alias are accepted in each mode that has them.
+FROM_ALIAS_ACCEPTED = {
+    "group_having": (
+        _FROM_ALIAS + "    group by:\n        r.id\n    select:\n        id = r.id\n"
+        "        n = count()\n    having:\n        n > 1\n",
+        True,
+    ),
+    "aggregate": (_FROM_ALIAS + "    select:\n        m = max(r.key)\n", True),
+    "aggregate_source": (
+        _FROM_ALIAS + "    select:\n        m = max(lhs.key)\n",
+        False,
+    ),
+    "distinct": (_FROM_ALIAS + "    select distinct:\n        id = r.id\n", False),
+    "group_having_source": (
+        _FROM_ALIAS
+        + "    group by:\n        lhs.id\n    select:\n        id = lhs.id\n"
+        "        n = count()\n    having:\n        n > 1\n",
+        False,
+    ),
+    "relation_let_body": (
+        "query q:\n    let a:\n        let r = lhs\n        from r\n"
+        "        select:\n            id = r.id\n    from a\n    select:\n        id\n",
+        False,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FROM_ALIAS_ACCEPTED))
+def test_a_from_alias_reads_in_every_clause_a_project_checks(
+    tmp_path: Path, case: str
+) -> None:
+    body, single_file = FROM_ALIAS_ACCEPTED[case]
+    assert _check(tmp_path / "project", body) == (0, [])
+    if single_file:
+        assert _check_file(tmp_path / "file", body) == (0, [])

@@ -26,7 +26,6 @@ from pietto._project.project_query_block import (
     ProjectNonConcreteQueryBlock,
     ProjectQueryBlockConstructionResult,
     ProjectQueryBlockRowSource,
-    ProjectVerifiedJoinedRowSource,
 )
 from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
@@ -139,9 +138,7 @@ class ProjectConcreteScalarEnvironment:
             source_fields: tuple[ProjectScalarSourceField, ...] = (
                 _ordinary_source_fields(row_source)
             )
-        elif isinstance(
-            row_source, (ProjectVerifiedJoinedRowSource, ProjectCurrentJoinedRowSource)
-        ):
+        elif isinstance(row_source, ProjectCurrentJoinedRowSource):
             source_fields = row_source.fields
         else:
             raise AssertionError("concrete query block lost its row-source variant")

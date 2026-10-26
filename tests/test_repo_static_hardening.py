@@ -143,7 +143,7 @@ table all_users:
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
     emitted = capsys.readouterr()
     assert emitted.err == ""
-    assert emitted.out == 'SELECT\n    "id" AS "id"\nFROM "users"\n'
+    assert emitted.out == '-- all_users\nSELECT\n    "id" AS "id"\nFROM "users";\n'
 
 
 @pytest.mark.parametrize(

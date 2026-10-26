@@ -3514,9 +3514,7 @@ def _analyze_no_join_scalar(
     normalized = expression if record is None else record.expression
     any_values: tuple[ProjectAnyValue, ...] = ()
     if completion is not None:
-        root = (
-            completion.verification.root.join_regions.uses.relationships.semantic_result
-        )
+        root = completion.verification.root.join_regions.uses.semantic_result
         resolution = _semantic_facts(completion, owner).resolution
         any_values = analyze_any_values(
             root=root,
@@ -4078,7 +4076,8 @@ def _prepare_relation_order_inputs(
             owner=item.owner,
             container_ordinal=item.source_ordinal,
             item=item.item,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
             input_schema=source.input_schema,
             let_scope=source.let_scope,
         )
@@ -4420,7 +4419,8 @@ def _no_join_window_scope(
         return build_window_input_scope(
             definition=definition,
             input_schema=semantic_input,
-            field_qualifier=definition.from_clause.source_name,
+            field_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
             value_types=value_types,
             let_value_types=let_scope.value_types,
             let_expressions=let_scope.binding_expressions,
@@ -4462,7 +4462,8 @@ def _no_join_qualify_candidates(
         type(expression) is not DottedNameExpr
         or not scope.allows_qualified_fields
         or len(expression.parts) != 2
-        or expression.parts[0] != definition.from_clause.source_name
+        or expression.parts[0]
+        != (definition.from_clause.binding_name or definition.from_clause.source_name)
     ):
         return ()
     name = expression.parts[1]
@@ -4587,6 +4588,8 @@ def _hidden_no_join_window(
         id(binding): target
         for binding, target in zip(scope.bindings, input_context.targets, strict=True)
     }
+    from_clause = _derived_definition(owner).from_clause
+    qualifier = from_clause.binding_name or from_clause.source_name
 
     def prepare_inputs(effective: WindowExpr) -> None:
         nonlocal input_uses
@@ -4601,10 +4604,7 @@ def _hidden_no_join_window(
             binding = (
                 None
                 if role is WindowDependencyRole.RELATION_INPUT
-                else scope.resolve(
-                    source,
-                    field_qualifier=_derived_definition(owner).from_clause.source_name,
-                )
+                else scope.resolve(source, field_qualifier=qualifier)
             )
             ordinal = ordinals.get(role, 0)
             ordinals[role] = ordinal + 1
@@ -4625,7 +4625,7 @@ def _hidden_no_join_window(
     analysis = analyze_window_computation(
         expression=expression,
         input_schema=scope.row_schema,
-        field_qualifier=_derived_definition(owner).from_clause.source_name,
+        field_qualifier=qualifier,
         value_types=value_types,
         diagnostics=diagnostics,
         prepare_inputs=prepare_inputs,
@@ -5871,7 +5871,7 @@ def _complete_no_join_output(
     }:
         raise TypeError("No-JOIN replay upstream must produce rows.")
     predicate_catalog = ProjectRelationshipPredicateCatalog(
-        semantic_result=completion.verification.root.join_regions.uses.relationships.semantic_result
+        semantic_result=completion.verification.root.join_regions.uses.semantic_result
     )
     predicate_expressions = bind_project_no_join_relationship_predicates(
         predicate_catalog, owner
@@ -7241,12 +7241,12 @@ def build_project_effective_output_completion(
         and (
             bool(
                 any_value_origins(
-                    completion.verification.root.join_regions.uses.relationships.semantic_result,
+                    completion.verification.root.join_regions.uses.semantic_result,
                     owner,
                 )
             )
             or project_owner_has_relationship_calls(
-                completion.verification.root.join_regions.uses.relationships.semantic_result,
+                completion.verification.root.join_regions.uses.semantic_result,
                 owner,
             )
         )

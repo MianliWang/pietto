@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
+from pietto._project import model as project_model
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -114,7 +115,9 @@ def test_parser_errors_short_circuit_project_semantic_builder(
         del args, kwargs
         raise AssertionError("project semantic builder must not run after parse errors")
 
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", unexpected_builder)
+    monkeypatch.setattr(
+        project_model, "build_empty_project_semantic_result", unexpected_builder
+    )
 
     assert cli.main(["check", "--project", str(root)]) == 1
 

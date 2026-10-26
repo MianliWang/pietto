@@ -294,6 +294,33 @@ DEFINITION_ERRORS = {
         ]
         * 2,
     ),
+    # The value of an inclusive chain is not itself copied.
+    "an_error_in_the_value_of_an_inclusive_chain_inside_a_body": (
+        "def dbl(x: Int | None) -> Int | None: return x + x\n"
+        "def h(y: Int) -> Bool | None: return 0 <= dbl(y + nope) <= 10\n",
+        [("PIE-S2102", 2, 51, "Unknown field: nope")] * 2,
+    ),
+    # A copied chain operand suppresses equal errors anywhere in its text,
+    # including an inclusive chain nested in that operand.
+    "an_error_in_an_inclusive_chain_that_is_a_copied_operand_inside_a_body": (
+        "def dbl(x: Int | None) -> Int | None: return x + x\n"
+        "def h(y: Int) -> Bool | None: return False != (0 <= dbl(y + nope) <= 10) != True\n",
+        [("PIE-S2102", 2, 61, "Unknown field: nope")],
+    ),
+    # Conversely, an inclusive value that holds a copied chain suppresses the
+    # error in that nested chain operand.
+    "an_error_in_a_copied_chain_inside_an_inclusive_value_inside_a_body": (
+        "def dbl(x: Int | None) -> Int | None: return x + x\n"
+        "def h(y: Int) -> Bool | None: return False <= (0 < dbl(y + nope) < 10) <= True\n",
+        [("PIE-S2102", 2, 60, "Unknown field: nope")],
+    ),
+    # A nested copied chain does not suppress a separate error in the same
+    # inclusive value when that error is outside its copied operand text.
+    "an_error_outside_a_copied_chain_inside_an_inclusive_value_inside_a_body": (
+        "def dup(b: Bool | None) -> Bool | None: return b or b\n"
+        "def h(y: Int) -> Bool | None: return False <= dup(nope or (0 < y < 10)) <= True\n",
+        [("PIE-S2102", 2, 51, "Unknown field: nope")] * 2,
+    ),
     "expansion_size": (
         "def f0(x: Int) -> Int | None: return x + x\n"
         + "".join(
@@ -1814,20 +1841,25 @@ def test_null_is_nullable_and_an_unknown_body_fits_no_result(
 def test_an_argument_reads_a_null_let_as_the_literal_written_in_its_place() -> None:
     """The literal itself, written where the let is read, gives the same
     errors: one at the innermost call it does not fit, after which it is
-    Unknown to every call around it."""
-    assert (
-        _errors(SHAPES + DEFS + NULL_LET_ARGUMENTS.replace("ARG", "None"))
-        == NULLS["null_let_inside_an_argument"][1]
-    )
+    Unknown to every call around it. Written as a list option, it also warns
+    that it never matches (PIE-S2107), which a `let:` name bound to it does
+    not."""
+    assert [
+        error
+        for error in _errors(SHAPES + DEFS + NULL_LET_ARGUMENTS.replace("ARG", "None"))
+        if error[0] != "PIE-S2107"
+    ] == NULLS["null_let_inside_an_argument"][1]
 
 
 def test_an_argument_reads_each_let_as_its_value_written_in_its_place() -> None:
     """The values themselves, written where their names are read, give the
-    same errors at the same calls."""
-    assert (
-        _errors(SHAPES + DEFS + WRITTEN_LETS.format(**WRITTEN))
-        == NULLS["let_reading_a_null_let"][1]
-    )
+    same errors at the same calls; a None written as a list option also
+    warns that it never matches (PIE-S2107)."""
+    assert [
+        error
+        for error in _errors(SHAPES + DEFS + WRITTEN_LETS.format(**WRITTEN))
+        if error[0] != "PIE-S2107"
+    ] == NULLS["let_reading_a_null_let"][1]
 
 
 @pytest.mark.parametrize(
@@ -2017,7 +2049,8 @@ def test_a_let_bound_to_null_is_null_over_an_unknown_row() -> None:
 def test_a_let_name_that_is_an_unknown_field_where_it_is_read_stays_one() -> None:
     """A grouped select item reads no `let:` value, so a `let:` name there is
     an unknown field, also in a def argument: it is not written in as its
-    value, and the argument adds nothing to that error."""
+    value, and the argument adds nothing to that error. A whole item that
+    reads the name says that it is no GROUP BY key."""
     source = (
         SHAPES + "def nn(x: Int) -> Int: return x\n"
         "table t:\n"
@@ -2033,7 +2066,7 @@ def test_a_let_name_that_is_an_unknown_field_where_it_is_read_stays_one() -> Non
         "        c = count(n)\n"
     )
     assert _errors(source) == [
-        ("PIE-S2102", BODY_LINE + 7, 16, "Unknown field: k"),
+        ("PIE-S2102", BODY_LINE + 7, 16, "Unknown field: k; k is not a GROUP BY key"),
         ("PIE-S2102", BODY_LINE + 8, 16, "Unknown field: k"),
         (
             "PIE-S2319",
@@ -2108,14 +2141,6 @@ def test_a_call_typed_beside_an_unknown_argument_is_checked_for_its_type_alone()
             13,
             "Invalid operands for operator +: expected numeric operands; "
             "string concatenation is not supported yet",
-        ),
-        (
-            "PIE-S2382",
-            35,
-            5,
-            "`bad` is a table of this file; single-file SQL reads it by name, so "
-            "the SQL runs only where the database already has a relation named "
-            "bad (an EXPLICIT_MODULES project emits it as a CTE)",
         ),
     ]
 
@@ -2385,18 +2410,6 @@ def test_a_selected_field_passed_to_a_def_it_does_not_fit_has_no_type() -> None:
                 "expected Int, got Int | None",
             )
             for line, column in ((14, 13), (20, 9), (21, 13))
-        ),
-        *(
-            (
-                "PIE-S2382",
-                line,
-                5,
-                f"`{name}` is a table of this file; single-file SQL reads it by "
-                "name, so the SQL runs only where the database already has a "
-                f"relation named {name} (an EXPLICIT_MODULES project emits it as a "
-                "CTE)",
-            )
-            for line, name in ((29, "g"), (33, "q"), (38, "fit"))
         ),
         ("PIE-S2104", 40, 13, LOWER_OF_INT),
     ]
@@ -3037,8 +3050,7 @@ def test_a_mismatched_inner_call_in_a_repeated_argument_is_reported_once(
 
 
 def test_a_window_call_may_be_a_repeated_qualify_argument() -> None:
-    """A window computation inside an argument is copied with its frame for
-    every use of the parameter; nothing raises."""
+    """Inlining copies each window frame; its own validation remains intact."""
     source = (
         SHAPES
         + "def twice(x: Int) -> Bool | None: return x <= 2 and x <= 3\n"
@@ -3053,8 +3065,15 @@ def test_a_window_call_may_be_a_repeated_qualify_argument() -> None:
     assert _shape(left) == _shape(right) and left != right
     assert left.spec.frame is not None
     assert _shape(left.spec.frame) == _shape(right.spec.frame)
-    # A single file does not type QUALIFY (explain and emit-sql refuse it).
-    assert _errors(source) == []
+    assert _errors(source) == [
+        (
+            "PIE-S2104",
+            14,
+            15,
+            "Invalid window frame for function row_number: explicit ROWS frame "
+            "is not allowed",
+        )
+    ]
 
 
 def _def_chain(count: int) -> str:
@@ -3737,10 +3756,6 @@ _ANY_V1 = (
     "any(...): a schema_version = 1 project has no any(...) in the current "
     "syntax; set schema_version = 2 to check it."
 )
-_LOWER_QUALIFY = (
-    "Single-file explain and emit-sql cannot lower QUALIFY; it is lowered only "
-    "in EXPLICIT_MODULES projects (schema version 2)"
-)
 _MODES = ("single", "emit-sql", "v1", "v2")
 # Each source names the window's or table function's own call `{f}`; per
 # mode, the diagnostics as (code, line, column, end line, end column,
@@ -3776,24 +3791,19 @@ _OWN_CALLS: dict[str, tuple[str, dict[str, _Found]]] = {
             ],
         },
     ),
-    # Single-file `check` accepts any authored QUALIFY, its windows included.
     "qualify": (
         "    select id\n    qualify {f}(id) window(order by id) > 0\n",
-        {
-            "single": [],
-            "emit-sql": [("PIE-I1000", 7, 5, 7, 46, _LOWER_QUALIFY)],
-            "v1": [],
-            "v2": [("PIE-S2103", 7, 13, 7, 22, "Unknown function: {f}")],
-        },
+        dict.fromkeys(
+            _MODES,
+            [("PIE-S2103", 7, 13, 7, 22, "Unknown function: {f}")],
+        ),
     ),
     "qualify_comparison_chain": (
         "    select id\n    qualify 0 < {f}(id) window(order by id) < 10\n",
-        {
-            "single": [],
-            "emit-sql": [("PIE-I1000", 7, 5, 7, 51, _LOWER_QUALIFY)],
-            "v1": [],
-            "v2": [("PIE-S2103", 7, 17, 7, 26, "Unknown function: {f}")],
-        },
+        dict.fromkeys(
+            _MODES,
+            [("PIE-S2103", 7, 17, 7, 26, "Unknown function: {f}")],
+        ),
     ),
     "qualify_any_argument": (
         f"    select id\n    qualify {{f}}({_ANY}) window(order by id) > 0\n",
@@ -3802,7 +3812,10 @@ _OWN_CALLS: dict[str, tuple[str, dict[str, _Found]]] = {
                 _MODES,
                 [("PIE-S2334", 7, 19, 7, 42, "ANY is not supported in this context")],
             ),
-            "v1": [("PIE-S2334", 7, 19, 7, 42, _ANY_V1)],
+            "v1": [
+                ("PIE-S2334", 7, 19, 7, 42, _ANY_V1),
+                ("PIE-S2103", 7, 13, 7, 43, "Unknown function: {f}"),
+            ],
         },
     ),
     "table_function": (

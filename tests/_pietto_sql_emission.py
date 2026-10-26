@@ -336,6 +336,7 @@ AGGREGATE_SPELLINGS = {
     "AVG(": "avg",
     "MIN(": "min",
     "MAX(": "max",
+    "string_agg(": "string_agg",
 }
 # The eleven admitted Slice9 identities, keyed by the exact emitted call token.
 WINDOW_SPELLINGS = {
@@ -1774,6 +1775,23 @@ def aggregate_fixture(target, case, variant):
         "source": source,
         "contract": encoded(contract).decode(),
         "policy": "bind_safe_literals" if variant == "bind" else "preserve_literals",
+    }
+
+
+def ordered_string_agg_witness(target):
+    """One C5 ordered aggregate witness outside the historical generation corpus."""
+
+    item = aggregate_fixture(target, "X_aggregate_grouped", "hidden")
+    return {
+        **item,
+        "source": AGGREGATE_HEADER.format(target=target)
+        + """table result:
+    from agg
+    select:
+        summary = string_agg(label, "//", order by key desc, key desc)
+""",
+        "case": "C5_ordered_string_agg",
+        "variant": "duplicate_desc",
     }
 
 
@@ -6074,20 +6092,35 @@ def _decode_fixed_public(document, limits):
                 "operands": operands,
             }
         if role == "cast_open":
-            take("syntax", "cast_open", "CAST(", original)
+            _, opening = take("syntax", "cast_open", subject=original)
+            text_cast = opening == "(CAST("
+            _need(
+                opening == ("(CAST(" if text_cast else "CAST(")
+                and (not text_cast or family == "postgres"),
+                "cast spelling",
+            )
             operand = row_parse(block, port_kind)
             _, token = take("syntax", "cast_close", subject=original)
             _need(
                 token
                 == (
-                    " AS pg_catalog.float8)" if family == "postgres" else " AS DOUBLE)"
+                    ' AS pg_catalog.text) COLLATE "C")'
+                    if text_cast
+                    else " AS pg_catalog.float8)"
+                    if family == "postgres"
+                    else " AS DOUBLE)"
                 ),
                 "cast spelling",
             )
             expected_ranges.append(
                 ("cast", original, start, lexical[cursor - 1][0]["end"])
             )
-            return {"kind": "cast", "expression": original, "operands": [operand]}
+            return {
+                "kind": "cast",
+                "expression": original,
+                "operator": "int_to_text" if text_cast else "int_to_float",
+                "operands": [operand],
+            }
         if role == "scalar_call_open":
             _, opening = take("syntax", "scalar_call_open", subject=original)
             call_argument_depth[0] += 1
@@ -6113,7 +6146,61 @@ def _decode_fixed_public(document, limits):
                     "COALESCE(": "coalesce",
                 },
             }[family]
-            if opening in {"substring(", "SUBSTRING("}:
+            if opening == "round(" and family == "postgres":
+                operands = [row_parse(block, port_kind)]
+                if peek() == "scalar_call_separator":
+                    take("syntax", "scalar_call_separator", ", CAST(", original)
+                    operands.append(row_parse(block, port_kind))
+                    take(
+                        "syntax",
+                        "scalar_call_close",
+                        " AS pg_catalog.int4))",
+                        original,
+                    )
+                    close = None
+                else:
+                    close = ")"
+                name = "round"
+            elif opening == "(CASE WHEN abs((" and family == "postgres":
+                operands = [row_parse(block, port_kind)]
+                separators = (
+                    ") - trunc(",
+                    ") ) >= 0.5 THEN trunc(",
+                    " ) + (CASE WHEN ",
+                    " < 0 THEN -1.0 ELSE 1.0 END) ELSE trunc(",
+                )
+                for separator in separators:
+                    take("syntax", "scalar_call_separator", separator, original)
+                    repeated = row_parse(block, port_kind, repeated=True)
+                    _need(
+                        repeated["expression"] == operands[0]["expression"],
+                        "Float round repeated operand",
+                    )
+                name, close = "round", " ) END)"
+            elif (
+                opening in {"CAST(date_trunc(", "date_trunc("} and family == "postgres"
+            ):
+                unit = row_parse(block, port_kind)
+                date = opening == "CAST(date_trunc("
+                take(
+                    "syntax",
+                    "scalar_call_separator",
+                    ", CAST(" if date else ", ",
+                    original,
+                )
+                temporal = row_parse(block, port_kind)
+                operands, name = [unit, temporal], "date_trunc"
+                if date:
+                    take(
+                        "syntax",
+                        "scalar_call_close",
+                        " AS timestamp))",
+                        original,
+                    )
+                    close = " AS date)"
+                else:
+                    close = ")"
+            elif opening in {"substring(", "SUBSTRING("}:
                 _need(
                     opening == ("substring(" if family == "postgres" else "SUBSTRING(")
                 )
@@ -6604,6 +6691,7 @@ def _decode_fixed_public(document, limits):
                 **read["realization"],
                 "root": node["expression"],
                 "read": read,
+                "literal": read.get("literal"),
                 "strict": read.get("strict", False)
                 or read["realization"]["nullable"] is not True,
                 "proof": read.get("proof", False)
@@ -6990,8 +7078,116 @@ def _decode_fixed_public(document, limits):
                 )
             return row_bool(nullable)
 
+        def static_literal(value):
+            literal = value.get("value") or value.get("literal")
+            return None if literal is None else literal.get("value")
+
         def scalar_result(name):
             nonlocal nullable
+            if name == "round":
+                _need(family == "postgres", "round family")
+                value = operands[0]
+                if value["tag"] == "Float":
+                    _need(
+                        len(operands) == 1
+                        and value["storage"] == {"kind": "pg_float8"}
+                        and value["domain"]
+                        == {"kind": "finite_float", "format": "binary64"},
+                        "Float round carrier",
+                    )
+                    return {
+                        "tag": "Float",
+                        "storage": {"kind": "pg_float8"},
+                        "nullable": nullable,
+                        "domain": {"kind": "finite_float", "format": "binary64"},
+                    }
+                _need(value["tag"] == "Decimal", "Decimal round operand")
+                parameters = value["domain"]
+                _need(
+                    value["storage"]
+                    == {
+                        "kind": "pg_numeric",
+                        "precision": parameters.get("precision"),
+                        "scale": parameters.get("scale"),
+                    }
+                    and type(parameters.get("precision")) is int
+                    and type(parameters.get("scale")) is int,
+                    "Decimal round carrier",
+                )
+                scale = 0 if len(operands) == 1 else static_literal(operands[1])
+                _need(
+                    len(operands) == 1
+                    or (
+                        operands[1]["tag"] == "Int"
+                        and type(scale) is int
+                        and -30 <= scale <= 30
+                    ),
+                    "Decimal round scale",
+                )
+                assert type(scale) is int
+                result_scale = min(parameters["scale"], max(scale, 0))
+                result_precision = (
+                    parameters["precision"]
+                    if scale >= parameters["scale"]
+                    else parameters["precision"]
+                    - parameters["scale"]
+                    + 1
+                    + result_scale
+                )
+                _need(
+                    1 <= result_precision <= 65
+                    and 0 <= result_scale <= min(result_precision, 30),
+                    "Decimal round result carrier",
+                )
+                return {
+                    "tag": "Decimal",
+                    "storage": {
+                        "kind": "pg_numeric",
+                        "precision": result_precision,
+                        "scale": result_scale,
+                    },
+                    "nullable": nullable,
+                    "domain": {
+                        "kind": "decimal",
+                        "precision": result_precision,
+                        "scale": result_scale,
+                    },
+                }
+            if name == "date_trunc":
+                _need(family == "postgres" and len(operands) == 2, "date_trunc family")
+                unit, temporal = operands
+                value = static_literal(unit)
+                _need(
+                    unit["tag"] == "Text" and type(value) is str,
+                    "date_trunc unit literal",
+                )
+                if temporal["tag"] == "Date":
+                    _need(
+                        value in {"year", "month", "day"}
+                        and temporal["storage"] == {"kind": "pg_date"}
+                        and temporal["domain"] == {"kind": "date"},
+                        "date_trunc Date carrier",
+                    )
+                    return {
+                        "tag": "Date",
+                        "storage": {"kind": "pg_date"},
+                        "nullable": nullable,
+                        "domain": {"kind": "date"},
+                    }
+                _need(
+                    value in {"year", "month", "day", "hour", "minute"}
+                    and temporal["tag"] == "Timestamp"
+                    and temporal["storage"]
+                    == {"kind": "pg_timestamp", "fractional_seconds": 6}
+                    and temporal["domain"] == {"kind": "timestamp"},
+                    "date_trunc Timestamp carrier",
+                )
+                return {
+                    "tag": "Timestamp",
+                    "storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
+                    "nullable": nullable,
+                    "domain": {"kind": "timestamp"},
+                }
             if name in {"lower", "upper", "trim"} and len(operands) == 1:
                 return text_result(operands[0])
             if (
@@ -7417,14 +7613,30 @@ def _decode_fixed_public(document, limits):
                 "cast operand",
             )
             row_interval(operands[0])
-            result = {
-                "tag": "Float",
-                "storage": {
-                    "kind": "pg_float8" if family == "postgres" else "my_double"
-                },
-                "nullable": nullable,
-                "domain": {"kind": "finite_float", "format": "binary64"},
-            }
+            if node["operator"] == "int_to_text":
+                _need(family == "postgres", "Text cast family")
+                result = {
+                    "tag": "Text",
+                    "storage": {"kind": "pg_text"},
+                    "nullable": nullable,
+                    "domain": {
+                        "kind": "text",
+                        "max_characters": 20,
+                        "encoding": "UTF8",
+                        "collation": "C",
+                        "padding": "NO PAD",
+                    },
+                }
+            else:
+                _need(node["operator"] == "int_to_float", "cast operation")
+                result = {
+                    "tag": "Float",
+                    "storage": {
+                        "kind": "pg_float8" if family == "postgres" else "my_double"
+                    },
+                    "nullable": nullable,
+                    "domain": {"kind": "finite_float", "format": "binary64"},
+                }
         elif node["kind"] == "scalar_call":
             result = scalar_result(node["name"])
         else:
@@ -7690,7 +7902,7 @@ def _decode_fixed_public(document, limits):
         _need(subject["kind"] == "aggregate", "aggregate occurrence kind")
         _, spelling = take("syntax", "aggregate_open", subject=subject)
         _need(spelling in AGGREGATE_SPELLINGS, "aggregate spelling")
-        distinct, argument = False, None
+        distinct, argument, delimiter, order_by = False, None, None, []
         argument_cast = None
         if peek() == "aggregate_row_count":
             take("syntax", "aggregate_row_count", "*", subject)
@@ -7700,21 +7912,38 @@ def _decode_fixed_public(document, limits):
                 take("syntax", "aggregate_distinct", "DISTINCT ", subject)
                 distinct = True
                 _need(spelling == "COUNT(", "only count_distinct spells DISTINCT")
-            has_argument_cast = peek() == "aggregate_argument_cast_open"
-            if has_argument_cast:
-                take("syntax", "aggregate_argument_cast_open", "CAST(", subject)
-            argument = row_parse(block)
-            if not has_argument_cast and peek() == "aggregate_argument_cast_close":
-                _need(False, "aggregate argument cast close")
-            if has_argument_cast:
-                _, token = take(
-                    "syntax", "aggregate_argument_cast_close", subject=subject
-                )
-                _need(
-                    token.startswith(" AS ") and token.endswith(")"),
-                    "aggregate argument cast",
-                )
-                argument_cast = token[4:-1]
+            if spelling == "string_agg(":
+                _need(family == "postgres", "string_agg family")
+                argument = row_parse(block)
+                take("syntax", "aggregate_separator", ", ", subject)
+                delimiter = row_parse(block)
+                take("syntax", "aggregate_order", " ORDER BY ", subject)
+                while True:
+                    value = row_parse(block)
+                    _, direction = take(
+                        "syntax", "aggregate_order_direction", subject=subject
+                    )
+                    _need(direction in {" ASC", " DESC"}, "string_agg direction")
+                    order_by.append((value, direction == " DESC"))
+                    if peek() != "aggregate_order_separator":
+                        break
+                    take("syntax", "aggregate_order_separator", ", ", subject)
+            else:
+                has_argument_cast = peek() == "aggregate_argument_cast_open"
+                if has_argument_cast:
+                    take("syntax", "aggregate_argument_cast_open", "CAST(", subject)
+                argument = row_parse(block)
+                if not has_argument_cast and peek() == "aggregate_argument_cast_close":
+                    _need(False, "aggregate argument cast close")
+                if has_argument_cast:
+                    _, token = take(
+                        "syntax", "aggregate_argument_cast_close", subject=subject
+                    )
+                    _need(
+                        token.startswith(" AS ") and token.endswith(")"),
+                        "aggregate argument cast",
+                    )
+                    argument_cast = token[4:-1]
         closed, _ = take("syntax", "aggregate_close", ")", subject)
         expected_ranges.append(("aggregate", subject, start, closed["end"]))
         return {
@@ -7722,11 +7951,15 @@ def _decode_fixed_public(document, limits):
             "spelling": spelling,
             "distinct": distinct,
             "argument": argument,
+            "delimiter": delimiter,
+            "order_by": order_by,
             "argument_cast": argument_cast if argument is not None else None,
             "function": "count_distinct" if distinct else AGGREGATE_SPELLINGS[spelling],
         }
 
-    def aggregate_realization(function, argument, argument_cast):
+    def aggregate_realization(
+        function, argument, argument_cast, delimiter=None, order_by=()
+    ):
         """This result's own domain: a count is not its argument's value range."""
         if function in {"count", "count_distinct"}:
             _need(argument_cast is None, "count has no aggregate argument cast")
@@ -7739,6 +7972,27 @@ def _decode_fixed_public(document, limits):
             }
         _need(argument is not None, "an aggregate value needs its own argument")
         assert argument is not None
+        if function == "string_agg":
+            _need(
+                family == "postgres"
+                and argument_cast is None
+                and delimiter is not None
+                and argument["tag"] == delimiter["tag"] == "Text"
+                and bool(order_by),
+                "string_agg arguments",
+            )
+            return {
+                "tag": "Text",
+                "storage": {"kind": "pg_text"},
+                "nullable": True,
+                "domain": {
+                    "kind": "text",
+                    "max_characters": None,
+                    "encoding": "UTF8",
+                    "collation": "C",
+                    "padding": "NO PAD",
+                },
+            }
         if function == "avg":
             _need(argument["tag"] == "Int", "AVG accepts the reviewed Int carrier")
             _need(
@@ -8705,20 +8959,44 @@ def _decode_fixed_public(document, limits):
                     argument = row_resolve(
                         node["argument"], incoming, alias, node["aggregate"]
                     )
-                    _need(
-                        "read" in argument,
-                        "an aggregate argument is one direct established field",
+                    if node["function"] == "string_agg":
+                        _need(
+                            "read" in argument and argument["tag"] == "Text",
+                            "string_agg value carrier",
+                        )
+                    else:
+                        _need(
+                            "read" in argument,
+                            "an aggregate argument is one direct established field",
+                        )
+                        _need(
+                            argument["tag"] == "Int"
+                            or (
+                                node["function"] in {"count", "count_distinct"}
+                                and argument["tag"] in {"Timestamp", "UUID"}
+                            ),
+                            "aggregate argument carrier",
+                        )
+                delimiter = (
+                    None
+                    if node["delimiter"] is None
+                    else row_resolve(
+                        node["delimiter"], incoming, alias, node["aggregate"]
                     )
-                    _need(
-                        argument["tag"] == "Int"
-                        or (
-                            node["function"] in {"count", "count_distinct"}
-                            and argument["tag"] in {"Timestamp", "UUID"}
-                        ),
-                        "aggregate argument carrier",
+                )
+                order_by = [
+                    (
+                        row_resolve(value, incoming, alias, node["aggregate"]),
+                        descending,
                     )
+                    for value, descending in node["order_by"]
+                ]
                 realization = aggregate_realization(
-                    node["function"], argument, node["argument_cast"]
+                    node["function"],
+                    argument,
+                    node["argument_cast"],
+                    delimiter,
+                    order_by,
                 )
                 read, field, literal, root = None, None, None, None
                 origin = {
@@ -8729,10 +9007,21 @@ def _decode_fixed_public(document, limits):
                     "function": node["function"],
                     "determinant": None,
                     "aggregate": node["aggregate"],
-                    "arguments": [] if argument is None else [argument["root"]],
-                    "inputs": [argument["read"]["terminal"]]
-                    if argument is not None
-                    else [column["terminal"] for column in incoming],
+                    "arguments": [
+                        value["root"]
+                        for value in (argument, delimiter)
+                        if value is not None
+                    ],
+                    "inputs": [
+                        value["read"]["terminal"]
+                        for value in (
+                            argument,
+                            delimiter,
+                            *(item for item, _ in order_by),
+                        )
+                        if value is not None and "read" in value
+                    ]
+                    or [column["terminal"] for column in incoming],
                     "result": export,
                 }
             elif node["kind"] == "window":

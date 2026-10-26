@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pietto._project.model import CompiledProjectInput
@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 from pietto._project.query_parameters import query_parameter_semantic_diagnostics
 from pietto._project.project_set_operations import ProjectSetFailure
 from pietto._project.module_relation_resolution import (
-    ProjectResolvedModuleRelationReference,
     ProjectResolvedSetOperand,
 )
 
@@ -36,11 +35,7 @@ from pietto._project import (
     project_joined_row_semantics,
     project_joined_windows,
     project_multifact,
-    project_relationship_conditions,
-    project_relationship_match_guarantees,
-    project_relationship_paths,
     project_relationship_uses,
-    project_relationships,
     project_row_keys,
     project_scalar_namespaces,
     project_value_fds,
@@ -53,7 +48,6 @@ from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.project_completion import (
     ProjectCompletion,
     ProjectEffectiveOutputTerminal,
-    ProjectEffectiveOutputTerminalReason,
     ProjectExistingEffectiveOutput,
     build_project_completion,
 )
@@ -96,11 +90,8 @@ from pietto._project.project_phase62_verification import (
     verify_project_phase62,
 )
 from pietto.ast_nodes import (
-    ComparisonExpr,
-    DottedNameExpr,
     EnumDef,
     JoinClause,
-    NameExpr,
     QueryDef,
     SourceDef,
     TableDef,
@@ -482,9 +473,6 @@ class _ProjectCompletedSemanticRoots:
                     shapes=(
                         verification.root.base_relational.origins.value_fds.row_keys.shape_diagnostics
                     ),
-                    relationships=(
-                        verification.root.join_regions.uses.index.guarantees.conditions.diagnostics
-                    ),
                     orders=self.order_facts,
                 ),
                 *source_diagnostics,
@@ -797,13 +785,7 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
     return ()
 
 
-def _fallback_diagnostic(
-    entry: ProjectEffectiveOutputCompletionEntry,
-    semantic_facts: module_semantic_fact_preservation.ProjectModuleSemanticFactSet
-    | None,
-    uses: project_relationship_uses.ProjectRelationshipUseSet | None,
-    causes: tuple[str, ...] = (),
-) -> Diagnostic:
+def _fallback_diagnostic(entry: ProjectEffectiveOutputCompletionEntry) -> Diagnostic:
     if type(entry) not in {
         ProjectEffectiveOutputTerminal,
         ProjectEffectiveOutputCompletionTerminal,
@@ -824,13 +806,7 @@ def _fallback_diagnostic(
         severity=Severity.ERROR,
         message=(
             "Project relation semantic completion is unavailable: "
-            f"{entry.owner.identity.declared_name}"
-            + (
-                f" ({'; '.join(causes)})"
-                if causes
-                else _fanout_cause(entry)
-                or _deferred_input_cause(entry, semantic_facts, uses)
-            )
+            f"{entry.owner.identity.declared_name}" + _fanout_cause(entry)
         ),
         location=SourceLocation(
             path=span.path,
@@ -842,121 +818,15 @@ def _fallback_diagnostic(
     )
 
 
-def _deferred_input_cause(
-    entry: ProjectEffectiveOutputCompletionEntry,
-    semantic_facts: module_semantic_fact_preservation.ProjectModuleSemanticFactSet
-    | None,
-    uses: project_relationship_uses.ProjectRelationshipUseSet | None,
-) -> str:
-    """Name the relationship JOINs reading an input that has no JOIN facts yet.
-
-    A relationship JOIN extends the historical row facts of its query, which
-    stay deferred while the FROM input, or a relation it reads, does more
-    than select fields of its own input (see ``_relation_row_state`` in module
-    relation resolution). Only that recorded reason is described; any other
-    keeps the bare message.
-    """
-
-    if (
-        type(entry) is not ProjectEffectiveOutputTerminal
-        or entry.reason
-        is not ProjectEffectiveOutputTerminalReason.HISTORICAL_NON_CONCRETE
-        or semantic_facts is None
-    ):
-        return ""
-    definition = entry.owner.definition
-    if not isinstance(definition, (TableDef, QueryDef)):
-        return ""
-    base = definition.from_clause.source_name
-    # A JOIN without `from` reads the source its relationship lookup inferred.
-    inferred = {
-        id(use.clause): use.source_binding.name
-        for ledger in (() if uses is None else uses.ledgers)
-        if ledger.owner is entry.owner
-        for use in ledger.uses
-        if use.source_binding is not None
-    }
-    joins = tuple(
-        clause.target_binding_name
-        for clause in definition.join_clauses
-        if (clause.source_binding_name or inferred.get(id(clause))) == base
-    )
-    if not joins:
-        return ""
-    reads: list[str] = []
-    facts = entry.fragment.semantic_facts
-    while True:
-        resolution = facts.resolution
-        if type(resolution) is not ProjectResolvedModuleRelationReference:
-            return ""
-        reads.append(resolution.reference.from_clause.source_name)
-        bucket = semantic_facts.find_owner(resolution.target_symbol.target_occurrence)
-        if len(bucket) != 1:
-            return ""
-        facts = bucket[0]
-        if (
-            facts.base_row_fact.state.reason
-            is not ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
-        ):
-            break
-    root = _deferred_row_features(facts)
-    if not root:
-        return ""
-    joined = f"JOIN{'s' if len(joins) > 1 else ''} {_and_list(joins)}"
-    return (
-        f" ({joined} read{'' if len(joins) > 1 else 's'} {base}, whose rows are not "
-        "available to a relationship JOIN yet: it "
-        + ", which ".join((*(f"reads {name}" for name in reads[1:]), root))
-        + ")"
-    )
-
-
-def _deferred_row_features(
-    facts: module_semantic_fact_preservation.ProjectModuleRelationSemanticFacts,
-) -> str:
-    """Why module row facts defer this relation, as ``_relation_row_state`` decides."""
-
-    if (
-        facts.base_row_fact.state.reason
-        is not ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
-    ):
-        return ""
-    definition = facts.owner.definition
-    if not isinstance(definition, (TableDef, QueryDef)):
-        return ""
-    computed = sum(
-        type(item.expression) not in {NameExpr, DottedNameExpr}
-        for item in definition.select_items
-    )
-    features = tuple(
-        text
-        for present, text in (
-            (definition.let_clause is not None, "let bindings"),
-            (definition.group_by_clause is not None, "GROUP BY"),
-            (definition.satisfying_clause is not None, "a having clause"),
-            (computed == 1, "a computed SELECT output"),
-            (computed > 1, "computed SELECT outputs"),
-        )
-        if present
-    )
-    if features:
-        return f"has {_and_list(features)}"
-    # Module row facts leave a relation let's rows to its declaration's block.
-    return "" if facts.owner.let_position is None else "is a relation let"
-
-
-def _infers(clause: JoinClause) -> bool:
-    """Whether a JOIN omits its `from` or the roles of a VIA step."""
-    return clause.source_binding_name is None or any(
-        step.source_endpoint_role is None for step in clause.traversal_steps
-    )
-
-
 def _join_causes(
     entry: ProjectEffectiveOutputCompletionEntry,
     conditions: ProjectJoinConditionSet | ProjectJoinConditionCompletion | None,
 ) -> tuple[tuple[JoinClause, str], ...]:
-    """Explain actual legacy inference failures after binding current JOIN scope."""
+    """Name what each JOIN without `on` needs once its target is concrete.
+
+    A declared relationship never joins by itself: only an `on` matches the
+    rows of such a JOIN, so it names the inputs it would match.
+    """
     if conditions is None:
         return ()
     uses = conditions.uses
@@ -965,11 +835,10 @@ def _join_causes(
         if ledger.owner is not entry.owner:
             continue
         for use in ledger.uses:
-            if (
-                use.clause.uses_named_input
-                and project_relationship_uses.project_join_mode(use.clause)
-                in {"M3", "M5"}
-            ):
+            if project_relationship_uses.project_join_mode(use.clause) in {
+                "M3",
+                "M5",
+            }:
                 matching = tuple(
                     condition
                     for condition in conditions.entries
@@ -991,40 +860,32 @@ def _join_causes(
                     raise ValueError(
                         "Named JOIN diagnostics lost their explicit input scope."
                     )
-                # These inputs are named by the current condition; its historical
-                # relationship lookup is not an additional inference requirement.
                 # Terminal/resolution/condition errors remain in _final_diagnostics,
                 # including its fallback for an unavailable input with no own error.
                 continue
-            cause = _join_cause(use, ledger, uses)
-            if cause is not None and use.clause.uses_named_input:
-                # A modern JOIN without `on` infers no relationship: only an
-                # `on` matches its rows, so the historical lookup is not named.
-                names = tuple(
-                    binding.name
-                    for binding in project_relationship_uses.project_join_visible_bindings(
-                        ledger, use
-                    )
+            if use.target_binding.output is None:
+                continue
+            names = tuple(
+                binding.name
+                for binding in project_relationship_uses.project_join_visible_bindings(
+                    ledger, use
                 )
-                matched = (
-                    f" that matches {_or_list(names)} to "
-                    f"{use.clause.target_relation_name}"
-                    if names
-                    else ""
-                )
-                cause = (
+            )
+            found.append(
+                (
+                    use.clause,
                     f"JOIN {use.clause.target_binding_name}: write `on` with the "
-                    f"condition{matched}"
+                    f"condition that matches {_or_list(names)} to "
+                    f"{use.clause.target_relation_name}",
                 )
-            if cause is not None:
-                found.append((use.clause, cause))
+            )
     return tuple(found)
 
 
 def _join_cause_diagnostic(
     entry: ProjectEffectiveOutputCompletionEntry, clause: JoinClause, cause: str
 ) -> Diagnostic:
-    """PIE-S2333 at a JOIN that omits `from` or VIA roles, with its cause."""
+    """PIE-S2333 at a JOIN without `on`, with its cause."""
     span = clause.span
     return Diagnostic(
         code="PIE-S2333",
@@ -1041,404 +902,6 @@ def _join_cause_diagnostic(
             end_column=span.end_column,
         ),
     )
-
-
-def _join_cause(
-    use: project_relationship_uses.ProjectJoinUse,
-    ledger: project_relationship_uses.ProjectRelationJoinUseLedger,
-    uses: project_relationship_uses.ProjectRelationshipUseSet,
-) -> str | None:
-    """Why a JOIN's relationship lookup found no candidate or several.
-
-    Covers an omitted `from` (no earlier binding, several, or one whose
-    relationships cannot be used), a VIA step without roles (a relationship of
-    a relation to itself, one that does not end at the relation the step
-    reaches, or one that cannot be used), and a JOIN with `from` but without
-    VIA whose source has several relationship directions to its target. A
-    `via` line is offered only for a relationship of the JOIN's own module.
-    """
-    if type(use) is not project_relationship_uses.ProjectNonConcreteJoinUse:
-        return None
-    kinds = project_relationship_uses.ProjectJoinUseIssueKind
-    clause = use.clause
-    join = f"JOIN {clause.target_binding_name}"
-    index = uses.index
-    environments = uses.relationships.find_module_path(
-        ledger.owner.identity.module_path
-    )
-    local = {
-        subject.occurrence.identity
-        for environment in environments
-        for subject in environment.subjects
-    }
-    declarations = {
-        subject.occurrence.identity: subject.occurrence
-        for subject in uses.relationships.subjects
-    }
-
-    def where(
-        occurrence: project_relationships.ProjectRelationshipDeclarationOccurrence,
-    ) -> str:
-        if occurrence.identity in local:
-            return ""
-        return f" of {occurrence.identity.module.path}"
-
-    def via(
-        direction: project_relationship_match_guarantees.ProjectDirectionalRelationshipMatchGuarantee,
-    ) -> str:
-        occurrence = declarations[direction.direction.declaration]
-        roles = (
-            f"{direction.direction.source.authored_role} -> "
-            f"{direction.direction.target.authored_role}"
-        )
-        if occurrence.identity in local:
-            return f"`via {occurrence.name}: {roles}`"
-        return f"relationship {occurrence.name}{where(occurrence)} ({roles})"
-
-    def reason(
-        subject: project_relationship_match_guarantees.ProjectNonConcreteMatchGuaranteeSubject,
-    ) -> str:
-        condition = subject.condition
-        # An unknown endpoint role or field, or operands of different types,
-        # are PIE-S2604 errors of the declaration itself.
-        if condition is None or any(
-            issue.kind in _DECLARATION_ERRORS for issue in condition.issues
-        ):
-            return "its declaration has errors"
-        # A field of an endpoint whose rows have no single-relation fields (a
-        # JOIN query, set, VALUES body or table function) has no authority.
-        for issue in condition.issues:
-            if issue.kind in _UNREADABLE_ENDPOINT and issue.reference_identity:
-                operand = (
-                    cast(ComparisonExpr, issue.expression).left,
-                    cast(ComparisonExpr, issue.expression).right,
-                )[issue.reference_identity.operand_position]
-                role = cast(DottedNameExpr, operand).parts[0]
-                for endpoint in subject.relationship.occurrence.endpoints:
-                    if endpoint.authored_role == role:
-                        return (
-                            "a relationship JOIN cannot read its endpoint "
-                            f"{endpoint.authored_relation_spelling}"
-                        )
-        if (
-            condition.state
-            is project_relationship_conditions.ProjectRelationshipConditionState.ABSENT
-        ):
-            return "it has no `on`"
-        return "its `on` is not only field equalities that a JOIN can use"
-
-    def unusable(
-        subject: project_relationship_match_guarantees.ProjectNonConcreteMatchGuaranteeSubject,
-    ) -> str:
-        occurrence = subject.relationship.occurrence
-        return (
-            f"relationship {occurrence.name}{where(occurrence)} "
-            f"(cannot be used: {reason(subject)})"
-        )
-
-    def foreign(
-        directions: tuple[
-            project_relationship_match_guarantees.ProjectDirectionalRelationshipMatchGuarantee,
-            ...,
-        ],
-    ) -> bool:
-        return any(
-            direction.direction.declaration not in local for direction in directions
-        )
-
-    def several(
-        source: str,
-        directions: tuple[
-            project_relationship_match_guarantees.ProjectDirectionalRelationshipMatchGuarantee,
-            ...,
-        ],
-    ) -> str:
-        return (
-            f"{join} matches {len(directions)} relationship directions from "
-            f"{source}: {_and_list(tuple(via(item) for item in directions))}; "
-            + (
-                "a `via` names only a relationship of this module"
-                if foreign(directions)
-                else "write one of them"
-            )
-        )
-
-    target = use.target_binding
-    found = (
-        project_relationship_uses.project_join_source_lookup(ledger, use, index)
-        if clause.source_binding_name is None
-        else None
-    )
-    visible = project_relationship_uses.project_join_visible_bindings(ledger, use)
-    blocking = (
-        project_relationship_uses.project_join_blocking_bindings(
-            index, visible, target, use.step_uses
-        )
-        if clause.source_binding_name is None and found is None
-        else ()
-    )
-    if blocking:
-        return (
-            f"{join}: "
-            + "; ".join(
-                f"earlier binding {binding.name} may be its source, but "
-                + (
-                    f"its relation {binding.relation_name} is not resolved"
-                    if binding.target is None
-                    else f"the name {binding.name} is bound more than once"
-                    if binding.state
-                    is project_relationship_uses.ProjectJoinUseState.AMBIGUOUS
-                    else f"a relationship JOIN cannot read {binding.relation_name}"
-                )
-                for binding in blocking
-            )
-            # `from` helps only toward another candidate; a JOIN-local `on`
-            # can read such a binding.
-            + (
-                "; write `from <binding>`"
-                if any(
-                    binding.output is not None
-                    and target.output is not None
-                    and (
-                        binding.output is use.step_uses[0].directions[0].source_output
-                        if use.step_uses
-                        else bool(
-                            index.resolve_direct(
-                                binding.output, target.output
-                            ).candidates
-                            or project_relationship_uses.project_unusable_relationships(
-                                index, binding, target
-                            )
-                        )
-                    )
-                    for binding in visible
-                )
-                else "; write `from` and `on` instead"
-            )
-        )
-    if found is not None and use.step_uses:
-        if len(found) != 1:
-            start = use.step_uses[0].directions[0].direction.source
-            names = tuple(binding.name for binding in found)
-            return (
-                f"{join}: `via {clause.traversal_steps[0].relationship_name}` "
-                f"starts at {start.authored_relation_spelling}, "
-                + (
-                    f"which {len(names)} earlier bindings read: "
-                    f"{_and_list(names)}; write `from <binding>`"
-                    if names
-                    else "which no earlier binding reads"
-                )
-            )
-    elif found is not None and target.output is not None:
-        options = [
-            (
-                binding,
-                index.resolve_direct(binding.output, target.output).candidates,
-                project_relationship_uses.project_unusable_relationships(
-                    index, binding, target
-                ),
-            )
-            for binding in found
-            if binding.output is not None
-        ]
-        if not options:
-            names = tuple(
-                binding.name
-                for binding in project_relationship_uses.project_join_visible_bindings(
-                    ledger, use
-                )
-            )
-            return (
-                f"{join}: no relationship joins {_or_list(names)} to "
-                f"{clause.target_relation_name}; declare one, or write `from` "
-                "and `on`"
-            )
-        if len(options) > 1:
-            listed = tuple(
-                f"{binding.name} {text}"
-                for binding, directions, blocked in options
-                for text in (
-                    *(via(item) for item in directions),
-                    *(unusable(item) for item in blocked),
-                )
-            )
-            return (
-                f"{join} matches relationships from {len(options)} earlier "
-                f"bindings: {_and_list(listed)}; write `from <binding>`"
-                + (
-                    " and `via`"
-                    if any(len(directions) > 1 for _, directions, _ in options)
-                    else ""
-                )
-                + (
-                    "; a `via` names only a relationship of this module"
-                    if any(foreign(directions) for _, directions, _ in options)
-                    else ""
-                )
-            )
-        binding, directions, blocked = options[0]
-        if len(directions) > 1:
-            return several(binding.name, directions)
-        if not directions:
-            return (
-                f"{join}: no relationship from {binding.name} to "
-                f"{clause.target_relation_name} can be used: "
-                + _and_list(
-                    tuple(
-                        f"{item.relationship.occurrence.name}"
-                        f"{where(item.relationship.occurrence)} ({reason(item)})"
-                        for item in blocked
-                    )
-                )
-            )
-    for issue in use.issues:
-        if (
-            clause.source_binding_name is not None
-            and issue.kind is kinds.DIRECT_RELATIONSHIP_AMBIGUOUS
-            and use.source_binding is not None
-        ):
-            direct = cast(
-                project_relationship_paths.ProjectRelationshipDirectCandidateResult,
-                issue.causes[0],
-            )
-            return several(use.source_binding.name, direct.candidates)
-    if not _infers(clause):
-        # A JOIN with `from` and every VIA role written keeps the relation-level
-        # message; only its zero-VIA ambiguity above is named.
-        return None
-    for issue in use.issues:
-        if issue.kind is kinds.NON_CONTIGUOUS_PATH:
-            return f"{join}: its VIA steps do not connect"
-        if issue.kind is kinds.PATH_START_MISMATCH and use.source_binding is not None:
-            start = use.step_uses[0].directions[0].direction.source
-            return (
-                f"{join}: its VIA path starts at {start.authored_relation_spelling}, "
-                f"not at its source binding {use.source_binding.name} "
-                f"({use.source_binding.relation_name})"
-            )
-        if issue.kind is kinds.PATH_END_MISMATCH:
-            end = use.step_uses[-1].directions[0].direction.target
-            return (
-                f"{join}: its VIA path ends at {end.authored_relation_spelling}, "
-                f"not at the JOIN target {clause.target_relation_name}"
-            )
-    for position, step_use in enumerate(use.step_uses):
-        if not step_use.issues:
-            continue
-        issue = step_use.issues[0]
-        step = step_use.step
-        if issue.kind in {
-            kinds.UNKNOWN_RELATIONSHIP,
-            kinds.AMBIGUOUS_RELATIONSHIP,
-            kinds.BLOCKED_RELATIONSHIP,
-        }:
-            if not step_use.relationships:
-                other = tuple(
-                    dict.fromkeys(
-                        subject.occurrence.identity.module.path
-                        for subject in uses.relationships.subjects
-                        if subject.occurrence.name == step.relationship_name
-                    )
-                )
-                return (
-                    f"{join}: `via {step.relationship_name}` names no relationship "
-                    "of this module"
-                    + (
-                        f"; a `via` cannot name relationship {step.relationship_name} "
-                        f"of {_and_list(other)}"
-                        if other
-                        else ""
-                    )
-                )
-            if len(step_use.relationships) > 1:
-                return (
-                    f"{join}: `via {step.relationship_name}` names "
-                    f"{len(step_use.relationships)} relationships of this module"
-                )
-            return (
-                f"{join}: relationship {step.relationship_name} cannot be used: "
-                "its declaration has errors"
-            )
-        if len(step_use.relationships) != 1:
-            continue
-        occurrence = step_use.relationships[0].occurrence
-        first, second = occurrence.endpoints
-        name = occurrence.name
-        roles = step.source_endpoint_role is not None
-        if not roles and issue.kind is kinds.AMBIGUOUS_ENDPOINT_DIRECTION:
-            return (
-                f"{join}: relationship {name} joins "
-                f"{first.authored_relation_spelling} to itself; write "
-                f"`via {name}: {first.authored_role} -> {second.authored_role}` "
-                f"or `via {name}: {second.authored_role} -> {first.authored_role}`"
-            )
-        if roles and issue.kind is kinds.UNKNOWN_ENDPOINT_DIRECTION:
-            written = (step.source_endpoint_role, step.target_endpoint_role)
-            known = (first.authored_role, second.authored_role)
-            missing = tuple(
-                dict.fromkeys(role for role in written if role not in known)
-            )
-            if missing:
-                return (
-                    f"{join}: relationship {name} has no endpoint "
-                    f"role{'s' if len(missing) > 1 else ''} "
-                    f"{_and_list(cast(tuple[str, ...], missing))}; its roles are "
-                    f"{known[0]} and {known[1]}"
-                )
-            if written[0] == written[1]:
-                return (
-                    f"{join}: `via {name}: {written[0]} -> {written[1]}` names one "
-                    "role as both source and target"
-                )
-        if (
-            not roles
-            and issue.kind is kinds.UNKNOWN_ENDPOINT_DIRECTION
-            and occurrence.identity in index.by_declaration
-        ):
-            following = use.step_uses[position + 1 :]
-            reached = (
-                following[0].directions[0].direction.source.authored_relation_spelling
-                if following
-                else clause.target_relation_name
-            )
-            ends = (
-                f"{first.authored_relation_spelling} to itself"
-                if first.target is not None
-                and second.target is not None
-                and first.target.target_occurrence is second.target.target_occurrence
-                else f"{first.authored_relation_spelling} and "
-                f"{second.authored_relation_spelling}"
-            )
-            return f"{join}: `via {name}` joins {ends}, not {reached}"
-        if issue.kind is kinds.BLOCKED_ENDPOINT_DIRECTION and all(
-            type(item)
-            is project_relationship_match_guarantees.ProjectNonConcreteMatchGuaranteeSubject
-            for item in issue.causes
-        ):
-            subject = cast(
-                project_relationship_match_guarantees.ProjectNonConcreteMatchGuaranteeSubject,
-                issue.causes[0],
-            )
-            return f"{join}: relationship {name} cannot be used: {reason(subject)}"
-        # A step without roles that is blocked only because a later step failed
-        # leaves the cause to that later step.
-    return None
-
-
-_UNREADABLE_ENDPOINT = frozenset(
-    {
-        project_relationship_conditions.ProjectRelationshipConditionIssueKind.UNAVAILABLE_FIELD_AUTHORITY,
-        project_relationship_conditions.ProjectRelationshipConditionIssueKind.AMBIGUOUS_FIELD_AUTHORITY,
-    }
-)
-_DECLARATION_ERRORS = frozenset(
-    {
-        project_relationship_conditions.ProjectRelationshipConditionIssueKind.UNKNOWN_ENDPOINT_ROLE,
-        project_relationship_conditions.ProjectRelationshipConditionIssueKind.UNKNOWN_FIELD,
-        project_relationship_conditions.ProjectRelationshipConditionIssueKind.INCOMPATIBLE_FIELD_TYPES,
-    }
-)
 
 
 def _or_list(names: tuple[str, ...]) -> str:
@@ -1491,11 +954,8 @@ def _fanout_clause(
 
     Every remedy is checked with the engine's own dependency closure: applied
     alone, it must bring each refused aggregate's closure to the full JOIN
-    grain. A declared key is offered only where the engine turns it into a
-    dependency (a one-hop relationship JOIN without ON: the target key for
-    INNER and LEFT, the source key for INNER) and only on a source, whose shape
-    can declare it; a group key only for an input that has a strict key or is
-    a source. A remedy that cannot be derived this way is left out.
+    grain. A group key is offered only for an input that has a strict key or
+    is a source. A remedy that cannot be derived this way is left out.
     """
 
     from pietto._project.existence_values import ProjectAnyField
@@ -1548,10 +1008,10 @@ def _fanout_clause(
             return frozenset()
 
     def source_shape(
-        binding: project_relationship_uses.ProjectRelationBindingOccurrence | None,
+        binding: project_relationship_uses.ProjectRelationBindingOccurrence,
     ) -> str | None:
         # A key can be declared only on a source, through its shape.
-        target = None if binding is None else binding.target
+        target = binding.target
         if target is None or type(target.target_occurrence.definition) is not (
             SourceDef
         ):
@@ -1559,8 +1019,6 @@ def _fanout_clause(
         return target.target_occurrence.identity.declared_name
 
     def source_bindings(join):
-        if type(join) is not project_multifact.ProjectCurrentBinaryJoin:
-            return () if join.use.source_binding is None else (join.use.source_binding,)
         condition = join.condition
         read = {
             id(reference.target.binding)
@@ -1594,123 +1052,35 @@ def _fanout_clause(
         )
 
     # Each named row input (the FROM binding and every JOIN binding), its
-    # binding and its factors; an intermediate multi-hop input has no name.
-    from_binding = (
-        joins[0].condition.ledger.bindings[0]
-        if type(joins[0]) is project_multifact.ProjectCurrentBinaryJoin
-        else joins[0].use.source_binding
-    )
+    # binding and its factors.
+    from_binding = joins[0].condition.ledger.bindings[0]
     inputs: dict[
         str, tuple[project_relationship_uses.ProjectRelationBindingOccurrence, _Factors]
-    ] = {}
-    if from_binding is not None:
-        inputs[from_binding.name] = (
+    ] = {
+        from_binding.name: (
             from_binding,
             localized(joins[0].left_input, joins[0].input_uses[0]),
         )
-    last_hop = {join.use.identity: join for join in joins}
-    hops: dict[object, int] = {}
-    for join in joins:
-        hops[join.use.identity] = hops.get(join.use.identity, 0) + 1
-    previous: dict[object, _Factors] = {}
+    }
     edges = []
     disconnected = set()
     for join in joins:
         target = localized(join.right_input, join.input_uses[1])
         source_inputs = source_bindings(join)
-        if (
-            not source_inputs
-            and type(join) is project_multifact.ProjectCurrentBinaryJoin
-        ):
+        if not source_inputs:
             disconnected.add(join)
             source_inputs = tuple(
                 binding
                 for binding in join.condition.environment.bindings[:-1]
                 if any(binding is prior for prior, _field in join.left_fields)
             )
-        sources = (
-            (previous[join.use.identity],)
-            if join.use.identity in previous
-            else tuple(
-                inputs[binding.name][1]
-                for binding in source_inputs
-                if binding.name in inputs and inputs[binding.name][0] is binding
-            )
+        sources = tuple(
+            inputs[binding.name][1]
+            for binding in source_inputs
+            if binding.name in inputs and inputs[binding.name][0] is binding
         )
-        previous[join.use.identity] = target
-        if last_hop[join.use.identity] is join:
-            inputs[join.use.target_binding.name] = (join.use.target_binding, target)
+        inputs[join.use.target_binding.name] = (join.use.target_binding, target)
         edges.extend((join, source, target) for source in sources)
-
-    # Declarable keys, each with every dependency it would add, in JOIN order.
-    keys: dict[object, tuple[str, list[_Dependency], dict[str, None]]] = {}
-    for join, source, target in edges:
-        clause = join.use.clause
-        if (
-            type(join) is not project_ir_joins.ProjectIRBinaryJoinOccurrence
-            or hops[join.use.identity] != 1
-            or clause.on_clause is not None
-            or not source
-            or not target
-        ):
-            continue
-        # Each side's distinct matched fields: an ON may repeat an operand.
-        sides = []
-        if clause.kind in {"inner", "left"}:
-            sides.append(
-                (
-                    join.use.target_binding,
-                    list(dict.fromkeys(p.right.evidence.name for p in join.matches)),
-                    (source, target),
-                )
-            )
-        if clause.kind == "inner":
-            sides.append(
-                (
-                    join.use.source_binding,
-                    list(dict.fromkeys(p.left.evidence.name for p in join.matches)),
-                    (target, source),
-                )
-            )
-        for binding, fields, dependency in sides:
-            shape = source_shape(binding)
-            if shape is None:
-                continue
-            # A key is a field set: the first JOIN to need it fixes its spelling.
-            identity = (binding.target.target_identity, frozenset(fields))
-            text, dependencies, matched = keys.setdefault(
-                identity, (_key(shape, fields), [], {})
-            )
-            dependencies.append(dependency)
-            matched[join.use.target_binding.name] = None
-
-    def with_keys(chosen: tuple[object, ...]) -> tuple[_Dependency, ...]:
-        return tuple(item for key in chosen for item in keys[key][1])
-
-    chosen: tuple[object, ...] | None = ()
-    for seed, own in seeds:
-        while chosen is not None and not final <= closure(
-            seed, (*own, *with_keys(chosen))
-        ):
-            reached = closure(seed, (*own, *with_keys(chosen)))
-            step = next(
-                (
-                    key
-                    for key, (_, dependencies, _) in keys.items()
-                    if key not in chosen
-                    and any(
-                        lhs <= reached and not rhs <= reached
-                        for lhs, rhs in dependencies
-                    )
-                ),
-                None,
-            )
-            chosen = None if step is None else (*chosen, step)
-    for key in chosen or ():
-        rest = tuple(other for other in chosen or () if other != key)
-        if all(final <= closure(seed, (*own, *with_keys(rest))) for seed, own in seeds):
-            chosen = rest
-    declared = tuple(key for key in keys if key in (chosen or ()))
 
     def grouped(picked: tuple[str, ...]) -> bool:
         protected = frozenset().union(*(inputs[name][1] for name in picked))
@@ -1761,26 +1131,14 @@ def _fanout_clause(
         )
     )
     remedies = []
-    if declared:
-        remedies.append(
-            "declare "
-            + _and_list(
-                tuple(
-                    f"a unique key on {keys[key][0]} (matched by "
-                    f"JOIN{'s' if len(keys[key][2]) > 1 else ''} "
-                    f"{_and_list(tuple(keys[key][2]))})"
-                    for key in declared
-                )
-            )
-        )
     if picked:
         # Grouping by such a key would pass too, but would change the result's
         # grain, so the remedies keep the authored GROUP BY.
         noun = "a unique key" if len(picked) == 1 else "unique keys"
         remedies.append(
-            f"match {noun} of {_and_list(picked)} whose fields are never None in "
-            "`on` with a relationship call, use `any(...)` for an input that only "
-            "filters rows, or aggregate in a separate query first"
+            f"match {noun} of {_and_list(picked)} in "
+            "`on`, use `any(...)` for an input that only filters rows, or "
+            "aggregate in a separate query first"
         )
     if not repeated and not remedies:
         return ""
@@ -1790,12 +1148,6 @@ def _fanout_clause(
         else "an aggregate may read rows that a JOIN repeats"
     )
     return f" ({cause}{'; ' + ', or '.join(remedies) if remedies else ''})"
-
-
-def _key(relation: str, fields: list[str]) -> str:
-    if len(fields) == 1:
-        return f"{relation}.{fields[0]}"
-    return f"{relation} ({', '.join(fields)})"
 
 
 def _and_list(names: tuple[str, ...]) -> str:
@@ -1837,7 +1189,6 @@ def _final_diagnostics(
     *,
     retired: tuple[Diagnostic, ...] = (),
     shapes: tuple[Diagnostic, ...] = (),
-    relationships: tuple[Diagnostic, ...] = (),
     orders: tuple[ProjectCompletedOrderFacts, ...] = (),
 ) -> tuple[Diagnostic, ...]:
     retired_ids = {id(diagnostic) for diagnostic in retired}
@@ -1851,17 +1202,15 @@ def _final_diagnostics(
         is project_final_outputs.ProjectRelationOrderingNonConcreteReason.OUTPUT_NAME_AMBIGUOUS
     }
     conditions = effective_outputs.operative_conditions
-    uses = None if conditions is None else conditions.uses
     retained = [
         diagnostic
         for diagnostic in semantic_result.diagnostics
         if id(diagnostic) not in retired_ids
     ]
-    # Enum, shape and relationship declarations are checked before the
-    # relations using them, each kind per module in selected-module order.
+    # Enum and shape declarations are checked before the relations using
+    # them, each kind per module in selected-module order.
     retained.extend(_enum_member_diagnostics(semantic_result))
     retained.extend(shapes)
-    retained.extend(relationships)
     retained_ids = {id(diagnostic) for diagnostic in retained}
     # Module resolution reports a relation whose own name or FROM does not
     # resolve (a duplicate, unknown or ambiguous name); it gets no fallback
@@ -1911,16 +1260,12 @@ def _final_diagnostics(
             )
             if id(diagnostic) not in retired_ids
         )
-        # Actual legacy inference failures name their lookup. Modern direct
-        # inputs retain their own diagnostics, not a historical lookup failure.
+        # A JOIN without `on` names what it needs; a JOIN with `on` or a CROSS
+        # JOIN retains its own condition diagnostics.
         causes = () if completed else _join_causes(entry, conditions)
         errors = (
             *errors,
-            *(
-                _join_cause_diagnostic(entry, clause, cause)
-                for clause, cause in causes
-                if _infers(clause)
-            ),
+            *(_join_cause_diagnostic(entry, clause, cause) for clause, cause in causes),
         )
         unresolved = (
             type(entry) is ProjectEffectiveOutputTerminal
@@ -1929,7 +1274,6 @@ def _final_diagnostics(
         )
         named_input_error = conditions is not None and any(
             condition.ledger.owner is entry.owner
-            and condition.use.clause.uses_named_input
             and project_relationship_uses.project_join_mode(condition.use.clause)
             in {"M3", "M5"}
             and any(
@@ -1945,14 +1289,7 @@ def _final_diagnostics(
             and not named_input_error
             and not (unresolved and resolution_reported)
         ):
-            errors = (
-                _fallback_diagnostic(
-                    entry,
-                    semantic_facts,
-                    uses,
-                    tuple(cause for clause, cause in causes if not _infers(clause)),
-                ),
-            )
+            errors = (_fallback_diagnostic(entry),)
         for diagnostic in errors:
             if id(diagnostic) in retained_ids:
                 continue
@@ -1987,19 +1324,8 @@ def _build_phase62_verification(
         origins,
         build_project_ir_analysis_bundle(base_verification),
     )
-    relationships = project_relationships.build_project_relationships(semantic_result)
-    conditions = project_relationship_conditions.build_project_relationship_conditions(
-        relationships
-    )
-    guarantees = project_relationship_match_guarantees.build_project_relationship_match_guarantees(
-        conditions,
-        base_relational,
-    )
     uses = project_relationship_uses.build_project_relationship_uses(
-        relationships,
-        project_relationship_paths.build_project_relationship_join_shape_index(
-            guarantees
-        ),
+        semantic_result, base_relational
     )
     join_regions = project_ir_joins.build_project_ir_join_region(
         base_plan=plan,
@@ -2466,11 +1792,30 @@ def derive_compiled_semantics(root, values, parameters=None):
                 from pietto._project import project_sql_emission_aggregation as grouping
 
                 function = get("function")
-                if function not in grouping.SPELLING or len(operands) > 1:
+                if function not in grouping.SPELLING or (
+                    len(operands) != 2
+                    if function == "string_agg"
+                    else len(operands) > 1
+                ):
                     raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
                 argument = None if not operands else facts[operands[0]]
+                delimiter = None if len(operands) < 2 else facts[operands[1]]
                 if (
                     physical_required
+                    and function == "string_agg"
+                    and (
+                        argument is None
+                        or delimiter is None
+                        or grouping.string_agg_argument_problem(argument.realization)
+                        is not None
+                        or grouping.string_agg_argument_problem(delimiter.realization)
+                        is not None
+                    )
+                ):
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+                if (
+                    physical_required
+                    and function != "string_agg"
                     and argument is not None
                     and grouping.resolved_argument_problem(
                         function, argument.address.kind == "read", argument.realization
@@ -2675,6 +2020,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                     realized = None
             elif kind in ("port", "read"):
                 origin = facts[operands[0]].origin
+                value = facts[operands[0]].value
                 type_parameters = facts[operands[0]].parameters
                 introduction, nulling = (
                     facts[operands[0]].introduction,
@@ -2807,14 +2153,21 @@ def derive_compiled_semantics(root, values, parameters=None):
                         ResolvedType("Bool", TypeKind.BUILTIN),
                         EffectiveNullability.NULLABLE,
                     )
-                elif role == "cast" and token == "int_to_float" and len(arguments) == 1:
+                elif (
+                    role == "cast"
+                    and token in {"int_to_float", "int_to_text"}
+                    and len(arguments) == 1
+                ):
                     error = (
                         None
                         if arguments[0].resolved_type.name == "Int"
                         else "cast operand"
                     )
                     typed = ValueType(
-                        ResolvedType("Float", TypeKind.BUILTIN),
+                        ResolvedType(
+                            "Float" if token == "int_to_float" else "Text",
+                            TypeKind.BUILTIN,
+                        ),
                         arguments[0].nullability,
                     )
                 elif role == "scalar_call":
@@ -2857,6 +2210,25 @@ def derive_compiled_semantics(root, values, parameters=None):
                     else:
                         signature = BUILTIN_FUNCTIONS.get(token)
                         special = token in {"sign", "year", "month", "day"}
+                        c5_kept = (
+                            token == "round"
+                            and len(arguments) in {1, 2}
+                            and arguments[0].resolved_type.name in {"Decimal", "Float"}
+                            and (
+                                len(arguments) == 1
+                                or arguments[1].resolved_type.name == "Int"
+                            )
+                        ) or (
+                            token == "date_trunc"
+                            and len(arguments) == 2
+                            and arguments[0].resolved_type.name == "Text"
+                            and arguments[1].resolved_type.name in {"Date", "Timestamp"}
+                        )
+                        c5_result = (
+                            arguments[1]
+                            if token == "date_trunc" and len(arguments) == 2
+                            else arguments[0]
+                        )
                         # `abs` keeps an Int or Float argument's type.
                         kept = (
                             token == "abs"
@@ -2865,7 +2237,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                         )
                         error = (
                             None
-                            if kept
+                            if kept or c5_kept
                             else None
                             if token == "sign"
                             and len(arguments) == 1
@@ -2889,17 +2261,17 @@ def derive_compiled_semantics(root, values, parameters=None):
                             ResolvedType(
                                 "Int"
                                 if special
-                                else arguments[0].resolved_type.name
-                                if kept
+                                else c5_result.resolved_type.name
+                                if kept or c5_kept
                                 else "<unknown>"
                                 if signature is None
                                 else signature.return_type,
                                 TypeKind.BUILTIN
-                                if special or signature is not None
+                                if special or c5_kept or signature is not None
                                 else TypeKind.UNKNOWN,
                             ),
                             EffectiveNullability.UNKNOWN
-                            if signature is None and not special
+                            if signature is None and not special and not c5_kept
                             else max(
                                 (item.nullability for item in arguments),
                                 key=lambda item: (
@@ -2932,6 +2304,13 @@ def derive_compiled_semantics(root, values, parameters=None):
                             tag,
                             nullable,
                             inputs,
+                            static_values=tuple(
+                                (fact.value_type.resolved_type.name, fact.value)
+                                if fact.origin == "literal"
+                                and type(fact.value) in (int, str)
+                                else None
+                                for fact in input_facts
+                            ),
                         )
                     elif role == "conditional":
                         realized, problem = physical.resolved_conditional_realization(
@@ -3542,11 +2921,27 @@ def verify_compiled_semantics(value):
 
                 function = get("function")
                 need(
-                    function in grouping.SPELLING and len(inputs) <= 1,
+                    function in grouping.SPELLING
+                    and (
+                        len(inputs) == 2
+                        if function == "string_agg"
+                        else len(inputs) <= 1
+                    ),
                     "SEMANTIC_AGGREGATE_SIGNATURE",
                 )
                 argument = inputs[0] if inputs else None
-                if physical_required and argument is not None:
+                delimiter = inputs[1] if len(inputs) > 1 else None
+                if physical_required and function == "string_agg":
+                    need(
+                        argument is not None
+                        and delimiter is not None
+                        and grouping.string_agg_argument_problem(argument.realization)
+                        is None
+                        and grouping.string_agg_argument_problem(delimiter.realization)
+                        is None,
+                        "SEMANTIC_AGGREGATE_ARGUMENT",
+                    )
+                elif physical_required and argument is not None:
                     need(
                         grouping.resolved_argument_problem(
                             function,
@@ -3741,6 +3136,7 @@ def verify_compiled_semantics(value):
                     if kind == "port" and get("owner").kind == "aggregate"
                     else inputs[0].origin
                 )
+                expected_value = inputs[0].value
                 typed, realization = inputs[0].value_type, inputs[0].realization
                 if kind == "read" and get("role") == "capture":
                     typed, realization = _captured(records, current, typed, realization)
@@ -3863,14 +3259,21 @@ def verify_compiled_semantics(value):
                         ResolvedType("Bool", TypeKind.BUILTIN),
                         EffectiveNullability.NULLABLE,
                     )
-                elif role == "cast" and token == "int_to_float" and len(inputs) == 1:
+                elif (
+                    role == "cast"
+                    and token in {"int_to_float", "int_to_text"}
+                    and len(inputs) == 1
+                ):
                     problem = (
                         None
                         if inputs[0].value_type.resolved_type.name == "Int"
                         else "cast operand"
                     )
                     typed = ValueType(
-                        ResolvedType("Float", TypeKind.BUILTIN),
+                        ResolvedType(
+                            "Float" if token == "int_to_float" else "Text",
+                            TypeKind.BUILTIN,
+                        ),
                         inputs[0].value_type.nullability,
                     )
                 elif role == "scalar_call":
@@ -3914,6 +3317,25 @@ def verify_compiled_semantics(value):
                     else:
                         signature = BUILTIN_FUNCTIONS.get(token)
                         special = token in {"sign", "year", "month", "day"}
+                        c5_kept = (
+                            token == "round"
+                            and len(arguments) in {1, 2}
+                            and arguments[0].resolved_type.name in {"Decimal", "Float"}
+                            and (
+                                len(arguments) == 1
+                                or arguments[1].resolved_type.name == "Int"
+                            )
+                        ) or (
+                            token == "date_trunc"
+                            and len(arguments) == 2
+                            and arguments[0].resolved_type.name == "Text"
+                            and arguments[1].resolved_type.name in {"Date", "Timestamp"}
+                        )
+                        c5_result = (
+                            arguments[1]
+                            if token == "date_trunc" and len(arguments) == 2
+                            else arguments[0]
+                        )
                         # `abs` keeps an Int or Float argument's type.
                         kept = (
                             token == "abs"
@@ -3922,7 +3344,7 @@ def verify_compiled_semantics(value):
                         )
                         problem = (
                             None
-                            if kept
+                            if kept or c5_kept
                             else None
                             if token == "sign"
                             and len(arguments) == 1
@@ -3946,17 +3368,17 @@ def verify_compiled_semantics(value):
                             ResolvedType(
                                 "Int"
                                 if special
-                                else arguments[0].resolved_type.name
-                                if kept
+                                else c5_result.resolved_type.name
+                                if kept or c5_kept
                                 else "<unknown>"
                                 if signature is None
                                 else signature.return_type,
                                 TypeKind.BUILTIN
-                                if special or signature is not None
+                                if special or c5_kept or signature is not None
                                 else TypeKind.UNKNOWN,
                             ),
                             EffectiveNullability.UNKNOWN
-                            if signature is None and not special
+                            if signature is None and not special and not c5_kept
                             else max(
                                 (item.nullability for item in arguments),
                                 key=lambda item: (
@@ -3991,6 +3413,13 @@ def verify_compiled_semantics(value):
                                 typed.resolved_type.name,
                                 NULLABILITY[typed.nullability],
                                 tuple(item.realization for item in inputs),
+                                static_values=tuple(
+                                    (item.value_type.resolved_type.name, item.value)
+                                    if item.origin == "literal"
+                                    and type(item.value) in (int, str)
+                                    else None
+                                    for item in inputs
+                                ),
                             )
                         )
                         need(

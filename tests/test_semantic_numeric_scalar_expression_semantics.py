@@ -229,7 +229,8 @@ def test_int_division_projects_an_int_field() -> None:
     field = result.model.relation_row_schemas[relation].fields["value"]
     value_type = result.model.expression_value_types[expression]
 
-    assert result.diagnostics == ()
+    # It checks, with the warning that it truncates in SQL.
+    assert [item.code for item in result.diagnostics] == ["PIE-S2106"]
     assert field.resolved_type.kind is TypeKind.BUILTIN
     assert field.resolved_type.name == "Int"
     assert field.nullability is EffectiveNullability.UNKNOWN

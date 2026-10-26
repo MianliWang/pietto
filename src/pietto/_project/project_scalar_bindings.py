@@ -5,18 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from pietto._project.project_ir import ProjectIRJoinInputUseOccurrence
-from pietto._project.project_ir_joins import (
-    ProjectIRBinaryJoinOccurrence,
-    ProjectIRConcreteJoinRegion,
-)
 from pietto._project.project_ir_properties import ProjectIRJoinedRowField
-from pietto._project.project_query_block import (
-    ProjectCurrentJoinedRowSource,
-    ProjectVerifiedJoinedRowSource,
-)
+from pietto._project.project_query_block import ProjectCurrentJoinedRowSource
 from pietto._project.project_current_joins import ProjectCurrentJoinRegion
 from pietto._project.project_relationship_uses import (
-    ProjectConcreteJoinUse,
     ProjectJoinUseState,
     ProjectRelationBindingOccurrence,
     ProjectRelationJoinUseLedger,
@@ -30,34 +22,6 @@ from pietto._project.project_scalar_references import (
 from pietto.ast_nodes import DottedNameExpr, NameExpr
 
 __all__: tuple[str, ...] = ()
-
-
-def _binding_introduction_use(
-    region: ProjectIRConcreteJoinRegion | ProjectCurrentJoinRegion,
-    binding: ProjectRelationBindingOccurrence,
-) -> ProjectIRJoinInputUseOccurrence:
-    if isinstance(region, ProjectCurrentJoinRegion):
-        return region.introduction(binding)
-    position = binding.identity.binding_position
-    if position == 0:
-        return region.joins[0].input_uses[0]
-    use = region.ledger.uses[position - 1]
-    if type(use) is not ProjectConcreteJoinUse:
-        raise ValueError("Visible binding requires an exact concrete JOIN use.")
-    terminal_position = len(use.path.steps) - 1
-    matches = tuple(
-        join
-        for join in region.joins
-        if join.use is use and join.identity.path_step_position == terminal_position
-    )
-    if len(matches) != 1:
-        raise ValueError("JOIN target binding requires one exact terminal path step.")
-    terminal = matches[0]
-    if terminal.use is not use or (
-        terminal.identity.path_step_position != len(terminal.use.path.steps) - 1
-    ):
-        raise ValueError("JOIN target binding lost its terminal provenance.")
-    return terminal.input_uses[1]
 
 
 def _joined_environment_field(
@@ -137,16 +101,6 @@ class ProjectVisibleJoinedBinding:
             raise ValueError("Visible binding fields must retain final row order.")
 
 
-def _nonterminal_right_introductions(
-    joins: tuple[ProjectIRBinaryJoinOccurrence, ...],
-) -> tuple[ProjectIRJoinInputUseOccurrence, ...]:
-    return tuple(
-        join.input_uses[1]
-        for join in joins
-        if join.identity.path_step_position < len(join.use.path.steps) - 1
-    )
-
-
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectJoinedScalarBindingEnvironment:
     """Exact authored bindings plus visible/hidden final joined occurrences."""
@@ -156,13 +110,13 @@ class ProjectJoinedScalarBindingEnvironment:
         compare=False,
         hash=False,
     )
-    row_source: ProjectVerifiedJoinedRowSource | ProjectCurrentJoinedRowSource = field(
+    row_source: ProjectCurrentJoinedRowSource = field(
         init=False,
         repr=False,
         compare=False,
         hash=False,
     )
-    region: ProjectIRConcreteJoinRegion | ProjectCurrentJoinRegion = field(
+    region: ProjectCurrentJoinRegion = field(
         init=False,
         repr=False,
         compare=False,
@@ -182,16 +136,13 @@ class ProjectJoinedScalarBindingEnvironment:
         if type(self.scalar_environment) is not ProjectConcreteScalarEnvironment:
             raise TypeError("Joined bindings require a concrete scalar environment.")
         row_source = self.scalar_environment.row_source
-        if not isinstance(
-            row_source, (ProjectVerifiedJoinedRowSource, ProjectCurrentJoinedRowSource)
-        ):
+        if not isinstance(row_source, ProjectCurrentJoinedRowSource):
             raise TypeError("Joined bindings require a verified joined row source.")
         region = row_source.region
         ledger = region.ledger
-        if type(region) not in {
-            ProjectIRConcreteJoinRegion,
-            ProjectCurrentJoinRegion,
-        } or (type(ledger) is not ProjectRelationJoinUseLedger):
+        if type(region) is not ProjectCurrentJoinRegion or (
+            type(ledger) is not ProjectRelationJoinUseLedger
+        ):
             raise TypeError("Joined bindings require exact Phase-62 roots.")
         if any(
             type(binding) is not ProjectRelationBindingOccurrence
@@ -209,7 +160,7 @@ class ProjectJoinedScalarBindingEnvironment:
             _joined_environment_field(self.scalar_environment, item)
 
         introductions = tuple(
-            _binding_introduction_use(region, binding) for binding in ledger.bindings
+            region.introduction(binding) for binding in ledger.bindings
         )
         if len({id(item) for item in introductions}) != len(introductions):
             raise ValueError("Authored bindings require distinct introduction uses.")
@@ -249,22 +200,8 @@ class ProjectJoinedScalarBindingEnvironment:
             raise ValueError(
                 "Visible and hidden fields must exactly partition the row."
             )
-        nonterminal_introductions = (
-            _nonterminal_right_introductions(region.joins)
-            if isinstance(region, ProjectIRConcreteJoinRegion)
-            else region.hidden_introductions
-        )
-        if any(
-            not any(
-                _joined_environment_field(
-                    self.scalar_environment,
-                    item,
-                ).introduction_use
-                is introduction
-                for introduction in nonterminal_introductions
-            )
-            for item in hidden_fields
-        ):
+        if hidden_fields:
+            # Every field of a current JOIN row is introduced by an authored binding.
             raise ValueError("Hidden fields require non-terminal path provenance.")
         object.__setattr__(self, "row_source", row_source)
         object.__setattr__(self, "region", region)

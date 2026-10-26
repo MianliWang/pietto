@@ -233,7 +233,10 @@ class WindowDependencyOccurrence:
             and self.computation.scope.allows_qualified_fields
             and len(self.expression.parts) == 2
             and self.expression.parts[0]
-            == self.computation.definition.from_clause.source_name
+            == (
+                self.computation.definition.from_clause.binding_name
+                or self.computation.definition.from_clause.source_name
+            )
         ):
             source_name = self.expression.parts[1]
         else:
@@ -623,7 +626,8 @@ def build_window_result_project_fact(
         selected_output_ordinal=selected_output_ordinal,
         source_id=source_id,
         input_schema=semantic_input_schema,
-        field_qualifier=definition.from_clause.source_name,
+        field_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
         value_types=value_types,
         diagnostics=diagnostics,
         let_value_types=let_value_types,
@@ -637,7 +641,8 @@ def build_window_result_project_fact(
     input_scope = build_window_input_scope(
         definition=definition,
         input_schema=semantic_input_schema,
-        field_qualifier=definition.from_clause.source_name,
+        field_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
         value_types=value_types,
         let_value_types=let_value_types,
         let_expressions=let_expressions,
@@ -868,7 +873,8 @@ def _window_input_dependency(
 
     binding = input_scope.resolve(
         expression,
-        field_qualifier=definition.from_clause.source_name,
+        field_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
     )
     if binding is None:
         raise AssertionError("validated window input must have one transient origin")

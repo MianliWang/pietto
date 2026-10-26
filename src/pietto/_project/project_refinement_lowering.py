@@ -2,7 +2,12 @@
 
 from dataclasses import dataclass, replace
 
-from pietto._project.project_refinement import UnitRefinement
+from pietto._project.project_refinement import (
+    UnitRefinement,
+    conjuncts,
+    existence_reads,
+    existence_test,
+)
 from pietto._project.project_refinement_order import (
     before,
     equality,
@@ -116,6 +121,22 @@ def lower(output, sources):
 
     def source_input(source):
         return inputs[source]
+
+    def where(value, alias):
+        """One WHERE; each `[not] any(...)` conjunct reads its refined input,
+        as a semi or anti JOIN's EXISTS does."""
+        found = existence_test(value)
+        if found is not None:
+            read, negated = found
+            test = exists(
+                input_of(read.target.producer).name,
+                read.target.symbol.name,
+                Expr("original_scalar", (read.predicate, alias)),
+            )
+            return Expr("not", (test,)) if negated else test
+        if len(conjuncts(value)) > 1 and existence_reads(value):
+            return Expr("and", tuple(where(o, alias) for o in value.operands))
+        return Expr("original_scalar", (value, alias))
 
     def input_of(producer):
         return (
@@ -533,11 +554,12 @@ def lower(output, sources):
             order_coordinates, directions = inp.order_coordinates, inp.directions
             aggregation = getattr(unit, "aggregation", None)
             predicate = getattr(unit, "predicate", None)
-            predicate = (
-                None
-                if predicate is None
-                else Expr("original_scalar", (predicate.value, alias))
-            )
+            if predicate is not None:
+                dependencies += tuple(
+                    input_of(read.target.producer).dependency
+                    for read in existence_reads(predicate.value)
+                )
+                predicate = where(predicate.value, alias)
             if getattr(unit, "window", None) is not None and predicate is not None:
                 # WHERE belongs before the original window's input relation.
                 # Materialize that boundary once, without duplicating or

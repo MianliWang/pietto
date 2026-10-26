@@ -55,7 +55,7 @@ BUILTIN_FUNCTIONS: Mapping[str, BuiltinFunction] = MappingProxyType(
 # These forms have closed semantic rules but cannot be represented by the
 # fixed-arity, exact-type signature record above.
 SPECIAL_BUILTIN_FUNCTION_NAMES = frozenset(
-    {"coalesce", "nullif", "sign", "year", "month", "day"}
+    {"coalesce", "nullif", "sign", "year", "month", "day", "round", "date_trunc"}
 )
 
 

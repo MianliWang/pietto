@@ -339,7 +339,7 @@ def test_invalid_grouped_emit_sql_json_output_fails_before_sql_without_writing(
 @pytest.mark.parametrize(
     ("input_path", "dialect", "connector", "expected_from"), DIALECT_CASES
 )
-def test_downstream_from_grouped_cli_json_uses_relation_name_without_expansion(
+def test_downstream_from_grouped_cli_json_defines_the_grouped_relation_as_a_cte(
     input_path: Path,
     dialect: str,
     connector: str,
@@ -372,33 +372,18 @@ def test_downstream_from_grouped_cli_json_uses_relation_name_without_expansion(
     downstream_sql = cast(str, artifacts[1]["sql"])
 
     assert result["ok"] is True
-    # Reading the file's own table by name is the PIE-S2382 warning.
-    assert result["diagnostics"] == [
-        {
-            "code": "PIE-S2382",
-            "severity": "warning",
-            "message": "`grouped_orders` is a table of this file; single-file SQL "
-            "reads it by name, so the SQL runs only where the database already has "
-            "a relation named grouped_orders (an EXPLICIT_MODULES project emits it "
-            "as a CTE)",
-            "location": {
-                "path": str(path),
-                "line": 13,
-                "column": 5,
-                "end_line": 13,
-                "end_column": 24,
-            },
-            "suggestion": None,
-        }
-    ]
+    assert result["diagnostics"] == []
     assert [artifact["name"] for artifact in artifacts] == [
         "grouped_orders",
         "downstream",
     ]
     assert expected_from in downstream_sql
-    assert downstream_sql.count("SELECT") == 1
-    assert "WITH" not in downstream_sql
-    assert "GROUP BY" not in downstream_sql
+    quote = '"' if dialect == "postgres" else "`"
+    assert downstream_sql.startswith(
+        f"WITH {quote}grouped_orders{quote} AS (\n{artifacts[0]['sql']}\n)\nSELECT\n"
+    )
+    assert downstream_sql.count("SELECT") == 2
+    assert downstream_sql.count("GROUP BY") == 1
     assert "(SELECT" not in downstream_sql
     assert "FROM (" not in downstream_sql
 

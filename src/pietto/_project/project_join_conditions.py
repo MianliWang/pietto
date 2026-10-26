@@ -14,38 +14,22 @@ from pietto._project.project_current_join_inputs import (
     ProjectCurrentSourceField,
     ProjectCurrentNullingCause,
 )
-from pietto._project.project_relationship_conditions import (
-    ProjectConcreteRelationshipCondition,
-    ProjectRelationshipConditionScope,
-    _condition_conjuncts,
-)
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectDirectionalRelationshipMatchGuarantee,
-    ProjectRefinedMatchBounds,
-    ProjectRelationshipMinimumBound,
-    ProjectRelationshipMaximumBound,
-    resolved_matching_keys,
-)
-from pietto._project.project_relationship_paths import ProjectRelationshipPathStep
 from pietto._project.project_ir_relational_properties import (
     ProjectIROutputCandidateKey,
     ProjectIROutputRelationalProperties,
 )
 from pietto._project.project_relationship_uses import (
-    ProjectConcreteJoinUse,
-    ProjectJoinUse,
     ProjectJoinUseState,
+    ProjectNonConcreteJoinUse,
     ProjectRelationBindingOccurrence,
     ProjectRelationJoinUseLedger,
     ProjectRelationshipUseSet,
     _final_output,
+    project_join_blocking_bindings,
     project_join_combination_error,
     project_join_mode,
-    project_join_source_candidates,
-    project_join_source_lookup,
     project_join_binding_visible,
     validate_project_join_input_bindings,
-    rebuild_available_relationship_use,
 )
 from pietto._project.existence_values import (
     ProjectAnyField,
@@ -64,6 +48,8 @@ from pietto._project.row_expression_type_facts import (
 )
 from pietto.ast_nodes import (
     AuthoredJoinKind,
+    BinaryExpr,
+    CallExpr,
     ComparisonExpr,
     DottedNameExpr,
     Expression,
@@ -72,8 +58,12 @@ from pietto.ast_nodes import (
     Span,
 )
 from pietto.errors import Diagnostic, Severity
-from pietto.semantic.aggregates import contains_semantic_aggregate
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
+from pietto.semantic.expressions import (
+    _UNKNOWN_VALUE_TYPE,
+    infer_row_expression,
+    is_unknown_function_call,
+)
 from pietto.semantic.model import (
     RelationshipCallInfo,
     RowSchema,
@@ -83,6 +73,45 @@ from pietto.semantic.model import (
 from pietto.semantic.predicate_checks import _check_bool_expression
 
 __all__: tuple[str, ...] = ()
+
+
+class ProjectRelationshipConditionScope(StrEnum):
+    """Condition evaluation scopes reserved by the Phase-62 architecture."""
+
+    RELATIONSHIP_BASE_MATCH = "relationship_base_match"
+    JOIN_LOCAL_ON_REFINEMENT = "join_local_on_refinement"
+    POST_JOIN_FILTER = "post_join_filter"
+    GENERIC_JOIN_MATCH = "generic_join_match"
+
+
+class ProjectRelationshipMinimumBound(StrEnum):
+    ZERO_ALLOWED = "zero_allowed"
+    AT_LEAST_ONE = "at_least_one"
+
+
+class ProjectRelationshipMaximumBound(StrEnum):
+    AT_MOST_ZERO = "at_most_zero"
+    AT_MOST_ONE = "at_most_one"
+    UNBOUNDED_BY_ONE = "unbounded_by_one"
+
+
+def resolved_matching_keys(keys, matched_classes):
+    """All exact target keys covered by the complete matched class vector."""
+    matched = frozenset(matched_classes)
+    return tuple(key for key in keys if frozenset(key.determinants) <= matched)
+
+
+def _condition_conjuncts(expression: Expression) -> tuple[Expression, ...]:
+    # Iterative, so an `and` chain of any length keeps its source order.
+    conjuncts: list[Expression] = []
+    pending = [expression]
+    while pending:
+        current = pending.pop()
+        if type(current) is BinaryExpr and current.operator == "and":
+            pending.extend((current.right, current.left))
+        else:
+            conjuncts.append(current)
+    return tuple(conjuncts)
 
 
 class ProjectJoinConditionState(StrEnum):
@@ -115,98 +144,66 @@ type _InputRow = tuple[
 ]
 
 
+def _unknown_call_rows(
+    expression: Expression, bindings: frozenset[str]
+) -> tuple[NameExpr, ...]:
+    """The bare-name arguments of unknown function calls in ``expression``
+    that name a JOIN input, such as the rows of a call of a relationship the
+    module does not declare: rows, not field references. Typing reports the
+    call (PIE-S2103)."""
+
+    rows: list[NameExpr] = []
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        if type(node) is CallExpr and is_unknown_function_call(node):
+            rows.extend(
+                argument
+                for argument in node.arguments
+                if type(argument) is NameExpr and argument.name in bindings
+            )
+        pending.extend(child_expressions(node))
+    return tuple(rows)
+
+
 def _input_rows(
     roots: ProjectRelationshipUseSet,
     ledger: ProjectRelationJoinUseLedger,
-    use: ProjectJoinUse,
+    use: ProjectNonConcreteJoinUse,
 ) -> tuple[tuple[_InputRow, ...], tuple[ProjectRelationBindingOccurrence, ...]]:
     """Replay only existing input nullability, without allocating prefix IR.
 
-    A prior unavailable JOIN blocks the accumulated left input. Its eventual
-    shape/effective output is deliberately not guessed at this boundary.
+    A prior JOIN blocks the accumulated left input: no authored JOIN joins by
+    itself, so its eventual shape/effective output is deliberately not guessed
+    at this boundary.
     """
-    bindings = ledger.bindings[: use.identity.join_position + 2]
+    position = use.identity.join_position
+    bindings = ledger.bindings[: position + 2]
     inputs = tuple(
         (binding, output)
         for binding in bindings
         for output in (
             binding.output
             if binding.output is not None
-            else _final_output(roots.index, binding.target)
+            else _final_output(roots.relational, binding.target)
             if binding.state is ProjectJoinUseState.AMBIGUOUS
             and binding.target is not None
             else None,
         )
         if output is not None
     )
-    nullability = {
-        (id(binding), id(item)): item.effective_nullability
-        for binding, output in inputs
-        for item in output.fields
-    }
-    nulling: dict[int, tuple[ProjectRelationshipPathStep, ...]] = {}
-    blocked = [
-        binding
-        for binding in bindings
-        if binding.state is not ProjectJoinUseState.CONCRETE
-    ]
-    for prior in ledger.uses[: use.identity.join_position]:
-        if type(prior) is not ProjectConcreteJoinUse:
-            blocked.extend(bindings[: use.identity.join_position + 1])
-            break
-        source_nulling = nulling.get(id(prior.source_binding), ())
-        for position, step in enumerate(prior.path.steps):
-            guarantee = step.guarantee
-            right_nulling = (
-                (*source_nulling, step)
-                if prior.kind is AuthoredJoinKind.LEFT
-                and (
-                    guarantee.minimum is ProjectRelationshipMinimumBound.ZERO_ALLOWED
-                    or source_nulling
-                )
-                else ()
-            )
-            if (
-                position == 0
-                and prior.kind is AuthoredJoinKind.INNER
-                and not source_nulling
-            ):
-                for value_class in guarantee.source_matched_classes:
-                    for member in value_class.members:
-                        nullability[id(prior.source_binding), id(member)] = (
-                            ProjectRowFieldNullability.NON_NULL
-                        )
-            if position == len(prior.path.steps) - 1:
-                nulling[id(prior.target_binding)] = right_nulling
-                for member in guarantee.target_output.fields:
-                    if right_nulling:
-                        nullability[id(prior.target_binding), id(member)] = (
-                            ProjectRowFieldNullability.NULLABLE
-                        )
-                    elif any(
-                        _exact_member(member, group.members)
-                        for group in guarantee.target_matched_classes
-                    ):
-                        nullability[id(prior.target_binding), id(member)] = (
-                            ProjectRowFieldNullability.NON_NULL
-                        )
-            source_nulling = right_nulling
     return (
         tuple(
-            (
-                binding,
-                item,
-                nullability[id(binding), id(item)],
-                nulling.get(id(binding), ()),
-            )
+            (binding, item, item.effective_nullability, ())
             for binding, output in inputs
-            if project_join_binding_visible(
-                binding, ledger.uses[: use.identity.join_position]
-            )
+            if project_join_binding_visible(binding, ledger.uses[:position])
             for item in output.fields
         ),
         tuple(
-            binding for binding in bindings if _exact_member(binding, tuple(blocked))
+            binding
+            for index, binding in enumerate(bindings)
+            if binding.state is not ProjectJoinUseState.CONCRETE
+            or (position and index <= position)
         ),
     )
 
@@ -215,7 +212,7 @@ def _input_rows(
 class ProjectJoinConditionEnvironment:
     root: ProjectJoinConditionSet = field(repr=False)
     ledger: ProjectRelationJoinUseLedger = field(repr=False)
-    use: ProjectJoinUse = field(repr=False)
+    use: ProjectNonConcreteJoinUse = field(repr=False)
     inputs: ProjectCurrentPreMatchInputs | None = field(default=None, repr=False)
     bindings: tuple[ProjectRelationBindingOccurrence, ...] = field(init=False)
     source_candidates: tuple[ProjectRelationBindingOccurrence, ...] = field(init=False)
@@ -227,6 +224,8 @@ class ProjectJoinConditionEnvironment:
     )
     expression: Expression | None = field(init=False)
     reference_leaves: tuple[NameExpr | DottedNameExpr, ...] = field(init=False)
+    # Row arguments of unknown calls: no reference, typed unknown silently.
+    unknown_call_rows: tuple[NameExpr, ...] = field(init=False)
     existence_values: tuple[ProjectAnyValue, ...] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -256,15 +255,14 @@ class ProjectJoinConditionEnvironment:
             "bindings",
             self.ledger.bindings[: self.use.identity.join_position + 2],
         )
+        # A JOIN with `on` and a CROSS JOIN read the accumulated row rooted at
+        # the FROM input; a JOIN without `on` has no source input to read.
         object.__setattr__(
             self,
             "source_candidates",
             (self.ledger.bindings[0],)
-            if self.use.clause.uses_named_input
-            and project_join_mode(self.use.clause) in {"M3", "M5"}
-            else project_join_source_candidates(
-                self.ledger, self.use, self.root.uses.index
-            ),
+            if project_join_mode(self.use.clause) in {"M3", "M5"}
+            else (),
         )
         object.__setattr__(self, "blocked_bindings", blocked)
         object.__setattr__(self, "_rows", rows)
@@ -299,20 +297,35 @@ class ProjectJoinConditionEnvironment:
                 for i in range(len(rows))
             ),
         )
+        unknown_call_rows = (
+            ()
+            if self.expression is None
+            else _unknown_call_rows(
+                self.expression, frozenset(binding.name for binding in self.bindings)
+            )
+        )
+        row_ids = {id(row) for row in unknown_call_rows}
+        object.__setattr__(self, "unknown_call_rows", unknown_call_rows)
         object.__setattr__(
             self,
             "reference_leaves",
             ()
             if self.expression is None
-            else normalized.scalar_references
-            if normalized is not None
-            else scalar_field_reference_leaves(self.expression),
+            else tuple(
+                leaf
+                for leaf in (
+                    normalized.scalar_references
+                    if normalized is not None
+                    else scalar_field_reference_leaves(self.expression)
+                )
+                if id(leaf) not in row_ids
+            ),
         )
         on = self.use.clause.on_clause
         values = ()
         if on is not None and self.expression is not None:
             values = analyze_any_values(
-                root=self.root.uses.relationships.semantic_result,
+                root=self.root.uses.semantic_result,
                 owner=self.ledger.owner,
                 authored=on.expression,
                 expression=self.expression,
@@ -433,55 +446,24 @@ class ProjectJoinConditionReference:
         )
 
 
-def _base_guarantees(
-    env: ProjectJoinConditionEnvironment, mode: str, effective_use: ProjectJoinUse
-) -> tuple[ProjectDirectionalRelationshipMatchGuarantee, ...]:
-    use = effective_use
-    if mode in {"M3", "M5"}:
-        return ()
-    if type(use) is ProjectConcreteJoinUse:
-        return tuple(step.guarantee for step in use.path.steps)
-    if use.step_uses:
-        if any(len(step.directions) != 1 or step.issues for step in use.step_uses):
-            return ()
-        return tuple(step.directions[0] for step in use.step_uses)
-    if len(env.source_candidates) == 1:
-        source, target = env.source_candidates[0].output, use.target_binding.output
-        if source is not None and target is not None:
-            return env.root.uses.index.resolve_direct(source, target).candidates
-    return ()
-
-
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectJoinCondition:
     root: ProjectJoinConditionSet = field(repr=False)
     ledger: ProjectRelationJoinUseLedger = field(repr=False)
-    use: ProjectJoinUse = field(repr=False)
+    use: ProjectNonConcreteJoinUse = field(repr=False)
     inputs: ProjectCurrentPreMatchInputs | None = field(default=None, repr=False)
-    effective_use: ProjectJoinUse = field(init=False, repr=False)
     environment: ProjectJoinConditionEnvironment = field(init=False)
     mode: str = field(init=False)
     scope: ProjectRelationshipConditionScope | None = field(init=False)
     expression: Expression | None = field(init=False)
     conjuncts: tuple[Expression, ...] = field(init=False)
     references: tuple[ProjectJoinConditionReference, ...] = field(init=False)
-    base_conditions: tuple[ProjectConcreteRelationshipCondition, ...] = field(
-        init=False
-    )
-    base_guarantee: ProjectDirectionalRelationshipMatchGuarantee | None = field(
-        init=False
-    )
-    refinement_guarantee: ProjectRefinedMatchBounds | None = field(init=False)
-    base_guarantees: tuple[ProjectDirectionalRelationshipMatchGuarantee, ...] = field(
-        init=False
-    )
     mandatory_equalities: tuple[ProjectJoinConditionEquality, ...] = field(init=False)
     match_inputs: tuple[
         tuple[ProjectRelationBindingOccurrence, ProjectIROutputRelationalProperties],
         ...,
     ] = field(init=False)
     key_matches: tuple[ProjectJoinConditionKeyMatch, ...] = field(init=False)
-    legacy_matched_fields: tuple[ProjectJoinConditionField, ...] = field(init=False)
     value_type: ValueType | None = field(init=False)
     value_types: Mapping[Expression, ValueType] = field(init=False, repr=False)
     state: ProjectJoinConditionState = field(init=False)
@@ -500,11 +482,7 @@ class ProjectJoinCondition:
         mode = project_join_mode(clause)
         expression = env.expression
         scope = (
-            (
-                ProjectRelationshipConditionScope.JOIN_LOCAL_ON_REFINEMENT
-                if mode == "M4"
-                else ProjectRelationshipConditionScope.GENERIC_JOIN_MATCH
-            )
+            ProjectRelationshipConditionScope.GENERIC_JOIN_MATCH
             if expression is not None
             else None
         )
@@ -533,98 +511,28 @@ class ProjectJoinCondition:
         combination = project_join_combination_error(clause)
         if combination is not None:
             diagnostics.append(_diagnostic(clause.span, combination, code="PIE-S2336"))
-        effective_use = self.use
-        if (
-            mode in {"M1", "M2"}
-            and self.inputs is not None
-            and all(item.ready for item in self.inputs.prefix)
+        # A JOIN with `on` and a CROSS JOIN read the FROM input; a JOIN without
+        # `on` has no source input, since no relationship joins by itself.
+        unavailable = bool(env.blocked_bindings) or len(env.source_candidates) != 1
+        # A JOIN without `on` that is INNER or LEFT keeps its own projection.
+        if unavailable and (
+            expression is not None
+            or clause.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
         ):
-            available = tuple(
-                item.binding
-                for item in self.inputs.scope.bindings[
-                    : self.use.identity.join_position + 1
-                ]
-                if project_join_binding_visible(
-                    item.binding, self.ledger.uses[: self.use.identity.join_position]
-                )
-                and item.authority is not None
-                and item.binding.state is ProjectJoinUseState.CONCRETE
-                and item.authority.historical_properties is item.binding.output
+            message = (
+                "JOIN source binding is unknown."
+                if not env.source_candidates
+                and self.use.target_binding.output is not None
+                and not project_join_blocking_bindings(self.ledger, self.use)
+                else "JOIN pre-match input or relationship authority is unavailable."
             )
-            effective_use = rebuild_available_relationship_use(
-                self.root.uses, self.ledger, self.use, available
-            )
-        guarantees = _base_guarantees(env, mode, effective_use)
-        bases = tuple(
-            condition
-            for guarantee in guarantees
-            for condition in self.root.uses.index.guarantees.conditions.conditions
-            if type(condition) is ProjectConcreteRelationshipCondition
-            and condition.relationship.occurrence.identity
-            == guarantee.direction.declaration
-        )
-        source_candidates = env.source_candidates
-        unavailable = bool(env.blocked_bindings) or len(source_candidates) != 1
-        if mode not in {"M3", "M5"}:
-            unavailable |= not guarantees or len(bases) != len(guarantees)
-            if guarantees and len(source_candidates) == 1:
-                unavailable |= (
-                    guarantees[0].source_output is not source_candidates[0].output
-                    or guarantees[-1].target_output
-                    is not self.use.target_binding.output
-                )
-            if mode == "M1":
-                unavailable |= len(guarantees) != 1
-            if self.inputs is not None:
-                relevant = (*source_candidates, self.use.target_binding)
-                unavailable |= any(
-                    item.authority is None
-                    or item.authority.historical_properties is None
-                    or item.authority.historical_properties is not item.binding.output
-                    for item in self.inputs.scope.bindings
-                    if any(item.binding is binding for binding in relevant)
-                )
-        # Existing M1/M2 diagnostics keep their original projection and ordering.
-        is_new = expression is not None or clause.kind not in {
-            AuthoredJoinKind.INNER,
-            AuthoredJoinKind.LEFT,
-        }
-        unavailable |= not is_new and type(effective_use) is not ProjectConcreteJoinUse
-        if unavailable and is_new:
-            # A JOIN without `from` whose lookup is blocked by a binding, its
-            # target or a VIA step has an unavailable input, not an unknown one.
-            if len(source_candidates) != 1 and (
-                clause.source_binding_name is not None
-                or project_join_source_lookup(
-                    self.ledger, self.use, self.root.uses.index
-                )
-                is not None
-            ):
-                later = tuple(
-                    binding
-                    for binding in self.ledger.bindings[
-                        self.use.identity.join_position + 1 :
-                    ]
-                    if binding.name == clause.source_binding_name
-                )
-                reason = (
-                    "ambiguous"
-                    if source_candidates
-                    else "forward"
-                    if later
-                    else "unknown"
-                )
-                message = f"JOIN source binding is {reason}."
-            else:
-                message = (
-                    "JOIN pre-match input or relationship authority is unavailable."
-                )
             diagnostics.append(_diagnostic(clause.span, message))
         value_types: dict[Expression, ValueType] = {
             expression: value_type
             for value in env.existence_values
             for expression, value_type in value.value_types.items()
         }
+        value_types.update(dict.fromkeys(env.unknown_call_rows, _UNKNOWN_VALUE_TYPE))
         for reference in references:
             if reference.target is None:
                 diagnostics.append(
@@ -676,24 +584,12 @@ class ProjectJoinCondition:
             else ProjectJoinConditionState.READY
         )
         ready = state is ProjectJoinConditionState.READY
-        base = guarantees[0] if len(guarantees) == 1 else None
         object.__setattr__(self, "environment", env)
-        object.__setattr__(self, "effective_use", effective_use)
         object.__setattr__(self, "mode", mode)
         object.__setattr__(self, "scope", scope)
         object.__setattr__(self, "expression", expression)
         object.__setattr__(self, "conjuncts", conjuncts)
         object.__setattr__(self, "references", references)
-        object.__setattr__(self, "base_conditions", bases)
-        object.__setattr__(self, "base_guarantees", guarantees)
-        object.__setattr__(self, "base_guarantee", base)
-        object.__setattr__(
-            self,
-            "refinement_guarantee",
-            ProjectRefinedMatchBounds(base=base)
-            if ready and mode == "M4" and base is not None
-            else None,
-        )
         object.__setattr__(self, "value_type", value_type)
         object.__setattr__(self, "value_types", MappingProxyType(value_types))
         object.__setattr__(self, "state", state)
@@ -705,14 +601,7 @@ class ProjectJoinCondition:
             tuple(
                 ProjectJoinConditionEquality(condition=self, conjunct_position=position)
                 for position, conjunct in enumerate(conjuncts)
-                if ready
-                and _equality_fields(self, conjunct) is not None
-                and env.predicate_expression is not None
-                and any(
-                    conjunct is equality
-                    for call in env.predicate_expression.calls
-                    for equality in call.mandatory_equalities
-                )
+                if ready and _equality_fields(self, conjunct) is not None
             ),
         )
         object.__setattr__(
@@ -734,34 +623,6 @@ class ProjectJoinCondition:
                 if ready and self.mandatory_equalities
                 for key in resolved_matching_keys(
                     properties.keys, _matched_classes(self, binding, properties)
-                )
-            ),
-        )
-        object.__setattr__(
-            self,
-            "legacy_matched_fields",
-            tuple(
-                field
-                for field in env.fields
-                if ready
-                and any(
-                    field.binding is binding
-                    and any(
-                        field.input_field is member
-                        for group in groups
-                        for member in group.members
-                    )
-                    for guarantee in guarantees
-                    for binding, groups in (
-                        *(
-                            (source, guarantee.source_matched_classes)
-                            for source in source_candidates
-                            if source.output is guarantee.source_output
-                        ),
-                        (self.use.target_binding, guarantee.target_matched_classes)
-                        if self.use.target_binding.output is guarantee.target_output
-                        else (None, ()),
-                    )
                 )
             ),
         )
@@ -800,7 +661,8 @@ def _equality_fields(
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectJoinConditionEquality:
-    """One mandatory ON equality with exact fields and every predicate origin."""
+    """One mandatory ON equality with exact fields and every predicate call it
+    comes from; a hand-written equality comes from none."""
 
     condition: ProjectJoinCondition = field(repr=False)
     conjunct_position: int
@@ -832,10 +694,6 @@ class ProjectJoinConditionEquality:
             for call in (() if predicate is None else predicate.calls)
             if any(comparison is item for item in call.mandatory_equalities)
         )
-        if not calls:
-            raise ValueError(
-                "Match equality requires an exact mandatory predicate-call origin."
-            )
         object.__setattr__(self, "comparison", comparison)
         object.__setattr__(self, "left", sides[0])
         object.__setattr__(self, "right", sides[1])
@@ -1014,7 +872,7 @@ class ProjectJoinConditionSet:
         for ledger in self.uses.ledgers:
             validate_project_join_input_bindings(self.uses, ledger)
         predicates = ProjectRelationshipPredicateCatalog(
-            semantic_result=self.uses.relationships.semantic_result
+            semantic_result=self.uses.semantic_result
         )
         object.__setattr__(self, "predicates", predicates)
         object.__setattr__(

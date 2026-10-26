@@ -729,6 +729,292 @@ def _value_tag(doc, value):
     return doc[value]["tag"]
 
 
+def _value_realization(doc, value):
+    """One retained or fixed-value realization without compiler imports."""
+
+    if value.kind == "sql_unary":
+        operand = _value_realization(doc, doc[value]["operand"])
+        if operand is None or doc[value]["operator"] not in {"+", "-"}:
+            return None
+        if operand["tag"] == "Int":
+            try:
+                low, high = int(operand["domain"]["min"]), int(operand["domain"]["max"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            if doc[value]["operator"] == "-":
+                low, high = -high, -low
+            return {
+                "tag": "Int",
+                "storage": operand["storage"],
+                "nullable": operand["nullable"],
+                "domain": {"kind": "int_range", "min": str(low), "max": str(high)},
+            }
+        if operand["tag"] == "Float":
+            return operand
+        return None
+    if value.kind == "sql_anchor":
+        anchor = doc[value]
+        leaf = doc[anchor["operand"]]
+        fixed = (
+            leaf["value"]
+            if anchor["operand"].kind == "sql_literal"
+            else doc[leaf["fixed"]]["value"]
+            if anchor["operand"].kind == "sql_parameter"
+            else None
+        )
+        if fixed is None or fixed.tag != anchor["tag"]:
+            return None
+        tag, physical = fixed.tag, anchor["physical_type"]
+        if tag == "Bool" and physical == "pg_bool":
+            return {
+                "tag": tag,
+                "storage": {"kind": physical},
+                "nullable": False,
+                "domain": {"kind": "bool01"},
+            }
+        if tag == "Int" and physical in _SIGNED_STORAGE_BITS:
+            number = fixed.value
+            if type(number) is not int:
+                return None
+            bits = _SIGNED_STORAGE_BITS[physical]
+            if not -(1 << (bits - 1)) <= number <= (1 << (bits - 1)) - 1:
+                return None
+            return {
+                "tag": tag,
+                "storage": {"kind": physical},
+                "nullable": False,
+                "domain": {
+                    "kind": "int_range",
+                    "min": str(number),
+                    "max": str(number),
+                },
+            }
+        if tag == "Float" and physical == "pg_float8" and type(fixed.value) is float:
+            return {
+                "tag": tag,
+                "storage": {"kind": physical},
+                "nullable": False,
+                "domain": {"kind": "finite_float", "format": "binary64"},
+            }
+        if tag == "Text" and physical == "pg_text" and type(fixed.value) is str:
+            return {
+                "tag": tag,
+                "storage": {"kind": physical},
+                "nullable": False,
+                "domain": {
+                    "kind": "text",
+                    "max_characters": len(fixed.value),
+                    "encoding": "UTF8",
+                    "collation": "C",
+                    "padding": "NO PAD",
+                },
+            }
+        return None
+    if value.kind in {
+        "sql_stage_reference",
+        "sql_any_reference",
+        "sql_operation",
+        "sql_block_read",
+        "sql_any_read",
+        "sql_captured_reference",
+    }:
+        return doc[doc[value]["realization"]]
+    return None
+
+
+def _literal_provenance(doc, value):
+    """A direct literal or the retained literal origin of a materialized let."""
+
+    if value.kind != "sql_stage_reference":
+        return value
+    literal = doc[doc[value]["column"]]["literal"]
+    return None if literal is None else doc[literal]["value"]
+
+
+def _literal_int(doc, value):
+    """One authored Int literal, including its normalized unary sign."""
+
+    value = _literal_provenance(doc, value)
+    if value is None:
+        return None
+    if value.kind == "sql_anchor":
+        leaf = doc[value]["operand"]
+        fixed = (
+            doc[leaf]["value"]
+            if leaf.kind == "sql_literal"
+            else doc[doc[leaf]["fixed"]]["value"]
+            if leaf.kind == "sql_parameter"
+            else None
+        )
+        return fixed.value if fixed is not None and fixed.tag == "Int" else None
+    if value.kind == "sql_unary":
+        operand = _literal_int(doc, doc[value]["operand"])
+        if operand is None:
+            return None
+        return operand if doc[value]["operator"] == "+" else -operand
+    return None
+
+
+def _literal_text(doc, value):
+    """One authored Text literal; units do not admit parameters or fields."""
+
+    value = _literal_provenance(doc, value)
+    if value is None:
+        return None
+    if value.kind != "sql_anchor":
+        return None
+    leaf = doc[value]["operand"]
+    fixed = (
+        doc[leaf]["value"]
+        if leaf.kind == "sql_literal"
+        else doc[doc[leaf]["fixed"]]["value"]
+        if leaf.kind == "sql_parameter"
+        else None
+    )
+    return fixed.value if fixed is not None and fixed.tag == "Text" else None
+
+
+def _is_realization(realization, tag, storage, domain) -> bool:
+    return (
+        realization is not None
+        and realization["tag"] == tag
+        and dict(realization["storage"]) == storage
+        and dict(realization["domain"]) == domain
+    )
+
+
+def _is_pg_float(realization) -> bool:
+    return _is_realization(
+        realization,
+        "Float",
+        {"kind": "pg_float8"},
+        {"kind": "finite_float", "format": "binary64"},
+    )
+
+
+def _is_pg_text(realization, *, nullable=None, maximum=None) -> bool:
+    return _is_realization(
+        realization,
+        "Text",
+        {"kind": "pg_text"},
+        {
+            "kind": "text",
+            "max_characters": maximum,
+            "encoding": "UTF8",
+            "collation": "C",
+            "padding": "NO PAD",
+        },
+    ) and (nullable is None or realization["nullable"] == nullable)
+
+
+def _is_pg_text_input(realization) -> bool:
+    """One ordered PostgreSQL Text value with its complete comparison profile."""
+
+    if realization is None or realization["tag"] != "Text":
+        return False
+    domain = realization["domain"]
+    return (
+        dict(realization["storage"]) == {"kind": "pg_text"}
+        and domain["kind"] == "text"
+        and type(domain["max_characters"]) is int
+        and domain["max_characters"] >= 0
+        and domain["encoding"] == "UTF8"
+        and domain["collation"] == "C"
+        and domain["padding"] == "NO PAD"
+    )
+
+
+def _is_pg_text_value(doc, value) -> bool:
+    """A row Text carrier or one anchored PostgreSQL Text literal."""
+
+    realization = _value_realization(doc, value)
+    if realization is not None:
+        return _is_pg_text_input(realization)
+    if value.kind != "sql_anchor":
+        return False
+    anchor = doc[value]
+    leaf = doc[anchor["operand"]]
+    fixed = (
+        leaf["value"]
+        if value.kind == "sql_anchor" and anchor["operand"].kind == "sql_literal"
+        else doc[leaf["fixed"]]["value"]
+        if anchor["operand"].kind == "sql_parameter"
+        else None
+    )
+    return (
+        anchor["tag"] == "Text"
+        and anchor["physical_type"] == "pg_text"
+        and fixed is not None
+        and fixed.tag == "Text"
+    )
+
+
+def _pg_decimal_parameters(realization):
+    if realization is None or realization["tag"] != "Decimal":
+        return None
+    storage, domain = realization["storage"], realization["domain"]
+    precision, scale = storage.get("precision"), storage.get("scale")
+    if not (
+        dict(storage) == {"kind": "pg_numeric", "precision": precision, "scale": scale}
+        and type(precision) is int
+        and type(scale) is int
+        and 0 <= scale <= precision <= 65
+        and dict(domain) == {"kind": "decimal", "precision": precision, "scale": scale}
+    ):
+        return None
+    return precision, scale
+
+
+def _is_pg_int(realization) -> bool:
+    if realization is None or realization["tag"] != "Int":
+        return False
+    storage, domain = realization["storage"], realization["domain"]
+    kind = storage.get("kind")
+    bits = _SIGNED_STORAGE_BITS.get(kind)
+    if dict(storage) != {"kind": kind} or bits is None:
+        return False
+    try:
+        low, high = int(domain["min"]), int(domain["max"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (
+        dict(domain) == {"kind": "int_range", "min": str(low), "max": str(high)}
+        and -(1 << (bits - 1)) <= low <= high <= (1 << (bits - 1)) - 1
+    )
+
+
+def _is_pg_order_value(realization) -> bool:
+    """The closed PostgreSQL aggregate-order carrier domain."""
+
+    if realization is None:
+        return False
+    if realization["tag"] == "Int":
+        return _is_pg_int(realization)
+    if realization["tag"] == "Bool":
+        return dict(realization["storage"]) == {"kind": "pg_bool"} and dict(
+            realization["domain"]
+        ) == {"kind": "bool01"}
+    if realization["tag"] == "Text":
+        return _is_pg_text_input(realization)
+    if realization["tag"] == "Decimal":
+        return _pg_decimal_parameters(realization) is not None
+    if realization["tag"] == "Timestamp":
+        return _is_realization(
+            realization,
+            "Timestamp",
+            {"kind": "pg_timestamp", "fractional_seconds": 6},
+            {"kind": "timestamp"},
+        )
+    if realization["tag"] == "UUID":
+        return _is_realization(
+            realization,
+            "UUID",
+            {"kind": "pg_uuid"},
+            {"kind": "uuid", "encoding": "standard_bytes"},
+        )
+    return False
+
+
 def _validate_any_scopes(doc):
     kinds = (
         "sql_anchor",
@@ -1189,6 +1475,8 @@ class _Check:
                     "starts_with": {2},
                     "ends_with": {2},
                     "nullif": {2},
+                    "round": {1, 2},
+                    "date_trunc": {2},
                 }
                 count = len(op["operands"])
                 _require(
@@ -1199,6 +1487,140 @@ class _Check:
                 )
             else:
                 _require(len(op["operands"]) == 2, "operation arity")
+            operands = op["operands"]
+            result = doc[op["realization"]]
+            if op["kind"] == "cast":
+                _require(_value_tag(doc, operands[0]) == "Int", "cast input")
+                if op["operator"] == "int_to_float":
+                    _require(
+                        result["tag"] == "Float"
+                        and (
+                            _is_pg_float(result)
+                            if family == "postgres"
+                            else _is_realization(
+                                result,
+                                "Float",
+                                {"kind": "my_double"},
+                                {"kind": "finite_float", "format": "binary64"},
+                            )
+                        ),
+                        "int_to_float realization",
+                    )
+                else:
+                    operand = _value_realization(doc, operands[0])
+                    _require(
+                        family == "postgres"
+                        and _is_pg_int(operand)
+                        and _is_pg_text(
+                            result,
+                            nullable=None if operand is None else operand["nullable"],
+                            maximum=20,
+                        ),
+                        "int_to_text realization",
+                    )
+            elif op["kind"] == "scalar_call" and op["operator"] == "round":
+                _require(family == "postgres", "round family")
+                value = _value_realization(doc, operands[0])
+                if _value_tag(doc, operands[0]) == "Decimal":
+                    scale = 0 if len(operands) == 1 else _literal_int(doc, operands[1])
+                    parameters = _pg_decimal_parameters(value)
+                    _require(
+                        parameters is not None
+                        and scale is not None
+                        and type(scale) is int
+                        and -30 <= scale <= 30
+                        and (
+                            len(operands) == 1 or _value_tag(doc, operands[1]) == "Int"
+                        ),
+                        "round decimal scale",
+                    )
+                    assert (
+                        parameters is not None
+                        and type(scale) is int
+                        and value is not None
+                    )
+                    precision, source_scale = parameters
+                    result_scale = min(source_scale, max(scale, 0))
+                    result_precision = (
+                        precision
+                        if scale >= source_scale
+                        else precision - source_scale + 1 + result_scale
+                    )
+                    _require(
+                        1 <= result_precision <= 65
+                        and 0 <= result_scale <= min(result_precision, 30)
+                        and _is_realization(
+                            result,
+                            "Decimal",
+                            {
+                                "kind": "pg_numeric",
+                                "precision": result_precision,
+                                "scale": result_scale,
+                            },
+                            {
+                                "kind": "decimal",
+                                "precision": result_precision,
+                                "scale": result_scale,
+                            },
+                        )
+                        and result["nullable"] == value["nullable"],
+                        "round decimal result",
+                    )
+                else:
+                    assert value is not None
+                    _require(
+                        len(operands) == 1
+                        and _is_pg_float(value)
+                        and _is_pg_float(result)
+                        and result["nullable"] == value["nullable"],
+                        "round float realization",
+                    )
+            elif op["kind"] == "scalar_call" and op["operator"] == "date_trunc":
+                unit = _literal_text(doc, operands[0])
+                temporal = _value_realization(doc, operands[1])
+                _require(
+                    family == "postgres" and unit is not None and temporal is not None,
+                    "date_trunc inputs",
+                )
+                assert unit is not None and temporal is not None
+                if _is_realization(
+                    temporal, "Date", {"kind": "pg_date"}, {"kind": "date"}
+                ):
+                    _require(
+                        unit in {"year", "month", "day"}
+                        and _is_realization(
+                            result,
+                            "Date",
+                            {"kind": "pg_date"},
+                            {"kind": "date"},
+                        ),
+                        "date_trunc date",
+                    )
+                    _require(
+                        result["nullable"] == temporal["nullable"],
+                        "date_trunc date",
+                    )
+                else:
+                    _require(
+                        unit in {"year", "month", "day", "hour", "minute"}
+                        and _is_realization(
+                            temporal,
+                            "Timestamp",
+                            {"kind": "pg_timestamp", "fractional_seconds": 6},
+                            {"kind": "timestamp"},
+                        )
+                        and _is_realization(
+                            result,
+                            "Timestamp",
+                            {"kind": "pg_timestamp", "fractional_seconds": 6},
+                            {"kind": "timestamp"},
+                        ),
+                        "date_trunc timestamp",
+                    )
+                    _require(
+                        result["nullable"] == temporal["nullable"],
+                        "date_trunc timestamp",
+                    )
         for ref in doc.all("aggregate_value_column"):
             column = doc[ref]
             expected = {
@@ -1207,6 +1629,7 @@ class _Check:
                 "min": "MIN",
                 "max": "MAX",
                 "avg": "AVG",
+                "string_agg": "string_agg",
             }.get(column["function"])
             _require(
                 expected is not None and column["spelling"] == expected,
@@ -1222,6 +1645,30 @@ class _Check:
                 )
             else:
                 _require(column["argument_cast"] is None, "aggregate argument cast")
+            if column["function"] == "string_agg":
+                result = doc[doc[column["column"]]["realization"]]
+                _require(
+                    family == "postgres"
+                    and column["argument"] is not None
+                    and column["delimiter"] is not None
+                    and bool(column["order_by"]),
+                    "string_agg shape",
+                )
+                _require(
+                    _is_pg_text_value(doc, column["argument"])
+                    and _is_pg_text_value(doc, column["delimiter"])
+                    and _is_pg_text(result, nullable=True, maximum=None)
+                    and all(
+                        _is_pg_order_value(_value_realization(doc, doc[item]["value"]))
+                        for item in column["order_by"]
+                    ),
+                    "string_agg typed inputs",
+                )
+            else:
+                _require(
+                    column["delimiter"] is None and not column["order_by"],
+                    "aggregate extra inputs",
+                )
         for ref in doc.all("sql_unary"):
             _require(doc[ref]["operator"] in ("+", "-"), "unary operator")
         for ref in doc.all("sql_anchor"):
@@ -1418,6 +1865,11 @@ class _Check:
                 not column["distinct"] or column["argument"] is not None,
                 "aggregate distinct",
             )
+            for order in column["order_by"]:
+                _require(
+                    doc[order]["direction"] in ("asc", "desc"),
+                    "aggregate order direction",
+                )
         # R14-PG-NAVIGATION-RESULT-V1, R15-MYSQL-WINDOW-RESULT-V1 and the B1
         # boundary: each value-window result publishes exactly the width and
         # interval its documented carrier and default literal imply.
@@ -1749,7 +2201,7 @@ class _Tokens:
                 specifications[column["window"]] = spec
         for binding, definition in definitions.items():
             specifications[binding] = doc[definition["specification"]]
-        per_subject: dict[tuple[str, PlanRef], list[str]] = {}
+        per_subject: dict[tuple[str, PlanRef], list[Any]] = {}
         # An inline let body opens and closes its own alias and label scope
         # inside its reading unit; a captured reference names that unit's row.
         inline_blocks = {doc[body]["block"]: body for body in self.check.inline}
@@ -1944,7 +2396,51 @@ class _Tokens:
             _require(frames[0][2] == self.labels(unit), "output labels")
         _require(opened == set(self.check.inline), "inline unit")
         for (role, subject), texts in per_subject.items():
-            if role == "window_argument_literal":
+            if role == "c5_scalar_tokens":
+                operation = self.one(operations, subject, "scalar call subject")
+                name = operation["operator"]
+                realization = doc[operation["realization"]]
+                if name == "round":
+                    if len(operation["operands"]) == 2:
+                        expected = [
+                            ("scalar_call_open", "round("),
+                            ("scalar_call_separator", ", CAST("),
+                            ("scalar_call_close", " AS pg_catalog.int4))"),
+                        ]
+                    elif realization["tag"] == "Decimal":
+                        expected = [
+                            ("scalar_call_open", "round("),
+                            ("scalar_call_close", ")"),
+                        ]
+                    else:
+                        expected = [
+                            ("scalar_call_open", "(CASE WHEN abs(("),
+                            ("scalar_call_separator", ") - trunc("),
+                            ("scalar_call_separator", ") ) >= 0.5 THEN trunc("),
+                            ("scalar_call_separator", " ) + (CASE WHEN "),
+                            (
+                                "scalar_call_separator",
+                                " < 0 THEN -1.0 ELSE 1.0 END) ELSE trunc(",
+                            ),
+                            ("scalar_call_close", " ) END)"),
+                        ]
+                else:
+                    expected = (
+                        [
+                            ("scalar_call_open", "CAST(date_trunc("),
+                            ("scalar_call_separator", ", CAST("),
+                            ("scalar_call_close", " AS timestamp))"),
+                            ("scalar_call_close", " AS date)"),
+                        ]
+                        if realization["tag"] == "Date"
+                        else [
+                            ("scalar_call_open", "date_trunc("),
+                            ("scalar_call_separator", ", "),
+                            ("scalar_call_close", ")"),
+                        ]
+                    )
+                _require(texts == expected, "C5 scalar token sequence")
+            elif role == "window_argument_literal":
                 column = self.one(windows, subject, "window arguments")
                 expected = [
                     doc[a]["literal"]
@@ -1958,6 +2454,49 @@ class _Tokens:
                     for item in specifications[subject]["orders"]
                 ]
             _require(texts == expected, "window token sequence")
+        for subject, columns in aggregates.items():
+            column = self.one(aggregates, subject, "aggregate subject")
+            aggregate_tokens = [
+                (event["role"], self.texts[position])
+                for position, event in enumerate(self.events)
+                if event["kind"] == "syntax"
+                and event["subject"] == subject
+                and event["role"].startswith("aggregate_")
+            ]
+            if column["function"] == "string_agg":
+                expected = [
+                    ("aggregate_open", "string_agg("),
+                    ("aggregate_separator", ", "),
+                    ("aggregate_order", " ORDER BY "),
+                ]
+                for position, item in enumerate(column["order_by"]):
+                    if position:
+                        expected.append(("aggregate_order_separator", ", "))
+                    expected.append(
+                        (
+                            "aggregate_order_direction",
+                            " ASC" if doc[item]["direction"] == "asc" else " DESC",
+                        )
+                    )
+                expected.append(("aggregate_close", ")"))
+                _require(
+                    aggregate_tokens == expected,
+                    "string_agg token sequence",
+                )
+            else:
+                _require(
+                    all(
+                        role
+                        not in {
+                            "aggregate_separator",
+                            "aggregate_order",
+                            "aggregate_order_separator",
+                            "aggregate_order_direction",
+                        }
+                        for role, _ in aggregate_tokens
+                    ),
+                    "aggregate extra tokens",
+                )
         parameters_in_order = [
             event["subject"] for event in self.events if event["kind"] == "parameter"
         ]
@@ -2026,11 +2565,23 @@ class _Tokens:
             return
         if role in {"cast_open", "cast_close"}:
             _require(node is not None and node["kind"] == "cast", "cast subject")
+            assert node is not None
+            operator = node["operator"]
+            text_cast = operator == "int_to_text"
+            _require(
+                operator == "int_to_float"
+                or (operator == "int_to_text" and self.family == "postgres"),
+                "cast operation",
+            )
             _require(
                 text
                 == (
-                    "CAST("
+                    "(CAST("
+                    if text_cast and role == "cast_open"
+                    else "CAST("
                     if role == "cast_open"
+                    else ' AS pg_catalog.text) COLLATE "C")'
+                    if text_cast and self.family == "postgres"
                     else " AS pg_catalog.float8)"
                     if self.family == "postgres"
                     else " AS DOUBLE)"
@@ -2054,6 +2605,11 @@ class _Tokens:
             )
             assert node is not None
             name = node["operator"]
+            if name in {"round", "date_trunc"}:
+                per_subject.setdefault(("c5_scalar_tokens", subject), []).append(
+                    (role, text)
+                )
+                return
             simple = {
                 "postgres": {
                     "lower": "lower",
@@ -2213,6 +2769,12 @@ class _Tokens:
                 == ("pg_catalog.float8" if self.family == "postgres" else "DOUBLE")
                 and text == " AS " + column["argument_cast"] + ")",
                 "aggregate argument cast",
+            )
+        elif role == "aggregate_order_direction":
+            column = self.one(aggregates, subject, "aggregate subject")
+            _require(
+                column["function"] == "string_agg" and text in {" ASC", " DESC"},
+                "aggregate order direction",
             )
         elif role == "window_open":
             column = self.one(windows, subject, "window subject")
@@ -2730,6 +3292,10 @@ class _Requirements:
                 self.add("aggregate", item["aggregate"], "R13", operators)
                 if item["argument"] is not None:
                     self.value(item["argument"])
+                if item["delimiter"] is not None:
+                    self.value(item["delimiter"])
+                for order in item["order_by"]:
+                    self.value(doc[order]["value"])
             elif kind == "aggregate_projection_column":
                 self.add("result_projection", item["projection"], "R12", ())
             elif kind == "window_column":

@@ -374,18 +374,20 @@ def test_a_let_name_bound_through_null_emits_the_sql_of_its_inline_form() -> Non
     )
 
     # Before: `j` was untyped, so MySQL divided with `/` (a DECIMAL result)
-    # and PostgreSQL refused the cast with PIE-B1000.
+    # and PostgreSQL refused the cast with PIE-B1000. Both divide two Int
+    # values, so each warns once that it truncates (PIE-S2106).
+    truncates = ("PIE-S2106",)
     assert (
-        _mysql_sql(through_let)
-        == _mysql_sql(inline)
+        _mysql_sql(through_let, warnings=truncates)
+        == _mysql_sql(inline, warnings=truncates)
         == (
             "SELECT\n    COALESCE(NULL, `amount`) DIV 2 AS `o`,\n"
             "    CAST(COALESCE(NULL, `amount`) AS DOUBLE) AS `f`\nFROM `orders`"
         )
     )
     assert (
-        _postgres_sql(through_let)
-        == _postgres_sql(inline)
+        _postgres_sql(through_let, warnings=truncates)
+        == _postgres_sql(inline, warnings=truncates)
         == (
             'SELECT\n    COALESCE(NULL, "amount") / 2 AS "o",\n'
             '    CAST(COALESCE(NULL, "amount") AS double precision) AS "f"\nFROM "orders"'
@@ -404,7 +406,12 @@ def test_a_let_name_over_an_unknown_row_emits_the_mysql_of_its_inline_form() -> 
     )
     assert result.ast is not None
     semantic = analyze(result.ast)
-    assert [diagnostic.code for diagnostic in semantic.diagnostics] == ["PIE-S2303"]
+    # Both divide two Int values, so both warn that they truncate.
+    assert [diagnostic.code for diagnostic in semantic.diagnostics] == [
+        "PIE-S2303",
+        "PIE-S2106",
+        "PIE-S2106",
+    ]
     assert semantic.script is not None
     ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.ir is not None
@@ -446,12 +453,14 @@ def test_let_chains_at_the_inline_expansion_limit_emit(count: int, step: str) ->
     assert "`amount`" in _mysql_sql(source + "\n")
 
 
-def _script_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> ScriptIR:
+def _script_ir(
+    source: str, *, prefix: str = SOURCE_PREFIX, warnings: tuple[str, ...] = ()
+) -> ScriptIR:
     result = parse_source(prefix + source, path="let_ir_sql.pietto")
     assert result.diagnostics == ()
     assert result.ast is not None
     semantic = analyze(result.ast)
-    assert semantic.diagnostics == ()
+    assert tuple(diagnostic.code for diagnostic in semantic.diagnostics) == warnings
     assert semantic.script is not None
     ir_result = build_ir(semantic.script, semantic.model)
     assert ir_result.diagnostics == ()
@@ -466,16 +475,18 @@ def _relation_ir(source: str) -> RelationIR:
     return relation
 
 
-def _postgres_sql(source: str) -> str:
-    result = emit_postgres_sql(_script_ir(source))
+def _postgres_sql(source: str, *, warnings: tuple[str, ...] = ()) -> str:
+    result = emit_postgres_sql(_script_ir(source, warnings=warnings))
     assert result.diagnostics == ()
     assert len(result.artifacts) == 1
     assert result.artifacts[0].kind is SqlArtifactKind.RELATION
     return result.artifacts[0].sql
 
 
-def _mysql_sql(source: str) -> str:
-    result = emit_mysql_sql(_script_ir(source, prefix=MYSQL_SOURCE_PREFIX))
+def _mysql_sql(source: str, *, warnings: tuple[str, ...] = ()) -> str:
+    result = emit_mysql_sql(
+        _script_ir(source, prefix=MYSQL_SOURCE_PREFIX, warnings=warnings)
+    )
     assert result.diagnostics == ()
     assert len(result.artifacts) == 1
     assert result.artifacts[0].kind is SqlArtifactKind.RELATION

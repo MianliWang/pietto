@@ -824,6 +824,7 @@ def test_new_carriers_are_hash_seed_and_cwd_independent_and_private(
         "limit",
         "group_keys",
         "result_predicate",
+        "qualify",
         "named_windows",
         "inputs",
         "joins",

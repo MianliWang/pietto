@@ -20,6 +20,7 @@ from pietto._project.project_sql_plan_verification import verify_project_sql_pla
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project.project_sql_plan_expressions import ProjectSQLStagePortKind
+from pietto._project.project_sql_plan_aggregation import ProjectSQLAggregateSite
 from pietto.ast_nodes import QueryDef
 from _pietto_plan_aggregate import _group_source, _joined_aggregates, _ordinary
 
@@ -76,6 +77,50 @@ def test_plan_ordinary_aggregate_forms_preserve_original_types(
     assert len(view.aggregate_projections) == 1
     assert view.aggregate_requirements(stage.ref)
     assert plan.diagnostics is roots[0].diagnostics
+
+
+@pytest.mark.parametrize(
+    "selections",
+    (
+        """        rows = count()
+        ids = count(id)
+        labels = string_agg(label, "/", order by id desc, label)
+""",
+        """        labels = string_agg(label, "/", order by label, id desc)
+        ids = count(id)
+        rows = count()
+""",
+    ),
+)
+def test_aggregate_child_sites_stay_sequential_across_variable_arities(
+    tmp_path: Path, selections: str
+):
+    source = f"""shape Row:
+    id: Int
+    label: Text
+source rows: Row = postgres.table("rows")
+table result:
+    from rows
+    select:
+{selections}"""
+    _, plan, view = _plan_product(tmp_path, source)
+    sites = tuple(
+        site
+        for site in plan.expression_sites
+        if isinstance(site, ProjectSQLAggregateSite)
+        and site.role.value == "aggregate_argument"
+    )
+    assert tuple(site.ordinal for site in sites) == tuple(range(5))
+    assert tuple(
+        len(view.arguments_for_aggregate(item.ref)) for item in view.aggregates
+    ) in {
+        (0, 1, 2),
+        (2, 1, 0),
+    }
+    assert tuple(len(item.order_by) for item in view.aggregates) in {
+        (0, 0, 2),
+        (2, 0, 0),
+    }
 
 
 def test_plan_joined_hidden_group_has_private_key_port(tmp_path: Path):
@@ -725,14 +770,15 @@ def test_plan_joined_computed_determinant_reads_only_its_own_let_port(
 def test_joined_computed_determinant_never_supplies_the_reverse_grain_dependency(
     tmp_path: Path, key, reverse
 ):
-    """Both unique joined fields fix each joined row; a LET image never does."""
+    """Both unique joined fields fix each joined row; a LET image never does.
+    The ON equality matches no key, so the JOIN itself proves no dependency."""
     source = _joined_let(
         _group_source(keys=("lhs.id", key))
         .replace(
             "    key: Int | None\n",
             "    key: Int | None\n    row_key = unique(id)\n",
         )
-        .replace("left join", "inner join"),
+        .replace("left join r on lhs.id == r.id", "inner join r on lhs.key == r.key"),
         "    let r_same = r.id + 0\n",
     )
     _, _, view = _plan_product(tmp_path, source)

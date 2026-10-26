@@ -256,7 +256,7 @@ _LATER = """table later:
 def _hiding(name: str, cte: str, table: str) -> str:
     return (
         f"PostgreSQL SQL emission is not implemented for RelationIR: {name}. "
-        f"PostgreSQL scalar ANY defines relation {cte} as a CTE, which would hide "
+        f"Its SQL defines relation {cte} as a CTE, which would hide "
         f"table {table} read in the same SQL; rename the relation or read the "
         "table with its schema"
     )

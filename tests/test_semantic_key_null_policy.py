@@ -15,9 +15,7 @@ from pietto._project.model import (
 from pietto._project.module_attribution import ProjectModuleSourceFieldOrigin
 from pietto._project import project_row_keys as row_keys
 from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
-from pietto._project.project_relationship_conditions import (
-    ProjectExactRowOutputConstraintScope,
-)
+from pietto._project.project_row_keys import ProjectExactRowOutputConstraintScope
 from pietto.ast_nodes import Script, ShapeDef, SourceDef
 from pietto.errors import Diagnostic
 from pietto.ir.model import ShapeUniqueIR
@@ -590,7 +588,6 @@ def test_source_reuses_exact_existing_authority_without_repository_scans() -> No
         "pietto._project.module_catalog",
         "pietto._project.module_resolution",
         "pietto._project.module_semantic_fact_preservation",
-        "pietto._project.project_relationship_conditions",
         "pietto.semantic.shapes",
     } <= facts.imported_modules
     assert (

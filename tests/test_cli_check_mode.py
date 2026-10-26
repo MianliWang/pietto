@@ -124,7 +124,7 @@ def test_emit_sql_and_explain_text_follow_the_selected_mode(
     error = f"{path}:4:1 PIE-S2303 error: {MESSAGE}\n"
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
-    assert capsys.readouterr().out == f"{SQL}\n"
+    assert capsys.readouterr().out == f"-- all_users\n{SQL};\n"
     assert (
         cli.main(
             ["emit-sql", str(path), "--dialect", "postgres", "--check-mode", "strict"]

@@ -388,7 +388,14 @@ def test_single_file_min_max_reads_a_let_name_by_the_shape_of_its_input_row() ->
         ("PIE-S2303", 14, 1, "Source raw has no bound shape; row schema is unknown"),
         ("PIE-S2102", 20, 17, "Unknown field: w"),
         ("PIE-S2102", 21, 17, "Unknown field: v"),
-        ("PIE-S2382", 28, 5, _same_file_read("untyped")),
+        (
+            "PIE-S2385",
+            26,
+            13,
+            "Single-file SQL emission is unavailable because `z` is an untyped "
+            "all-None output that another relation reads; this warning does not "
+            "change check's exit status, but emit-sql will refuse this relation.",
+        ),
         ("PIE-S2315", 31, 13, f"Aggregate function max {_DIRECT_FIELD_ONLY}"),
     ]
 
@@ -427,24 +434,12 @@ def test_single_file_grouped_window_input_refuses_min_max_of_a_let_name_as_in_pl
     refused = f"Aggregate function min {_DIRECT_FIELD_ONLY}"
     assert diagnostics("    let k2 = amount + 1\n", "k2") == [
         ("PIE-S2315", 21, 14, refused),
-        ("PIE-S2382", 24, 5, _same_file_read("t1")),
         ("PIE-S2102", 27, 49, "Unknown field: w0"),
     ]
     assert diagnostics("", "amount + 1") == [
         ("PIE-S2315", 20, 14, refused),
-        ("PIE-S2382", 23, 5, _same_file_read("t1")),
         ("PIE-S2102", 26, 49, "Unknown field: w0"),
     ]
-
-
-def _same_file_read(name: str) -> str:
-    """The PIE-S2382 warning of a single-file read of table ``name``."""
-
-    return (
-        f"`{name}` is a table of this file; single-file SQL reads it by name, so "
-        "the SQL runs only where the database already has a relation named "
-        f"{name} (an EXPLICIT_MODULES project emits it as a CTE)"
-    )
 
 
 def test_min_max_in_invalid_context_is_rejected() -> None:

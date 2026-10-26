@@ -50,8 +50,8 @@ also attaches the same wheel and sdist with `SHA256SUMS`; see
 to check them.
 
 Coming from 0.1.4? A spelling that this version retires fails with
-`PIE-P1000`, and `pietto migrate old.pietto > migrated.pietto` writes the
-modern form of a file without changing it. Some programs that 0.1.4 accepted
+`PIE-P1000`, and `pietto migrate old.pietto > migrated.pietto && pietto check migrated.pietto`
+writes and checks the modern form of a file without changing it. Some programs that 0.1.4 accepted
 are refused, and some emit different SQL; see
 [Upgrading a 0.1.4 file](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/release-notes.md#upgrading-a-014-file).
 
@@ -128,6 +128,7 @@ pietto emit-sql shop.pietto --dialect postgres
 `check` prints `OK: shop.pietto`, and `emit-sql` prints:
 
 ```sql
+-- customer_totals
 SELECT
     "customers"."id" AS "customer_id",
     "customers"."name" AS "name",
@@ -137,22 +138,62 @@ FROM "shop"."customers" AS "customers"
 LEFT JOIN "shop"."orders" AS "order" ON "order"."customer_id" = "customers"."id"
 GROUP BY
     "customers"."id",
-    "customers"."name"
+    "customers"."name";
 
+-- customers_to_invite
 SELECT
     "id" AS "id",
     "name" AS "name",
     "email" AS "email"
 FROM "shop"."customers" AS "customers"
-WHERE ("email" IS NOT NULL) AND (NOT EXISTS (SELECT 1 FROM "shop"."orders" AS "_pietto_value_1" WHERE "_pietto_value_1"."customer_id" = "customers"."id"))
+WHERE ("email" IS NOT NULL) AND (NOT EXISTS (SELECT 1 FROM "shop"."orders" AS "_pietto_value_1" WHERE "_pietto_value_1"."customer_id" = "customers"."id"));
 ```
 
-Each table and query becomes one statement, separated by a blank line and
-without `;`. Add `--format json` for JSON output that names each statement,
-and `--output FILE` to write the SQL to a file. `--check-mode strict` turns
-the two style warnings, a source without a shape and a computed column without
-a name, into errors (`checked` is the default; `loose` omits them; see the
-[language guide](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#source-structure)).
+`check` does not generate or execute SQL, so a file that passes `check` can
+still be refused by `explain` or by the selected SQL dialect (`ignore nulls`
+is `PIE-B1000`); only
+`emit-sql --dialect X` shows that a file emits for X. `emit-sql` writes SQL to
+stdout by default and can atomically replace an explicitly selected regular
+output file. Text output writes the statements in backend order, each after a
+`-- <name>` line naming its table or query and ending with `;`, one blank line
+apart; `--format json` gives the same SQL without the name line or `;`. When
+there is no SQL to write, for example for a file without a table or query,
+`emit-sql --output` exits `2` and leaves the target file untouched. `pietto`
+with no arguments prints the top-level help to stdout and exits `0`.
+Terminal text uses the terminal's selected encoding; if it cannot represent an
+output, Pietto exits `2` with an ASCII-safe error instead of replacing or
+partially writing SQL. SQL files selected with `--output` remain UTF-8 and use
+LF line endings on every platform.
+`check`, `explain`, and `emit-sql` take `--check-mode loose`, `checked` (the
+default), or `strict` for one file. The
+[language guide](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#source-structure)
+describes the modes.
+
+A single-file `postgres.table` or `mysql.table` string may be one table name
+or `<schema>.<table>` (for MySQL, `<database>.<table>`); each part is quoted
+separately, so `"public.users"` emits `FROM "public"."users"`, and more than
+one dot or an empty part fails `check` with `PIE-S2306`. Project SQL emission
+takes physical schema and relation names from its emission contract.
+
+Project SQL emission carries `Timestamp` and `UUID` fields only as the
+contract-qualified physical values of its emission contract: Timestamp
+requires PostgreSQL `timestamp without time zone(6)` or MySQL `DATETIME(6)` and
+the fixed civil law, and UUID requires PostgreSQL `uuid` or MySQL `BINARY(16)`
+and standard big-endian bytes. On those carriers it admits carrying and
+projecting the values, `==`/`!=`, `count`, `count_distinct`, `DISTINCT`,
+`GROUP BY`, and direct inner/left/right equality joins; ordering and
+inequality comparison, `min`/`max`, full joins, a `Timestamp` or `UUID`
+window partition or order key, range/as-of behavior, timezone conversion,
+parsing and other casts remain unavailable. See
+[Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#timestamp-and-uuid-source-meaning).
+
+## Reusable row predicates and migration
+
+A relationship predicate takes named rows of declared shapes. Name a JOIN input
+with `let`, then pass the actual row aliases explicitly in ON. A predicate may
+include fixed filters and Boolean composition; it does not assert that a matching
+row exists or perform database writes. See the complete
+[multi-JOIN example](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#named-inputs-and-reusable-relationship-predicates).
 
 `check` does not generate SQL, so only `emit-sql --dialect X` shows that a
 file emits for X: MySQL emission refuses each JOIN relation for now

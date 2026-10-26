@@ -133,14 +133,62 @@ def prepare_refinement(
     return value
 
 
+def conjuncts(value):
+    """The operands of one WHERE value's AND tree, in source order."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    if (
+        type(value) is rows.SQLOperation
+        and value.kind == "logical"
+        and value.original.expression.operator == "and"
+    ):
+        return tuple(c for operand in value.operands for c in conjuncts(operand))
+    return (value,)
+
+
+def existence_test(value):
+    """``(read, negated)`` when ``value`` is a `[not] any(...)` test that R2
+    refines as it refines a semi or anti JOIN: a correlated `exists` read of a
+    source or relation that R2 reads as an input, whose predicate reads no other
+    block; otherwise None."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_sql_emission_ast import inline_body
+
+    negated = type(value) is rows.SQLOperation and value.kind == "not"
+    read = value.operands[0] if negated else value
+    if (
+        type(read) is rows.SQLBlockRead
+        and read.kind == "exists"
+        and read.predicate is not None
+        and not inline_body(read.target.producer)
+        and not any(
+            type(node) is rows.SQLBlockRead for node in rows.value_nodes(read.predicate)
+        )
+    ):
+        return read, negated
+    return None
+
+
+def existence_reads(value):
+    """The reads of the `[not] any(...)` conjuncts R2 refines in one WHERE."""
+    return tuple(
+        found[0]
+        for conjunct in conjuncts(value)
+        if (found := existence_test(conjunct)) is not None
+    )
+
+
 def refuse_block_reads(artifact):
-    """R2 has no proven row coordinates for an expression block read yet.
+    """R2 has no proven row coordinates for an expression block read yet,
+    except a `[not] any(...)` conjunct of a WHERE (`existence_test`), which
+    only filters the rows it keeps, as a semi or anti JOIN does.
 
     The complete source closure, including every source reached only through
     such a read, is checked first; the refusal precedes any connection.
     """
     from pietto._project import project_sql_emission_rows as rows
     from pietto._project.project_sql_emission_ast import (
+        RowBody,
         SQLSelect,
         inline_body,
         row_value_roots,
@@ -149,8 +197,15 @@ def refuse_block_reads(artifact):
 
     if type(artifact.ast) is SQLSelect:
         return
+    units = getattr(artifact.ast, "units", artifact.ast.bodies)
+    refined = tuple(
+        read
+        for unit in units
+        if type(unit) is RowBody and unit.predicate is not None
+        for read in existence_reads(unit.predicate.value)
+    )
     if any(
-        type(node) is rows.SQLBlockRead
+        type(node) is rows.SQLBlockRead and not any(node is r for r in refined)
         for root in row_value_roots(artifact.ast)
         for node in rows.value_nodes(root)
     ):
@@ -158,7 +213,7 @@ def refuse_block_reads(artifact):
     # A LATERAL JOIN input (a let with capture lines) has no row coordinates.
     if any(
         type(unit) is JoinBody and inline_body(unit.inputs[1].producer)
-        for unit in getattr(artifact.ast, "units", artifact.ast.bodies)
+        for unit in units
     ):
         raise ValueError("REFINEMENT_LATERAL_JOIN")
 

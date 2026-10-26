@@ -333,7 +333,6 @@ def _syntax_correspondence(template, artifact, values):
 
 
 def _obligations(before, after, image):
-    from pietto._project.project_relationship_paths import ProjectRelationshipPathStep
     from pietto._project.project_single_match import ProjectSingleMatchAssessment
 
     old, new = before.single_match_requests, after.single_match_requests
@@ -357,36 +356,9 @@ def _obligations(before, after, image):
             or b.scope is not a.scope
             or b.unit is not a.unit
             or (a.condition is None) != (b.condition is None)
-            or (a.path is None) != (b.path is None)
             or (a.input_pairs is None) != (b.input_pairs is None)
-            or type(a.hop) is not type(b.hop)
         ):
             raise BindingError("BINDING_OBLIGATIONS")
-        if a.hop is not None:
-            if x.condition is None or y.condition is None:
-                raise BindingError("BINDING_OBLIGATIONS")
-            x_path, y_path = (
-                x.condition.effective_use.path,
-                y.condition.effective_use.path,
-            )
-            if isinstance(a.hop, ProjectRelationshipPathStep) and (
-                x_path is None or y_path is None
-            ):
-                raise BindingError("BINDING_OBLIGATIONS")
-            aa = (
-                (x_path.steps if x_path is not None else ())
-                if isinstance(a.hop, ProjectRelationshipPathStep)
-                else x.condition.use.step_uses
-            )
-            bb = (
-                (y_path.steps if y_path is not None else ())
-                if isinstance(b.hop, ProjectRelationshipPathStep)
-                else y.condition.use.step_uses
-            )
-            if tuple(i for i, h in enumerate(aa) if h is a.hop) != tuple(
-                i for i, h in enumerate(bb) if h is b.hop
-            ):
-                raise BindingError("BINDING_OBLIGATIONS")
 
 
 @entry

@@ -120,9 +120,11 @@ def _compile(path: str) -> ScriptIR:
 
 
 def _render_artifacts(result: SqlResult) -> bytes:
-    return ("\n\n".join(artifact.sql for artifact in result.artifacts) + "\n").encode(
-        "utf-8"
-    )
+    """The artifacts as `emit-sql` text prints them: named, `;`-terminated."""
+
+    return (
+        "\n\n".join(f"-- {item.name}\n{item.sql};" for item in result.artifacts) + "\n"
+    ).encode("utf-8")
 
 
 def _read(path: str) -> str:

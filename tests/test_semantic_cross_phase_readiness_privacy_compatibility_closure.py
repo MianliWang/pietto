@@ -12,6 +12,7 @@ import pietto._project.aggregate_grouped_clause_facts as clause_module
 import pietto._project.aggregate_grouped_dependency_lineage as dependency_lineage_module
 import pietto._project.aggregate_grouped_persistence as persistence_module
 import pietto.cli as cli
+from pietto._project import model as project_model
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
@@ -516,7 +517,7 @@ def test_current_aggregate_grouped_private_facts_remain_unserialized_and_unexpor
         "shape Broken\n    id: Int\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", forbidden)
+    monkeypatch.setattr(project_model, "build_empty_project_semantic_result", forbidden)
     assert (
         cli.main(["check", "--project", str(parser_error_root), "--format", "json"])
         == 1

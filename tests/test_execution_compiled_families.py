@@ -6,7 +6,7 @@ import _pietto_sql_emission as emission
 from _pietto_execution_binding import proof_artifact
 from _pietto_execution_compiled import retained_unmapped_source
 from _pietto_execution_refinement import capabilities
-from _pietto_execution_rows_cases import BLOCK_READS, CASES, build
+from _pietto_execution_rows_cases import CASES, build
 from _pietto_execution_guard_cases import manifest, case_preparation
 from pietto._project.project_compiled_build import CompiledBuild, build_compiled
 from pietto._project.project_compiled_loading import load_compiled
@@ -25,7 +25,7 @@ def test_original_named_family_closure(tmp_path, target, case, variant):
         with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
             build_compiled(original.artifact)
         return
-    _compare(original.artifact, refinement=(case, variant) not in BLOCK_READS)
+    _compare(original.artifact)
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -174,7 +174,7 @@ def test_block_read_keeps_its_requirement_rules_on_replay(
     assert original.artifact is not None
     assert "R11" in {r.rule for r in original.artifact.original_requirements}
     emission.decode_public(serialize_project_sql_emission(original))
-    # R2 refines no expression block read yet (fails closed).
+    # R2 refines no `exists`, `scalar` or `in` read yet (fails closed).
     _compare(original.artifact, refinement=False)
 
 
@@ -504,6 +504,89 @@ def test_reordered_composite_reverse_match_replays_with_authored_order(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "where",
+    (
+        "x.rid is None",
+        "r.rid > 5 and r.rid < 3",
+        "agg.rid is not None or x.rid is None",
+        "r.rid == 3",
+    ),
+    ids=("never_none", "contradiction", "vacuous_or", "key_held"),
+)
+def test_unmatched_row_value_proofs_replay_with_the_compiled_records(
+    tmp_path, target, where
+):
+    """D-11: the compiled records give back the left-to-right dependency of a
+    RIGHT JOIN whose unmatched rows the aggregate reads through values only
+    (a never-None field tested `is None`, contradictory bounds, a vacuous
+    `or`) or of one right row only (a key held to one value), as the written
+    query does, so the replay finds no repeated rows either."""
+    from pietto._project.project_joined_aggregation import (
+        ProjectConcreteJoinedAggregation,
+        compiled_orphan_free_dependencies,
+        orphan_free_dependencies,
+    )
+
+    item = emission.fixture(target, "Y_aggregate_satisfying", "retained")
+    source = emission.AGGREGATE_HEADER.format(target=target) + (
+        "relationship forward_match(many: Agg, one: Agg):\n"
+        "    many.key == one.rid\n"
+        "query result:\n    from agg\n    let r = agg\n"
+        "    right join r on forward_match(agg, r)\n    let x = agg\n"
+        f"    cross join x\n    where {where}\n    group by agg.rid\n"
+        "    select:\n        n = count(x.rid)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified
+    assert original.status == "VERIFIED"
+    artifact = original.artifact
+    assert artifact is not None
+    replay = _compare(artifact)
+    reference = artifact.request.plan
+    (source_aggregate,) = (
+        a.authority.source
+        for a in reference.aggregations
+        if type(a.authority.source) is ProjectConcreteJoinedAggregation
+    )
+    (evidence,) = replay.request.plan.aggregate_evidence
+    (source_occurrence,) = source_aggregate.aggregates
+    (aggregate_address,) = evidence.stage.record.get("values")
+    arguments = replay.request.plan.ir.completed.root.records[aggregate_address].get(
+        "arguments"
+    )
+
+    def signature(dependencies, grain):
+        positions = {factor.identity: i for i, factor in enumerate(grain.factors)}
+        return tuple(
+            (
+                tuple(positions[f] for f in dependency.determinants),
+                tuple(positions[f] for f in dependency.dependents),
+            )
+            for dependency in dependencies
+        )
+
+    source_region = source_aggregate.input_filter.joined_semantics.multifact_region
+    assert (
+        signature(
+            orphan_free_dependencies(source_occurrence),
+            source_region.final_properties.relational.grain,
+        )
+        == signature(
+            compiled_orphan_free_dependencies(
+                replay.request.plan.ir, evidence.region, evidence.stage, arguments
+            ),
+            evidence.region.final_properties.grain,
+        )
+        == (((0,), (1,)),)
+    )
+    (linkage,) = evidence.grain_linkages
+    assert not linkage.multiplicity_exposures
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_joined_single_read_computed_key_replays_as_computed(tmp_path, target):
     """`r.rid + 0` reads one field through an operation: replay keeps it a
     computed key recorded on the right side, never a direct key seeding that
@@ -708,7 +791,15 @@ def test_original_seven_scalar_templates(tmp_path, target, precision, state):
         ("swapped", True, True, "inner", "swapped", (((0,), (1,)), ((1,), (0,)))),
         ("left", True, True, "left", "call", (((0,), (1,)),)),
         ("right", True, True, "right", "call", (((1,), (0,)),)),
-        ("handwritten", True, True, "inner", "handwritten", ()),
+        # Hand-written ON equalities prove what the call proves.
+        (
+            "handwritten",
+            True,
+            True,
+            "inner",
+            "handwritten",
+            (((0,), (1,)), ((1,), (0,))),
+        ),
         ("nonmandatory", True, True, "inner", "or", ()),
         ("same_side", True, True, "inner", "same_side", ()),
         (

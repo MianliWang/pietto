@@ -69,6 +69,19 @@ INT_TYPE = TypeRefIR(
 )
 
 
+def _builtin_type(name: str, nullability: NullabilityIR) -> TypeRefIR:
+    symbol = SymbolId(SymbolNamespace.TYPE, name)
+    return TypeRefIR(
+        symbol=symbol,
+        canonical_symbol=symbol,
+        declared_name=name,
+        canonical_name=name,
+        kind=TypeKindIR.BUILTIN,
+        canonical_kind=TypeKindIR.BUILTIN,
+        nullability=nullability,
+    )
+
+
 def _literal(value: StaticValue) -> LiteralIR:
     return LiteralIR(span=SPAN, value_type=UNKNOWN_TYPE, value=value)
 
@@ -113,6 +126,81 @@ def test_approved_function_mappings_are_uppercase_and_recursive() -> None:
     assert render_mysql_expression(_call("len", _field("email"))) == (
         "CHAR_LENGTH(`email`)"
     )
+
+
+def test_c5_mysql_only_emits_proven_decimal_round_and_int_text_cast() -> None:
+    decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
+    int_type = _builtin_type("Int", NullabilityIR.NON_NULL)
+    text = _builtin_type("Text", NullabilityIR.NON_NULL)
+    value = FieldRefIR(
+        span=SPAN,
+        value_type=decimal,
+        name="amount",
+        qualifier=(),
+        field=None,
+    )
+    round_decimal = CallIR(
+        span=SPAN,
+        value_type=decimal,
+        callee="round",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "round"),
+        arguments=(
+            value,
+            UnaryIR(
+                span=SPAN,
+                value_type=int_type,
+                operator="-",
+                operand=LiteralIR(span=SPAN, value_type=int_type, value=2),
+            ),
+        ),
+    )
+    text_cast = CastIR(
+        span=SPAN,
+        value_type=text,
+        value=FieldRefIR(
+            span=SPAN,
+            value_type=int_type,
+            name="id",
+            qualifier=(),
+            field=None,
+        ),
+        target=text,
+    )
+
+    assert render_mysql_expression(round_decimal) == "ROUND(`amount`, (-2))"
+    assert render_mysql_expression(text_cast) == "CAST(`id` AS CHAR)"
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        CallIR(
+            span=SPAN,
+            value_type=_builtin_type("Float", NullabilityIR.NON_NULL),
+            callee="round",
+            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "round"),
+            arguments=(
+                FieldRefIR(
+                    span=SPAN,
+                    value_type=_builtin_type("Float", NullabilityIR.NON_NULL),
+                    name="ratio",
+                    qualifier=(),
+                    field=None,
+                ),
+            ),
+        ),
+        CallIR(
+            span=SPAN,
+            value_type=_builtin_type("Date", NullabilityIR.NON_NULL),
+            callee="date_trunc",
+            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
+            arguments=(),
+        ),
+    ],
+)
+def test_c5_mysql_refuses_unproven_function_shapes(expression: ExpressionIR) -> None:
+    with pytest.raises(MySqlRenderError):
+        render_mysql_expression(expression)
 
 
 def test_q1_control_expressions_and_fixed_like_escape_render() -> None:

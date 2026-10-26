@@ -218,7 +218,7 @@ def test_prefix_any_keeps_prior_nulling_and_a_global_left_at_most_one(
     region = completed.effective_outputs.current_regions[0]
     previous, join, _ = region.joins[-3:]
     assert isinstance(join, ProjectCurrentBinaryJoin)
-    assert join.kind is AuthoredJoinKind(kind) and not region.hidden_introductions
+    assert join.kind is AuthoredJoinKind(kind)
     assert len(join.output.row_shape.fields) == 9
     for original, output in zip(
         previous.output.row_shape.fields, join.output.row_shape.fields, strict=True
@@ -247,7 +247,6 @@ def test_prefix_any_keeps_prior_nulling_and_a_global_left_at_most_one(
     assert join.left_input.grain.state is ProjectGrainBasisState.GLOBAL
     assert join.properties.relational.grain.state is ProjectGrainBasisState.GLOBAL
     assert not join.properties.relational.grain.active
-    assert join.condition.base_guarantee is None
 
 
 def test_finite_bag_null_reference_and_metamorphics() -> None:
@@ -498,9 +497,9 @@ def test_existing_left_fanout_remains_an_aggregate_risk(
         (
             "PIE-S2333",
             "Project relation semantic completion is unavailable: result (an aggregate "
-            "may read rows repeated by JOIN r; match a unique key of r whose fields "
-            "are never None in `on` with a relationship call, use `any(...)` for an "
-            "input that only filters rows, or aggregate in a separate query first)",
+            "may read rows repeated by JOIN r; match a unique key of r in `on`, "
+            "use `any(...)` for an input that only filters rows, or aggregate in a "
+            "separate query first)",
             9,
             1,
         )
@@ -1211,6 +1210,57 @@ def test_any_between_joins_cannot_read_a_future_binding() -> None:
     assert [(item.code, item.message) for item in result.diagnostics] == [
         ("PIE-S2335", "JOIN ON reference is forward: later.id")
     ]
+
+
+@pytest.mark.parametrize(
+    ("condition", "code", "message", "column"),
+    (
+        (
+            "not any(buyer for buyer in customers)",
+            "PIE-S2335",
+            "JOIN ON reference is unknown: buyer",
+            19,
+        ),
+        (
+            "any(buyer.missing == 1 for buyer in customers)",
+            "PIE-S2335",
+            "JOIN ON reference is unknown: buyer.missing",
+            15,
+        ),
+        (
+            "any(id == 1 for buyer in customers)",
+            "PIE-S2335",
+            "JOIN ON reference is ambiguous: id; write orders.id or buyer.id",
+            15,
+        ),
+        # The binder hides the FROM input's name, so no spelling picks either.
+        (
+            "any(id == 1 for orders in customers)",
+            "PIE-S2335",
+            "JOIN ON reference is ambiguous: id",
+            15,
+        ),
+        (
+            "any(any(o.id == buyer.missing for o in orders) for buyer in customers)",
+            "PIE-S2102",
+            "Unknown or unavailable field in ANY predicate: buyer.missing",
+            27,
+        ),
+    ),
+)
+def test_any_before_a_later_join_names_its_binder_as_written(
+    condition: str, code: str, message: str, column: int
+) -> None:
+    # The hidden JOIN binds the rows under a generated name, never shown.
+    _, result = _any_semantics(
+        f"query q:\n    from orders\n    where {condition}\n"
+        "    let next = customers\n    cross join next\n"
+        "    select:\n        id = orders.id\n"
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [(code, message, 14, column)]
 
 
 @pytest.mark.parametrize("relationship", (False, True))

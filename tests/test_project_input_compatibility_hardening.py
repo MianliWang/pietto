@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
+from pietto._project import model as project_model
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
@@ -412,7 +413,9 @@ def _forbid_project_semantic_builder(monkeypatch: pytest.MonkeyPatch) -> None:
         del args, kwargs
         raise AssertionError("project semantic builder must not run")
 
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", unexpected_builder)
+    monkeypatch.setattr(
+        project_model, "build_empty_project_semantic_result", unexpected_builder
+    )
 
 
 def _assert_no_private_semantic_facts(serialized: str) -> None:

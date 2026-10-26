@@ -90,7 +90,7 @@ def test_successful_output_atomically_overwrites_regular_file(
     assert captured.out == ""
     assert captured.err == ""
     assert output.read_text(encoding="utf-8") == (
-        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
     )
     assert not tuple(tmp_path.glob("*.tmp"))
 
@@ -127,7 +127,7 @@ def test_replaced_output_file_keeps_its_permission_bits(tmp_path: Path) -> None:
         kept = mode if sys.platform == "linux" else mode & 0o700
         assert stat.S_IMODE(output.stat().st_mode) == kept, oct(mode)
         assert output.read_text(encoding="utf-8") == (
-            'SELECT\n    "email" AS "email"\nFROM "users"\n'
+            '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
         )
     assert not tuple(tmp_path.glob("*.tmp"))
 
@@ -169,7 +169,7 @@ def test_only_a_pair_shown_free_of_acls_keeps_more_than_the_owner_bits(
     kept = 0o764 if acl == "none" and sys.platform == "linux" else 0o700
     assert stat.S_IMODE(output.stat().st_mode) == kept
     assert output.read_text(encoding="utf-8") == (
-        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
     )
     assert not tuple(tmp_path.glob("*.tmp"))
 
@@ -222,7 +222,7 @@ def test_a_real_posix_acl_never_widens_a_replaced_file(
         ]
     )
     assert output.read_text(encoding="utf-8") == (
-        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
     )
     assert not tuple(directory.glob("*.tmp"))
 
@@ -311,7 +311,7 @@ def test_any_refused_access_step_keeps_only_the_owner_bits(
 
     assert stat.S_IMODE(output.stat().st_mode) == 0o700
     assert output.read_text(encoding="utf-8") == (
-        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
     )
     assert not tuple(tmp_path.glob("*.tmp"))
 
@@ -446,7 +446,7 @@ def test_root_replaces_another_users_output(
     assert _emit(path, output) == 0
 
     assert output.read_text(encoding="utf-8") == (
-        'SELECT\n    "email" AS "email"\nFROM "users"\n'
+        '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
     )
     assert not tuple(tmp_path.glob("*.tmp"))
 
@@ -517,7 +517,7 @@ def test_the_overflow_id_is_unknown_only_where_ids_are_unmapped(
             f"/proc/sys/kernel/overflow{kind}": f"{ids[kind]}\n",
         },
     )
-    replaced = 'SELECT\n    "email" AS "email"\nFROM "users"\n'
+    replaced = '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
 
     if ids_map == "full" or kind == "gid":
         assert _emit(path, output) == 0
@@ -586,7 +586,7 @@ def test_ids_a_user_namespace_does_not_map_never_count_as_the_same(
     if mapped:
         assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
         assert output.read_text(encoding="utf-8") == (
-            'SELECT\n    "email" AS "email"\nFROM "users"\n'
+            '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n'
         )
         assert stat.S_IMODE(output.stat().st_mode) == 0o600
     else:

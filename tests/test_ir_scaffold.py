@@ -89,6 +89,7 @@ def test_compile_to_ir_is_not_exported() -> None:
 
 def test_ir_public_exports_are_explicit() -> None:
     assert ir_api.__all__ == [
+        "AggregateWindowCallIR",
         "AggregateCallIR",
         "AnyFieldIR",
         "ExistsIR",
@@ -119,6 +120,7 @@ def test_ir_public_exports_are_explicit() -> None:
         "NullabilityIR",
         "ParameterIR",
         "ProjectionIR",
+        "QualifyIR",
         "RelationIR",
         "RelationInputIR",
         "RelationInputRoleIR",

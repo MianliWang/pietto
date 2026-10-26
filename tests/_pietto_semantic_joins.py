@@ -99,11 +99,7 @@ def run_joins(source: str, *, path: str = "joins.pietto") -> JoinRun:
     result = analyze_project_namespace(script)
     assert result.script is not None
     structures, join_resolutions, diagnostics = joins.build_join_structures(
-        result.script,
-        relation_symbols=result.model.relation_symbols,
-        relationships=result.model.relationships,
-        source_row_schemas=result.model.source_row_schemas,
-        type_expansions=result.model.type_expansions,
+        result.script, relation_symbols=result.model.relation_symbols
     )
     return JoinRun(
         script=result.script,

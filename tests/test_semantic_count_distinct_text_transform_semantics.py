@@ -382,7 +382,7 @@ def test_emit_sql_for_count_distinct_transform_succeeds_after_sql_slice(
             "sql": expected_sql,
         }
     ]
-    assert output.read_text(encoding="utf-8") == expected_sql + "\n"
+    assert output.read_text(encoding="utf-8") == f"-- status_stats\n{expected_sql};\n"
 
 
 def _parse(source: str) -> Script:

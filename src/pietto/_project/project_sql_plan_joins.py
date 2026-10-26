@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 
 from pietto.ast_nodes import AuthoredJoinKind
 from pietto._project.project_query_block_ir import (
-    ProjectIRQueryBlockSnapshot,
     ProjectIRQueryBlockEntry,
     ProjectIRCompletedQueryBlockOutput,
     ProjectIRSingleMatchRetention,
@@ -20,27 +19,16 @@ from pietto._project.project_query_block_ir_algebra import (
     ProjectIRComposedJoin,
     ProjectIRJoinInputCorrespondence,
 )
-from pietto._project.project_ir_joins import (
-    ProjectIRBinaryJoinOccurrence,
-    ProjectIRJoinMatchFieldPair,
-)
 from pietto._project.project_ir_properties import ProjectIRJoinedRowField
 from pietto._project.project_ir_relational_properties import (
     ProjectIROutputFieldOccurrence,
     ProjectIROutputRelationalProperties,
 )
 from pietto._project.project_ir import ProjectIRPlanNodeRef
-from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
 from pietto._project.project_join_conditions import ProjectJoinConditionField
 from pietto._project.project_joined_qualify import ProjectConcreteJoinedQualify
 from pietto._project.project_joined_row_filter import ProjectConcreteJoinedRowFilter
 from pietto._project.project_scalar_references import ProjectScalarEnvironmentField
-from pietto._project.project_relationship_conditions import (
-    ProjectRelationshipEqualityCorrespondence,
-)
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectDirectionalRelationshipMatchGuarantee,
-)
 from pietto._project.project_single_match import (
     ProjectSingleMatchAssessment,
     ProjectSingleMatchRequest,
@@ -64,25 +52,19 @@ def joined_tail(
     return None
 
 
-def join_images(
-    root: ProjectIRQueryBlockSnapshot, entry: ProjectIRQueryBlockEntry
-) -> tuple[ProjectIRComposedJoin, ...]:
+def join_images(entry: ProjectIRQueryBlockEntry) -> tuple[ProjectIRComposedJoin, ...]:
     """Read complete current images from the already VERIFIED snapshot."""
     tail = joined_tail(entry)
     if tail is None:
         return ()
     assert isinstance(entry, ProjectIRCompletedQueryBlockOutput)
     region = tail.joined_semantics.row_source.region
-    if entry.join_prefix is not None:
-        if entry.join_prefix.region is not region:
-            raise ValueError("JOIN image root does not match its semantic region.")
-        images = entry.join_prefix.joins
-    else:
-        images = tuple(
-            image
-            for image in root.retained_joins
-            if any(image.source is source for source in region.joins)
-        )
+    # A joined tail always reads its composed JOIN prefix.
+    if entry.join_prefix is None:
+        raise ValueError("JOIN images must cover the exact ordered semantic region.")
+    if entry.join_prefix.region is not region:
+        raise ValueError("JOIN image root does not match its semantic region.")
+    images = entry.join_prefix.joins
     if len(images) != len(region.joins) or any(
         image.source is not source
         for image, source in zip(images, region.joins, strict=True)
@@ -116,10 +98,6 @@ def condition_field_keys(
 ) -> tuple[tuple[ProjectJoinConditionField | None, ...], ...]:
     """Match existing pre-match fields to original input occurrences, never names."""
     source = join.source
-    if not isinstance(source, ProjectCurrentBinaryJoin):
-        return tuple(
-            tuple(None for _ in image.source_properties.fields) for image in join.inputs
-        )
     right = (
         source.right_input.fields
         if source.input_scope is None
@@ -144,81 +122,6 @@ def condition_field_keys(
                 raise ValueError("Pre-match field occurrence has multiple images.")
             local.append(matches[0] if matches else None)
         result.append(tuple(local))
-    return tuple(result)
-
-
-def base_matches(
-    join: ProjectIRComposedJoin,
-) -> tuple[
-    tuple[
-        ProjectIRJoinMatchFieldPair | ProjectRelationshipEqualityCorrespondence,
-        ProjectDirectionalRelationshipMatchGuarantee,
-        int,
-        int,
-    ],
-    ...,
-]:
-    source = join.source
-    if isinstance(source, ProjectIRBinaryJoinOccurrence):
-        width = len(source.left_input.fields)
-        return tuple(
-            (
-                pair,
-                source.guarantee,
-                pair.left.field_position,
-                pair.right.field_position - width,
-            )
-            for pair in source.matches
-        )
-    condition = join.condition
-    if not condition.base_conditions:
-        return ()
-    guarantee = condition.base_guarantee
-    if (
-        guarantee is None
-        or len(condition.base_conditions) != 1
-        or len(condition.environment.source_candidates) != 1
-    ):
-        raise ValueError(
-            "Direct relationship matching requires exact directional authority."
-        )
-    source_binding = condition.environment.source_candidates[0]
-    right = (
-        source.right_input.fields
-        if source.input_scope is None
-        else source.input_scope.bindings[source.use.identity.join_position + 1].fields
-    )
-    result = []
-    for correspondence in condition.base_conditions[0].correspondences:
-        endpoints = (correspondence.endpoint_zero, correspondence.endpoint_one)
-        sources = tuple(
-            e for e in endpoints if e.endpoint is guarantee.direction.source
-        )
-        targets = tuple(
-            e for e in endpoints if e.endpoint is guarantee.direction.target
-        )
-        if len(sources) != 1 or len(targets) != 1:
-            raise ValueError("Relationship equality lost its directional endpoints.")
-        left_positions = tuple(
-            i
-            for i, (binding, original) in enumerate(source.left_fields)
-            if binding is source_binding
-            and original.evidence is sources[0].semantic_field
-            and original.field_position == sources[0].field_identity.field_position
-        )
-        right_positions = tuple(
-            i
-            for i, original in enumerate(right)
-            if original.evidence is targets[0].semantic_field
-            and original.field_position == targets[0].field_identity.field_position
-        )
-        if len(left_positions) != 1 or len(right_positions) != 1:
-            raise ValueError(
-                "Relationship equality requires exact pre-match field images."
-            )
-        result.append(
-            (correspondence, guarantee, left_positions[0], right_positions[0])
-        )
     return tuple(result)
 
 
@@ -271,8 +174,6 @@ class ProjectSQLJoinPort:
 class ProjectSQLRelationshipMatch:
     ref: ProjectSQLPlanRef
     join: ProjectSQLPlanRef
-    source: ProjectIRJoinMatchFieldPair | ProjectRelationshipEqualityCorrespondence
-    guarantee: ProjectDirectionalRelationshipMatchGuarantee
     left: ProjectSQLPlanRef
     right: ProjectSQLPlanRef
     authored_operands: tuple[ProjectSQLPlanRef, ProjectSQLPlanRef]

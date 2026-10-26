@@ -22,9 +22,7 @@ from pietto._project.project_joined_aggregation import (
 )
 from pietto._project.project_joined_qualify import ProjectConcreteJoinedQualify
 from pietto._project.project_join_conditions import ProjectJoinConditionCompletion
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectRelationshipMaximumBound,
-)
+from pietto._project.project_join_conditions import ProjectRelationshipMaximumBound
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto._project.project_completion import ProjectEffectiveOutputTerminal
 from pietto._project.project_query_block_ir import (
@@ -226,10 +224,6 @@ def test_predicate_and_filter_forms_keep_exact_condition_authority(
     assert isinstance(join, ProjectCurrentBinaryJoin)
     assert join.condition is condition and join.kind is AuthoredJoinKind(kind)
     assert condition.mode == "M3"
-    assert (
-        condition.base_conditions == ()
-        and condition.base_guarantee is condition.refinement_guarantee is None
-    )
     assert len(condition.mandatory_equalities) == 1
     predicate_fact = condition.environment.predicate_expression
     assert (
@@ -257,7 +251,7 @@ def test_full_nulls_every_authored_prefix_binding_and_following_on_sees_it(
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     region = completed.effective_outputs.current_regions[0]
-    assert len(region.joins) == 4 and not region.hidden_introductions
+    assert len(region.joins) == 4
     full, following = region.joins[2:]
     assert isinstance(full, ProjectCurrentBinaryJoin)
     assert isinstance(following, ProjectCurrentBinaryJoin)
@@ -331,7 +325,8 @@ def test_outer_append_preserves_prior_left_nulling_history(
 def test_generic_products_keep_only_sound_composite_keys_and_no_cross_classes(
     tmp_path: Path, kind: str, expected_strength: ProjectRowUniquenessStrength
 ) -> None:
-    predicate = None if kind == "cross" else "lhs.id == r.id"
+    # `key` is no key, so its equality proves no match bound.
+    predicate = None if kind == "cross" else "lhs.key == r.key"
     completed = _completed(tmp_path, _unique_source(kind, predicate))
     properties = completed.effective_outputs.current_regions[
         0
@@ -360,26 +355,31 @@ def test_generic_products_keep_only_sound_composite_keys_and_no_cross_classes(
 def test_relationship_bounds_transfer_keys_with_exact_side_strength(
     tmp_path: Path, kind: str
 ) -> None:
-    completed = _completed(tmp_path, _unique_source(kind, "Link(lhs, r)"))
-    properties = completed.effective_outputs.current_regions[
-        0
-    ].final_properties.relational
-    singleton = {
-        tuple(
-            member.field_position
-            for item in key.determinants
-            for member in item.members
-        ): key
-        for key in properties.keys
-        if len(key.determinants) == 1
-    }
-    assert set(singleton) == {(0,), (3,)}
-    assert singleton[(0,)].strength is ProjectRowUniquenessStrength.LAX
-    assert singleton[(3,)].strength is (
-        ProjectRowUniquenessStrength.STRICT
-        if kind == "right"
-        else ProjectRowUniquenessStrength.LAX
-    )
+    # A hand-written ON equality transfers the keys the relationship does.
+    for name, predicate in (
+        ("call", "Link(lhs, r)"),
+        ("handwritten", "lhs.id == r.id"),
+    ):
+        completed = _completed(tmp_path / name, _unique_source(kind, predicate))
+        properties = completed.effective_outputs.current_regions[
+            0
+        ].final_properties.relational
+        singleton = {
+            tuple(
+                member.field_position
+                for item in key.determinants
+                for member in item.members
+            ): key
+            for key in properties.keys
+            if len(key.determinants) == 1
+        }
+        assert set(singleton) == {(0,), (3,)}
+        assert singleton[(0,)].strength is ProjectRowUniquenessStrength.LAX
+        assert singleton[(3,)].strength is (
+            ProjectRowUniquenessStrength.STRICT
+            if kind == "right"
+            else ProjectRowUniquenessStrength.LAX
+        )
 
 
 @pytest.mark.parametrize("kind", ("right", "full"))
@@ -395,7 +395,6 @@ def test_left_nulling_match_gives_no_left_to_right_grain_dependency(
     assert completed.ok, completed.diagnostics
     (join,) = completed.effective_outputs.current_regions[0].joins
     assert isinstance(join, ProjectCurrentBinaryJoin)
-    assert join.condition.base_guarantee is None
     matches = tuple(
         m
         for m in join.condition.key_matches
@@ -940,7 +939,7 @@ def test_nullable_or_condition_produces_no_unconditional_cross_side_fact(
     assert completed.ok, completed.diagnostics
     condition = completed.roots.join_conditions.entries[0]
     assert condition.ready and condition.conjuncts == (condition.expression,)
-    assert not condition.null_rejections and condition.base_guarantee is None
+    assert not condition.null_rejections
     join = completed.effective_outputs.current_regions[0].joins[0]
     assert isinstance(join, ProjectCurrentBinaryJoin)
     split = len(join.left_input.fields)
@@ -999,7 +998,6 @@ def test_full_filtered_predicate_keeps_key_upper_bound_without_coverage(
     completed = _completed(tmp_path, _unique_source("full", "Link(lhs, r) and False"))
     assert completed.ok, completed.diagnostics
     condition = completed.roots.join_conditions.entries[0]
-    assert condition.base_guarantee is condition.refinement_guarantee is None
     matches = tuple(
         m for m in condition.key_matches if m.binding is condition.use.target_binding
     )

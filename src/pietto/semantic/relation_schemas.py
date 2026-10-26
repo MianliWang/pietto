@@ -419,6 +419,23 @@ def _aggregate_projection_diagnostics(
             invalid_items.add(item)
             continue
 
+        if function_name == "string_agg" and expression_value_types is not None:
+            argument_types = tuple(
+                expression_value_types.get(argument)
+                for argument in expression.arguments
+            )
+            if any(
+                value_type is None
+                or value_type.kind is not ValueTypeKind.KNOWN
+                or _canonical_value_type(
+                    value_type, type_expansions, enum=True
+                ).resolved_type.name
+                != "Text"
+                for value_type in argument_types
+            ):
+                invalid_items.add(item)
+                continue
+
         if expression.arguments:
             argument = expression.arguments[0]
             unread = (

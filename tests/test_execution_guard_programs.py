@@ -191,7 +191,6 @@ def test_two_direct_boundaries_reject_complete_coordinated_grafts_without_builde
     ] == [(0, 0), (1, 0)]
     assert all(
         subject.obligation.request.scope is ProjectSingleMatchScope.DIRECT_BINARY
-        and subject.obligation.request.path is subject.obligation.request.hop is None
         for subject in a.subjects
     )
     first, second = a.subjects

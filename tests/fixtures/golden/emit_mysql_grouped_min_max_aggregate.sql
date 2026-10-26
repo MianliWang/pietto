@@ -1,3 +1,4 @@
+-- order_extremes_by_status
 SELECT
     `status` AS `status`,
     MIN(`amount`) AS `smallest_amount`,
@@ -5,4 +6,4 @@ SELECT
 FROM `orders`
 WHERE `status` = 'paid'
 GROUP BY
-    `status`
+    `status`;

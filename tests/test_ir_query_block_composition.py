@@ -154,12 +154,10 @@ def test_snapshot_reuses_exact_roots_scope_allocation_ledger_and_verifies(
     analyses = build_project_query_block_ir_analysis_bundle(verification)
     combined_nodes = (
         *snapshot.base_plan.structural_stage.nodes,
-        *snapshot.join_stage.structural.nodes,
         *snapshot.structural.nodes,
     )
     combined_outputs = (
         *snapshot.base_plan.structural_stage.outputs,
-        *snapshot.join_stage.structural.outputs,
         *snapshot.structural.outputs,
     )
     assert len(analyses.combined_reverse_uses) == len(combined_outputs)

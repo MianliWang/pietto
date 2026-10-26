@@ -35,6 +35,7 @@ from pietto.ast_nodes import (
 )
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.model import (
+    AggregateWindowCallIR,
     AggregateCallIR,
     AnyFieldIR,
     ExistsIR,
@@ -58,6 +59,7 @@ from pietto.ir.model import (
     NamedWindowOccurrenceIR,
     NamedWindowUseIR,
     NullabilityIR,
+    OrderItemIR,
     OrderDirectionIR,
     RowFieldIR,
     RowSchemaIR,
@@ -102,6 +104,7 @@ from pietto.semantic import (
 )
 from pietto.semantic.model import AnyFieldReadInfo, AnyValueSemanticInfo
 from pietto.semantic.window_semantics import (
+    AggregateWindowAnalysis,
     FrameValueWindowSemanticFact,
     NavigationWindowSemanticFact,
     ValidatedFrame,
@@ -230,6 +233,7 @@ def lower_expr(
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions or {},
                 window_input_expressions=window_input_expressions or {},
+                join_reads=join_reads,
             )
         else:
             lowered = _lower_expr_node(
@@ -241,6 +245,7 @@ def lower_expr(
                 let_expansions=let_expansions or {},
                 let_stack=frozenset(),
                 join_reads=join_reads,
+                window_input_expressions=window_input_expressions,
             )
     except (_LetExpansionLoweringError, _WindowExpressionLoweringError) as error:
         return ExpressionLoweringResult(
@@ -293,21 +298,130 @@ def _lower_window_expr(
     field_qualifier: str | None,
     let_expansions: Mapping[str, Expression],
     window_input_expressions: Mapping[str, ExpressionIR],
-) -> WindowCallIR:
+    join_reads: JoinReads | None = None,
+) -> WindowCallIR | AggregateWindowCallIR:
     """Lower one semantically admitted window without re-running analysis."""
 
-    analysis = semantic_model.window_expression_analyses.get(expression)
-    if type(analysis) is not WindowExpressionAnalysis:
+    aggregate_name = semantic_aggregate_call_name(expression.call)
+    if aggregate_name in {"sum", "count", "avg", "min", "max"}:
+        analysis = semantic_model.aggregate_window_analyses.get(expression)
+        expected_analysis_type = AggregateWindowAnalysis
+    else:
+        analysis = semantic_model.window_expression_analyses.get(expression)
+        expected_analysis_type = WindowExpressionAnalysis
+    if type(analysis) is not expected_analysis_type:
         raise _WindowExpressionLoweringError(
             expression,
             "validated window semantic facts",
         )
+    assert analysis is not None
     if analysis.authored_expression is not expression:
         raise _WindowExpressionLoweringError(
             expression,
             "exact authored window analysis",
         )
     effective_expression = analysis.semantic_fact.expression
+    if type(analysis) is AggregateWindowAnalysis:
+        identity = effective_expression.identity
+        callee = effective_expression.call.callee
+        if (
+            identity.namespace != ()
+            or identity.role is not WindowFunctionRole.WINDOW_FUNCTION
+            or type(callee) is not NameExpr
+            or callee.name != identity.name
+            or identity.name not in {"sum", "count", "avg", "min", "max"}
+        ):
+            raise _WindowExpressionLoweringError(
+                expression, "supported aggregate window function identity"
+            )
+
+        def lower_aggregate_operand(operand: Expression) -> ExpressionIR:
+            if type(operand) is NameExpr and operand.name in window_input_expressions:
+                return window_input_expressions[operand.name]
+            if isinstance(operand, BinaryExpr):
+                return BinaryIR(
+                    left=lower_aggregate_operand(operand.left),
+                    operator=operand.operator,
+                    right=lower_aggregate_operand(operand.right),
+                    span=lower_span(operand.span),
+                    value_type=lower_value_type(
+                        semantic_model.expression_value_types[operand], semantic_model
+                    ),
+                )
+            if isinstance(operand, UnaryExpr):
+                return UnaryIR(
+                    operator=operand.operator,
+                    operand=lower_aggregate_operand(operand.operand),
+                    span=lower_span(operand.span),
+                    value_type=lower_value_type(
+                        semantic_model.expression_value_types[operand], semantic_model
+                    ),
+                )
+            if isinstance(operand, CallExpr):
+                callee = _callee_name(operand)
+                return CallIR(
+                    callee=callee,
+                    callee_symbol=(
+                        SymbolId(SymbolNamespace.CALLABLE, callee)
+                        if is_builtin_function_name(callee)
+                        else None
+                    ),
+                    arguments=tuple(
+                        lower_aggregate_operand(item) for item in operand.arguments
+                    ),
+                    span=lower_span(operand.span),
+                    value_type=lower_value_type(
+                        semantic_model.expression_value_types[operand], semantic_model
+                    ),
+                )
+            return _lower_expr_node(
+                operand,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=frozenset(),
+                join_reads=join_reads,
+                window_input_expressions=window_input_expressions,
+            )
+
+        validated_frame = analysis.validated_specification.frame
+        if type(validated_frame) is not ValidatedFrame:
+            raise _WindowExpressionLoweringError(expression, "aggregate window frame")
+        result_value_type = analysis.semantic_fact.result.value_type
+        if type(result_value_type) is not ValueType:
+            raise _WindowExpressionLoweringError(expression, "aggregate window result")
+        frame = (
+            None
+            if validated_frame.resolved.origin.value == "effective_default"
+            else _lower_effective_window_frame(
+                validated_frame.resolved, lower_aggregate_operand
+            )
+        )
+        return AggregateWindowCallIR(
+            span=lower_span(expression.span),
+            value_type=lower_value_type(result_value_type, semantic_model),
+            function=effective_expression.identity.name,
+            arguments=tuple(
+                lower_aggregate_operand(item)
+                for item in effective_expression.call.arguments
+            ),
+            spec=WindowSpecIR(
+                partition_by=tuple(
+                    lower_aggregate_operand(item)
+                    for item in effective_expression.spec.partition_by
+                ),
+                order_by=tuple(
+                    _lower_window_order_item(item, lower_aggregate_operand)
+                    for item in effective_expression.spec.order_by
+                ),
+                span=lower_span(effective_expression.spec.span),
+                frame=frame,
+            ),
+            named_use=_lower_named_window_use(analysis, lower_aggregate_operand),
+        )
+    assert type(analysis) is WindowExpressionAnalysis
     identity = effective_expression.identity
     callee = effective_expression.call.callee
     arities = _WINDOW_ARGUMENT_ARITIES.get(identity.name)
@@ -353,6 +467,8 @@ def _lower_window_expr(
             field_qualifier=field_qualifier,
             let_expansions=let_expansions,
             let_stack=frozenset(),
+            join_reads=join_reads,
+            window_input_expressions=window_input_expressions,
         )
 
     frame_ir: WindowFrameIR | None = None
@@ -539,7 +655,7 @@ def _lower_named_local_spec(
 
 
 def _lower_named_window_use(
-    analysis: WindowExpressionAnalysis,
+    analysis: WindowExpressionAnalysis | AggregateWindowAnalysis,
     lower_operand: Callable[[Expression], ExpressionIR],
 ) -> NamedWindowUseIR | None:
     named = analysis.resolved_named_use
@@ -585,6 +701,7 @@ def lower_named_window_declarations(
     field_qualifier: str,
     let_expansions: Mapping[str, Expression],
     window_input_expressions: Mapping[str, ExpressionIR],
+    join_reads: JoinReads | None = None,
 ) -> tuple[NamedWindowDeclarationIR, ...]:
     """Lower every declaration occurrence without choosing a target strategy."""
 
@@ -608,6 +725,8 @@ def lower_named_window_declarations(
             field_qualifier=field_qualifier,
             let_expansions=let_expansions,
             let_stack=frozenset(),
+            join_reads=join_reads,
+            window_input_expressions=window_input_expressions,
         )
 
     occurrences = {
@@ -794,9 +913,11 @@ def _lower_expr_node(
     let_expansions: Mapping[str, Expression],
     let_stack: frozenset[str],
     join_reads: JoinReads | _AnyReads | None = None,
+    window_input_expressions: Mapping[str, ExpressionIR] | None = None,
 ) -> ExpressionIR:
     """Recursively copy one expression into parser-independent IR."""
 
+    window_inputs = window_input_expressions or {}
     value_type = lower_value_type(
         semantic_model.expression_value_types.get(
             expression,
@@ -829,6 +950,7 @@ def _lower_expr_node(
             let_expansions=let_expansions,
             let_stack=let_stack,
             join_reads=reads,
+            window_input_expressions=window_inputs,
         )
         captures = []
         for read in info.captures:
@@ -866,6 +988,17 @@ def _lower_expr_node(
             raise _LetExpansionLoweringError(
                 expression, "checked ANY Bool value"
             ) from error
+    if type(expression) is WindowExpr:
+        return _lower_window_expr(
+            expression,
+            semantic_model,
+            fields=fields,
+            field_owner=field_owner,
+            field_qualifier=field_qualifier,
+            let_expansions=let_expansions,
+            window_input_expressions=window_inputs,
+            join_reads=None if isinstance(join_reads, _AnyReads) else join_reads,
+        )
     if isinstance(expression, LiteralExpr):
         return LiteralIR(value=expression.value, **common)
     if isinstance(expression, (NameExpr, DottedNameExpr)) and isinstance(
@@ -897,6 +1030,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack | frozenset((expression.name,)),
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             )
         if join_reads is not None:
             return join_reads.field_ref(
@@ -948,8 +1082,29 @@ def _lower_expr_node(
                         ),
                         let_stack=frozenset(),
                         join_reads=join_reads,
+                        window_input_expressions=window_inputs,
                     )
                     for argument in expression.arguments
+                ),
+                order_by=tuple(
+                    OrderItemIR(
+                        expression=_lower_expr_node(
+                            item.expression,
+                            semantic_model,
+                            fields=fields,
+                            field_owner=field_owner,
+                            field_qualifier=field_qualifier,
+                            let_expansions=let_expansions,
+                            let_stack=let_stack,
+                            join_reads=join_reads,
+                            window_input_expressions=window_inputs,
+                        ),
+                        direction=OrderDirectionIR(
+                            "ASC" if item.direction is None else item.direction.upper()
+                        ),
+                        span=lower_span(item.span),
+                    )
+                    for item in expression.aggregate_order_by
                 ),
                 **common,
             )
@@ -969,6 +1124,7 @@ def _lower_expr_node(
                     let_expansions=let_expansions,
                     let_stack=let_stack,
                     join_reads=join_reads,
+                    window_input_expressions=window_inputs,
                 )
                 for argument in expression.arguments
             ),
@@ -986,6 +1142,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             **common,
         )
@@ -1000,6 +1157,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             condition=_lower_expr_node(
                 expression.condition,
@@ -1010,6 +1168,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             when_false=_lower_expr_node(
                 expression.when_false,
@@ -1020,6 +1179,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             **common,
         )
@@ -1034,6 +1194,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             options=tuple(
                 _lower_expr_node(
@@ -1045,6 +1206,7 @@ def _lower_expr_node(
                     let_expansions=let_expansions,
                     let_stack=let_stack,
                     join_reads=join_reads,
+                    window_input_expressions=window_inputs,
                 )
                 for option in expression.options
             ),
@@ -1062,6 +1224,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             target=lower_canonical_type_ref(expression.target, semantic_model),
             **common,
@@ -1077,6 +1240,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             operator=expression.operator,
             right=_lower_expr_node(
@@ -1088,6 +1252,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             **common,
         )
@@ -1102,6 +1267,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             operator=expression.operator,
             right=_lower_expr_node(
@@ -1113,6 +1279,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             **common,
         )
@@ -1127,6 +1294,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             lower=_lower_expr_node(
                 expression.lower,
@@ -1137,6 +1305,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             upper=_lower_expr_node(
                 expression.upper,
@@ -1147,6 +1316,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             **common,
         )
@@ -1161,6 +1331,7 @@ def _lower_expr_node(
                 let_expansions=let_expansions,
                 let_stack=let_stack,
                 join_reads=join_reads,
+                window_input_expressions=window_inputs,
             ),
             negated=expression.negated,
             **common,
@@ -1173,6 +1344,8 @@ def _aggregate_argument_let_expansions(
     argument: Expression,
     let_expansions: Mapping[str, Expression],
 ) -> Mapping[str, Expression]:
+    if function_name == "string_agg":
+        return let_expansions
     if aggregate_argument_can_use_let_scope(
         function_name,
         argument,
@@ -1251,7 +1424,19 @@ def _aggregate_type_matches_ir(
     semantic_value_type: ValueType,
     value_type: TypeRefIR,
 ) -> bool:
-    if not expression.arguments:
+    if function_name == "string_agg" and len(expression.arguments) == 2:
+        argument_type = semantic_model.expression_value_types.get(
+            expression.arguments[0]
+        )
+        expected = (
+            None
+            if argument_type is None
+            else semantic_aggregate_result_value_type(
+                function_name,
+                _canonical_value_type(argument_type, semantic_model.type_expansions),
+            )
+        )
+    elif not expression.arguments:
         expected = semantic_aggregate_result_value_type(function_name)
     elif len(expression.arguments) == 1:
         argument_type = semantic_model.expression_value_types.get(

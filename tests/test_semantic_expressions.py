@@ -368,14 +368,6 @@ def test_a_case_coalesce_or_nullif_of_only_nulls_takes_the_type_beside_it() -> N
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics
     ] == [
-        (
-            "PIE-S2382",
-            "`projected` is a table of this file; single-file SQL reads it by name, "
-            "so the SQL runs only where the database already has a relation named "
-            "projected (an EXPLICIT_MODULES project emits it as a CTE)",
-            12,
-            5,
-        ),
         ("PIE-S2105", numeric, 16, 13),
         ("PIE-S2105", numeric, 17, 13),
         (
@@ -1437,7 +1429,11 @@ def test_null_operands_that_can_be_false_or_match_are_not_refused(
         mode_override=CheckMode.STRICT,
     )
 
-    assert result.diagnostics == ()
+    # A None option written in a list is accepted with a warning that it
+    # never matches (PIE-S2107).
+    assert [(item.code, item.severity) for item in result.diagnostics] == (
+        [("PIE-S2107", Severity.WARNING)] if predicate == "count in (1, None)" else []
+    )
 
 
 @pytest.mark.parametrize(

@@ -57,6 +57,8 @@ cast, an unknown field, an invalid relationship declaration or a repeated enum
 member gets the diagnostic that a single file gets, except inside a JOIN or an
 `any(...)`, which such a project refuses (see below). These follow the
 diagnostics of the legacy-flat project model, which they do not repeat.
+An always-null numeric expression keeps the stricter typed-twin diagnostic in
+this mode, as it does in an EXPLICIT_MODULES project.
 Legacy-flat projects do not emit SQL, so the check types as an explicit-module
 check does and skips the refusals that only single-file SQL needs: a field of
 an alias of an enum is typed as that enum (so `lag` over it passes); a `let`

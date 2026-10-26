@@ -6,6 +6,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from enum import StrEnum
 
 from pietto.ir.model import (
+    AggregateWindowCallIR,
     LiteralIR,
     NamedWindowDeclarationIR,
     NamedWindowOccurrenceIR,
@@ -302,14 +303,18 @@ def decide_named_window_lowering(
     calls = tuple(
         expression
         for projection in relation.projections
-        if isinstance((expression := projection.expression), WindowCallIR)
+        if isinstance(
+            (expression := projection.expression), (WindowCallIR, AggregateWindowCallIR)
+        )
         and getattr(expression, "named_use", None) is not None
     )
     if not calls:
         return None
     reachable = _reachable_declarations(relation, calls)
     inline_decisions = tuple(
-        decide_inline_window_target(call, dialect) for call in calls
+        decide_inline_window_target(call, dialect)
+        for call in calls
+        if type(call) is WindowCallIR
     )
     evidence: list[WindowTargetEvidence] = [
         WindowTargetEvidence(
@@ -507,7 +512,7 @@ def _exclusion_is_supported(
 
 def _reachable_declarations(
     relation: RelationIR,
-    calls: tuple[WindowCallIR, ...],
+    calls: tuple[WindowCallIR | AggregateWindowCallIR, ...],
 ) -> tuple[NamedWindowDeclarationIR, ...]:
     by_occurrence = {item.occurrence: item for item in relation.named_windows}
     reachable: set[NamedWindowOccurrenceIR] = set()
@@ -549,7 +554,7 @@ def _native_graph_is_supported(
 
 def _copied_bases_are_supported(
     declarations: tuple[NamedWindowDeclarationIR, ...],
-    calls: tuple[WindowCallIR, ...],
+    calls: tuple[WindowCallIR | AggregateWindowCallIR, ...],
     dialect: WindowTargetDialect,
 ) -> tuple[bool, str]:
     """Apply the PostgreSQL/MySQL rules for a window that copies a named base.

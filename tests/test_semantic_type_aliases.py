@@ -642,21 +642,11 @@ def test_count_of_an_enum_alias_is_refused_as_count_of_the_enum() -> None:
         "Aggregate function count_distinct expects Bool, Int, Float, Decimal, "
         "Text, Date, Timestamp, or UUID field argument, got "
     )
-    # `recounted` reads the same-file table `copied` by name (PIE-S2382).
-    same_file = (
-        "PIE-S2382",
-        "`copied` is a table of this file; single-file SQL reads it by name, so "
-        "the SQL runs only where the database already has a relation named copied "
-        "(an EXPLICIT_MODULES project emits it as a CTE)",
-        35,
-        5,
-    )
     assert facts(aliased=True) == (
         ("PIE-S2314", count + "Phase", 15, 13),
         ("PIE-S2314", count + "Stage", 22, 13),
         ("PIE-S2314", count_distinct + "Phase", 23, 13),
         ("PIE-S2314", count + "Stage", 28, 13),
-        same_file,
         ("PIE-S2314", count + "Phase", 37, 13),
     )
     assert facts(aliased=False) == (
@@ -664,7 +654,6 @@ def test_count_of_an_enum_alias_is_refused_as_count_of_the_enum() -> None:
         ("PIE-S2314", count + "Status", 22, 13),
         ("PIE-S2314", count_distinct + "Status", 23, 13),
         ("PIE-S2314", count + "Status", 28, 13),
-        same_file,
         ("PIE-S2314", count + "Status", 37, 13),
     )
 

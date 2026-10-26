@@ -741,11 +741,7 @@ def test_declaration_and_use_dangling_references_fail_without_cross_block_captur
     )
     assert type(failure) is NamedWindowUseResolutionFailure
     assert failure.issues[0].kind is NamedWindowResolutionIssueKind.DANGLING_REFERENCE
-    # The second query reads the first by name (PIE-S2382).
-    assert [item.code for item in analyze(script).diagnostics] == [
-        "PIE-S2382",
-        "PIE-S2111",
-    ]
+    assert [item.code for item in analyze(script).diagnostics] == ["PIE-S2111"]
 
 
 def test_same_spelling_in_distinct_query_blocks_is_legal_and_identity_distinct() -> (
@@ -2003,21 +1999,7 @@ def test_a_named_window_cannot_shadow_an_input_as_a_value_let_cannot(
         ]
 
     expected = [] if message is None else [("PIE-S2329", message + name, line, 5)]
-    # The value let's refusal comes after relation inputs resolve, so a FROM of
-    # the table `ranked` of this file is also warned about (PIE-S2382); the
-    # window's refusal stops the analysis before that check.
-    same_file_read = (
-        "PIE-S2382",
-        "`ranked` is a table of this file; single-file SQL reads it by name, "
-        "so the SQL runs only where the database already has a relation named "
-        "ranked (an EXPLICIT_MODULES project emits it as a CTE)",
-        line - 1,
-        5,
-    )
-    assert (
-        diagnostics("2", "")
-        == ([same_file_read] if inputs == "    from ranked\n" else []) + expected
-    )
+    assert diagnostics("2", "") == expected
     assert (
         diagnostics(
             f"window(order by {key})",

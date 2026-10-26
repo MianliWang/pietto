@@ -23,6 +23,7 @@ from pietto.ast_nodes import (
     WindowExpr,
     WindowSpec,
 )
+from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic.aggregates import contains_semantic_aggregate
 from pietto.semantic.window_semantics import (
@@ -231,6 +232,7 @@ def test_validated_stage_types_are_closed_private_frozen_and_exact() -> None:
         ),
         ("FRAME_APPLICABILITY_MISMATCH", "frame_applicability_mismatch"),
         ("EXPLICIT_FRAME_FORBIDDEN", "explicit_frame_forbidden"),
+        ("GROUPS_FRAME_REQUIRES_ORDER", "groups_frame_requires_order"),
         ("NESTED_WINDOW_EXPRESSION", "nested_window_expression"),
     )
     assert tuple(field.name for field in fields(ValidatedFrame)) == (
@@ -687,17 +689,15 @@ def _checked_window(call: str, *, frame: str = "", lets: str = "") -> list[str]:
     """Single-file check diagnostics of one selected window call."""
 
     return [
-        f"{code} {message}"
-        for code, message, _, _ in _located_window_diagnostics(
-            call, frame=frame, lets=lets
-        )
+        f"{diagnostic.code} {diagnostic.message}"
+        for diagnostic in _window_diagnostics(call, frame=frame, lets=lets)
     ]
 
 
-def _located_window_diagnostics(
+def _window_diagnostics(
     call: str, *, frame: str = "", lets: str = ""
-) -> list[tuple[str, str, int, int]]:
-    """Code, message, line and column of each `_checked_window` diagnostic."""
+) -> list[Diagnostic]:
+    """Single-file diagnostics of one selected window call."""
 
     source = (
         "shape Row:\n    id: Int\n    value: Int\n"
@@ -716,14 +716,23 @@ def _located_window_diagnostics(
     )
     parsed = parse_source(source, path="frame.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
-    located: list[tuple[str, str, int, int]] = []
-    for diagnostic in semantic_package.analyze(parsed.ast).diagnostics:
-        location = diagnostic.location
-        assert location is not None
-        located.append(
-            (diagnostic.code, diagnostic.message, location.line, location.column)
+    return list(semantic_package.analyze(parsed.ast).diagnostics)
+
+
+def _located_window_diagnostics(
+    call: str, *, frame: str = "", lets: str = ""
+) -> list[tuple[str, str, int, int]]:
+    """Code, message, line and column of each `_checked_window` diagnostic."""
+
+    return [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
         )
-    return located
+        for diagnostic in _window_diagnostics(call, frame=frame, lets=lets)
+    ]
 
 
 @pytest.mark.parametrize("unit", ("rows", "groups", "range"))
@@ -754,21 +763,40 @@ def test_single_file_check_judges_frame_offsets_after_let_inlining(
     # Before: check passed a bad offset that only emission refused, and a
     # let-bound `n = 2` offset was refused although emission inlines it; a
     # RANGE offset was not checked at all.
-    diagnostics = _checked_window(
+    diagnostics = _window_diagnostics(
         "first_value(value)",
         frame=f"{unit} between {offset} preceding and current row",
         lets=lets,
     )
 
-    assert diagnostics == (
-        []
-        if accepted
-        else [
-            "PIE-S2104 Invalid window frame for function first_value: "
-            f"{unit.upper()} offsets must be nonnegative integer literals up to "
-            f"{_SIGNED64_MAX}"
-        ]
+    warning = (
+        "Single-file SQL emission is unavailable because this RANGE window "
+        "frame has an offset; this warning does not change check's exit "
+        "status, but emit-sql will refuse this relation."
     )
+    location_line = 10 if lets else 8
+    message = (
+        "Invalid window frame for function first_value: "
+        f"{unit.upper()} offsets must be nonnegative integer literals up to "
+        f"{_SIGNED64_MAX}"
+    )
+    expected: list[tuple[object, ...]] = (
+        [("PIE-S2385", Severity.WARNING, warning, location_line, 18)]
+        if accepted and unit == "range"
+        else []
+        if accepted
+        else [("PIE-S2104", Severity.ERROR, message, location_line, 18)]
+    )
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.severity,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in diagnostics
+    ] == expected
 
 
 @pytest.mark.parametrize(

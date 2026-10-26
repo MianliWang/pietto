@@ -58,14 +58,6 @@ from pietto.sql.render import IdentifierTooLongError
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_INPUT = "tests/fixtures/postgres/join_mvp.pietto"
 GOLDEN_SQL = "tests/fixtures/golden/emit_sql_join_mvp.sql"
-# The golden's `orders_of_named_customers` joins the same-file query
-# `named_customers`, which single-file SQL reads by name.
-GOLDEN_WARNING = (
-    f"{GOLDEN_INPUT}:134:5 PIE-S2382 warning: `named_customers` is a query of "
-    "this file; single-file SQL reads it by name, so the SQL runs only where the "
-    "database already has a relation named named_customers (an EXPLICIT_MODULES "
-    "project emits it as a CTE)\n"
-)
 SPAN = SourceSpan(
     path="join-emission.pietto", line=3, column=5, end_line=3, end_column=9
 )
@@ -326,7 +318,12 @@ def _golden_artifacts() -> dict[str, str]:
         if line.startswith("query ")
     ]
     golden = (REPO_ROOT / GOLDEN_SQL).read_text(encoding="utf-8")
-    return dict(zip(names, golden.removesuffix("\n").split("\n\n"), strict=True))
+    # emit-sql text: a `-- <name>` line, then the SQL ending with `;`.
+    statements = golden.removesuffix(";\n").split(";\n\n")
+    return {
+        name: statement.removeprefix(f"-- {name}\n")
+        for name, statement in zip(names, statements, strict=True)
+    }
 
 
 GOLDEN_ARTIFACTS = _golden_artifacts()
@@ -457,6 +454,9 @@ def test_each_golden_join_relation_renders_its_reviewed_from_and_join_lines(
 ) -> None:
     relation, tail = GOLDEN_JOINS[name]
     lines = GOLDEN_ARTIFACTS[name].split("\n")
+    # The statement's own SELECT follows the CTEs it defines.
+    if lines[0].startswith("WITH "):
+        lines = lines[lines.index(")") + 1 :]
     start = next(index for index, line in enumerate(lines) if line.startswith("FROM "))
 
     assert lines[start:] == [*_sql(relation).split("\n"), *tail]
@@ -1117,9 +1117,9 @@ def test_complete_join_sql_matches_golden() -> None:
 
     assert result.diagnostics == ()
     assert [(a.name, a.sql) for a in result.artifacts] == list(GOLDEN_ARTIFACTS.items())
-    assert ("\n\n".join(a.sql for a in result.artifacts) + "\n").encode() == (
-        REPO_ROOT / GOLDEN_SQL
-    ).read_bytes()
+    assert (
+        "\n\n".join(f"-- {a.name}\n{a.sql};" for a in result.artifacts) + "\n"
+    ).encode() == (REPO_ROOT / GOLDEN_SQL).read_bytes()
 
 
 @pytest.mark.parametrize("mode", ["loose", "checked", "strict"])
@@ -1129,7 +1129,7 @@ def test_cli_join_golden_checks_and_emits_in_every_mode(
     monkeypatch.chdir(REPO_ROOT)
     assert cli.main(["check", GOLDEN_INPUT, "--check-mode", mode]) == 0
     checked = capsys.readouterr()
-    assert checked.err == GOLDEN_WARNING
+    assert checked.err == ""
     assert (
         cli.main(
             ["emit-sql", GOLDEN_INPUT, "--dialect", "postgres", "--check-mode", mode]
@@ -1137,7 +1137,7 @@ def test_cli_join_golden_checks_and_emits_in_every_mode(
         == 0
     )
     emitted = capsys.readouterr()
-    assert emitted.err == GOLDEN_WARNING
+    assert emitted.err == ""
     assert emitted.out.encode() == (REPO_ROOT / GOLDEN_SQL).read_bytes()
 
 
@@ -1167,23 +1167,26 @@ def test_readme_quick_start_checks_strictly_and_emits_the_sql_it_prints(
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
 @pytest.mark.parametrize(
-    ("dialect", "joins", "reason"),
+    ("dialect", "joins", "reason", "expect_warning"),
     [
         (
             "mysql",
             "    let p = peers\n    inner join p on rows.id == p.id\n",
             "MySQL JOIN emission is not available yet",
+            False,
         ),
         (
             "postgres",
             "    let p = peers\n    full join p on rows.name == p.name\n",
             FULL_REFUSAL.format("p"),
+            True,
         ),
         (
             "postgres",
             "    where any(rows.id == s.id for s in peers)\n"
             "    let p = peers\n    full join p on rows.id == p.id\n",
             "A SEMI or ANTI JOIN before FULL JOIN p is not available in PostgreSQL emission yet",
+            False,
         ),
     ],
     ids=["mysql", "text-full", "semi-full"],
@@ -1193,6 +1196,7 @@ def test_cli_refuses_one_join_relation_and_keeps_other_artifacts(
     dialect: str,
     joins: str,
     reason: str,
+    expect_warning: bool,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1221,9 +1225,21 @@ def test_cli_refuses_one_join_relation_and_keeps_other_artifacts(
     message = (
         f"{backend} SQL emission is not implemented for RelationIR: refused. {reason}"
     )
+    warning_message = (
+        "Single-file SQL emission is unavailable because this FULL JOIN equality is "
+        "not between canonical Int fields; this warning does not change check's "
+        "exit status, but emit-sql will refuse this relation."
+    )
     if output_format == "text":
-        assert captured.out == expected_sql + "\n"
-        assert captured.err == f"{path}:10:1 PIE-B1000 error: {message}\n"
+        assert captured.out == f"-- okay\n{expected_sql};\n"
+        assert captured.err == (
+            (
+                f"{path}:13:20 PIE-S2385 warning: {warning_message}\n"
+                if expect_warning
+                else ""
+            )
+            + f"{path}:10:1 PIE-B1000 error: {message}\n"
+        )
     else:
         assert captured.err == ""
         payload = json.loads(captured.out)
@@ -1232,8 +1248,21 @@ def test_cli_refuses_one_join_relation_and_keeps_other_artifacts(
         assert payload["artifacts"] == [
             {"kind": "relation", "name": "okay", "sql": expected_sql}
         ]
-        assert len(payload["diagnostics"]) == 1
-        diagnostic = payload["diagnostics"][0]
+        diagnostics = payload["diagnostics"]
+        assert len(diagnostics) == 1 + expect_warning
+        if expect_warning:
+            warning = diagnostics.pop(0)
+            assert (warning["code"], warning["severity"]) == (
+                "PIE-S2385",
+                "warning",
+            )
+            assert warning["message"] == warning_message
+            assert warning["location"]["path"] == str(path)
+            assert (warning["location"]["line"], warning["location"]["column"]) == (
+                13,
+                20,
+            )
+        diagnostic = diagnostics[0]
         assert diagnostic["code"] == "PIE-B1000"
         assert diagnostic["severity"] == "error"
         assert diagnostic["message"] == message
@@ -1301,24 +1330,20 @@ def test_untyped_null_output_is_refused_when_a_join_target_reads_it(
     result = emit_postgres_sql(
         ScriptIR(definitions=(_postgres_source("orders"), upstream, joined))
     )
-    assert [(a.name, a.sql) for a in result.artifacts] == [
-        (
-            "q",
-            'SELECT\n    "orders"."id" AS "id"\nFROM "shop"."orders" AS "orders"\n'
-            'CROSS JOIN "named_customers" AS "c"',
-        )
-    ]
-    assert result.diagnostics == (
+    # q defines named_customers, the JOIN target it reads, as a CTE.
+    assert result.artifacts == ()
+    assert result.diagnostics == tuple(
         Diagnostic(
             code="PIE-B1000",
             severity=Severity.ERROR,
-            message="PostgreSQL SQL emission is not implemented for RelationIR: named_customers. "
+            message=f"PostgreSQL SQL emission is not implemented for RelationIR: {name}. "
             "PostgreSQL types a NULL output that another relation reads as text, "
             "which Pietto leaves untyped",
             location=SourceLocation(
                 path=SPAN.path, line=3, column=5, end_line=3, end_column=9
             ),
-        ),
+        )
+        for name in ("named_customers", "q")
     )
 
 

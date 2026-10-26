@@ -1069,7 +1069,8 @@ def _no_group_order_reason(
             value_types,
             diagnostics,
             report_unknown_name=True,
-            field_qualifier=definition.from_clause.source_name,
+            field_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
             bare_value_types=let_facts.value_types,
             bare_value_expressions=let_values,
         )
@@ -1117,7 +1118,11 @@ def _direct_field_identity(
     if isinstance(expression, DottedNameExpr):
         if (
             len(expression.parts) == 2
-            and expression.parts[0] == definition.from_clause.source_name
+            and expression.parts[0]
+            == (
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            )
             and expression.parts[1] in input_schema.fields
         ):
             return expression.parts[1]
@@ -1432,7 +1437,8 @@ def _source_field_identity(
     if (
         isinstance(expression, DottedNameExpr)
         and len(expression.parts) == 2
-        and expression.parts[0] == definition.from_clause.source_name
+        and expression.parts[0]
+        == (definition.from_clause.binding_name or definition.from_clause.source_name)
     ):
         return expression.parts[1]
     return None

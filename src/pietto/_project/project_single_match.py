@@ -19,27 +19,11 @@ from pietto._project.project_final_outputs import (
     _relation_limit,
 )
 from pietto._project.project_ir import ProjectIRJoinInputUseOccurrence
-from pietto._project.project_ir_joins import (
-    ProjectIRBinaryJoinOccurrence,
-    ProjectIRConcreteJoinRegion,
-)
 from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
 from pietto._project.project_join_conditions import ProjectJoinCondition, _diagnostic
 from pietto._project.project_joined_aggregation import ProjectJoinedAggregationMode
 from pietto._project.project_joined_qualify import ProjectConcreteJoinedQualify
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectRelationshipMaximumBound,
-)
-from pietto._project.project_relationship_paths import (
-    ProjectRelationshipPath,
-    ProjectRelationshipPathStep,
-)
-from pietto._project.project_relationship_uses import (
-    ProjectConcreteJoinUse,
-    ProjectNonConcreteJoinUse,
-    ProjectJoinUse,
-    ProjectTraversalStepUse,
-)
+from pietto._project.project_relationship_uses import ProjectNonConcreteJoinUse
 from pietto.ast_nodes import AuthoredJoinKind, QueryDef, TableDef
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
@@ -71,7 +55,7 @@ class ProjectSingleMatchProofKind(StrEnum):
     RIGHT_GLOBAL = "right_global"
 
 
-type _Join = ProjectCurrentBinaryJoin | ProjectIRBinaryJoinOccurrence
+type _Join = ProjectCurrentBinaryJoin
 type _InputPair = tuple[
     ProjectIRJoinInputUseOccurrence, ProjectIRJoinInputUseOccurrence
 ]
@@ -80,11 +64,9 @@ type _InputPair = tuple[
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectSingleMatchRequest:
     owner: ProjectDeclarationOccurrence
-    use: ProjectJoinUse
+    use: ProjectNonConcreteJoinUse
     scope: ProjectSingleMatchScope = ProjectSingleMatchScope.DIRECT_BINARY
     unit: ProjectSingleMatchUnit = ProjectSingleMatchUnit.ACTUAL_MATCHED_BAG_OCCURRENCE
-    path: ProjectRelationshipPath | None = None
-    hop: ProjectRelationshipPathStep | ProjectTraversalStepUse | None = None
     condition: ProjectJoinCondition | None = None
     input_pairs: tuple[_InputPair, ...] | None = None
 
@@ -118,29 +100,11 @@ def _boundaries(
     regions = tuple(
         region for region in root.current_regions if region.ledger is condition.ledger
     )
-    if regions:
-        if len(regions) != 1:
-            return ()
-        return tuple(
-            join
-            for join in regions[0].joins
-            if join.use
-            is (
-                condition.use
-                if isinstance(join, ProjectCurrentBinaryJoin)
-                else condition.effective_use
-            )
-        )
-    if any(scope.ledger is condition.ledger for scope in root.input_scopes):
-        return ()  # Current acquisition failure cannot fall back to historical output.
-    return tuple(
-        join
-        for region in root.base.verification.root.join_regions.regions
-        if isinstance(region, ProjectIRConcreteJoinRegion)
-        and region.ledger is condition.ledger
-        for join in region.joins
-        if join.use is condition.effective_use
-    )
+    # A JOIN's matching boundary is its current region's JOIN: no authored
+    # JOIN joins by itself, so there is no historical region to fall back to.
+    if len(regions) != 1:
+        return ()
+    return tuple(join for join in regions[0].joins if join.use is condition.use)
 
 
 def _right_proofs(
@@ -227,46 +191,14 @@ def _right_proofs(
 def _single_boundary_proofs(
     root: ProjectEffectiveOutputCompletion, condition: ProjectJoinCondition, join: _Join
 ) -> tuple[ProjectSingleMatchProof, ...]:
-    proofs: list[ProjectSingleMatchProof] = []
-    if isinstance(join, ProjectIRBinaryJoinOccurrence):
-        guarantee = join.guarantee
-        if guarantee.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE:
-            proofs.append(
-                ProjectSingleMatchProof(
-                    kind=ProjectSingleMatchProofKind.RELATIONSHIP,
-                    roots=(join.path_step, guarantee),
-                )
-            )
-    else:
-        refined, base = condition.refinement_guarantee, condition.base_guarantee
-        if (
-            refined is not None
-            and refined.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
-        ):
-            proofs.append(
-                ProjectSingleMatchProof(
-                    kind=ProjectSingleMatchProofKind.REFINEMENT,
-                    roots=(condition, refined),
-                )
-            )
-        elif (
-            base is not None
-            and base.maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE
-        ):
-            proofs.append(
-                ProjectSingleMatchProof(
-                    kind=ProjectSingleMatchProofKind.RELATIONSHIP,
-                    roots=(condition, base),
-                )
-            )
-        proofs.extend(
-            ProjectSingleMatchProof(
-                kind=ProjectSingleMatchProofKind.MATCHED_KEY,
-                roots=(condition, match, match.key, *match.equalities),
-            )
-            for match in condition.key_matches
-            if match.binding is condition.use.target_binding
+    proofs = tuple(
+        ProjectSingleMatchProof(
+            kind=ProjectSingleMatchProofKind.MATCHED_KEY,
+            roots=(condition, match, match.key, *match.equalities),
         )
+        for match in condition.key_matches
+        if match.binding is condition.use.target_binding
+    )
     return (*proofs, *_right_proofs(root, join))
 
 
@@ -324,52 +256,16 @@ class ProjectSingleMatchAssessment:
             if not joins:
                 problems.append("no completed matching boundary")
         if joins and condition is not None:
-            path = condition.effective_use.path
+            # No authored JOIN is a relationship path, so a path or hop scope
+            # never has its path.
             if request.scope is ProjectSingleMatchScope.DIRECT_BINARY:
-                if (
-                    len(joins) != 1
-                    or request.path is not None
-                    or request.hop is not None
-                ):
+                if len(joins) != 1:
                     problems.append("direct-binary scope requires one exact boundary")
             elif request.scope is ProjectSingleMatchScope.WHOLE_PATH:
-                if (
-                    path is None
-                    or request.path is not path
-                    or request.hop is not None
-                    or len(joins) != len(path.steps)
-                ):
-                    problems.append(
-                        "whole-path scope requires the complete exact path/use"
-                    )
+                problems.append("whole-path scope requires the complete exact path/use")
             elif request.scope is ProjectSingleMatchScope.PATH_HOP:
-                if isinstance(request.hop, ProjectRelationshipPathStep):
-                    selected = tuple(
-                        join
-                        for join in joins
-                        if isinstance(join, ProjectIRBinaryJoinOccurrence)
-                        and join.path_step is request.hop
-                    )
-                    if path is None or request.path is not path:
-                        problems.append("foreign hop path")
-                elif isinstance(request.hop, ProjectTraversalStepUse):
-                    positions = tuple(
-                        i
-                        for i, hop in enumerate(condition.use.step_uses)
-                        if hop is request.hop
-                    )
-                    selected = (
-                        (joins[positions[0]],)
-                        if len(positions) == 1 and positions[0] < len(joins)
-                        else ()
-                    )
-                    if request.path is not None and request.path is not path:
-                        problems.append("foreign hop path")
-                else:
-                    selected = ()
-                if len(selected) != 1:
-                    problems.append("foreign or missing path hop")
-                joins = selected
+                problems.append("foreign or missing path hop")
+                joins = ()
         pairs = tuple((join.input_uses[0], join.input_uses[1]) for join in joins)
         if request.input_pairs is not None and not _same_pairs(
             request.input_pairs, pairs
@@ -377,23 +273,12 @@ class ProjectSingleMatchAssessment:
             problems.append("foreign or reversed input roles")
         proofs: tuple[ProjectSingleMatchProof, ...] = ()
         if not problems and condition is not None:
-            per_join = tuple(
-                _single_boundary_proofs(self.root, condition, join) for join in joins
+            # Only a direct-binary request with its one boundary is valid.
+            proofs = tuple(
+                proof
+                for join in joins
+                for proof in _single_boundary_proofs(self.root, condition, join)
             )
-            if request.scope is ProjectSingleMatchScope.WHOLE_PATH:
-                if all(per_join):
-                    proofs = (
-                        ProjectSingleMatchProof(
-                            kind=ProjectSingleMatchProofKind.WHOLE_PATH,
-                            roots=(
-                                request.path,
-                                *joins,
-                                *tuple(proof for group in per_join for proof in group),
-                            ),
-                        ),
-                    )
-            else:
-                proofs = per_join[0]
         state = (
             ProjectSingleMatchState.INVALID
             if problems
@@ -415,9 +300,7 @@ class ProjectSingleMatchAssessment:
                     _diagnostic(request.use.clause.span, message, code=code),
                     severity=severity,
                 )
-                if isinstance(
-                    request.use, (ProjectConcreteJoinUse, ProjectNonConcreteJoinUse)
-                )
+                if isinstance(request.use, ProjectNonConcreteJoinUse)
                 else Diagnostic(
                     code=code,
                     severity=severity,
@@ -604,9 +487,7 @@ def _compiled_right_bounds(ir, address):
 
 
 def compiled_boundary_proofs(ir, address):
-    from pietto._project.project_relationship_match_guarantees import (
-        resolved_matching_keys,
-    )
+    from pietto._project.project_join_conditions import resolved_matching_keys
 
     records = ir.completed.root.records
     by_address = {op.record.address: op for op in ir.operators}

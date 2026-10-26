@@ -6,13 +6,13 @@ from typing import cast
 import pytest
 
 from pietto import _window_identity
+from pietto.errors import Severity
 from pietto.ast_nodes import (
     QueryDef,
     WindowExpr,
     WindowNthDirectionKind,
     WindowNullTreatmentKind,
 )
-from pietto.errors import Severity
 from pietto.ir import build_ir
 from pietto.ir.model import (
     AggregateCallIR,
@@ -106,6 +106,7 @@ def _compile(
     *,
     frame: str | None = None,
     connector: str = "postgres.table",
+    expected_warning: bool = False,
 ) -> tuple[ScriptIR, WindowCallIR]:
     parsed = parse_source(
         _source(call, frame=frame, connector=connector),
@@ -113,7 +114,9 @@ def _compile(
     )
     assert parsed.diagnostics == () and parsed.ast is not None
     semantic = analyze(parsed.ast)
-    assert semantic.diagnostics == ()
+    assert [(item.code, item.severity) for item in semantic.diagnostics] == (
+        [("PIE-S2385", Severity.WARNING)] if expected_warning else []
+    )
     lowered = build_ir(parsed.ast, semantic.model)
     assert lowered.diagnostics == () and lowered.ir is not None
     relation = cast(RelationIR, lowered.ir.definitions[-1])
@@ -540,11 +543,11 @@ def test_grouped_frame_value_reads_the_selected_aggregate_call(
 
 
 def test_backend_modifier_and_frame_limits_fail_closed() -> None:
-    ignore_ir, _ = _compile("first_value(value) ignore nulls")
+    ignore_ir, _ = _compile("first_value(value) ignore nulls", expected_warning=True)
     assert [item.code for item in emit_postgres_sql(ignore_ir).diagnostics] == [
         "PIE-B1000"
     ]
-    from_last_ir, _ = _compile("nth_value(value, 2) from last")
+    from_last_ir, _ = _compile("nth_value(value, 2) from last", expected_warning=True)
     assert [item.code for item in emit_postgres_sql(from_last_ir).diagnostics] == [
         "PIE-B1000"
     ]
@@ -559,6 +562,7 @@ def test_backend_modifier_and_frame_limits_fail_closed() -> None:
     range_offset, _ = _compile(
         "first_value(value)",
         frame="range 1 preceding",
+        expected_warning=True,
     )
     assert [item.code for item in emit_postgres_sql(range_offset).diagnostics] == [
         "PIE-B1000"
@@ -581,7 +585,10 @@ def test_range_offset_refusal_names_the_forms_that_emit(
     connector: str, target: str
 ) -> None:
     range_offset, _ = _compile(
-        "first_value(value)", frame="range 1 preceding", connector=connector
+        "first_value(value)",
+        frame="range 1 preceding",
+        connector=connector,
+        expected_warning=True,
     )
     emit = emit_postgres_sql if target == "PostgreSQL" else emit_mysql_sql
 
@@ -692,19 +699,20 @@ def test_a_window_of_an_earlier_relation_computed_column_emits_sql() -> None:
         )
         assert parsed.ast is not None
         semantic = analyze(parsed.ast)
-        # Only the read of a table of the file is warned about (PIE-S2382).
-        assert [
-            (item.code, item.severity, item.location.line, item.location.column)
-            for item in semantic.diagnostics
-        ] == [("PIE-S2382", Severity.WARNING, 11, 5)]
+        assert semantic.diagnostics == ()
         lowered = build_ir(parsed.ast, semantic.model)
         assert lowered.diagnostics == () and lowered.ir is not None
         emitted = emitter(lowered.ir)
 
-        assert emitted.diagnostics == ()
-        assert [artifact.sql for artifact in emitted.artifacts] == [
+        computed = (
             f"SELECT\n    {q}id{q} AS {q}id{q},\n    {q}m{q} + 1 AS {q}v{q}\n"
-            f"FROM {q}rows{q}",
+            f"FROM {q}rows{q}"
+        )
+        assert emitted.diagnostics == ()
+        # `later` defines the table `computed` it reads as a CTE.
+        assert [artifact.sql for artifact in emitted.artifacts] == [
+            computed,
+            f"WITH {q}computed{q} AS (\n{computed}\n)\n"
             f"SELECT\n    {q}id{q} AS {q}id{q},\n"
             f"    LAG({q}v{q}) OVER (ORDER BY {q}id{q} ASC) AS {q}previous{q},\n"
             f"    LAST_VALUE({q}v{q}) OVER (ORDER BY {q}id{q} ASC {frame}) "
@@ -785,7 +793,9 @@ def test_named_frame_value_reaches_ir_but_target_restriction_still_fails() -> No
     parsed = parse_source(source, path="slice9.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
     semantic = analyze(parsed.ast)
-    assert semantic.diagnostics == ()
+    assert [(item.code, item.severity) for item in semantic.diagnostics] == [
+        ("PIE-S2385", Severity.WARNING)
+    ]
     lowered = build_ir(parsed.ast, semantic.model)
     assert lowered.ir is not None
     assert lowered.diagnostics == ()

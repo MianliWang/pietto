@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-from _pietto_repository_facts import REPOSITORY_FACTS
 from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import Script
@@ -25,7 +24,6 @@ SPEC = (
     REPO_ROOT
     / "docs/spec/phase62-slice2-relationship-declaration-identity-endpoint-roles-module-local-resolution-construction-states-v1.md"
 )
-SOURCE = REPO_ROOT / "src/pietto/_project/project_relationships.py"
 
 SPEC_HEADINGS = (
     "Answer And Exact Owner",
@@ -68,6 +66,7 @@ def test_existing_public_semantic_ir_and_project_ir_shapes_are_unchanged() -> No
         "relation_row_schemas",
         "expression_value_types",
         "window_expression_analyses",
+        "aggregate_window_analyses",
         "named_window_namespaces",
         "result_predicates",
         "let_scopes",
@@ -91,6 +90,7 @@ def test_existing_public_semantic_ir_and_project_ir_shapes_are_unchanged() -> No
         "limit",
         "group_keys",
         "result_predicate",
+        "qualify",
         "named_windows",
         "inputs",
         "joins",
@@ -106,45 +106,6 @@ def test_existing_public_semantic_ir_and_project_ir_shapes_are_unchanged() -> No
         "RELATION_ORDERING",
         "LIMIT",
     )
-
-
-def test_source_uses_existing_resolution_and_semantic_authority_without_scans() -> None:
-    facts = REPOSITORY_FACTS.python(SOURCE)
-    assert {
-        "pietto._project.model",
-        "pietto._project.module_carrier",
-        "pietto._project.module_relation_resolution",
-        "pietto.semantic.relationship_metadata",
-        "pietto.semantic.model",
-    } <= facts.imported_modules
-    assert (
-        not {
-            "pietto.ir",
-            "pietto.sql",
-            "pathlib",
-            "os",
-        }
-        & facts.imported_modules
-    )
-    for forbidden in (
-        "sorted",
-        "sort",
-        "glob",
-        "rglob",
-        "getcwd",
-        "cwd",
-        "sha256",
-        "hash",
-    ):
-        assert forbidden not in facts.identifiers
-    for required in (
-        "check_relationship_metadata",
-        "find_module_path",
-        "find_relation_name",
-        "target_occurrence",
-        "semantic_relationships",
-    ):
-        assert required in facts.identifiers
 
 
 def test_contract_locks_slice_owner_non_goals_handoff_and_gate() -> None:
@@ -800,10 +761,9 @@ def test_required_predicate_equalities_protect_fanout_without_fabricating_legacy
         "not ActiveOwner(items, buyer)",
         "coalesce(ActiveOwner(items, buyer), False)",
         "ActiveOwner(items, buyer) if items.id > 0 else False",
-        'items.owner_id == buyer.id and buyer.status == "active"',
     ),
 )
-def test_nonmandatory_calls_and_handwritten_on_do_not_gain_key_proofs(
+def test_nonmandatory_calls_do_not_gain_key_proofs(
     condition: str,
 ) -> None:
     result = _modern_predicate_result(
@@ -1009,6 +969,8 @@ query order_customers:
 
 
 def test_predicate_key_proof_rejects_same_bytes_foreign_input_occurrence() -> None:
+    """A WHERE proof reads its call's own argument occurrences (an ON proof
+    reads the ON itself)."""
     from pietto.semantic.join_fanout import join_fanout_diagnostics
 
     result = _modern_predicate_result(
@@ -1016,7 +978,8 @@ def test_predicate_key_proof_rejects_same_bytes_foreign_input_occurrence() -> No
         + """query result:
     from items
     let buyer = owners
-    left join buyer on ActiveOwner(items, buyer)
+    cross join buyer
+    where ActiveOwner(items, buyer)
     select:
         n = count(items.id)
 """
@@ -1077,6 +1040,8 @@ query result:
 def test_predicate_key_proof_requires_its_own_exact_context_and_expansion(
     foreign: str,
 ) -> None:
+    """A hand-written WHERE equality proves nothing, also when a forged call
+    claims it."""
     from pietto.semantic.join_fanout import join_fanout_diagnostics
 
     result = _modern_predicate_result(
@@ -1086,7 +1051,8 @@ def test_predicate_key_proof_requires_its_own_exact_context_and_expansion(
 query result:
     from items
     let buyer = owners
-    left join buyer on Accept(items, buyer) and items.owner_id == buyer.id
+    cross join buyer
+    where Accept(items, buyer) and items.owner_id == buyer.id
     select:
         n = count(items.id)
 """
@@ -1094,13 +1060,13 @@ query result:
     assert [item.code for item in result.diagnostics] == ["PIE-S2381"]
     query = result.model.relation_symbols["result"]
     assert isinstance(query, ast.QueryDef)
-    on = query.join_clauses[0].on_clause
-    assert on is not None and isinstance(on.expression, ast.BinaryExpr)
-    assert isinstance(on.expression.right, ast.ComparisonExpr)
+    where = query.where_clause
+    assert where is not None and isinstance(where.expression, ast.BinaryExpr)
+    assert isinstance(where.expression.right, ast.ComparisonExpr)
     (call,) = result.model.relationship_calls
-    forged = replace(call, mandatory_equalities=(on.expression.right,))
+    forged = replace(call, mandatory_equalities=(where.expression.right,))
     if foreign == "context":
-        forged = replace(forged, context=replace(on))
+        forged = replace(forged, context=replace(where))
     diagnostics = join_fanout_diagnostics(
         query,
         result.model.relation_joins[query],
@@ -1661,20 +1627,12 @@ query ranked:
 _TABLE_ROW_UNAVAILABLE = (
     "Unavailable row argument for relationship ActiveOwner parameter owner"
 )
-_TABLE_ROW_READ = (
-    "`owner_rows` is a table of this file; single-file SQL reads it by name, so "
-    "the SQL runs only where the database already has a relation named "
-    "owner_rows (an EXPLICIT_MODULES project emits it as a CTE)"
-)
 # Each reader passes the same-file table `owner_rows` as the Owner row on line
 # 20, with what the file reports without a window.
 _TABLE_ROW_READERS = {
     "on": (
         "left join owner_rows on ActiveOwner(items, owner_rows)",
-        [
-            ("PIE-S2382", _TABLE_ROW_READ, 20, 5),
-            ("PIE-S2604", _TABLE_ROW_UNAVAILABLE, 20, 48),
-        ],
+        [("PIE-S2604", _TABLE_ROW_UNAVAILABLE, 20, 48)],
     ),
     "any": (
         "where any(ActiveOwner(items, candidate) for candidate in owner_rows)",
@@ -1710,22 +1668,8 @@ def test_failed_predicate_reports_alike_beside_a_selected_window(
     result = _modern_predicate_result(
         _table_row_source(reader, *_TABLE_ROW_WINDOWS[window])
     )
-    # A window anywhere in the file adds only what it earns itself: one over
-    # the JOIN rows of `q` is refused there.
-    earned = (
-        [
-            (
-                "PIE-S2334",
-                "Window functions over JOIN rows are available only when an "
-                "EXPLICIT_MODULES project (schema version 2) completes them.",
-                23,
-                13,
-            )
-        ]
-        if (reader, window) == ("on", "own")
-        else []
-    )
-    assert _located(result.diagnostics) == expected + earned
+    # An admitted JOIN window leaves unrelated failed-predicate diagnostics intact.
+    assert _located(result.diagnostics) == expected
 
 
 def test_failed_predicate_in_a_window_argument_keeps_both_errors() -> None:
@@ -1770,10 +1714,7 @@ def test_failed_predicate_beside_a_window_reports_in_each_command(
     assert cli.main([command[0], str(path), *command[1:]]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == (
-        f"{path}:20:5 PIE-S2382 warning: {_TABLE_ROW_READ}\n"
-        f"{path}:20:48 PIE-S2604 error: {_TABLE_ROW_UNAVAILABLE}\n"
-    )
+    assert captured.err == f"{path}:20:48 PIE-S2604 error: {_TABLE_ROW_UNAVAILABLE}\n"
 
 
 def test_failed_predicate_beside_a_window_reports_in_a_legacy_flat_project(

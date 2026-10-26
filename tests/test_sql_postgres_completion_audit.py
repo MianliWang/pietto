@@ -125,6 +125,13 @@ def test_current_mvp_pipeline_emits_stable_ordered_relation_sql() -> None:
         (
             "active_user_emails",
             SqlArtifactKind.RELATION,
+            'WITH "active_users" AS (\n'
+            "SELECT\n"
+            '    "id" AS "id",\n'
+            '    lower(trim("email")) AS "normalized_email"\n'
+            'FROM "users"\n'
+            'WHERE "active" = TRUE\n'
+            ")\n"
             "SELECT\n"
             '    "normalized_email" AS "normalized_email"\n'
             'FROM "active_users"\n'

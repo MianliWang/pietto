@@ -240,7 +240,8 @@ def test_psec_006_cli_text_is_escaped_but_sql_artifacts_are_unchanged(
     cli._print_sql_artifacts((artifact,))
 
     artifact_output = capsys.readouterr()
-    assert artifact_output.out == f"{sql}\n"
+    # The SQL stays verbatim; only its name line and `;` are added around it.
+    assert artifact_output.out == f"-- raw_controls\n{sql};\n"
     assert artifact_output.err == ""
 
 
@@ -273,7 +274,9 @@ def test_phase_5_cli_commands_work_without_runtime_or_compiler_wrappers(
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
     emitted = capsys.readouterr()
-    assert 'SELECT\n    "email" AS "email"\nFROM "users"\n' == emitted.out
+    assert (
+        '-- user_emails\nSELECT\n    "email" AS "email"\nFROM "users";\n' == emitted.out
+    )
     assert emitted.err == ""
 
     source = inspect.getsource(cli).lower()

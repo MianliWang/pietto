@@ -2236,7 +2236,8 @@ def _grouped_window_dependency_target(
             if effective is None
             else _direct_field_identity(
                 effective,
-                relation_qualifier=definition.from_clause.source_name,
+                relation_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
             )
         )
         group_candidates = tuple(
@@ -2258,7 +2259,8 @@ def _grouped_window_dependency_target(
             is not None
             and _direct_field_identity(
                 effective_item,
-                relation_qualifier=definition.from_clause.source_name,
+                relation_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
             )
             == local_name
             and (output_name := _projection_output_name(item)) is not None
@@ -2320,7 +2322,8 @@ def _expected_window_dependency_target(
         return None
     name = _direct_field_identity(
         direct_source,
-        relation_qualifier=definition.from_clause.source_name,
+        relation_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
     )
     if name is None:
         return None
@@ -3596,7 +3599,8 @@ def _build_derived_relation_facts(
                     role=ProjectModuleFactOccurrenceRole.GROUP_KEY,
                     container_ordinal=ordinal,
                     expression=item.key,
-                    relation_qualifier=definition.from_clause.source_name,
+                    relation_qualifier=definition.from_clause.binding_name
+                    or definition.from_clause.source_name,
                     input_schema=input_schema,
                     input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
                     let_scope=let_scope,
@@ -3838,7 +3842,8 @@ def _select_facts(
                 if type(item.expression) is not WindowExpr
             ),
             input_schema=input_schema,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
             bare_value_types=let_values,
             bare_value_expressions=let_expressions,
             read_types=read_types,
@@ -3902,7 +3907,8 @@ def _select_facts(
                 failed_types,
                 expression_diagnostics,
                 report_unknown_name=True,
-                field_qualifier=definition.from_clause.source_name,
+                field_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
                 bare_value_types=let_values,
                 bare_value_expressions=followed_lets,
                 suppressed_unknown_names=set(let_names),
@@ -3945,7 +3951,8 @@ def _select_facts(
                 output_name=output_name,
                 input_schema=input_schema,
                 upstream_state=(state if input_schema is None else None),
-                relation_qualifier=definition.from_clause.source_name,
+                relation_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
                 expression_value_types=expression_types,
                 let_value_types=let_values,
                 fallback_path=owner.identity.module_path,
@@ -3969,7 +3976,8 @@ def _select_facts(
                         role=ProjectModuleFactOccurrenceRole.SELECT_VALUE,
                         container_ordinal=ordinal,
                         expression=item.expression,
-                        relation_qualifier=definition.from_clause.source_name,
+                        relation_qualifier=definition.from_clause.binding_name
+                        or definition.from_clause.source_name,
                         input_schema=input_schema,
                         input_status=input_status,
                         let_scope=let_scope,
@@ -4044,7 +4052,8 @@ def _where_fact(
         value_types,
         diagnostics,
         report_unknown_name=True,
-        field_qualifier=definition.from_clause.source_name,
+        field_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
         bare_value_types=let_scope.binding_value_types,
         bare_value_expressions=let_values,
         suppressed_unknown_names=unknown_names or None,
@@ -4074,7 +4083,8 @@ def _where_fact(
             role=ProjectModuleWhereReferenceRole.WHERE_VALUE,
             container_ordinal=0,
             expression=clause.expression,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
             input_schema=input_schema,
             input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
             let_scope=let_scope,
@@ -4252,7 +4262,10 @@ def _direct_name_leaves(
     if type(expression) in {NameExpr, DottedNameExpr}:
         return (cast(NameExpr | DottedNameExpr, expression),)
     if isinstance(expression, CallExpr):
-        children = expression.arguments
+        children = (
+            *expression.arguments,
+            *(item.expression for item in expression.aggregate_order_by),
+        )
     elif isinstance(expression, UnaryExpr):
         children = (expression.operand,)
     elif isinstance(expression, ConditionalExpr):
@@ -4409,7 +4422,8 @@ def _clause_dependency_facts(
             raise TypeError("Group input requires an exact candidate status.")
         local_name, valid = _local_reference_name(
             item.key,
-            relation_qualifier=definition.from_clause.source_name,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
         )
         input_field: ProjectRowField | None = None
         unavailable_let_status: ProjectModuleCandidateBucketStatus | None = None
@@ -4437,7 +4451,8 @@ def _clause_dependency_facts(
                         )
                         local_name, valid = _local_reference_name(
                             effective,
-                            relation_qualifier=definition.from_clause.source_name,
+                            relation_qualifier=definition.from_clause.binding_name
+                            or definition.from_clause.source_name,
                         )
                     else:
                         non_direct_let = True
@@ -4540,7 +4555,8 @@ def _clause_dependency_facts(
                         if effective is not None:
                             local_name = _direct_field_identity(
                                 effective,
-                                relation_qualifier=definition.from_clause.source_name,
+                                relation_qualifier=definition.from_clause.binding_name
+                                or definition.from_clause.source_name,
                             )
                         else:
                             local_name = None
@@ -4551,7 +4567,8 @@ def _clause_dependency_facts(
                                 if _direct_field_identity(
                                     selected.expression,
                                     relation_qualifier=(
-                                        definition.from_clause.source_name
+                                        definition.from_clause.binding_name
+                                        or definition.from_clause.source_name
                                     ),
                                 )
                                 == local_name
@@ -4871,7 +4888,8 @@ def _window_output_facts(
                 selected_output_ordinal=ordinal,
                 source_id=source_id,
                 input_schema=schema,
-                field_qualifier=definition.from_clause.source_name,
+                field_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
                 value_types=value_types,
                 diagnostics=diagnostics,
                 let_value_types=let_values,
@@ -4910,7 +4928,8 @@ def _window_output_facts(
             input_scope = build_window_input_scope(
                 definition=definition,
                 input_schema=semantic_input,
-                field_qualifier=definition.from_clause.source_name,
+                field_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
                 value_types=value_types,
                 let_value_types=let_values or {},
                 let_expressions=let_expressions or {},
@@ -5115,7 +5134,8 @@ def _unavailable_window_outputs(
                 selected_output_ordinal=ordinal,
                 source_id=item.expression.span.path or owner.identity.module_path,
                 input_schema=schema,
-                field_qualifier=definition.from_clause.source_name,
+                field_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
                 value_types=value_types,
                 diagnostics=diagnostics,
                 let_value_types=let_values,

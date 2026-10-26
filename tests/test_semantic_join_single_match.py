@@ -16,9 +16,7 @@ from pietto._project.project_single_match import (
     ProjectSingleMatchProofKind,
 )
 from pietto._project.project_final_outputs import ProjectRelationLimit
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectRelationshipMaximumBound,
-)
+from pietto._project.project_join_conditions import ProjectRelationshipMaximumBound
 from pietto.semantic.model import CheckMode
 from pietto.errors import Severity
 from pietto.ast_nodes import TableDef, QueryDef
@@ -126,8 +124,7 @@ def test_predicate_and_extra_filter_prove_same_target_key(
     assert assessment.state is ProjectSingleMatchState.PROVED
     assert checked.ok and not checked.diagnostics
     condition = assessment.condition
-    assert condition is not None and condition.base_guarantee is None
-    assert condition.refinement_guarantee is None
+    assert condition is not None
     matches = tuple(
         m for m in condition.key_matches if m.binding is condition.use.target_binding
     )
@@ -343,7 +340,7 @@ def test_only_target_direction_proves_matching_count(
         else ProjectSingleMatchState.LEGAL_UNPROVED
     )
     condition = entry.condition
-    assert condition is not None and condition.base_guarantee is None
+    assert condition is not None
     forward = tuple(
         m for m in condition.key_matches if m.binding is condition.use.target_binding
     )
@@ -383,7 +380,6 @@ def test_two_direct_boundaries_keep_exact_pairs_and_independent_authority(
     )
     for position, entry in enumerate((first, second)):
         assert entry.request.scope is ProjectSingleMatchScope.DIRECT_BINARY
-        assert entry.request.path is entry.request.hop is None
         assert entry.condition is original.roots.join_conditions.entries[position]
         assert len(entry.joins) == len(entry.input_pairs) == 1
         assert all(
@@ -592,10 +588,11 @@ def test_real_cli_diagnostic_consumer_renders_private_warning_without_new_option
     output_format: str,
 ) -> None:
     from pietto import cli
+    from pietto._project import project_completed_semantics
     from pietto._project.model import ProjectSemanticResult
 
     _completed(tmp_path, f"mode {mode.value}\n" + _source("True", kind="left"))
-    builder = cli.build_project_completed_semantic_result
+    builder = project_completed_semantics.build_project_completed_semantic_result
     observed: list[ProjectConcreteCompletedSemanticResult] = []
 
     def requested(
@@ -607,7 +604,11 @@ def test_real_cli_diagnostic_consumer_renders_private_warning_without_new_option
         observed.append(checked)
         return checked
 
-    monkeypatch.setattr(cli, "build_project_completed_semantic_result", requested)
+    monkeypatch.setattr(
+        project_completed_semantics,
+        "build_project_completed_semantic_result",
+        requested,
+    )
     args = ["check", "--project", str(tmp_path)]
     if output_format == "json":
         args.extend(["--format", "json"])
@@ -805,7 +806,7 @@ def test_modern_predicate_calls_jointly_prove_composite_target_key(
 ) -> None:
     from pietto._project.model import ProjectRowFieldNullability
     from pietto._project.project_current_joins import current_forward_at_most_one
-    from pietto._project.project_relationship_match_guarantees import (
+    from pietto._project.project_join_conditions import (
         ProjectRelationshipMinimumBound,
     )
 
@@ -818,7 +819,7 @@ def test_modern_predicate_calls_jointly_prove_composite_target_key(
     assessment = checked.single_matches.entries[0]
     assert assessment.state is ProjectSingleMatchState.PROVED
     condition = assessment.condition
-    assert condition is not None and condition.base_guarantee is None
+    assert condition is not None
     assert current_forward_at_most_one(condition)
     assert len(condition.mandatory_equalities) == 3
     predicate = condition.environment.predicate_expression
@@ -886,9 +887,12 @@ def test_modern_predicate_value_context_never_proves_on_cardinality(
     assert not assessment.proofs
 
 
-def test_handwritten_on_equality_does_not_gain_predicate_authority(
+def test_handwritten_on_equality_proves_the_key_a_call_proves(
     tmp_path: Path,
 ) -> None:
+    """Required hand-written ON equalities match a key as relationship calls do;
+    they carry no call, and one equality alone covers no composite key."""
+
     original = _completed(
         tmp_path,
         _modern_predicate_match_source(
@@ -899,16 +903,30 @@ def test_handwritten_on_equality_does_not_gain_predicate_authority(
     assert original.ok, original.diagnostics
     checked = with_project_single_match_requests(original, (_request(original),))
     assessment = checked.single_matches.entries[0]
+    assert assessment.state is ProjectSingleMatchState.PROVED
+    condition = assessment.condition
+    assert condition is not None
+    assert tuple(item.conjunct_position for item in condition.mandatory_equalities) == (
+        0,
+        1,
+    )
+    assert all(item.calls == () for item in condition.mandatory_equalities)
+    (match,) = tuple(
+        match
+        for match in condition.key_matches
+        if match.binding is condition.use.target_binding
+    )
+    assert match.equalities == condition.mandatory_equalities
+    assert tuple(proof.kind for proof in assessment.proofs) == (
+        ProjectSingleMatchProofKind.MATCHED_KEY,
+    )
+    partial = _completed(
+        tmp_path / "partial",
+        _modern_predicate_match_source("lhs.id == r.id", templates=False),
+    )
+    checked = with_project_single_match_requests(partial, (_request(partial),))
+    assessment = checked.single_matches.entries[0]
     assert assessment.state is ProjectSingleMatchState.LEGAL_UNPROVED
     assert assessment.condition is not None
-    assert (
-        assessment.condition.mandatory_equalities
-        == assessment.condition.key_matches
-        == ()
-    )
-    from pietto._project.project_join_conditions import ProjectJoinConditionEquality
-
-    with pytest.raises(ValueError, match="predicate-call origin"):
-        ProjectJoinConditionEquality(
-            condition=assessment.condition, conjunct_position=0
-        )
+    assert len(assessment.condition.mandatory_equalities) == 1
+    assert assessment.condition.key_matches == ()

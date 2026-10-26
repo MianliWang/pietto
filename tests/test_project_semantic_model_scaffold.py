@@ -650,6 +650,70 @@ def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
     ]
 
 
+def test_a_project_keeps_the_typed_twin_diagnostic_of_a_null_number(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A NULL number beside numbers of other types, which a single file types
+    as the database does, keeps its typed twin's diagnostic at the expression
+    in a project, whose relations do not complete with it."""
+    source = (
+        "shape Row:\n    id: Int\n    n: Int | None\n    d: Decimal(9, 2)\n"
+        '    fl: Float\nsource rows: Row = postgres.table("rows")\n'
+        "def fn(x: Float | None) -> Float | None: return x\n"
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        a = (None + d) + 1.5\n        b = coalesce(None + fl, 1)\n"
+        "        c = fn(None + n)\n"
+    )
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
+        (
+            "PIE-S2105",
+            "a.pietto",
+            12,
+            13,
+            "Invalid operands for operator +: expected numeric operands",
+        ),
+        (
+            "PIE-S2104",
+            "a.pietto",
+            13,
+            13,
+            "Invalid argument types for function coalesce: expected same "
+            "canonical type",
+        ),
+        _mismatch("fn", 14, 13, "Float | None", "Int | None"),
+    ]
+
+
+def test_a_legacy_flat_project_keeps_the_typed_twin_diagnostic_of_a_null_number(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = tmp_path / "project"
+    _write(
+        root,
+        "pietto.toml",
+        'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    _write(
+        root,
+        "a.pietto",
+        "shape Row:\n    id: Int\n    n: Int | None\n    d: Decimal(9, 2)\n"
+        '    fl: Float\nsource rows: Row = postgres.table("rows")\n'
+        "query q:\n    from rows\n    select:\n        id\n"
+        "        a = (None + d) + 1.5\n"
+        "        b = coalesce(None + fl, 1)\n",
+    )
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert [
+        (item["code"], item["location"]["line"], item["location"]["column"])
+        for item in diagnostics
+    ] == [
+        ("PIE-S2105", 11, 13),
+        ("PIE-S2104", 12, 13),
+    ]
+
+
 def test_a_project_def_reads_a_let_bound_to_null_as_null(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

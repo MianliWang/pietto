@@ -388,7 +388,7 @@ def test_emit_sql_last_valid_format_wins(
         assert json.loads(captured.out)["artifacts"][0]["name"] == "active_users"
     else:
         assert (exit_code, captured.err) == (0, "")
-        assert captured.out.startswith("SELECT\n")
+        assert captured.out.startswith("-- active_users\nSELECT\n")
 
 
 @pytest.mark.parametrize(
@@ -450,11 +450,12 @@ def test_emit_sql_text_modes_and_output_remain_unchanged(
 ) -> None:
     path = _write(tmp_path, "active_users.pietto", RELATION)
     expected = (
+        "-- active_users\n"
         "SELECT\n"
         '    "id" AS "id",\n'
         '    "email" AS "email"\n'
         'FROM "users"\n'
-        'WHERE "active" = TRUE\n'
+        'WHERE "active" = TRUE;\n'
     )
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0

@@ -215,10 +215,7 @@ def _inner_bindings(let: LetRelationDef) -> frozenset[str]:
         else cast(TableFunctionFromClause, source).binding_name
     }
     for join in body.join_clauses:
-        # An omitted JOIN source is one of the earlier bindings named here.
         names.add(join.target_binding_name)
-        if join.source_binding_name is not None:
-            names.add(join.source_binding_name)
     return frozenset(names)
 
 

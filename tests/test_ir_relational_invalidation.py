@@ -155,9 +155,7 @@ def test_single_match_obligations_and_proofs_cannot_be_replaced(
     condition, match, key, *equalities = source_proof.roots
     assert type(condition) is ProjectJoinCondition
     assert type(match) is ProjectJoinConditionKeyMatch
-    assert (
-        condition is retained.assessment.condition and condition.base_guarantee is None
-    )
+    assert condition is retained.assessment.condition
     assert condition.environment.predicate_expression is not None
     assert match.condition is condition
     assert match.binding is retained.assessment.request.use.target_binding
@@ -243,7 +241,6 @@ def test_current_match_views_cannot_graft_evidence(tmp_path: Path, member: str) 
         and entry.join_prefix is not None
     )
     joined = entry.join_prefix.final_join
-    assert joined.condition.base_guarantee is None
     predicate = joined.condition.environment.predicate_expression
     assert predicate is not None and len(predicate.calls) == 1
     if member in {"condition", "source_properties"}:
@@ -278,7 +275,6 @@ def test_current_view_requires_exact_condition_singleton(
     joined = entry.join_prefix.final_join
     operative = root.completed.effective_outputs.operative_conditions
     assert operative is not None and operative.entries == (joined.condition,)
-    assert joined.condition.base_guarantee is None
     predicate = joined.condition.environment.predicate_expression
     assert predicate is not None and len(predicate.calls) == 1
     if variant == "zero":

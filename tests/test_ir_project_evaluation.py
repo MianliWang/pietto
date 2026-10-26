@@ -534,6 +534,7 @@ def test_evaluation_context_is_hash_seed_cwd_independent_and_public_sql_zero_del
         "limit",
         "group_keys",
         "result_predicate",
+        "qualify",
         "named_windows",
         "inputs",
         "joins",

@@ -71,6 +71,59 @@ def origin(data, label):
     )
 
 
+def test_postgres_string_agg_keeps_its_internal_order_inputs(tmp_path):
+    outcome = emit_source(
+        tmp_path,
+        "postgres",
+        "table result:\n    from agg\n    select:\n"
+        '        summary = string_agg(label, "//", order by key desc, label)\n',
+    )
+    data = document(outcome)
+    assert data["status"] == "VERIFIED"
+    sql = data["sql"]
+    assert "string_agg(" in sql and " ORDER BY " in sql
+    assert '"s0"."group key" DESC, "s0"."text `""é" ASC' in sql
+    assert column(data, "summary")["nullable"] is True
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == "postgres"
+
+
+def test_postgres_string_agg_compiled_order_keys_keep_scalar_operations(tmp_path):
+    outcome = emit_source(
+        tmp_path,
+        "postgres",
+        "table result:\n    from agg\n    select:\n"
+        '        summary = string_agg(label, "//", order by lower(label) desc, lower(label))\n',
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    sql = document(outcome)["sql"]
+    assert sql.count("lower(") >= 2 and " DESC" in sql and " ASC" in sql
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == "postgres"
+
+
 # --------------------------------------------------------------------------
 # Native grouping structure
 # --------------------------------------------------------------------------
@@ -787,7 +840,7 @@ def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
                 "PIE-S2333",
                 "Project relation semantic completion is unavailable: result (an "
                 "aggregate may read rows repeated by JOIN r; match a unique key "
-                "of r whose fields are never None in `on` with a relationship call, "
+                "of r in `on`, "
                 "use `any(...)` for an input that only filters rows, or aggregate "
                 "in a separate query first)",
             )

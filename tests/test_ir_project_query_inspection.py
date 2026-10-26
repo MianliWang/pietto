@@ -145,18 +145,14 @@ def test_complete_runtime_sections_retain_occurrences_not_winners(product):
     observed = product.inspection
     root = observed.root
     base = root.base_plan.structural_stage
-    join = root.join_stage.structural
     for actual, expected in (
-        (observed.combined_nodes, (*base.nodes, *join.nodes, *root.structural.nodes)),
-        (
-            observed.combined_outputs,
-            (*base.outputs, *join.outputs, *root.structural.outputs),
-        ),
+        (observed.combined_nodes, (*base.nodes, *root.structural.nodes)),
+        (observed.combined_outputs, (*base.outputs, *root.structural.outputs)),
         (
             observed.combined_input_slots,
-            (*base.input_slots, *join.input_slots, *root.structural.input_slots),
+            (*base.input_slots, *root.structural.input_slots),
         ),
-        (observed.combined_uses, (*base.uses, *join.uses, *root.structural.uses)),
+        (observed.combined_uses, (*base.uses, *root.structural.uses)),
     ):
         assert _same_objects(actual, expected)
     assert observed.algebra_joins
@@ -240,11 +236,13 @@ def test_current_predicate_inventory_matches_every_authored_call_and_exact_input
     conditions = tuple(
         joined.condition
         for joined in sorted(
-            (*observed.historical_matches, *observed.algebra_joins),
-            key=lambda joined: joined.node.ref.position,
+            observed.algebra_joins, key=lambda joined: joined.node.ref.position
         )
-        if joined.condition.environment.predicate_expression is not None
-        and joined.condition.environment.predicate_expression.calls
+        if (
+            joined.condition.environment.predicate_expression is not None
+            and joined.condition.environment.predicate_expression.calls
+        )
+        or joined.condition.mandatory_equalities
     )
     assert conditions
     assert _same_objects(
@@ -260,8 +258,11 @@ def test_current_predicate_inventory_matches_every_authored_call_and_exact_input
         tuple(match for condition in conditions for match in condition.key_matches),
     )
     assert observed.predicate_key_matches
+    # Hand-written ON equalities carry no call; every call is retained.
+    assert any(equality.calls for equality in observed.predicate_equalities)
+    assert any(not equality.calls for equality in observed.predicate_equalities)
     for equality in observed.predicate_equalities:
-        assert equality.calls and all(
+        assert all(
             any(call is retained for retained in observed.predicate_calls)
             for call in equality.calls
         )
@@ -805,3 +806,53 @@ def test_projection_is_zero_mutation_and_repeatable(bundle, product):
     assert _same_objects(after, before)
     assert repeated.document == product.document
     assert repeated.canonical_bytes == product.canonical_bytes
+
+
+@pytest.mark.parametrize("kind", ("inner", "left", "full", "semi", "anti"))
+def test_handwritten_on_over_keyless_inputs_records_its_equality_without_keys(
+    tmp_path: Path, kind: str
+) -> None:
+    """A set result has no relational keys: a hand-written ON equality over it,
+    or the predicate of the hidden SEMI/ANTI JOIN of a JOIN-prefix `any`, is
+    inspected with its equality and without bindings, keys or matches."""
+    from _pietto_ir_sources import set_source
+    from _pietto_project_join import _completed
+    from pietto._project.project_query_block_ir import build_project_query_block_ir
+    from pietto._project.project_query_block_ir_verification import (
+        build_project_query_block_ir_analysis_bundle,
+        verify_project_query_block_ir,
+    )
+
+    if kind in ("semi", "anti"):
+        negation = "not " if kind == "anti" else ""
+        joined = (
+            f"    where {negation}any(combined.id == r.id for r in r)\n"
+            "    let n = combined\n    cross join n\n"
+        )
+        right = ""
+    else:
+        joined = f"    {kind} join r on combined.id == r.id\n"
+        right = "        right_id = r.id\n"
+    source = set_source() + (
+        "query joined:\n    from combined\n    let r = combined\n"
+        f"{joined}    select:\n        id = combined.id\n{right}"
+    )
+    verified = verify_project_query_block_ir(
+        build_project_query_block_ir(_completed(tmp_path, source))
+    )
+    assert verified.verified, verified.issues
+    document = inspection.build_project_query_block_ir_inspection(
+        build_project_query_block_ir_analysis_bundle(verified)
+    ).document
+    outcome = pure.evaluate_project_query_block_ir_document(document)
+    assert outcome.status is pure.ProjectQueryBlockIRPureStatus.OK
+    kinds = pure.ProjectQueryBlockIRRecordKind
+    (join,) = (r for r in document.records if r.kind is kinds.PREDICATE_JOIN)
+    absent = pure.PROJECT_QUERY_BLOCK_IR_PURE_ABSENT
+    values = {item.key: item.value for item in join.fields}
+    assert values["expression"] == absent and values["equalities"] != absent
+    assert all(
+        values[key] == absent for key in ("bindings", "key_counts", "keys", "matches")
+    )
+    (equality,) = (r for r in document.records if r.kind is kinds.PREDICATE_EQUALITY)
+    assert {item.key: item.value for item in equality.fields}["calls"] == absent

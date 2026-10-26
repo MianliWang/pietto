@@ -174,6 +174,35 @@ def test_check_text_states_the_fix_of_a_retired_spelling_on_one_line(
     )
 
 
+@pytest.mark.parametrize(
+    ("operator", "suggestion"),
+    [
+        ("==", "Write 'is None'."),
+        ("!=", "Write 'is not None'."),
+    ],
+)
+def test_check_text_states_the_specific_null_equality_fix_on_one_line(
+    operator: str,
+    suggestion: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(
+        tmp_path,
+        "retired_equality.pietto",
+        "type T = Bool ensure value " + operator + " null\n",
+    )
+
+    assert cli.main(["check", str(path)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"{path}:1:31 PIE-P1000 error: This spelling is not accepted by the modern "
+        f"syntax. {suggestion}\n"
+    )
+
+
 def test_valid_check_keeps_stderr_empty(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

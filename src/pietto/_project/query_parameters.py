@@ -244,6 +244,62 @@ def query_parameter_diagnostics(
     )
 
 
+def query_parameter_unbound_naming_diagnostics(
+    authored: Script,
+    normalized: Script,
+) -> tuple[Diagnostic, ...]:
+    """Header collisions with relation names normalization removes unbound."""
+
+    found: list[Diagnostic] = []
+    for raw_definition, normalized_definition in zip(
+        authored.definitions, normalized.definitions, strict=True
+    ):
+        for raw, current in zip(
+            _header_bodies(raw_definition),
+            _header_bodies(normalized_definition),
+            strict=True,
+        ):
+            retained = {
+                *(
+                    binding.name
+                    for binding in (
+                        current.let_clause.bindings
+                        if current.let_clause is not None
+                        else ()
+                    )
+                ),
+                current.from_clause.binding_name,
+                *(clause.target_binding_name for clause in current.join_clauses),
+                *(
+                    clause.source_binding_name
+                    for clause in current.join_clauses
+                    if clause.source_binding_name is not None
+                ),
+            }
+            names = {
+                item.name
+                for item in raw.naming_declarations
+                if item.name not in retained
+            }
+            found.extend(
+                _diagnostic(COLLISION_CODE, COLLISION_MESSAGE, parameter.span)
+                for parameter in raw.parameters
+                if parameter.name in names
+            )
+    return tuple(
+        sorted(
+            found,
+            key=lambda item: (
+                item.location.line,
+                item.location.column,
+                item.code,
+                item.location.end_line or 0,
+                item.location.end_column or 0,
+            ),
+        )
+    )
+
+
 def _declaration_diagnostics(definition: QueryDef) -> list[Diagnostic]:
     found: list[Diagnostic] = []
     seen: set[str] = set()
@@ -618,12 +674,11 @@ def _visible_names(
         elif type(item.expression) is DottedNameExpr:
             names.add(cast(DottedNameExpr, item.expression).parts[-1])
     names.update(window.name for window in definition.named_windows)
+    if definition.from_clause.binding_name is not None:
+        # A FROM through `let r = relation` names its input r.
+        names.add(definition.from_clause.binding_name)
     for clause in definition.join_clauses:
-        # An omitted JOIN source is the FROM input or an earlier JOIN target,
-        # each visible without it.
         names.add(clause.target_binding_name)
-        if clause.source_binding_name is not None:
-            names.add(clause.source_binding_name)
     for relation in (
         definition.from_clause.source_name,
         *(clause.target_relation_name for clause in definition.join_clauses),

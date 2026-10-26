@@ -372,11 +372,14 @@ def _scalar_key(
             "expression",
         )
     if type(expr) is CastExpr:
+        target = expr.target.name
+        if operands != ("Int",) or target not in {"Float", "Text"} or result != target:
+            return None
         return CapabilityKey(
             D.CONVERSION,
             "Int",
             "cast",
-            ("Float", "unknown"),
+            (target, "unknown"),
             "expression",
         )
     if not operands or any(v is None for v in operands):
@@ -436,6 +439,19 @@ def aggregate_inputs(demand, expressions):
         if isinstance(source, ProjectAggregateExpressionAnalysis)
         else source.function_name
     )
+    if function == "string_agg":
+        if len(value.arguments) != 2 or not value.order_by:
+            return None
+        arguments = tuple(expressions[reference] for reference in value.arguments)
+        if any(_builtin(argument.value_type) != "Text" for argument in arguments):
+            return None
+        return (
+            value,
+            function,
+            "2",
+            "two_text_arguments_with_internal_order",
+            "Text",
+        )
     if not value.arguments:
         return value, function, "0", "no_argument", "NO_ARGUMENT"
     if len(value.arguments) != 1:
@@ -685,12 +701,16 @@ def _valid_scalar_key(key, demand, expressions):
             and key.context == "expression"
         )
     if type(expression) is CastExpr:
+        target = expression.target.name
         return (
             key is not None
             and key.domain is D.CONVERSION
             and key.subject == "Int"
             and key.operation == "cast"
-            and key.operands == ("Float", "unknown")
+            and target in {"Float", "Text"}
+            and values == ("Int",)
+            and result == target
+            and key.operands == (target, "unknown")
             and key.context == "expression"
         )
     if not values or None in values:
@@ -802,6 +822,33 @@ def _valid_aggregate_key(key, demand, expressions):
         if isinstance(source, ProjectAggregateExpressionAnalysis)
         else source.function_name
     )
+    if name == "string_agg":
+        result_type = _builtin(value.value_type)
+        return (
+            key is not None
+            and len(value.arguments) == 2
+            and bool(value.order_by)
+            and all(
+                _builtin(expressions[reference].value_type) == "Text"
+                for reference in value.arguments
+            )
+            and result_type == "Text"
+            and value.value_type.nullability.value == "nullable"
+            and key.domain is D.AGGREGATE
+            and key.subject == name
+            and key.operation == "signature"
+            and key.context == "aggregate_signature"
+            and key.operands
+            == (
+                "2",
+                "two_text_arguments_with_internal_order",
+                "Text",
+                "Text",
+                "nullable",
+                "GROUP",
+                "aggregate_result",
+            )
+        )
     arity, shape, argument_type = "0", "no_argument", "NO_ARGUMENT"
     if value.arguments:
         if len(value.arguments) != 1:

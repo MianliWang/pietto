@@ -490,15 +490,17 @@ ENUM_JOINED_READS = {
         ],
     ),
     "group_key": (ENUM_GROUPED, "        n = count()\n", []),
-    "where_in": (
-        '    where c.status in ("active")\n',
+    # Before: a list of labels was refused, as if each label were Text.
+    "where_in": ('    where c.status in ("active", "suspended")\n', "", []),
+    "where_in_not_a_label": (
+        '    where c.status in ("active", "gone")\n',
         "",
         [
             (
                 "PIE-S2105",
                 "Invalid operands for operator in: expected same canonical "
                 "membership operands",
-                'c.status in ("active")',
+                'c.status in ("active", "gone")',
             )
         ],
     ),
@@ -712,8 +714,12 @@ def test_computed_and_let_inputs_retain_completed_field_authority(
         assert item.lineage is item.source_roots is item.output_attribution is None
     assert type(result.row_source) is ProjectCurrentJoinedRowSource
     (condition,) = result.row_source.region.operative
-    assert condition.key_matches == ()
-    assert condition.mandatory_equalities == ()
+    # The hand-written equality matches the declared customer key, not a key
+    # of the derived input.
+    (equality,) = condition.mandatory_equalities
+    assert equality.calls == () and equality.left.binding.name == "customers"
+    (match,) = condition.key_matches
+    assert match.binding is equality.left.binding and match.equalities == (equality,)
 
 
 def test_repeated_and_unselected_occurrences_keep_distinct_rows_and_shared_roots(

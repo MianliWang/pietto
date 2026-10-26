@@ -467,7 +467,6 @@ def test_slice2_spec_scope_and_private_dependency_direction_are_exact() -> None:
     for required in (
         "ProjectQueryBlockOwnerBridge",
         "ProjectExistingRelationRowSource",
-        "ProjectVerifiedJoinedRowSource",
         "ProjectConcreteQueryBlock",
         "ProjectNonConcreteQueryBlock",
     ):

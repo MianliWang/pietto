@@ -22,11 +22,9 @@ from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleRelationSemanticFacts,
     ProjectModuleSemanticFactSet,
 )
-from pietto._project.project_relationship_conditions import (
+from pietto._project.project_row_keys import (
     ProjectExactRowOutputConstraintScope,
     ProjectRelationshipConstraintScopeKind,
-)
-from pietto._project.project_row_keys import (
     ProjectCandidateKeyFact,
     ProjectCandidateKeyIdentity,
     ProjectConstraintEnforcementPosture,

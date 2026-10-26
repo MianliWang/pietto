@@ -9,6 +9,7 @@ import pytest
 import pietto.sql as sql_api
 import pietto.sql.expressions as expression_module
 from pietto.ir.model import (
+    AggregateCallIR,
     BetweenIR,
     BinaryIR,
     CastIR,
@@ -21,6 +22,8 @@ from pietto.ir.model import (
     LiteralIR,
     MembershipIR,
     NullabilityIR,
+    OrderDirectionIR,
+    OrderItemIR,
     SourceSpan,
     StaticValue,
     SymbolId,
@@ -70,6 +73,19 @@ INT_TYPE = TypeRefIR(
 )
 
 
+def _builtin_type(name: str, nullability: NullabilityIR) -> TypeRefIR:
+    symbol = SymbolId(SymbolNamespace.TYPE, name)
+    return TypeRefIR(
+        symbol=symbol,
+        canonical_symbol=symbol,
+        declared_name=name,
+        canonical_name=name,
+        kind=TypeKindIR.BUILTIN,
+        canonical_kind=TypeKindIR.BUILTIN,
+        nullability=nullability,
+    )
+
+
 def _literal(value: StaticValue) -> LiteralIR:
     return LiteralIR(span=SPAN, value_type=UNKNOWN_TYPE, value=value)
 
@@ -84,6 +100,16 @@ def _field(
         value_type=UNKNOWN_TYPE,
         name=name,
         qualifier=qualifier,
+        field=None,
+    )
+
+
+def _typed_field(name: str, value_type: TypeRefIR) -> FieldRefIR:
+    return FieldRefIR(
+        span=SPAN,
+        value_type=value_type,
+        name=name,
+        qualifier=(),
         field=None,
     )
 
@@ -310,6 +336,217 @@ def test_q1_cast_and_qualified_field_traversal_render() -> None:
 
     assert render_expression_sql(cast) == 'CAST("app"."users"."id" AS double precision)'
     assert expression_uses_qualified_field(cast)
+
+
+def test_c5_text_cast_and_scalar_function_sql_shapes() -> None:
+    decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
+    float_type = _builtin_type("Float", NullabilityIR.NULLABLE)
+    int_type = _builtin_type("Int", NullabilityIR.NON_NULL)
+    date = _builtin_type("Date", NullabilityIR.NULLABLE)
+    timestamp = _builtin_type("Timestamp", NullabilityIR.NULLABLE)
+    text = _builtin_type("Text", NullabilityIR.NON_NULL)
+    decimal_value = FieldRefIR(
+        span=SPAN,
+        value_type=decimal,
+        name="amount",
+        qualifier=(),
+        field=None,
+    )
+    float_value = FieldRefIR(
+        span=SPAN,
+        value_type=float_type,
+        name="ratio",
+        qualifier=(),
+        field=None,
+    )
+    scale = LiteralIR(span=SPAN, value_type=int_type, value=2)
+    negative_scale = UnaryIR(
+        span=SPAN,
+        value_type=int_type,
+        operator="-",
+        operand=scale,
+    )
+    round_decimal = CallIR(
+        span=SPAN,
+        value_type=decimal,
+        callee="round",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "round"),
+        arguments=(decimal_value, scale),
+    )
+    round_float = CallIR(
+        span=SPAN,
+        value_type=float_type,
+        callee="round",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "round"),
+        arguments=(float_value,),
+    )
+    round_decimal_negative = CallIR(
+        span=SPAN,
+        value_type=decimal,
+        callee="round",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "round"),
+        arguments=(decimal_value, negative_scale),
+    )
+    date_trunc = CallIR(
+        span=SPAN,
+        value_type=date,
+        callee="date_trunc",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
+        arguments=(
+            LiteralIR(span=SPAN, value_type=text, value="month"),
+            _typed_field("opened_on", date),
+        ),
+    )
+    timestamp_trunc = CallIR(
+        span=SPAN,
+        value_type=timestamp,
+        callee="date_trunc",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
+        arguments=(
+            LiteralIR(span=SPAN, value_type=text, value="minute"),
+            _typed_field("opened_at", timestamp),
+        ),
+    )
+    text_cast = CastIR(
+        span=SPAN,
+        value_type=text,
+        value=_typed_field("id", int_type),
+        target=text,
+    )
+
+    assert render_expression_sql(round_decimal) == 'round("amount", 2)'
+    assert render_expression_sql(round_decimal_negative) == 'round("amount", (-2))'
+    assert render_expression_sql(round_float) == (
+        'CASE WHEN abs(("ratio" - trunc("ratio"))) >= 0.5 THEN trunc("ratio") '
+        '+ CASE WHEN "ratio" < 0 THEN -1.0 ELSE 1.0 END ELSE trunc("ratio") END'
+    )
+    assert render_expression_sql(date_trunc) == (
+        "CAST(date_trunc('month', CAST(\"opened_on\" AS timestamp)) AS date)"
+    )
+    assert (
+        render_expression_sql(timestamp_trunc) == "date_trunc('minute', \"opened_at\")"
+    )
+    assert render_expression_sql(text_cast) == 'CAST("id" AS text)'
+
+
+def test_c5_postgres_typed_null_arguments_select_unambiguous_overloads() -> None:
+    decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
+    date = _builtin_type("Date", NullabilityIR.NULLABLE)
+    timestamp = _builtin_type("Timestamp", NullabilityIR.NULLABLE)
+    text = _builtin_type("Text", NullabilityIR.NON_NULL)
+    decimal_round = CallIR(
+        span=SPAN,
+        value_type=decimal,
+        callee="round",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "round"),
+        arguments=(LiteralIR(span=SPAN, value_type=decimal, value=None),),
+    )
+    date_trunc = CallIR(
+        span=SPAN,
+        value_type=date,
+        callee="date_trunc",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
+        arguments=(
+            LiteralIR(span=SPAN, value_type=text, value="year"),
+            LiteralIR(span=SPAN, value_type=date, value=None),
+        ),
+    )
+    timestamp_trunc = CallIR(
+        span=SPAN,
+        value_type=timestamp,
+        callee="date_trunc",
+        callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
+        arguments=(
+            LiteralIR(span=SPAN, value_type=text, value="minute"),
+            LiteralIR(span=SPAN, value_type=timestamp, value=None),
+        ),
+    )
+
+    assert render_expression_sql(decimal_round) == "round(CAST(NULL AS numeric))"
+    assert render_expression_sql(date_trunc) == (
+        "CAST(date_trunc('year', CAST(NULL AS timestamp)) AS date)"
+    )
+    assert render_expression_sql(timestamp_trunc) == (
+        "date_trunc('minute', CAST(NULL AS timestamp))"
+    )
+
+
+def test_c5_qualified_internal_aggregate_order_key_is_not_lost() -> None:
+    text = _builtin_type("Text", NullabilityIR.NON_NULL)
+    aggregate = AggregateCallIR(
+        span=SPAN,
+        value_type=_builtin_type("Text", NullabilityIR.NULLABLE),
+        function="string_agg",
+        arguments=(
+            LiteralIR(span=SPAN, value_type=text, value="value"),
+            LiteralIR(span=SPAN, value_type=text, value=","),
+        ),
+        order_by=(
+            OrderItemIR(
+                expression=FieldRefIR(
+                    span=SPAN,
+                    value_type=INT_TYPE,
+                    name="sequence",
+                    qualifier=("items",),
+                    field=None,
+                ),
+                direction=OrderDirectionIR.DESC,
+                span=SPAN,
+            ),
+        ),
+    )
+
+    assert expression_uses_qualified_field(aggregate)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        CallIR(
+            span=SPAN,
+            value_type=_builtin_type("Float", NullabilityIR.NON_NULL),
+            callee="round",
+            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "round"),
+            arguments=(
+                _typed_field("ratio", _builtin_type("Float", NullabilityIR.NON_NULL)),
+                LiteralIR(span=SPAN, value_type=INT_TYPE, value=1),
+            ),
+        ),
+        CallIR(
+            span=SPAN,
+            value_type=_builtin_type("Date", NullabilityIR.NON_NULL),
+            callee="date_trunc",
+            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
+            arguments=(
+                LiteralIR(
+                    span=SPAN,
+                    value_type=_builtin_type("Text", NullabilityIR.NON_NULL),
+                    value="hour",
+                ),
+                _typed_field(
+                    "opened_on", _builtin_type("Date", NullabilityIR.NON_NULL)
+                ),
+            ),
+        ),
+        CallIR(
+            span=SPAN,
+            value_type=_builtin_type("Date", NullabilityIR.NON_NULL),
+            callee="date_trunc",
+            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
+            arguments=(
+                LiteralIR(span=SPAN, value_type=INT_TYPE, value="year"),
+                _typed_field(
+                    "opened_on", _builtin_type("Date", NullabilityIR.NON_NULL)
+                ),
+            ),
+        ),
+    ],
+)
+def test_c5_scalar_renderer_refuses_unapproved_typed_shapes(
+    expression: ExpressionIR,
+) -> None:
+    with pytest.raises(ValueError):
+        render_expression_sql(expression)
 
 
 @pytest.mark.parametrize(

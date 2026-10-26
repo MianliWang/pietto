@@ -24,18 +24,7 @@ from pietto._project.project_ir import (
     ProjectIRUseRef,
 )
 from pietto._project.project_ir_joins import (
-    ProjectIRBinaryJoinIdentity,
-    ProjectIRBinaryJoinOccurrence,
-    ProjectIRConcreteJoinRegion,
-    ProjectIRJoinMatchFieldPair,
-    ProjectIRJoinOutputProperties,
-    ProjectIRJoinUnavailableProperty,
     ProjectIRNonConcreteJoinRegion,
-)
-from pietto._project.project_ir_properties import (
-    ProjectIRJoinedRowField,
-    ProjectIRJoinRowOutput,
-    ProjectIRProvidedNullExtension,
 )
 from pietto._project.project_ir_relational_properties import (
     ProjectIRProvidedIntrinsicGrain,
@@ -51,16 +40,12 @@ from pietto._project.project_multifact import (
     ProjectActualGrainCandidate,
     ProjectAggregateFactHomeLocality,
     ProjectAggregateFactIdentity,
-    ProjectAggregateFactJoinLocality,
     ProjectAggregateFactLocality,
     ProjectAggregateFactOccurrence,
     ProjectCommonGrainResult,
-    ProjectFactChasmCandidate,
     ProjectFactContextualGrain,
-    ProjectFactMultiplicityExposure,
     ProjectMultiFactAlignment,
     ProjectMultiFactAnalysis,
-    ProjectMultiFactConcreteRegion,
     ProjectMultiFactNonConcreteRegionSubject,
 )
 from pietto._project.project_phase62_pure_boundary import (
@@ -90,35 +75,14 @@ from pietto._project.project_phase62_verification import (
     ProjectPhase62CombinedUse,
     ProjectPhase62FactLocalityEntry,
     ProjectPhase62MultiFactAlignmentIndex,
-    ProjectPhase62NullingProvenanceEntry,
     ProjectPhase62VerificationResult,
     ProjectPhase62VerificationStatus,
 )
-from pietto._project.project_relationship_conditions import (
-    ProjectConcreteRelationshipCondition,
-    ProjectRelationshipEqualityCorrespondence,
-)
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectDirectionalRelationshipMatchGuarantee,
-    ProjectRelationshipDirectionIdentity,
-)
-from pietto._project.project_relationship_paths import (
-    ProjectRelationshipPath,
-    ProjectRelationshipPathAnalysis,
-    ProjectRelationshipPathStep,
-)
 from pietto._project.project_relationship_uses import (
-    ProjectConcreteJoinUse,
-    ProjectJoinUse,
     ProjectJoinUseIdentity,
     ProjectNonConcreteJoinUse,
     ProjectRelationBindingOccurrence,
     ProjectRelationJoinUseLedger,
-    ProjectTraversalStepUse,
-)
-from pietto._project.project_relationships import (
-    ProjectRelationshipDeclarationIdentity,
-    ProjectRelationshipSubject,
 )
 
 __all__: tuple[str, ...] = ()
@@ -127,17 +91,8 @@ __all__: tuple[str, ...] = ()
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectPhase62InspectionSummary:
     scope: ProjectIRSnapshotScope = field(repr=False, compare=False, hash=False)
-    relationship_count: int
-    direction_count: int
-    condition_count: int
-    correspondence_count: int
-    guarantee_count: int
     ledger_count: int
     join_use_count: int
-    path_step_count: int
-    binary_join_count: int
-    joined_output_count: int
-    joined_field_count: int
     base_relational_output_count: int
     candidate_key_count: int
     value_fd_count: int
@@ -147,7 +102,6 @@ class ProjectPhase62InspectionSummary:
     fact_locality_count: int
     common_grain_count: int
     alignment_count: int
-    chasm_count: int
     non_concrete_region_count: int
     combined_analysis_entry_count: int
 
@@ -155,17 +109,8 @@ class ProjectPhase62InspectionSummary:
         if type(self.scope) is not ProjectIRSnapshotScope:
             raise TypeError("Phase-62 summary requires one exact snapshot scope.")
         for value in (
-            self.relationship_count,
-            self.direction_count,
-            self.condition_count,
-            self.correspondence_count,
-            self.guarantee_count,
             self.ledger_count,
             self.join_use_count,
-            self.path_step_count,
-            self.binary_join_count,
-            self.joined_output_count,
-            self.joined_field_count,
             self.base_relational_output_count,
             self.candidate_key_count,
             self.value_fd_count,
@@ -175,7 +120,6 @@ class ProjectPhase62InspectionSummary:
             self.fact_locality_count,
             self.common_grain_count,
             self.alignment_count,
-            self.chasm_count,
             self.non_concrete_region_count,
             self.combined_analysis_entry_count,
         ):
@@ -194,35 +138,11 @@ class ProjectPhase62Inspection:
     verification: ProjectPhase62VerificationResult
     root: ProjectMultiFactAnalysis = field(repr=False, compare=False, hash=False)
     base_verification: ProjectIRVerificationResult
-    relationship_subjects: tuple[ProjectRelationshipSubject, ...]
-    relationship_directions: tuple[ProjectDirectionalRelationshipMatchGuarantee, ...]
-    relationship_conditions: tuple[ProjectConcreteRelationshipCondition, ...]
-    correspondences: tuple[ProjectRelationshipEqualityCorrespondence, ...]
-    match_guarantees: tuple[ProjectDirectionalRelationshipMatchGuarantee, ...]
-    direct_candidate_buckets: tuple[
-        tuple[ProjectDirectionalRelationshipMatchGuarantee, ...], ...
-    ]
-    declaration_direction_buckets: tuple[
-        tuple[ProjectDirectionalRelationshipMatchGuarantee, ...], ...
-    ]
     join_use_ledgers: tuple[ProjectRelationJoinUseLedger, ...]
     relation_bindings: tuple[ProjectRelationBindingOccurrence, ...]
-    join_uses: tuple[ProjectJoinUse, ...]
-    traversal_step_uses: tuple[ProjectTraversalStepUse, ...]
-    paths: tuple[ProjectRelationshipPath, ...]
-    path_steps: tuple[ProjectRelationshipPathStep, ...]
-    path_analyses: tuple[ProjectRelationshipPathAnalysis, ...]
-    concrete_join_regions: tuple[ProjectIRConcreteJoinRegion, ...]
+    join_uses: tuple[ProjectNonConcreteJoinUse, ...]
     non_concrete_join_regions: tuple[ProjectIRNonConcreteJoinRegion, ...]
-    binary_joins: tuple[ProjectIRBinaryJoinOccurrence, ...]
-    join_input_slots: tuple[ProjectIRInputSlotOccurrence, ...]
-    join_input_uses: tuple[ProjectPhase62CombinedUse, ...]
-    joined_outputs: tuple[ProjectIRJoinRowOutput, ...]
-    joined_fields: tuple[ProjectIRJoinedRowField, ...]
-    match_field_pairs: tuple[ProjectIRJoinMatchFieldPair, ...]
-    join_output_properties: tuple[ProjectIRJoinOutputProperties, ...]
     base_relational_outputs: tuple[ProjectIROutputRelationalProperties, ...]
-    join_relational_outputs: tuple[ProjectIROutputRelationalProperties, ...]
     relational_fields: tuple[ProjectIROutputFieldOccurrence, ...]
     value_classes: tuple[ProjectIROutputValueClass, ...]
     candidate_keys: tuple[ProjectIROutputCandidateKey, ...]
@@ -233,19 +153,14 @@ class ProjectPhase62Inspection:
     grain_dependencies: tuple[ProjectGrainDependencyFact, ...]
     aggregate_facts: tuple[ProjectAggregateFactOccurrence, ...]
     home_localities: tuple[ProjectAggregateFactHomeLocality, ...]
-    join_localities: tuple[ProjectAggregateFactJoinLocality, ...]
     fact_localities: tuple[ProjectAggregateFactLocality, ...]
     contextual_grains: tuple[ProjectFactContextualGrain, ...]
-    multiplicity_exposures: tuple[ProjectFactMultiplicityExposure, ...]
-    concrete_multifact_regions: tuple[ProjectMultiFactConcreteRegion, ...]
     actual_grain_candidates: tuple[ProjectActualGrainCandidate, ...]
     common_grain_results: tuple[ProjectCommonGrainResult, ...]
     alignments: tuple[ProjectMultiFactAlignment, ...]
-    chasms: tuple[ProjectFactChasmCandidate, ...]
     non_concrete_multifact_regions: tuple[ProjectMultiFactNonConcreteRegionSubject, ...]
     combined_reverse_uses: tuple[ProjectPhase62CombinedReverseUseEntry, ...]
     combined_topological_order: tuple[ProjectIRPlanNodeOccurrence, ...]
-    nulling_provenance: tuple[ProjectPhase62NullingProvenanceEntry, ...]
     fact_locality_index: tuple[ProjectPhase62FactLocalityEntry, ...]
     multifact_alignment_index: ProjectPhase62MultiFactAlignmentIndex
 
@@ -261,7 +176,6 @@ class ProjectPhase62Inspection:
             or self.base_verification is not bundle.verification.base_verification
             or self.combined_reverse_uses is not bundle.combined_reverse_uses
             or self.combined_topological_order is not bundle.combined_topological_order
-            or self.nulling_provenance is not bundle.nulling_provenance
             or self.fact_locality_index is not bundle.fact_localities
             or self.multifact_alignment_index is not bundle.multifact_alignments
         ):
@@ -310,71 +224,22 @@ def _same_objects(actual: tuple[object, ...], expected: tuple[object, ...]) -> b
 
 
 def _runtime_sections(root: ProjectMultiFactAnalysis) -> dict[str, tuple[object, ...]]:
+    """The inspected sections. Every JOIN region is non-concrete and allocates
+    nothing, since no authored JOIN joins by itself, so every relational output
+    is a base output and every fact locality is a home locality."""
+
     uses = root.join_regions.uses
-    index = uses.index
-    subjects = uses.relationships.subjects
-    conditions = tuple(
-        item
-        for item in index.guarantees.conditions.conditions
-        if type(item) is ProjectConcreteRelationshipCondition
-    )
-    join_uses = tuple(use for ledger in uses.ledgers for use in ledger.uses)
-    paths = tuple(use.path for use in join_uses if use.path is not None)
-    concrete_regions = tuple(
-        region
-        for region in root.join_regions.regions
-        if type(region) is ProjectIRConcreteJoinRegion
-    )
-    non_concrete_regions = tuple(
-        region
-        for region in root.join_regions.regions
-        if type(region) is ProjectIRNonConcreteJoinRegion
-    )
-    joins = tuple(join for region in concrete_regions for join in region.joins)
-    base_relational = root.base_relational.outputs
-    join_relational = tuple(
-        item.relational for item in root.join_regions.properties.outputs
-    )
-    relational = (*base_relational, *join_relational)
+    relational = root.base_relational.outputs
     home = root.home_localities
-    join_localities = root.join_localities
-    alignments = root.alignments
+    alignments = root.home_alignments
     values: dict[str, tuple[object, ...]] = {
-        "relationship_subjects": subjects,
-        "relationship_directions": index.directions,
-        "relationship_conditions": conditions,
-        "correspondences": tuple(
-            item for condition in conditions for item in condition.correspondences
-        ),
-        "match_guarantees": index.directions,
-        "direct_candidate_buckets": tuple(index.by_pair.values()),
-        "declaration_direction_buckets": tuple(index.by_declaration.values()),
         "join_use_ledgers": uses.ledgers,
         "relation_bindings": tuple(
             binding for ledger in uses.ledgers for binding in ledger.bindings
         ),
-        "join_uses": join_uses,
-        "traversal_step_uses": tuple(
-            step for use in join_uses for step in use.step_uses
-        ),
-        "paths": paths,
-        "path_steps": tuple(step for path in paths for step in path.steps),
-        "path_analyses": tuple(
-            use.analysis for use in join_uses if type(use) is ProjectConcreteJoinUse
-        ),
-        "concrete_join_regions": concrete_regions,
-        "non_concrete_join_regions": non_concrete_regions,
-        "binary_joins": joins,
-        "join_input_slots": tuple(slot for join in joins for slot in join.input_slots),
-        "join_input_uses": tuple(use for join in joins for use in join.input_uses),
-        "joined_outputs": tuple(join.output for join in joins),
-        "joined_fields": tuple(
-            item for join in joins for item in join.output.row_shape.fields
-        ),
-        "match_field_pairs": tuple(item for join in joins for item in join.matches),
-        "join_output_properties": root.join_regions.properties.outputs,
-        "base_relational_outputs": base_relational,
-        "join_relational_outputs": join_relational,
+        "join_uses": uses.uses,
+        "non_concrete_join_regions": root.join_regions.regions,
+        "base_relational_outputs": relational,
         "relational_fields": tuple(
             item for output in relational for item in output.fields
         ),
@@ -393,36 +258,17 @@ def _runtime_sections(root: ProjectMultiFactAnalysis) -> dict[str, tuple[object,
         ),
         "aggregate_facts": root.facts,
         "home_localities": home,
-        "join_localities": join_localities,
-        "fact_localities": (*home, *join_localities),
-        "contextual_grains": tuple(
-            locality.contextual_grain for locality in (*home, *join_localities)
-        ),
-        "multiplicity_exposures": tuple(
-            exposure
-            for locality in join_localities
-            for exposure in locality.multiplicity_exposures
-        ),
-        "concrete_multifact_regions": root.concrete_regions,
-        "actual_grain_candidates": (
-            *(
-                candidate
-                for alignment in root.home_alignments
-                for candidate in alignment.common_grain.actual_candidates
-            ),
-            *(
-                candidate
-                for region in root.concrete_regions
-                for candidate in region.actual_candidates
-            ),
+        "fact_localities": home,
+        "contextual_grains": tuple(locality.contextual_grain for locality in home),
+        "actual_grain_candidates": tuple(
+            candidate
+            for alignment in alignments
+            for candidate in alignment.common_grain.actual_candidates
         ),
         "common_grain_results": tuple(
             alignment.common_grain for alignment in alignments
         ),
         "alignments": alignments,
-        "chasms": tuple(
-            chasm for region in root.concrete_regions for chasm in region.chasms
-        ),
         "non_concrete_multifact_regions": root.non_concrete_regions,
     }
     return values
@@ -434,17 +280,8 @@ def _inspection_summary(
 ) -> ProjectPhase62InspectionSummary:
     return ProjectPhase62InspectionSummary(
         scope=bundle.root.evaluation.project_plan.structural_stage.scope,
-        relationship_count=len(sections["relationship_subjects"]),
-        direction_count=len(sections["relationship_directions"]),
-        condition_count=len(sections["relationship_conditions"]),
-        correspondence_count=len(sections["correspondences"]),
-        guarantee_count=len(sections["match_guarantees"]),
         ledger_count=len(sections["join_use_ledgers"]),
         join_use_count=len(sections["join_uses"]),
-        path_step_count=len(sections["path_steps"]),
-        binary_join_count=len(sections["binary_joins"]),
-        joined_output_count=len(sections["joined_outputs"]),
-        joined_field_count=len(sections["joined_fields"]),
         base_relational_output_count=len(sections["base_relational_outputs"]),
         candidate_key_count=len(sections["candidate_keys"]),
         value_fd_count=len(sections["value_fds"]),
@@ -454,7 +291,6 @@ def _inspection_summary(
         fact_locality_count=len(sections["fact_localities"]),
         common_grain_count=len(sections["common_grain_results"]),
         alignment_count=len(sections["alignments"]),
-        chasm_count=len(sections["chasms"]),
         non_concrete_region_count=(
             len(sections["non_concrete_join_regions"])
             + len(sections["non_concrete_multifact_regions"])
@@ -462,7 +298,6 @@ def _inspection_summary(
         combined_analysis_entry_count=(
             len(bundle.combined_reverse_uses)
             + len(bundle.combined_topological_order)
-            + len(bundle.nulling_provenance)
             + len(bundle.fact_localities)
             + 1
         ),
@@ -489,7 +324,6 @@ def _derive_project_phase62_inspection(
         base_verification=bundle.verification.base_verification,
         combined_reverse_uses=bundle.combined_reverse_uses,
         combined_topological_order=bundle.combined_topological_order,
-        nulling_provenance=bundle.nulling_provenance,
         fact_locality_index=bundle.fact_localities,
         multifact_alignment_index=bundle.multifact_alignments,
         **cast(dict[str, object], sections),  # pyright: ignore[reportArgumentType]
@@ -548,52 +382,16 @@ def _require_ref(
 
 # ponytail: canonical tuple scans preserve winner-free authority; add indexes only
 # after measured need, without replacing the retained tuples.
-def query_project_phase62_relationships(
-    inspection: ProjectPhase62Inspection,
-    identity: ProjectRelationshipDeclarationIdentity,
-) -> tuple[ProjectRelationshipSubject, ...]:
-    _require_inspection(inspection)
-    if type(identity) is not ProjectRelationshipDeclarationIdentity:
-        raise TypeError("Relationship queries require an exact typed identity.")
-    return tuple(
-        item
-        for item in inspection.relationship_subjects
-        if item.occurrence.identity is identity
-    )
-
-
-def query_project_phase62_directions(
-    inspection: ProjectPhase62Inspection,
-    identity: ProjectRelationshipDirectionIdentity,
-) -> tuple[ProjectDirectionalRelationshipMatchGuarantee, ...]:
-    _require_inspection(inspection)
-    if type(identity) is not ProjectRelationshipDirectionIdentity:
-        raise TypeError("Direction queries require an exact typed identity.")
-    return tuple(
-        item
-        for item in inspection.relationship_directions
-        if item.direction is identity
-    )
 
 
 def query_project_phase62_join_uses(
     inspection: ProjectPhase62Inspection,
     identity: ProjectJoinUseIdentity,
-) -> tuple[ProjectJoinUse, ...]:
+) -> tuple[ProjectNonConcreteJoinUse, ...]:
     _require_inspection(inspection)
     if type(identity) is not ProjectJoinUseIdentity:
         raise TypeError("JOIN-use queries require an exact typed identity.")
     return tuple(item for item in inspection.join_uses if item.identity is identity)
-
-
-def query_project_phase62_binary_joins(
-    inspection: ProjectPhase62Inspection,
-    identity: ProjectIRBinaryJoinIdentity,
-) -> tuple[ProjectIRBinaryJoinOccurrence, ...]:
-    _require_inspection(inspection)
-    if type(identity) is not ProjectIRBinaryJoinIdentity:
-        raise TypeError("Binary JOIN queries require an exact typed identity.")
-    return tuple(item for item in inspection.binary_joins if item.identity is identity)
 
 
 def query_project_phase62_nodes(
@@ -604,10 +402,7 @@ def query_project_phase62_nodes(
     _require_ref(inspection, ref, ProjectIRPlanNodeRef)
     return tuple(
         item
-        for item in (
-            *inspection.root.evaluation.project_plan.structural_stage.nodes,
-            *inspection.root.join_regions.structural.nodes,
-        )
+        for item in inspection.root.evaluation.project_plan.structural_stage.nodes
         if item.ref == ref
     )
 
@@ -620,10 +415,7 @@ def query_project_phase62_outputs(
     _require_ref(inspection, ref, ProjectIROutputValueRef)
     return tuple(
         item
-        for item in (
-            *inspection.root.evaluation.project_plan.structural_stage.outputs,
-            *inspection.root.join_regions.structural.outputs,
-        )
+        for item in inspection.root.evaluation.project_plan.structural_stage.outputs
         if item.ref == ref
     )
 
@@ -636,10 +428,7 @@ def query_project_phase62_input_slots(
     _require_ref(inspection, ref, ProjectIRInputSlotRef)
     return tuple(
         item
-        for item in (
-            *inspection.root.evaluation.project_plan.structural_stage.input_slots,
-            *inspection.join_input_slots,
-        )
+        for item in inspection.root.evaluation.project_plan.structural_stage.input_slots
         if item.ref == ref
     )
 
@@ -652,28 +441,8 @@ def query_project_phase62_uses(
     _require_ref(inspection, ref, ProjectIRUseRef)
     return tuple(
         item
-        for item in (
-            *inspection.root.evaluation.project_plan.structural_stage.uses,
-            *inspection.join_input_uses,
-        )
+        for item in inspection.root.evaluation.project_plan.structural_stage.uses
         if item.ref == ref
-    )
-
-
-def query_project_phase62_nulling(
-    inspection: ProjectPhase62Inspection,
-    output: ProjectIROutputValueRef,
-    field_position: int,
-) -> tuple[ProjectPhase62NullingProvenanceEntry, ...]:
-    _require_inspection(inspection)
-    _require_ref(inspection, output, ProjectIROutputValueRef)
-    if type(field_position) is not int or field_position < 0:
-        raise ValueError("Nulling queries require a non-negative field position.")
-    return tuple(
-        item
-        for item in inspection.nulling_provenance
-        if item.coordinate.output == output
-        and item.coordinate.field_position == field_position
     )
 
 
@@ -708,10 +477,9 @@ def query_project_phase62_alignments_involving(
     locality: ProjectAggregateFactLocality,
 ) -> tuple[ProjectMultiFactAlignment, ...]:
     _require_inspection(inspection)
-    if type(locality) not in {
-        ProjectAggregateFactHomeLocality,
-        ProjectAggregateFactJoinLocality,
-    } or not any(locality is retained for retained in inspection.fact_localities):
+    if type(locality) is not ProjectAggregateFactHomeLocality or not any(
+        locality is retained for retained in inspection.fact_localities
+    ):
         raise ValueError("Alignment queries require one exact retained locality.")
     return tuple(
         item
@@ -727,8 +495,7 @@ def query_project_phase62_alignment_bucket(
 ) -> tuple[ProjectMultiFactAlignment, ...]:
     _require_inspection(inspection)
     if left is right or any(
-        type(item)
-        not in {ProjectAggregateFactHomeLocality, ProjectAggregateFactJoinLocality}
+        type(item) is not ProjectAggregateFactHomeLocality
         or not any(item is retained for retained in inspection.fact_localities)
         for item in (left, right)
     ):
@@ -753,30 +520,11 @@ def query_project_phase62_common_grains(
     return (alignment.common_grain,)
 
 
-def query_project_phase62_chasms_containing(
-    inspection: ProjectPhase62Inspection,
-    locality: ProjectAggregateFactLocality,
-) -> tuple[ProjectFactChasmCandidate, ...]:
-    _require_inspection(inspection)
-    if type(locality) not in {
-        ProjectAggregateFactHomeLocality,
-        ProjectAggregateFactJoinLocality,
-    } or not any(locality is retained for retained in inspection.fact_localities):
-        raise ValueError("Chasm queries require one exact retained locality.")
-    return tuple(
-        item
-        for item in inspection.chasms
-        if any(locality is participant for participant in item.localities)
-    )
-
-
 def query_project_phase62_non_concrete_join_uses(
     inspection: ProjectPhase62Inspection,
 ) -> tuple[ProjectNonConcreteJoinUse, ...]:
     _require_inspection(inspection)
-    return tuple(
-        item for item in inspection.join_uses if type(item) is ProjectNonConcreteJoinUse
-    )
+    return inspection.join_uses
 
 
 def query_project_phase62_non_concrete_join_regions(
@@ -892,11 +640,7 @@ def _traversal_records(
 ) -> None:
     bindings = cast(tuple[object, ...], inspection.relation_bindings)
     join_uses = cast(tuple[object, ...], inspection.join_uses)
-    path_steps = cast(tuple[object, ...], inspection.path_steps)
-    relational = cast(
-        tuple[object, ...],
-        (*inspection.base_relational_outputs, *inspection.join_relational_outputs),
-    )
+    relational = cast(tuple[object, ...], inspection.base_relational_outputs)
     for binding in inspection.relation_bindings:
         output_ref = (
             None
@@ -932,22 +676,8 @@ def _traversal_records(
             ("state", project_phase62_pure_enumeration(binding.state.value)),
             ("output", _optional_ref(output_ref)),
         )
+    # No JOIN use has a source binding or relationship path steps.
     for use in inspection.join_uses:
-        source_ref = (
-            None
-            if use.source_binding is None
-            else _section_ref(
-                ProjectPhase62PortableRefDomain.BINDING,
-                bindings,
-                use.source_binding,
-                "source binding",
-            )
-        )
-        state = (
-            "concrete"
-            if type(use) is ProjectConcreteJoinUse
-            else cast(ProjectNonConcreteJoinUse, use).state.value
-        )
         _record(
             records,
             ProjectPhase62RecordKind.JOIN_USE,
@@ -968,19 +698,14 @@ def _traversal_records(
                 project_phase62_pure_integer(use.identity.join_position),
             ),
             ("kind", project_phase62_pure_enumeration(use.kind.value)),
-            ("state", project_phase62_pure_enumeration(state)),
+            ("state", project_phase62_pure_enumeration(use.state.value)),
             (
                 "reasons",
                 project_phase62_pure_enumerations(
-                    ()
-                    if type(use) is ProjectConcreteJoinUse
-                    else tuple(
-                        item.kind.value
-                        for item in cast(ProjectNonConcreteJoinUse, use).issues
-                    )
+                    tuple(item.kind.value for item in use.issues)
                 ),
             ),
-            ("source_binding", _optional_ref(source_ref)),
+            ("source_binding", PROJECT_PHASE62_PURE_ABSENT),
             (
                 "target_binding",
                 project_phase62_pure_ref(
@@ -992,84 +717,8 @@ def _traversal_records(
                     )
                 ),
             ),
-            (
-                "steps",
-                project_phase62_pure_refs(
-                    ()
-                    if use.path is None
-                    else tuple(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.TRAVERSAL_STEP,
-                            path_steps,
-                            step,
-                            "path step",
-                        )
-                        for step in use.path.steps
-                    )
-                ),
-            ),
+            ("steps", project_phase62_pure_refs(())),
         )
-    directions = cast(tuple[object, ...], inspection.relationship_directions)
-    for use in inspection.join_uses:
-        if use.path is None:
-            continue
-        analysis = use.analysis if type(use) is ProjectConcreteJoinUse else None
-        for step in use.path.steps:
-            hop = None if analysis is None else analysis.hops[step.position]
-            _record(
-                records,
-                ProjectPhase62RecordKind.TRAVERSAL_STEP,
-                (
-                    "ref",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.TRAVERSAL_STEP,
-                            path_steps,
-                            step,
-                            "path step",
-                        )
-                    ),
-                ),
-                (
-                    "join_use",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.JOIN_USE,
-                            join_uses,
-                            use,
-                            "JOIN use",
-                        )
-                    ),
-                ),
-                ("position", project_phase62_pure_integer(step.position)),
-                (
-                    "direction",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.RELATIONSHIP_DIRECTION,
-                            directions,
-                            step.guarantee,
-                            "relationship direction",
-                        )
-                    ),
-                ),
-                (
-                    "fanout",
-                    _optional_enumeration(None if hop is None else hop.fanout.value),
-                ),
-                (
-                    "inner_survival",
-                    _optional_enumeration(
-                        None if hop is None else hop.inner_survival.value
-                    ),
-                ),
-                (
-                    "left_nulling",
-                    _optional_enumeration(
-                        None if hop is None else hop.left_nulling.value
-                    ),
-                ),
-            )
 
 
 def _grain_factor_ref(
@@ -1099,10 +748,7 @@ def _project_topology(
     records: list[ProjectPhase62PureRecord],
 ) -> None:
     base = inspection.root.evaluation.project_plan.structural_stage
-    nodes = (*base.nodes, *inspection.root.join_regions.structural.nodes)
-    outputs = (*base.outputs, *inspection.root.join_regions.structural.outputs)
-    slots = (*base.input_slots, *inspection.join_input_slots)
-    uses = (*base.uses, *inspection.join_input_uses)
+    nodes, outputs, slots, uses = base.nodes, base.outputs, base.input_slots, base.uses
     for node in nodes:
         _record(
             records,
@@ -1134,271 +780,11 @@ def _project_topology(
         )
 
 
-def _relationship_records(
-    inspection: ProjectPhase62Inspection,
-    records: list[ProjectPhase62PureRecord],
-) -> None:
-    subjects = cast(tuple[object, ...], inspection.relationship_subjects)
-    directions = cast(tuple[object, ...], inspection.relationship_directions)
-    conditions = cast(tuple[object, ...], inspection.relationship_conditions)
-    correspondences = cast(tuple[object, ...], inspection.correspondences)
-    relational = cast(
-        tuple[object, ...],
-        (*inspection.base_relational_outputs, *inspection.join_relational_outputs),
-    )
-    for subject in inspection.relationship_subjects:
-        occurrence = subject.occurrence
-        identity = occurrence.identity
-        _record(
-            records,
-            ProjectPhase62RecordKind.RELATIONSHIP,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONSHIP,
-                        subjects,
-                        subject,
-                        "relationship subject",
-                    )
-                ),
-            ),
-            ("module_path", project_phase62_pure_text(identity.module.path)),
-            ("module_position", project_phase62_pure_integer(identity.module_position)),
-            (
-                "declaration_position",
-                project_phase62_pure_integer(identity.relationship_position),
-            ),
-            (
-                "source_position",
-                project_phase62_pure_integer(occurrence.relationship.span.line),
-            ),
-            ("name", project_phase62_pure_text(occurrence.name)),
-        )
-    for guarantee in inspection.relationship_directions:
-        direction = guarantee.direction
-        relationship = next(
-            item
-            for item in inspection.relationship_subjects
-            if item.occurrence.identity is direction.declaration
-        )
-        _record(
-            records,
-            ProjectPhase62RecordKind.RELATIONSHIP_DIRECTION,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONSHIP_DIRECTION,
-                        directions,
-                        guarantee,
-                        "relationship direction",
-                    )
-                ),
-            ),
-            (
-                "relationship",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONSHIP,
-                        subjects,
-                        relationship,
-                        "relationship subject",
-                    )
-                ),
-            ),
-            (
-                "source_endpoint",
-                project_phase62_pure_integer(
-                    direction.source.identity.endpoint_position
-                ),
-            ),
-            (
-                "target_endpoint",
-                project_phase62_pure_integer(
-                    direction.target.identity.endpoint_position
-                ),
-            ),
-            (
-                "source_role",
-                project_phase62_pure_text(direction.source.authored_role),
-            ),
-            (
-                "target_role",
-                project_phase62_pure_text(direction.target.authored_role),
-            ),
-            (
-                "source_relation",
-                project_phase62_pure_text(direction.source.authored_relation_spelling),
-            ),
-            (
-                "target_relation",
-                project_phase62_pure_text(direction.target.authored_relation_spelling),
-            ),
-        )
-    for condition in inspection.relationship_conditions:
-        _record(
-            records,
-            ProjectPhase62RecordKind.CONDITION,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.CONDITION,
-                        conditions,
-                        condition,
-                        "relationship condition",
-                    )
-                ),
-            ),
-            (
-                "relationship",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONSHIP,
-                        subjects,
-                        condition.relationship,
-                        "relationship subject",
-                    )
-                ),
-            ),
-            (
-                "correspondences",
-                project_phase62_pure_refs(
-                    tuple(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.CORRESPONDENCE,
-                            correspondences,
-                            item,
-                            "relationship correspondence",
-                        )
-                        for item in condition.correspondences
-                    )
-                ),
-            ),
-        )
-    for correspondence in inspection.correspondences:
-        condition = next(
-            item
-            for item in inspection.relationship_conditions
-            if any(correspondence is retained for retained in item.correspondences)
-        )
-        _record(
-            records,
-            ProjectPhase62RecordKind.CORRESPONDENCE,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.CORRESPONDENCE,
-                        correspondences,
-                        correspondence,
-                        "relationship correspondence",
-                    )
-                ),
-            ),
-            (
-                "condition",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.CONDITION,
-                        conditions,
-                        condition,
-                        "relationship condition",
-                    )
-                ),
-            ),
-            (
-                "position",
-                project_phase62_pure_integer(correspondence.identity.conjunct_position),
-            ),
-            (
-                "left_endpoint",
-                project_phase62_pure_integer(
-                    correspondence.endpoint_zero.endpoint.identity.endpoint_position
-                ),
-            ),
-            (
-                "right_endpoint",
-                project_phase62_pure_integer(
-                    correspondence.endpoint_one.endpoint.identity.endpoint_position
-                ),
-            ),
-            (
-                "left_field",
-                project_phase62_pure_text(
-                    correspondence.endpoint_zero.authored_field_spelling
-                ),
-            ),
-            (
-                "right_field",
-                project_phase62_pure_text(
-                    correspondence.endpoint_one.authored_field_spelling
-                ),
-            ),
-        )
-    guarantees = cast(tuple[object, ...], inspection.match_guarantees)
-    for guarantee in inspection.match_guarantees:
-        _record(
-            records,
-            ProjectPhase62RecordKind.MATCH_GUARANTEE,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.MATCH_GUARANTEE,
-                        guarantees,
-                        guarantee,
-                        "match guarantee",
-                    )
-                ),
-            ),
-            (
-                "direction",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONSHIP_DIRECTION,
-                        directions,
-                        guarantee,
-                        "relationship direction",
-                    )
-                ),
-            ),
-            (
-                "source_output",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONAL_OUTPUT,
-                        relational,
-                        guarantee.source_output,
-                        "relational output",
-                    )
-                ),
-            ),
-            (
-                "target_output",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONAL_OUTPUT,
-                        relational,
-                        guarantee.target_output,
-                        "relational output",
-                    )
-                ),
-            ),
-            ("minimum", project_phase62_pure_enumeration(guarantee.minimum.value)),
-            ("maximum", project_phase62_pure_enumeration(guarantee.maximum.value)),
-        )
-
-
 def _relational_records(
     inspection: ProjectPhase62Inspection,
     records: list[ProjectPhase62PureRecord],
 ) -> None:
-    relational = (
-        *inspection.base_relational_outputs,
-        *inspection.join_relational_outputs,
-    )
+    relational = inspection.base_relational_outputs
     relational_objects = cast(tuple[object, ...], relational)
     fields = cast(tuple[object, ...], inspection.relational_fields)
     classes = cast(tuple[object, ...], inspection.value_classes)
@@ -1424,17 +810,7 @@ def _relational_records(
                 "runtime_output",
                 project_phase62_pure_ref(_runtime_ref(output.output.occurrence.ref)),
             ),
-            (
-                "kind",
-                project_phase62_pure_enumeration(
-                    "base"
-                    if any(
-                        output is retained
-                        for retained in inspection.base_relational_outputs
-                    )
-                    else "join"
-                ),
-            ),
+            ("kind", project_phase62_pure_enumeration("base")),
             (
                 "fields",
                 project_phase62_pure_refs(
@@ -1853,26 +1229,10 @@ def _join_records(
     inspection: ProjectPhase62Inspection,
     records: list[ProjectPhase62PureRecord],
 ) -> None:
-    regions = inspection.root.join_regions.regions
+    regions = inspection.non_concrete_join_regions
     region_objects = cast(tuple[object, ...], regions)
-    joins = cast(tuple[object, ...], inspection.binary_joins)
     join_uses = cast(tuple[object, ...], inspection.join_uses)
-    relational = cast(
-        tuple[object, ...],
-        (*inspection.base_relational_outputs, *inspection.join_relational_outputs),
-    )
-    matches = cast(tuple[object, ...], inspection.match_field_pairs)
-    joined_fields = cast(tuple[object, ...], inspection.joined_fields)
     for region in regions:
-        if type(region) is ProjectIRConcreteJoinRegion:
-            region_state = "concrete"
-            region_joins = region.joins
-            blockers: tuple[ProjectNonConcreteJoinUse, ...] = ()
-        else:
-            non_concrete = cast(ProjectIRNonConcreteJoinRegion, region)
-            region_state = non_concrete.state.value
-            region_joins = ()
-            blockers = non_concrete.blockers
         _record(
             records,
             ProjectPhase62RecordKind.JOIN_REGION,
@@ -1889,22 +1249,9 @@ def _join_records(
             ),
             (
                 "state",
-                project_phase62_pure_enumeration(region_state),
+                project_phase62_pure_enumeration(region.state.value),
             ),
-            (
-                "joins",
-                project_phase62_pure_refs(
-                    tuple(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.BINARY_JOIN,
-                            joins,
-                            join,
-                            "binary JOIN",
-                        )
-                        for join in region_joins
-                    )
-                ),
-            ),
+            ("joins", project_phase62_pure_refs(())),
             (
                 "blockers",
                 project_phase62_pure_refs(
@@ -1915,311 +1262,8 @@ def _join_records(
                             blocker,
                             "JOIN-use blocker",
                         )
-                        for blocker in blockers
+                        for blocker in region.blockers
                     )
-                ),
-            ),
-        )
-    for join in inspection.binary_joins:
-        region = next(
-            item
-            for item in inspection.concrete_join_regions
-            if any(join is retained for retained in item.joins)
-        )
-        output = next(
-            item
-            for item in inspection.join_relational_outputs
-            if item.output is join.output
-        )
-        left = next(
-            item
-            for item in (
-                *inspection.base_relational_outputs,
-                *inspection.join_relational_outputs,
-            )
-            if item is join.left_input
-        )
-        right = next(
-            item
-            for item in (
-                *inspection.base_relational_outputs,
-                *inspection.join_relational_outputs,
-            )
-            if item is join.right_input
-        )
-        properties = next(
-            item for item in inspection.join_output_properties if item.join is join
-        )
-        if type(properties.null_extension) is ProjectIRProvidedNullExtension:
-            null_property = "provided"
-        elif type(properties.null_extension) is ProjectIRJoinUnavailableProperty:
-            null_property = properties.null_extension.availability.value
-        else:
-            raise TypeError("JOIN nulling property must be one closed runtime type.")
-        _record(
-            records,
-            ProjectPhase62RecordKind.BINARY_JOIN,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.BINARY_JOIN,
-                        joins,
-                        join,
-                        "binary JOIN",
-                    )
-                ),
-            ),
-            (
-                "region",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.JOIN_REGION,
-                        region_objects,
-                        region,
-                        "JOIN region",
-                    )
-                ),
-            ),
-            (
-                "join_use",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.JOIN_USE,
-                        join_uses,
-                        join.use,
-                        "JOIN use",
-                    )
-                ),
-            ),
-            (
-                "path_position",
-                project_phase62_pure_integer(join.identity.path_step_position),
-            ),
-            ("node", project_phase62_pure_ref(_runtime_ref(join.node.ref))),
-            (
-                "left_output",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONAL_OUTPUT,
-                        relational,
-                        left,
-                        "left relational output",
-                    )
-                ),
-            ),
-            (
-                "right_output",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONAL_OUTPUT,
-                        relational,
-                        right,
-                        "right relational output",
-                    )
-                ),
-            ),
-            (
-                "slots",
-                project_phase62_pure_refs(
-                    tuple(_runtime_ref(item.ref) for item in join.input_slots)
-                ),
-            ),
-            (
-                "uses",
-                project_phase62_pure_refs(
-                    tuple(_runtime_ref(item.ref) for item in join.input_uses)
-                ),
-            ),
-            (
-                "output",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.RELATIONAL_OUTPUT,
-                        relational,
-                        output,
-                        "JOIN relational output",
-                    )
-                ),
-            ),
-            (
-                "matches",
-                project_phase62_pure_refs(
-                    tuple(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.JOIN_MATCH,
-                            matches,
-                            item,
-                            "JOIN match",
-                        )
-                        for item in join.matches
-                    )
-                ),
-            ),
-            ("kind", project_phase62_pure_enumeration(join.kind.value)),
-            ("fanout", project_phase62_pure_enumeration(join.fanout.value)),
-            ("survival", project_phase62_pure_enumeration(join.survival.value)),
-            (
-                "null_extension",
-                project_phase62_pure_enumeration(join.null_extension.value),
-            ),
-            (
-                "barrier",
-                project_phase62_pure_enumeration(join.outer_join_barrier.value),
-            ),
-            ("null_property", project_phase62_pure_enumeration(null_property)),
-        )
-    correspondence_objects = cast(tuple[object, ...], inspection.correspondences)
-    for join in inspection.binary_joins:
-        for position, item in enumerate(join.matches):
-            _record(
-                records,
-                ProjectPhase62RecordKind.JOIN_MATCH,
-                (
-                    "ref",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.JOIN_MATCH,
-                            matches,
-                            item,
-                            "JOIN match",
-                        )
-                    ),
-                ),
-                (
-                    "binary_join",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.BINARY_JOIN,
-                            joins,
-                            join,
-                            "binary JOIN",
-                        )
-                    ),
-                ),
-                ("position", project_phase62_pure_integer(position)),
-                (
-                    "correspondence",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.CORRESPONDENCE,
-                            correspondence_objects,
-                            item.correspondence,
-                            "relationship correspondence",
-                        )
-                    ),
-                ),
-                (
-                    "left",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.JOINED_FIELD,
-                            joined_fields,
-                            item.left,
-                            "joined field",
-                        )
-                    ),
-                ),
-                (
-                    "right",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.JOINED_FIELD,
-                            joined_fields,
-                            item.right,
-                            "joined field",
-                        )
-                    ),
-                ),
-            )
-    for join in inspection.binary_joins:
-        output = next(
-            item
-            for item in inspection.join_relational_outputs
-            if item.output is join.output
-        )
-        for item in join.output.row_shape.fields:
-            _record(
-                records,
-                ProjectPhase62RecordKind.JOINED_FIELD,
-                (
-                    "ref",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.JOINED_FIELD,
-                            joined_fields,
-                            item,
-                            "joined field",
-                        )
-                    ),
-                ),
-                (
-                    "binary_join",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.BINARY_JOIN,
-                            joins,
-                            join,
-                            "binary JOIN",
-                        )
-                    ),
-                ),
-                (
-                    "output",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.RELATIONAL_OUTPUT,
-                            relational,
-                            output,
-                            "JOIN relational output",
-                        )
-                    ),
-                ),
-                ("position", project_phase62_pure_integer(item.field_position)),
-                (
-                    "introduction_use",
-                    project_phase62_pure_ref(_runtime_ref(item.introduction_use.ref)),
-                ),
-                (
-                    "nulling",
-                    project_phase62_pure_refs(
-                        tuple(_runtime_ref(ref) for ref in item.nulling_joins)
-                    ),
-                ),
-                (
-                    "nullability",
-                    project_phase62_pure_enumeration(item.effective_nullability.value),
-                ),
-                ("name", project_phase62_pure_text(item.evidence.name)),
-            )
-    nulling = cast(tuple[object, ...], inspection.nulling_provenance)
-    for entry in inspection.nulling_provenance:
-        _record(
-            records,
-            ProjectPhase62RecordKind.NULLING,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.NULLING,
-                        nulling,
-                        entry,
-                        "nulling entry",
-                    )
-                ),
-            ),
-            (
-                "output",
-                project_phase62_pure_ref(_runtime_ref(entry.coordinate.output)),
-            ),
-            (
-                "field_position",
-                project_phase62_pure_integer(entry.coordinate.field_position),
-            ),
-            (
-                "joins",
-                project_phase62_pure_refs(
-                    tuple(_runtime_ref(ref) for ref in entry.nulling_joins)
                 ),
             ),
         )
@@ -2230,36 +1274,22 @@ def _candidate_entries(
 ) -> tuple[
     tuple[
         ProjectActualGrainCandidate,
-        ProjectIRConcreteJoinRegion | None,
-        ProjectMultiFactAlignment | None,
+        ProjectMultiFactAlignment,
         ProjectIRProvidedIntrinsicGrain,
     ],
     ...,
 ]:
-    entries = (
-        *(
-            (
-                candidate,
-                None,
-                alignment,
-                cast(
-                    ProjectIRProvidedIntrinsicGrain,
-                    alignment.left.contextual_grain.authority,
-                ),
-            )
-            for alignment in inspection.root.home_alignments
-            for candidate in alignment.common_grain.actual_candidates
-        ),
-        *(
-            (
-                candidate,
-                region.region,
-                None,
-                region.final_properties.relational.grain,
-            )
-            for region in inspection.concrete_multifact_regions
-            for candidate in region.actual_candidates
-        ),
+    entries = tuple(
+        (
+            candidate,
+            alignment,
+            cast(
+                ProjectIRProvidedIntrinsicGrain,
+                alignment.left.contextual_grain.authority,
+            ),
+        )
+        for alignment in inspection.root.home_alignments
+        for candidate in alignment.common_grain.actual_candidates
     )
     if not _same_objects(
         tuple(item[0] for item in entries),
@@ -2273,8 +1303,7 @@ def _candidate_ref(
     entries: tuple[
         tuple[
             ProjectActualGrainCandidate,
-            ProjectIRConcreteJoinRegion | None,
-            ProjectMultiFactAlignment | None,
+            ProjectMultiFactAlignment,
             ProjectIRProvidedIntrinsicGrain,
         ],
         ...,
@@ -2283,7 +1312,7 @@ def _candidate_ref(
 ) -> ProjectPhase62PortableRef:
     matches = tuple(
         position
-        for position, (item, _region, _alignment, _grain) in enumerate(entries)
+        for position, (item, _alignment, _grain) in enumerate(entries)
         if item is candidate
     )
     if len(matches) != 1:
@@ -2297,12 +1326,8 @@ def _multifact_records(
 ) -> None:
     facts = cast(tuple[object, ...], inspection.aggregate_facts)
     localities = cast(tuple[object, ...], inspection.fact_localities)
-    regions = cast(tuple[object, ...], inspection.root.join_regions.regions)
-    joins = cast(tuple[object, ...], inspection.binary_joins)
-    exposures = cast(tuple[object, ...], inspection.multiplicity_exposures)
     alignments = cast(tuple[object, ...], inspection.alignments)
     common_results = cast(tuple[object, ...], inspection.common_grain_results)
-    chasms = cast(tuple[object, ...], inspection.chasms)
     for fact in inspection.aggregate_facts:
         _record(
             records,
@@ -2336,25 +1361,11 @@ def _multifact_records(
                 project_phase62_pure_text(fact.aggregate_result.output_name),
             ),
         )
+    # Every fact locality is a home locality, with no JOIN multiplicity.
     for locality in inspection.fact_localities:
-        is_home = type(locality) is ProjectAggregateFactHomeLocality
         grain = cast(
             ProjectIRProvidedIntrinsicGrain, locality.contextual_grain.authority
         )
-        if is_home:
-            region_ref = None
-            introduction_ref = None
-            locality_exposures: tuple[ProjectFactMultiplicityExposure, ...] = ()
-        else:
-            join_locality = cast(ProjectAggregateFactJoinLocality, locality)
-            region_ref = _section_ref(
-                ProjectPhase62PortableRefDomain.JOIN_REGION,
-                regions,
-                join_locality.region,
-                "JOIN region",
-            )
-            introduction_ref = _runtime_ref(join_locality.introduction_use.ref)
-            locality_exposures = join_locality.multiplicity_exposures
         _record(
             records,
             ProjectPhase62RecordKind.FACT_LOCALITY,
@@ -2380,12 +1391,9 @@ def _multifact_records(
                     )
                 ),
             ),
-            (
-                "kind",
-                project_phase62_pure_enumeration("home" if is_home else "join"),
-            ),
-            ("introduction_use", _optional_ref(introduction_ref)),
-            ("region", _optional_ref(region_ref)),
+            ("kind", project_phase62_pure_enumeration("home")),
+            ("introduction_use", PROJECT_PHASE62_PURE_ABSENT),
+            ("region", PROJECT_PHASE62_PURE_ABSENT),
             (
                 "factors",
                 project_phase62_pure_refs(
@@ -2395,68 +1403,10 @@ def _multifact_records(
                     )
                 ),
             ),
-            (
-                "exposures",
-                project_phase62_pure_refs(
-                    tuple(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.MULTIPLICITY_EXPOSURE,
-                            exposures,
-                            exposure,
-                            "multiplicity exposure",
-                        )
-                        for exposure in locality_exposures
-                    )
-                ),
-            ),
+            ("exposures", project_phase62_pure_refs(())),
         )
-    for locality in inspection.join_localities:
-        grain = locality.final_region_properties.relational.grain
-        locality_ref = _section_ref(
-            ProjectPhase62PortableRefDomain.FACT_LOCALITY,
-            localities,
-            locality,
-            "fact locality",
-        )
-        for exposure in locality.multiplicity_exposures:
-            _record(
-                records,
-                ProjectPhase62RecordKind.MULTIPLICITY_EXPOSURE,
-                (
-                    "ref",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.MULTIPLICITY_EXPOSURE,
-                            exposures,
-                            exposure,
-                            "multiplicity exposure",
-                        )
-                    ),
-                ),
-                ("locality", project_phase62_pure_ref(locality_ref)),
-                (
-                    "join",
-                    project_phase62_pure_ref(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.BINARY_JOIN,
-                            joins,
-                            exposure.join,
-                            "binary JOIN",
-                        )
-                    ),
-                ),
-                (
-                    "factors",
-                    project_phase62_pure_refs(
-                        tuple(
-                            _grain_factor_ref(inspection, grain, identity)
-                            for identity in exposure.factor_additions
-                        )
-                    ),
-                ),
-            )
     entries = _candidate_entries(inspection)
-    for position, (candidate, region, home_alignment, grain) in enumerate(entries):
+    for position, (candidate, home_alignment, grain) in enumerate(entries):
         _record(
             records,
             ProjectPhase62RecordKind.ACTUAL_GRAIN_CANDIDATE,
@@ -2469,25 +1419,11 @@ def _multifact_records(
                     )
                 ),
             ),
-            (
-                "region",
-                _optional_ref(
-                    None
-                    if region is None
-                    else _section_ref(
-                        ProjectPhase62PortableRefDomain.JOIN_REGION,
-                        regions,
-                        region,
-                        "JOIN region",
-                    )
-                ),
-            ),
+            ("region", PROJECT_PHASE62_PURE_ABSENT),
             (
                 "home_alignment",
-                _optional_ref(
-                    None
-                    if home_alignment is None
-                    else _section_ref(
+                project_phase62_pure_ref(
+                    _section_ref(
                         ProjectPhase62PortableRefDomain.ALIGNMENT,
                         alignments,
                         home_alignment,
@@ -2620,75 +1556,11 @@ def _multifact_records(
                     )
                 ),
             ),
-            (
-                "chasms",
-                project_phase62_pure_refs(
-                    tuple(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.CHASM,
-                            chasms,
-                            item,
-                            "chasm",
-                        )
-                        for item in alignment.chasms
-                    )
-                ),
-            ),
+            ("chasms", project_phase62_pure_refs(())),
         )
-    for chasm in inspection.chasms:
-        _record(
-            records,
-            ProjectPhase62RecordKind.CHASM,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.CHASM,
-                        chasms,
-                        chasm,
-                        "chasm",
-                    )
-                ),
-            ),
-            (
-                "common",
-                project_phase62_pure_ref(_candidate_ref(entries, chasm.common_grain)),
-            ),
-            (
-                "participants",
-                project_phase62_pure_refs(
-                    tuple(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.FACT_LOCALITY,
-                            localities,
-                            item,
-                            "chasm locality",
-                        )
-                        for item in chasm.localities
-                    )
-                ),
-            ),
-            (
-                "joins",
-                project_phase62_pure_refs(
-                    tuple(
-                        _section_ref(
-                            ProjectPhase62PortableRefDomain.BINARY_JOIN,
-                            joins,
-                            item,
-                            "chasm introduction JOIN",
-                        )
-                        for item in chasm.introduction_joins
-                    )
-                ),
-            ),
-        )
-    non_concrete_uses = tuple(
-        item for item in inspection.join_uses if type(item) is ProjectNonConcreteJoinUse
-    )
     position = 0
     join_uses = cast(tuple[object, ...], inspection.join_uses)
-    for use in non_concrete_uses:
+    for use in inspection.join_uses:
         _record(
             records,
             ProjectPhase62RecordKind.NON_CONCRETE,
@@ -2856,30 +1728,6 @@ def _analysis_records(
             ("node", project_phase62_pure_ref(_runtime_ref(node.ref))),
         )
         position += 1
-    nulling = cast(tuple[object, ...], inspection.nulling_provenance)
-    for entry in inspection.nulling_provenance:
-        _record(
-            records,
-            ProjectPhase62RecordKind.ANALYSIS_NULLING,
-            (
-                "ref",
-                project_phase62_pure_ref(
-                    _ref(ProjectPhase62PortableRefDomain.ANALYSIS_ENTRY, position)
-                ),
-            ),
-            (
-                "nulling",
-                project_phase62_pure_ref(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.NULLING,
-                        nulling,
-                        entry,
-                        "nulling analysis entry",
-                    )
-                ),
-            ),
-        )
-        position += 1
     facts = cast(tuple[object, ...], inspection.aggregate_facts)
     localities = cast(tuple[object, ...], inspection.fact_localities)
     for entry in inspection.fact_locality_index:
@@ -2920,7 +1768,6 @@ def _analysis_records(
         )
         position += 1
     alignments = cast(tuple[object, ...], inspection.alignments)
-    chasms = cast(tuple[object, ...], inspection.chasms)
     _record(
         records,
         ProjectPhase62RecordKind.ANALYSIS_ALIGNMENT,
@@ -2944,20 +1791,7 @@ def _analysis_records(
                 )
             ),
         ),
-        (
-            "chasms",
-            project_phase62_pure_refs(
-                tuple(
-                    _section_ref(
-                        ProjectPhase62PortableRefDomain.CHASM,
-                        chasms,
-                        item,
-                        "chasm",
-                    )
-                    for item in inspection.multifact_alignment_index.chasms
-                )
-            ),
-        ),
+        ("chasms", project_phase62_pure_refs(())),
     )
 
 
@@ -2981,7 +1815,6 @@ def _project_phase62_document(
         ),
     )
     _project_topology(inspection, records)
-    _relationship_records(inspection, records)
     _traversal_records(inspection, records)
     _relational_records(inspection, records)
     _join_records(inspection, records)

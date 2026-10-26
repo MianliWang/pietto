@@ -200,6 +200,65 @@ query result:
     assert nullability(doc) == [("a", True), ("b", False)]
 
 
+_UNMATCHED_HEADER = """shape Row:
+    id: Int
+    key: Int | None
+    row_key = unique(id)
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
+relationship link(l: Row, r: Row):
+    l.key == r.id
+query result:
+    from lhs
+    let c = rhs
+    right join c on link(lhs, c)
+    let r = rhs
+    {join}
+{where}    group by lhs.id
+    select:
+        lid = lhs.id
+        n = count(r.id)
+"""
+
+
+@pytest.mark.parametrize("target", ("postgres",))
+@pytest.mark.parametrize(
+    ("join", "where", "status"),
+    (
+        ("cross join r", "", "BLOCKED"),
+        ("cross join r", "r.id is None", "VERIFIED"),
+        ("cross join r", "lhs.id is not None or r.id is None", "VERIFIED"),
+        ("cross join r", "c.id > 5 and c.id < 3", "VERIFIED"),
+        ("inner join r on lhs.id == r.id or r.id is None", "", "VERIFIED"),
+        ("cross join r", "c.id == 3", "VERIFIED"),
+        ("cross join r", "c.id is not None", "BLOCKED"),
+        ("cross join r", "c.key == 3", "BLOCKED"),
+    ),
+)
+def test_a_value_that_excludes_unmatched_rows_emits_the_aggregate(
+    tmp_path, target, join, where, status
+):
+    """D-11: an aggregate over a RIGHT JOIN's preserved rows emits VERIFIED
+    SQL when that SQL never reads a row that matches no left row twice in a
+    group: a never-None field tested `is None`, a vacuous `or` test or
+    contradictory bounds (0.1.4 emitted these VERIFIED too), or a key of the
+    preserved input held to one value, which leaves one such row. Without
+    such a proof the CROSS JOIN repeats those rows in the NULL group and the
+    relation stays BLOCKED."""
+
+    source = _UNMATCHED_HEADER.format(
+        target=target, join=join, where=f"    where {where}\n" if where else ""
+    )
+    item = probe.join_witness(target, {"main.pietto": source})
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    doc = public(outcome)
+    assert doc["status"] == status
+    if status == "VERIFIED":
+        assert " RIGHT JOIN " in doc["sql"] and "COUNT(" in doc["sql"]
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_declared_source_field_keeps_its_own_domain(tmp_path, target):
     """An outer JOIN never rewrites a source declaration to accept itself."""

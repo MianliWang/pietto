@@ -259,7 +259,7 @@ def test_modern_source_refuses_old_binding_before_ast_normalization() -> None:
 
 def test_modern_spelling_checks_do_not_rewrite_string_contents() -> None:
     result = parse_source(
-        'source records = connector("null true nullable is") # false\n'
+        'source records = connector("value == null or value != null true nullable is") # false\n'
     )
     assert result.diagnostics == ()
     assert result.ast is not None
@@ -350,6 +350,48 @@ def test_modern_rewrite_diagnostics_keep_all_original_occurrences() -> None:
         "This spelling is not accepted by the modern syntax. Use True.",
         "This spelling is not accepted by the modern syntax. Use False.",
     ]
+
+
+@pytest.mark.parametrize(
+    ("operator", "suggestion"),
+    [
+        ("==", "Write 'is None'."),
+        ("!=", "Write 'is not None'."),
+    ],
+)
+def test_modern_null_equality_reports_the_matching_null_test_rewrite(
+    operator: str, suggestion: str
+) -> None:
+    result = parse_source(f"type T = Bool ensure value {operator} null\n")
+
+    assert result.ast is None
+    assert [
+        (item.code, item.location.column, item.suggestion)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", 31, suggestion)]
+
+
+def test_modern_none_null_test_is_already_valid() -> None:
+    result = parse_source("type T = Bool ensure value is None\n")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "type T = Bool ensure value == null + 1\n",
+        "type T = Bool ensure value == other == null\n",
+    ],
+)
+def test_modern_null_outside_a_single_complete_equality_operand_keeps_literal_hint(
+    source: str,
+) -> None:
+    result = parse_source(source)
+
+    assert result.ast is None
+    assert [item.suggestion for item in result.diagnostics] == ["Use None."]
 
 
 def test_modern_any_and_for_remain_contextual_identifiers_and_scalar_calls() -> None:

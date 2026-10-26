@@ -519,6 +519,34 @@ def test_a_join_binding_and_its_fields_are_collisions(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "body",
+    (
+        "query q(r: Int):\n    let r = rows\n    from r\n    select:\n        a = r.id\n",
+        "query q(r: Int):\n    let a:\n        let r = rows\n        from r\n"
+        "        select:\n            id = r.id\n    from a\n    select:\n        id\n",
+        "query q(r: Int):\n    let r = rows\n    from rows\n    select:\n        id\n",
+    ),
+    ids=("body", "relation_let", "unused_relation_alias"),
+)
+def test_a_from_alias_is_a_collision(tmp_path: Path, body: str) -> None:
+    # `let r = rows` then `from r` names the FROM input r, as a JOIN binding does.
+    assert _check(_project(tmp_path, body)) == (1, [(COLLISION, 1, 9)])
+
+
+def test_a_scalar_header_collision_keeps_later_semantic_diagnostics(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "query q(p: Int):\n    from rows\n    let p = 1\n"
+        "    where missing > 0\n    select:\n        id\n"
+    )
+    assert _check(_project(tmp_path, body)) == (
+        1,
+        [("PIE-S2102", 4, 11), (COLLISION, 1, 9)],
+    )
+
+
 def test_a_parameterized_query_is_never_a_relation_input(tmp_path: Path) -> None:
     body = (
         "query q(cutoff: Int):\n"

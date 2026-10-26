@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pietto.ir.model import (
     AggregateCallIR,
+    AggregateWindowCallIR,
+    aggregate_call_contract,
     AnyFieldIR,
     ExistsIR,
     BetweenIR,
@@ -176,6 +178,8 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         return quote_identifier(expression.name, context="column identifier")
     if isinstance(expression, AggregateCallIR):
         return _render_aggregate_call(expression)
+    if isinstance(expression, AggregateWindowCallIR):
+        raise MySqlRenderError("MySQL aggregate windows are not supported")
     if isinstance(expression, WindowCallIR):
         if nested:
             raise MySqlRenderError(
@@ -203,16 +207,24 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         )
         sql = f"{value_sql} {operator} ({options})"
     elif isinstance(expression, CastIR):
-        if not (
+        if (
             expression.value.value_type.canonical_kind is TypeKindIR.BUILTIN
             and expression.value.value_type.canonical_name == "Int"
             and expression.target.canonical_kind is TypeKindIR.BUILTIN
             and expression.target.canonical_name == "Float"
         ):
-            raise MySqlRenderError("MySQL supports only explicit Int to Float casts")
-        sql = (
-            f"CAST({_render_mysql_expression(expression.value, nested=True)} AS DOUBLE)"
-        )
+            sql = f"CAST({_render_mysql_expression(expression.value, nested=True)} AS DOUBLE)"
+        elif (
+            expression.value.value_type.canonical_kind is TypeKindIR.BUILTIN
+            and expression.value.value_type.canonical_name == "Int"
+            and expression.target.canonical_kind is TypeKindIR.BUILTIN
+            and expression.target.canonical_name == "Text"
+        ):
+            sql = f"CAST({_render_mysql_expression(expression.value, nested=True)} AS CHAR)"
+        else:
+            raise MySqlRenderError(
+                "MySQL supports only explicit Int to Float or Text casts"
+            )
     elif isinstance(expression, ComparisonIR):
         operator = _supported_operator(
             _COMPARISON_OPERATORS,
@@ -487,19 +499,31 @@ def _render_mysql_window_order_item(item: WindowOrderItemIR) -> str:
 
 
 def _render_aggregate_call(expression: AggregateCallIR) -> str:
+    if expression.function == "string_agg":
+        raise MySqlRenderError("MySQL aggregate string_agg is not supported")
     if expression.function == "count":
-        return _render_count_aggregate(expression)
-    if expression.function == "count_distinct":
-        return _render_count_distinct_aggregate(expression)
-    function_name = _EXTREMA_AGGREGATE_NAMES.get(expression.function)
-    if function_name is not None:
-        return _render_extrema_aggregate(expression, function_name=function_name)
-    function_name = _NUMERIC_AGGREGATE_NAMES.get(expression.function)
-    if function_name is None:
-        raise MySqlRenderError(
-            f"Unsupported MySQL aggregate call: {expression.function}"
-        )
-    return _render_numeric_aggregate(expression, function_name=function_name)
+        sql = _render_count_aggregate(expression)
+    elif expression.function == "count_distinct":
+        sql = _render_count_distinct_aggregate(expression)
+    elif (
+        function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
+    ) is not None:
+        sql = _render_extrema_aggregate(expression, function_name=function_name)
+    else:
+        function_name = _NUMERIC_AGGREGATE_NAMES.get(expression.function)
+        if function_name is None:
+            raise MySqlRenderError(
+                f"Unsupported MySQL aggregate call: {expression.function}"
+            )
+        sql = _render_numeric_aggregate(expression, function_name=function_name)
+    if not aggregate_call_contract(
+        expression.function,
+        expression.arguments,
+        expression.value_type,
+        order_by=expression.order_by,
+    ):
+        raise MySqlRenderError("MySQL aggregate call violates its IR contract")
+    return sql
 
 
 def _render_count_aggregate(expression: AggregateCallIR) -> str:
@@ -814,6 +838,10 @@ def _render_call(expression: CallIR) -> str:
             )
             + ")"
         )
+    if expression.callee == "round":
+        return _render_round_call(expression)
+    if expression.callee == "date_trunc":
+        raise MySqlRenderError("MySQL function date_trunc is not supported")
     if expression.callee not in _FUNCTION_ARITIES:
         raise MySqlRenderError(f"Unsupported MySQL function call: {expression.callee}")
     expected_arity = _FUNCTION_ARITIES[expression.callee]
@@ -842,6 +870,54 @@ def _render_call(expression: CallIR) -> str:
     if expression.callee in _DATE_PARTS:
         return f"{expression.callee.upper()}({arguments[0]})"
     return f"{_FUNCTION_NAMES[expression.callee]}({arguments[0]})"
+
+
+def _render_round_call(expression: CallIR) -> str:
+    if len(expression.arguments) not in {1, 2}:
+        raise MySqlRenderError("MySQL function round expects 1 or 2 argument(s)")
+    value = expression.arguments[0]
+    if _builtin_type_name(value) != "Decimal" or not _same_value_type(
+        expression, value
+    ):
+        raise MySqlRenderError("MySQL supports round only for Decimal")
+    if len(expression.arguments) == 1:
+        return f"ROUND({_render_mysql_expression(value, nested=True)})"
+    scale = expression.arguments[1]
+    if not _approved_round_scale(scale):
+        raise MySqlRenderError(
+            "MySQL function round scale must be an Int literal from -30 to 30"
+        )
+    return (
+        f"ROUND({_render_mysql_expression(value, nested=True)}, "
+        f"{_render_mysql_expression(scale, nested=True)})"
+    )
+
+
+def _approved_round_scale(expression: ExpressionIR) -> bool:
+    if (
+        type(expression) is LiteralIR
+        and type(expression.value) is int
+        and _builtin_type_name(expression) == "Int"
+    ):
+        return -30 <= expression.value <= 30
+    return (
+        type(expression) is UnaryIR
+        and expression.operator == "-"
+        and _builtin_type_name(expression) == "Int"
+        and type(expression.operand) is LiteralIR
+        and type(expression.operand.value) is int
+        and _builtin_type_name(expression.operand) == "Int"
+        and 0 <= expression.operand.value <= 30
+    )
+
+
+def _same_value_type(left: ExpressionIR, right: ExpressionIR) -> bool:
+    return (
+        left.value_type.canonical_kind is TypeKindIR.BUILTIN
+        and right.value_type.canonical_kind is TypeKindIR.BUILTIN
+        and left.value_type.canonical_name == right.value_type.canonical_name
+        and left.value_type.nullability is right.value_type.nullability
+    )
 
 
 def _supported_operator(

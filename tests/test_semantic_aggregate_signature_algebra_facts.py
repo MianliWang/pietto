@@ -249,6 +249,14 @@ def _expected_signature_rows() -> tuple[
     for subject in ("min", "max"):
         for argument in ("Int", "Float", "Decimal", "Date", "Timestamp"):
             add(subject, "1", "direct_field", argument, argument, "nullable")
+    add(
+        "string_agg",
+        "2",
+        "two_text_arguments_with_internal_order",
+        "Text",
+        "Text",
+        "nullable",
+    )
     return tuple(rows)
 
 
@@ -341,13 +349,6 @@ def _expected_algebra_rows() -> tuple[
         ),
         (
             "SEMANTIC_AGGREGATE_NAMES",
-            "aggregate_internal_ordering",
-            ("all_current_aggregates", "not_supported"),
-            unsupported,
-            deferred,
-        ),
-        (
-            "SEMANTIC_AGGREGATE_NAMES",
             "generic_aggregate_modifier",
             ("all_current_aggregates", "not_supported"),
             unsupported,
@@ -418,6 +419,7 @@ def test_freezer_and_combined_fact_order_are_exact() -> None:
         ("avg", 8, 8),
         ("min", 5, 5),
         ("max", 5, 5),
+        ("string_agg", 1, 1),
     ),
 )
 def test_signature_family_counts_are_exact(
@@ -436,8 +438,8 @@ def test_signature_family_counts_are_exact(
 def test_signature_inventory_order_keys_support_and_disposition_are_exact() -> None:
     facts = _facts("_AGGREGATE_SIGNATURE_FACTS")
     expected = _expected_signature_rows()
-    assert len(facts) == len(expected) == 53
-    assert len({fact.key for fact in facts}) == 52
+    assert len(facts) == len(expected) == 54
+    assert len({fact.key for fact in facts}) == 53
     assert (
         tuple((fact.key.subject, fact.key.operands, fact.support) for fact in facts)
         == expected
@@ -470,6 +472,7 @@ def test_signature_key_schema_and_completeness_are_exact() -> None:
         "direct_field",
         "field_bearing_expression",
         "lower_trim_text_transform_chain",
+        "two_text_arguments_with_internal_order",
         "field_only_numeric_expression",
         "field_and_literal_numeric_expression",
     }
@@ -490,6 +493,13 @@ def test_signature_key_schema_and_completeness_are_exact() -> None:
         ("count", "field_bearing_expression", "Text", "Int", "non_null"),
         ("count", "direct_field", "Shape", "Int", "non_null"),
         ("count_distinct", "direct_field", "UUID", "Int", "non_null"),
+        (
+            "string_agg",
+            "two_text_arguments_with_internal_order",
+            "Text",
+            "Text",
+            "nullable",
+        ),
         (
             "count_distinct",
             "lower_trim_text_transform_chain",
@@ -901,7 +911,7 @@ def test_algebra_inventory_order_keys_support_and_disposition_are_exact() -> Non
             "not_supported",
         )
     )
-    assert len(facts) == len({fact.key for fact in facts}) == len(expected) == 16
+    assert len(facts) == len({fact.key for fact in facts}) == len(expected) == 15
     assert (
         cast(
             frozenset[str],
@@ -942,7 +952,7 @@ def test_algebra_inventory_order_keys_support_and_disposition_are_exact() -> Non
         assert fact.key.context == "aggregate_algebra"
         assert fact.key.dialect is None
         assert fact.key.extension is None
-        if 10 <= index <= 13:
+        if 10 <= index <= 12:
             assert fact.disposition.owner == "POST60_ADVANCED_AGGREGATION_GROUPING"
             assert fact.disposition.reason
         else:
@@ -965,14 +975,14 @@ def test_supported_algebra_fact_is_exact(index: int) -> None:
 
 @pytest.mark.parametrize(
     "indexes",
-    ((10,), (11,), (12,), (13,), (14, 15)),
+    ((10,), (11,), (12,), (13, 14)),
 )
 def test_rejected_algebra_fact_group_is_exact(indexes: tuple[int, ...]) -> None:
     facts = _facts("_AGGREGATE_ALGEBRA_FACTS")
     for index in indexes:
         fact = facts[index]
         assert fact.support is CapabilitySupport.EXPLICITLY_UNSUPPORTED
-        if index < 14:
+        if index < 13:
             assert fact.disposition.kind is CapabilityDispositionKind.DEFERRED
             assert fact.disposition.owner == "POST60_ADVANCED_AGGREGATION_GROUPING"
         else:
@@ -1033,6 +1043,12 @@ def test_algebra_completeness_absence_and_omission_are_exact() -> None:
             "all_current_aggregates",
             "supported",
         ),
+        _algebra_key(
+            "SEMANTIC_AGGREGATE_NAMES",
+            "aggregate_internal_ordering",
+            "all_current_aggregates",
+            "not_supported",
+        ),
     )
     for key in malformed:
         unknown = _lookup(key)
@@ -1047,7 +1063,6 @@ def test_modifier_window_nested_global_grouped_and_clause_boundaries_are_exact()
     assert tuple(fact.key.operation for fact in algebra[10:]) == (
         "aggregate_filter",
         "inline_distinct_modifier",
-        "aggregate_internal_ordering",
         "generic_aggregate_modifier",
         "nested_aggregate",
         "scalar_wrapping",

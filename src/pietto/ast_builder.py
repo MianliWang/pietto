@@ -2029,6 +2029,7 @@ class AstBuilder(PiettoVisitor):
             dotted_name_ctx,
             call_suffix_ctx,
             call_suffix_ctx.expression(),
+            call_suffix_ctx.orderItem(),
         )
 
     def _call_expr_from_arguments(
@@ -2036,6 +2037,7 @@ class AstBuilder(PiettoVisitor):
         dotted_name_ctx: _AntlrContext,
         call_suffix_ctx: _AntlrContext,
         argument_contexts: list[_AntlrContext],
+        aggregate_order_contexts: list[_AntlrContext] | tuple[()] = (),
     ) -> CallExpr:
         """Build one call from either the global or QUALIFY expression domain."""
 
@@ -2043,6 +2045,10 @@ class AstBuilder(PiettoVisitor):
             span=self._span_between(dotted_name_ctx, call_suffix_ctx),
             callee=self._dotted_name_expr(dotted_name_ctx),
             arguments=tuple(self.visit(argument) for argument in argument_contexts),
+            aggregate_order_by=tuple(
+                self._order_item(item, reject_ordinal=True)
+                for item in aggregate_order_contexts
+            ),
         )
 
     def _dotted_name_expr(self, ctx: _AntlrContext) -> NameExpr | DottedNameExpr:

@@ -22,14 +22,10 @@ from pietto._project.project_ir import (
     ProjectIRRelationAnchor,
 )
 from pietto._project.project_ir_construction import ProjectIRAllocationState
-from pietto._project.project_relationship_paths import ProjectRelationshipPathStep
-from pietto._project.project_relationship_match_guarantees import (
-    ProjectRelationshipMinimumBound,
-)
 from pietto._project.project_relationship_uses import (
-    ProjectJoinUse,
     ProjectJoinUseIdentity,
     ProjectJoinUseState,
+    ProjectNonConcreteJoinUse,
     ProjectRelationBindingOccurrence,
     ProjectRelationJoinUseLedger,
     ProjectRelationshipUseSet,
@@ -119,7 +115,7 @@ class ProjectCurrentInputField:
 type ProjectCurrentSourceField = (
     ProjectIROutputFieldOccurrence | ProjectCurrentInputField
 )
-type ProjectCurrentNullingCause = ProjectRelationshipPathStep | ProjectJoinUseIdentity
+type ProjectCurrentNullingCause = ProjectJoinUseIdentity
 type ProjectCurrentInputRow = tuple[
     ProjectRelationBindingOccurrence,
     ProjectCurrentSourceField,
@@ -414,7 +410,7 @@ class ProjectCurrentJoinInputFailure:
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectCurrentPreMatchInputs:
     scope: ProjectCurrentJoinInputScope = field(repr=False)
-    use: ProjectJoinUse = field(repr=False)
+    use: ProjectNonConcreteJoinUse = field(repr=False)
     prefix: tuple[ProjectJoinCondition, ...] = field(default=(), repr=False)
     rows: tuple[ProjectCurrentInputRow, ...] = field(init=False)
     blocked_bindings: tuple[ProjectRelationBindingOccurrence, ...] = field(init=False)
@@ -467,53 +463,6 @@ class ProjectCurrentPreMatchInputs:
                 break
             target = prior.use.target_binding
             if prior.use.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}:
-                continue
-            if prior.mode in {"M1", "M2"} and prior.effective_use.path is not None:
-                source = prior.effective_use.source_binding
-                source_nulling = () if source is None else nulling.get(id(source), ())
-                for ordinal, step in enumerate(prior.effective_use.path.steps):
-                    guarantee = step.guarantee
-                    right_nulling = (
-                        (*source_nulling, step)
-                        if prior.use.kind is AuthoredJoinKind.LEFT
-                        and (
-                            source_nulling
-                            or guarantee.minimum
-                            is ProjectRelationshipMinimumBound.ZERO_ALLOWED
-                        )
-                        else ()
-                    )
-                    if (
-                        ordinal == 0
-                        and source is not None
-                        and prior.use.kind is AuthoredJoinKind.INNER
-                        and not source_nulling
-                    ):
-                        for group in guarantee.source_matched_classes:
-                            for member in group.members:
-                                nullability[id(source), id(member)] = (
-                                    ProjectRowFieldNullability.NON_NULL
-                                )
-                    if ordinal == len(prior.effective_use.path.steps) - 1:
-                        nulling[id(target)] = right_nulling
-                        for item in inputs:
-                            if item.binding is target:
-                                for member in item.fields:
-                                    if right_nulling:
-                                        nullability[id(target), id(member)] = (
-                                            ProjectRowFieldNullability.NULLABLE
-                                        )
-                                    elif any(
-                                        any(
-                                            member is original
-                                            for original in group.members
-                                        )
-                                        for group in guarantee.target_matched_classes
-                                    ):
-                                        nullability[id(target), id(member)] = (
-                                            ProjectRowFieldNullability.NON_NULL
-                                        )
-                    source_nulling = right_nulling
                 continue
             kind = prior.use.kind
             if kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}:

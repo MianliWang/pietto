@@ -1,3 +1,4 @@
+-- order_completeness_by_status
 SELECT
     `status` AS `status`,
     COUNT(`amount`) AS `known_amounts`,
@@ -5,4 +6,4 @@ SELECT
 FROM `orders` AS `orders`
 WHERE `status` = 'paid'
 GROUP BY
-    `status`
+    `status`;

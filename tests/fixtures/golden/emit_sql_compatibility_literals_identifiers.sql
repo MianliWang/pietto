@@ -1,3 +1,4 @@
+-- LiteralCompatibility
 SELECT
     'O''Reilly' AS "QuotedText",
     E'\\''; --' AS "EscapedText",
@@ -6,4 +7,4 @@ SELECT
     1.5 AS "Ratio",
     "order" AS "ReservedName"
 FROM "Sales"."CompatibilityRows"
-WHERE "email" = E'\\''; --'
+WHERE "email" = E'\\''; --';

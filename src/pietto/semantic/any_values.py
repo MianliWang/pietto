@@ -16,7 +16,11 @@ from pietto import ast_nodes as ast
 from pietto._flat_relational_admission import availability_diagnostic
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
-from pietto.semantic.existence_generators import AnyUseInfo, AnyValueInfo
+from pietto.semantic.existence_generators import (
+    AnyUseInfo,
+    AnyValueInfo,
+    written_read,
+)
 from pietto.semantic.expressions import _UNKNOWN_VALUE_TYPE, infer_row_expression
 from pietto.semantic.joins import JoinStructure, _field_value_type, join_rows
 from pietto.semantic.let_bindings import (
@@ -101,8 +105,12 @@ def check_any_values(
     type_expansions: Mapping[ast.TypeExpr, ResolvedType],
     cyclic_relations: set[Owner] | None = None,
     failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
+    any_binders: Mapping[str, str] | None = None,
 ) -> tuple[dict[ast.AnyExpr, AnyValueSemanticInfo], list[Diagnostic]]:
-    """Validate every occurrence; only completely checked bodies acquire facts."""
+    """Validate every occurrence; only completely checked bodies acquire facts.
+
+    ``any_binders`` (`existence_generators.any_binders`) lets a diagnostic
+    name the binder of an `any` before a later JOIN as written."""
     facts: dict[ast.AnyExpr, AnyValueSemanticInfo] = {}
     diagnostics: list[Diagnostic] = []
     by_identity = {id(use.expression): use for use in uses}
@@ -349,11 +357,7 @@ def check_any_values(
                 if len(candidates) != 1:
                     types[node] = _UNKNOWN_VALUE_TYPE
                     failed = True
-                    spelling = (
-                        node.name
-                        if isinstance(node, ast.NameExpr)
-                        else ".".join(node.parts)
-                    )
+                    spelling = written_read(node, any_binders or {})
                     unavailable = (
                         isinstance(node, ast.DottedNameExpr)
                         and node.parts[0] == expression.binding_name

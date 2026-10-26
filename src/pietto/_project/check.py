@@ -13,7 +13,10 @@ from pietto._syntax_admission import (
     source_order,
     unadmitted_syntax_diagnostics,
 )
-from pietto._project.query_parameters import query_parameter_diagnostics
+from pietto._project.query_parameters import (
+    query_parameter_diagnostics,
+    query_parameter_unbound_naming_diagnostics,
+)
 from pietto._project.relation_captures import capture_diagnostics
 from pietto._project.config import load_project_config
 from pietto._project.module_carrier import (
@@ -182,11 +185,19 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
             for item in raw_parameter_positions:
                 prior_positions.setdefault(item, deque()).append(item)
             admission: list[Diagnostic] = []
-            for source in normalized.parsed_inputs:
+            for source, authored in zip(
+                normalized.parsed_inputs, naming_input.parsed_inputs, strict=True
+            ):
                 admission.extend(
                     _with_project_relative_path(item, source.path)
                     for item in sorted(
                         capture_diagnostics(source.script), key=source_order
+                    )
+                )
+                admission.extend(
+                    _with_project_relative_path(item, source.path)
+                    for item in query_parameter_unbound_naming_diagnostics(
+                        authored.script, source.script
                     )
                 )
                 for item in query_parameter_diagnostics(source.script):

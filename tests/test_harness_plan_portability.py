@@ -290,41 +290,57 @@ def test_supplied_catalog_remains_an_unmapped_residual(tmp_path):
 
 
 def test_filtered_typed_match_keeps_its_complete_original_proof(tmp_path):
+    from typing import cast
+
     from _pietto_plan_joins import _product, _requests
     from _pietto_project_join_full import _unique_source
     from pietto._project.project_join_conditions import (
         ProjectJoinCondition,
+        ProjectJoinConditionEquality,
         ProjectJoinConditionKeyMatch,
     )
 
-    _, _, runtime = _product(
-        tmp_path,
-        _unique_source("left", "Link(lhs, r) and r.key > 0"),
-        _requests,
-    )
-    product = runtime.portable()
-    assert portable.verify_project_sql_plan_portable(
-        product, runtime.verification
-    ).verified
-    (obligation,) = runtime.single_matches
-    assert obligation.assessment.state.value == "proved"
-    (proof,) = obligation.assessment.proofs
-    assert proof.kind.value == "matched_key"
-    condition, match, key, *equalities = proof.roots
-    assert condition is obligation.assessment.condition
-    assert isinstance(condition, ProjectJoinCondition)
-    assert condition.base_guarantee is None
-    assert any(match is candidate for candidate in condition.key_matches)
-    assert isinstance(match, ProjectJoinConditionKeyMatch)
-    assert match.binding is condition.use.target_binding and key is match.key
-    assert len(equalities) == len(match.equalities) and all(
-        left is right for left, right in zip(equalities, match.equalities, strict=True)
-    )
-    originals = dict(product.bindings)
-    (record,) = tuple(
-        record for record in product.document.records if originals[record.ref] is proof
-    )
-    assert record.kind == "project_single_match_proof"
+    # A hand-written ON equality, alone or beside the call, keeps the same proof.
+    for name, predicate in (
+        ("call", "Link(lhs, r) and r.key > 0"),
+        ("handwritten", "lhs.id == r.id and r.key > 0"),
+        ("both", "Link(lhs, r) and lhs.id == r.id"),
+    ):
+        _, _, runtime = _product(
+            tmp_path / name, _unique_source("left", predicate), _requests
+        )
+        product = runtime.portable()
+        assert portable.verify_project_sql_plan_portable(
+            product, runtime.verification
+        ).verified
+        (obligation,) = runtime.single_matches
+        assert obligation.assessment.state.value == "proved"
+        (proof,) = obligation.assessment.proofs
+        assert proof.kind.value == "matched_key"
+        condition, match, key, *equalities = proof.roots
+        assert condition is obligation.assessment.condition
+        assert isinstance(condition, ProjectJoinCondition)
+        assert any(match is candidate for candidate in condition.key_matches)
+        assert isinstance(match, ProjectJoinConditionKeyMatch)
+        assert match.binding is condition.use.target_binding and key is match.key
+        assert len(equalities) == len(match.equalities) and all(
+            left is right
+            for left, right in zip(equalities, match.equalities, strict=True)
+        )
+        assert [
+            bool(cast(ProjectJoinConditionEquality, item).calls) for item in equalities
+        ] == {
+            "call": [True],
+            "handwritten": [False],
+            "both": [True, False],
+        }[name]
+        originals = dict(product.bindings)
+        (record,) = tuple(
+            record
+            for record in product.document.records
+            if originals[record.ref] is proof
+        )
+        assert record.kind == "project_single_match_proof"
 
 
 def test_field_roles_cycles_numeric_tags_and_foreign_bindings_reject(tmp_path):

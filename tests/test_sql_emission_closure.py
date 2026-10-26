@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+import _pietto_results_product as temporal_probe
 import _pietto_sql_emission as probe
 import _pietto_target_conformance_cases as cases
 from pietto._project import project_sql_emission_ast as sql_ast
@@ -29,7 +30,10 @@ from pietto._project import project_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_verification as verification
 from pietto._project import project_sql_emission_windows as windowing
-from pietto._project.project_sql_emission import serialize_project_sql_emission
+from pietto._project.project_sql_emission import (
+    emit_project_sql,
+    serialize_project_sql_emission,
+)
 from pietto._project.project_sql_emission_rendering import render_row_sql
 
 TARGETS = ("postgres", "mysql")
@@ -2119,3 +2123,303 @@ def test_hidden_window_cannot_drop_the_last_statement_use(target):
     ):
         requirement["ordinal"] = ordinal
     assert _decodes(document) is not None
+
+
+def test_ordered_string_agg_pure_boundary_rechecks_every_key_direction(tmp_path):
+    """The private reader retains both authored aggregate ordering keys."""
+
+    item = probe.aggregate_fixture("postgres", "X_aggregate_grouped", "hidden")
+    header = probe.AGGREGATE_HEADER.format(target="postgres")
+    _, outcome = probe.build_case(
+        tmp_path,
+        header
+        + "table result:\n    from agg\n    select:\n"
+        + '        summary = string_agg(label, "//", order by key desc, key desc)\n',
+        item["contract"],
+        item["policy"],
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    assert (
+        probe.decode_public(serialize_project_sql_emission(outcome))["status"]
+        == "VERIFIED"
+    )
+    observation = _observation(outcome.artifact)
+    assert _pure(observation)[0] is pure.Status.OK
+
+    aggregate = next(
+        record
+        for record in observation["records"]
+        if record["ref"][0] == "aggregate_value_column"
+        and record["fields"]["function"] == "string_agg"
+    )
+    orders = aggregate["fields"]["order_by"]
+    assert len(orders) == 2
+
+    wrong_direction = json.loads(json.dumps(observation))
+    for record in wrong_direction["records"]:
+        if record["ref"] == orders[0]:
+            record["fields"]["direction"] = "asc"
+    assert _pure(wrong_direction)[0] is not pure.Status.OK
+
+    missing_key = json.loads(json.dumps(observation))
+    for record in missing_key["records"]:
+        if record["ref"] == aggregate["ref"]:
+            record["fields"]["order_by"] = []
+    assert _pure(missing_key)[0] is not pure.Status.OK
+
+    bad_text = json.loads(json.dumps(observation))
+    records = {tuple(record["ref"]): record["fields"] for record in bad_text["records"]}
+    argument = records[tuple(aggregate["fields"]["argument"])]
+    realization = records[tuple(argument["realization"])]
+    realization["domain"]["collation"] = "default"
+    assert _pure(bad_text)[0] is not pure.Status.OK
+
+    bad_order = json.loads(json.dumps(observation))
+    records = {
+        tuple(record["ref"]): record["fields"] for record in bad_order["records"]
+    }
+    first_order = records[tuple(aggregate["fields"]["order_by"][0])]
+    order_value = records[tuple(first_order["value"])]
+    realization = records[tuple(order_value["realization"])]
+    realization.update(
+        {
+            "tag": "Float",
+            "storage": {"kind": "pg_float8"},
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        }
+    )
+    assert _pure(bad_order)[0] is not pure.Status.OK
+
+
+def test_c5_scalar_and_date_carrier_mutations_fail_the_pure_reader(tmp_path):
+    scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")
+    header = scalar["source"].split("table result:", 1)[0]
+    contract = json.loads(scalar["contract"])
+    contract["environment"].append(
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+    )
+    source = (
+        header
+        + """table result:
+    from rows
+    let rounded_decimal = round(money, 0)
+    let text_id = Text(id)
+    select:
+        rounded_decimal
+        text_id
+"""
+    )
+    _, outcome = probe.build_case(
+        tmp_path / "scalar", source, probe.encoded(contract).decode(), scalar["policy"]
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    assert "round(" in outcome.artifact.rendered.sql.decode()
+    assert " AS pg_catalog.int4))" in outcome.artifact.rendered.sql.decode()
+    observation = _observation(outcome.artifact)
+    assert _pure(observation)[0] is pure.Status.OK
+
+    def operation(document, operator, tag):
+        records = {
+            tuple(record["ref"]): record["fields"] for record in document["records"]
+        }
+        return records, next(
+            fields
+            for kind, fields in records.items()
+            if kind[0] == "sql_operation"
+            and fields["operator"] == operator
+            and records[tuple(fields["realization"])]["tag"] == tag
+        )
+
+    forged = json.loads(json.dumps(observation))
+    records, rounded = operation(forged, "round", "Decimal")
+    records[tuple(rounded["realization"])]["storage"]["precision"] = 1
+    assert _pure(forged)[0] is not pure.Status.OK
+
+    forged = json.loads(json.dumps(observation))
+    records, cast = operation(forged, "int_to_text", "Text")
+    operand = records[tuple(cast["operands"][0])]
+    records[tuple(operand["realization"])]["domain"] = {"kind": "not_an_int_range"}
+    assert _pure(forged)[0] is not pure.Status.OK
+
+    _, float_outcome = probe.build_case(
+        tmp_path / "float",
+        header
+        + """table result:
+    from rows
+    select:
+        rounded_float = round(ratio)
+""",
+        probe.encoded(contract).decode(),
+        scalar["policy"],
+    )
+    assert float_outcome.status == "VERIFIED" and float_outcome.artifact is not None
+    float_observation = _observation(float_outcome.artifact)
+    assert _pure(float_observation)[0] is pure.Status.OK
+    forged = json.loads(json.dumps(float_observation))
+    records, rounded = operation(forged, "round", "Float")
+    records[tuple(rounded["realization"])]["nullable"] = True
+    assert _pure(forged)[0] is not pure.Status.OK
+
+    date_source = (
+        temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
+        + """table result:
+    from rows
+    select:
+        cut = date_trunc("day", stamp)
+"""
+    )
+    checked = temporal_probe.build_neutral(
+        tmp_path / "date", {"main.pietto": date_source}
+    )
+    date_contract = json.loads(temporal_probe.temporal_input("postgres"))
+    date_contract["environment"].append(
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+    )
+    date_outcome = emit_project_sql(checked, json.dumps(date_contract).encode())
+    assert date_outcome.status == "VERIFIED" and date_outcome.artifact is not None
+    date_observation = _observation(date_outcome.artifact)
+    assert _pure(date_observation)[0] is pure.Status.OK
+
+    forged = json.loads(json.dumps(date_observation))
+    records, date_trunc = operation(forged, "date_trunc", "Timestamp")
+    records[tuple(date_trunc["realization"])]["nullable"] = True
+    assert _pure(forged)[0] is not pure.Status.OK
+
+
+def test_c5_direct_fixed_scalar_carriers_reach_and_constrain_the_pure_reader(tmp_path):
+    scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")
+    contract = json.loads(scalar["contract"])
+    contract["environment"].append(
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+    )
+    source = (
+        scalar["source"].split("table result:", 1)[0]
+        + """table result:
+    from rows
+    select:
+        text_one = Text(1)
+        rounded = round(1.5)
+"""
+    )
+    _, outcome = probe.build_case(
+        tmp_path, source, probe.encoded(contract).decode(), scalar["policy"]
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    observation = _observation(outcome.artifact)
+    assert _pure(observation)[0] is pure.Status.OK
+
+    def operation(document, operator, tag):
+        records = {
+            tuple(record["ref"]): record["fields"] for record in document["records"]
+        }
+        return records, next(
+            fields
+            for kind, fields in records.items()
+            if kind[0] == "sql_operation"
+            and fields["operator"] == operator
+            and records[tuple(fields["realization"])]["tag"] == tag
+        )
+
+    forged = json.loads(json.dumps(observation))
+    records, cast = operation(forged, "int_to_text", "Text")
+    records[tuple(cast["realization"])]["nullable"] = True
+    assert _pure(forged)[0] is not pure.Status.OK
+
+    forged = json.loads(json.dumps(observation))
+    records, rounded = operation(forged, "round", "Float")
+    records[tuple(rounded["realization"])]["nullable"] = True
+    assert _pure(forged)[0] is not pure.Status.OK
+
+
+def test_c5_decimal_round_uses_the_same_default_and_explicit_zero_carrier_law(
+    tmp_path,
+):
+    scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")
+    header = scalar["source"].split("table result:", 1)[0]
+    assert "money: Decimal(9, 2)" in header
+    header = header.replace("money: Decimal(9, 2)", "money: Decimal(65, 30)")
+    contract = json.loads(scalar["contract"])
+    contract["environment"].append(
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+    )
+    contract["sources"][0]["fields"][3]["representation"] = {
+        "storage": {"kind": "pg_numeric", "precision": 65, "scale": 30},
+        "nullable": False,
+        "domain": {"kind": "decimal", "precision": 65, "scale": 30},
+    }
+    source = (
+        header
+        + """table result:
+    from rows
+    select:
+        defaulted = round(money)
+        explicit_zero = round(money, 0)
+"""
+    )
+    _, outcome = probe.build_case(
+        tmp_path / "wide",
+        source,
+        probe.encoded(contract).decode(),
+        scalar["policy"],
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    observation = _observation(outcome.artifact)
+    assert _pure(observation)[0] is pure.Status.OK
+    assert all(
+        column["representation"]["domain"]
+        == {"kind": "decimal", "precision": 36, "scale": 0}
+        for column in json.loads(serialize_project_sql_emission(outcome))["columns"]
+    )
+
+    forged = json.loads(json.dumps(observation))
+    records = {tuple(record["ref"]): record["fields"] for record in forged["records"]}
+    rounded = next(
+        fields
+        for kind, fields in records.items()
+        if kind[0] == "sql_operation"
+        and fields["operator"] == "round"
+        and records[tuple(fields["realization"])]["tag"] == "Decimal"
+    )
+    records[tuple(rounded["realization"])]["storage"]["precision"] = 65
+    assert _pure(forged)[0] is not pure.Status.OK
+
+    refused_header = header.replace("Decimal(65, 30)", "Decimal(65, 0)")
+    refused_contract = json.loads(json.dumps(contract))
+    refused_contract["sources"][0]["fields"][3]["representation"] = {
+        "storage": {"kind": "pg_numeric", "precision": 65, "scale": 0},
+        "nullable": False,
+        "domain": {"kind": "decimal", "precision": 65, "scale": 0},
+    }
+    _, edge = probe.build_case(
+        tmp_path / "edge",
+        refused_header
+        + """table result:
+    from rows
+    select:
+        defaulted = round(money)
+        explicit_zero = round(money, 0)
+""",
+        probe.encoded(refused_contract).decode(),
+        scalar["policy"],
+    )
+    assert edge.status == "VERIFIED" and edge.artifact is not None
+    edge_observation = _observation(edge.artifact)
+    assert _pure(edge_observation)[0] is pure.Status.OK
+    assert all(
+        column["representation"]["domain"]
+        == {"kind": "decimal", "precision": 65, "scale": 0}
+        for column in json.loads(serialize_project_sql_emission(edge))["columns"]
+    )
+
+    _, refused = probe.build_case(
+        tmp_path / "refused",
+        refused_header
+        + """table result:
+    from rows
+    select:
+        rounded = round(money, -1)
+""",
+        probe.encoded(refused_contract).decode(),
+        scalar["policy"],
+    )
+    assert refused.status == "BLOCKED" and refused.artifact is None

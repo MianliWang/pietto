@@ -2,6 +2,7 @@
 
 from pietto.ir.builder import build_ir
 from pietto.ir.model import (
+    AggregateWindowCallIR,
     AggregateCallIR,
     AnyFieldIR,
     ExistsIR,
@@ -32,6 +33,7 @@ from pietto.ir.model import (
     NullabilityIR,
     ParameterIR,
     ProjectionIR,
+    QualifyIR,
     RelationIR,
     RelationInputIR,
     RelationInputRoleIR,
@@ -59,6 +61,7 @@ from pietto.ir.model import (
 )
 
 __all__ = [
+    "AggregateWindowCallIR",
     "AggregateCallIR",
     "AnyFieldIR",
     "ExistsIR",
@@ -89,6 +92,7 @@ __all__ = [
     "NullabilityIR",
     "ParameterIR",
     "ProjectionIR",
+    "QualifyIR",
     "RelationIR",
     "RelationInputIR",
     "RelationInputRoleIR",

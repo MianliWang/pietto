@@ -10,6 +10,7 @@ import pytest
 from _pietto_project_completion import POSITIVE_SOURCE
 
 import pietto.cli as cli
+from pietto._project import model as project_model
 from pietto._project import project_joined_aggregation as joined_aggregation
 from pietto._project import project_joined_qualify as joined_qualify
 from pietto._project import project_joined_row_filter as joined_row_filter
@@ -1312,8 +1313,8 @@ def test_explicit_project_cli_uses_completed_success_with_unchanged_text_and_jso
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _project(tmp_path / "cli-success", POSITIVE_SOURCE)
-    semantic_builder = cli.build_empty_project_semantic_result
-    completed_builder = cli.build_project_completed_semantic_result
+    semantic_builder = project_model.build_empty_project_semantic_result
+    completed_builder = completed_semantics.build_project_completed_semantic_result
     semantic_results: list[ProjectSemanticResult] = []
     completed_results: list[completed_semantics.ProjectCompletedSemanticResult] = []
 
@@ -1329,8 +1330,12 @@ def test_explicit_project_cli_uses_completed_success_with_unchanged_text_and_jso
         completed_results.append(result)
         return result
 
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", build_semantic)
-    monkeypatch.setattr(cli, "build_project_completed_semantic_result", build_completed)
+    monkeypatch.setattr(
+        project_model, "build_empty_project_semantic_result", build_semantic
+    )
+    monkeypatch.setattr(
+        completed_semantics, "build_project_completed_semantic_result", build_completed
+    )
 
     assert cli.main(["check", "--project", str(root)]) == 0
     text = capsys.readouterr()
@@ -2068,9 +2073,8 @@ def test_project_and_single_file_checks_refuse_range_offsets_alike(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # Both checks reject invalid offsets in ordinary selected windows. JOIN
-    # windows require project completion; a project also validates the RANGE
-    # offset in QUALIFY, which single-file check does not analyze.
+    # Both checks reject invalid offsets in selected, JOIN and QUALIFY windows.
+    # A well-typed RANGE offset also gives the single-file emission warning.
     root = _project(
         tmp_path / "range-offsets",
         "shape Order:\n"
@@ -2133,13 +2137,16 @@ def test_project_and_single_file_checks_refuse_range_offsets_alike(
         ("PIE-S2104", "error", message, 18, 13),
         ("PIE-S2104", "error", message, 21, 13),
         (
-            "PIE-S2334",
-            "error",
-            "Window functions over JOIN rows are available only when an "
-            "EXPLICIT_MODULES project (schema version 2) completes them.",
-            33,
+            "PIE-S2385",
+            "warning",
+            "Single-file SQL emission is unavailable because this RANGE window "
+            "frame has an offset; this warning does not change check's exit "
+            "status, but emit-sql will refuse this relation.",
+            24,
             13,
         ),
+        ("PIE-S2104", "error", message, 33, 13),
+        ("PIE-S2104", "error", message, 43, 18),
     ]
     assert project == [
         ("PIE-S2104", "error", message, line, column)
@@ -2318,7 +2325,11 @@ def test_project_and_single_file_checks_refuse_satisfying_without_group_by(
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
     assert _public_facts(_read_json(capsys)["diagnostics"]) == expected
     assert cli.main(["check", str(root / "main.pietto"), "--format", "json"]) == 1
-    assert _public_facts(_read_json(capsys)["diagnostics"]) == expected
+    assert _public_facts(_read_json(capsys)["diagnostics"]) == [
+        *expected,
+        # A hidden QUALIFY window reads its pre-window input namespace only.
+        ("PIE-S2102", "error", "Unknown field: a", 49, 17),
+    ]
 
     emit = ["emit-sql", "--project", str(root), "--module", "main.pietto"]
     emit += ["--kind", "query", "--name", "plain", "--dialect", "postgres"]
@@ -2535,8 +2546,12 @@ def test_parse_failure_runs_neither_semantic_builder(
         del args, kwargs
         raise AssertionError("semantic builders must not run after parse failure")
 
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", unexpected)
-    monkeypatch.setattr(cli, "build_project_completed_semantic_result", unexpected)
+    monkeypatch.setattr(
+        project_model, "build_empty_project_semantic_result", unexpected
+    )
+    monkeypatch.setattr(
+        completed_semantics, "build_project_completed_semantic_result", unexpected
+    )
     assert cli.main(["check", "--project", str(root)]) == 1
     captured = capsys.readouterr()
     assert captured.out == ""
@@ -2560,7 +2575,9 @@ def test_legacy_project_and_single_file_checks_never_enter_completed_builder(
         del args, kwargs
         raise AssertionError("non-explicit checks must not enter completed semantics")
 
-    monkeypatch.setattr(cli, "build_project_completed_semantic_result", unexpected)
+    monkeypatch.setattr(
+        completed_semantics, "build_project_completed_semantic_result", unexpected
+    )
     assert cli.main(["check", "--project", str(legacy)]) == 0
     legacy_text = capsys.readouterr()
     assert legacy_text.out == "Project check OK: .\nFiles checked: 1\n"

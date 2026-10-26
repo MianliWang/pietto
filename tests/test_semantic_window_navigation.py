@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 from pathlib import Path
 from typing import Any, cast
 
@@ -805,11 +806,7 @@ def test_an_enum_result_keeps_its_declaration_for_later_readers(call: str) -> No
     parsed = parse_source(source, path="navigated.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
     semantic = analyze(parsed.ast)
-    # Only the read of a table of the file is warned about.
-    assert [
-        (item.code, item.location.line, item.location.column)
-        for item in semantic.diagnostics
-    ] == [("PIE-S2382", 17, 5)]
+    assert semantic.diagnostics == ()
     enum, navigated = parsed.ast.definitions[0], parsed.ast.definitions[3]
     assert type(navigated) is TableDef
     schema = semantic.model.relation_row_schemas[navigated]
@@ -849,19 +846,6 @@ def test_a_computed_column_of_an_earlier_relation_is_a_window_value() -> None:
         (item.code, item.message, item.location.line, item.location.column)
         for item in semantic.diagnostics
     ] == [
-        *(
-            (
-                "PIE-S2382",
-                "`computed` is a table of this file; single-file SQL reads it by "
-                "name, so the SQL runs only where the database already has a "
-                "relation named computed (an EXPLICIT_MODULES project emits it as "
-                "a CTE)",
-                number + 1,
-                5,
-            )
-            for number, line in enumerate(lines)
-            if line == "    from computed"
-        ),
         (
             "PIE-S2104",
             "Invalid arguments for function lag: value type must be concrete",
@@ -1268,3 +1252,95 @@ def test_unknown_bounded_navigation_expression_fails_closed() -> None:
             "rows",
             allow_qualified_fields=False,
         )
+
+
+_LET_WINDOW = """shape Order:
+    id: Int
+    amount: Int
+    status: Text
+source orders: Order = postgres.table("orders")
+query q:
+    from orders
+    let k = {value}
+    select:
+        id
+        w = {call} window(order by id)
+"""
+
+
+@pytest.mark.parametrize(
+    ("value", "call", "expected"),
+    (
+        ("amount + 1", "first_value(k)", ("first_value", "value")),
+        ("None", "lag(k)", ("lag", "value")),
+        ("1", "last_value(k)", ("last_value", "value")),
+        ("lower(status)", "nth_value(k, 2)", ("nth_value", "value")),
+        ('"x"', "lag(status, 1, k)", ("lag", "default")),
+        ("amount + 1", "lead(id, 1, k)", ("lead", "default")),
+        # A `let` of a field is that field.
+        ("amount", "lead(k, 1, k)", None),
+    ),
+)
+def test_a_value_or_default_naming_a_let_of_no_field_is_refused_at_the_call(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    value: str,
+    call: str,
+    expected: tuple[str, str] | None,
+) -> None:
+    """Such a value or default reads the `let` value written there, which is
+    no direct field, as `first_value(amount + 1)` is: PIE-S2104 at the call,
+    naming the `let`, in a single file and in a project, not PIE-S2102. A
+    project relation over `k = None`, a binding of unknown type, still fails
+    closed with PIE-S2333 (see PIE-S2103)."""
+
+    from pietto import cli
+
+    source = _LET_WINDOW.format(value=value, call=call)
+    located = (
+        []
+        if expected is None
+        else [
+            (
+                "PIE-S2104",
+                f"Invalid arguments for function {expected[0]}: {expected[1]} must be "
+                "a direct field or Bool, Text, Int, Float, or NULL literal, not the "
+                "`let` name k",
+                11,
+                13,
+            )
+        ]
+    )
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(parsed.ast).diagnostics
+    ] == located
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
+    code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
+    document = json.loads(capsys.readouterr().out)
+    assert (
+        code,
+        [
+            (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+            for d in document["diagnostics"]
+        ],
+    ) == (
+        (
+            1,
+            [
+                (
+                    "PIE-S2333",
+                    "Project relation semantic completion is unavailable: q",
+                    6,
+                    1,
+                )
+            ],
+        )
+        if value == "None"
+        else (1 if located else 0, located)
+    )

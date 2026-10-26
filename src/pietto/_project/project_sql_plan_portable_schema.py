@@ -579,36 +579,12 @@ ANCHOR = Shape(
         "project_ir_provided_null_extension",
         "project_ir_join_unavailable_property",
         "project_actual_grain_authority",
-        "project_ir_join_match_field_pair",
-        "project_directional_relationship_match_guarantee",
         "project_ir_single_match_proof_image",
         "relationship_metadata",
-        "project_ir_binary_join_occurrence",
-        "project_concrete_join_use",
-        "project_relationship_path",
-        "project_relationship_path_step",
         "join_traversal_step",
-        "project_ir_join_grain_witness",
         "project_single_match_proof",
-        "project_relationship_equality_correspondence",
-        "project_relationship_direction_identity",
-        "project_at_most_one_evidence",
-        "project_absent_referential_coverage",
         "relationship_match_clause",
-        "project_ir_binary_join_identity",
-        "project_concrete_relationship_condition",
-        "project_relationship_correspondence_identity",
-        "project_relationship_endpoint_field_reference_occurrence",
         "relationship_endpoint",
-        "project_traversal_step_use",
-        "project_relationship_declaration_identity",
-        "project_relationship_endpoint_occurrence",
-        "project_relationship_base_match_identity",
-        "project_concrete_relationship_subject",
-        "project_relationship_endpoint_field_reference_identity",
-        "project_traversal_step_use_identity",
-        "project_relationship_endpoint_identity",
-        "project_relationship_declaration_occurrence",
         "project_ir_property_stage",
         "project_ir_provided_cardinality_upper_bound",
         "project_ir_provided_relation_ordering",
@@ -693,7 +669,6 @@ ANCHOR = Shape(
         "project_joined_window_input_resolution",
         "project_aggregate_selected_result",
         "project_ir_aggregate_evaluation_context",
-        "project_refined_match_bounds",
         "project_ir_rebound_existing_output",
     ),
 )
@@ -2616,16 +2591,6 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             (
                 FieldRule("ref", ref("project_sql_plan_ref")),
                 FieldRule("join", ref("project_sql_plan_ref")),
-                FieldRule(
-                    "source",
-                    union(
-                        ref("project_ir_join_match_field_pair"),
-                        ref("project_relationship_equality_correspondence"),
-                    ),
-                ),
-                FieldRule(
-                    "guarantee", ref("project_directional_relationship_match_guarantee")
-                ),
                 FieldRule("left", ref("project_sql_plan_ref")),
                 FieldRule("right", ref("project_sql_plan_ref")),
                 FieldRule(
@@ -2944,6 +2909,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     ),
                 ),
                 FieldRule("arguments", seq(ref("project_sql_plan_ref"))),
+                FieldRule("order_by", seq(ref("project_sql_plan_ref"))),
                 FieldRule("result", ref("project_sql_plan_ref")),
                 FieldRule("value_type", ref("value_type")),
             ),
@@ -3030,6 +2996,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("site", ref("project_sql_aggregate_site")),
                 FieldRule("expression", ref("call_expr")),
                 FieldRule("value_type", ref("value_type")),
+                FieldRule("callee_symbol", ref("symbol_id")),
                 FieldRule("arguments", seq(ref("project_sql_plan_ref"))),
             ),
         ),
@@ -7024,25 +6991,11 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             (
                 FieldRule(
                     "use",
-                    union(
-                        ref("project_concrete_join_use"),
-                        ref("project_non_concrete_join_use"),
-                    ),
+                    ref("project_non_concrete_join_use"),
                 ),
                 FieldRule("mode", TEXT),
                 FieldRule("expression", union(ANCHOR, optional)),
                 FieldRule("references", seq(ref("project_join_condition_reference"))),
-                FieldRule(
-                    "base_guarantee",
-                    union(
-                        ref("project_directional_relationship_match_guarantee"),
-                        optional,
-                    ),
-                ),
-                FieldRule(
-                    "refinement_guarantee",
-                    union(ref("project_refined_match_bounds"), optional),
-                ),
                 FieldRule("value_type", union(ref("value_type"), optional)),
                 FieldRule("state", enum("ready", "invalid", "unavailable")),
                 FieldRule("null_rejections", seq(ref("project_join_null_rejection"))),
@@ -7116,10 +7069,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             (
                 FieldRule(
                     "source",
-                    union(
-                        ref("project_current_binary_join"),
-                        ref("project_ir_binary_join_occurrence"),
-                    ),
+                    ref("project_current_binary_join"),
                 ),
                 FieldRule("condition", ref("project_join_condition")),
                 FieldRule("node", ref("project_ir_plan_node_occurrence")),
@@ -7140,12 +7090,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("nullability", enum("non_null", "nullable", "unknown")),
                 FieldRule(
                     "null_extensions",
-                    seq(
-                        union(
-                            ref("project_relationship_path_step"),
-                            ref("project_join_use_identity"),
-                        )
-                    ),
+                    seq(ref("project_join_use_identity")),
                 ),
                 FieldRule("value_type", ref("value_type")),
             ),
@@ -7196,12 +7141,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
                 FieldRule(
                     "boundaries",
-                    seq(
-                        union(
-                            ref("project_ir_composed_join"),
-                            ref("project_ir_binary_join_occurrence"),
-                        )
-                    ),
+                    seq(ref("project_ir_composed_join")),
                 ),
                 FieldRule("proofs", seq(ref("project_ir_single_match_proof_image"))),
             ),
@@ -7212,22 +7152,10 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("owner", ref("project_declaration_occurrence")),
                 FieldRule(
                     "use",
-                    union(
-                        ref("project_concrete_join_use"),
-                        ref("project_non_concrete_join_use"),
-                    ),
+                    ref("project_non_concrete_join_use"),
                 ),
                 FieldRule("scope", enum("direct_binary", "path_hop", "whole_path")),
                 FieldRule("unit", enum("actual_matched_bag_occurrence")),
-                FieldRule("path", union(ref("project_relationship_path"), optional)),
-                FieldRule(
-                    "hop",
-                    union(
-                        ref("project_relationship_path_step"),
-                        ref("project_traversal_step_use"),
-                        optional,
-                    ),
-                ),
                 FieldRule("condition", union(ref("project_join_condition"), optional)),
                 FieldRule(
                     "input_pairs",
@@ -7253,12 +7181,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("condition", union(ref("project_join_condition"), optional)),
                 FieldRule(
                     "joins",
-                    seq(
-                        union(
-                            ref("project_current_binary_join"),
-                            ref("project_ir_binary_join_occurrence"),
-                        )
-                    ),
+                    seq(ref("project_current_binary_join")),
                 ),
                 FieldRule(
                     "input_pairs",
@@ -7687,10 +7610,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("condition", ref("project_join_condition")),
                 FieldRule(
                     "use",
-                    union(
-                        ref("project_concrete_join_use"),
-                        ref("project_non_concrete_join_use"),
-                    ),
+                    ref("project_non_concrete_join_use"),
                 ),
                 FieldRule(
                     "kind",
@@ -7910,14 +7830,8 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("identity", ref("project_join_use_identity")),
                 FieldRule("owner", ref("project_declaration_occurrence")),
                 FieldRule("clause", ref("join_clause")),
-                FieldRule(
-                    "source_binding",
-                    union(ref("project_relation_binding_occurrence"), optional),
-                ),
                 FieldRule("target_binding", ref("project_relation_binding_occurrence")),
                 FieldRule("state", enum("concrete", "unknown", "blocked", "ambiguous")),
-                FieldRule("step_uses", seq(ref("project_traversal_step_use"))),
-                FieldRule("path", union(ref("project_relationship_path"), optional)),
             ),
         ),
         "project_scalar_reference_occurrence": RecordRule(
@@ -8345,79 +8259,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("evidence", seq(ANCHOR)),
             ),
         ),
-        "project_ir_join_match_field_pair": RecordRule(
-            "project_ir_join_match_field_pair",
-            (
-                FieldRule(
-                    "correspondence",
-                    ref("project_relationship_equality_correspondence"),
-                ),
-                FieldRule("left", ref("project_ir_joined_row_field")),
-                FieldRule("right", ref("project_ir_joined_row_field")),
-            ),
-        ),
-        "project_directional_relationship_match_guarantee": RecordRule(
-            "project_directional_relationship_match_guarantee",
-            (
-                FieldRule("direction", ref("project_relationship_direction_identity")),
-                FieldRule(
-                    "source_output", ref("project_ir_output_relational_properties")
-                ),
-                FieldRule(
-                    "target_output", ref("project_ir_output_relational_properties")
-                ),
-                FieldRule(
-                    "source_matched_classes", seq(ref("project_ir_output_value_class"))
-                ),
-                FieldRule(
-                    "target_matched_classes", seq(ref("project_ir_output_value_class"))
-                ),
-                FieldRule("minimum", enum("zero_allowed", "at_least_one")),
-                FieldRule(
-                    "minimum_evidence",
-                    union(
-                        ANCHOR,
-                        enum(
-                            "coverage_not_constructible",
-                            "source_nullability_not_proven",
-                            "target_key_not_proven",
-                            "condition_not_proof_capable",
-                        ),
-                    ),
-                ),
-                FieldRule(
-                    "maximum", enum("at_most_zero", "at_most_one", "unbounded_by_one")
-                ),
-                FieldRule(
-                    "maximum_evidence",
-                    union(
-                        ref("project_at_most_one_evidence"),
-                        enum(
-                            "coverage_not_constructible",
-                            "source_nullability_not_proven",
-                            "target_key_not_proven",
-                            "condition_not_proof_capable",
-                        ),
-                    ),
-                ),
-                FieldRule(
-                    "coverage",
-                    union(ANCHOR, ref("project_absent_referential_coverage")),
-                ),
-            ),
-        ),
         "project_ir_single_match_proof_image": RecordRule(
             "project_ir_single_match_proof_image",
             (
                 FieldRule("source", ref("project_single_match_proof")),
                 FieldRule(
                     "boundaries",
-                    seq(
-                        union(
-                            ref("project_ir_composed_join"),
-                            ref("project_ir_binary_join_occurrence"),
-                        )
-                    ),
+                    seq(ref("project_ir_composed_join")),
                 ),
                 FieldRule(
                     "producers",
@@ -8453,53 +8301,6 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
             ),
         ),
-        "project_ir_binary_join_occurrence": RecordRule(
-            "project_ir_binary_join_occurrence",
-            (
-                FieldRule("identity", ref("project_ir_binary_join_identity")),
-                FieldRule("use", ref("project_concrete_join_use")),
-                FieldRule("path_step", ref("project_relationship_path_step")),
-                FieldRule(
-                    "guarantee", ref("project_directional_relationship_match_guarantee")
-                ),
-                FieldRule("condition", ref("project_concrete_relationship_condition")),
-                FieldRule("kind", enum("inner", "left")),
-                FieldRule("matches", seq(ref("project_ir_join_match_field_pair"))),
-                FieldRule("node", ref("project_ir_plan_node_occurrence")),
-            ),
-        ),
-        "project_concrete_join_use": RecordRule(
-            "project_concrete_join_use",
-            (
-                FieldRule("identity", ref("project_join_use_identity")),
-                FieldRule("owner", ref("project_declaration_occurrence")),
-                FieldRule("clause", ref("join_clause")),
-                FieldRule(
-                    "kind",
-                    enum("inner", "left", "cross", "right", "full", "semi", "anti"),
-                ),
-                FieldRule("source_binding", ref("project_relation_binding_occurrence")),
-                FieldRule("target_binding", ref("project_relation_binding_occurrence")),
-                FieldRule(
-                    "target_relation", ref("project_resolved_module_relation_symbol")
-                ),
-                FieldRule("path", ref("project_relationship_path")),
-                FieldRule("step_uses", seq(ref("project_traversal_step_use"))),
-            ),
-        ),
-        "project_relationship_path": RecordRule(
-            "project_relationship_path",
-            (FieldRule("steps", seq(ref("project_relationship_path_step"))),),
-        ),
-        "project_relationship_path_step": RecordRule(
-            "project_relationship_path_step",
-            (
-                FieldRule("position", INTEGER),
-                FieldRule(
-                    "guarantee", ref("project_directional_relationship_match_guarantee")
-                ),
-            ),
-        ),
         "join_traversal_step": RecordRule(
             "join_traversal_step",
             (
@@ -8507,14 +8308,6 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("relationship_name", TEXT),
                 FieldRule("source_endpoint_role", TEXT),
                 FieldRule("target_endpoint_role", TEXT),
-            ),
-        ),
-        "project_ir_join_grain_witness": RecordRule(
-            "project_ir_join_grain_witness",
-            (
-                FieldRule("join", ref("project_ir_binary_join_identity")),
-                FieldRule("left", ref("project_ir_provided_intrinsic_grain")),
-                FieldRule("right", ref("project_ir_provided_intrinsic_grain")),
             ),
         ),
         "project_single_match_proof": RecordRule(
@@ -8534,126 +8327,11 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("roots", seq(ANCHOR)),
             ),
         ),
-        "project_relationship_equality_correspondence": RecordRule(
-            "project_relationship_equality_correspondence",
-            (
-                FieldRule(
-                    "identity", ref("project_relationship_correspondence_identity")
-                ),
-                FieldRule("comparison", ref("comparison_expr")),
-                FieldRule(
-                    "authored_left",
-                    ref("project_relationship_endpoint_field_reference_occurrence"),
-                ),
-                FieldRule(
-                    "authored_right",
-                    ref("project_relationship_endpoint_field_reference_occurrence"),
-                ),
-                FieldRule(
-                    "endpoint_zero",
-                    ref("project_relationship_endpoint_field_reference_occurrence"),
-                ),
-                FieldRule(
-                    "endpoint_one",
-                    ref("project_relationship_endpoint_field_reference_occurrence"),
-                ),
-                FieldRule(
-                    "semantics", enum("standard_equality_true_only_null_rejecting")
-                ),
-            ),
-        ),
-        "project_relationship_direction_identity": RecordRule(
-            "project_relationship_direction_identity",
-            (
-                FieldRule(
-                    "declaration", ref("project_relationship_declaration_identity")
-                ),
-                FieldRule("source", ref("project_relationship_endpoint_occurrence")),
-                FieldRule("target", ref("project_relationship_endpoint_occurrence")),
-            ),
-        ),
-        "project_at_most_one_evidence": RecordRule(
-            "project_at_most_one_evidence",
-            (
-                FieldRule("direction", ref("project_relationship_direction_identity")),
-                FieldRule("target_keys", seq(ref("project_ir_output_candidate_key"))),
-                FieldRule(
-                    "target_matched_classes", seq(ref("project_ir_output_value_class"))
-                ),
-                FieldRule(
-                    "correspondences",
-                    seq(ref("project_relationship_equality_correspondence")),
-                ),
-            ),
-        ),
-        "project_absent_referential_coverage": RecordRule(
-            "project_absent_referential_coverage",
-            (
-                FieldRule("direction", ref("project_relationship_direction_identity")),
-                FieldRule(
-                    "state",
-                    enum("concrete", "not_constructible_from_current_authored_source"),
-                ),
-            ),
-        ),
         "relationship_match_clause": RecordRule(
             "relationship_match_clause",
             (
                 FieldRule("span", ref("span")),
                 FieldRule("expression", ANCHOR),
-            ),
-        ),
-        "project_ir_binary_join_identity": RecordRule(
-            "project_ir_binary_join_identity",
-            (
-                FieldRule("use", ref("project_join_use_identity")),
-                FieldRule("path_step_position", INTEGER),
-            ),
-        ),
-        "project_concrete_relationship_condition": RecordRule(
-            "project_concrete_relationship_condition",
-            (
-                FieldRule("identity", ref("project_relationship_base_match_identity")),
-                FieldRule("relationship", ref("project_concrete_relationship_subject")),
-                FieldRule("clause", ref("relationship_match_clause")),
-                FieldRule(
-                    "scope",
-                    enum(
-                        "relationship_base_match",
-                        "join_local_on_refinement",
-                        "post_join_filter",
-                        "generic_join_match",
-                    ),
-                ),
-                FieldRule(
-                    "correspondences",
-                    seq(ref("project_relationship_equality_correspondence")),
-                ),
-            ),
-        ),
-        "project_relationship_correspondence_identity": RecordRule(
-            "project_relationship_correspondence_identity",
-            (
-                FieldRule(
-                    "base_match", ref("project_relationship_base_match_identity")
-                ),
-                FieldRule("conjunct_position", INTEGER),
-            ),
-        ),
-        "project_relationship_endpoint_field_reference_occurrence": RecordRule(
-            "project_relationship_endpoint_field_reference_occurrence",
-            (
-                FieldRule(
-                    "identity",
-                    ref("project_relationship_endpoint_field_reference_identity"),
-                ),
-                FieldRule("expression", ref("dotted_name_expr")),
-                FieldRule("endpoint", ref("project_relationship_endpoint_occurrence")),
-                FieldRule("field_identity", ref("project_module_row_field_identity")),
-                FieldRule("semantic_field", ref("project_row_field")),
-                FieldRule(
-                    "constraint_scope", ref("project_exact_row_output_constraint_scope")
-                ),
             ),
         ),
         "relationship_endpoint": RecordRule(
@@ -8662,101 +8340,6 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("span", ref("span")),
                 FieldRule("local_name", TEXT),
                 FieldRule("relation_name", TEXT),
-            ),
-        ),
-        "project_traversal_step_use": RecordRule(
-            "project_traversal_step_use",
-            (
-                FieldRule("identity", ref("project_traversal_step_use_identity")),
-                FieldRule("step", ref("join_traversal_step")),
-                FieldRule("state", enum("concrete", "unknown", "blocked", "ambiguous")),
-                FieldRule(
-                    "relationships",
-                    seq(union(ref("project_concrete_relationship_subject"), ANCHOR)),
-                ),
-                FieldRule(
-                    "directions",
-                    seq(ref("project_directional_relationship_match_guarantee")),
-                ),
-                FieldRule("issues", seq(ANCHOR)),
-            ),
-        ),
-        "project_relationship_declaration_identity": RecordRule(
-            "project_relationship_declaration_identity",
-            (
-                FieldRule("module", ref("project_module_identity")),
-                FieldRule("module_position", INTEGER),
-                FieldRule("relationship_position", INTEGER),
-            ),
-        ),
-        "project_relationship_endpoint_occurrence": RecordRule(
-            "project_relationship_endpoint_occurrence",
-            (
-                FieldRule("identity", ref("project_relationship_endpoint_identity")),
-                FieldRule("endpoint", ref("relationship_endpoint")),
-                FieldRule(
-                    "target",
-                    union(ref("project_resolved_module_relation_symbol"), optional),
-                ),
-            ),
-        ),
-        "project_relationship_base_match_identity": RecordRule(
-            "project_relationship_base_match_identity",
-            (
-                FieldRule(
-                    "declaration", ref("project_relationship_declaration_identity")
-                ),
-            ),
-        ),
-        "project_concrete_relationship_subject": RecordRule(
-            "project_concrete_relationship_subject",
-            (
-                FieldRule(
-                    "occurrence", ref("project_relationship_declaration_occurrence")
-                ),
-            ),
-        ),
-        "project_relationship_endpoint_field_reference_identity": RecordRule(
-            "project_relationship_endpoint_field_reference_identity",
-            (
-                FieldRule(
-                    "correspondence",
-                    ref("project_relationship_correspondence_identity"),
-                ),
-                FieldRule("operand_position", INTEGER),
-            ),
-        ),
-        "project_traversal_step_use_identity": RecordRule(
-            "project_traversal_step_use_identity",
-            (
-                FieldRule("join", ref("project_join_use_identity")),
-                FieldRule("step_position", INTEGER),
-            ),
-        ),
-        "project_relationship_endpoint_identity": RecordRule(
-            "project_relationship_endpoint_identity",
-            (
-                FieldRule(
-                    "declaration", ref("project_relationship_declaration_identity")
-                ),
-                FieldRule("endpoint_position", INTEGER),
-            ),
-        ),
-        "project_relationship_declaration_occurrence": RecordRule(
-            "project_relationship_declaration_occurrence",
-            (
-                FieldRule("identity", ref("project_relationship_declaration_identity")),
-                FieldRule("module", ref("project_logical_module")),
-                FieldRule("relationship", ref("relationship_metadata")),
-                FieldRule(
-                    "endpoints",
-                    seq(
-                        union(
-                            ref("project_relationship_endpoint_occurrence"),
-                            ref("project_relationship_endpoint_occurrence"),
-                        )
-                    ),
-                ),
             ),
         ),
         "project_ir_property_stage": RecordRule(
@@ -9915,30 +9498,6 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("result_effect", ref("project_ir_effect_evidence")),
             ),
         ),
-        "project_refined_match_bounds": RecordRule(
-            "project_refined_match_bounds",
-            (
-                FieldRule(
-                    "base", ref("project_directional_relationship_match_guarantee")
-                ),
-                FieldRule("minimum", enum("zero_allowed", "at_least_one")),
-                FieldRule(
-                    "maximum", enum("at_most_zero", "at_most_one", "unbounded_by_one")
-                ),
-                FieldRule(
-                    "maximum_evidence",
-                    union(
-                        ref("project_at_most_one_evidence"),
-                        enum(
-                            "coverage_not_constructible",
-                            "source_nullability_not_proven",
-                            "target_key_not_proven",
-                            "condition_not_proof_capable",
-                        ),
-                    ),
-                ),
-            ),
-        ),
         "project_ir_rebound_existing_output": RecordRule(
             "project_ir_rebound_existing_output",
             (
@@ -10317,7 +9876,8 @@ _predicate_fields = {
     ),
     "project_predicate_join_condition": (
         FieldRule(
-            "predicate_expression", ref("project_relationship_predicate_expression")
+            "predicate_expression",
+            union(ref("project_relationship_predicate_expression"), optional),
         ),
         FieldRule(
             "match_inputs",

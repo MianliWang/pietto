@@ -201,7 +201,9 @@ def test_a_constraint_block_body_nests_as_deep_as_the_other_expressions() -> Non
         "constraint c(a: Int) -> Bool:\n    return " + "-" * 314 + "a\n"
     )
 
-    assert result.diagnostics == ()
+    # The minus signs are written together, so they warn once that `--` is
+    # no comment (PIE-P1009).
+    assert [item.code for item in result.diagnostics] == ["PIE-P1009"]
     assert result.ast is not None
     definition = result.ast.definitions[0]
     assert isinstance(definition, ConstraintDef)

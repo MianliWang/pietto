@@ -24,17 +24,6 @@ RELATIONS = (
 )
 # A second shape for relationship parameters; relationships start on line 15.
 MEMBER = "shape Member:\n    id: Int\n    group_id: Int\n"
-# `accounts` reads the same-file table `groups`, which single-file SQL reads by
-# name (PIE-S2382 at its FROM).
-GROUPS_READ = (
-    "PIE-S2382",
-    Severity.WARNING,
-    "`groups` is a table of this file; single-file SQL reads it by name, so the "
-    "SQL runs only where the database already has a relation named groups (an "
-    "EXPLICIT_MODULES project emits it as a CTE)",
-    9,
-    5,
-)
 
 
 def test_valid_relationship_is_stored_in_semantic_model() -> None:
@@ -45,7 +34,7 @@ def test_valid_relationship_is_stored_in_semantic_model() -> None:
         )
     )
 
-    assert _graded(result) == [GROUPS_READ]
+    assert _graded(result) == []
     assert [
         template.declaration.name for template in result.model.relationship_templates
     ] == ["membership"]
@@ -67,7 +56,7 @@ def test_relationship_and_parameter_source_order_are_preserved() -> None:
         )
     )
 
-    assert _graded(result) == [GROUPS_READ]
+    assert _graded(result) == []
     assert [
         template.declaration.name for template in result.model.relationship_templates
     ] == ["membership", "ownership"]
@@ -174,11 +163,8 @@ def test_invalid_relationships_are_not_stored(
     result = analyze(_parse(RELATIONS + MEMBER + relationship_source))
 
     assert _graded(result) == [
-        GROUPS_READ,
-        *(
-            ("PIE-S2604", Severity.ERROR, message, line, column)
-            for message, line, column in expected
-        ),
+        ("PIE-S2604", Severity.ERROR, message, line, column)
+        for message, line, column in expected
     ]
     assert result.model.relationship_templates == ()
     assert result.model.relationships == ()
@@ -187,7 +173,7 @@ def test_invalid_relationships_are_not_stored(
 def test_program_without_relationship_metadata_has_empty_semantic_tuple() -> None:
     result = analyze(_parse(RELATIONS))
 
-    assert _graded(result) == [GROUPS_READ]
+    assert _graded(result) == []
     assert result.model.relationships == ()
     assert result.model.relationship_templates == ()
 

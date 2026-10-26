@@ -24,7 +24,6 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 from pietto._flat_relational_admission import (
-    _EXPLICIT_MODULES,
     availability_diagnostic,
 )
 from pietto.ast_nodes import (
@@ -53,25 +52,19 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     first_semantic_aggregate_call,
 )
+from pietto.semantic.existence_generators import written_read
 from pietto.semantic.expressions import (
     _FailedRelationshipTypes,
     _UNKNOWN_VALUE_TYPE,
     infer_row_expression,
-)
-from pietto.semantic.join_relationships import (
-    JoinBindingView,
-    JoinRelationshipContext,
-    ResolvedJoinRelationship,
-    resolve_join_relationship,
+    is_unknown_function_call,
 )
 from pietto.semantic.model import (
     EffectiveNullability,
-    JoinEqualityInfo,
     JoinFieldRef,
     JoinInfo,
     JoinInputInfo,
     RelationJoinsInfo,
-    RelationshipSemanticInfo,
     ResolvedType,
     RowField,
     RowSchema,
@@ -80,31 +73,22 @@ from pietto.semantic.model import (
     ValueTypeKind,
 )
 from pietto.semantic.predicate_checks import _check_bool_expression
-from pietto.semantic.relations import (
-    _HIDING_KINDS,
-    join_target,
-    written_join_source,
-)
+from pietto.semantic.relations import _HIDING_KINDS, join_target
 
 __all__ = ()
 
 RelationDefinition = SourceDef | TableDef | QueryDef
 DerivedRelation = TableDef | QueryDef
 
-# The modes whose JOIN reads a relationship.
-_RELATIONSHIP_MODES = frozenset({"M1", "M2", "M4"})
-
 
 @dataclass(frozen=True, slots=True)
 class StructuredJoin:
-    """One JOIN of a structured relation, as its written parts resolved."""
+    """One JOIN of a structured relation: an `on` JOIN (M3) or a CROSS JOIN
+    (M5), reading the accumulated row rooted at the FROM input."""
 
     ordinal: int  # 1-based, source order; also its target's input ordinal
     clause: JoinClause
-    mode: str  # "M1" | "M2" | "M3" | "M4" | "M5"
-    source_input: int
-    source_inferred: bool
-    relationship: ResolvedJoinRelationship | None  # M1, M2 and M4
+    mode: str  # "M3" | "M5"
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,9 +135,6 @@ def build_join_structures(
     script: Script,
     *,
     relation_symbols: Mapping[str, Definition],
-    relationships: tuple[RelationshipSemanticInfo, ...],
-    source_row_schemas: Mapping[SourceDef, RowSchema],
-    type_expansions: Mapping[TypeExpr, ResolvedType],
 ) -> tuple[
     dict[DerivedRelation, JoinStructure],
     dict[JoinClause, RelationDefinition],
@@ -162,25 +143,17 @@ def build_join_structures(
     """Check every JOIN's written parts and resolve each JOIN relation.
 
     Each JOIN, in source order: its target; an input whose fields are not
-    known; its binding name; its combination of kind, `via` and `on`; its
-    written `from`; then the relationship it reads. Then the relation's
-    windows and ORDER BY after an ungrouped aggregate. A relation gets a structure unless
-    one of these reports an error, its FROM input names no relation (an
-    error of its own) or the declaration errors of the relationship a JOIN
-    would read decide that JOIN without a diagnostic of its own.
+    known; its binding name; its combination of kind and `on`; then, for a
+    JOIN without `on` other than CROSS, that it needs one. Then the relation's
+    windows and ORDER BY after an ungrouped aggregate. A relation gets a
+    structure unless one of these reports an error or its FROM input names no
+    relation (an error of its own).
 
     The middle result maps every JOIN whose target is a source, table or
     query to it, in every relation, with a structure or not: the edges the
     relation cycles follow beside FROM.
     """
 
-    context = JoinRelationshipContext(
-        relationships=script.relationships,
-        admitted=relationships,
-        relation_symbols=relation_symbols,
-        source_row_schemas=source_row_schemas,
-        type_expansions=type_expansions,
-    )
     structures: dict[DerivedRelation, JoinStructure] = {}
     targets: dict[JoinClause, RelationDefinition] = {}
     diagnostics: list[Diagnostic] = []
@@ -191,7 +164,7 @@ def build_join_structures(
         ):
             continue
         found: list[Diagnostic] = []
-        structure = _structure(definition, relation_symbols, context, found, targets)
+        structure = _structure(definition, relation_symbols, found, targets)
         found.extend(_window_diagnostics(definition))
         found.extend(_grouping_diagnostics(definition))
         diagnostics.extend(found)
@@ -203,7 +176,6 @@ def build_join_structures(
 def _structure(
     definition: DerivedRelation,
     relation_symbols: Mapping[str, Definition],
-    context: JoinRelationshipContext,
     found: list[Diagnostic],
     targets: dict[JoinClause, RelationDefinition],
 ) -> JoinStructure | None:
@@ -261,79 +233,19 @@ def _structure(
         named = _binding_name_diagnostic(definition, ordinal)
         combined = _combination_diagnostic(clause)
         found.extend(item for item in (named, combined) if item is not None)
-        if isinstance(target, Diagnostic):
+        if isinstance(target, Diagnostic) or any(opened) or combined is not None:
             continue
-        # Modern JOIN reads the accumulated row rooted at the explicit FROM;
-        # the authored clause still has no fabricated source-binding spelling.
-        written = (
-            0
-            if clause.uses_named_input
-            else (
-                None
-                if clause.source_binding_name is None
-                else written_join_source(definition, ordinal - 1, hidden_bindings=True)
-            )
-        )
-        if isinstance(written, Diagnostic):
-            found.append(written)
-        if any(opened) or combined is not None or isinstance(written, Diagnostic):
+        if clause.on_clause is None and clause.kind is not AuthoredJoinKind.CROSS:
+            # A FROM input that names no relation already has its own error.
+            if inputs[0] is not None:
+                found.append(_without_on_diagnostic(clause, inputs[0]))
             continue
-        mode = _join_mode(clause)
-        if mode not in _RELATIONSHIP_MODES:
-            # `on` and CROSS require a written `from` before analysis.
-            if written is not None:
-                joins.append(
-                    StructuredJoin(
-                        ordinal=ordinal,
-                        clause=clause,
-                        mode=mode,
-                        source_input=written,
-                        source_inferred=False,
-                        relationship=None,
-                    )
-                )
-            continue
-        earlier = [inputs[index] for index in _visible_before(definition, ordinal)]
-        views = tuple(
-            JoinBindingView(
-                ordinal=item.ordinal, name=item.binding, relation=item.relation
-            )
-            for item in earlier
-            if item is not None
-        )
-        if written is None:
-            written_view = None
-            unresolved = len(views) < len(earlier)
-        else:
-            written_view = next(
-                (view for view in views if view.ordinal == written), None
-            )
-            unresolved = written_view is None
-        if unresolved:
-            # The binding the JOIN starts from, or without `from` one it may
-            # start from, reads no relation: an earlier error fails the
-            # relation already.
-            continue
-        resolved = resolve_join_relationship(
-            clause,
-            target=target,
-            visible=views,
-            written_source=written_view,
-            context=context,
-        )
-        if isinstance(resolved, tuple):
-            # An empty result: a relationship's own declaration errors decide
-            # the JOIN, and they fail the file already.
-            found.extend(resolved)
-            continue
+        # A JOIN reads the accumulated row rooted at the FROM input.
         joins.append(
             StructuredJoin(
                 ordinal=ordinal,
                 clause=clause,
-                mode=mode,
-                source_input=resolved.source.ordinal,
-                source_inferred=resolved.source_inferred,
-                relationship=resolved,
+                mode="M5" if clause.kind is AuthoredJoinKind.CROSS else "M3",
             )
         )
     complete = tuple(item for item in inputs if item is not None)
@@ -353,15 +265,17 @@ def _visible_before(definition: DerivedRelation, ordinal: int) -> tuple[int, ...
     )
 
 
-def _join_mode(clause: JoinClause) -> str:
-    """Classify a JOIN by its written parts: CROSS is M5; otherwise `on` with
-    a `via` step is M4 and `on` alone M3, a `via` step alone M2, neither M1."""
+def _without_on_diagnostic(clause: JoinClause, source: JoinInputInfo) -> Diagnostic:
+    """Refuse a JOIN without `on`, other than CROSS: a declared relationship
+    never joins by itself (it is called in `on`), also when an input is a
+    table or query."""
 
-    if clause.kind is AuthoredJoinKind.CROSS:
-        return "M5"
-    if clause.on_clause is not None:
-        return "M4" if clause.traversal_steps else "M3"
-    return "M2" if clause.traversal_steps else "M1"
+    return _diagnostic(
+        clause.span,
+        "PIE-S2335",
+        f"JOIN {clause.target_binding_name}: write `on` with the condition that "
+        f"matches {source.binding} to {clause.target_relation_name}",
+    )
 
 
 def _unknown_fields_diagnostic(
@@ -421,7 +335,7 @@ def _binding_name_diagnostic(
     definition: DerivedRelation, ordinal: int
 ) -> Diagnostic | None:
     """Refuse a JOIN binding named like the FROM input or an earlier JOIN
-    binding, SEMI and ANTI ones included, at its `as` name."""
+    binding, SEMI and ANTI ones included, at its name."""
 
     clause = definition.join_clauses[ordinal - 1]
     name = clause.target_binding_name
@@ -440,48 +354,19 @@ def _binding_name_diagnostic(
 
 
 def _combination_diagnostic(clause: JoinClause) -> Diagnostic | None:
-    """Refuse a JOIN kind with `on` or `via` steps it cannot have
-    (PIE-S2336), then any other JOIN with more than one `via` step."""
+    """Refuse a CROSS JOIN with `on` (PIE-S2336)."""
 
-    steps = clause.traversal_steps
-    if clause.kind is AuthoredJoinKind.CROSS and (
-        clause.on_clause is not None or steps
-    ):
-        message = "CROSS JOIN cannot have ON or VIA."
-    elif len(steps) <= 1:
-        return None
-    elif clause.on_clause is not None:
-        message = "JOIN-local ON refinement requires exactly one VIA step."
-    elif clause.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}:
-        message = "This JOIN kind requires a direct binary input."
-    else:
-        return availability_diagnostic(
-            clause.span,
-            "A JOIN with more than one `via` step is available only when "
-            f"{_EXPLICIT_MODULES} completes it.",
+    if clause.kind is AuthoredJoinKind.CROSS and clause.on_clause is not None:
+        return _diagnostic(
+            clause.span, "PIE-S2336", "CROSS JOIN cannot have ON or VIA."
         )
-    return _diagnostic(clause.span, "PIE-S2336", message)
+    return None
 
 
 def _window_diagnostics(definition: DerivedRelation) -> tuple[Diagnostic, ...]:
-    """Refuse each window call that is a whole `select` item and each named
-    window of a relation with JOINs."""
+    """Windows over a joined row use the complete joined-input facts."""
 
-    message = (
-        "Window functions over JOIN rows are available only when "
-        f"{_EXPLICIT_MODULES} completes them."
-    )
-    return tuple(
-        availability_diagnostic(span, message)
-        for span in (
-            *(
-                item.expression.span
-                for item in definition.select_items
-                if type(item.expression) is WindowExpr
-            ),
-            *(declaration.span for declaration in definition.named_windows),
-        )
-    )
+    return ()
 
 
 def _grouping_diagnostics(definition: DerivedRelation) -> tuple[Diagnostic, ...]:
@@ -515,8 +400,8 @@ def join_rows(
     Keys are ``"<binding>.<field>"`` in input order, then field order. A
     LEFT JOIN makes its target nullable, a RIGHT JOIN every earlier input
     the rows read, a FULL JOIN both, and nothing clears that. An INNER JOIN
-    makes non-null each field its relationship equalities read and each
-    field that a top-level `and` conjunct of its `on` reads as itself, as an
+    makes non-null each field that a top-level `and` conjunct of its `on`
+    reads as itself, as an
     operand of a comparison or in `is not null`, where the field read has
     exactly one binding in its `on` row.
     """
@@ -684,10 +569,6 @@ def _null_proofs(join: StructuredJoin, inputs: _Inputs) -> set[tuple[int, str]]:
     """The fields an INNER JOIN's matched rows hold non-null values for."""
 
     proven: set[tuple[int, str]] = set()
-    if join.relationship is not None:
-        for source_field, target_field, *_ in join.relationship.pairs:
-            proven.add((join.source_input, source_field))
-            proven.add((join.ordinal, target_field))
     if join.clause.on_clause is not None:
         for conjunct in _conjuncts(join.clause.on_clause.expression):
             if type(conjunct) is ComparisonExpr:
@@ -755,6 +636,7 @@ def check_join_semantics(
     expression_value_types: dict[Expression, ValueType],
     type_expansions: Mapping[TypeExpr, ResolvedType],
     failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
+    any_binders: Mapping[str, str] | None = None,
 ) -> JoinChecks:
     """Resolve the reads and type the `on` of each JOIN relation.
 
@@ -762,7 +644,9 @@ def check_join_semantics(
     resolve against the relation's tail row, and those of each JOIN's `on`
     against its `on` row. Each `on` is typed once, into
     ``expression_value_types``. A relation without a structure, or whose
-    joined row is unknown, is not analysed here.
+    joined row is unknown, is not analysed here. ``any_binders`` maps the
+    generated binding of the hidden JOIN of each `any` before a later JOIN to
+    its binder as written, which that JOIN's `on` diagnostics name.
     """
 
     def schema_of(relation: RelationDefinition) -> RowSchema:
@@ -815,6 +699,7 @@ def check_join_semantics(
             diagnostics=diagnostics,
             reads=reads,
             failed_relationship_calls=failed_relationship_calls,
+            any_binders=any_binders or {},
         )
         if info is not None:
             facts[definition] = info
@@ -838,6 +723,7 @@ def _relation_joins(
     diagnostics: list[Diagnostic],
     reads: dict[SourceLocation, Diagnostic],
     failed_relationship_calls: Sequence[RelationshipCallFailure],
+    any_binders: Mapping[str, str],
 ) -> RelationJoinsInfo | None:
     """Resolve one structured relation's reads and type its `on` conditions;
     its facts when no read fails and no `on` has an error."""
@@ -904,25 +790,39 @@ def _relation_joins(
             )
             if failed:
                 clean = False
+            row_arguments = _unknown_call_rows(
+                on_clause.expression, found_inputs, join.ordinal
+            )
             for leaf in _leaves((on_clause.expression,), failed_ids):
                 read = _read(leaf, found_inputs, join.ordinal)
                 if isinstance(read, JoinFieldRef):
                     field_reads[leaf] = read
                     on_reads[leaf] = _key(inputs, read)
                     continue
+                if id(leaf) in row_arguments:
+                    # A row argument of an unknown function, such as a
+                    # relationship this file does not declare: typing reports
+                    # the call (PIE-S2103), and the row is no field read.
+                    continue
                 failed = True
+                written = written_read(leaf, any_binders)
                 if read:
-                    message = (
-                        f"JOIN ON reference is ambiguous: {_text(leaf)}; "
-                        f"write {_or_list(read, inputs)}"
-                    )
+                    message = f"JOIN ON reference is ambiguous: {written}"
+                    names = [
+                        f"{any_binders.get(binding, binding)}.{item.field}"
+                        for item in read
+                        for binding in (inputs[item.input].binding,)
+                    ]
+                    # A binder named like another input leaves no spelling.
+                    if len(set(names)) == len(names):
+                        message += f"; write {_or_names(names)}"
                 elif (
                     type(leaf) is DottedNameExpr
                     and found_inputs.ordinals.get(leaf.parts[0], 0) > join.ordinal
                 ):
-                    message = f"JOIN ON reference is forward: {_text(leaf)}"
+                    message = f"JOIN ON reference is forward: {written}"
                 else:
-                    message = f"JOIN ON reference is unknown: {_text(leaf)}"
+                    message = f"JOIN ON reference is unknown: {written}"
                 fail(leaf, "PIE-S2335", message)
             found = _type_join_on(
                 on_clause.expression,
@@ -938,13 +838,7 @@ def _relation_joins(
             clean = clean and not any(
                 diagnostic.severity is Severity.ERROR for diagnostic in found
             )
-        info = _join_info(
-            join, inputs, on_row, _visible_before(definition, join.ordinal)
-        )
-        if info is None:
-            clean = False
-        else:
-            joins.append(info)
+        joins.append(_join_info(join, _visible_before(definition, join.ordinal)))
     if not clean:
         return None
     return RelationJoinsInfo(
@@ -1036,54 +930,22 @@ def _type_join_on(
     return found
 
 
-def _join_info(
-    join: StructuredJoin,
-    inputs: tuple[JoinInputInfo, ...],
-    on_row: RowSchema,
-    earlier: tuple[int, ...],
-) -> JoinInfo | None:
-    """One JOIN's facts; its relationship equalities read their types from
-    the JOIN's `on` row.
-
-    None when a relationship pair names a field that row lacks, which the
-    relationship resolution never gives: the relation then gets no facts,
-    so IR refuses it instead of lowering a guessed equality.
-    """
+def _join_info(join: StructuredJoin, earlier: tuple[int, ...]) -> JoinInfo:
+    """One JOIN's facts: an `on` JOIN or a CROSS JOIN, which no relationship
+    resolves, from the FROM input."""
 
     clause = join.clause
-    resolution = join.relationship
-    source = inputs[join.source_input].binding
-    target = inputs[join.ordinal].binding
-    equalities: list[JoinEqualityInfo] = []
-    for source_field, target_field, comparison, source_operand, target_operand in (
-        () if resolution is None else resolution.pairs
-    ):
-        left = on_row.fields.get(f"{source}.{source_field}")
-        right = on_row.fields.get(f"{target}.{target_field}")
-        if left is None or right is None:
-            return None
-        equalities.append(
-            JoinEqualityInfo(
-                left=JoinFieldRef(input=join.source_input, field=source_field),
-                right=JoinFieldRef(input=join.ordinal, field=target_field),
-                left_type=_field_value_type(left),
-                right_type=_field_value_type(right),
-                comparison=comparison,
-                left_operand=source_operand,
-                right_operand=target_operand,
-            )
-        )
     return JoinInfo(
         ordinal=join.ordinal,
         clause=clause,
         kind=clause.kind,
         mode=join.mode,
-        source_input=join.source_input,
-        source_inferred=join.source_inferred,
+        source_input=0,
+        source_inferred=False,
         target_input=join.ordinal,
-        relationship=None if resolution is None else resolution.relationship,
-        step=clause.traversal_steps[0] if join.mode in {"M2", "M4"} else None,
-        equalities=tuple(equalities),
+        relationship=None,
+        step=None,
+        equalities=(),
         condition=None if clause.on_clause is None else clause.on_clause.expression,
         null_extends=_null_extends(clause.kind, join.ordinal, earlier),
     )
@@ -1103,7 +965,8 @@ def _field_value_type(field: RowField) -> ValueType:
 
 def _tail_expressions(definition: DerivedRelation) -> tuple[Expression, ...]:
     """The expressions that read a relation's tail row as fields: `let:`
-    values, `where`, `group by`, `select` items and an ungrouped `order by`."""
+    values, `where`, `group by`, `select`, `qualify` and an ungrouped
+    `order by`."""
 
     order = definition.order_by_clause
     return (
@@ -1124,6 +987,20 @@ def _tail_expressions(definition: DerivedRelation) -> tuple[Expression, ...]:
         ),
         *(item.expression for item in definition.select_items),
         *(
+            expression
+            for declaration in definition.named_windows
+            if declaration.spec is not None
+            for expression in (
+                *declaration.spec.partition_by,
+                *(item.expression for item in declaration.spec.order_by),
+            )
+        ),
+        *(
+            ()
+            if definition.qualify_clause is None
+            else (definition.qualify_clause.expression,)
+        ),
+        *(
             ()
             if order is None or definition.group_by_clause is not None
             else (item.expression for item in order.items)
@@ -1141,17 +1018,43 @@ def _expression_nodes(root: Expression) -> Iterator[Expression]:
         )
 
 
+def _unknown_call_rows(root: Expression, inputs: _Inputs, join: int) -> set[int]:
+    """The ids of the bare-name arguments of unknown function calls below
+    ``root`` that name an input the `on` of JOIN ``join`` reads: rows, as in
+    a relationship call, not fields."""
+
+    return {
+        id(argument)
+        for node in _expression_nodes(root)
+        if type(node) is CallExpr and is_unknown_function_call(node)
+        for argument in node.arguments
+        if type(argument) is NameExpr
+        and argument.name in inputs.ordinals
+        and inputs.readable(inputs.ordinals[argument.name], join)
+    }
+
+
 def _leaves(
     roots: Sequence[Expression], failed_ids: set[int]
 ) -> Iterator[NameExpr | DottedNameExpr]:
     """The name and dotted name reads below ``roots``, in source order; a
-    call's callee is no read and a window is not entered."""
+    call's callee is no read; a window contributes its arguments and keys."""
 
     pending = list(reversed(roots))
     while pending:
         node = pending.pop()
         if isinstance(node, (NameExpr, DottedNameExpr)):
             yield node
+        elif isinstance(node, WindowExpr):
+            pending.extend(
+                reversed(
+                    (
+                        *node.call.arguments,
+                        *node.spec.partition_by,
+                        *(item.expression for item in node.spec.order_by),
+                    )
+                )
+            )
         elif id(node) in failed_ids and isinstance(node, CallExpr):
             pending.extend(
                 reversed(
@@ -1236,7 +1139,10 @@ def _or_list(
 ) -> str:
     """``b.f`` of each candidate, in input order, as `x`, `x or y` or `x, y or z`."""
 
-    names = [_key(inputs, candidate) for candidate in candidates]
+    return _or_names([_key(inputs, candidate) for candidate in candidates])
+
+
+def _or_names(names: Sequence[str]) -> str:
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
 
 

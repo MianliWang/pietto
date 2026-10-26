@@ -23,7 +23,7 @@ from pietto._project.project_completed_semantics import (
 )
 from pietto._project.project_completion import ProjectExistingEffectiveOutput
 from pietto._project.project_final_outputs import ProjectCompletedEffectiveOutput
-from pietto._project.project_relationship_conditions import (
+from pietto._project.project_row_keys import (
     ProjectExactRowOutputConstraintScope,
     ProjectRelationshipConstraintScopeKind,
 )
@@ -230,7 +230,9 @@ def test_current_conditions_retain_order_fields_types_and_authority(
         ),
     ):
         fact = _named(completed, name)
-        assert fact.ready and fact.mandatory_equalities == ()
+        # A hand-written equality is a match equality without any call.
+        assert fact.ready and len(fact.mandatory_equalities) == 1
+        assert fact.mandatory_equalities[0].calls == ()
         left = fact.references[0].target
         assert left is not None and left.input_field.evidence.name == field_name
         assert left.input_field.evidence.result_role is role
@@ -494,26 +496,7 @@ query order_view:
     if kind is None or (kind in {"inner", "left"} and not refinement):
         parsed = parse_source(source, path="main.pietto")
         assert parsed.ast is not None and parsed.diagnostics == ()
-        # A single file reads the same-file query order_view by name.
-        assert [
-            (d.code, d.severity, d.message, d.location.line, d.location.column)
-            for d in analyze(parsed.ast).diagnostics
-        ] == (
-            [
-                (
-                    "PIE-S2382",
-                    Severity.WARNING,
-                    "`order_view` is a query of this file; single-file SQL reads "
-                    "it by name, so the SQL runs only where the database already "
-                    "has a relation named order_view (an EXPLICIT_MODULES project "
-                    "emits it as a CTE)",
-                    14,
-                    5,
-                )
-            ]
-            if endpoint == "order_view"
-            else []
-        )
+        assert analyze(parsed.ast).diagnostics == ()
     if kind is not None:
         fact = (
             completed.roots.join_conditions.entries[0]
@@ -546,7 +529,12 @@ query order_view:
             expected_parts
         )
         assert all(reference.target is not None for reference in fact.references)
-        assert len(fact.mandatory_equalities) == (2 if endpoint == "orders" else 0)
+        # Every conjunct is an equality of two exact field reads, whether a
+        # call's body or hand-written; only the call's equalities carry it.
+        assert len(fact.mandatory_equalities) == (3 if refinement else 2)
+        assert [bool(item.calls) for item in fact.mandatory_equalities] == [
+            endpoint == "orders"
+        ] * 2 + ([False] if refinement else [])
     if endpoint == "order_view":
         facts = completed.semantic_result.module_semantic_facts
         assert facts is not None
@@ -931,35 +919,7 @@ query chained_customer:
     assert completed.diagnostics == errors
     parsed = parse_source(source, path="main.pietto")
     assert parsed.ast is not None and parsed.diagnostics == ()
-    # A single file also warns at each FROM of a same-file table or query.
-    reads = {
-        line: Diagnostic(
-            code="PIE-S2382",
-            severity=Severity.WARNING,
-            message=f"`{name}` is a {kind} of this file; single-file SQL reads it "
-            "by name, so the SQL runs only where the database already has a "
-            f"relation named {name} (an EXPLICIT_MODULES project emits it as a CTE)",
-            location=SourceLocation(
-                path="main.pietto",
-                line=line,
-                column=5,
-                end_line=line,
-                end_column=10 + len(name),
-            ),
-        )
-        for name, kind, line in (
-            ("renamed", "table", 15),
-            ("renamed", "table", 18),
-            ("passed", "query", 23),
-        )
-    }
-    assert analyze(parsed.ast).diagnostics == (
-        reads[15],
-        reads[18],
-        errors[0],
-        reads[23],
-        *errors[1:],
-    )
+    assert analyze(parsed.ast).diagnostics == errors
     for condition in conditions_in_order:
         assert len(condition.references) == 4
         for reference in condition.references:

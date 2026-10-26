@@ -37,7 +37,7 @@ from pietto.ast_nodes import (
     WindowSpec,
     WindowUseKind,
 )
-from pietto.semantic.aggregates import child_expressions
+from pietto.semantic.aggregates import child_expressions, semantic_aggregate_call_name
 from pietto.semantic.generic_compatibility import SignatureMatch
 from pietto.semantic.model import (
     EffectiveNullability,
@@ -2129,6 +2129,7 @@ class WindowValidationIssueKind(StrEnum):
     FUNCTION_FRAME_POLICY_IDENTITY_MISMATCH = "function_frame_policy_identity_mismatch"
     FRAME_APPLICABILITY_MISMATCH = "frame_applicability_mismatch"
     EXPLICIT_FRAME_FORBIDDEN = "explicit_frame_forbidden"
+    GROUPS_FRAME_REQUIRES_ORDER = "groups_frame_requires_order"
     NESTED_WINDOW_EXPRESSION = "nested_window_expression"
 
 
@@ -2396,6 +2397,16 @@ def _window_validation_issues(
                     kind=WindowValidationIssueKind.EXPLICIT_FRAME_FORBIDDEN,
                 )
             )
+    if (
+        function_identity.name in {"sum", "count", "avg", "min", "max"}
+        and resolved.frame.unit is WindowFrameUnit.GROUPS
+        and not resolved.order_by
+    ):
+        issues.append(
+            WindowValidationIssue(
+                kind=WindowValidationIssueKind.GROUPS_FRAME_REQUIRES_ORDER,
+            )
+        )
 
     nested_expressions = _nested_window_expressions(
         resolved,
@@ -4928,6 +4939,92 @@ class WindowExpressionAnalysis:
     def authored_expression(self) -> WindowExpr:
         """Return the exact parsed use, never the transient effective expression."""
 
+        if self.resolved_named_use is None:
+            return self.semantic_fact.expression
+        return self.resolved_named_use.composed.expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class AggregateWindowAnalysis:
+    """Semantic evidence for one admitted aggregate window call."""
+
+    semantic_fact: WindowExpressionSemanticFact
+    partition_binding_fact: WindowPartitionBindingFact
+    order_binding_fact: WindowOrderBindingFact | None
+    validated_specification: ValidatedWindowSpecification
+    resolved_named_use: ResolvedNamedWindowUse | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.semantic_fact) is not WindowExpressionSemanticFact:
+            raise TypeError("aggregate window semantic fact must be exact")
+        expression = self.semantic_fact.expression
+        if (
+            self.semantic_fact.result.kind is not WindowResultAvailabilityKind.CONCRETE
+            or (type(self.semantic_fact.result.value_type) is not ValueType)
+        ):
+            raise ValueError("aggregate window result must be concrete")
+        if type(self.partition_binding_fact) is not WindowPartitionBindingFact or (
+            self.partition_binding_fact.semantic_fact is not self.semantic_fact
+        ):
+            raise ValueError("aggregate partition facts must share the semantic core")
+        if self.order_binding_fact is not None and (
+            type(self.order_binding_fact) is not WindowOrderBindingFact
+            or self.order_binding_fact.semantic_fact is not self.semantic_fact
+        ):
+            raise ValueError("aggregate order facts must share the semantic core")
+        if type(self.validated_specification) is not ValidatedWindowSpecification or (
+            self.validated_specification.function_identity
+            != self.semantic_fact.identity
+            or self.validated_specification.argument_expressions
+            is not self.semantic_fact.expression.call.arguments
+        ):
+            raise ValueError("aggregate window specification must retain its call")
+        if bool(self.validated_specification.resolved.order_by) is not (
+            self.order_binding_fact is not None
+        ):
+            raise ValueError(
+                "aggregate window order facts must retain the resolved order"
+            )
+        if expression.identity.name not in {"sum", "count", "avg", "min", "max"}:
+            raise ValueError("aggregate window identity is unsupported")
+        if (
+            expression.identity.namespace != ()
+            or expression.identity.role is not WindowFunctionRole.WINDOW_FUNCTION
+            or semantic_aggregate_call_name(expression.call) != expression.identity.name
+        ):
+            raise ValueError("aggregate window call must retain its exact identity")
+        if type(self.validated_specification.frame) is not ValidatedFrame:
+            raise ValueError("aggregate windows require applicable frame semantics")
+        if self.resolved_named_use is None:
+            authored = self.validated_specification.resolved.authored
+            if expression.use_kind is not WindowUseKind.INLINE or (
+                authored.span != expression.spec.span
+                or authored.partition_by is not expression.spec.partition_by
+                or authored.order_by is not expression.spec.order_by
+                or authored.frame is not expression.spec.frame
+            ):
+                raise ValueError("aggregate window requires named-use evidence")
+        elif (
+            type(self.resolved_named_use) is not ResolvedNamedWindowUse
+            or self.resolved_named_use.function_identity != expression.identity
+            or self.resolved_named_use.resolved
+            is not self.validated_specification.resolved
+        ):
+            raise ValueError("aggregate named window evidence is inconsistent")
+        elif (
+            (
+                authored_expression := self.resolved_named_use.composed.expression
+            ).use_kind
+            is WindowUseKind.INLINE
+            or expression.call is not authored_expression.call
+            or expression.nth_direction is not authored_expression.nth_direction
+            or expression.null_treatment is not authored_expression.null_treatment
+            or self.semantic_fact.occurrence.span != authored_expression.span
+        ):
+            raise ValueError("aggregate named window evidence must retain authorship")
+
+    @property
+    def authored_expression(self) -> WindowExpr:
         if self.resolved_named_use is None:
             return self.semantic_fact.expression
         return self.resolved_named_use.composed.expression

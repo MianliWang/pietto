@@ -1199,6 +1199,7 @@ def test_private_public_sql_and_script_relation_ir_remain_unchanged() -> None:
         "limit",
         "group_keys",
         "result_predicate",
+        "qualify",
         "named_windows",
         "inputs",
         "joins",

@@ -997,7 +997,10 @@ def build_row_value(
         return _between(
             request, columns, expression, tag, nullable, uses, reference_type
         )
-    if type(expression) is row.ProjectSQLScalarCall:
+    if type(expression) in {
+        row.ProjectSQLScalarCall,
+        aggregation.ProjectSQLAggregateArgumentCall,
+    }:
         return _scalar_call(
             request, columns, expression, tag, nullable, uses, reference_type
         )
@@ -1441,7 +1444,12 @@ def _scalar_call(
         return None, problem
     realized = tuple(realization_of(value, request.family) for value in values)
     checked, problem = resolved_scalar_call_realization(
-        request.family, expression.callee_symbol, tag, nullable, realized
+        request.family,
+        expression.callee_symbol,
+        tag,
+        nullable,
+        realized,
+        static_values=tuple(_static_literal_value(value) for value in values),
     )
     if checked is None:
         assert problem is not None
@@ -1604,7 +1612,27 @@ def _cast(request, columns, expression, tag, nullable, uses, reference_type):
 
 
 def resolved_cast_realization(family, tag, nullable, value):
-    if tag != "Float" or value.tag != "Int" or proven_int_bounds(value) is None:
+    if value.tag != "Int" or proven_int_bounds(value) is None:
+        return None, ("PIE-B1003", "cast_realization_not_admitted")
+    if tag == "Text":
+        if family != "postgres":
+            return None, ("PIE-B1003", "cast_realization_not_admitted")
+        return (
+            Realization(
+                "Text",
+                {"kind": "pg_text"},
+                nullable,
+                {
+                    "kind": "text",
+                    "max_characters": 20,
+                    "encoding": "UTF8",
+                    "collation": "C",
+                    "padding": "NO PAD",
+                },
+            ),
+            None,
+        )
+    if tag != "Float":
         return None, ("PIE-B1003", "cast_realization_not_admitted")
     return Realization(
         "Float",
@@ -1614,12 +1642,126 @@ def resolved_cast_realization(family, tag, nullable, value):
     ), None
 
 
-def resolved_scalar_call_realization(family, symbol, tag, nullable, values):
+def _static_literal_value(value):
+    """A literal or carried literal-only LET, never an inferred value range."""
+    candidate = value
+    if type(value) is SQLStageReference:
+        origin = value.column.literal
+        if origin is None:
+            return None
+        candidate = origin.value
+    try:
+        leaf = parameters.value_nodes(candidate)[-1]
+        if type(leaf) not in {parameters.SQLLiteral, parameters.SQLParameter}:
+            return None
+        tag = parameters.tag_of(leaf.original)
+        result = parameters.result_value(candidate)
+    except (AttributeError, IndexError, TypeError, ValueError):
+        return None
+    return (tag, result) if tag is not None else None
+
+
+def resolved_scalar_call_realization(
+    family, symbol, tag, nullable, values, *, static_values=None
+):
     """Admit only a canonical builtin identity with its proved physical result."""
     if symbol.namespace is not SymbolNamespace.CALLABLE or not values:
         return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
     name = symbol.name
     value = values[0]
+    static_values = (None,) * len(values) if static_values is None else static_values
+    if name == "round":
+        if family != "postgres" or value.tag != tag:
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+        if tag == "Float" and len(values) == 1:
+            if value.storage == {"kind": "pg_float8"} and value.domain == {
+                "kind": "finite_float",
+                "format": "binary64",
+            }:
+                return Realization(tag, value.storage, nullable, value.domain), None
+            return None, ("PIE-B1004", "float_carrier_missing")
+        if tag != "Decimal" or len(values) not in {1, 2}:
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+        parameters = _decimal_parameters(family, value)
+        if parameters is None:
+            return None, ("PIE-B1004", "decimal_source_carrier_missing")
+        precision, scale = parameters
+        result_digits = 0
+        if len(values) == 2:
+            scale_literal = static_values[1] if len(static_values) > 1 else None
+            if (
+                values[1].tag != "Int"
+                or type(scale_literal) is not tuple
+                or scale_literal[0] != "Int"
+                or type(scale_literal[1]) is not int
+                or not -30 <= scale_literal[1] <= 30
+            ):
+                return None, ("PIE-B1003", "round_scale_not_a_static_supported_int")
+            result_digits = scale_literal[1]
+        result_scale = min(scale, max(result_digits, 0))
+        result_precision = (
+            precision
+            if result_digits >= scale
+            else precision - scale + 1 + result_scale
+        )
+        if not (
+            1 <= result_precision <= 65
+            and 0 <= result_scale <= min(result_precision, 30)
+        ):
+            return None, ("PIE-B1002", "round_result_outside_physical_range")
+        return (
+            Realization(
+                "Decimal",
+                {
+                    "kind": "pg_numeric",
+                    "precision": result_precision,
+                    "scale": result_scale,
+                },
+                nullable,
+                {
+                    "kind": "decimal",
+                    "precision": result_precision,
+                    "scale": result_scale,
+                },
+            ),
+            None,
+        )
+    if name == "date_trunc":
+        if family != "postgres" or len(values) != 2 or values[0].tag != "Text":
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+        unit_literal = static_values[0] if static_values else None
+        temporal = values[1]
+        if (
+            type(unit_literal) is not tuple
+            or unit_literal[0] != "Text"
+            or type(unit_literal[1]) is not str
+            or unit_literal[1]
+            not in (
+                {"year", "month", "day"}
+                if tag == "Date"
+                else {"year", "month", "day", "hour", "minute"}
+            )
+        ):
+            return None, ("PIE-B1003", "date_trunc_unit_not_a_static_supported_text")
+        if (
+            tag == "Date"
+            and temporal.tag == "Date"
+            and (
+                temporal.storage == {"kind": "pg_date"}
+                and temporal.domain == {"kind": "date"}
+            )
+        ):
+            return Realization(tag, temporal.storage, nullable, temporal.domain), None
+        if (
+            tag == "Timestamp"
+            and temporal.tag == "Timestamp"
+            and (
+                temporal.storage == {"kind": "pg_timestamp", "fractional_seconds": 6}
+                and temporal.domain == {"kind": "timestamp"}
+            )
+        ):
+            return Realization(tag, temporal.storage, nullable, temporal.domain), None
+        return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
     if name == "trim" and len(values) == 1 and tag == "Text":
         result = _text_result(
             family, value, nullable, value.domain.get("max_characters")

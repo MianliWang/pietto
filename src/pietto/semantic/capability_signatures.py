@@ -79,8 +79,106 @@ def _freeze_signatures(
     return frozen
 
 
-def _scalar_function_evidence(name: str) -> tuple[CapabilityEvidence, ...]:
-    special = name in {"coalesce", "nullif", "sign", "year", "month", "day"}
+def _scalar_function_evidence(
+    name: str,
+    subject: str | None = None,
+    operands: tuple[str, ...] | None = None,
+) -> tuple[CapabilityEvidence, ...]:
+    c5_signature = (subject, name, operands) in {
+        ("Decimal", "round", ("Decimal", "unknown")),
+        ("Decimal", "round", ("Int", "Decimal", "unknown")),
+        ("Float", "round", ("Float", "unknown")),
+        ("Text", "date_trunc", ("Date", "Date", "unknown")),
+        ("Text", "date_trunc", ("Timestamp", "Timestamp", "unknown")),
+    }
+    special = name in {
+        "coalesce",
+        "nullif",
+        "sign",
+        "year",
+        "month",
+        "day",
+        "round",
+        "date_trunc",
+    }
+    if c5_signature:
+        postgres_reference = {
+            "round": "_render_round_call",
+            "date_trunc": "_render_date_trunc_call",
+        }[name]
+        mysql_reference = {
+            "round": "_Writer.scalar round family branch",
+            "date_trunc": "_Writer.scalar date_trunc family branch",
+        }[name]
+        return (
+            _evidence(
+                CapabilityEvidenceSource.GRAMMAR_AST,
+                "grammar/Pietto.g4",
+                "primaryExpression and callSuffix",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.GRAMMAR_AST,
+                "src/pietto/ast_nodes.py",
+                "CallExpr",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.SEMANTIC_CATALOG,
+                "src/pietto/semantic/catalog.py",
+                "SPECIAL_BUILTIN_FUNCTION_NAMES and is_builtin_function_name",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.SEMANTIC_PROCEDURE,
+                "src/pietto/semantic/expressions.py",
+                "_call_value_type and _call_argument_types",
+                CapabilityReasonCode.UNKNOWN_NULLABILITY,
+            ),
+            _evidence(
+                CapabilityEvidenceSource.SEMANTIC_MODEL,
+                "src/pietto/semantic/model.py",
+                "ValueType and EffectiveNullability.UNKNOWN",
+            ),
+            _evidence(CapabilityEvidenceSource.IR, "src/pietto/ir/model.py", "CallIR"),
+            _evidence(
+                CapabilityEvidenceSource.IR,
+                "src/pietto/ir/lowering.py",
+                "_lower_expr_node CallExpr branch",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.BACKEND,
+                "src/pietto/sql/expressions.py",
+                postgres_reference,
+                dialect="postgresql",
+                backend="postgresql",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.BACKEND,
+                "src/pietto/_project/project_sql_emission_rendering.py",
+                mysql_reference,
+                CapabilityReasonCode.DIALECT_LOWERING_GAP,
+                dialect="mysql",
+                backend="private-mysql",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_semantic_functions.py",
+                "test_c5_scalar_functions_keep_their_approved_types",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_sql_postgres_expressions.py",
+                "test_c5_text_cast_and_scalar_function_sql_shapes",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_sql_mysql_expressions.py",
+                "test_c5_mysql_refuses_unproven_function_shapes",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.SPEC,
+                "docs/language.md",
+                "Expressions: closed scalar surface",
+            ),
+        )
     semantic_test = {
         "lower": "test_text_transform_function_returns_text",
         "trim": "test_text_transform_function_returns_text",
@@ -292,10 +390,10 @@ def _structural_expression_evidence(operation: str) -> tuple[CapabilityEvidence,
     )
 
 
-def _conversion_evidence() -> tuple[CapabilityEvidence, ...]:
-    """Evidence for the single explicit Int-to-Float conversion."""
+def _conversion_evidence(target: str) -> tuple[CapabilityEvidence, ...]:
+    """Evidence for one explicit Int conversion, scoped to its target."""
 
-    return (
+    common = (
         _evidence(
             CapabilityEvidenceSource.GRAMMAR_AST,
             "grammar/Pietto.g4",
@@ -327,6 +425,46 @@ def _conversion_evidence() -> tuple[CapabilityEvidence, ...]:
             dialect="postgresql",
             backend="postgresql",
         ),
+    )
+    if target == "Text":
+        return (
+            *common,
+            _evidence(
+                CapabilityEvidenceSource.BACKEND,
+                "src/pietto/_project/project_sql_emission_rows.py",
+                "resolved_cast_realization Text branch",
+                CapabilityReasonCode.DIALECT_LOWERING_GAP,
+                dialect="mysql",
+                backend="private-mysql",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_semantic_functions.py",
+                "test_c5_scalar_functions_keep_their_approved_types",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_ir_expressions.py",
+                "test_string_agg_lowers_nested_row_lets_in_both_value_roles",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_sql_postgres_expressions.py",
+                "test_c5_text_cast_and_scalar_function_sql_shapes",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_project_numeric_carriers.py",
+                "test_c5_postgres_scalar_carriers_have_their_own_physical_laws",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.SPEC,
+                "docs/language.md",
+                "Expressions: closed scalar surface",
+            ),
+        )
+    return (
+        *common,
         _evidence(
             CapabilityEvidenceSource.BACKEND,
             "src/pietto/sql/mysql_expressions.py",
@@ -393,6 +531,11 @@ _SCALAR_SIGNATURES = (
     ("Date", "year", ("Int", "unknown")),
     ("Date", "month", ("Int", "unknown")),
     ("Date", "day", ("Int", "unknown")),
+    ("Decimal", "round", ("Decimal", "unknown")),
+    ("Decimal", "round", ("Int", "Decimal", "unknown")),
+    ("Float", "round", ("Float", "unknown")),
+    ("Text", "date_trunc", ("Date", "Date", "unknown")),
+    ("Text", "date_trunc", ("Timestamp", "Timestamp", "unknown")),
     ("ValueTypeKind.KNOWN", "conditional", ("Bool", "ValueTypeKind.KNOWN", "unknown")),
     ("ValueTypeKind.KNOWN", "in", ("Bool", "unknown")),
     ("ValueTypeKind.KNOWN", "not in", ("Bool", "unknown")),
@@ -407,7 +550,7 @@ _SCALAR_FUNCTION_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(
         (
             _structural_expression_evidence(operation)
             if operation in {"conditional", "in", "not in"}
-            else _scalar_function_evidence(operation)
+            else _scalar_function_evidence(operation, subject, operands)
         ),
     )
     for subject, operation, operands in _SCALAR_SIGNATURES
@@ -421,7 +564,14 @@ _CONVERSION_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(
             "Int",
             "cast",
             ("Float", "unknown"),
-            _conversion_evidence(),
+            _conversion_evidence("Float"),
+        ),
+        _fact(
+            CapabilityDomain.CONVERSION,
+            "Int",
+            "cast",
+            ("Text", "unknown"),
+            _conversion_evidence("Text"),
         ),
     )
 )
@@ -1031,7 +1181,7 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
         return (
             key.subject == "Int"
             and key.operation == "cast"
-            and key.operands == ("Float", "unknown")
+            and key.operands in {("Float", "unknown"), ("Text", "unknown")}
         )
     return False
 
@@ -1055,6 +1205,24 @@ def _unknown_reason(key: CapabilityKey) -> CapabilityReasonCode | None:
         subject="Text",
         operation="matches",
         operands=("Text", "Bool", "unknown"),
+        context="expression",
+        dialect="mysql",
+    ):
+        return CapabilityReasonCode.DIALECT_LOWERING_GAP
+    if key.domain is CapabilityDomain.SCALAR_FUNCTION and key.dialect == "mysql":
+        if (key.subject, key.operation, key.operands) in {
+            ("Decimal", "round", ("Decimal", "unknown")),
+            ("Decimal", "round", ("Int", "Decimal", "unknown")),
+            ("Float", "round", ("Float", "unknown")),
+            ("Text", "date_trunc", ("Date", "Date", "unknown")),
+            ("Text", "date_trunc", ("Timestamp", "Timestamp", "unknown")),
+        }:
+            return CapabilityReasonCode.DIALECT_LOWERING_GAP
+    if key == CapabilityKey(
+        CapabilityDomain.CONVERSION,
+        subject="Int",
+        operation="cast",
+        operands=("Text", "unknown"),
         context="expression",
         dialect="mysql",
     ):

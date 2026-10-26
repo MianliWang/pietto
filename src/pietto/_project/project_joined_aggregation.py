@@ -68,9 +68,7 @@ from pietto._project.project_scalar_references import (
     ProjectScalarReferenceOccurrence,
     ProjectScalarReferenceResolution,
 )
-from pietto._project.project_relationship_match_guarantees import (
-    resolved_matching_keys,
-)
+from pietto._project.project_join_conditions import resolved_matching_keys
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto.ast_nodes import (
     AuthoredJoinKind,
@@ -1696,131 +1694,380 @@ _NULL_PROPAGATING_CALLS = frozenset(
     {*semantic_catalog.BUILTIN_FUNCTIONS, "sign", "year", "month", "day"}
 )
 
-
-def operation_null_when(role: str, token: object, operands: tuple[bool, ...]) -> bool:
-    """Whether an operation (compiled operator names) is NULL in every row in
-    which some inputs are all NULL-extended, from whether each operand is:
-    ``and``, ``or`` and ``coalesce`` when every operand is, a conditional when
-    its else branch is and its other branch is or its condition is never TRUE
-    (the condition's operand says whether it never is), ``between`` when its
-    value or both bounds are, ``in`` and ``not in`` when their value is and
-    their list is not empty (``in ()`` is FALSE, ``not in ()`` TRUE),
-    ``nullif`` when its first operand is, another operator or builtin that
-    passes NULL on when one operand is, and nothing else (``is null``, a
-    literal)."""
-
-    call = role == "scalar_call"
-    if (role == "binary" and token in {"and", "or"}) or (call and token == "coalesce"):
-        return bool(operands) and all(operands)
-    if role == "conditional":  # when_true, condition, when_false
-        return operands[2] and (operands[0] or operands[1])
-    if role == "between":  # value, lower, upper
-        return operands[0] or (operands[1] and operands[2])
-    if role == "membership":  # value, options
-        return len(operands) > 1 and operands[0]
-    if call and token == "nullif":
-        return bool(operands) and operands[0]
-    return (
-        role in {"unary", "not", "binary", "comparison", "cast"}
-        or (call and token in _NULL_PROPAGATING_CALLS)
-    ) and any(operands)
+# What one expression can be in the rows where some inputs are all
+# NULL-extended: a set of `_NULL`, `True`, `False`, ``("int", n)`` for an Int
+# constant and `_VALUE` for any other value, which a condition may read as
+# TRUE or FALSE.
+_NULL = "null"
+_VALUE = "value"
+_ONLY_NULL = frozenset((_NULL,))
+_UNKNOWN = frozenset((_NULL, True, False, _VALUE))
+_COMPARISONS = frozenset(("==", "!=", "<", "<=", ">", ">="))
+_FLIPPED = {"==": "==", "<": ">", "<=": ">=", ">": "<", ">=": "<="}
 
 
-def _expression_answer(expression: Expression, truth: bool | None, nulls, leaf) -> bool:
-    """Evaluate the existing NULL/truth laws without nesting WHERE and LET stacks."""
-    pending: list[tuple[Any, ...]] = [(expression, truth, None, None, 0)]
-    answers: list[bool] = []
-    while pending:
-        node, question, role, token, count = pending.pop()
-        if role is not None:
-            operands = tuple(answers[-count:]) if count else ()
-            if count:
-                del answers[-count:]
-            if role == "truth":
-                conjunction = (token == "and") == question
-                answers.append(any(operands) if conjunction else all(operands))
-            else:
-                answers.append(operation_null_when(role, token, operands))
-            continue
-        if isinstance(node, (NameExpr, DottedNameExpr)):
-            answers.append(leaf(node, nulls, question))
-            continue
-        if question is not None:
-            if isinstance(node, BinaryExpr) and node.operator in {"and", "or"}:
-                role, token = "truth", node.operator
-                children = ((node.left, question), (node.right, question))
-            elif isinstance(node, UnaryExpr) and node.operator == "not":
-                pending.append((node.operand, not question, None, None, 0))
-                continue
-            elif isinstance(node, IsNullExpr):
-                if node.negated == question:
-                    pending.append((node.value, None, None, None, 0))
-                else:
-                    answers.append(False)
-                continue
-            elif isinstance(node, MembershipExpr) and not node.options:
-                answers.append(node.negated != question)
-                continue
-            else:
-                pending.append((node, None, None, None, 0))
-                continue
+def _truths(values: frozenset) -> frozenset:
+    """The SQL truth values a condition of these values can take."""
+
+    out: set[object] = set()
+    for atom in values:
+        if atom is _NULL or type(atom) is bool:
+            out.add(atom)
         else:
-            if isinstance(node, UnaryExpr):
-                role, operands = "unary", (node.operand,)
-            elif isinstance(node, BinaryExpr):
-                role, token = "binary", node.operator
-                operands = (node.left, node.right)
-            elif isinstance(node, ComparisonExpr):
-                role, operands = "comparison", (node.left, node.right)
-            elif isinstance(node, CastExpr):
-                role, operands = "cast", (node.value,)
-            elif isinstance(node, ConditionalExpr):
-                role = "conditional"
-                operands = (node.when_true, node.condition, node.when_false)
-            elif isinstance(node, BetweenExpr):
-                role, operands = "between", (node.value, node.lower, node.upper)
-            elif isinstance(node, MembershipExpr):
-                role, operands = "membership", (node.value, *node.options)
-            elif isinstance(node, CallExpr) and type(node.callee) is NameExpr:
-                role, token, operands = "scalar_call", node.callee.name, node.arguments
+            out.update((True, False))
+    return frozenset(out)
+
+
+def always_null(values: frozenset) -> bool:
+    return values == _ONLY_NULL
+
+
+def never_true(values: frozenset) -> bool:
+    return True not in _truths(values)
+
+
+def _compared(operator: str, left: object, right: object) -> tuple[object, ...]:
+    if left is _NULL or right is _NULL:
+        return (_NULL,)
+    if type(left) is tuple and type(right) is tuple:
+        a, b = cast(tuple, left)[1], cast(tuple, right)[1]
+        return (
+            {
+                "==": a == b,
+                "!=": a != b,
+                "<": a < b,
+                "<=": a <= b,
+                ">": a > b,
+                ">=": a >= b,
+            }[operator],
+        )
+    if type(left) is bool and type(right) is bool and operator in {"==", "!="}:
+        return ((left == right) == (operator == "=="),)
+    return (True, False)
+
+
+def _comparison(operator: str, left: frozenset, right: frozenset) -> frozenset:
+    return frozenset(
+        value for a in left for b in right for value in _compared(operator, a, b)
+    )
+
+
+def _logical(token: object, left: frozenset, right: frozenset) -> frozenset:
+    out = set()
+    for a in _truths(left):
+        for b in _truths(right):
+            if token == "and" and (a is False or b is False):
+                out.add(False)
+            elif token == "or" and (a is True or b is True):
+                out.add(True)
             else:
-                answers.append(False)
-                continue
-            children = tuple(
-                (operand, True if role == "conditional" and i == 1 else None)
-                for i, operand in enumerate(operands)
+                out.add(_NULL if _NULL in (a, b) else token == "and")
+    return frozenset(out)
+
+
+def _constant(values: frozenset) -> int | None:
+    if len(values) == 1:
+        (atom,) = values
+        if type(atom) is tuple:
+            return cast(tuple, atom)[1]
+    return None
+
+
+def operation_values(
+    role: str, token: object, operands: tuple[frozenset, ...], same_reads: bool
+) -> frozenset:
+    """What an operation (compiled operator names) can be, from what each
+    operand can be, by the SQL rules: three-valued ``and``, ``or`` and
+    ``not``; ``is null`` and its negation; a comparison of two Int or two Bool
+    constants is decided; ``between`` as two comparisons; ``in ()`` is FALSE
+    and ``not in ()`` TRUE; a conditional takes each branch its condition
+    allows; ``coalesce`` its first non-NULL operand; ``nullif`` is NULL when
+    its first operand is or both read the same field (``same_reads``); a sign,
+    arithmetic, a cast and another builtin are NULL with an operand that is,
+    and else may be NULL (a quotient or remainder also with operands that are
+    not); anything else may be anything."""
+
+    nulled = any(always_null(operand) for operand in operands)
+    if role == "not":
+        return frozenset(
+            _NULL if truth is _NULL else not truth for truth in _truths(operands[0])
+        )
+    if role == "binary" and token in {"and", "or"}:
+        return _logical(token, operands[0], operands[1])
+    if role == "null_test":
+        value = operands[0]
+        nulls = {token == "is_null"} if _NULL in value else set()
+        if value - _ONLY_NULL:
+            nulls.add(token != "is_null")
+        return frozenset(nulls)
+    if role == "comparison" and token in _COMPARISONS:
+        return _comparison(cast(str, token), operands[0], operands[1])
+    if role == "between":
+        value, lower, upper = operands
+        return _logical(
+            "and", _comparison(">=", value, lower), _comparison("<=", value, upper)
+        )
+    if role == "membership":
+        if len(operands) == 1:
+            return frozenset((token == "not_in",))
+        value, options = operands[0], operands[1:]
+        if always_null(value):
+            return _ONLY_NULL
+        found = _constant(value)
+        listed = tuple(_constant(option) for option in options)
+        if found is not None and None not in listed:
+            return frozenset(((found in listed) == (token == "in"),))
+        maybe = _NULL in value or any(_NULL in option for option in options)
+        return frozenset((True, False, _NULL) if maybe else (True, False))
+    if role == "conditional":
+        when_true, condition, when_false = operands
+        truths = _truths(condition)
+        out = when_true if True in truths else frozenset()
+        return out | when_false if truths - {True} else out
+    if role == "scalar_call" and token == "coalesce" and operands:
+        out = set()
+        for operand in operands:
+            out.update(operand - _ONLY_NULL)
+            if _NULL not in operand:
+                return frozenset(out)
+        return frozenset((*out, _NULL))
+    if role == "scalar_call" and token == "nullif" and len(operands) == 2:
+        first, second = operands
+        compared = _comparison("==", first, second)
+        if always_null(first) or same_reads or compared == frozenset((True,)):
+            return _ONLY_NULL
+        return first if compared == frozenset((False,)) else first | _ONLY_NULL
+    if nulled and (
+        role in {"unary", "binary", "comparison", "cast"}
+        or (role == "scalar_call" and token in _NULL_PROPAGATING_CALLS)
+    ):
+        return _ONLY_NULL
+    if role == "unary" and token in {"-", "+"}:
+        constant = _constant(operands[0])
+        if constant is not None:
+            return frozenset((("int", -constant if token == "-" else constant),))
+    if role in {"unary", "binary", "comparison", "cast"}:
+        maybe = token in {"/", "%"} or any(_NULL in operand for operand in operands)
+        return frozenset((_VALUE, _NULL) if maybe else (_VALUE,))
+    if role == "scalar_call" and token in _NULL_PROPAGATING_CALLS:
+        return frozenset((_VALUE, _NULL))
+    return _UNKNOWN
+
+
+def _bound(operator: str, constant: int):
+    """The interval of a field that `field operator constant` keeps."""
+
+    return {
+        ">": (constant, True, None, False),
+        ">=": (constant, False, None, False),
+        "<": (None, False, constant, True),
+        "<=": (None, False, constant, False),
+        "==": (constant, False, constant, False),
+    }[operator]
+
+
+def _meet(first, second):
+    lo, lo_open, hi, hi_open = first
+    other_lo, other_lo_open, other_hi, other_hi_open = second
+    if other_lo is not None and (lo is None or other_lo >= lo):
+        lo_open = other_lo_open or (other_lo == lo and lo_open)
+        lo = other_lo
+    if other_hi is not None and (hi is None or other_hi <= hi):
+        hi_open = other_hi_open or (other_hi == hi and hi_open)
+        hi = other_hi
+    return lo, lo_open, hi, hi_open
+
+
+def _empty(bound) -> bool:
+    lo, lo_open, hi, hi_open = bound
+    return (
+        lo is not None
+        and hi is not None
+        and (lo > hi or (lo == hi and (lo_open or hi_open)))
+    )
+
+
+def _held(answers) -> frozenset:
+    """The fields that conditions with these `expression_values` answers,
+    TRUE together, hold to one Int constant each."""
+
+    bounds: dict = {}
+    for _, _, kept in answers:
+        for key, bound in (kept or {}).items():
+            bounds[key] = _meet(bounds[key], bound) if key in bounds else bound
+    return frozenset(
+        key
+        for key, (lo, lo_open, hi, hi_open) in bounds.items()
+        if lo is not None and lo == hi and not (lo_open or hi_open)
+    )
+
+
+def expression_values(root, describe, memo: dict | None = None) -> frozenset:
+    """What ``root`` can be, without recursion. ``describe(node)`` gives one of
+    ``("leaf", values, key)`` (``key`` names the field a read reads, or is
+    None), ``("pass", node)``, ``("literal", value)``, ``("operation", role,
+    token, operands)`` and ``("unknown",)``. A condition that compares one
+    field with an Int constant, or lists one in ``in``, keeps the field's
+    bounds; an ``and`` whose conjuncts keep bounds that no value satisfies
+    together is never TRUE. ``memo`` keeps each node's answer for the
+    caller."""
+
+    done: dict = {} if memo is None else memo
+    pending: list[tuple[Any, bool]] = [(root, False)]
+    while pending:
+        node, ready = pending.pop()
+        if node in done:
+            continue
+        shape = describe(node)
+        kind = shape[0]
+        if kind == "pass":
+            children: tuple = (shape[1],)
+        elif kind == "operation" and not (
+            shape[1] == "membership" and len(shape[3]) == 1
+        ):
+            children = shape[3]
+        else:
+            children = ()
+        if children and not ready:
+            pending.append((node, True))
+            pending.extend((child, False) for child in reversed(children))
+            continue
+        if kind == "leaf":
+            done[node] = (shape[1], shape[2], None)
+        elif kind == "literal":
+            value = shape[1]
+            if value is None:
+                values = _ONLY_NULL
+            elif type(value) is bool:
+                values = frozenset((value,))
+            elif type(value) is int:
+                values = frozenset((("int", value),))
+            else:
+                values = frozenset((_VALUE,))
+            done[node] = (values, None, None)
+        elif kind == "pass":
+            done[node] = done[shape[1]]
+        elif kind == "operation":
+            role, token = shape[1], shape[2]
+            answers: tuple[Any, ...] = tuple(done[child] for child in children) or (
+                (frozenset(), None, None),
             )
-        pending.append((None, question, role, token, len(children)))
-        pending.extend((child, q, None, None, 0) for child, q in reversed(children))
-    return answers[0]
+            keys = tuple(answer[1] for answer in answers)
+            values = operation_values(
+                role,
+                token,
+                tuple(answer[0] for answer in answers),
+                len(keys) == 2 and keys[0] is not None and keys[0] == keys[1],
+            )
+            bounds = None
+            if role == "comparison" and token in _FLIPPED:
+                (left, left_key, _), (right, right_key, _) = answers
+                if left_key is not None and _constant(right) is not None:
+                    bounds = {left_key: _bound(token, cast(int, _constant(right)))}
+                elif right_key is not None and _constant(left) is not None:
+                    bounds = {
+                        right_key: _bound(_FLIPPED[token], cast(int, _constant(left)))
+                    }
+            elif role == "membership" and token == "in" and len(answers) == 2:
+                (_, key, _), (option, _, _) = answers
+                if key is not None and _constant(option) is not None:
+                    bounds = {key: _bound("==", cast(int, _constant(option)))}
+            elif role == "binary" and token == "and":
+                left_bounds, right_bounds = answers[0][2], answers[1][2]
+                bounds = dict(left_bounds or {})
+                for key, bound in (right_bounds or {}).items():
+                    bounds[key] = _meet(bounds[key], bound) if key in bounds else bound
+                if any(_empty(bound) for bound in bounds.values()):
+                    values = values - {True}
+                bounds = bounds or None
+            done[node] = (values, None, bounds)
+        else:
+            done[node] = (_UNKNOWN, None, None)
+    return done[root][0]
 
 
-def _null_when(expression: Expression, nulls: frozenset, leaf) -> bool:
-    """Whether the expression is NULL whenever these inputs are NULL-extended."""
-    return _expression_answer(expression, None, nulls, leaf)
+def _syntax(node: Expression, leaf) -> tuple[Any, ...]:
+    """`expression_values` shape of one written expression."""
+
+    if isinstance(node, (NameExpr, DottedNameExpr)):
+        return ("leaf", *leaf(node))
+    if isinstance(node, LiteralExpr):
+        return ("literal", node.value)
+    if isinstance(node, BinaryExpr):
+        return ("operation", "binary", node.operator, (node.left, node.right))
+    if isinstance(node, UnaryExpr):
+        role = "not" if node.operator == "not" else "unary"
+        return ("operation", role, node.operator, (node.operand,))
+    if isinstance(node, ComparisonExpr):
+        return ("operation", "comparison", node.operator, (node.left, node.right))
+    if isinstance(node, IsNullExpr):
+        token = "is_not_null" if node.negated else "is_null"
+        return ("operation", "null_test", token, (node.value,))
+    if isinstance(node, BetweenExpr):
+        return ("operation", "between", "between", (node.value, node.lower, node.upper))
+    if isinstance(node, MembershipExpr):
+        token = "not_in" if node.negated else "in"
+        return ("operation", "membership", token, (node.value, *node.options))
+    if isinstance(node, ConditionalExpr):
+        operands = (node.when_true, node.condition, node.when_false)
+        return ("operation", "conditional", "if_else", operands)
+    if isinstance(node, CastExpr):
+        return (
+            "operation",
+            "cast",
+            "int_to_" + node.target.name.lower(),
+            (node.value,),
+        )
+    if isinstance(node, CallExpr) and type(node.callee) is NameExpr:
+        return ("operation", "scalar_call", node.callee.name, node.arguments)
+    return ("unknown",)
 
 
-def _never(expression: Expression, truth: bool, nulls: frozenset, leaf) -> bool:
-    """Whether the condition is never this truth under these NULL extensions."""
-    return _expression_answer(expression, truth, nulls, leaf)
+def written_answer(expression: Expression, leaf) -> tuple[Any, ...]:
+    """The `expression_values` answer of a written expression: what it can
+    be, the field it reads and the bounds it keeps; ``leaf(name)`` gives a
+    name's values and the field it reads."""
+
+    by_id: dict[int, Expression] = {}
+
+    def describe(node_id: int):
+        shape = _syntax(by_id[node_id], leaf)
+        if shape[0] == "operation":
+            for child in shape[3]:
+                by_id[id(child)] = child
+            return (*shape[:3], tuple(id(child) for child in shape[3]))
+        return shape
+
+    by_id[id(expression)] = expression
+    memo: dict = {}
+    expression_values(id(expression), describe, memo)
+    return memo[id(expression)]
+
+
+def written_values(expression: Expression, leaf) -> frozenset:
+    """What a written expression can be (`written_answer`)."""
+
+    return written_answer(expression, leaf)[0]
 
 
 def _namespace_leaf(
     input_filter: ProjectConcreteJoinedRowFilter,
     namespace: ProjectJoinedScalarNamespace,
-    answers: dict[tuple[int, frozenset, bool | None], bool] | None = None,
+    nulls: frozenset,
+    maybe: frozenset,
+    answers: dict | None = None,
 ):
-    """Names of one joined namespace: a field is NULL with its JOIN input, a
-    LET value as its expression. A LET value and the values it reads, directly
-    or through others, are answered in declaration order for the input set and
-    every question, so each reads only answers already known and a LET chain
-    needs no recursion."""
+    """Names of one joined namespace in the rows where the inputs of
+    ``nulls`` are all NULL-extended: a field of such an input is NULL, a
+    field that its input declares never None and that no JOIN of ``maybe``
+    may NULL-extend is not, and a LET value is what its expression is. A LET
+    value and the values it reads, directly or through others, are answered
+    in declaration order, so each reads only answers already known and a LET
+    chain needs no recursion."""
 
     known = {} if answers is None else answers
 
-    def leaf(
-        expression: NameExpr | DottedNameExpr, nulls: frozenset, truth: bool | None
-    ) -> bool:
+    def leaf(expression: NameExpr | DottedNameExpr):
         resolution = resolve_project_joined_namespace_reference(
             namespace,
             ProjectScalarReferenceOccurrence(
@@ -1830,7 +2077,7 @@ def _namespace_leaf(
         )
         if type(resolution) is ProjectJoinedLetReferenceResolution:
             target = resolution.target
-            if (id(target), nulls, truth) not in known:
+            if (id(target), nulls, maybe) not in known:
                 read, pending = {id(target)}, [target]
                 while pending:
                     for item in pending.pop().resolutions:
@@ -1840,34 +2087,117 @@ def _namespace_leaf(
                             read.add(id(item.target))
                             pending.append(item.target)
                 for value in (*target.namespace.let_values, target):
-                    if id(value) not in read or (id(value), nulls, None) in known:
+                    if id(value) not in read or (id(value), nulls, maybe) in known:
                         continue
-                    inner = _namespace_leaf(input_filter, value.namespace, known)
+                    inner = _namespace_leaf(
+                        input_filter, value.namespace, nulls, maybe, known
+                    )
                     written = value.occurrence.expression
-                    known[id(value), nulls, None] = _null_when(written, nulls, inner)
-                    for question in (True, False):
-                        known[id(value), nulls, question] = _never(
-                            written, question, nulls, inner
-                        )
-            return known[id(target), nulls, truth]
+                    alias = (
+                        inner(written)
+                        if isinstance(written, (NameExpr, DottedNameExpr))
+                        else None
+                    )
+                    known[id(value), nulls, maybe] = (
+                        alias
+                        if alias is not None
+                        else (written_values(written, inner), None)
+                    )
+            return known[id(target), nulls, maybe]
         if (
             type(resolution) is ProjectScalarReferenceResolution
             and resolution.target is not None
         ):
             field_semantics = _field_semantics(input_filter, resolution.target)
-            return field_semantics.introduction_use in nulls
-        return False
+            use = field_semantics.introduction_use
+            key = (id(use), field_semantics.input_field.field_position)
+            if use in nulls:
+                return _ONLY_NULL, key
+            return _field_values(field_semantics.input_field, use, maybe), key
+        return _UNKNOWN, None
 
     return leaf
+
+
+def _field_values(input_field, use, maybe: frozenset) -> frozenset:
+    """A field of an input that is not NULL-extended in the rows asked about:
+    never NULL when its input declares it never None and no JOIN of ``maybe``
+    may NULL-extend that input."""
+
+    if (
+        input_field.effective_nullability is ProjectRowFieldNullability.NON_NULL
+        and use not in maybe
+    ):
+        return frozenset((_VALUE,))
+    return frozenset((_VALUE, _NULL))
+
+
+def current_unread(input_filter: ProjectConcreteJoinedRowFilter, argument):
+    """Whether an aggregate of ``argument`` reads no row in which every input
+    of ``nulls`` is NULL-extended: its argument is NULL there, or else WHERE
+    is never TRUE there."""
+
+    where = input_filter.where_clause
+    answers: dict = {}
+
+    def unread(nulls: frozenset, maybe: frozenset) -> bool:
+        leaf = _namespace_leaf(
+            input_filter, input_filter.namespace, nulls, maybe, answers
+        )
+        if always_null(written_values(argument, leaf)):
+            return True
+        return where is not None and never_true(written_values(where.expression, leaf))
+
+    return unread
+
+
+def current_held(input_filter: ProjectConcreteJoinedRowFilter):
+    """The fields that WHERE holds to one Int constant each (`_held`) in the
+    rows in which every input of ``nulls`` is NULL-extended."""
+
+    where = input_filter.where_clause
+    answers: dict = {}
+
+    def held(nulls: frozenset, maybe: frozenset) -> frozenset:
+        if where is None:
+            return frozenset()
+        leaf = _namespace_leaf(
+            input_filter, input_filter.namespace, nulls, maybe, answers
+        )
+        return _held((written_answer(where.expression, leaf),))
+
+    return held
+
+
+def _held_key(properties, use_key: object, held: frozenset) -> bool:
+    """Whether the fields of ``held`` that an input (``use_key``, as a read
+    names it) holds to one value each cover a key of its ``properties``: then
+    at most one of its rows is read."""
+
+    positions = {position for use, position in held if use == use_key}
+    return (
+        properties is not None
+        and bool(positions)
+        and _holds_key(
+            properties,
+            tuple(
+                group
+                for group in properties.value_classes
+                if any(member.field_position in positions for member in group.members)
+            ),
+        )
+    )
 
 
 class _RegionJoin(NamedTuple):
     """One JOIN of an aggregate's region: its kind, whether each left row
     matches at most one right row, its left and right inputs (grain,
     introduction), the inputs of its left side, its right input, whether its
-    condition is never TRUE where some inputs are all NULL-extended, and the
-    earlier inputs it pins: its relationship or its `on` equalities match a
-    key of each one, so a right row matches at most one row of it."""
+    condition is never TRUE where some inputs are all NULL-extended (given the
+    inputs an earlier JOIN may NULL-extend), and the earlier inputs it pins:
+    its relationship or its `on` equalities match a key of each one, so a
+    right row matches at most one row of it. ``holds_one(held)`` is whether
+    fields held to one value each cover a key of its right input."""
 
     kind: str
     forward_one: bool
@@ -1875,24 +2205,32 @@ class _RegionJoin(NamedTuple):
     right: tuple[Any, Any]
     left_inputs: frozenset
     target: object
-    rejects: Callable[[frozenset], bool]
+    rejects: Callable[[frozenset, frozenset], bool]
     pins: frozenset
     # Introducing use, exact source domains, complete field pairs, and no extra ON.
     source_match: tuple | None = None
+    holds_one: Callable[[frozenset], bool] | None = None
 
 
-def resolved_orphan_free_dependencies(final_grain, joins, unread, grouped_holder):
+def resolved_orphan_free_dependencies(
+    final_grain, joins, unread, grouped_holder, held=None
+):
     """The left-to-right dependency of each RIGHT or FULL JOIN that holds on
     the rows one aggregate reads; ``project_ir_joins._grain`` leaves it out.
 
     Such a JOIN with an at-most-one match keeps each right row that matches no
     left row (an orphan) beside a left side NULL-extended in every input, so
     its left side determines its right input everywhere but on orphans.
-    ``unread(nulls)`` is whether the aggregate reads no row in which every
-    input of ``nulls`` is NULL-extended (its argument is NULL there, or WHERE
-    is not TRUE). A later JOIN whose condition is never TRUE on an orphan
+    ``unread(nulls, maybe)`` is whether the aggregate reads no row in which
+    every input of ``nulls`` is NULL-extended (its argument is NULL there, or
+    WHERE is not TRUE), where ``maybe`` holds the inputs a JOIN may NULL-extend
+    (a field of any other input that it declares never None is not NULL). A
+    later JOIN whose condition is never TRUE on an orphan
     drops it (INNER, SEMI, RIGHT) or NULL-extends its right input there (LEFT,
-    FULL). An aggregate that reads no orphan gets the dependency back. One
+    FULL). An aggregate that reads no orphan gets the dependency back, and so
+    does one that reads the orphans of at most one right row: ``held(nulls,
+    maybe)`` gives the fields that WHERE holds to one value each there, and
+    they cover a key of the right input (`_RegionJoin.holds_one`). One
     that reads only orphans holding a row of a later JOIN reached from the
     right input through JOINs that each pin the input they match from gets it
     with that JOIN's input added to the determinants: on an orphan that row
@@ -1909,6 +2247,16 @@ def resolved_orphan_free_dependencies(final_grain, joins, unread, grouped_holder
         return multifact._localized_input_factors(
             grain=grain, introduction_use=introduction, final_grain=final_grain
         )
+
+    # The inputs that a JOIN before each JOIN, and then any JOIN, may NULL-extend.
+    extensible, maybe = [], frozenset()
+    for join in joins:
+        extensible.append(maybe)
+        if join.kind in {"left", "full"}:
+            maybe |= {join.target}
+        if join.kind in {"right", "full"}:
+            maybe |= join.left_inputs
+    extensible.append(maybe)
 
     def unread_orphans(position, nulls, holder=None):
         # Orphans of JOIN `position`, those with JOIN `holder`'s input NULL.
@@ -1932,12 +2280,20 @@ def resolved_orphan_free_dependencies(final_grain, joins, unread, grouped_holder
                 if join.kind in {"inner", "right"}:
                     return True
                 nulls |= {join.target}
-            elif join.rejects(nulls):
+            elif join.rejects(nulls, extensible[index]):
                 if join.kind in {"inner", "semi", "right"}:
                     return True
                 if join.kind in {"left", "full"}:
                     nulls |= {join.target}
-        return unread(nulls)
+        if unread(nulls, extensible[-1]):
+            return True
+        # WHERE holds a key of the right input to one value: one orphan at most.
+        holds_one = joins[position].holds_one
+        return (
+            held is not None
+            and holds_one is not None
+            and holds_one(held(nulls, extensible[-1]))
+        )
 
     dependencies = []
     for position, join in enumerate(joins):
@@ -1984,35 +2340,6 @@ def _holds_key(properties, matched) -> bool:
     return bool(matched) and bool(resolved_matching_keys(properties.keys, matched))
 
 
-def _current_source_match(guarantee, source, unconditional):
-    """Complete equality match between exact direct source declaration domains."""
-    direction = guarantee.direction
-    endpoints = (direction.source.target, direction.target.target)
-    if any(
-        endpoint is None or type(endpoint.target_occurrence.definition) is not SourceDef
-        for endpoint in endpoints
-    ):
-        return None
-    pairs = tuple(
-        zip(
-            guarantee.source_matched_classes,
-            guarantee.target_matched_classes,
-            strict=True,
-        )
-    )
-    if any(len(a.members) != 1 or len(b.members) != 1 for a, b in pairs):
-        return None
-    return (
-        source,
-        endpoints[0].target_occurrence,
-        endpoints[1].target_occurrence,
-        tuple(
-            (a.members[0].field_position, b.members[0].field_position) for a, b in pairs
-        ),
-        unconditional,
-    )
-
-
 def _predicate_source_match(region, condition):
     """Complete mandatory pairs and exact full-ON coverage for two source inputs."""
     equalities = condition.mandatory_equalities
@@ -2024,7 +2351,6 @@ def _predicate_source_match(region, condition):
         or any(
             item.condition is not condition
             or item.comparison is not condition.conjuncts[item.conjunct_position]
-            or not item.calls
             for item in equalities
         )
     ):
@@ -2082,25 +2408,6 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
     target = join.input_uses[1]
     left = (join.left_input.grain, join.input_uses[0])
     right = (join.right_input.grain, target)
-    if not isinstance(join, multifact.ProjectCurrentBinaryJoin):
-        # One relationship hop: its equalities read one source input.
-        sources = frozenset(pair.left.introduction_use for pair in join.matches)
-        guarantee = join.guarantee
-        return _RegionJoin(
-            join.kind.value,
-            False,
-            left,
-            right,
-            frozenset(),
-            target,
-            lambda nulls: not sources.isdisjoint(nulls),
-            sources
-            if _holds_key(guarantee.source_output, guarantee.source_matched_classes)
-            else frozenset(),
-            _current_source_match(guarantee, next(iter(sources)), True)
-            if len(sources) == 1
-            else None,
-        )
     condition = join.condition
     references = {
         id(reference.expression): reference.target
@@ -2108,41 +2415,26 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
         if reference.target is not None
     }
 
-    def leaf(
-        expression: NameExpr | DottedNameExpr, nulls: frozenset, _truth: object
-    ) -> bool:
-        field = references.get(id(expression))
-        return field is not None and region.introduction(field.binding) in nulls
-
-    # A relationship's field equalities read its one source input.
-    base = condition.base_guarantee
-    sources = condition.environment.source_candidates
-    source = (
-        region.introduction(sources[0])
-        if base is not None and len(sources) == 1
-        else None
-    )
     expression = condition.expression
 
-    def rejects(nulls: frozenset) -> bool:
-        return (
-            source in nulls
-            or any(
-                region.introduction(field.binding) in nulls
-                for equality in condition.mandatory_equalities
-                for field in (equality.left, equality.right)
-            )
-            or (expression is not None and _never(expression, True, nulls, leaf))
-        )
+    def rejects(nulls: frozenset, maybe: frozenset) -> bool:
+        def leaf(expression: NameExpr | DottedNameExpr):
+            # A field as this JOIN reads it, before it adds NULLs.
+            field = references.get(id(expression))
+            if field is None:
+                return _UNKNOWN, None
+            use = region.introduction(field.binding)
+            if use in nulls:
+                return _ONLY_NULL, id(field)
+            return _field_values(field.input_field, use, maybe), id(field)
+
+        return any(
+            region.introduction(field.binding) in nulls
+            for equality in condition.mandatory_equalities
+            for field in (equality.left, equality.right)
+        ) or (expression is not None and never_true(written_values(expression, leaf)))
 
     pins = set()
-    if (
-        base is not None
-        and source is not None
-        and _holds_key(base.source_output, base.source_matched_classes)
-    ):
-        pins.add(source)
-    # Preserve the existing handwritten ON pinning law independently.
     equated: dict[int, tuple[Any, list[Any]]] = {}
     target_binding = condition.use.target_binding
     for conjunct in condition.conjuncts:
@@ -2177,6 +2469,7 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
         for proof in condition.key_matches
         if proof.binding is not condition.use.target_binding
     )
+    target_output = condition.use.target_binding.output
     return _RegionJoin(
         join.kind.value,
         current_forward_at_most_one(condition),
@@ -2189,9 +2482,8 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
         target,
         rejects,
         frozenset(pins),
-        _current_source_match(base, source, expression is None)
-        if base is not None and source is not None
-        else _predicate_source_match(region, condition),
+        _predicate_source_match(region, condition),
+        lambda held: _held_key(target_output, id(target), held),
     )
 
 
@@ -2204,14 +2496,11 @@ def orphan_free_dependencies(
         not aggregate.call.arguments
         or type(region) is not multifact.ProjectCurrentMultiFactRegion
         or not any(
-            isinstance(join, multifact.ProjectCurrentBinaryJoin)
-            and join.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+            join.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
             for join in region.region.joins
         )
     ):
         return ()
-    leaf = _namespace_leaf(input_filter, input_filter.namespace)
-    argument, where = aggregate.call.arguments[0], input_filter.where_clause
     groups = None
 
     def grouped_holder(target):
@@ -2240,11 +2529,9 @@ def orphan_free_dependencies(
     return resolved_orphan_free_dependencies(
         region.final_properties.relational.grain,
         tuple(_region_join(region.region, join) for join in region.region.joins),
-        lambda nulls: (
-            _null_when(argument, nulls, leaf)
-            or (where is not None and _never(where.expression, True, nulls, leaf))
-        ),
+        current_unread(input_filter, aggregate.call.arguments[0]),
         grouped_holder,
+        current_held(input_filter),
     )
 
 
@@ -2278,11 +2565,7 @@ def _multiplicity_exposures(
     *,
     aggregate: ProjectJoinedAggregateOccurrence,
     comparison: multifact.ProjectFactGrainComparison,
-) -> tuple[
-    multifact.ProjectFactMultiplicityExposure
-    | multifact.ProjectCurrentMultiplicityExposure,
-    ...,
-]:
+) -> tuple[multifact.ProjectCurrentMultiplicityExposure, ...]:
     region = aggregate.input_filter.joined_semantics.row_source.region
     pairs = resolved_multiplicity_exposures(
         comparison,
@@ -2298,13 +2581,6 @@ def _multiplicity_exposures(
         raise ValueError("Source aggregate exposure requires source JOIN factors.")
     return tuple(
         multifact.ProjectCurrentMultiplicityExposure(
-            join=join,
-            factor_additions=cast(
-                tuple[multifact.ProjectJoinGrainFactorIdentity, ...], additions
-            ),
-        )
-        if isinstance(join, multifact.ProjectCurrentBinaryJoin)
-        else multifact.ProjectFactMultiplicityExposure(
             join=join,
             factor_additions=cast(
                 tuple[multifact.ProjectJoinGrainFactorIdentity, ...], additions
@@ -2348,10 +2624,7 @@ class ProjectJoinedAggregateGrainLinkage:
     """One aggregate's exact contextual grain and final fanout proof."""
 
     aggregate: ProjectJoinedAggregateOccurrence
-    multifact_region: (
-        multifact.ProjectMultiFactConcreteRegion
-        | multifact.ProjectCurrentMultiFactRegion
-    ) = field(
+    multifact_region: multifact.ProjectCurrentMultiFactRegion = field(
         repr=False,
         compare=False,
         hash=False,
@@ -2365,11 +2638,7 @@ class ProjectJoinedAggregateGrainLinkage:
     contextual_grain: multifact.ProjectFactContextualGrain
     final_grain: multifact.ProjectIRProvidedIntrinsicGrain
     final_comparison: multifact.ProjectFactGrainComparison
-    multiplicity_exposures: tuple[
-        multifact.ProjectFactMultiplicityExposure
-        | multifact.ProjectCurrentMultiplicityExposure,
-        ...,
-    ]
+    multiplicity_exposures: tuple[multifact.ProjectCurrentMultiplicityExposure, ...]
     multiplicity_risks: tuple[multifact.ProjectMultiFactMultiplicityRisk, ...]
     requirements: tuple[multifact.ProjectMultiFactRequirement, ...]
 
@@ -2377,10 +2646,7 @@ class ProjectJoinedAggregateGrainLinkage:
         if (
             type(self.aggregate) is not ProjectJoinedAggregateOccurrence
             or type(self.multifact_region)
-            not in {
-                multifact.ProjectMultiFactConcreteRegion,
-                multifact.ProjectCurrentMultiFactRegion,
-            }
+            is not multifact.ProjectCurrentMultiFactRegion
             or type(self.final_grain) is not multifact.ProjectIRProvidedIntrinsicGrain
             or type(self.combined_seed) is not ProjectGrainFactorSet
             or type(self.closure) is not ProjectGrainFactorSet
@@ -4245,7 +4511,8 @@ def compiled_orphan_free_dependencies(ir, region, stage, arguments):
 
     records = ir.completed.root.records
     joins = {join.record.address: join for join in region.joins}
-    known: dict[tuple[Any, frozenset, bool | None], bool] = {}
+    memos: dict[tuple[frozenset, frozenset], dict] = {}
+    counted: dict[tuple[frozenset, frozenset], set] = {}
     visits = 0
 
     def introductions(use):
@@ -4269,51 +4536,48 @@ def compiled_orphan_free_dependencies(ir, region, stage, arguments):
             return origin(record.get("source" if address.kind == "port" else "input"))
         return None
 
-    def ask(address, nulls, truth=None):
-        # `_null_when` for ``truth`` None, else `_never`, over compiled records.
-        nonlocal visits
-        if (address, nulls, truth) in known:
-            return known[address, nulls, truth]
-        visits += 1
-        if visits > MAX_RECORDS:
-            raise ValueError("COMPILED_AGGREGATE_DEPENDENCY_EXPANSION")
-        record = records[address]
-        if address.kind == "read":
-            use = record.get("use")
-            if use in region.uses and records[use].get("producer") not in joins:
-                result = use in nulls
-            else:
-                result = ask(record.get("port"), nulls, truth)
-        elif address.kind in ("port", "join_value"):
-            source = record.get("source" if address.kind == "port" else "input")
-            result = ask(source, nulls, truth)
-        elif address.kind == "operation":
-            (role, token), operands = record.get("operator"), record.get("operands")
-            if truth is not None and role == "binary" and token in ("and", "or"):
-                left, right = (ask(a, nulls, truth) for a in operands)
-                conjunction = (token == "and") == truth
-                result = (left or right) if conjunction else (left and right)
-            elif truth is not None and role == "not":
-                result = ask(operands[0], nulls, not truth)
-            elif truth is not None and role == "null_test":
-                result = (token == "is_not_null") == truth and ask(operands[0], nulls)
-            elif truth is not None and role == "membership" and len(operands) == 1:
-                result = (token == "not_in") != truth
-            else:
-                result = operation_null_when(
-                    role,
-                    token,
-                    tuple(
-                        ask(
-                            a, nulls, True if role == "conditional" and i == 1 else None
-                        )
-                        for i, a in enumerate(operands)
-                    ),
+    def answer(address, nulls, maybe):
+        # `expression_values` of a compiled value in the rows asked about,
+        # with what it reads and, for a condition, the field bounds it keeps.
+        memo = memos.setdefault((nulls, maybe), {})
+
+        def describe(node):
+            nonlocal visits
+            if node not in counted.setdefault((nulls, maybe), set()):
+                counted[nulls, maybe].add(node)
+                visits += 1
+                if visits > MAX_RECORDS:
+                    raise ValueError("COMPILED_AGGREGATE_DEPENDENCY_EXPANSION")
+            record = records[node]
+            if node.kind == "read":
+                use = record.get("use")
+                if use in region.uses and records[use].get("producer") not in joins:
+                    ordinal = records[record.get("port")].get("ordinal")
+                    if use in nulls:
+                        return ("leaf", _ONLY_NULL, (use, ordinal))
+                    relational = region.uses[use].producer.properties.relational
+                    field = relational.fields[ordinal]
+                    return ("leaf", _field_values(field, use, maybe), (use, ordinal))
+                return ("pass", record.get("port"))
+            if node.kind in ("port", "join_value"):
+                return (
+                    "pass",
+                    record.get("source" if node.kind == "port" else "input"),
                 )
-        else:
-            result = False
-        known[address, nulls, truth] = result
-        return result
+            if node.kind == "operation":
+                role, token = record.get("operator")
+                return ("operation", role, token, tuple(record.get("operands")))
+            if node.kind == "literal":
+                return ("literal", record.get("value").value)
+            if node.kind == "null_literal":
+                return ("literal", None)
+            return ("unknown",)
+
+        expression_values(address, describe, memo)
+        return memo[address]
+
+    def values(address, nulls, maybe):
+        return answer(address, nulls, maybe)[0]
 
     if not arguments or not any(
         join.record.get("kind") in ("right", "full") for join in region.joins
@@ -4408,12 +4672,18 @@ def compiled_orphan_free_dependencies(ir, region, stage, arguments):
                 (right_properties.grain, right),
                 introductions(left_address),
                 right_address,
-                lambda nulls, equalities=equalities, predicate=predicate: (
-                    any(ask(a, nulls) for a in equalities)
-                    or (predicate is not None and ask(predicate, nulls, True))
+                lambda nulls, maybe, equalities=equalities, predicate=predicate: (
+                    any(always_null(values(a, nulls, maybe)) for a in equalities)
+                    or (
+                        predicate is not None
+                        and never_true(values(predicate, nulls, maybe))
+                    )
                 ),
                 frozenset(pins),
                 source_match,
+                lambda held, use=right_address, properties=right_properties: _held_key(
+                    properties, use, held
+                ),
             )
         )
     predicates = []
@@ -4444,11 +4714,27 @@ def compiled_orphan_free_dependencies(ir, region, stage, arguments):
     return resolved_orphan_free_dependencies(
         region.final_properties.grain,
         tuple(entries),
-        lambda nulls: (
-            ask(arguments[0], nulls) or any(ask(p, nulls, True) for p in predicates)
+        lambda nulls, maybe: (
+            always_null(values(arguments[0], nulls, maybe))
+            or _never_all(tuple(answer(p, nulls, maybe) for p in predicates))
         ),
         grouped_holder,
+        lambda nulls, maybe: _held(tuple(answer(p, nulls, maybe) for p in predicates)),
     )
+
+
+def _never_all(answers) -> bool:
+    """Whether conditions with these `expression_values` answers are never all
+    TRUE: one of them is never TRUE, or the field bounds they keep together
+    are empty, as for the conjuncts of one ``and``."""
+
+    bounds: dict = {}
+    for values, _, kept in answers:
+        if never_true(values):
+            return True
+        for key, bound in (kept or {}).items():
+            bounds[key] = _meet(bounds[key], bound) if key in bounds else bound
+    return any(_empty(bound) for bound in bounds.values())
 
 
 def _compiled_non_null_classes(ir, region, properties, use):

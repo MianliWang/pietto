@@ -479,7 +479,6 @@ def test_source_is_private_deterministic_and_uses_only_existing_exact_authority(
         "pietto._project.module_attribution",
         "pietto._project.module_catalog",
         "pietto._project.module_semantic_fact_preservation",
-        "pietto._project.project_relationship_conditions",
         "pietto._project.project_row_keys",
     } <= facts.imported_modules
     assert (

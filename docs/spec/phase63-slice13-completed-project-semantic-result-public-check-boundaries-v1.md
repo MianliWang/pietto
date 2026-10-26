@@ -150,14 +150,14 @@ source 的 shape 字段上，且该字段被无 ON 的单跳 relationship JOIN �
 target 字段、INNER 的 source 字段；同一个 key 只列一次并写出它服务的全部 JOIN；单独应用即可
 消除 fan-out 原因），或点名其 unique key 能闭合证明的 binding（binding 须为 source 或已有
 全部字段不为 None 的 key 的输入；按这些 key 分组即可消除原因，但会改变查询粒度，所以消息
-不教分组，而教在 `on` 里用 relationship 调用匹配这些 binding 的全部字段不为 None 的
-unique key、只用于过滤的输入改用 `any(...)`，或先在单独的查询里聚合）。证明无法确认的
+不教分组，而教在 `on` 里匹配这些 binding 的 unique key、只用于过滤的
+输入改用 `any(...)`，或先在单独的查询里聚合）。证明无法确认的
 补救不列出，因此从句可能不含补救（例如 multi-hop VIA 或 UNION 输入）；已证明的 key 从不
 列出。未分组的 aggregate 若后接 ORDER BY、window 或 QUALIFY，应用 key 补救后仍以原 message
 被拒绝：
 
 ```text
-PIE-S2333 — Project relation semantic completion is unavailable: q (an aggregate may read rows repeated by JOIN cust; declare a unique key on customers.id (matched by JOIN cust), or match a unique key of cust whose fields are never None in `on` with a relationship call, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)
+PIE-S2333 — Project relation semantic completion is unavailable: q (an aggregate may read rows repeated by JOIN cust; declare a unique key on customers.id (matched by JOIN cust), or match a unique key of cust in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)
 ```
 
 code、severity、span 与顺序不变；仅读取该 relation 的下游 relation 保持原有 message。

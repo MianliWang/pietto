@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import bisect
+import contextlib
+import contextvars
 import dataclasses
 import functools
 import itertools
 from collections import ChainMap, Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ParamSpec, cast
 
@@ -78,6 +80,7 @@ from pietto.semantic.row_lookup import bare_field, has_bare_field, qualified_fie
 if TYPE_CHECKING:
     from pietto._inline_argument import InlinedArgument
     from pietto.semantic.window_semantics import (
+        AggregateWindowAnalysis,
         ResolvedNamedWindowNamespace,
         WindowComputationAnalysis,
         WindowExpressionAnalysis,
@@ -198,8 +201,10 @@ def _fits_parameters(
     """Check an argument of ``value_type`` against each ``def`` parameter it
     is inlined for.
 
-    A known type must be the parameter type after alias expansion, and a
-    ``not null`` parameter takes only a value proven non-null, unless
+    A known type must be the parameter type after alias expansion, or for a
+    nullable numeric parameter a number of another type that is always null
+    (`_fits_null_number`), and a ``not null`` parameter takes only a value
+    proven non-null, unless
     ``unchecked`` finds that its unknown nullability is not checked
     (`_typed_beside_unknown`). An argument
     that is always null (``null``, by default `always_null` of
@@ -232,7 +237,10 @@ def _fits_parameters(
         type_fits = not known or (
             canonical is not None
             and canonical.kind is TypeKind.BUILTIN
-            and canonical.name == slot.type_name
+            and (
+                canonical.name == slot.type_name
+                or (slot.nullable and _fits_null_number(canonical, slot, is_null))
+            )
         )
         if type_fits and (
             slot.nullable
@@ -1228,7 +1236,7 @@ def type_relation_expressions(
 ) -> tuple[
     dict[Expression, ValueType],
     list[Diagnostic],
-    dict[WindowExpr, WindowExpressionAnalysis],
+    dict[WindowExpr, WindowExpressionAnalysis | AggregateWindowAnalysis],
     dict[DerivedRelation, ResolvedNamedWindowNamespace],
 ]:
     """Type supported table/query expressions without validating consumers.
@@ -1248,7 +1256,9 @@ def type_relation_expressions(
         else {}
     )
     diagnostics: list[Diagnostic] = []
-    window_analyses: dict[WindowExpr, WindowExpressionAnalysis] = {}
+    window_analyses: dict[
+        WindowExpr, WindowExpressionAnalysis | AggregateWindowAnalysis
+    ] = {}
     named_window_namespaces: dict[
         DerivedRelation,
         ResolvedNamedWindowNamespace,
@@ -1297,14 +1307,7 @@ def type_relation_expressions(
                     bare_value_types=let_value_types,
                     type_expansions=type_expansions,
                 )
-        # Phase A already refuses these windows; an unknown JOIN row must not
-        # add a window-input cascade while other expressions still get checked.
-        join_windows_refused = (
-            single_file
-            and bool(definition.join_clauses)
-            and joined_inputs is not None
-            and definition in joined_inputs
-        )
+        join_windows_refused = False
         named_window_namespace_failed = False
         named_window_namespace = None
         if definition.named_windows and not join_windows_refused:
@@ -1403,6 +1406,7 @@ def type_relation_expressions(
                     named_window_namespace=named_window_namespace,
                     type_expansions=type_expansions,
                     let_extrema=False,
+                    allow_aggregate_windows=single_file,
                 )
                 # A window read of a let name PIE-S2329 refused reports nothing
                 # more. Dropping its unknown-field report afterwards keeps the
@@ -1415,11 +1419,14 @@ def type_relation_expressions(
                     or diagnostic.message not in refused_reads
                 ]
                 from pietto.semantic.window_semantics import (
+                    AggregateWindowAnalysis,
                     WindowExpressionAnalysis,
                     WindowResultAvailabilityKind,
                 )
 
-                if type(analysis) is WindowExpressionAnalysis:
+                if isinstance(
+                    analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)
+                ):
                     window_analyses[item.expression] = analysis
                     # A project checks only RANGE offsets, as explicit modules do.
                     diagnostics.extend(
@@ -1472,6 +1479,112 @@ def type_relation_expressions(
                 bare_value_expressions=let_expressions,
                 suppressed_unknown_names=rejected_lets,
                 type_expansions=type_expansions,
+            )
+        if definition.qualify_clause is not None:
+            qualify = definition.qualify_clause.expression
+            for hidden_ordinal, window in enumerate(
+                _window_expressions(qualify), len(definition.select_items)
+            ):
+                if join_windows_refused or named_window_namespace_failed:
+                    continue
+                from pietto.semantic.window_analysis import analyze_window_expression
+                from pietto.semantic.window_semantics import (
+                    AggregateWindowAnalysis,
+                    WindowExpressionAnalysis,
+                    WindowResultAvailabilityKind,
+                )
+
+                analysis = analyze_window_expression(
+                    definition=definition,
+                    item=SelectItem(alias=None, expression=window, span=window.span),
+                    selected_output_ordinal=hidden_ordinal,
+                    source_id=window.span.path or definition.name,
+                    input_schema=input_schema,
+                    field_qualifier=(
+                        definition.from_clause.binding_name
+                        or definition.from_clause.source_name
+                    ),
+                    value_types=value_types,
+                    diagnostics=diagnostics,
+                    let_value_types=let_value_types or {},
+                    let_expressions=let_expressions or {},
+                    named_window_namespace=named_window_namespace,
+                    type_expansions=type_expansions,
+                    let_extrema=False,
+                    allow_hidden=True,
+                    allow_aggregate_windows=single_file,
+                )
+                if isinstance(
+                    analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)
+                ):
+                    window_analyses[window] = analysis
+                    if single_file:
+                        diagnostics.extend(
+                            _window_literal_range_diagnostics(
+                                window,
+                                analysis,
+                                input_schema,
+                                let_expressions or {},
+                                erroneous_lets,
+                                units=frozenset(WindowFrameUnit),
+                                counts=True,
+                            )
+                        )
+                    result = analysis.semantic_fact.result
+                    if (
+                        result.kind is WindowResultAvailabilityKind.CONCRETE
+                        and result.value_type is not None
+                    ):
+                        value_types[window] = result.value_type
+                else:
+                    value_types[window] = _UNKNOWN_VALUE_TYPE
+            output_types = {
+                name: value_types.get(item.expression, _UNKNOWN_VALUE_TYPE)
+                for name, item in zip(
+                    selected_output_names, definition.select_items, strict=True
+                )
+                if name is not None and selected_output_name_counts[name] == 1
+            }
+            for name in _bare_names(qualify):
+                ambiguity = qualify_output_ambiguity(
+                    name,
+                    definition,
+                    input_schema,
+                    let_names={*(let_value_types or {}), *rejected_lets},
+                )
+                if ambiguity is not None:
+                    diagnostics.append(ambiguity)
+            start = len(diagnostics)
+            qualify_type = _infer(
+                qualify,
+                input_schema,
+                value_types,
+                diagnostics,
+                report_unknown_name=True,
+                field_qualifier=(
+                    definition.from_clause.binding_name
+                    or definition.from_clause.source_name
+                ),
+                bare_value_types={**(let_value_types or {}), **output_types},
+                bare_value_expressions=let_expressions,
+                suppressed_unknown_names=rejected_lets,
+                type_expansions=type_expansions,
+            )
+            _append_condition_diagnostic(
+                qualify,
+                "qualify clause",
+                value_types,
+                diagnostics,
+                type_expansions,
+                explained=qualify_type.kind is ValueTypeKind.KNOWN
+                or unknown_explained(
+                    qualify,
+                    diagnostics[start:],
+                    input_schema,
+                    let_expressions,
+                ),
+                row_schema=input_schema,
+                lets=let_expressions,
             )
         if (
             definition.order_by_clause is not None
@@ -1580,7 +1693,34 @@ def type_relation_expressions(
                 if problem is not None:
                     diagnostics.append(_order_key_diagnostic(item.expression, problem))
 
-    return value_types, diagnostics, window_analyses, named_window_namespaces
+    return (
+        value_types,
+        diagnostics,
+        window_analyses,
+        named_window_namespaces,
+    )
+
+
+def _window_expressions(expression: Expression) -> Iterator[WindowExpr]:
+    """Yield every authored window predicate leaf in source traversal order."""
+
+    if type(expression) is WindowExpr:
+        yield expression
+        return
+    for child in _captured_field_children(expression):
+        yield from _window_expressions(child)
+
+
+def _bare_names(expression: Expression) -> Iterator[NameExpr]:
+    """Yield each bare candidate so QUALIFY never chooses an input or output."""
+
+    if type(expression) is NameExpr:
+        yield expression
+        return
+    if type(expression) is WindowExpr:
+        return
+    for child in _captured_field_children(expression):
+        yield from _bare_names(child)
 
 
 _SIGNED64_MAX = (1 << 63) - 1
@@ -1590,7 +1730,9 @@ _WINDOW_COUNT_POSITIONS = {"ntile": 0, "lag": 1, "lead": 1, "nth_value": 1}
 
 def _window_literal_range_diagnostics(
     expression: WindowExpr,
-    analysis: WindowExpressionAnalysis | WindowComputationAnalysis,
+    analysis: (
+        WindowExpressionAnalysis | AggregateWindowAnalysis | WindowComputationAnalysis
+    ),
     input_schema: RowSchema | None,
     let_expressions: Mapping[str, Expression],
     erroneous_lets: set[str],
@@ -1997,7 +2139,10 @@ def _captured_field_children(expression: Expression) -> tuple[Expression, ...]:
     """Direct value children where a captured field read may be written."""
 
     if isinstance(expression, CallExpr):
-        return expression.arguments
+        return (
+            *expression.arguments,
+            *(item.expression for item in expression.aggregate_order_by),
+        )
     if isinstance(expression, UnaryExpr):
         return (expression.operand,)
     if isinstance(expression, ConditionalExpr):
@@ -2306,6 +2451,17 @@ def _infer(
             )
             if contextual is not None:
                 left_type = contextual[0]
+        if column is not None:
+            left_type = _membership_text_literal_types(
+                (
+                    _comparison_literal(
+                        expression.value, row_schema, bare_value_expressions
+                    ),
+                    None,
+                ),
+                (left_type, column),
+                type_expansions,
+            )[0]
         if left_type.kind is ValueTypeKind.UNKNOWN:
             value_type = _UNKNOWN_VALUE_TYPE
         elif (
@@ -2667,6 +2823,16 @@ def _unary_value_type(
     ):
         # `not` reads its operand as a condition.
         expected = "Bool operand"
+    if expected is not None and expression.operator in {"+", "-"}:
+        null_number = _null_number_type(
+            (expression.operand,),
+            (operand_type,),
+            row_schema,
+            bare_value_expressions,
+            type_expansions,
+        )
+        if null_number is not None:
+            result, expected = null_number, None
     if expected is not None:
         diagnostics.append(
             _invalid_operator_operands_diagnostic(expression, expected=expected)
@@ -2865,6 +3031,15 @@ def _conditional_value_type(
         type_expansions,
     )
     if canonical is None:
+        null_number = _null_number_type(
+            (expression.when_true, expression.when_false),
+            (when_true_type, when_false_type),
+            row_schema,
+            bare_value_expressions,
+            type_expansions,
+        )
+        canonical = None if null_number is None else null_number.resolved_type
+    if canonical is None:
         diagnostics.append(
             _invalid_operator_operands_diagnostic(
                 expression,
@@ -2935,6 +3110,14 @@ def _membership_value_type(
             )
             diagnostics.append(_null_comparison_diagnostic(expression, remedy=remedy))
             return _UNKNOWN_VALUE_TYPE
+    child_types = _membership_text_literal_types(
+        tuple(
+            _comparison_literal(operand, row_schema, bare_value_expressions)
+            for operand in (expression.value, *expression.options)
+        ),
+        child_types,
+        type_expansions,
+    )
     nulls = _null_reads(
         (expression.value, *expression.options),
         row_schema,
@@ -2966,7 +3149,16 @@ def _membership_value_type(
     checked = tuple(value_type for _, value_type in kept)
     if any(value_type.kind is ValueTypeKind.UNKNOWN for value_type in checked):
         return _UNKNOWN_VALUE_TYPE
-    if _membership_canonical_type(checked, type_expansions) is None:
+    if _membership_canonical_type(
+        checked, type_expansions
+    ) is None and not _null_number_type(
+        tuple(operand for operand, _ in kept),
+        checked,
+        row_schema,
+        bare_value_expressions,
+        type_expansions,
+        shared=_membership_canonical_type,
+    ):
         if len(kept) < len(operands) and all(
             resolved_comparison_value_type(
                 checked[0],
@@ -3011,7 +3203,7 @@ def _cast_value_type(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     relation_columns: Mapping[Expression, ValueType] | None,
 ) -> ValueType:
-    """Admit only the explicit portable Int-to-Float conversion."""
+    """Admit only the explicit portable Int-to-Float or Int-to-Text conversion."""
 
     diagnostic_count = len(diagnostics)
     value_type = _infer(
@@ -3027,17 +3219,17 @@ def _cast_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
-    float_target = (
-        expression.target.name == "Float"
-        and not expression.target.arguments
+    target_name = expression.target.name
+    supported_target = target_name in {"Float", "Text"} and (
+        not expression.target.arguments
         and expression.target.nullability is Nullability.IMPLICIT
     )
     if value_type.kind is ValueTypeKind.UNKNOWN:
         # A null operand and the target are known without the operand's type;
-        # a silent unknown operand is refused unless the cast is to Float. Only
+        # a silent unknown operand is refused unless the cast is to Float or Text. Only
         # the operand's own error explains it, also one in a `let:` value it
         # reads, as written there it would be its own: an unknown input row
-        # does not, since no cast but the Float one reads the operand's type.
+        # does not, since both admitted casts read the operand's type.
         explained = len(diagnostics) > diagnostic_count or (
             type(bare_value_expressions) is LetValues
             and _reads_erroneous_let(
@@ -3052,7 +3244,7 @@ def _cast_value_type(
         null_operand = _reads_null_literal(
             (expression.value,), row_schema, bare_value_expressions
         )
-        if null_operand or not (explained or float_target):
+        if null_operand or not (explained or supported_target):
             diagnostics.append(
                 _invalid_cast_diagnostic(
                     expression,
@@ -3062,14 +3254,14 @@ def _cast_value_type(
                 )
             )
         return _UNKNOWN_VALUE_TYPE
-    if not float_target or not _is_canonical_builtin(
+    if not supported_target or not _is_canonical_builtin(
         value_type, "Int", type_expansions
     ):
         diagnostics.append(
             _invalid_cast_diagnostic(expression, value_type, type_expansions)
         )
         return _UNKNOWN_VALUE_TYPE
-    return _builtin_value_type("Float", value_type.nullability)
+    return _builtin_value_type(target_name, value_type.nullability)
 
 
 def _binary_value_type(
@@ -3192,6 +3384,18 @@ def _binary_value_type(
                 division=expression.operator == "/",
             ):
                 result = _UNKNOWN_NUMBER
+    if expected is not None and expression.operator in {"+", "-", "*", "/", "%"}:
+        # A NULL number takes another number's type, as the database does.
+        null_number = _null_number_type(
+            (expression.left, expression.right),
+            (left_type, right_type),
+            row_schema,
+            bare_value_expressions,
+            type_expansions,
+            remainder=expression.operator == "%",
+        )
+        if null_number is not None:
+            result, expected = null_number, None
     if expected is not None:
         diagnostics.append(
             _invalid_operator_operands_diagnostic(expression, expected=expected)
@@ -3504,6 +3708,44 @@ def _membership_canonical_type(
     return None
 
 
+def _membership_text_literal_types(
+    literals: tuple[object, ...],
+    value_types: tuple[ValueType, ...],
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> tuple[ValueType, ...]:
+    """Type a `Text` literal operand of an `in` test as the first operand of an
+    enum or of a type whose only constant form is a Text literal, where a
+    comparison with that operand admits the literal (a label of the enum):
+    `status in ("paid", "shipped")` compares as `status == "paid"` does.
+    ``literals`` holds each operand's literal value (`_comparison_literal`)."""
+
+    target = next(
+        (
+            value_type
+            for value_type in value_types
+            if (resolved := _comparison_resolved_type(value_type, type_expansions))
+            is not None
+            and (
+                resolved.kind is TypeKind.ENUM
+                or _comparison_family(resolved) in _TEXT_CONSTANT_FAMILIES
+            )
+        ),
+        None,
+    )
+    if target is None:
+        return value_types
+    resolved = cast(ResolvedType, _comparison_resolved_type(target, type_expansions))
+    return tuple(
+        ValueType(
+            resolved_type=target.resolved_type, nullability=value_type.nullability
+        )
+        if _is_canonical_builtin(value_type, "Text", type_expansions)
+        and _text_compares_with(resolved, literal, checked=True)
+        else value_type
+        for literal, value_type in zip(literals, value_types, strict=True)
+    )
+
+
 def _join_nullability(
     nullabilities: tuple[EffectiveNullability, ...],
 ) -> EffectiveNullability:
@@ -3638,6 +3880,15 @@ def _call_value_type(
     """
 
     function_name = _callee_name(expression)
+    if expression.aggregate_order_by and function_name != "string_agg":
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message="Internal ORDER BY is only supported by string_agg",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
     diagnostic_count = len(diagnostics)
     argument_types, erroneous = _call_argument_types(
         expression,
@@ -3653,6 +3904,20 @@ def _call_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
+    for item in expression.aggregate_order_by:
+        _infer(
+            item.expression,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+            bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
+            suppressed_unknown_names=suppressed_unknown_names,
+            type_expansions=type_expansions,
+            relation_columns=relation_columns,
+        )
     # An argument's own error explains an Unknown argument; the call then adds
     # nothing. An unknown input row explains no name, arity or window check,
     # since none of them reads an argument's type.
@@ -3722,6 +3987,25 @@ def _call_value_type(
                 )
             return _UNKNOWN_VALUE_TYPE
         argument_types = contextual
+        null_number = (
+            None
+            if len(argument_types) < 2
+            or _shared_canonical_type(argument_types, type_expansions) is not None
+            else _null_number_type(
+                expression.arguments,
+                argument_types,
+                row_schema,
+                bare_value_expressions,
+                type_expansions,
+                shared=_shared_canonical_type,
+            )
+        )
+        if null_number is not None:
+            # The NULL number takes the other numbers' type, as the database does.
+            argument_types = tuple(
+                dataclasses.replace(null_number, nullability=argument_type.nullability)
+                for argument_type in argument_types
+            )
         if function_name == "coalesce":
             return _coalesce_value_type(
                 expression, argument_types, type_expansions, diagnostics
@@ -3731,6 +4015,43 @@ def _call_value_type(
         )
 
     if is_semantic_aggregate_call(expression):
+        if function_name == "string_agg" and not expression.aggregate_order_by:
+            diagnostics.append(
+                _call_diagnostic(
+                    expression,
+                    code="PIE-S2104",
+                    message="Invalid arguments for aggregate string_agg: expected ORDER BY key",
+                )
+            )
+            return _UNKNOWN_VALUE_TYPE
+        if function_name != "string_agg" and expression.aggregate_order_by:
+            diagnostics.append(
+                _call_diagnostic(
+                    expression,
+                    code="PIE-S2104",
+                    message=f"Invalid arguments for aggregate {function_name}: ORDER BY is only supported by string_agg",
+                )
+            )
+            return _UNKNOWN_VALUE_TYPE
+        if function_name == "string_agg":
+            for argument_type in argument_types:
+                if (
+                    argument_type.kind is ValueTypeKind.KNOWN
+                    and not _is_canonical_builtin(
+                        argument_type, "Text", type_expansions
+                    )
+                ):
+                    diagnostics.append(
+                        _call_diagnostic(
+                            expression,
+                            code="PIE-S2104",
+                            message=(
+                                "Invalid arguments for aggregate string_agg: "
+                                "expected two Text arguments"
+                            ),
+                        )
+                    )
+                    return _UNKNOWN_VALUE_TYPE
         if any(
             argument_type.kind is ValueTypeKind.UNKNOWN
             for argument_type in argument_types
@@ -3758,9 +4079,18 @@ def _call_value_type(
                 argument_types,
                 let_expansions=bare_value_expressions,
                 row_schema=row_schema,
+                type_expansions=type_expansions,
             )
             if result_type is not None:
                 return result_type
+            if function_name == "string_agg":
+                diagnostics.append(
+                    _call_diagnostic(
+                        expression,
+                        code="PIE-S2104",
+                        message="Invalid arguments for aggregate string_agg: expected two Text arguments",
+                    )
+                )
         return _UNKNOWN_VALUE_TYPE
 
     if (
@@ -3777,12 +4107,41 @@ def _call_value_type(
             else _builtin_value_type("Int", EffectiveNullability.UNKNOWN)
         )
     if function_name == "sign":
+        if (
+            len(argument_types) == 1
+            and _is_canonical_builtin(argument_types[0], "Float", type_expansions)
+            and _null_number_type(
+                expression.arguments,
+                argument_types,
+                row_schema,
+                bare_value_expressions,
+                type_expansions,
+            )
+        ):
+            # PostgreSQL and MySQL take the sign of a NULL number of any type.
+            return _builtin_value_type("Int", EffectiveNullability.NULLABLE)
         return _sign_value_type(
             expression, argument_types, diagnostics, type_expansions=type_expansions
         )
     if function_name in {"year", "month", "day"}:
         return _civil_date_part_value_type(
             expression, argument_types, diagnostics, type_expansions=type_expansions
+        )
+    if function_name == "round":
+        return _round_value_type(
+            expression,
+            argument_types,
+            diagnostics,
+            type_expansions=type_expansions,
+            lets=bare_value_expressions,
+        )
+    if function_name == "date_trunc":
+        return _date_trunc_value_type(
+            expression,
+            argument_types,
+            diagnostics,
+            type_expansions=type_expansions,
+            lets=bare_value_expressions,
         )
 
     signature = BUILTIN_FUNCTIONS.get(function_name)
@@ -4302,6 +4661,124 @@ def _number_call_type(
     return value_type
 
 
+# The numeric types, each implicitly converted to the next where the database
+# needs one type for two numbers.
+_NUMBER_NAMES = ("Int", "Decimal", "Float")
+# Whether a NULL number fits beside numbers of other types (`_null_number_type`)
+# and a `def` parameter of another numeric type (`_fits_null_number`): in a
+# single file (`null_numbers`). A project relation does not complete with one,
+# so it keeps the typed twin's diagnostic there.
+_NULL_NUMBERS: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_NULL_NUMBERS", default=False
+)
+
+
+@contextlib.contextmanager
+def null_numbers() -> Iterator[None]:
+    """Type NULL numbers beside numbers of other types inside the block."""
+
+    token = _NULL_NUMBERS.set(True)
+    try:
+        yield
+    finally:
+        _NULL_NUMBERS.reset(token)
+
+
+def _fits_null_number(
+    canonical: ResolvedType, slot: InlinedArgument, is_null: Callable[[], bool]
+) -> bool:
+    """Whether an argument of the number type ``canonical`` that is always
+    null (``is_null``) fits the numeric parameter of ``slot``. The call is
+    typed with the argument written in its body, where the NULL number takes
+    the type of the numbers beside it (`_null_number_type`) as the database
+    does, so no value depends on the parameter's own number type."""
+
+    return (
+        _NULL_NUMBERS.get()
+        and canonical.name in _NUMBER_NAMES
+        and slot.type_name in _NUMBER_NAMES
+        and is_null()
+    )
+
+
+def _written_nulls(
+    row_schema: RowSchema, lets: Mapping[str, Expression] | None
+) -> dict[str, bool]:
+    """Whether each `let:` name of ``lets`` is always null (`always_null`)
+    with the names before it written in, in binding order, so a chain needs
+    no recursion. A name with an error of its own is not written in."""
+
+    erroneous = lets.erroneous if type(lets) is LetValues else set()
+    names: dict[str, bool] = {}
+    for name, value in (lets or {}).items():
+        if not has_bare_field(row_schema, name) and name not in erroneous:
+            names[name] = always_null(value, names)
+    return names
+
+
+def _null_number_type(
+    expressions: Sequence[Expression],
+    value_types: Sequence[ValueType],
+    row_schema: RowSchema,
+    lets: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    *,
+    remainder: bool = False,
+    shared: Callable[
+        [tuple[ValueType, ...], Mapping[TypeExpr, ResolvedType] | None],
+        ResolvedType | None,
+    ]
+    | None = None,
+) -> ValueType | None:
+    """The type that numbers of ``value_types`` have together when one of
+    them is a NULL number: always null (`always_null`, such as `None + d`)
+    and of a known `Int`, `Decimal` or `Float` type. Its type has no value to
+    keep exact, and PostgreSQL and MySQL convert an `Int` to a `Decimal` and
+    either to a `Float` where they need one type, so a NULL number fits beside
+    numbers of other types; the widest decides the type, nullable. A
+    ``remainder`` takes no `Float`, which PostgreSQL has no `%` for. The
+    operands that are not always null keep the operator's own rule
+    (``shared``), so a NULL number lets no other numbers of different types
+    mix. None outside `null_numbers`."""
+
+    if not _NULL_NUMBERS.get():
+        return None
+    names = []
+    for value_type in value_types:
+        canonical = _canonical_value_type(value_type, type_expansions)
+        name = next(
+            (
+                name
+                for name in _NUMBER_NAMES
+                if value_type.kind is ValueTypeKind.KNOWN
+                and _is_builtin(canonical, name)
+            ),
+            None,
+        )
+        if name is None or (remainder and name == "Float"):
+            return None
+        names.append((name, canonical))
+    written = _written_nulls(row_schema, lets)
+    nulls = [always_null(expression, written) for expression in expressions]
+    if not any(nulls):
+        return None
+    others = tuple(
+        value_type
+        for value_type, null in zip(value_types, nulls, strict=True)
+        if not null
+    )
+    if (
+        shared is not None
+        and len(others) > 1
+        and shared(others, type_expansions) is None
+    ):
+        return None
+    widest = max(names, key=lambda item: _NUMBER_NAMES.index(item[0]))[1]
+    return ValueType(
+        resolved_type=widest.resolved_type, nullability=EffectiveNullability.NULLABLE
+    )
+
+
 def _number_argument_mismatch(
     expression: CallExpr,
     argument_types: tuple[ValueType, ...],
@@ -4679,6 +5156,114 @@ def _civil_date_part_value_type(
     return _builtin_value_type("Int", argument_type.nullability)
 
 
+def _static_literal(
+    expression: Expression,
+    lets: Mapping[str, Expression] | None,
+) -> str | int | None:
+    """Resolve an admitted `let` chain only when it ends at one literal."""
+
+    seen: set[str] = set()
+    while isinstance(expression, NameExpr) and lets is not None:
+        if expression.name in seen or expression.name not in lets:
+            return None
+        seen.add(expression.name)
+        expression = lets[expression.name]
+    if isinstance(expression, LiteralExpr):
+        if type(expression.value) is str:
+            return expression.value
+        if type(expression.value) is int:
+            return expression.value
+    if (
+        isinstance(expression, UnaryExpr)
+        and expression.operator == "-"
+        and isinstance(expression.operand, LiteralExpr)
+        and type(expression.operand.value) is int
+    ):
+        return -expression.operand.value
+    return None
+
+
+def _round_value_type(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+    diagnostics: list[Diagnostic],
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    lets: Mapping[str, Expression] | None,
+) -> ValueType:
+    if len(argument_types) not in {1, 2}:
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=f"Invalid arguments for function round: expected 1 or 2, got {len(argument_types)}",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    value = argument_types[0]
+    if _is_canonical_builtin(value, "Float", type_expansions):
+        if len(argument_types) == 1:
+            return _builtin_value_type("Float", value.nullability)
+    elif _is_canonical_builtin(value, "Decimal", type_expansions):
+        if len(argument_types) == 1:
+            return _builtin_value_type("Decimal", value.nullability)
+        scale = _static_literal(expression.arguments[1], lets)
+        if type(scale) is int and -30 <= scale <= 30:
+            return _builtin_value_type("Decimal", value.nullability)
+    diagnostics.append(
+        _call_diagnostic(
+            expression,
+            code="PIE-S2104",
+            message="Invalid arguments for function round",
+        )
+    )
+    return _UNKNOWN_VALUE_TYPE
+
+
+def _date_trunc_value_type(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+    diagnostics: list[Diagnostic],
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    lets: Mapping[str, Expression] | None,
+) -> ValueType:
+    if len(argument_types) != 2:
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=f"Invalid arguments for function date_trunc: expected 2, got {len(argument_types)}",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    unit = _static_literal(expression.arguments[0], lets)
+    value = argument_types[1]
+    if type(unit) is str:
+        if _is_canonical_builtin(value, "Date", type_expansions) and unit in {
+            "year",
+            "month",
+            "day",
+        }:
+            return _builtin_value_type("Date", value.nullability)
+        if _is_canonical_builtin(value, "Timestamp", type_expansions) and unit in {
+            "year",
+            "month",
+            "day",
+            "hour",
+            "minute",
+        }:
+            return _builtin_value_type("Timestamp", value.nullability)
+    diagnostics.append(
+        _call_diagnostic(
+            expression,
+            code="PIE-S2104",
+            message="Invalid arguments for function date_trunc",
+        )
+    )
+    return _UNKNOWN_VALUE_TYPE
+
+
 def _invalid_substr_bounds_diagnostic(expression: CallExpr) -> Diagnostic:
     return _call_diagnostic(
         expression,
@@ -4858,12 +5443,25 @@ def _aggregate_value_type(
     *,
     let_expansions: Mapping[str, Expression] | None,
     row_schema: RowSchema,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> ValueType | None:
     """Return a precise aggregate type only for approved direct projections."""
 
     function_name = semantic_aggregate_call_name(expression)
     if function_name is None:
         return None
+    if function_name == "string_agg":
+        if (
+            len(expression.arguments) != 2
+            or not expression.aggregate_order_by
+            or len(argument_types) != 2
+            or any(
+                not _is_canonical_builtin(argument, "Text", type_expansions)
+                for argument in argument_types
+            )
+        ):
+            return None
+        return _builtin_value_type("Text", EffectiveNullability.NULLABLE)
     if not expression.arguments:
         return semantic_projection_aggregate_result_value_type(function_name)
     if len(expression.arguments) != 1:
@@ -5144,14 +5742,20 @@ def _invalid_cast_diagnostic(
         canonical = _canonical_resolved_type(value_type, type_expansions)
         source = (value_type.resolved_type if canonical is None else canonical).name
     target = _type_expression_text(expression.target)
+    hint = (
+        "only Int-to-Text conversion is supported; write Text(expression)"
+        if (
+            expression.target.name == "Text"
+            and not expression.target.arguments
+            and expression.target.nullability is Nullability.IMPLICIT
+        )
+        else "only Int-to-Float conversion is supported; write Float(expression)"
+    )
     span = expression.span
     return Diagnostic(
         code="PIE-S2105",
         severity=Severity.ERROR,
-        message=(
-            f"Invalid cast from {source} to {target}: "
-            "only Int-to-Float conversion is supported; write Float(expression)"
-        ),
+        message=f"Invalid cast from {source} to {target}: {hint}",
         location=SourceLocation(
             path=span.path,
             line=span.line,
@@ -5267,6 +5871,44 @@ def order_output_ambiguity(
     return order_output_ambiguity_diagnostic(key, qualified)
 
 
+def qualify_output_ambiguity(
+    key: NameExpr,
+    definition: TableDef | QueryDef,
+    input_schema: RowSchema,
+    *,
+    let_names: set[str],
+) -> Diagnostic | None:
+    """Refuse any QUALIFY name with both input and selected-output candidates.
+
+    Unlike ORDER BY, identical values remain distinct candidates here: QUALIFY
+    binds after SELECT/window evaluation and must never select a winner.
+    """
+
+    name = key.name
+    if input_schema.is_unknown or name in let_names:
+        return None
+    if input_schema.joined:
+        keys = [
+            field for field in input_schema.fields if field.partition(".")[2] == name
+        ]
+        if len(keys) != 1:
+            return None
+        qualified = keys[0]
+    elif name in input_schema.fields:
+        qualifier = (
+            definition.from_clause.binding_name or definition.from_clause.source_name
+        )
+        qualified = f"{qualifier}.{name}"
+    else:
+        return None
+    if not any(
+        _relation_projection_output_name(item) == name
+        for item in definition.select_items
+    ):
+        return None
+    return order_output_ambiguity_diagnostic(key, qualified)
+
+
 def order_output_ambiguity_diagnostic(key: NameExpr, qualified: str) -> Diagnostic:
     """PIE-S2102 for an ORDER BY key that names an input field and an output."""
 
@@ -5318,6 +5960,22 @@ _UNKNOWN_FUNCTION_HINTS = {
         f"{_AGGREGATE_NAMES[-1]}",
     ),
 }
+
+
+def is_unknown_function_call(expression: CallExpr) -> bool:
+    """Whether typing reports ``expression`` as an unknown function (PIE-S2103):
+    its callee names no built-in, aggregate or window function."""
+
+    from pietto.semantic.window_semantics import WINDOW_FUNCTION_NAMES
+
+    name = _callee_name(expression)
+    return not (
+        name
+        in {"coalesce", "nullif", "sign", "year", "month", "day", "round", "date_trunc"}
+        or is_semantic_aggregate_call(expression)
+        or name in BUILTIN_FUNCTIONS
+        or name in WINDOW_FUNCTION_NAMES
+    )
 
 
 def _unknown_function_diagnostic(

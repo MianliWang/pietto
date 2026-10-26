@@ -39,6 +39,7 @@ from pietto.errors import Diagnostic
 
 if TYPE_CHECKING:
     from pietto.semantic.window_semantics import (
+        AggregateWindowAnalysis,
         ResolvedNamedWindowNamespace,
         WindowExpressionAnalysis,
     )
@@ -373,6 +374,10 @@ class SemanticModel:
         WindowExpr,
         WindowExpressionAnalysis,
     ] = field(default_factory=lambda: _readonly_mapping())
+    aggregate_window_analyses: Mapping[
+        WindowExpr,
+        AggregateWindowAnalysis,
+    ] = field(default_factory=lambda: _readonly_mapping())
     named_window_namespaces: Mapping[
         TableDef | QueryDef,
         ResolvedNamedWindowNamespace,
@@ -457,6 +462,7 @@ class SemanticModel:
             _readonly_mapping(self.expression_value_types),
         )
         from pietto.semantic.window_semantics import (
+            AggregateWindowAnalysis,
             ResolvedNamedWindowNamespace,
             WindowExpressionAnalysis,
         )
@@ -468,7 +474,22 @@ class SemanticModel:
             for expression, analysis in window_analysis_items
         ):
             raise TypeError("window expression analyses must be exact")
-        for expression, analysis in window_analysis_items:
+        aggregate_window_analysis_items = tuple(self.aggregate_window_analyses.items())
+        if any(
+            type(expression) is not WindowExpr
+            or type(analysis) is not AggregateWindowAnalysis
+            for expression, analysis in aggregate_window_analysis_items
+        ):
+            raise TypeError("aggregate window analyses must be exact")
+        if {expression for expression, _ in window_analysis_items} & {
+            expression for expression, _ in aggregate_window_analysis_items
+        }:
+            raise ValueError("a window expression cannot have two analysis families")
+        all_window_analysis_items = (
+            *window_analysis_items,
+            *aggregate_window_analysis_items,
+        )
+        for expression, analysis in all_window_analysis_items:
             semantic_fact = analysis.semantic_fact
             semantic_expression = semantic_fact.expression
             if (
@@ -513,6 +534,11 @@ class SemanticModel:
             "window_expression_analyses",
             _readonly_mapping(self.window_expression_analyses),
         )
+        object.__setattr__(
+            self,
+            "aggregate_window_analyses",
+            _readonly_mapping(self.aggregate_window_analyses),
+        )
         named_window_namespace_items = tuple(self.named_window_namespaces.items())
         if any(
             type(definition) not in {TableDef, QueryDef}
@@ -522,7 +548,7 @@ class SemanticModel:
             for definition, namespace in named_window_namespace_items
         ):
             raise TypeError("named window namespaces must retain exact relation owners")
-        for expression, analysis in window_analysis_items:
+        for expression, analysis in all_window_analysis_items:
             named = analysis.resolved_named_use
             if named is not None and (
                 self.named_window_namespaces.get(named.composed.namespace.definition)

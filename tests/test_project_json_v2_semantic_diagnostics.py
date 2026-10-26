@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
+from pietto._project import model as project_model
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -124,7 +125,9 @@ def test_project_json_v2_does_not_compute_semantics_after_parser_errors(
         del args, kwargs
         raise AssertionError("project JSON semantics must not run after parse errors")
 
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", unexpected_builder)
+    monkeypatch.setattr(
+        project_model, "build_empty_project_semantic_result", unexpected_builder
+    )
 
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
 
@@ -154,7 +157,9 @@ def test_project_json_v2_does_not_compute_semantics_after_project_errors(
         del args, kwargs
         raise AssertionError("project JSON semantics must not run after project errors")
 
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", unexpected_builder)
+    monkeypatch.setattr(
+        project_model, "build_empty_project_semantic_result", unexpected_builder
+    )
 
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 2
 

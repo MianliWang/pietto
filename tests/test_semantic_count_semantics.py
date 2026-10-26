@@ -257,8 +257,18 @@ def test_mixed_count_projection_does_not_publish_precise_count_schema() -> None:
 @pytest.mark.parametrize(
     ("per", "expected"),
     (
-        # A silent unknown type: refused only when SQL is emitted (PIE-B1000).
-        ("amount / id", []),
+        # A silent unknown type: refused only when SQL is emitted (PIE-B1000);
+        # the `/` of two Int values in `rates` warns that it truncates.
+        (
+            "amount / id",
+            [
+                (
+                    "PIE-S2106",
+                    "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
+                    "write `Float(x) / y` for a fractional result",
+                )
+            ],
+        ),
         # An upstream error is reported once, with no aggregate cascade.
         ("amount + nosuch", [("PIE-S2102", "Unknown field: nosuch")]),
     ),
@@ -284,18 +294,11 @@ def test_aggregate_of_an_input_field_of_unknown_type_is_not_refused_at_check(
         + "        n = count(per)\n"
         "        m = max(rates.per)\n"
     )
-    # `totals` reads the table `rates` of its own file by name.
-    reads_rates = (
-        "PIE-S2382",
-        "`rates` is a table of this file; single-file SQL reads it by name, so the "
-        "SQL runs only where the database already has a relation named rates (an "
-        "EXPLICIT_MODULES project emits it as a CTE)",
-    )
 
     assert [
         (diagnostic.code, diagnostic.message)
         for diagnostic in analyze(script).diagnostics
-    ] == [*expected, reads_rates]
+    ] == expected
 
 
 def test_aggregate_over_a_table_of_an_unshaped_source_is_not_refused_at_check() -> None:
@@ -313,11 +316,7 @@ def test_aggregate_over_a_table_of_an_unshaped_source_is_not_refused_at_check() 
         "        n = count(id)\n"
     )
 
-    # Only the single-file read of the table `projected` warns (PIE-S2382).
-    assert [
-        (d.code, d.severity, d.location.line, d.location.column)
-        for d in analyze(script, mode_override=CheckMode.LOOSE).diagnostics
-    ] == [("PIE-S2382", Severity.WARNING, 8, 5)]
+    assert analyze(script, mode_override=CheckMode.LOOSE).diagnostics == ()
 
 
 def test_count_with_unknown_argument_suppresses_wrong_arity_cascade() -> None:

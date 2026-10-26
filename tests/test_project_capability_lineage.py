@@ -21,6 +21,7 @@ from pietto._project.window_semantics import (
     WindowSemanticProvenance,
 )
 from pietto.ast_nodes import QueryDef, WindowExpr, WindowUseKind
+from pietto.errors import Severity
 from pietto.ir import build_ir
 from pietto.ir.model import NamedWindowBaseIR, RelationIR, ScriptIR, WindowCallIR
 from pietto.parser_api import parse_source
@@ -62,12 +63,16 @@ def _source(
     )
 
 
-def _compile(source: str) -> tuple[QueryDef, ScriptIR, RelationIR]:
+def _compile(
+    source: str, *, expected_warning: bool = False
+) -> tuple[QueryDef, ScriptIR, RelationIR]:
     parsed = parse_source(source, path="slice10.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
     definition = cast(QueryDef, parsed.ast.definitions[-1])
     semantic = analyze(parsed.ast)
-    assert semantic.diagnostics == ()
+    assert [(item.code, item.severity) for item in semantic.diagnostics] == (
+        [("PIE-S2385", Severity.WARNING)] if expected_warning else []
+    )
     lowered = build_ir(parsed.ast, semantic.model)
     assert lowered.diagnostics == () and lowered.ir is not None
     relation = cast(RelationIR, lowered.ir.definitions[-1])
@@ -576,7 +581,7 @@ def test_target_failure_keeps_project_lineage_and_semantic_provenance(
             "rows current row exclude ties)\n"
         ),
     )
-    definition, script_ir, relation_ir = _compile(source)
+    definition, script_ir, relation_ir = _compile(source, expected_warning=True)
     decision = decide_named_window_lowering(
         relation_ir,
         WindowTargetDialect.POSTGRESQL,
@@ -743,7 +748,15 @@ def test_named_paths_cannot_bypass_slice9_target_restrictions(
             connector=connector,
             selections=f"        result = {call} window restricted\n",
             declarations=(f"    let restricted = window(order by id{frame_source})\n"),
-        )
+        ),
+        expected_warning=(
+            evidence_kind
+            in {
+                WindowTargetEvidenceKind.NTH_DIRECTION,
+                WindowTargetEvidenceKind.NULL_TREATMENT,
+            }
+            or frame == "range 1 preceding"
+        ),
     )
     decision = decide_named_window_lowering(relation, dialect)
     assert decision is not None
@@ -770,7 +783,8 @@ def test_one_unsupported_named_use_blocks_the_whole_relation_strategy() -> None:
                 "        blocked = nth_value(value, 2) from last window ordered\n"
             ),
             declarations=("    let ordered = window(order by id)\n"),
-        )
+        ),
+        expected_warning=True,
     )
     decision = decide_named_window_lowering(
         relation,

@@ -1,5 +1,115 @@
 # Pietto release notes
 
+## Unreleased changes following 0.1.5
+
+These notes cover changes after the published 0.1.5 release. They do not
+assign a new version or replace the published 0.1.5 release notes.
+
+### Refinement
+
+- **R2 and a trailing `any`.** `save_recoverable` and `recover` accept a
+  trailing `where any(...)` or `where not any(...)`, alone or AND-composed
+  with other filters, including the migration of a last `semi join` or `anti
+  join`. R2 refines it as the semi or anti JOIN it represents and qualifies
+  the source columns that its predicate and another block's operands read.
+  An `any` under `or`, in a `select` item, over a let with `capture` lines, or
+  whose predicate reads another block is still `PIE-R1004`
+  (`REFINEMENT_EXPRESSION_BLOCK_READ`). SQL, CLI and JSON shapes are unchanged.
+
+### Checking and diagnostics
+
+- The bounded D-11 unmatched-row and one-key-value proofs and D-12 typed-NULL
+  numeric rules described in the language reference are now accepted. Cases
+  outside those proofs remain refused; `min`, `max` and `count_distinct` do
+  not gain a general fan-out exemption.
+- An error in inline-def body text copied by a comparison-chain operand is
+  reported once, including when the copied operand is nested. Errors outside
+  copied operand text retain their ordinary expansion multiplicity. The value
+  of an inclusive `lower <= value <= upper` chain is not itself copied.
+
+- `Text(Int)`, `round` and `date_trunc` are now closed scalar forms. `Text`
+  accepts only Int; another input type is `PIE-S2105`. `round` accepts Decimal
+  with an optional literal or `let`-expanded scale from -30 to 30, or one Float
+  argument; `date_trunc` accepts literal units year/month/day for Date and
+  additionally hour/minute for Timestamp. A project Date is obtained with
+  `date_of(Timestamp)`. Unsupported arity or scalar shapes are `PIE-S2104`.
+- `string_agg(value, delimiter, order by key[, key ...])` is a PostgreSQL
+  aggregate with explicit, preserved internal ordering. MySQL and window use
+  fail closed.
+
+- Handwritten `on` equalities can prove the same at-most-one match as a
+  relationship predicate. Projects also use keys preserved through queries
+  and grouping; single files use declared source keys. Matching a nullable
+  unique key in `on` is allowed, while using a key as GROUP BY protection
+  still requires non-null fields. A key proof does not prove a match exists.
+  Fan-out errors name the JOINs that can repeat the aggregate's input.
+- `PIE-S2383` warns when WHERE rejects the NULL-extended side of a LEFT JOIN;
+  `PIE-S2384` warns about `not in` with a nullable left value. An explicit
+  `None` list option retains the separate `PIE-S2107` warning.
+- `PIE-S2385` warns about known single-file emission limits: RANGE offsets,
+  effective `ignore nulls` or `from last`, non-Int field equalities in a
+  PostgreSQL FULL JOIN, and untyped all-NULL outputs read by another relation.
+  Warnings do not change the check exit status; existing errors remain errors.
+- A simple legacy `== null` or `!= null` comparison now suggests `is None` or
+  `is not None` directly. `migrate` still refuses output that the modern
+  parser cannot accept.
+
+- EXPLICIT_MODULES projects again accept the original FROM relation qualifier
+  after an alias: after `let c = customers` and `from c`, both `c.id` and
+  `customers.id` name the same input occurrence. Intermediate aliases and
+  `any`, capture and JOIN scopes remain unavailable to that compatibility rule.
+
+- A legacy INNER, LEFT, RIGHT, FULL or CROSS JOIN written with `as` now has a
+  PIE-P1000 suggestion for its own JOIN kind; a CROSS JOIN suggestion has no
+  `on`. The `migrate` PIE-P1011 for a legacy `semi join` or `anti join` with
+  `as` names its `where any(...)` or `where not any(...)` rewrite. These are
+  corrections to 0.1.5's migration guidance; codes and locations are unchanged.
+- A diagnostic inside an `any(...)` or `not any(...)` filter before a later
+  JOIN names the authored binder, including unknown, ambiguous and nested
+  reads, rather than a generated binding.
+
+- An IN/NOT IN list of an enum value and its labels, such as
+  `status in ("paid", "shipped")`, is accepted and emitted as written. Before,
+  it was `PIE-S2105` while the same list with a `None` option passed. A Text
+  literal operand likewise takes the type of a Date, Timestamp, UUID, Bytes or
+  Json value, also as the left value of an EXPLICIT_MODULES `in` read of such
+  a column or an enum column; a literal that is not a label, such as
+  `status in ("paid", "gone")`, is still refused.
+- Three new warnings, in every check mode, for spellings a Python reader
+  misreads; programs still check and emit as before. `PIE-S2106`: `/` of two
+  Int values truncates (`7 / 2` is 3); write `Float(x) / y`. `PIE-S2107`: a
+  `None` option of an `in` list never matches (and makes `not in` never
+  true); write `x == "a" or x is None`. `PIE-P1009`: `--` is two minus
+  signs, not a comment (`100 -- 50` is 150); write `#`. The semantic two are
+  reported in single files and LEGACY_FLAT projects, `PIE-P1009` wherever
+  source is parsed except `migrate`. Programs that assert an empty
+  diagnostic list or empty stderr for such source now see the warning.
+
+### SQL emission
+
+- Single-file reads of a table or query now include its SQL as a dependency
+  CTE. An unsupported dependency also prevents SQL for its reader; the old
+  `PIE-S2382` warning is retired. Text output names each statement with a
+  `-- name` line and terminates it with `;`; JSON artifact SQL is unchanged.
+- Single-file `QUALIFY` now checks and emits for PostgreSQL and MySQL,
+  including hidden windows. Its filter follows the window stage and precedes
+  ORDER BY and LIMIT; ambiguous input/selected-output names are refused.
+- PostgreSQL single files support `sum`, `count`, `avg`, `min`, and `max` as
+  window aggregates, with their ordinary argument and logical result
+  contracts. An omitted frame keeps SQL's default: ordered peer-inclusive
+  accumulation, or the whole partition without ORDER BY. GROUPS requires
+  ORDER BY. MySQL and project aggregate-window support are not introduced.
+- Single-file PostgreSQL windows can read JOIN inputs, including named
+  specifications and hidden QUALIFY windows, while retaining input identities
+  and the visibility limits of existence filters.
+- MySQL refuses a reader whose CTEs have names that differ only by case,
+  with PIE-B1000 at that reader; PostgreSQL is unchanged.
+
+### Command startup
+
+- Help, version and single-file commands start faster. Running without a
+  subcommand still prints help and exits 0.
+
 ## Modern-syntax public alpha release notes — 0.1.5
 
 **Status:** These notes cover the `0.1.5` public alpha, published from

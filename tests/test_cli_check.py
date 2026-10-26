@@ -220,6 +220,57 @@ def test_check_warnings_do_not_fail(
     assert f"{path}:3:1 PIE-S2303 warning:" in captured.err
 
 
+def test_emission_warning_keeps_the_check_command_successful(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _write(
+        tmp_path,
+        "warning.pietto",
+        """shape Row:
+    id: Int
+    value: Int | None
+    text: Text | None
+    label: Text | None
+source rows: Row = postgres.table("rows")
+query q:
+    from rows
+    select first = first_value(value) window(order by id range 2 preceding)
+""",
+    )
+
+    assert cli.main(["check", str(path)]) == 0
+    assert "PIE-S2385 warning" in capsys.readouterr().err
+
+
+def test_warning_message_does_not_claim_a_check_with_an_error_succeeds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _write(
+        tmp_path,
+        "error.pietto",
+        """shape Row:
+    id: Int
+    value: Int | None
+    text: Text | None
+    label: Text | None
+source rows: Row = postgres.table("rows")
+table produced:
+    from rows
+    select:
+        value = None
+        bad = missing
+query reader:
+    from produced
+    select value
+""",
+    )
+
+    assert cli.main(["check", str(path)]) == 1
+    stderr = capsys.readouterr().err
+    assert "does not change check's exit status" in stderr
+    assert "check remains successful" not in stderr
+
+
 def test_check_stops_before_semantic_analysis_after_parser_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

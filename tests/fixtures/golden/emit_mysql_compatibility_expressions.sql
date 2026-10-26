@@ -1,3 +1,4 @@
+-- expression_compatibility
 SELECT
     LOWER(TRIM(`email`)) AS `normalized`,
     CHAR_LENGTH(`email`) AS `text_length`,
@@ -22,4 +23,4 @@ SELECT
     `score` + (2 * 3) AS `precedence`,
     (`score` + 2) * 3 AS `grouped`
 FROM `analytics`.`metrics`
-WHERE ((`age` >= 18) AND (`deleted_at` IS NULL)) OR (`email` IS NOT NULL)
+WHERE ((`age` >= 18) AND (`deleted_at` IS NULL)) OR (`email` IS NOT NULL);

@@ -275,8 +275,11 @@ def test_division_follows_sql_and_never_inserts_a_cast(
     value_type = semantic.model.expression_value_types[_select_expression(script, 0)]
 
     # Int / Int truncates toward zero as SQL does: PostgreSQL keeps its bare
-    # `/` (unchanged bytes) and MySQL, whose `/` gives DECIMAL, emits DIV.
-    assert semantic.diagnostics == ()
+    # `/` (unchanged bytes) and MySQL, whose `/` gives DECIMAL, emits DIV; it
+    # warns that it truncates (PIE-S2106).
+    assert [(d.code, d.severity) for d in semantic.diagnostics] == (
+        [("PIE-S2106", Severity.WARNING)] if type_name == "Int" else []
+    )
     assert value_type.kind is ValueTypeKind.KNOWN
     assert value_type.resolved_type.name == type_name
     assert emit_postgres_sql(postgres_ir).artifacts[0].sql == (
@@ -304,7 +307,8 @@ def test_division_of_a_call_over_an_unknown_row_is_typed_by_its_signature() -> N
     value_type = semantic.model.expression_value_types[_select_expression(script, 0)]
 
     assert [(d.code, d.severity) for d in semantic.diagnostics] == [
-        ("PIE-S2303", Severity.WARNING)
+        ("PIE-S2303", Severity.WARNING),
+        ("PIE-S2106", Severity.WARNING),
     ]
     assert (value_type.kind, value_type.resolved_type.name) == (
         ValueTypeKind.KNOWN,
@@ -410,6 +414,178 @@ def test_null_arithmetic_has_the_type_of_its_known_operand() -> None:
     assert emit_mysql_sql(script_ir).artifacts[0].sql == (
         "SELECT\n    (NULL + `n`) DIV 2 AS `v`,\n    NULL % `f1` AS `w`\nFROM `rows`"
     )
+
+
+_NULL_NUMBER_HEAD = (
+    "type Amount = Decimal(10, 2)\n"
+    "shape Row:\n"
+    "    id: Int\n"
+    "    n: Int | None\n"
+    "    fl: Float\n"
+    "    d: Amount\n"
+    "    b: Bool\n"
+    "    name: Text\n"
+    "def tn(x: Text | None) -> Text | None: return x\n"
+    "def fn(x: Float | None) -> Float | None: return x\n"
+    "def inl(x: Int | None) -> Int | None: return x\n"
+)
+
+
+@pytest.mark.parametrize("connector", ["postgres", "mysql"])
+def test_a_null_number_fits_beside_numbers_as_the_database_reads_it(
+    connector: str,
+) -> None:
+    # D-12: arithmetic with a `None` operand keeps its known operand's type, so
+    # PostgreSQL's refusals stay refused (`lower(None + n)`, `(None + n) + "x"`,
+    # `where None + n`). It is NULL in every row, so no value needs the typed
+    # twin's exact numeric rules: beside numbers of another type it takes the
+    # widest of them, as PostgreSQL and MySQL convert `Int` to `Decimal` and
+    # either to `Float`, and the 0.1.4 SQL of each accepted use runs on both.
+    # The other operands of `coalesce` and `in` keep their typed twin's rule,
+    # `%` takes no `Float`, which PostgreSQL has no remainder for, and a
+    # nullable numeric `def` parameter takes a NULL number of another numeric
+    # type, the call typed with it in place as its SQL is, but no other one.
+    source = _NULL_NUMBER_HEAD + (
+        f'source rows: Row = {connector}.table("rows")\n'
+        "table accepted:\n"
+        "    from rows\n"
+        "    let k = None + d\n"
+        "    select:\n"
+        "        a = (None + d) + 1.5\n"
+        "        b = (None + d) % 2\n"
+        "        c = -(None + d)\n"
+        "        e = (None + fl) in (1, 2)\n"
+        "        f = (None + d) if b else 1\n"
+        "        g = (None + n) if b else 1.5\n"
+        "        h = coalesce(None + fl, 1)\n"
+        "        i = nullif(None + d, 1)\n"
+        "        j = sign(None + fl)\n"
+        "        l = k + fl\n"
+        "        m = fn(None + n)\n"
+        "        o = inl(None + d)\n"
+        "        p = coalesce(None + n, None + d, fl)\n"
+    )
+    script, semantic, script_ir = _compile(source)
+    types = [
+        (
+            semantic.model.expression_value_types[
+                _select_expression(script, index)
+            ].resolved_type.name,
+            semantic.model.expression_value_types[
+                _select_expression(script, index)
+            ].nullability,
+        )
+        for index in range(13)
+    ]
+    nullable = EffectiveNullability.NULLABLE
+    assert types == [
+        ("Float", nullable),
+        ("Decimal", nullable),
+        ("Decimal", nullable),
+        ("Bool", nullable),
+        ("Decimal", nullable),
+        ("Float", nullable),
+        ("Float", EffectiveNullability.NON_NULL),
+        ("Decimal", nullable),
+        ("Int", nullable),
+        ("Float", nullable),
+        ("Int", nullable),
+        ("Decimal", nullable),
+        ("Float", EffectiveNullability.NON_NULL),
+    ]
+    quote = '"' if connector == "postgres" else "`"
+    emitted = (
+        (
+            emit_postgres_sql(script_ir)
+            if connector == "postgres"
+            else emit_mysql_sql(script_ir)
+        )
+        .artifacts[0]
+        .sql
+    )
+    for written in (
+        "(NULL + {q}d{q}) + 1.5",
+        "(NULL + {q}d{q}) % 2",
+        "-(NULL + {q}d{q})",
+        "(NULL + {q}fl{q}) IN (1, 2)",
+        "CASE WHEN {q}b{q} THEN (NULL + {q}d{q}) ELSE 1 END",
+        "COALESCE((NULL + {q}fl{q}), 1)",
+        "NULLIF((NULL + {q}d{q}), 1)",
+        "NULL + {q}n{q} AS {q}m{q}",
+        "NULL + {q}d{q} AS {q}o{q}",
+        "COALESCE((NULL + {q}n{q}), (NULL + {q}d{q}), {q}fl{q})",
+    ):
+        assert written.format(q=quote) in emitted
+
+    refused = analyze(
+        _parse(
+            _NULL_NUMBER_HEAD + f'source rows: Row = {connector}.table("rows")\n'
+            "table refused:\n"
+            "    from rows\n"
+            "    where None + n\n"
+            "    select:\n"
+            "        a = lower(None + n)\n"
+            '        b = (None + n) + "x"\n'
+            "        c = (None + fl) % 2\n"
+            "        e = lower((None + d) + 1.5)\n"
+            "        f = tn(None + n)\n"
+            "        g = fn(n)\n"
+            "        h = (None + d) == name\n"
+            "        i = coalesce(d, None + n, fl)\n"
+            "        j = d in (fl, None + n)\n"
+        )
+    )
+    assert [(d.code, d.location.line, d.message) for d in refused.diagnostics] == [
+        ("PIE-S2202", 15, "Expected Bool expression in where clause"),
+        (
+            "PIE-S2104",
+            17,
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got Int",
+        ),
+        (
+            "PIE-S2105",
+            18,
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
+        ),
+        ("PIE-S2105", 19, "Invalid operands for operator %: expected Int operands"),
+        (
+            "PIE-S2104",
+            20,
+            "Invalid argument type for function lower at position 1: "
+            "expected Text, got Float",
+        ),
+        (
+            "PIE-S2395",
+            21,
+            "Invalid argument for def tn at position 1 (x): "
+            "expected Text | None, got Int | None",
+        ),
+        (
+            "PIE-S2395",
+            22,
+            "Invalid argument for def fn at position 1 (x): "
+            "expected Float | None, got Int | None",
+        ),
+        (
+            "PIE-S2105",
+            23,
+            "Invalid operands for operator ==: expected comparable operands",
+        ),
+        (
+            "PIE-S2104",
+            24,
+            "Invalid argument types for function coalesce: expected same "
+            "canonical type",
+        ),
+        (
+            "PIE-S2105",
+            25,
+            "Invalid operands for operator in: expected same canonical "
+            "membership operands",
+        ),
+    ]
 
 
 @pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])
@@ -1130,6 +1306,8 @@ def test_numeric_membership_with_null_keeps_its_boolean_result(
             'query reader:\n    from selected\n    select:\n        w = v + "x"\n'
         )
     )
+    # A None option written in the list also warns that it never matches.
+    warnings = [(*_NONE_OPTION_WARNINGS[operator], 9, 17)] if null == "None" else []
     assert [
         (d.code, d.message, d.location.line, d.location.column)
         for d in rejected.diagnostics
@@ -1140,14 +1318,7 @@ def test_numeric_membership_with_null_keeps_its_boolean_result(
             9,
             13,
         ),
-        (
-            "PIE-S2382",
-            "`selected` is a table of this file; single-file SQL reads it by name, "
-            "so the SQL runs only where the database already has a relation named "
-            "selected (an EXPLICIT_MODULES project emits it as a CTE)",
-            11,
-            5,
-        ),
+        *warnings,
     ]
 
 
@@ -1182,22 +1353,27 @@ def test_comparable_nonnumeric_null_membership_has_a_boolean_result(
         )
     )
     semantic = analyze(script)
+    # Each None option written in a list also warns that it never matches.
+    warning = _NONE_OPTION_WARNINGS[operator]
     assert [
         (d.code, d.message, d.location.line, d.location.column)
         for d in semantic.diagnostics
     ] == [
+        (*warning, 11, 18),
         (
             "PIE-S2104",
             "Invalid argument type for function lower at position 1: expected Text, got Bool",
             12,
             19,
         ),
+        (*warning, 12, 25),
         (
             "PIE-S2104",
             "Invalid argument type for function abs at position 1: expected Int, Float or Decimal, got Bool",
             13,
             20,
         ),
+        (*warning, 13, 24),
     ]
     for selected in _relation(script).select_items:
         expression = selected.expression
@@ -1269,12 +1445,16 @@ def test_decimal_quotient_let_chains_check_as_their_int_twins() -> None:
             for item in analyze(_parse(source)).diagnostics
         ]
 
+    # The Int twin warns once that its quotient truncates (PIE-S2106).
     assert checked("a / 2", "q{0} + 1", 1000, "") == []
-    assert checked("id / 2", "q{0} + 1", 1000, "") == []
+    assert checked("id / 2", "q{0} + 1", 1000, "") == [("PIE-S2106", 8)]
     doubled = "q{0} + q{0}"
     where = "    where q30 > 1\n"
     assert checked("a / 2", doubled, 30, where) == [("PIE-S2328", 39)]
-    assert checked("id / 2", doubled, 30, where) == [("PIE-S2328", 39)]
+    assert checked("id / 2", doubled, 30, where) == [
+        ("PIE-S2106", 8),
+        ("PIE-S2328", 39),
+    ]
 
 
 def test_existing_unqualified_sql_bytes_remain_stable() -> None:
@@ -1352,6 +1532,20 @@ def test_unused_relationship_template_does_not_participate_in_scalar_expression_
     assert semantic.model.expression_value_types[
         _select_expression(script, 0)
     ].resolved_type.name == ("Int")
+
+
+_NONE_OPTION_WARNINGS = {
+    "in": (
+        "PIE-S2107",
+        "A `None` option never matches: SQL tests `x == None`, which is never "
+        'true; to match None too, write `x == "a" or x is None`',
+    ),
+    "not in": (
+        "PIE-S2107",
+        "A `None` option makes `not in` never true: SQL tests `x != None`, which "
+        'is never true; write `x != "a" and x is not None`',
+    ),
+}
 
 
 def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:

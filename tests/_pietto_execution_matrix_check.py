@@ -37,7 +37,7 @@ EXCLUSIONS: dict[str, dict[tuple, str]] = {
     },
 }
 # Declared cases, named exclusions and admitted R2 families (incl. excluded).
-TOTALS = {"postgres": (161, 0, 59), "mysql": (159, 5, 59)}
+TOTALS = {"postgres": (164, 0, 62), "mysql": (162, 5, 62)}
 # J01/J09 repeated-recovery, drift and revision histories per route (S14 names).
 J01_HISTORIES = (
     "B_holes",
@@ -66,7 +66,7 @@ def need(ok, law: str) -> None:
 def declared(target: str) -> list[tuple]:
     """(target, group, case, variant, excluded, r2) from the lower-level owners."""
     from _pietto_execution_rows_cases import CASES as s05
-    from _pietto_execution_source_assurance_cases import REFINED as s06
+    from _pietto_execution_source_assurance_cases import CASES as s06
     from _pietto_execution_guard_cases import manifest
 
     seven = tuple(

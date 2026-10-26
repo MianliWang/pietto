@@ -20,17 +20,6 @@ EXPECTED_WARNINGS = {
             "Source raw_events has no bound shape; row schema is unknown",
         ),
     ),
-    Path("examples/queries/active_user_emails.pietto"): (
-        (
-            "PIE-S2382",
-            Severity.WARNING,
-            18,
-            5,
-            "`active_users` is a table of this file; single-file SQL reads it by "
-            "name, so the SQL runs only where the database already has a relation "
-            "named active_users (an EXPLICIT_MODULES project emits it as a CTE)",
-        ),
-    ),
 }
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from pietto.ast_nodes import TableDef
+from pietto.ast_nodes import QueryDef, TableDef
+from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import EffectiveNullability, TypeKind, ValueTypeKind, analyze
 
@@ -96,7 +97,9 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
                 assert value.resolved_type.name == (
                     "Int" if left == right == "amount" else "Float"
                 )
-                assert diagnostics == ()
+                assert diagnostics == (
+                    (_INT_DIVISION,) if left == right == "amount" else ()
+                )
             elif {left, right} <= {"amount", "score", "price"}:
                 # Decimal division keeps its deferred unknown result.
                 assert value.kind is ValueTypeKind.UNKNOWN
@@ -109,6 +112,23 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
                         "Invalid operands for operator /: expected numeric operands",
                     ),
                 )
+
+
+_INT_DIVISION = (
+    "PIE-S2106",
+    "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
+    "write `Float(x) / y` for a fractional result",
+)
+_NONE_OPTION = (
+    "PIE-S2107",
+    "A `None` option never matches: SQL tests `x == None`, which is never true; "
+    'to match None too, write `x == "a" or x is None`',
+)
+_NONE_NOT_IN_OPTION = (
+    "PIE-S2107",
+    "A `None` option makes `not in` never true: SQL tests `x != None`, which is "
+    'never true; write `x != "a" and x is not None`',
+)
 
 
 def test_bool_operator_matrix_preserves_current_behavior() -> None:
@@ -243,20 +263,24 @@ def test_a_null_arithmetic_operand_takes_the_type_of_the_other_operand() -> None
 def test_membership_mixes_decimal_with_int_as_its_comparisons_do() -> None:
     # `v in (a, b)` tests `v == a` and `v == b`: one canonical type, or Decimal
     # with Int (a null option then reads as Decimal); every other mix is refused.
-    for expression, nullability in (
-        ("price in (1, 2)", EffectiveNullability.NON_NULL),
-        ("price not in (amount, -2)", EffectiveNullability.NON_NULL),
-        ("amount in (price, discount)", EffectiveNullability.NULLABLE),
-        ("discount in (1)", EffectiveNullability.NULLABLE),
-        ("price in (1, None)", EffectiveNullability.NULLABLE),
-        ("amount not in (None, price)", EffectiveNullability.NULLABLE),
-        ("price in (amount + 1)", EffectiveNullability.UNKNOWN),
+    for expression, nullability, warnings in (
+        ("price in (1, 2)", EffectiveNullability.NON_NULL, ()),
+        ("price not in (amount, -2)", EffectiveNullability.NON_NULL, ()),
+        ("amount in (price, discount)", EffectiveNullability.NULLABLE, ()),
+        ("discount in (1)", EffectiveNullability.NULLABLE, ()),
+        ("price in (1, None)", EffectiveNullability.NULLABLE, (_NONE_OPTION,)),
+        (
+            "amount not in (None, price)",
+            EffectiveNullability.NULLABLE,
+            (_NONE_NOT_IN_OPTION,),
+        ),
+        ("price in (amount + 1)", EffectiveNullability.UNKNOWN, ()),
     ):
         value, diagnostics = expression_facts(expression)
         assert value.kind is ValueTypeKind.KNOWN, expression
         assert value.resolved_type.name == "Bool"
         assert value.nullability is nullability, expression
-        assert diagnostics == (), expression
+        assert diagnostics == warnings, expression
 
     for expression, operator in (
         ("price in (2.5)", "in"),
@@ -309,17 +333,184 @@ def test_a_null_option_hides_no_option_the_value_does_not_compare_with() -> None
         for d in result.diagnostics
     ] == [
         (
-            "PIE-S2105",
-            f"Invalid operands for operator {operator}: "
-            "expected same canonical membership operands",
+            *(
+                (
+                    "PIE-S2105",
+                    "Invalid operands for operator in: "
+                    "expected same canonical membership operands",
+                )
+                if warning is None
+                else warning
+            ),
             line,
             column,
         )
-        for operator, line, column in (
-            ("in", 10, 11),
-            ("in", 12, 13),
-            ("in", 15, 13),
+        # A list refused for its types does not warn of its None as well.
+        for warning, line, column in (
+            (None, 10, 11),
+            (None, 12, 13),
+            (_NONE_OPTION, 13, 13),
+            (_NONE_NOT_IN_OPTION, 14, 13),
+            (None, 15, 13),
+            (_NONE_OPTION, 16, 13),
+            (_NONE_OPTION, 17, 13),
         )
+    ]
+
+
+def test_a_text_literal_option_is_the_enum_label_or_constant_it_compares_as() -> None:
+    # `status in ("paid", "shipped")` tests `status == "paid"` and
+    # `status == "shipped"`, which compare an enum with its labels, and a Text
+    # literal is the only constant form of a Date. Before, the list rule typed
+    # each literal as Text and refused the list, while the same list with a
+    # None option passed. A literal that is not a label, a Text field and a
+    # Text literal against a number are still refused.
+    source = (
+        "enum Status: paid, shipped\n"
+        "type St = Status\n"
+        "shape Row:\n    id: Int\n    status: Status\n    maybe: St | None\n"
+        "    born: Date\n    label: Text\n"
+        'source rows: Row = postgres.table("rows")\n'
+        'query q:\n    from rows\n    let p = "paid"\n'
+        "    select:\n"
+        '        a = status in ("paid", "shipped")\n'
+        "        b = status not in (p)\n"
+        '        c = maybe in ("shipped", None)\n'
+        '        d = "paid" in (status, maybe)\n'
+        '        e = born in ("2020-01-01", "2021-01-01")\n'
+        '        f = maybe in ("paid")\n'
+        '        g = status in ("paid", "gone")\n'
+        '        h = status in ("paid", label)\n'
+        '        i = id in ("1")\n'
+    )
+    script = parse_source(source).ast
+    assert script is not None
+    result = analyze(script)
+    relation = script.definitions[-1]
+    assert isinstance(relation, QueryDef)
+    types = {
+        item.alias: result.model.expression_value_types[item.expression]
+        for item in relation.select_items
+    }
+
+    assert {
+        alias: (value.resolved_type.name, value.nullability)
+        for alias, value in types.items()
+        if value.kind is ValueTypeKind.KNOWN
+    } == {
+        "a": ("Bool", EffectiveNullability.NON_NULL),
+        "b": ("Bool", EffectiveNullability.NON_NULL),
+        "c": ("Bool", EffectiveNullability.NULLABLE),
+        "d": ("Bool", EffectiveNullability.NULLABLE),
+        "e": ("Bool", EffectiveNullability.NON_NULL),
+        "f": ("Bool", EffectiveNullability.NULLABLE),
+    }
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        (*_NONE_OPTION, 16, 13),
+        *(
+            (
+                "PIE-S2105",
+                "Invalid operands for operator in: "
+                "expected same canonical membership operands",
+                line,
+                13,
+            )
+            for line in (20, 21, 22)
+        ),
+    ]
+
+
+def test_a_division_of_two_ints_warns_that_it_truncates() -> None:
+    # `/` of two Int values is Int, as in PostgreSQL, so `7 / 2` is 3 where
+    # Python gives 3.5. It warns where it is written, also in a def body, and
+    # not at a call of that def or a read of a `let` name bound to it.
+    source = (
+        "type Cents = Int\n"
+        "def per(c: Int, q: Int) -> Int | None: return c / q\n"
+        "shape Row:\n    id: Int\n    cents: Cents\n    qty: Int | None\n"
+        "    price: Decimal(12, 2)\n    ratio: Float\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query q:\n    from rows\n    let unit = cents / qty\n"
+        "    where id / 2 > 1\n"
+        "    select:\n"
+        "        id\n"
+        "        a = unit\n"
+        "        b = Float(cents) / qty\n"
+        "        c = price / qty\n"
+        "        d = ratio / 2\n"
+        "        e = per(id, 3)\n"
+        "        f = qty / None\n"
+        "    order by:\n        id / 3\n"
+    )
+    script = parse_source(source).ast
+    assert script is not None
+
+    assert [
+        (d.code, d.severity, d.message, d.location.line, d.location.column)
+        for d in analyze(script).diagnostics
+    ] == [
+        (
+            "PIE-S2106",
+            Severity.WARNING,
+            "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
+            "write `Float(x) / y` for a fractional result",
+            line,
+            column,
+        )
+        for line, column in ((2, 47), (12, 16), (13, 11), (23, 9))
+    ]
+
+
+def test_a_none_option_of_an_in_list_warns_that_it_never_matches() -> None:
+    # `status in ("open", None)` tests `status == None`, never true in SQL,
+    # so a None status is not found, and a None option makes `not in` never
+    # true. A list that is refused for its types does not warn as well.
+    source = (
+        "def open_or_none(s: Text | None) -> Bool | None:\n"
+        '    return s in ("open", None)\n'
+        "shape Row:\n    id: Int\n    status: Text | None\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query q:\n    from rows\n"
+        '    where status in ("open", None)\n'
+        "    select:\n"
+        "        id\n"
+        '        a = status not in ("x", None, None)\n'
+        '        b = status == "open" or status is None\n'
+        '        c = id in (1, "x", None)\n'
+        "        d = open_or_none(status)\n"
+    )
+    script = parse_source(source).ast
+    assert script is not None
+    never_matches = (
+        "A `None` option never matches: SQL tests `x == None`, which is never "
+        'true; to match None too, write `x == "a" or x is None`'
+    )
+
+    assert [
+        (d.code, d.severity, d.message, d.location.line, d.location.column)
+        for d in analyze(script).diagnostics
+    ] == [
+        ("PIE-S2107", Severity.WARNING, never_matches, 2, 12),
+        ("PIE-S2107", Severity.WARNING, never_matches, 9, 11),
+        (
+            "PIE-S2107",
+            Severity.WARNING,
+            "A `None` option makes `not in` never true: SQL tests `x != None`, "
+            'which is never true; write `x != "a" and x is not None`',
+            12,
+            13,
+        ),
+        (
+            "PIE-S2105",
+            Severity.ERROR,
+            "Invalid operands for operator in: "
+            "expected same canonical membership operands",
+            14,
+            13,
+        ),
     ]
 
 
@@ -405,7 +596,8 @@ def test_type_alias_operands_read_as_their_base_type() -> None:
         ("amount in (age, None)", ("BUILTIN", "Bool", EffectiveNullability.NULLABLE)),
     ):
         facts = _alias_operand_facts(expression, aliased=True)
-        assert facts == (expected, ()), expression
+        warnings = ((*_NONE_OPTION, 20, 17),) if "None" in expression else ()
+        assert facts == (expected, warnings), expression
         assert facts == _alias_operand_facts(expression, aliased=False), expression
 
     refused = ("UNKNOWN", "<unknown>", unknown)

@@ -127,7 +127,7 @@ def test_cli_json_count_field_sql_success_preserves_v1_shape(
         {
             "kind": "relation",
             "name": artifact_name,
-            "sql": _golden_text(golden_name).removesuffix("\n"),
+            "sql": _golden_sql(golden_name),
         }
     ]
     assert set(artifacts[0]) == {"kind", "name", "sql"}
@@ -215,7 +215,7 @@ def test_cli_json_count_field_output_writes_exact_sql_and_keeps_artifacts(
         {
             "kind": "relation",
             "name": artifact_name,
-            "sql": _golden_text(golden_name).removesuffix("\n"),
+            "sql": _golden_sql(golden_name),
         }
     ]
     assert output_path.read_bytes() == _golden_bytes(golden_name)
@@ -352,6 +352,12 @@ def _write_invalid_count_field_source(tmp_path: Path) -> Path:
 
 def _golden_text(name: str) -> str:
     return (GOLDEN_ROOT / name).read_text(encoding="utf-8")
+
+
+def _golden_sql(name: str) -> str:
+    """The SQL of a one-artifact golden, without its `--` name line and `;`."""
+
+    return _golden_text(name).split("\n", 1)[1].removesuffix(";\n")
 
 
 def _golden_bytes(name: str) -> bytes:

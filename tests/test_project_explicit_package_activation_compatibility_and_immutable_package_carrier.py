@@ -458,7 +458,7 @@ def test_schema_v3_routes_are_p08_exact_and_do_not_enter_forbidden_product_bound
             (project_check, "_load_trusted_source"),
             (project_check.parser_api, "parse_source"),
             (project_check, "_build_project_logical_modules"),
-            (cli, "build_empty_project_semantic_result"),
+            (project_model, "build_empty_project_semantic_result"),
         ):
             patch.setattr(target, name, forbidden)
         config = load_project_config(root)

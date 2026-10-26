@@ -87,6 +87,168 @@ def test_len_returns_int() -> None:
     assert result.model.expression_value_types[expression].resolved_type.name == "Int"
 
 
+def test_c5_scalar_functions_keep_their_approved_types() -> None:
+    result = analyze(
+        _parse(
+            "shape Values:\n"
+            "    id: Int\n"
+            "    amount: Decimal\n"
+            "    ratio: Float\n"
+            "    opened_on: Date | None\n"
+            "    opened_at: Timestamp\n"
+            'source values: Values = postgres.table("values")\n'
+            "table projected:\n"
+            "    from values\n"
+            "    let scale = 2\n"
+            '    let unit = "month"\n'
+            "    select:\n"
+            "        decimal = round(amount, scale)\n"
+            "        float = round(ratio)\n"
+            "        day = date_trunc(unit, opened_on)\n"
+            '        minute = date_trunc("minute", opened_at)\n'
+            "        id_text = Text(id)\n"
+        )
+    )
+    table = _table(result)
+
+    assert result.diagnostics == ()
+    assert [
+        result.model.expression_value_types[item.expression].resolved_type.name
+        for item in table.select_items
+    ] == ["Decimal", "Float", "Date", "Timestamp", "Text"]
+    assert (
+        result.model.expression_value_types[
+            table.select_items[2].expression
+        ].nullability
+        is EffectiveNullability.NULLABLE
+    )
+
+
+def test_string_agg_checks_a_known_bad_delimiter_beside_an_unknown_value() -> None:
+    result = analyze(
+        _parse(
+            SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        summary = string_agg(None, count, order by count)\n"
+        )
+    )
+
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-S2104",
+            "Invalid arguments for aggregate string_agg: expected two Text arguments",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "lower(email, order by count)",
+        "Text(count, order by missing)",
+        "f(count, order by missing)",
+        "sum(count, order by count)",
+        "lag(count, order by count) window(order by count)",
+    ],
+)
+def test_internal_order_is_refused_outside_ordinary_string_agg(expression: str) -> None:
+    prefix = (
+        "def f(value: Int) -> Int:\n    return value\n"
+        if expression.startswith("f(")
+        else ""
+    )
+    result = analyze(
+        _parse(
+            prefix + SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            f"        value = {expression}\n"
+        )
+    )
+
+    assert any(
+        item.code == "PIE-S2104" and "Internal ORDER BY" in item.message
+        for item in result.diagnostics
+    )
+
+
+def test_string_agg_remains_legal_beside_an_unrelated_def() -> None:
+    result = analyze(
+        _parse(
+            "def f(value: Int) -> Int:\n    return value\n"
+            + SOURCE
+            + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            '        summary = string_agg(email, ",", order by count desc, count)\n'
+        )
+    )
+
+    assert result.diagnostics == ()
+
+
+def test_text_constructor_keeps_authored_def_priority_and_rejects_non_int() -> None:
+    shadowed = analyze(
+        _parse(
+            "def Text(value: Int) -> Int:\n    return value\n"
+            + SOURCE
+            + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        value = Text(count)\n"
+        )
+    )
+    expression = _table(shadowed).select_items[0].expression
+
+    assert shadowed.diagnostics == ()
+    assert shadowed.model.expression_value_types[expression].resolved_type.name == "Int"
+
+    refused = analyze(
+        _parse(
+            SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        value = Text(email)\n"
+        )
+    )
+    assert [(item.code, item.message) for item in refused.diagnostics] == [
+        (
+            "PIE-S2105",
+            "Invalid cast from Text to Text: "
+            "only Int-to-Text conversion is supported; write Text(expression)",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("value", "source"),
+    (
+        ("None", "null"),
+        ("1.5", "Float"),
+    ),
+)
+def test_text_constructor_reports_its_own_conversion_hint(
+    value: str, source: str
+) -> None:
+    result = analyze(
+        _parse(
+            SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            f"        value = Text({value})\n"
+        )
+    )
+
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-S2105",
+            f"Invalid cast from {source} to Text: "
+            "only Int-to-Text conversion is supported; write Text(expression)",
+        )
+    ]
+
+
 def test_matches_returns_bool_and_is_valid_where_predicate() -> None:
     result = analyze(
         _parse(
@@ -122,9 +284,7 @@ def test_unknown_function_reports_pie_s2103() -> None:
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
 
 
-_AGGREGATES = (
-    "the available aggregates are avg, count, count_distinct, max, min and sum"
-)
+_AGGREGATES = "the available aggregates are avg, count, count_distinct, max, min, string_agg and sum"
 
 
 @pytest.mark.parametrize(
@@ -139,7 +299,6 @@ _AGGREGATES = (
             "step) as n` in an EXPLICIT_MODULES project",
         ),
         ("stddev(count)", _AGGREGATES),
-        ('string_agg(email, ",")', _AGGREGATES),
         ("mean(count)", _AGGREGATES),
         # A name written with capitals gets the hint of its lowercase spelling.
         ("LENGTH(email)", "use `len(Text)` instead"),

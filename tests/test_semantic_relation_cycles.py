@@ -26,21 +26,11 @@ from pietto.semantic.relation_cycles import check_relation_cycles
 SOURCE = 'shape Row:\n    id: UUID\nsource rows: Row = postgres.table("rows")\n'
 
 
-def _same_file_read(name: str, kind: str = "table") -> str:
-    """The PIE-S2382 warning at a read of a table or query of the file."""
-    return (
-        f"`{name}` is a {kind} of this file; single-file SQL reads it by name, so "
-        "the SQL runs only where the database already has a relation named "
-        f"{name} (an EXPLICIT_MODULES project emits it as a CTE)"
-    )
-
-
 def test_table_self_cycle_reports_p2302() -> None:
     result = analyze(_parse("table loop:\n    from loop\n    select:\n        id\n"))
 
     assert _diagnostics(result) == [
-        ("PIE-S2302", Severity.ERROR, "Relation cycle detected: loop -> loop"),
-        ("PIE-S2382", Severity.WARNING, _same_file_read("loop")),
+        ("PIE-S2302", Severity.ERROR, "Relation cycle detected: loop -> loop")
     ]
 
 
@@ -59,13 +49,11 @@ def test_table_table_cycle_reports_one_p2302() -> None:
     )
 
     assert _diagnostics(result) == [
-        ("PIE-S2382", Severity.WARNING, _same_file_read("second")),
         (
             "PIE-S2302",
             Severity.ERROR,
             "Relation cycle detected: first -> second -> first",
-        ),
-        ("PIE-S2382", Severity.WARNING, _same_file_read("first")),
+        )
     ]
 
 
@@ -83,15 +71,10 @@ def test_query_table_mixed_cycle_reports_p2302() -> None:
         )
     )
 
-    assert _diagnostics(result) == [
-        ("PIE-S2382", Severity.WARNING, _same_file_read("projected")),
-        (
-            "PIE-S2302",
-            Severity.ERROR,
-            "Relation cycle detected: output -> projected -> output",
-        ),
-        ("PIE-S2382", Severity.WARNING, _same_file_read("output", "query")),
-    ]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
+    assert result.diagnostics[0].message == (
+        "Relation cycle detected: output -> projected -> output"
+    )
 
 
 def test_source_dependency_is_not_a_cycle() -> None:
@@ -120,10 +103,7 @@ def test_acyclic_relation_chain_has_no_cycle_diagnostic() -> None:
         )
     )
 
-    assert _diagnostics(result) == [
-        ("PIE-S2382", Severity.WARNING, _same_file_read("first")),
-        ("PIE-S2382", Severity.WARNING, _same_file_read("second", "query")),
-    ]
+    assert result.diagnostics == ()
 
 
 def test_cyclic_relations_have_unknown_row_schemas() -> None:
@@ -174,14 +154,11 @@ def test_cycle_diagnostics_are_deterministic_and_use_closing_from_spans() -> Non
         (diagnostic.location.line, diagnostic.code, diagnostic.message)
         for diagnostic in diagnostics
     ] == [
-        (2, "PIE-S2382", _same_file_read("second")),
         (6, "PIE-S2302", "Relation cycle detected: first -> second -> first"),
-        (6, "PIE-S2382", _same_file_read("first")),
         (10, "PIE-S2302", "Relation cycle detected: self_cycle -> self_cycle"),
-        (10, "PIE-S2382", _same_file_read("self_cycle", "query")),
     ]
-    _assert_location_matches(diagnostics[1], first_cycle_closer)
-    _assert_location_matches(diagnostics[3], second_cycle_closer)
+    _assert_location_matches(diagnostics[0], first_cycle_closer)
+    _assert_location_matches(diagnostics[1], second_cycle_closer)
 
 
 def test_unknown_relation_still_reports_only_p2301() -> None:
@@ -212,10 +189,8 @@ def test_cycle_suppresses_field_diagnostics_but_not_an_unknown_function() -> Non
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics
     ] == [
-        ("PIE-S2382", _same_file_read("second"), 2, 5),
         ("PIE-S2103", "Unknown function: unknown_predicate", 3, 11),
         ("PIE-S2302", "Relation cycle detected: first -> second -> first", 7, 5),
-        ("PIE-S2382", _same_file_read("first"), 7, 5),
     ]
 
 

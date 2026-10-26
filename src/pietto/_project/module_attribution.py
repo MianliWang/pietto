@@ -2397,7 +2397,8 @@ def _concrete_relation_lineage(
     for position, item in enumerate(relation.select_items):
         decoded = _direct_field_names(
             item,
-            source_name=relation.from_clause.source_name,
+            source_name=relation.from_clause.binding_name
+            or relation.from_clause.source_name,
         )
         if decoded is None:
             raise ValueError("Concrete Slice 11 lineage requires direct fields only.")

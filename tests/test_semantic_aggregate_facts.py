@@ -10,11 +10,8 @@ from pietto._project import project_grain
 from pietto._project import project_ir_joins as joins
 from pietto._project import project_ir_relational_properties as relational
 from pietto._project import project_multifact as multifact
-from pietto._project import project_relationship_conditions as conditions
-from pietto._project import project_relationship_match_guarantees as guarantees
-from pietto._project import project_relationship_paths as paths
 from pietto._project import project_relationship_uses as relationship_uses
-from pietto._project import project_relationships, project_row_keys, project_value_fds
+from pietto._project import project_row_keys, project_value_fds
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.project_completed_semantics import (
     ProjectConcreteCompletedSemanticResult,
@@ -166,14 +163,8 @@ def _build(root: Path) -> multifact.ProjectMultiFactAnalysis:
     base_properties = relational.build_project_ir_relational_property_stage(
         origins, build_project_ir_analysis_bundle(verified)
     )
-    relationships = project_relationships.build_project_relationships(semantic)
-    condition_set = conditions.build_project_relationship_conditions(relationships)
-    guarantee_set = guarantees.build_project_relationship_match_guarantees(
-        condition_set, base_properties
-    )
     use_set = relationship_uses.build_project_relationship_uses(
-        relationships,
-        paths.build_project_relationship_join_shape_index(guarantee_set),
+        semantic, base_properties
     )
     join_stage = joins.build_project_ir_join_region(
         base_plan=plan,

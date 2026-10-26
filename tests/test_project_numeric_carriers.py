@@ -243,6 +243,169 @@ def test_int_cast_and_substr_controls_require_proven_ranges() -> None:
     assert problem == ("PIE-B1004", "substring_result_bound_missing")
 
 
+def test_c5_postgres_scalar_carriers_have_their_own_physical_laws() -> None:
+    from pietto.ir.model import SymbolId, SymbolNamespace
+
+    integer = _literal_integer("postgres", -(1 << 63))
+    text, problem = rows.resolved_cast_realization("postgres", "Text", False, integer)
+    assert problem is None
+    assert text is not None
+    assert text.domain["max_characters"] == 20
+    assert rows.resolved_cast_realization("mysql", "Text", False, integer)[0] is None
+
+    decimal = _decimal("postgres", 4, 2)
+    rounded, problem = rows.resolved_scalar_call_realization(
+        "postgres",
+        SymbolId(SymbolNamespace.CALLABLE, "round"),
+        "Decimal",
+        False,
+        (decimal, _literal_integer("postgres", 0)),
+        static_values=(None, ("Int", 0)),
+    )
+    assert problem is None and rounded is not None
+    assert rounded.domain == {"kind": "decimal", "precision": 3, "scale": 0}
+
+    decimal_65_30 = _decimal("postgres", 65, 30)
+    default, problem = rows.resolved_scalar_call_realization(
+        "postgres",
+        SymbolId(SymbolNamespace.CALLABLE, "round"),
+        "Decimal",
+        False,
+        (decimal_65_30,),
+    )
+    explicit_zero, problem_zero = rows.resolved_scalar_call_realization(
+        "postgres",
+        SymbolId(SymbolNamespace.CALLABLE, "round"),
+        "Decimal",
+        False,
+        (decimal_65_30, _literal_integer("postgres", 0)),
+        static_values=(None, ("Int", 0)),
+    )
+    assert problem is problem_zero is None
+    assert default is not None and explicit_zero is not None
+    assert (
+        default.domain
+        == explicit_zero.domain
+        == {
+            "kind": "decimal",
+            "precision": 36,
+            "scale": 0,
+        }
+    )
+
+    decimal_65_0 = _decimal("postgres", 65, 0)
+    default_zero, problem = rows.resolved_scalar_call_realization(
+        "postgres",
+        SymbolId(SymbolNamespace.CALLABLE, "round"),
+        "Decimal",
+        False,
+        (decimal_65_0,),
+    )
+    explicit_zero, problem_zero = rows.resolved_scalar_call_realization(
+        "postgres",
+        SymbolId(SymbolNamespace.CALLABLE, "round"),
+        "Decimal",
+        False,
+        (decimal_65_0, _literal_integer("postgres", 0)),
+        static_values=(None, ("Int", 0)),
+    )
+    assert problem is problem_zero is None
+    assert default_zero is not None and explicit_zero is not None
+    assert (
+        default_zero.domain
+        == explicit_zero.domain
+        == {
+            "kind": "decimal",
+            "precision": 65,
+            "scale": 0,
+        }
+    )
+
+    for source, digits, expected in (
+        (decimal_65_0, 0, {"kind": "decimal", "precision": 65, "scale": 0}),
+        (decimal_65_30, 30, {"kind": "decimal", "precision": 65, "scale": 30}),
+    ):
+        rounded, problem = rows.resolved_scalar_call_realization(
+            "postgres",
+            SymbolId(SymbolNamespace.CALLABLE, "round"),
+            "Decimal",
+            False,
+            (source, _literal_integer("postgres", digits)),
+            static_values=(None, ("Int", digits)),
+        )
+        assert problem is None and rounded is not None
+        assert rounded.domain == expected
+
+    rejected, problem = rows.resolved_scalar_call_realization(
+        "postgres",
+        SymbolId(SymbolNamespace.CALLABLE, "round"),
+        "Decimal",
+        False,
+        (decimal_65_0, _literal_integer("postgres", -1)),
+        static_values=(None, ("Int", -1)),
+    )
+    assert rejected is None
+    assert problem == ("PIE-B1002", "round_result_outside_physical_range")
+
+    floating = _float("postgres")
+    rounded, problem = rows.resolved_scalar_call_realization(
+        "postgres",
+        SymbolId(SymbolNamespace.CALLABLE, "round"),
+        "Float",
+        False,
+        (floating,),
+    )
+    assert problem is None and rounded is not None
+    assert (rounded.tag, rounded.storage, rounded.domain) == (
+        floating.tag,
+        floating.storage,
+        floating.domain,
+    )
+    assert (
+        rows.resolved_scalar_call_realization(
+            "mysql",
+            SymbolId(SymbolNamespace.CALLABLE, "round"),
+            "Float",
+            False,
+            (floating,),
+        )[0]
+        is None
+    )
+
+    timestamp = rows.Realization(
+        "Timestamp",
+        {"kind": "pg_timestamp", "fractional_seconds": 6},
+        False,
+        {"kind": "timestamp"},
+    )
+    unit = rows.Realization(
+        "Text",
+        {"kind": "pg_text"},
+        False,
+        {
+            "kind": "text",
+            "max_characters": 6,
+            "encoding": "UTF8",
+            "collation": "C",
+            "padding": "NO PAD",
+        },
+    )
+    truncated, problem = rows.resolved_scalar_call_realization(
+        "postgres",
+        SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
+        "Timestamp",
+        False,
+        (unit, timestamp),
+        static_values=(("Text", "year"), None),
+    )
+    assert problem is None and truncated is not None
+    assert (truncated.tag, truncated.storage, truncated.domain) == (
+        timestamp.tag,
+        timestamp.storage,
+        timestamp.domain,
+    )
+
+
 def test_narrow_text_length_domain_cannot_prove_arithmetic_safety(tmp_path) -> None:
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_loading import load_compiled

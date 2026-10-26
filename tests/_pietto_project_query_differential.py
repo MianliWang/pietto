@@ -44,9 +44,9 @@ EXPECTED_REVIEW_SUMMARY: dict[str, object] = {
         (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )["project"]["version"],
     "owner_count": 35,
-    "record_count": 2612,
-    "canonical_size": 757358,
-    "canonical_sha256": "c8e3895b26c0eed7ab6b39a7d0ccc241f4c02f2b97ad31f75f345c24dabce0cd",
+    "record_count": 2623,
+    "canonical_size": 762530,
+    "canonical_sha256": "06259e1c20fc30ef8184205c08dc7184b3ff35041305c322f189a3e664dbda38",
     "phase61_size": 90142,
     "phase61_sha256": "b01e22a5c6fc603b99da93267ce4f4f5e90a6ccb06e692e3690ca878cc464144",
     "phase62_size": 66441,

@@ -40,6 +40,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeExpr,
     UnaryExpr,
+    WindowExpr,
     TableFunctionRelationDef,
     ValuesRelationDef,
 )
@@ -275,6 +276,11 @@ def _relation_expressions(definition: DerivedRelation) -> tuple[Expression, ...]
         ),
         *(
             ()
+            if definition.qualify_clause is None
+            else (definition.qualify_clause.expression,)
+        ),
+        *(
+            ()
             if definition.order_by_clause is None
             else tuple(item.expression for item in definition.order_by_clause.items)
         ),
@@ -287,7 +293,10 @@ def _operands(expression: Expression) -> tuple[Expression, ...]:
     if isinstance(expression, AnyExpr):
         return ()
     if isinstance(expression, CallExpr):
-        return expression.arguments
+        return (
+            *expression.arguments,
+            *(item.expression for item in expression.aggregate_order_by),
+        )
     if isinstance(expression, UnaryExpr):
         return (expression.operand,)
     if isinstance(expression, ConditionalExpr):
@@ -300,6 +309,23 @@ def _operands(expression: Expression) -> tuple[Expression, ...]:
         return (expression.left, expression.right)
     if isinstance(expression, BetweenExpr):
         return (expression.value, expression.lower, expression.upper)
+    if isinstance(expression, WindowExpr):
+        frame = expression.spec.frame
+        offsets = (
+            ()
+            if frame is None
+            else tuple(
+                bound.offset
+                for bound in (frame.start, frame.end)
+                if bound is not None and bound.offset is not None
+            )
+        )
+        return (
+            *expression.call.arguments,
+            *expression.spec.partition_by,
+            *(item.expression for item in expression.spec.order_by),
+            *offsets,
+        )
     return ()
 
 
@@ -501,16 +527,49 @@ def _invalid_binding_names(
             binding.name,
             allow_unaliased_selected_let_outputs=allow_unaliased_selected_let_outputs,
         ):
+            # A single file cannot select a binding by its own name in a
+            # relation with GROUP BY yet; the message says what to write.
+            from pietto.semantic.group_by import grouped_let_select_hint
+
+            hint = (
+                grouped_let_select_hint(
+                    definition,
+                    binding.name,
+                    input_schema,
+                    {
+                        item.name: item.expression
+                        for item in reversed(definition.let_clause.bindings)
+                    },
+                )
+                if all(
+                    _selects_binding(item, binding.name)
+                    for item in definition.select_items
+                    if _projection_output_name(item) == binding.name
+                )
+                else ""
+            )
             diagnostics.append(
                 _invalid_let_name_diagnostic(
                     binding,
                     binding.name,
                     reason="Let binding conflicts with projection output name",
+                    hint=hint,
                 )
             )
             invalid_names.add(binding.name)
 
     return invalid_names
+
+
+def _selects_binding(item: SelectItem, binding_name: str) -> bool:
+    """Whether ``item`` selects the binding by its own name, which outputs
+    its value."""
+
+    return (
+        item.alias is None
+        and isinstance(item.expression, NameExpr)
+        and item.expression.name == binding_name
+    )
 
 
 def _binding_conflicts_with_projection_output(
@@ -530,11 +589,8 @@ def _binding_conflicts_with_projection_output(
         if output_name != binding_name:
             continue
         if (
-            (allow_unaliased_selected_let_outputs or definition.group_by_clause is None)
-            and item.alias is None
-            and isinstance(item.expression, NameExpr)
-            and item.expression.name == binding_name
-        ):
+            allow_unaliased_selected_let_outputs or definition.group_by_clause is None
+        ) and _selects_binding(item, binding_name):
             continue
         return True
     return False
@@ -631,6 +687,7 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
     if isinstance(expression, CallExpr):
         children.append(expression.callee)
         children.extend(expression.arguments)
+        children.extend(item.expression for item in expression.aggregate_order_by)
     elif isinstance(expression, UnaryExpr):
         children.append(expression.operand)
     elif isinstance(expression, ConditionalExpr):
@@ -677,12 +734,13 @@ def _invalid_let_name_diagnostic(
     name: str,
     *,
     reason: str,
+    hint: str = "",
 ) -> Diagnostic:
     span = node.span
     return Diagnostic(
         code="PIE-S2329",
         severity=Severity.ERROR,
-        message=f"{reason}: {name}",
+        message=f"{reason}: {name}" + (f"; {hint}" if hint else ""),
         location=SourceLocation(
             path=span.path,
             line=span.line,

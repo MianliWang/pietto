@@ -657,13 +657,34 @@ def emit_compiled(root, values, named=None):
             arguments = []
             for address in record.get("outputs"):
                 expression = records[records[address].get("source")]
-                children = (
-                    expression.get("arguments")
-                    if expression.address.kind == "aggregate_value"
-                    else (expression.address,)
-                )
+                if expression.address.kind == "read":
+                    arguments.append(
+                        (scalar(expression.address, use, producer, alias), (), ())
+                    )
+                    continue
+                if expression.address.kind != "aggregate_value":
+                    raise CompiledError("COMPILED_AGGREGATE_OUTPUT")
+                children = expression.get("arguments")
+                order_by = expression.get("order_by")
                 arguments.append(
-                    None if not children else scalar(children[0], use, producer, alias)
+                    (
+                        None
+                        if not children
+                        else scalar(children[0], use, producer, alias),
+                        tuple(
+                            scalar(child, use, producer, alias)
+                            for child in children[1:]
+                        ),
+                        tuple(
+                            (
+                                scalar(
+                                    records[order].get("value"), use, producer, alias
+                                ),
+                                records[order].get("direction"),
+                            )
+                            for order in order_by
+                        ),
+                    )
                 )
             built_columns, aggregation = build_compiled_stage(
                 plan, record, tuple(arguments)

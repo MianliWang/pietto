@@ -1,3 +1,4 @@
+-- revenue_by_status
 SELECT
     "status" AS "status",
     COUNT(*) AS "total",
@@ -5,4 +6,4 @@ SELECT
 FROM "orders"
 WHERE "status" = 'paid'
 GROUP BY
-    "status"
+    "status";

@@ -486,25 +486,7 @@ def test_downstream_relation_from_grouped_relation_emits_by_relation_name(
 
     result = _read_json(capsys)
     assert result["ok"] is True
-    # Single-file SQL reads the same-file table by name (PIE-S2382, at FROM).
-    assert result["diagnostics"] == [
-        {
-            "code": "PIE-S2382",
-            "severity": "warning",
-            "message": "`grouped_orders` is a table of this file; single-file SQL "
-            "reads it by name, so the SQL runs only where the database already has "
-            "a relation named grouped_orders (an EXPLICIT_MODULES project emits it "
-            "as a CTE)",
-            "location": {
-                "path": str(path),
-                "line": 17,
-                "column": 5,
-                "end_line": 17,
-                "end_column": 24,
-            },
-            "suggestion": None,
-        }
-    ]
+    assert result["diagnostics"] == []
     artifacts = cast(list[dict[str, object]], result["artifacts"])
     assert [artifact["name"] for artifact in artifacts] == [
         "grouped_orders",

@@ -219,12 +219,23 @@ def _joins(region: dict[str, object]) -> list[dict[str, object]]:
             for position in cast(list[int], conjunct[3])
         )
         equalities = cast(list[list[object]], condition["equalities"])
+
+        def field_read(operand: object) -> bool:
+            return any(
+                reference[4] == operand
+                and reference[1] == "resolved"
+                and len(cast(list[object], reference[3])) == 1
+                for reference in references
+            )
+
+        # Every `==` of two exact field reads, hand-written or in a call's body.
         proved = [
             item
             for item in conjuncts
             if item[1] == "ComparisonExpr"
             and cast(dict[str, object], item[2])["operator"] == "=="
-            and item[4]
+            and field_read(cast(dict[str, object], item[2])["left"])
+            and field_read(cast(dict[str, object], item[2])["right"])
         ]
         assert [item[0] for item in equalities] == [item[0] for item in proved]
         assert [item[3] for item in equalities] == [item[4] for item in proved]
@@ -389,9 +400,16 @@ def test_real_authored_continuity_and_required_metamorphics_are_exact(
         for key in cast(
             list[list[object]], cast(dict[str, object], left["output"])["keys"]
         )
-    ] == [[[0, 1], "lax"]]
+    ] == [[[1], "lax"]]
     assert left["forward_at_most_one"] is False
-    assert cast(dict[str, object], left["condition"])["key_matches"] == []
+    # The hand-written equality matches the declared key of customers only.
+    assert [
+        (cast(list[object], proof[0])[1], proof[6])
+        for proof in cast(
+            list[list[object]],
+            cast(dict[str, object], left["condition"])["key_matches"],
+        )
+    ] == [("customers", [0])]
     assert any(
         cast(list[object], factor)[4]
         for factor in cast(
@@ -520,10 +538,16 @@ def test_explicit_output_controls_retain_final_ir_key_proofs_and_left_nulling(
                 if kind == "algebra" and row["owner"] == entries[name]["ref"]
             ]
             assert len(plain) == 1
-            assert not any(
-                kind in {"predicate_join", "predicate_key_match"}
-                and row["node"] == plain[0]["node"]
+            # A hand-written ON equality is recorded without a predicate use and
+            # matches the declared key of customers, which no_unique removes.
+            (predicate,) = [
+                row
                 for kind, row in records
+                if kind == "predicate_join" and row["node"] == plain[0]["node"]
+            ]
+            assert predicate["expression"] is None and predicate["bindings"] == [0]
+            assert len(predicate["matches"] or ()) == (
+                0 if variant == "no_unique" else 1
             )
             conditions = [
                 row
@@ -838,9 +862,16 @@ def test_negative_states_and_pure_rejections_are_typed_and_stable(
         span[key] for key in ("path", "line", "column", "end_line", "end_column")
     ]
 
-    for name, states in (
-        ("bad_relationship_join", ["unknown", "unknown"]),
-        ("bad_role_join", ["unknown", "resolved"]),
+    for name, states, condition_codes, final_codes in (
+        # The rows of an unknown relationship call are no ON references: the
+        # call alone is reported (PIE-S2103), at the call.
+        ("bad_relationship_join", [], ["PIE-S2103"], ["PIE-S2103"]),
+        (
+            "bad_role_join",
+            ["unknown", "resolved"],
+            ["PIE-S2335"],
+            ["PIE-S2334", "PIE-S2335"],
+        ),
     ):
         own = [item for item in conditions if item["owner"] == ["main.pietto", name]]
         assert len(own) == 1
@@ -851,9 +882,7 @@ def test_negative_states_and_pure_rejections_are_typed_and_stable(
             False,
         )
         assert [item[1] for item in condition["references"]] == states
-        assert [item[0] for item in condition["diagnostics"]] == [
-            "PIE-S2335"
-        ] * states.count("unknown")
+        assert [item[0] for item in condition["diagnostics"]] == condition_codes
         terminal, nodes = terminal_graph(name)
         assert terminal["reason"] == "current_join_condition_non_concrete"
         blockers = nodes[terminal["blocker"]]
@@ -876,19 +905,22 @@ def test_negative_states_and_pure_rejections_are_typed_and_stable(
             primary["input_scopes"][blocker["input_scope_site"]][0]
             == condition["owner"]
         )
-        unknown_spans = [
-            item[4]["span"] for item in condition["references"] if item[1] == "unknown"
-        ]
+        reported_spans = (
+            [
+                item[4]["span"]
+                for item in condition["references"]
+                if item[1] == "unknown"
+            ]
+            if states
+            else [condition["conjuncts"][0][2]["span"]]
+        )
         assert [item[3] for item in condition["diagnostics"]] == [
             [span[key] for key in ("path", "line", "column", "end_line", "end_column")]
-            for span in unknown_spans
+            for span in reported_spans
         ]
         final = [diagnostics[index] for index in owners[name]["owner_diagnostic_sites"]]
-        assert [item[0] for item in final] == [
-            "PIE-S2334",
-            *(["PIE-S2335"] * states.count("unknown")),
-        ]
-        assert final[1:] == condition["diagnostics"]
+        assert [item[0] for item in final] == final_codes
+        assert final[-len(condition_codes) :] == condition["diagnostics"]
 
     ambiguous = [
         item
@@ -896,7 +928,9 @@ def test_negative_states_and_pure_rejections_are_typed_and_stable(
         if item["owner"] == ["main.pietto", "ambiguous_fact_join"]
     ]
     assert len(ambiguous) == 1 and ambiguous[0]["ready"] is True
-    assert ambiguous[0]["equalities"] == ambiguous[0]["key_matches"] == []
+    # The hand-written equality is a match equality that matches no key here.
+    assert [item[0] for item in ambiguous[0]["equalities"]] == [0]
+    assert ambiguous[0]["key_matches"] == []
     assert [item[1] for item in ambiguous[0]["references"]] == ["resolved", "resolved"]
     assert [item[:2] for item in ambiguous[0]["null_rejections"]] == [[0, 0], [0, 1]]
     terminal, nodes = terminal_graph("chasm_aggregate_refusal")

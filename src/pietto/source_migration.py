@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
@@ -62,7 +62,7 @@ def migrate_file(path: str | Path) -> MigrationResult:
 def migrate_source(source: str, *, path: str | Path | None = None) -> MigrationResult:
     """Rewrite admitted legacy spellings while retaining all untouched bytes."""
 
-    modern = parser_api.parse_source(source, path=path)
+    modern = _modern_parse(source, path)
     legacy, tree = parser_api._parse_migration_source(source, path=path)
     script, legacy_tokens = legacy.ast, True
     if script is None or tree is None:
@@ -134,7 +134,7 @@ def migrate_source(source: str, *, path: str | Path | None = None) -> MigrationR
     if not changes:
         return MigrationResult(None, modern.diagnostics)
     migrated = prefix + _render(body, 0, len(body), changes)
-    checked = parser_api.parse_source(migrated, path=path)
+    checked = _modern_parse(migrated, path)
     if checked.ast is None:
         first = min(changes, key=lambda edit: edit[0])[0]
         token = _first_token(tree, first)
@@ -150,6 +150,19 @@ def migrate_source(source: str, *, path: str | Path | None = None) -> MigrationR
             ),
         )
     return MigrationResult(migrated, checked.diagnostics)
+
+
+def _modern_parse(source: str, path: str | Path | None) -> parser_api.ParseResult:
+    """The modern parse without its warnings, such as PIE-P1009, which
+    `check` reports: `migrate` reports only what stops it."""
+
+    result = parser_api.parse_source(source, path=path)
+    return replace(
+        result,
+        diagnostics=tuple(
+            item for item in result.diagnostics if item.severity is Severity.ERROR
+        ),
+    )
 
 
 def _token(context: _Context, name: str) -> Token | None:
@@ -505,12 +518,21 @@ def _rewrite(
             )
         )
     elif rule == "joinClause" and _token(context, "AS") is not None:
+        kind = context.start.text
+        if kind in {"semi", "anti"}:
+            rewrite = (
+                f"rewriting it as `where {'not ' if kind == 'anti' else ''}any("
+                f"predicate for {context.identifier(1).getText()} in "
+                f"{context.identifier(0).getText()})`"
+            )
+        else:
+            rewrite = "introducing let" if kind == "cross" else "introducing let and on"
         diagnostics.append(
             _manual(
                 context.start,
                 path,
                 "Legacy JOIN bindings need manual migration: preserve the exact input occurrence, "
-                "roles, inferred source, and relationship metadata when introducing let and on.",
+                f"roles, inferred source, and relationship metadata when {rewrite}.",
             )
         )
     elif rule == "joinClause" and context.start.text in {"semi", "anti"}:

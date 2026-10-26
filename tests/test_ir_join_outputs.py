@@ -19,7 +19,7 @@ from pietto import cli
 from pietto.semantic.model import CheckMode
 from pietto._project.project_grain import ProjectJoinGrainFactorIdentity
 from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
-from pietto._project.project_relationship_match_guarantees import (
+from pietto._project.project_join_conditions import (
     ProjectRelationshipMaximumBound,
     ProjectRelationshipMinimumBound,
 )
@@ -237,7 +237,6 @@ def test_mixed_conditions_keep_every_authored_binding(
     (region,) = completed.effective_outputs.current_regions
     assert len(region.joins) == (3 if layout == "two_predicates_first" else 2)
     assert len(region.binding_introductions) == len(region.joins) + 1
-    assert not region.hidden_introductions
     assert all(condition.ready for condition in completed.roots.join_conditions.entries)
 
 
@@ -485,7 +484,7 @@ def test_c04_nullable_disjunction_and_independent_bag_witness(tmp_path: Path) ->
         output.schema.fields["key"].nullability is ProjectRowFieldNullability.NULLABLE
     )
     fact = completed.roots.join_conditions.entries[0]
-    assert not fact.null_rejections and fact.base_guarantee is None
+    assert not fact.null_rejections
     region = completed.effective_outputs.current_regions[0]
     join = region.joins[0]
     assert isinstance(join, ProjectCurrentBinaryJoin)
@@ -518,7 +517,6 @@ def test_false_filter_preserves_matched_key_root_and_left_nulling(
     completed = _completed(tmp_path, source)
     assert completed.ok, completed.diagnostics
     fact = completed.roots.join_conditions.entries[0]
-    assert fact.base_guarantee is fact.refinement_guarantee is None
     matches = tuple(m for m in fact.key_matches if m.binding is fact.use.target_binding)
     assert len(matches) == 1
     assert matches[0].maximum is ProjectRelationshipMaximumBound.AT_MOST_ONE

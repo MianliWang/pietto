@@ -11,7 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import IO, NoReturn
+from typing import IO, TYPE_CHECKING, NoReturn
 
 import pietto.parser_api as parser_api
 import pietto.semantic as semantic_api
@@ -28,35 +28,6 @@ from pietto._metadata.serializer import (
     semantic_metadata_artifact_to_json_dict,
 )
 from pietto._metadata.text import render_semantic_metadata_text
-from pietto._project.check import (
-    check_legacy_flat_semantics,
-    check_project_parse_only,
-    project_recursion_limit_diagnostic,
-)
-from pietto._project.project_completed_semantics import (
-    build_project_completed_semantic_result,
-)
-from pietto._project.json_v2 import (
-    project_check_result_to_json_dict,
-    render_project_json_document,
-)
-from pietto._project.module_carrier import ProjectCompilationMode
-from pietto._project.project_sql_emission_cli import (
-    project_mode_requested,
-    run_project_emit_sql,
-)
-from pietto._project_explain.json_v1 import serialize_project_explain_json_document
-from pietto._project_explain.runtime_builder import (
-    ProjectExplainRuntimeOutcome,
-    _build_project_explain_runtime,
-)
-from pietto._project_explain.text import render_project_explain_text
-from pietto._project.model import (
-    ProjectDiscoveryError,
-    ProjectParseCheckResult,
-    ProjectSemanticResult,
-    build_empty_project_semantic_result,
-)
 from pietto._output_file import (
     is_owned_by_another_user,
     is_read_only,
@@ -64,6 +35,13 @@ from pietto._output_file import (
 )
 from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
+
+if TYPE_CHECKING:
+    from pietto._project.model import (
+        ProjectDiscoveryError,
+        ProjectParseCheckResult,
+        ProjectSemanticResult,
+    )
 
 _FALLBACK_VERSION = "0.1.5"
 _EXIT_DIAGNOSTIC_ERROR = 1
@@ -208,7 +186,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
             check_mode=_check_mode(namespace.check_mode),
         )
 
-    if arguments[0] == "emit-sql" and project_mode_requested(arguments[1:]):
+    if arguments[0] == "emit-sql" and _project_emit_mode_requested(arguments[1:]):
         return _run_project_emit_sql(arguments[1:])
 
     if _is_emit_sql_json_request(arguments):
@@ -421,6 +399,17 @@ def _has_project_flag(arguments: Sequence[str]) -> bool:
     return bool(_option_values(arguments, "--project"))
 
 
+def _project_emit_mode_requested(arguments: Sequence[str]) -> bool:
+    """Return whether emit-sql explicitly selects its project-only route."""
+
+    for argument in arguments:
+        if argument == "--":
+            return False
+        if argument == "--project" or argument.startswith("--project="):
+            return True
+    return False
+
+
 def _option_values(arguments: Sequence[str], option: str) -> list[str]:
     """Return the values argparse would read for one check or emit-sql option.
 
@@ -577,6 +566,8 @@ def _run_check_command(namespace: argparse.Namespace) -> int:
 def _run_project_check(root: Path, *, output_format: str) -> int:
     """Run project check in text or project JSON v2 mode."""
 
+    from pietto._project.check import check_project_parse_only
+
     parse_result = check_project_parse_only(root)
     if output_format == _FORMAT_JSON:
         if parse_result.ok:
@@ -626,6 +617,10 @@ def _project_check_semantics(
     check reports a diagnostic equal to an earlier one once, at its first
     position; the parse check applies that rule to its own diagnostics."""
 
+    from pietto._project.check import project_recursion_limit_diagnostic
+    from pietto._project.model import build_empty_project_semantic_result
+    from pietto._project.module_carrier import ProjectCompilationMode
+
     try:
         diagnostics, ok = _project_semantic_boundary(
             build_empty_project_semantic_result(parse_result)
@@ -648,6 +643,12 @@ def _project_semantic_boundary(
     """Select the completed boundary for explicit-module Project checks and the
     legacy-flat semantic checks for legacy-flat ones."""
 
+    from pietto._project.check import check_legacy_flat_semantics
+    from pietto._project.module_carrier import ProjectCompilationMode
+    from pietto._project.project_completed_semantics import (
+        build_project_completed_semantic_result,
+    )
+
     if semantic_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
         completed = build_project_completed_semantic_result(semantic_result)
         return completed.diagnostics, completed.ok
@@ -662,6 +663,11 @@ def _print_project_check_json(
     semantic_diagnostics: Sequence[Diagnostic] = (),
 ) -> None:
     """Print one complete project JSON v2 check document to stdout."""
+
+    from pietto._project.json_v2 import (
+        project_check_result_to_json_dict,
+        render_project_json_document,
+    )
 
     document = project_check_result_to_json_dict(
         parse_result,
@@ -935,6 +941,13 @@ def _print_explain_usage_error(message: str) -> None:
 def _run_project_explain(root: Path, *, output_format: str) -> int:
     """Render one Slice 13 runtime result through the selected public surface."""
 
+    from pietto._project_explain.json_v1 import serialize_project_explain_json_document
+    from pietto._project_explain.runtime_builder import (
+        ProjectExplainRuntimeOutcome,
+        _build_project_explain_runtime,
+    )
+    from pietto._project_explain.text import render_project_explain_text
+
     result = _build_project_explain_runtime(root)
     if output_format == _FORMAT_JSON:
         _write_stdout(serialize_project_explain_json_document(result.envelope))
@@ -1173,6 +1186,8 @@ def _print_emit_sql_json(
 def _run_project_emit_sql(arguments: Sequence[str]) -> int:
     """Run the explicit project emit-sql mode and write its exact stream bytes."""
 
+    from pietto._project.project_sql_emission_cli import run_project_emit_sql
+
     result = run_project_emit_sql(arguments)
     if result.stderr:
         _write_stderr(result.stderr)
@@ -1264,7 +1279,7 @@ def _run_emit_sql(
 
 
 def _print_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> None:
-    """Print ordered SQL artifacts without changing their stored text."""
+    """Print ordered SQL artifacts, each named and terminated."""
 
     if artifacts:
         _write_stdout(f"{_format_sql_artifacts(artifacts)}\n")
@@ -1341,9 +1356,9 @@ def _paths_refer_to_same_file(input_path: Path, output_path: Path) -> bool:
 
 
 def _format_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> str:
-    """Join ordered artifact text with one blank line."""
+    """Name each artifact on a `--` line and end its SQL with `;`."""
 
-    return "\n\n".join(artifact.sql for artifact in artifacts)
+    return "\n\n".join(f"-- {artifact.name}\n{artifact.sql};" for artifact in artifacts)
 
 
 def _render_diagnostics(

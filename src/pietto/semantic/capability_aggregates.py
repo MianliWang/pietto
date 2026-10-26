@@ -301,6 +301,54 @@ def _signature_evidence(
 ) -> tuple[CapabilityEvidence, ...]:
     """Return exact compiler-order evidence for one supported signature."""
 
+    if subject == "string_agg":
+        return (
+            _evidence(
+                CapabilityEvidenceSource.GRAMMAR_AST,
+                "grammar/Pietto.g4",
+                "callSuffix ORDER BY orderItem",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.GRAMMAR_AST,
+                "src/pietto/ast_nodes.py",
+                "CallExpr aggregate_order_by",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.SEMANTIC_CATALOG,
+                "src/pietto/semantic/aggregates.py",
+                "STRING_AGGREGATE_NAME SEMANTIC_AGGREGATE_NAMES",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.SEMANTIC_PROCEDURE,
+                "src/pietto/semantic/aggregates.py",
+                "aggregate_order_expressions semantic_aggregate_result_value_type",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.IR,
+                "src/pietto/ir/model.py",
+                "AggregateCallIR arguments order_by",
+            ),
+            _postgres_evidence("_render_string_agg"),
+            _evidence(
+                CapabilityEvidenceSource.BACKEND,
+                "src/pietto/sql/mysql_expressions.py",
+                "_render_aggregate_call string_agg rejection",
+                CapabilityReasonCode.DIALECT_LOWERING_GAP,
+                dialect="mysql",
+                backend="private-mysql",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_semantic_functions.py",
+                "test_string_agg_remains_legal_beside_an_unrelated_def",
+            ),
+            _evidence(
+                CapabilityEvidenceSource.TEST,
+                "tests/test_sql_aggregate_expression_argument_sql.py",
+                "test_c5_string_agg_preserves_all_internal_order_keys_and_refuses_mysql",
+            ),
+        )
+
     if subject == "count":
         backend_reference = "_render_count_aggregate and _is_count_argument_expression"
         roadmap_path = "docs/plan/phase-23-count-field-aggregate-mvp.md"
@@ -738,6 +786,16 @@ _AGGREGATE_SIGNATURE_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
             )
             for subject in ("Int", "Float", "Decimal", "Date", "Timestamp")
         ),
+        _signature_fact(
+            "string_agg",
+            _signature_operands(
+                "two_text_arguments_with_internal_order",
+                "Text",
+                "Text",
+                "nullable",
+                arity="2",
+            ),
+        ),
     )
 )
 
@@ -1067,17 +1125,6 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
         ),
         _algebra_fact(
             "SEMANTIC_AGGREGATE_NAMES",
-            "aggregate_internal_ordering",
-            ("all_current_aggregates", "not_supported"),
-            CapabilitySupport.EXPLICITLY_UNSUPPORTED,
-            _modifier_evidence(
-                "aggregate_internal_ordering",
-                "WITHIN GROUP And Aggregate-internal Ordering Deferral",
-            ),
-            _advanced_aggregate_deferred(),
-        ),
-        _algebra_fact(
-            "SEMANTIC_AGGREGATE_NAMES",
             "generic_aggregate_modifier",
             ("all_current_aggregates", "not_supported"),
             CapabilitySupport.EXPLICITLY_UNSUPPORTED,
@@ -1177,7 +1224,7 @@ def _signature_schema_is_complete(key: CapabilityKey) -> bool:
         key.operands
     )
     if (
-        result_type not in {"Int", "Float", "Decimal", "Date", "Timestamp"}
+        result_type not in {"Int", "Float", "Decimal", "Date", "Text", "Timestamp"}
         or nullability not in {"non_null", "nullable"}
         or stage != "GROUP"
         or role != "aggregate_result"

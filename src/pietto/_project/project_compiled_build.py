@@ -65,7 +65,7 @@ class _Export:
         self.declarations, self.sources, self.source_ports = {}, {}, {}
         self.units, self.unit_ports = {}, {}
         self.join_refs, self.input_refs = {}, {}
-        self.match_uses, self.paths, self.requests, self.steps = {}, {}, {}, {}
+        self.match_uses, self.requests = {}, {}
         self.guarded = guarded
         self.refinement = refinement
         if refinement is not None:
@@ -756,7 +756,7 @@ class _Export:
                 if role == "membership" and operator.negated
                 else "in"
                 if role == "membership"
-                else "int_to_float"
+                else "int_to_" + original.expression.target.name.lower()
                 if role == "cast"
                 else "if_else"
                 if role == "conditional"
@@ -995,21 +995,10 @@ class _Export:
                 self.add("port", address, column.position, column.label, value, logical)
             )
         self.unit_ports[id(unit)] = tuple(ports)
-        from pietto._project.project_ir_joins import (
-            ProjectIRBinaryJoinOccurrence,
-            _source_slice_fields,
-        )
         from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
 
         original_join = unit.join.source.source
-        if type(original_join) is ProjectIRBinaryJoinOccurrence:
-            law = "relationship"
-            source_positions = tuple(
-                f.field_position for f in _source_slice_fields(original_join)
-            )
-            if original_join.guarantee.minimum.value != "zero_allowed":
-                raise CompiledError("COMPILED_EXPLICIT_COVERAGE_INPUT")
-        elif type(original_join) is ProjectCurrentBinaryJoin:
+        if type(original_join) is ProjectCurrentBinaryJoin:
             law = "current"
             candidates = original_join.condition.environment.source_candidates
             source_positions = tuple(
@@ -1184,9 +1173,26 @@ class _Export:
                 arguments = (
                     ()
                     if column.argument is None
-                    else (self.scalar(column.argument, producer, use),)
+                    else (
+                        self.scalar(column.argument, producer, use),
+                        *(
+                            ()
+                            if column.delimiter is None
+                            else (self.scalar(column.delimiter, producer, use),)
+                        ),
+                    )
                 )
-                expr = self.add("aggregate_value", column.function, arguments, logical)
+                order_by = tuple(
+                    self.add(
+                        "aggregate_order",
+                        self.scalar(item.value, producer, use),
+                        item.direction,
+                    )
+                    for item in column.order_by
+                )
+                expr = self.add(
+                    "aggregate_value", column.function, arguments, order_by, logical
+                )
             elif type(column) is sql.RowValueColumn:
                 expr = self.scalar(column.value, producer, use)
                 logical = _logical(column.value.original.value_type)
@@ -1252,7 +1258,6 @@ class _Export:
             )
             from pietto._project.project_multifact import (
                 ProjectCurrentMultiFactRegion,
-                ProjectMultiFactConcreteRegion,
             )
 
             authority = aggregation.aggregation.authority.source
@@ -1261,8 +1266,6 @@ class _Export:
                 region = authority.input_filter.joined_semantics.multifact_region
                 if type(region) is ProjectCurrentMultiFactRegion:
                     risk_law = "current"
-                elif type(region) is ProjectMultiFactConcreteRegion:
-                    risk_law = "relationship"
                 else:
                     raise CompiledError("COMPILED_AGGREGATE_RISK_INPUT")
             self.finish(
@@ -1536,10 +1539,6 @@ class _Export:
     def request_records(self, *, plan=None):
         plan = self.request.plan if plan is None else plan
         from pietto._project.project_single_match import _boundaries
-        from pietto._project.project_relationship_paths import (
-            ProjectRelationshipPathStep,
-        )
-        from pietto._project.project_relationship_uses import ProjectTraversalStepUse
 
         completed = self.request.verification.completed
         reached_owners = tuple(d.entry.owner for d in plan.bindings.definitions)
@@ -1559,24 +1558,6 @@ class _Export:
             if condition is None:
                 raise CompiledError("COMPILED_REQUEST_CONDITION")
             if id(request.use) not in self.match_uses:
-                path = condition.effective_use.path
-                if path is not None and id(path) not in self.paths:
-                    steps = []
-                    for step in path.steps:
-                        direction = step.guarantee.direction
-                        declared = direction.declaration
-                        if id(step) not in self.steps:
-                            self.steps[id(step)] = self.add(
-                                "match_step",
-                                step.position,
-                                declared.module.path,
-                                declared.module_position,
-                                declared.relationship_position,
-                                direction.source.identity.endpoint_position,
-                                direction.target.identity.endpoint_position,
-                            )
-                        steps.append(self.steps[id(step)])
-                    self.paths[id(path)] = self.add("match_path", tuple(steps))
                 boundaries = []
                 for boundary in _boundaries(completed.effective_outputs, condition):
                     joins = tuple(
@@ -1598,29 +1579,9 @@ class _Export:
                     self.declaration(request.owner),
                     positions[0],
                     tuple(boundaries),
-                    None if path is None else self.paths[id(path)],
+                    # No JOIN is a relationship path.
+                    None,
                 )
-            hop = None
-            if type(request.hop) is ProjectRelationshipPathStep:
-                positions = tuple(
-                    i
-                    for i, step in enumerate(request.path.steps)
-                    if step is request.hop
-                )
-                if len(positions) != 1:
-                    raise CompiledError("COMPILED_REQUEST_HOP")
-                hop = ("path_step", positions[0])
-            elif type(request.hop) is ProjectTraversalStepUse:
-                positions = tuple(
-                    i
-                    for i, step in enumerate(condition.use.step_uses)
-                    if step is request.hop
-                )
-                if len(positions) != 1:
-                    raise CompiledError("COMPILED_REQUEST_HOP")
-                hop = ("traversal_step", positions[0])
-            elif request.hop is not None:
-                raise CompiledError("COMPILED_REQUEST_HOP")
             pairs = tuple(
                 tuple(self.input_refs[id(a)] for a in pair)
                 for pair in obligation.input_pairs
@@ -1631,8 +1592,8 @@ class _Export:
                 self.match_uses[id(request.use)],
                 request.scope.value,
                 request.unit.value,
-                None if request.path is None else self.paths[id(request.path)],
-                hop,
+                None,
+                None,
                 pairs,
             )
         return tuple(self.requests[id(request)] for request in originals)
@@ -1916,7 +1877,13 @@ class _LogicalExport(_Export):
                 (original.value, *original.options),
             )
         elif type(original) is expressions.ProjectSQLCast:
-            token, children = ("cast", "int_to_float"), (original.value,)
+            token, children = (
+                (
+                    "cast",
+                    "int_to_" + original.expression.target.name.lower(),
+                ),
+                (original.value,),
+            )
         elif type(original) is expressions.ProjectSQLRelationExists:
             token, children = ("exists", "exists"), ()
         elif type(original) is expressions.ProjectSQLRelationScalar:
@@ -2125,10 +2092,6 @@ class _LogicalExport(_Export):
                         )
 
     def logical_join(self, definition, join):
-        from pietto._project.project_ir_joins import (
-            ProjectIRBinaryJoinOccurrence,
-            _source_slice_fields,
-        )
         from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
 
         address = self.reserve("join")
@@ -2176,10 +2139,7 @@ class _LogicalExport(_Export):
             self.ports[reference] = port
             outputs.append(port)
         actual = join.source.source
-        if type(actual) is ProjectIRBinaryJoinOccurrence:
-            law = "relationship"
-            positions = tuple(f.field_position for f in _source_slice_fields(actual))
-        elif type(actual) is ProjectCurrentBinaryJoin:
+        if type(actual) is ProjectCurrentBinaryJoin:
             law = "current"
             candidates = actual.condition.environment.source_candidates
             positions = tuple(
@@ -2271,10 +2231,7 @@ class _LogicalExport(_Export):
         from pietto._project.project_joined_aggregation import (
             ProjectConcreteJoinedAggregation,
         )
-        from pietto._project.project_multifact import (
-            ProjectCurrentMultiFactRegion,
-            ProjectMultiFactConcreteRegion,
-        )
+        from pietto._project.project_multifact import ProjectCurrentMultiFactRegion
 
         original = next(a for a in self.plan.aggregations if a.block is block.ref)
         address = self.reserve("aggregate")
@@ -2298,6 +2255,21 @@ class _LogicalExport(_Export):
                 "aggregate_value",
                 grouping.function_name(item.source),
                 tuple(self.expression(a, (use,)) for a in item.arguments),
+                tuple(
+                    self.add(
+                        "aggregate_order",
+                        self.expression(order, (use,)),
+                        "asc"
+                        if item.source.item.expression.aggregate_order_by[
+                            position
+                        ].direction
+                        is None
+                        else item.source.item.expression.aggregate_order_by[
+                            position
+                        ].direction,
+                    )
+                    for position, order in enumerate(item.order_by)
+                ),
                 _logical(item.value_type),
             )
             values.append(value)
@@ -2317,16 +2289,9 @@ class _LogicalExport(_Export):
         law = None
         if type(authority) is ProjectConcreteJoinedAggregation:
             region = authority.input_filter.joined_semantics.multifact_region
-            if type(region) not in (
-                ProjectCurrentMultiFactRegion,
-                ProjectMultiFactConcreteRegion,
-            ):
+            if type(region) is not ProjectCurrentMultiFactRegion:
                 raise CompiledError("COMPILED_RETAINED_AGGREGATE_RISK")
-            law = (
-                "current"
-                if type(region) is ProjectCurrentMultiFactRegion
-                else "relationship"
-            )
+            law = "current"
         self.finish(
             address,
             self.declaration(definition.entry.owner),
@@ -2889,8 +2854,6 @@ def merge_retained_components(components, requests):
         for name, mapping in (
             ("request", exporter.requests),
             ("match_use", exporter.match_uses),
-            ("match_path", exporter.paths),
-            ("match_step", exporter.steps),
         ):
             for identity, address in mapping.items():
                 keys[address] = (name, identity)

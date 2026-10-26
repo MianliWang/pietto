@@ -24,15 +24,6 @@ SOURCE = (
 )
 
 
-def _same_file_read(name: str, kind: str = "table") -> str:
-    """The PIE-S2382 warning at a read of a table or query of the file."""
-    return (
-        f"`{name}` is a {kind} of this file; single-file SQL reads it by name, so "
-        "the SQL runs only where the database already has a relation named "
-        f"{name} (an EXPLICIT_MODULES project emits it as a CTE)"
-    )
-
-
 def test_table_from_typed_source_builds_known_schema() -> None:
     result = analyze(
         _parse(
@@ -154,10 +145,7 @@ def test_aliased_bare_name_that_is_no_field_reports_s2102_and_unknown_schema(
         for (code, _, message), diagnostic in zip(
             _diagnostics(result), result.diagnostics, strict=True
         )
-    ] == [
-        ("PIE-S2102", f"Unknown field: {name}", column),
-        ("PIE-S2382", _same_file_read("projected"), 5),
-    ]
+    ] == [("PIE-S2102", f"Unknown field: {name}", column)]
     assert result.model.relation_row_schemas[table].is_unknown is True
 
 
@@ -223,15 +211,18 @@ def test_aliased_read_of_an_input_field_of_unknown_type_is_a_computed_output(
     query = _relation(result, "q", QueryDef)
     schema = result.model.relation_row_schemas[query]
 
-    # Only the warnings at the reads of this file's tables: `passed` reads
-    # rates, and q reads rates or passed.
-    read = "passed" if "from passed" in body else "rates"
+    # `amount / id` in rates divides two Int values (PIE-S2106).
     assert [
         (item.code, item.severity, item.message, item.location.line)
         for item in result.diagnostics
     ] == [
-        ("PIE-S2382", Severity.WARNING, _same_file_read("rates"), 14),
-        ("PIE-S2382", Severity.WARNING, _same_file_read(read), 19),
+        (
+            "PIE-S2106",
+            Severity.WARNING,
+            "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
+            "write `Float(x) / y` for a fractional result",
+            11,
+        ),
     ]
     assert schema.is_unknown is False
     assert output in schema.fields
@@ -382,10 +373,7 @@ def test_unknown_upstream_schema_suppresses_downstream_field_diagnostics() -> No
     )
     second = _relation(result, "second", QueryDef)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
-        "PIE-S2102",
-        "PIE-S2382",
-    ]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
     assert result.model.relation_row_schemas[second].is_unknown is True
 
 
@@ -407,11 +395,7 @@ def test_relation_cycles_produce_unknown_schemas_with_cycle_diagnostic() -> None
 
     assert result.model.relation_row_schemas[first].is_unknown is True
     assert result.model.relation_row_schemas[second].is_unknown is True
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
-        "PIE-S2382",
-        "PIE-S2302",
-        "PIE-S2382",
-    ]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -451,17 +435,10 @@ def test_a_long_chain_of_computed_tables_is_refined_in_linear_work(
             "Int",
             EffectiveNullability.UNKNOWN,
         )
-    # Every table reads the table before it of this file by name.
-    reads = [
-        ("PIE-S2382", number, 5)
-        for number, line in enumerate(source.splitlines(), 1)
-        if line.startswith("    from t") and line != "    from t0"
-    ]
-    assert len(reads) == count
     assert [
         (diagnostic.code, diagnostic.location.line, diagnostic.location.column)
         for diagnostic in result.diagnostics
-    ] == sorted([*reads, ("PIE-S2102", 4 * count + 7, 13)], key=lambda item: item[1])
+    ] == [("PIE-S2102", 4 * count + 7, 13)]
     assert sum(typed_tables) < 4 * (count + 1)
 
 
@@ -584,13 +561,7 @@ def test_join_target_projection_types_propagate_through_forward_dependencies(
         )
     )
 
-    # The JOIN and the output read tables of this file by name; nothing else.
-    assert [
-        (item.code, item.severity, item.message) for item in result.diagnostics
-    ] == [
-        ("PIE-S2382", Severity.WARNING, _same_file_read(name))
-        for name in ("named_users", "matched_users")
-    ]
+    assert result.diagnostics == ()
     for name in ("named_users", "matched_users", "output"):
         relation = result.model.relation_symbols[name]
         assert isinstance(relation, (TableDef, QueryDef))
@@ -627,7 +598,4 @@ def test_refused_join_has_no_projected_fields_for_downstream_let_shadowing() -> 
             diagnostic.location.column,
         )
         for diagnostic in result.diagnostics
-    ] == [
-        ("PIE-S2301", "Unknown relation: missing", 7, 5),
-        ("PIE-S2382", _same_file_read("refused"), 11, 5),
-    ]
+    ] == [("PIE-S2301", "Unknown relation: missing", 7, 5)]

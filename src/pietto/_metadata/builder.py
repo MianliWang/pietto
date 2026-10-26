@@ -476,6 +476,7 @@ def _walk_expressions(expression: ExpressionIR) -> Iterable[ExpressionIR]:
         yield from _walk_expressions(expression.predicate)
     elif isinstance(expression, AggregateCallIR):
         yield from _walk_many(expression.arguments)
+        yield from _walk_many(item.expression for item in expression.order_by)
     elif isinstance(expression, CallIR):
         yield from _walk_many(expression.arguments)
     elif isinstance(expression, UnaryIR):

@@ -457,7 +457,6 @@ def test_complete_named_corpus_in_fresh_source_free_process(tmp_path, target):
     import subprocess
     import sys
     from _pietto_execution_source_assurance_cases import (
-        BLOCK_READS,
         CASES,
         original as source_artifact,
     )
@@ -525,8 +524,7 @@ def test_complete_named_corpus_in_fresh_source_free_process(tmp_path, target):
             excluded.append((target, case, variant))
             continue
         retain(artifact, [target, case, variant, "ordinary"])
-        if (case, variant) not in BLOCK_READS:
-            retain(artifact, [target, case, variant, "refined"], refined=True)
+        retain(artifact, [target, case, variant, "refined"], refined=True)
     for case in manifest():
         if target == "mysql" and case["options"].get("postgres_only", False):
             continue

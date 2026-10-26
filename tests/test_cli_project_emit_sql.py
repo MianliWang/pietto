@@ -174,15 +174,8 @@ def test_project_default_json_preserve_is_the_installed_api_artifact(
 
 
 def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
-    # The input's query reads a table of its own file (PIE-S2382).
-    warning = (
-        f"{LEGACY_INPUT}:33:5 PIE-S2382 warning: `FirstRelation` is a table of "
-        "this file; single-file SQL reads it by name, so the SQL runs only where "
-        "the database already has a relation named FirstRelation (an "
-        "EXPLICIT_MODULES project emits it as a CTE)\n"
-    )
     code, out, err = run(["emit-sql", str(LEGACY_INPUT), "--dialect", "postgres"])
-    assert (code, err) == (0, warning) and out == LEGACY_GOLDEN.read_bytes()
+    assert (code, err) == (0, "") and out == LEGACY_GOLDEN.read_bytes()
     code, out, err = run(
         ["emit-sql", str(MYSQL_LEGACY_INPUT), "--dialect", "mysql", "--format", "json"]
     )
@@ -211,7 +204,7 @@ def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
             str(output),
         ]
     )
-    assert (code, out, err) == (0, b"", warning)
+    assert (code, out, err) == (0, b"", "")
     assert output.read_bytes() == LEGACY_GOLDEN.read_bytes()
     # A positional value that merely contains an option-like string is legacy.
     code, out, err = run(["emit-sql", "--dialect", "postgres", "--", "--project"])

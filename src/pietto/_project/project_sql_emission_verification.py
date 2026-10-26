@@ -17,6 +17,7 @@ from pietto._project.project_joined_aggregation import (
 )
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
 from pietto._project import project_sql_plan_expressions as row
+from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
 from pietto._project.project_sql_plan_requirements import (
     verify_project_sql_requirement_report,
@@ -65,7 +66,6 @@ from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_plan_windows as plan_windows
-from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as ast
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
 from pietto import ast_nodes
@@ -611,7 +611,15 @@ def _verify_value(request, value, original, expressions_seen, nodes):
         or leaf.site.position.expression is not original.ref
         or leaf.site.position.literal is not original.expression
         or leaf.site.position.role.value
-        not in {"select", "let", "where", "on", "satisfying", "qualify"}
+        not in {
+            "select",
+            "let",
+            "where",
+            "on",
+            "aggregate_argument",
+            "satisfying",
+            "qualify",
+        }
     ):
         return False
     expressions_seen.append(original)
@@ -1274,6 +1282,7 @@ def _row_realization(request, expression, operands, operand_values):
         row.ProjectSQLMembership: "membership",
         row.ProjectSQLCast: "cast",
         row.ProjectSQLScalarCall: "scalar_call",
+        plan_aggregation.ProjectSQLAggregateArgumentCall: "scalar_call",
     }.get(type(expression))
     if kind is None:
         raise ValueError("logical expression kind")
@@ -1288,7 +1297,14 @@ def _row_realization(request, expression, operands, operand_values):
     )
     if kind == "scalar_call":
         result, problem = rows.resolved_scalar_call_realization(
-            request.family, expression.callee_symbol, tag, nullable, operands
+            request.family,
+            expression.callee_symbol,
+            tag,
+            nullable,
+            operands,
+            static_values=tuple(
+                rows._static_literal_value(value) for value in operand_values
+            ),
         )
         if result is None:
             raise ValueError(problem)
@@ -1774,6 +1790,26 @@ def resolved_window_integer_result(family, realization, origin, default):
 def _aggregate_result_realization(family, function, argument, retained):
     """Independently re-derive one aggregate result's own physical realization."""
     tag, nullable = retained
+    if function == "string_agg":
+        if (
+            family != "postgres"
+            or argument is None
+            or tag != "Text"
+            or nullable is not True
+        ):
+            raise ValueError("string_agg result domain")
+        return rows.Realization(
+            "Text",
+            {"kind": "pg_text"},
+            True,
+            {
+                "kind": "text",
+                "max_characters": None,
+                "encoding": "UTF8",
+                "collation": "C",
+                "padding": "NO PAD",
+            },
+        )
     if function in grouping.COUNTING_FUNCTIONS:
         if tag != "Int" or nullable is not False:
             raise ValueError("count result domain")
@@ -1935,10 +1971,65 @@ def _verify_aggregate_body(
         if function is None or function not in grouping.SPELLING:
             raise ValueError("aggregate function outside the promised domain")
         arguments = plan_aggregation.arguments(value.source)
-        if len(arguments) != len(value.arguments) or len(arguments) > 1:
+        ordered = value.source.item.expression.aggregate_order_by
+        if (
+            len(arguments) != len(value.arguments)
+            or len(ordered) != len(value.order_by)
+            or (function == "string_agg") is not (len(arguments) == 2 and bool(ordered))
+            or (function != "string_agg" and (len(arguments) > 1 or ordered))
+        ):
             raise ValueError("aggregate argument signature")
         argument = column.argument
-        if value.arguments:
+        if function == "string_agg":
+            if argument is None or column.delimiter is None:
+                raise ValueError("string_agg arguments missing")
+            _verify_row_value(
+                request,
+                argument,
+                value.arguments[0],
+                columns,
+                children,
+                state,
+                reference_type=reference_type,
+            )
+            _verify_row_value(
+                request,
+                column.delimiter,
+                value.arguments[1],
+                columns,
+                children,
+                state,
+                reference_type=reference_type,
+            )
+            if (
+                grouping.string_agg_argument_problem(argument) is not None
+                or grouping.string_agg_argument_problem(column.delimiter) is not None
+            ):
+                raise ValueError("string_agg argument domain")
+            if len(column.order_by) != len(value.order_by):
+                raise ValueError("string_agg order denominator")
+            for actual, expected, authored in zip(
+                column.order_by, value.order_by, ordered, strict=True
+            ):
+                _verify_row_value(
+                    request,
+                    actual.value,
+                    expected,
+                    columns,
+                    children,
+                    state,
+                    reference_type=reference_type,
+                )
+                if (
+                    actual.direction
+                    != ("asc" if authored.direction is None else authored.direction)
+                    or grouping.grouping_problem(
+                        rows.realization_of(actual.value, request.family)
+                    )
+                    is not None
+                ):
+                    raise ValueError("string_agg order domain")
+        elif value.arguments:
             if argument is None:
                 raise ValueError("aggregate argument missing")
             _verify_row_value(
@@ -1970,6 +2061,10 @@ def _verify_aggregate_body(
             or column.distinct is not (function in grouping.DISTINCT_FUNCTIONS)
             or column.argument_cast
             != grouping.argument_cast(request.family, function, argument)
+            or (
+                function != "string_agg"
+                and (column.delimiter is not None or column.order_by)
+            )
             or export is None
             or export.source is not value.ref
             or column.export is not export
@@ -1989,7 +2084,17 @@ def _verify_aggregate_body(
                         "aggregate_result",
                         stage,
                         export.ref,
-                        (argument.column.terminal,)
+                        tuple(
+                            terminal
+                            for current in (argument, column.delimiter)
+                            if current is not None
+                            for terminal in grouping._input_terminals(current)
+                        )
+                        + tuple(
+                            terminal
+                            for order in column.order_by
+                            for terminal in grouping._input_terminals(order.value)
+                        )
                         if argument is not None
                         else tuple(
                             columns[reference].terminal for reference in block.inputs
@@ -2822,6 +2927,7 @@ def _verify_row_value(
         row.ProjectSQLMembership: "membership",
         row.ProjectSQLCast: "cast",
         row.ProjectSQLScalarCall: "scalar_call",
+        plan_aggregation.ProjectSQLAggregateArgumentCall: "scalar_call",
     }.get(type(expression))
     if type(expression) is row.ProjectSQLUnary:
         expected_kind = "not" if expression.expression.operator == "not" else "sign"
@@ -2870,7 +2976,6 @@ def _join_reads(
     by_join,
     ports,
     *,
-    guarded=None,
     inline=None,
 ):
     """Independently rebuild one JOIN input's pre-match columns and alias;
@@ -2927,93 +3032,6 @@ def _join_reads(
                 reads.append(
                     replace(column, position=position, name=f"c{position}", scope=alias)
                 )
-    elif original.producer is not None and guarded is not None:
-        from pietto._project.project_guard_preparation import PendingGuardScope
-
-        if (
-            type(guarded) is not PendingGuardScope
-            or guarded.request is not request
-            or not guarded.obligations
-        ):
-            raise ValueError("guarded path scope")
-        joins = tuple(j for j in request.plan.joins if j.ref is original.join)
-        definitions = tuple(
-            d for d in request.plan.bindings.definitions if d.ref is original.producer
-        )
-        if len(joins) != 1 or len(definitions) != 1 or original.predecessor is not None:
-            raise ValueError("guarded path input roots")
-        image, definition = joins[0].source, definitions[0]
-        path = image.condition.effective_use.path
-        if (
-            path is None
-            or len(path.steps) < 2
-            or image.inputs[original.ordinal] is not original.source
-            or definition.entry.owner is not original.source.producer
-            or original.source.use.output
-            is not definition.entry.active_output.occurrence
-        ):
-            raise ValueError("guarded path occurrence")
-        if len(original.ports) != len(definition.exports):
-            raise ValueError("guarded path input width")
-        for position, (reference, export) in enumerate(
-            zip(original.ports, definition.exports, strict=True)
-        ):
-            port = ports[reference]
-            if (
-                port.input is not original.ref
-                or port.position != position
-                or port.source is not export.ref
-                or port.field is not export.field
-            ):
-                raise ValueError("guarded path original exports")
-        if original.producer in source_refs:
-            source = source_refs[original.producer]
-            bounds = tuple(b for b in request.sources if b.owner is source.source.owner)
-            if len(bounds) != 1:
-                raise ValueError("guarded path physical source")
-            producer, source_ref = bounds[0], source.ref
-            for position, export in enumerate(definition.exports):
-                fields = tuple(f for f in producer.fields if f.field is export.field)
-                if len(fields) != 1:
-                    raise ValueError("guarded path source field")
-                realization = rows.field_realization(fields[0])
-                if realization is None:
-                    raise ValueError("guarded path source realization")
-                reads.append(
-                    rows.StageColumn(
-                        position,
-                        fields[0].column,
-                        export.ref,
-                        realization,
-                        field=fields[0],
-                        source_port=export.ref,
-                        scope=alias,
-                    )
-                )
-        else:
-            producer = produced.get(original.producer)
-            layouts = tuple(
-                d for d in request.layout.definitions if d.original is definition
-            )
-            if (
-                producer is None
-                or len(layouts) != 1
-                or len(layouts[0].terminals) != len(producer.columns)
-            ):
-                raise ValueError("guarded path named producer")
-            for position, (column, terminal) in enumerate(
-                zip(producer.columns, layouts[0].terminals, strict=True)
-            ):
-                if column.column.terminal is not terminal.ref:
-                    raise ValueError("guarded path named terminal")
-                reads.append(
-                    replace(
-                        column.column,
-                        position=position,
-                        name="c" + str(position),
-                        scope=alias,
-                    )
-                )
     else:
         producer = by_join.get(original.predecessor)
         if producer is None:
@@ -3038,7 +3056,7 @@ def _join_reads(
     return alias, producer, use, tuple(columns), source_ref
 
 
-def _verify_join_unit(request, unit, join, index, context, state, *, guarded=None):
+def _verify_join_unit(request, unit, join, index, context, state):
     """Independent JOIN inventory, scopes, condition and published ports."""
     plan = request.plan
     if (
@@ -3074,10 +3092,7 @@ def _verify_join_unit(request, unit, join, index, context, state, *, guarded=Non
             or original.ordinal != ordinal
             or item.ports != tuple(original.ports)
             or (original.producer is None) == (original.predecessor is None)
-            or (
-                guarded is None
-                and (original.binding_use is None) != (original.producer is None)
-            )
+            or (original.binding_use is None) != (original.producer is None)
         ):
             raise ValueError("join input identity")
         inline = (
@@ -3093,7 +3108,6 @@ def _verify_join_unit(request, unit, join, index, context, state, *, guarded=Non
             context["produced"],
             context["by_join"],
             ports,
-            guarded=guarded,
             inline=inline,
         )
         if (
@@ -4270,7 +4284,7 @@ def verify_row_query(request, query, *, _guarded=None):
             or (type(query) is SQLJoinQuery)
             != bool(plan.joins or plan.set_bodies or plan.values_bodies)
             or (
-                joining.admitted_join_shape(plan, _guarded=_guarded)
+                joining.admitted_join_shape(plan)
                 if joined
                 else admitted_row_shape(plan)
             )
@@ -4938,7 +4952,6 @@ def verify_row_query(request, query, *, _guarded=None):
                     position,
                     join_context,
                     state,
-                    guarded=_guarded,
                 )
                 by_join[block.ref] = body
                 continue
@@ -5428,6 +5441,93 @@ def verify_row_bytes(query, rendered):
                         "coalesce": "COALESCE",
                     },
                 }[query.request.family].get(name)
+                if name == "round":
+                    if query.request.family != "postgres":
+                        raise ValueError("scalar call family")
+                    if len(value.operands) == 2:
+                        take("syntax", "scalar_call_open", reference, "round(")
+                        scalar(value.operands[0], alias)
+                        take(
+                            "syntax",
+                            "scalar_call_separator",
+                            reference,
+                            ", CAST(",
+                        )
+                        scalar(value.operands[1], alias)
+                        take(
+                            "syntax",
+                            "scalar_call_close",
+                            reference,
+                            " AS pg_catalog.int4))",
+                        )
+                    elif (
+                        len(value.operands) == 1 and value.realization.tag == "Decimal"
+                    ):
+                        take("syntax", "scalar_call_open", reference, "round(")
+                        scalar(value.operands[0], alias)
+                        take("syntax", "scalar_call_close", reference, ")")
+                    elif len(value.operands) == 1 and value.realization.tag == "Float":
+                        take(
+                            "syntax", "scalar_call_open", reference, "(CASE WHEN abs(("
+                        )
+                        scalar(value.operands[0], alias)
+                        take("syntax", "scalar_call_separator", reference, ") - trunc(")
+                        scalar(value.operands[0], alias)
+                        take(
+                            "syntax",
+                            "scalar_call_separator",
+                            reference,
+                            ") ) >= 0.5 THEN trunc(",
+                        )
+                        scalar(value.operands[0], alias)
+                        take(
+                            "syntax",
+                            "scalar_call_separator",
+                            reference,
+                            " ) + (CASE WHEN ",
+                        )
+                        scalar(value.operands[0], alias)
+                        take(
+                            "syntax",
+                            "scalar_call_separator",
+                            reference,
+                            " < 0 THEN -1.0 ELSE 1.0 END) ELSE trunc(",
+                        )
+                        scalar(value.operands[0], alias)
+                        take("syntax", "scalar_call_close", reference, " ) END)")
+                    else:
+                        raise ValueError("scalar call arity")
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
+                if name == "date_trunc":
+                    if query.request.family != "postgres" or len(value.operands) != 2:
+                        raise ValueError("scalar call family")
+                    take(
+                        "syntax",
+                        "scalar_call_open",
+                        reference,
+                        "CAST(date_trunc("
+                        if value.realization.tag == "Date"
+                        else "date_trunc(",
+                    )
+                    scalar(value.operands[0], alias)
+                    take(
+                        "syntax",
+                        "scalar_call_separator",
+                        reference,
+                        ", CAST(" if value.realization.tag == "Date" else ", ",
+                    )
+                    scalar(value.operands[1], alias)
+                    take(
+                        "syntax",
+                        "scalar_call_close",
+                        reference,
+                        (" AS timestamp))" if value.realization.tag == "Date" else ")"),
+                    )
+                    if value.realization.tag == "Date":
+                        take("syntax", "scalar_call_close", reference, " AS date)")
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
                 if name == "substr":
                     take(
                         "syntax",
@@ -5658,15 +5758,23 @@ def verify_row_bytes(query, rendered):
                 spans.append(("membership", reference, start, offset))
                 return
             if value.kind == "cast":
-                take("syntax", "cast_open", reference, "CAST(")
+                take(
+                    "syntax",
+                    "cast_open",
+                    reference,
+                    "(CAST(" if value.realization.tag == "Text" else "CAST(",
+                )
                 scalar(value.operands[0], alias)
                 take(
                     "syntax",
                     "cast_close",
                     reference,
                     " AS pg_catalog.float8)"
-                    if query.request.family == "postgres"
-                    else " AS DOUBLE)",
+                    if value.realization.tag == "Float"
+                    and query.request.family == "postgres"
+                    else " AS DOUBLE)"
+                    if value.realization.tag == "Float"
+                    else ' AS pg_catalog.text) COLLATE "C")',
                 )
                 spans.append(("cast", reference, start, offset))
                 return
@@ -5899,6 +6007,29 @@ def verify_row_bytes(query, rendered):
             take("syntax", "aggregate_open", reference, column.spelling + "(")
             if column.argument is None:
                 take("syntax", "aggregate_row_count", reference, "*")
+            elif column.function == "string_agg":
+                if (
+                    column.distinct
+                    or column.argument_cast is not None
+                    or column.delimiter is None
+                ):
+                    raise ValueError("string_agg rendering")
+                scalar(column.argument, alias)
+                take("syntax", "aggregate_separator", reference, ", ")
+                scalar(column.delimiter, alias)
+                take("syntax", "aggregate_order", reference, " ORDER BY ")
+                for position, item in enumerate(column.order_by):
+                    if item.direction not in {"asc", "desc"}:
+                        raise ValueError("string_agg order")
+                    if position:
+                        take("syntax", "aggregate_order_separator", reference, ", ")
+                    scalar(item.value, alias)
+                    take(
+                        "syntax",
+                        "aggregate_order_direction",
+                        reference,
+                        " ASC" if item.direction == "asc" else " DESC",
+                    )
             else:
                 if column.distinct:
                     take("syntax", "aggregate_distinct", reference, "DISTINCT ")
@@ -6912,6 +7043,10 @@ def verify_row_generated_requirements(request, query, generated):
                 expected.append(("aggregate", column.aggregate.ref, "R13", operators))
                 if column.argument is not None:
                     node_expectations(column.argument)
+                if column.delimiter is not None:
+                    node_expectations(column.delimiter)
+                for order in column.order_by:
+                    node_expectations(order.value)
                 continue
             if type(column) is grouping.AggregateProjectionColumn:
                 expected.append(("result_projection", column.projection.ref, "R12", ()))

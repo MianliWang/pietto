@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pietto._project.model import (
-    ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
     ProjectRowFieldNullability,
 )
@@ -19,10 +18,7 @@ from pietto._project.module_attribution import (
     ProjectModuleRowFieldLineage,
     ProjectModuleSourceFieldOrigin,
 )
-from pietto._project.project_ir_joins import (
-    ProjectIRJoinOutputProperties,
-    ProjectIRJoinUnavailableProperty,
-)
+from pietto._project.project_ir_joins import ProjectIRJoinUnavailableProperty
 from pietto._project.project_ir_properties import (
     ProjectIRJoinRowOutput,
     ProjectIRJoinedRowField,
@@ -37,14 +33,8 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIROutputValueFD,
     ProjectIRProvidedIntrinsicGrain,
 )
-from pietto._project.project_multifact import (
-    ProjectMultiFactConcreteRegion,
-    ProjectCurrentMultiFactRegion,
-)
-from pietto._project.project_query_block import (
-    ProjectCurrentJoinedRowSource,
-    ProjectVerifiedJoinedRowSource,
-)
+from pietto._project.project_multifact import ProjectCurrentMultiFactRegion
+from pietto._project.project_query_block import ProjectCurrentJoinedRowSource
 from pietto._project.project_current_joins import ProjectCurrentJoinProperties
 from pietto._project.project_current_join_inputs import (
     ProjectCurrentInputField,
@@ -72,27 +62,20 @@ __all__: tuple[str, ...] = ()
 class ProjectJoinedRowPropertyBridge:
     """Exact final Phase-62 properties without derivation or interpretation."""
 
-    row_source: ProjectVerifiedJoinedRowSource | ProjectCurrentJoinedRowSource = field(
+    row_source: ProjectCurrentJoinedRowSource = field(
         repr=False,
         compare=False,
         hash=False,
     )
-    multifact_region: ProjectMultiFactConcreteRegion | ProjectCurrentMultiFactRegion = (
-        field(
-            repr=False,
-            compare=False,
-            hash=False,
-        )
+    multifact_region: ProjectCurrentMultiFactRegion = field(
+        repr=False,
+        compare=False,
+        hash=False,
     )
-    properties: ProjectIRJoinOutputProperties | ProjectCurrentJoinProperties = field(
-        init=False
-    )
+    properties: ProjectCurrentJoinProperties = field(init=False)
 
     def __post_init__(self) -> None:
         valid_pair = (
-            type(self.row_source) is ProjectVerifiedJoinedRowSource
-            and type(self.multifact_region) is ProjectMultiFactConcreteRegion
-        ) or (
             type(self.row_source) is ProjectCurrentJoinedRowSource
             and type(self.multifact_region) is ProjectCurrentMultiFactRegion
         )
@@ -100,8 +83,7 @@ class ProjectJoinedRowPropertyBridge:
             raise ValueError("Joined properties require exact shared Phase-62 roots.")
         properties = self.multifact_region.final_properties
         if (
-            type(properties)
-            not in {ProjectIRJoinOutputProperties, ProjectCurrentJoinProperties}
+            type(properties) is not ProjectCurrentJoinProperties
             or properties.join is not self.row_source.region.joins[-1]
             or properties.relational.output is not self.row_source.final_output
         ):
@@ -378,19 +360,12 @@ class ProjectConcreteJoinedRowSemantics:
             )
         ):
             raise ValueError("Concrete joined semantics must cover final row order.")
-        historical = self.property_bridge.row_source.historical_semantic_facts.state
-        if type(self.property_bridge.row_source) is ProjectVerifiedJoinedRowSource and (
-            historical.status is not ProjectRelationRowSchemaStatus.DEFERRED
-            or historical.reason
-            is not ProjectRelationRowSchemaReason.AUTHORED_JOIN_DEFERRED
-        ):
-            raise ValueError("Joined semantics must preserve historical deferral.")
         object.__setattr__(self, "post_let", self.namespaces.post_let)
 
     @property
     def row_source(
         self,
-    ) -> ProjectVerifiedJoinedRowSource | ProjectCurrentJoinedRowSource:
+    ) -> ProjectCurrentJoinedRowSource:
         return self.property_bridge.row_source
 
     @property
@@ -400,7 +375,7 @@ class ProjectConcreteJoinedRowSemantics:
     @property
     def multifact_region(
         self,
-    ) -> ProjectMultiFactConcreteRegion | ProjectCurrentMultiFactRegion:
+    ) -> ProjectCurrentMultiFactRegion:
         return self.property_bridge.multifact_region
 
     @property
@@ -482,12 +457,7 @@ def _require_attribution_root(
         or type(attribution) is not ProjectModuleAttributionFactSet
     ):
         raise TypeError("Joined semantics require exact Slice-5 and attribution roots.")
-    source = namespaces.binding_environment.row_source
-    analysis = (
-        source.base_verification
-        if isinstance(source, ProjectCurrentJoinedRowSource)
-        else source.verification
-    ).root
+    analysis = namespaces.binding_environment.row_source.base_verification.root
     if attribution._authority.semantic_facts is not (
         analysis.evaluation.project_plan.semantic_facts
     ):
@@ -498,21 +468,9 @@ def _property_bridge(
     namespaces: ProjectConcreteJoinedLetNamespaces,
 ) -> ProjectJoinedRowPropertyBridge:
     row_source = namespaces.binding_environment.row_source
-    if isinstance(row_source, ProjectCurrentJoinedRowSource):
-        return ProjectJoinedRowPropertyBridge(
-            row_source=row_source,
-            multifact_region=ProjectCurrentMultiFactRegion(region=row_source.region),
-        )
-    matches = tuple(
-        item
-        for item in row_source.verification.root.concrete_regions
-        if item.region is row_source.region
-    )
-    if len(matches) != 1:
-        raise ValueError("Joined semantics require one exact multi-fact region.")
     return ProjectJoinedRowPropertyBridge(
         row_source=row_source,
-        multifact_region=matches[0],
+        multifact_region=ProjectCurrentMultiFactRegion(region=row_source.region),
     )
 
 
@@ -521,18 +479,14 @@ def _input_field(
     joined_field: ProjectIRJoinedRowField,
 ) -> tuple[ProjectIROutputRelationalProperties, ProjectIROutputFieldOccurrence]:
     source = bridge.row_source
-    outputs = (
-        tuple(
-            {
-                id(item): item
-                for item in (
-                    source.region.joins[0].left_input,
-                    *(join.right_input for join in source.region.joins),
-                )
-            }.values()
-        )
-        if isinstance(source, ProjectCurrentJoinedRowSource)
-        else source.verification.root.base_relational.outputs
+    outputs = tuple(
+        {
+            id(item): item
+            for item in (
+                source.region.joins[0].left_input,
+                *(join.right_input for join in source.region.joins),
+            )
+        }.values()
     )
     matches = tuple(
         item

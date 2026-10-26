@@ -110,6 +110,7 @@ class CallExpr(Expression):
 
     callee: NameExpr | DottedNameExpr
     arguments: tuple[Expression, ...]
+    aggregate_order_by: tuple[OrderItem, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -607,7 +608,7 @@ class RelationshipMatchClause(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class RelationshipMetadata(Node):
-    """Relationship metadata with two endpoints and an optional base match."""
+    """Retired source-bound relationship metadata kept for legacy reading."""
 
     name: str
     endpoints: tuple[RelationshipEndpoint, RelationshipEndpoint]
@@ -729,12 +730,12 @@ class JoinTraversalStep(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class JoinClause(Node):
-    """One authored JOIN with independently retained VIA and optional ON.
+    """One modern named-input JOIN or retired legacy JOIN kept for refusal.
 
-    A JOIN written without ``from`` leaves ``source_binding_name`` absent
-    (None) for semantic inference. ``uses_named_input`` distinguishes the
-    modern named-input form from legacy inference. ``target_binding_span``
-    locates the authored target name; a hand-built clause may leave it absent.
+    ``source_binding_name`` and ``traversal_steps`` belong to the retired
+    ``from``/``via`` form. Modern parsed JOINs set ``uses_named_input`` and
+    leave both absent; a hand-built clause may leave ``target_binding_span``
+    absent.
     """
 
     kind: AuthoredJoinKind

@@ -696,6 +696,7 @@ def normalize_project_query_names(
         _lexical_any_scopes,
         later_let_reads,
         shadowed_input,
+        unknown_let_input,
     )
 
     if not any(
@@ -894,6 +895,16 @@ def normalize_project_query_names(
                     elif targets:
                         aliases[node.name] = targets
                         alias_sites[node.name] = node
+                    elif not is_scalar and (
+                        unknown := unknown_let_input(
+                            node,
+                            definition.naming_declarations,
+                            definition.join_clauses,
+                            generated_joins,
+                        )
+                    ):
+                        diagnostics.append(unknown)
+                        continue
                     else:
                         position = (node.span.line, node.span.column)
                         last_input = max(
@@ -1007,36 +1018,69 @@ def normalize_project_query_names(
 
             any_trace.record(definition, normalized_definition)
             scopes = _lexical_any_scopes(normalized_definition, lowered)
+            from_binding = (
+                from_clause.binding_name
+                if isinstance(from_clause, ast.FromClause)
+                else None
+            )
+            from_source = (
+                from_clause.source_name
+                if isinstance(from_clause, ast.FromClause)
+                else None
+            )
+            from_fields = (
+                frozenset(input_field_names(visible[0]))
+                if from_binding is not None and visible
+                else frozenset()
+            )
+            source_is_join_binding = any(
+                join.target_binding_name == from_source for join in joins
+            )
 
             def normalize_iterator(before: object, after: object) -> object:
-                if type(after) is not ast.AnyExpr:
-                    return after
-                if any(
-                    scope.binding_name == after.relation_name
-                    for scope in scopes.get(id(before), ())
-                ):
-                    # An enclosing binder hides the name, as in a single file.
-                    return after
-                alias = alias_sites.get(after.relation_name)
-                targets = (
-                    relations(after.relation_name)
-                    if alias is None
-                    or (alias.span.line, alias.span.column)
-                    < (after.span.line, after.span.column)
-                    else tuple(
-                        (after.relation_name, target)
-                        for target in relation_candidates(after.relation_name)
-                    )
-                )
-                if len(targets) > 1:
-                    diagnostics.append(
-                        _diagnostic(
-                            after, f"Ambiguous ANY input: {after.relation_name}"
+                result = after
+                if type(after) is ast.AnyExpr:
+                    if any(
+                        scope.binding_name == after.relation_name
+                        for scope in scopes.get(id(before), ())
+                    ):
+                        # An enclosing binder hides the name, as in a single file.
+                        return after
+                    alias = alias_sites.get(after.relation_name)
+                    targets = (
+                        relations(after.relation_name)
+                        if alias is None
+                        or (alias.span.line, alias.span.column)
+                        < (after.span.line, after.span.column)
+                        else tuple(
+                            (after.relation_name, target)
+                            for target in relation_candidates(after.relation_name)
                         )
                     )
-                if len(targets) == 1 and after.relation_name != targets[0][0]:
-                    return replace(after, relation_name=targets[0][0])
-                return after
+                    if len(targets) > 1:
+                        diagnostics.append(
+                            _diagnostic(
+                                after, f"Ambiguous ANY input: {after.relation_name}"
+                            )
+                        )
+                    if len(targets) == 1 and after.relation_name != targets[0][0]:
+                        result = replace(after, relation_name=targets[0][0])
+                    return _scalar_contracts(before, result)
+                if (
+                    type(after) is ast.DottedNameExpr
+                    and from_binding is not None
+                    and from_binding != from_source
+                    and not source_is_join_binding
+                    and len(after.parts) == 2
+                    and after.parts[0] == from_source
+                    and after.parts[1] in from_fields
+                    and not any(
+                        scope.binding_name in {from_source, from_binding}
+                        for scope in scopes.get(id(before), ())
+                    )
+                ):
+                    result = replace(after, parts=(from_binding, after.parts[1]))
+                return _scalar_contracts(before, result)
 
             rewritten = _rebuild(
                 normalized_definition,

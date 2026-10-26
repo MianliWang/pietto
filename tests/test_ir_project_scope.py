@@ -866,6 +866,7 @@ def test_model_has_no_ambient_registry_operator_builder_or_public_projection() -
         "limit",
         "group_keys",
         "result_predicate",
+        "qualify",
         "named_windows",
         "inputs",
         "joins",

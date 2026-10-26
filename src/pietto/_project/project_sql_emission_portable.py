@@ -113,6 +113,7 @@ KINDS: dict[type, str] = {
     grouping.AggregateStage: "aggregate_stage",
     grouping.AggregateKeyColumn: "aggregate_key_column",
     grouping.AggregateValueColumn: "aggregate_value_column",
+    grouping.AggregateOrderItem: "aggregate_order_item",
     grouping.AggregateProjectionColumn: "aggregate_projection_column",
     grouping.AggregateOrigin: "aggregate_origin",
     windowing.WindowStage: "window_stage",
@@ -404,7 +405,10 @@ def _operator(original, kind):
     if kind == "membership":
         return "not_in" if original.expression.negated else "in"
     if kind == "cast":
-        return "int_to_float"
+        target = original.expression.target.name
+        if target not in {"Float", "Text"}:
+            raise ValueError("unsupported cast target")
+        return "int_to_" + target.lower()
     return original.expression.operator
 
 

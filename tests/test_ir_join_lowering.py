@@ -69,6 +69,7 @@ from pietto.ir.joins import (
 from pietto.ir.lowering import lower_span
 from pietto.ir.model import OrderDirectionIR, OrderItemIR
 from pietto.parser_api import parse_source
+from pietto.sql.postgres import emit_postgres_sql
 from pietto.semantic import (
     analyze,
     CheckMode,
@@ -983,7 +984,7 @@ def _lowered(
             expression,
         )
 
-    joins = lower_joins(info, reads, _model(), lower_condition=lower_condition)
+    joins = lower_joins(info, lower_condition=lower_condition)
     return reads, joins, conditions
 
 
@@ -1415,32 +1416,56 @@ def test_facts_that_do_not_describe_the_join_clauses_fail_at_the_first_join(
         pytest.param(True, id="with-facts"),
     ),
 )
-@pytest.mark.parametrize(
-    ("name", "fact", "line", "column"),
-    (
-        ("windowed", "window over JOIN rows", 55, 13),
-        ("named_window", "window over JOIN rows", 60, 5),
-        ("grouped_window", "window over JOIN rows", 87, 13),
-    ),
-)
-def test_windows_never_lower_in_a_join_relation(
-    name: str, fact: str, line: int, column: int, with_facts: bool
+@pytest.mark.parametrize("name", ("windowed", "named_window", "grouped_window"))
+def test_windows_over_join_rows_require_join_facts_but_do_not_refuse_them(
+    name: str, with_facts: bool
 ) -> None:
-    """A relation that failed check for a window has no JOIN facts;
-    it still fails at that window."""
+    """A joined window lowers from the same complete JOIN facts as its row."""
 
     query = _query(name)
     model = _model((query, _region_join_facts(query))) if with_facts else _model()
 
+    if with_facts:
+        assert join_relation_facts(query, model) is model.relation_joins[query]
+        return
     with pytest.raises(JoinLoweringError) as caught:
         join_relation_facts(query, model)
+    assert _failure(caught.value)[1] == f"{FACT_FAILURE}resolved JOIN facts"
+    assert caught.value.node is query.join_clauses[0]
 
-    assert _failure(caught.value) == (
-        "PIE-I1000",
-        f"{FACT_FAILURE}{fact}",
-        line,
-        column,
-    )
+
+def test_joined_qualify_selected_alias_and_named_window_keep_input_identity() -> None:
+    source = """shape Row:
+    id: Int
+    row_key = unique(id)
+source rows: Row = postgres.table("rows")
+query ranked:
+    from rows
+    let other = rows
+    inner join other on rows.id == other.id
+    let w = window(order by rows.id)
+    select:
+        k = rows.id
+        rn = row_number() window w
+    qualify:
+        rn <= 1
+    order by:
+        rn desc
+"""
+    parsed = parse_source(source)
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = analyze(parsed.ast)
+    assert not semantic.diagnostics
+    assert semantic.script is not None
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    emitted = emit_postgres_sql(lowered.ir)
+    assert not emitted.diagnostics
+    sql = emitted.artifacts[-1].sql
+    assert 'ROW_NUMBER() OVER "w" AS "rn"' in sql
+    assert 'WINDOW\n    "w" AS (ORDER BY "rows"."id" ASC)' in sql
+    assert 'WHERE\n    "rn" <= 1' in sql
+    assert 'ORDER BY\n    "rn" DESC' in sql
 
 
 @pytest.mark.parametrize(

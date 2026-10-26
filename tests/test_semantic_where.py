@@ -331,6 +331,14 @@ def test_a_built_in_call_over_an_unknown_row_has_its_result_type_everywhere() ->
             "expected Int, got Text",
         ),
         ("PIE-S2105", 15, 13, plus),
+        # `len(t)` is an Int, so `len(t) / 2` warns that it truncates.
+        (
+            "PIE-S2106",
+            16,
+            13,
+            "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
+            "write `Float(x) / y` for a fractional result",
+        ),
         (
             "PIE-S2104",
             17,

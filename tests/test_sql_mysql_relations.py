@@ -144,8 +144,94 @@ def test_relation_reference_and_artifact_order_are_stable() -> None:
 
     assert [artifact.name for artifact in result.artifacts] == ["first", "second"]
     assert result.artifacts[0].sql.endswith("FROM `app`.`users`")
+    # `second` defines `first`, the table it reads, as a CTE.
+    assert result.artifacts[1].sql.startswith(
+        f"WITH `first` AS (\n{result.artifacts[0].sql}\n)\nSELECT\n"
+    )
     assert result.artifacts[1].sql.endswith("FROM `first`")
     assert result.diagnostics == ()
+
+
+@pytest.mark.parametrize(
+    ("table", "hidden"), (("kept", True), ("KEPT", True), ("app.kept", False))
+)
+def test_a_cte_that_could_hide_a_table_the_statement_reads_is_refused(
+    table: str, hidden: bool
+) -> None:
+    """MySQL may compare a CTE name and a table name without case."""
+
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n"
+            'source raw: Row = mysql.table("raw_rows")\n'
+            f'source shadow: Row = mysql.table("{table}")\n'
+            "table kept:\n    from raw\n    select:\n        id\n"
+            "query q:\n    from kept\n    where any(s.id == kept.id for s in shadow)\n"
+            "    select:\n        id\n"
+        )
+    )
+
+    if not hidden:
+        assert result.diagnostics == ()
+        assert result.artifacts[1].sql.startswith("WITH `kept` AS (\n")
+        return
+    assert [artifact.name for artifact in result.artifacts] == ["kept"]
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-B1000",
+            "MySQL SQL emission is not implemented for RelationIR: q. Its SQL "
+            f"defines relation kept as a CTE, which would hide table {table} read "
+            "in the same SQL; rename the relation or read the table with its schema",
+        )
+    ]
+
+
+def test_ctes_whose_names_differ_only_in_case_are_refused() -> None:
+    """MySQL may compare CTE names without case, so one WITH cannot hold both."""
+
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n"
+            'source raw: Row = mysql.table("raw_rows")\n'
+            "table Kept:\n    from raw\n    select:\n        id\n"
+            "table kept:\n    from raw\n    select:\n        id\n"
+            "query q:\n    from Kept\n    where any(k.id == Kept.id for k in kept)\n"
+            "    select:\n        id\n"
+        )
+    )
+
+    assert [artifact.name for artifact in result.artifacts] == ["Kept", "kept"]
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-B1000",
+            "MySQL SQL emission is not implemented for RelationIR: q. Its SQL "
+            "defines relations Kept and kept as CTEs, whose names MySQL may "
+            "compare without case; rename one of them",
+        )
+    ]
+
+
+def test_a_relation_whose_sql_is_refused_refuses_its_readers() -> None:
+    """A reader is never emitted with a by-name read of a refused relation."""
+
+    result = emit_mysql_sql(
+        _compile(
+            SOURCE + "table joined:\n    from users\n    let p = users\n"
+            "    inner join p on users.age == p.age\n    select:\n        users.age\n"
+            "query reader:\n    from joined\n    select:\n        age\n"
+            "table direct:\n    from users\n    select:\n        age\n"
+        )
+    )
+
+    assert [artifact.name for artifact in result.artifacts] == ["direct"]
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-B1000",
+            f"MySQL SQL emission is not implemented for RelationIR: {name}. "
+            "MySQL JOIN emission is not available yet",
+        )
+        for name in ("joined", "reader")
+    ]
 
 
 def test_physical_source_name_parts_are_quoted_and_escape_backticks() -> None:
@@ -560,22 +646,23 @@ table prior:
 """)
     assert parsed.ast is not None and not parsed.diagnostics
     semantic = semantic_api.analyze(parsed.ast)
-    assert semantic.script is not None
-    # The ANY defines `later` and `prior` as CTEs; `later` itself reads `prior`
-    # by name.
-    assert [
-        (item.code, item.location.line, item.location.column)
-        for item in semantic.diagnostics
-    ] == [("PIE-S2382", 9, 5)]
+    assert semantic.script is not None and not semantic.diagnostics
     lowered = build_ir(semantic.script, semantic.model)
     assert lowered.ir is not None and not lowered.diagnostics
     result = emit_mysql_sql(lowered.ir)
     assert not result.diagnostics
-    sql = next(
-        artifact.sql for artifact in result.artifacts if artifact.name == "result"
+    sql = {artifact.name: artifact.sql for artifact in result.artifacts}
+    assert (
+        sql["result"].index("`prior` AS (")
+        < sql["result"].index("`later` AS (")
+        < sql["result"].index("EXISTS (")
     )
-    assert sql.index("`prior` AS (") < sql.index("`later` AS (") < sql.index("EXISTS (")
-    assert "FROM `later` AS" in sql
+    assert "FROM `later` AS" in sql["result"]
+    # `later` defines `prior`, the table it reads, as a CTE too.
+    assert sql["later"] == (
+        "WITH `prior` AS (\nSELECT\n    `rows`.`id` AS `id`\nFROM `rows` AS `rows`\n)\n"
+        "SELECT\n    `prior`.`id` AS `id`\nFROM `prior` AS `prior`"
+    )
 
 
 def _emit_any_reader(table: str) -> SqlResult:
@@ -624,8 +711,8 @@ def test_scalar_any_dependency_cte_never_hides_a_table_read_without_a_schema(
     ] == [
         (
             "PIE-B1000",
-            "MySQL SQL emission is not implemented for RelationIR: q. MySQL scalar "
-            "ANY defines relation filtered as a CTE, which would hide table "
+            "MySQL SQL emission is not implemented for RelationIR: q. Its SQL "
+            "defines relation filtered as a CTE, which would hide table "
             f"{table} read in the same SQL; rename the relation or read the table "
             "with its schema",
             "any-mysql.pietto",
@@ -652,3 +739,48 @@ def test_scalar_any_dependency_cte_keeps_a_table_read_with_its_schema() -> None:
         "`_pietto_value_1`.`id` = `outer_rows`.`id`) AS `matched`\n"
         "FROM `app`.`filtered` AS `outer_rows`"
     )
+
+
+# A server that compares names case-insensitively refuses a WITH clause whose
+# CTE names differ only in letter case as one name defined twice.
+def test_scalar_any_dependency_ctes_never_differ_only_in_letter_case() -> None:
+    parsed = parser_api.parse_source(
+        """shape Row:
+    id: Int
+source rows: Row = mysql.table("items")
+query chosen:
+    from rows
+    where id == 1
+    select id
+query CHOSEN:
+    from rows
+    where id == 2
+    select id
+query q:
+    from rows
+    select:
+        first_match = any(c.id == rows.id for c in chosen)
+        second_match = any(c.id == rows.id for c in CHOSEN)
+""",
+        path="any-mysql.pietto",
+    )
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = semantic_api.analyze(parsed.ast)
+    assert semantic.script is not None and not semantic.diagnostics
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    result = emit_mysql_sql(lowered.ir)
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            "MySQL SQL emission is not implemented for RelationIR: q. Its SQL "
+            "defines relations chosen and CHOSEN as CTEs, whose names MySQL may "
+            "compare without case; rename one of them",
+            12,
+            1,
+        )
+    ]
+    assert [artifact.name for artifact in result.artifacts] == ["chosen", "CHOSEN"]

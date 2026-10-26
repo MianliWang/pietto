@@ -183,31 +183,7 @@ def test_table_and_query_expressions_keep_existing_semantic_behavior() -> None:
         )
     )
 
-    # Single-file SQL reads the same-file table `projected` by name.
-    assert [
-        (
-            item.code,
-            item.severity,
-            item.message,
-            item.location.line,
-            item.location.column,
-            item.location.end_line,
-            item.location.end_column,
-        )
-        for item in result.diagnostics
-    ] == [
-        (
-            "PIE-S2382",
-            Severity.WARNING,
-            "`projected` is a table of this file; single-file SQL reads it by name, "
-            "so the SQL runs only where the database already has a relation named "
-            "projected (an EXPLICIT_MODULES project emits it as a CTE)",
-            10,
-            5,
-            10,
-            19,
-        )
-    ]
+    assert result.diagnostics == ()
     assert list(result.model.source_row_schemas) == [_source(result, "users")]
 
 

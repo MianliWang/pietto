@@ -27,7 +27,6 @@ from pietto._project.project_ir_construction import (
     ProjectIRConcreteSingleRelationFragment,
     ProjectIRNonConcreteSingleRelationFragment,
 )
-from pietto._project.project_ir_joins import ProjectIRConcreteJoinRegion
 from pietto._project.project_ir_properties import ProjectIRRelationRowOutput
 from pietto._project.project_ir_relational_properties import (
     ProjectIROutputRelationalProperties,
@@ -409,7 +408,7 @@ def _cycle_diagnostics(
     members: tuple[ProjectDeclarationOccurrence, ...],
     witness: tuple[ProjectCompletionDependency, ...],
 ) -> tuple[Diagnostic, ...]:
-    semantic = verification.root.join_regions.uses.relationships.semantic_result
+    semantic = verification.root.join_regions.uses.semantic_result
     resolutions = semantic.module_relation_resolutions
     if resolutions is None:
         raise ValueError("Completion cycle requires retained relation resolution.")
@@ -615,7 +614,7 @@ class ProjectCompletionTopology:
                     )
                     if any(
                         retained is item
-                        for item in self.verification.root.join_regions.uses.relationships.semantic_result.diagnostics
+                        for item in self.verification.root.join_regions.uses.semantic_result.diagnostics
                     )
                 )
             ):
@@ -1255,28 +1254,6 @@ def _joined_completion(
     )
 
 
-def _historical_join_facts_unavailable(
-    verification: ProjectPhase62VerificationResult,
-    fragment: ProjectIRNonConcreteSingleRelationFragment,
-) -> bool:
-    """Whether a concrete JOIN region has no historical JOIN facts to extend.
-
-    The historical facts of a JOIN reading an input whose own facts are
-    deferred (a grouped query, for one) record that upstream deferral instead,
-    so its JOIN completion stays unavailable rather than guessing them.
-    """
-    semantic = fragment.semantic_facts
-    return (
-        semantic.state.reason
-        is not ProjectRelationRowSchemaReason.AUTHORED_JOIN_DEFERRED
-        and any(
-            type(region) is ProjectIRConcreteJoinRegion
-            and region.ledger.owner is semantic.owner
-            for region in verification.root.join_regions.regions
-        )
-    )
-
-
 def build_project_joined_completion(
     query_block: ProjectConcreteQueryBlock | ProjectNonConcreteQueryBlock,
     attribution: ProjectModuleAttributionFactSet,
@@ -1334,13 +1311,6 @@ def _terminal_entry(
                 dependencies=dependencies,
                 pending_dependencies=pending_dependencies,
                 pending_entries=pending_entries,
-            )
-        if _historical_join_facts_unavailable(verification, fragment):
-            return ProjectEffectiveOutputTerminal(
-                owner=owner,
-                fragment=fragment,
-                reason=ProjectEffectiveOutputTerminalReason.HISTORICAL_NON_CONCRETE,
-                dependencies=dependencies,
             )
         completion = _joined_completion(verification, fragment)
         return ProjectEffectiveOutputTerminal(

@@ -8,26 +8,29 @@ from threading import Event
 from typing import Any, cast
 
 from pietto.ast_nodes import (
-    AuthoredJoinKind,
     BlockRelationDef,
+    CallExpr,
     CaptureClause,
     FromClause,
     FunctionDef,
     JoinClause,
     LetRelationDef,
     ModuleDeclarationKind,
+    NameExpr,
     Node,
     QueryDef,
     QueryParameter,
     RelationExistsExpr,
     RelationMembershipExpr,
     RelationScalarExpr,
+    RelationshipMetadata,
     Script,
     SelectBody,
     Span,
     TableDef,
     TableFunctionFromClause,
     TypeExpr,
+    WindowExpr,
     ValuesBody,
 )
 from pietto.errors import Diagnostic, ParseCancelled, Severity, SourceLocation
@@ -80,11 +83,21 @@ _UNADMITTED: dict[type[Node], tuple[str, str]] = {
         f"{_EXPLICIT_MODULES}.",
     ),
 }
-# Legacy JOINs infer an omitted `from` only from relationships. Modern JOINs
-# explicitly name their input and bind its source in semantic resolution.
-_SOURCE_REQUIRED = (
+# The retired relationship JOIN forms, which only the private legacy reader
+# or a hand-built AST still carries. No reader keeps their meaning, so each
+# one is refused rather than ignored: a JOIN read by its `on` alone would
+# lose its relationship match.
+_LEGACY_JOIN = (
     "PIE-S2378",
-    "A JOIN with `on`, or a CROSS JOIN, must name its source binding with `from`.",
+    "A JOIN with `as`, `from` or `via` is retired; name the input with "
+    "`let alias = relation`, then write `inner join alias on predicate` or "
+    "another JOIN kind.",
+)
+_LEGACY_RELATIONSHIP = (
+    "PIE-S2378",
+    "Source-bound relationship metadata is retired; declare a shape-typed "
+    "`relationship Name(role: Shape, ...):` predicate and call it in a JOIN's "
+    "`on`.",
 )
 
 
@@ -211,10 +224,45 @@ def unadmitted_syntax_diagnostics(
             join = cast(JoinClause, value)
             if (
                 not join.uses_named_input
-                and join.source_binding_name is None
-                and (join.on_clause is not None or join.kind is AuthoredJoinKind.CROSS)
+                or join.source_binding_name is not None
+                or join.traversal_steps
             ):
-                found.append(_diagnostic(*_SOURCE_REQUIRED, join.span))
+                found.append(_diagnostic(*_LEGACY_JOIN, join.span))
+        elif kind is RelationshipMetadata:
+            found.append(_diagnostic(*_LEGACY_RELATIONSHIP, cast(Node, value).span))
+        elif kind is CallExpr:
+            call = cast(CallExpr, value)
+            if call.aggregate_order_by and (
+                not isinstance(call.callee, NameExpr)
+                or call.callee.name != "string_agg"
+            ):
+                found.append(
+                    _diagnostic(
+                        "PIE-S2104",
+                        "Internal ORDER BY is only supported by string_agg",
+                        call.span,
+                    )
+                )
+        elif kind is WindowExpr:
+            window = cast(WindowExpr, value)
+            if window.call.aggregate_order_by:
+                found.append(
+                    _diagnostic(
+                        "PIE-S2104",
+                        "Internal ORDER BY is not supported in a window",
+                        window.call.span,
+                    )
+                )
+        elif kind is TableFunctionFromClause:
+            table_function = cast(TableFunctionFromClause, value)
+            if table_function.call.aggregate_order_by:
+                found.append(
+                    _diagnostic(
+                        "PIE-S2104",
+                        "Internal ORDER BY is not supported in a table-function input",
+                        table_function.call.span,
+                    )
+                )
         if explicit_modules and kind is BlockRelationDef:
             found.extend(
                 _diagnostic(
@@ -302,11 +350,7 @@ def modern_spelling_diagnostics(
                 suggestion = "Write 'T | None' instead of 'T nullable'."
         elif kind == "LiteralContext" and text and text[0] in {"true", "false", "null"}:
             token = terminals[0]
-            suggestion = (
-                "Use "
-                + {"true": "True", "false": "False", "null": "None"}[text[0]]
-                + "."
-            )
+            suggestion = _retired_literal_suggestion(node, text[0])
         elif kind in {
             "ComparisonExpressionContext",
             "QualifyComparisonExpressionContext",
@@ -372,7 +416,9 @@ def modern_spelling_diagnostics(
                 )
         elif kind == "JoinClauseContext" and "as" in text:
             token = terminals[text.index("as")]
-            suggestion = "Name the input with 'let alias = relation', then write 'left join alias on predicate'; relationship traversal requires an explicit migration review."
+            join = context.start.text
+            rewrite = "join alias" if join == "cross" else "join alias on predicate"
+            suggestion = f"Name the input with 'let alias = relation', then write '{join} {rewrite}'; relationship traversal requires an explicit migration review."
         elif kind == "EnumDefinitionContext" and ":" not in text:
             token = context.enumLine().start
             suggestion = (
@@ -455,3 +501,40 @@ def modern_spelling_diagnostics(
     return tuple(
         sorted(diagnostics, key=lambda item: (item.location.line, item.location.column))
     )
+
+
+def _retired_literal_suggestion(node: object, literal: str) -> str:
+    """Give a direct null-test rewrite only when its operator is unambiguous."""
+
+    if literal != "null":
+        return "Use " + {"true": "True", "false": "False"}[literal] + "."
+    comparison = getattr(node, "parentCtx", None)
+    while type(comparison).__name__ not in {
+        "ComparisonExpressionContext",
+        "QualifyComparisonExpressionContext",
+        "NoneType",
+    }:
+        comparison = getattr(comparison, "parentCtx", None)
+    if comparison is None:
+        return "Use None."
+    literal_start = getattr(node, "start", None)
+    literal_stop = getattr(node, "stop", None)
+    if literal_start is None or literal_stop is None:
+        return "Use None."
+    operators = comparison.comparisonOperator()
+    operands = (
+        comparison.additiveExpression()
+        if hasattr(comparison, "additiveExpression")
+        else comparison.qualifyAdditiveExpression()
+    )
+    if len(operators) != 1 or not any(
+        operand.start.start == literal_start.start
+        and operand.stop.stop == literal_stop.stop
+        for operand in operands
+    ):
+        return "Use None."
+    if operators[0].getText() == "==":
+        return "Write 'is None'."
+    if operators[0].getText() == "!=":
+        return "Write 'is not None'."
+    return "Use None."

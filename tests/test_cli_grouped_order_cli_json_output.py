@@ -103,7 +103,7 @@ def test_text_emit_sql_carries_grouped_result_ordering(
     assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == expected_sql + "\n"
+    assert captured.out == f"-- grouped_orders\n{expected_sql};\n"
     assert captured.err == ""
     _assert_clause_order(captured.out)
     assert forbidden_order_alias not in _order_by_clause(captured.out)
@@ -185,7 +185,10 @@ def test_text_output_writes_grouped_order_sql_on_success(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
-    assert output_path.read_text(encoding="utf-8") == POSTGRES_SQL + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- grouped_orders\n{POSTGRES_SQL};\n"
+    )
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -229,7 +232,10 @@ def test_json_output_writes_grouped_order_sql_and_keeps_artifacts(
             "sql": POSTGRES_SQL,
         }
     ]
-    assert output_path.read_text(encoding="utf-8") == POSTGRES_SQL + "\n"
+    assert (
+        output_path.read_text(encoding="utf-8")
+        == f"-- grouped_orders\n{POSTGRES_SQL};\n"
+    )
     assert not tuple(tmp_path.glob("*.tmp"))
 
 
@@ -354,11 +360,12 @@ def test_no_group_projection_alias_order_emits_the_output_expression(
     captured = capsys.readouterr()
     assert captured.err == ""
     assert captured.out == (
+        "-- sorted_orders\n"
         "SELECT\n"
         '    lower("status") AS "sort_key"\n'
         'FROM "orders"\n'
         "ORDER BY\n"
-        '    lower("status") ASC\n'
+        '    lower("status") ASC;\n'
     )
 
 

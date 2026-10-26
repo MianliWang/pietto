@@ -32,7 +32,6 @@ from pietto.semantic import analyze
 from pietto.ast_nodes import (
     ComparisonExpr,
     DottedNameExpr,
-    JoinClause,
     NameExpr,
     SourceDef,
 )
@@ -56,31 +55,9 @@ from pietto.semantic.model import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic import joins
-from pietto.semantic.join_relationships import (
-    JoinBindingView,
-    ResolvedJoinRelationship,
-)
 from _pietto_semantic_joins import JOIN_PREFIX, located, run_joins
 
 _COMPLETES = "only when an EXPLICIT_MODULES project (schema version 2) completes"
-_SAME_FILE_READ = (
-    "`{0}` is a {1} of this file; single-file SQL reads it by name, so the SQL "
-    "runs only where the database already has a relation named {0} (an "
-    "EXPLICIT_MODULES project emits it as a CTE)"
-)
-
-
-def _same_file_read(
-    name: str, kind: str, line: int, column: int
-) -> tuple[str, Severity, str, int, int]:
-    """The PIE-S2382 warning at a single-file read of the same-file `name`."""
-    return (
-        "PIE-S2382",
-        Severity.WARNING,
-        _SAME_FILE_READ.format(name, kind),
-        line,
-        column,
-    )
 
 
 def _graded(diagnostics: object) -> list[tuple[str, Severity, str, int, int]]:
@@ -456,6 +433,34 @@ def test_single_file_set_refusals_keep_both_operations_and_downstream_inputs() -
     ]
 
 
+def test_single_file_let_of_a_set_operation_is_refused_as_its_join_is() -> None:
+    """`let b = both` names the set operation as the JOIN of `b` reads it:
+    the JOIN reports what JOIN both reports, not a misplaced row-value let."""
+
+    semantic = analyze(
+        _parse(
+            "shape Order:\n    id: Int\n"
+            'source orders: Order = postgres.table("orders")\n'
+            "query both:\n    union all:\n        from orders\n        from orders\n"
+            "query r:\n    from orders\n    let b = both\n"
+            "    inner join b on orders.id == b.id\n    select:\n        x = orders.id\n"
+        )
+    )
+    completes = "only when an EXPLICIT_MODULES project (schema version 2) completes"
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in semantic.diagnostics
+    ] == [
+        ("PIE-S2334", f"Set operations are available {completes} them.", 5, 5),
+        (
+            "PIE-S2334",
+            f"Set-operation inputs are available {completes} them: both",
+            11,
+            5,
+        ),
+    ]
+
+
 def test_project_ir_constructor_rejects_a_forged_join_marker(
     tmp_path: Path,
 ) -> None:
@@ -573,14 +578,23 @@ FIELD_EXPECTED = {
     ],
     "window_known_bare_id": [
         (
-            "PIE-S2334",
+            "PIE-S2335",
             "error",
-            "Window functions over JOIN rows are available only when an EXPLICIT_MODULES project (schema version 2) completes them.",
-            14,
+            "Ambiguous field: id; write orders.id or customer.id",
             13,
+            9,
+            13,
+            11,
+        ),
+        (
+            "PIE-S2335",
+            "error",
+            "Ambiguous field: id; write orders.id or customer.id",
             16,
-            25,
-        )
+            22,
+            16,
+            24,
+        ),
     ],
     "both_missing": [
         ("PIE-S2102", "error", "Unknown field: customer.nope", 13, 13, 13, 26),
@@ -1116,27 +1130,13 @@ def _joined_query(body: str) -> str:
         pytest.param(
             "    from orders\n    let r = regions\n    cross join r\n"
             "    select:\n        n = row_number() window(order by orders.id)\n",
-            [
-                (
-                    "PIE-S2334",
-                    f"Window functions over JOIN rows are available {_COMPLETED} them.",
-                    23,
-                    13,
-                )
-            ],
+            [],
             id="window_call",
         ),
         pytest.param(
             "    from orders\n    let r = regions\n    cross join r\n"
             "    let w = window(order by orders.id)\n" + _SELECT_ID,
-            [
-                (
-                    "PIE-S2334",
-                    f"Window functions over JOIN rows are available {_COMPLETED} them.",
-                    22,
-                    5,
-                )
-            ],
+            [],
             id="named_window",
         ),
         pytest.param(
@@ -1190,7 +1190,10 @@ def test_single_file_join_structure_refuses_each_written_part(
 ) -> None:
     run = run_joins(_joined_query(body))
     assert located(run.diagnostics) == expected
-    assert run.structures == {}
+    if expected:
+        assert run.structures == {}
+    else:
+        assert run.structures
 
 
 def test_single_file_join_structure_resolves_each_input_and_mode() -> None:
@@ -1231,21 +1234,14 @@ def test_single_file_join_structure_resolves_each_input_and_mode() -> None:
     # Every JOIN reads the row accumulated from the FROM input; a relationship
     # call in `on` is a condition, not a relationship the JOIN resolves.
     assert [
-        (
-            join.ordinal,
-            join.clause is query.join_clauses[join.ordinal - 1],
-            join.mode,
-            join.source_input,
-            join.source_inferred,
-            join.relationship,
-        )
+        (join.ordinal, join.clause is query.join_clauses[join.ordinal - 1], join.mode)
         for join in structure.joins
     ] == [
-        (1, True, "M3", 0, False, None),
-        (2, True, "M3", 0, False, None),
-        (3, True, "M3", 0, False, None),
-        (4, True, "M3", 0, False, None),
-        (5, True, "M5", 0, False, None),
+        (1, True, "M3"),
+        (2, True, "M3"),
+        (3, True, "M3"),
+        (4, True, "M3"),
+        (5, True, "M5"),
     ]
 
 
@@ -1288,45 +1284,9 @@ def test_single_file_hidden_existence_binding_takes_no_authored_binding_name(
     ]
 
 
-def test_single_file_join_structure_takes_the_relationship_resolution_as_given(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source = _joined_query(
-        "    from orders\n    let c = customers\n    inner join c\n" + _SELECT_ID
-    )
-    calls: list[str] = []
-
-    def silent(clause: Any, **_: Any) -> tuple[Diagnostic, ...]:
-        calls.append(clause.target_binding_name)
-        return ()
-
-    monkeypatch.setattr(joins, "resolve_join_relationship", silent)
-    run = run_joins(source)
-    # A relationship whose own declaration errors decide the JOIN: no
-    # structure and nothing more reported.
-    assert (run.diagnostics, run.structures, calls) == ([], {}, ["c"])
-    reported = Diagnostic(
-        code="PIE-S2335",
-        severity=Severity.ERROR,
-        message="stand-in",
-        location=SourceLocation(path=None, line=1, column=1),
-    )
-    monkeypatch.setattr(
-        joins, "resolve_join_relationship", lambda clause, **_: (reported,)
-    )
-    run = run_joins(source)
-    assert (run.diagnostics, run.structures) == ([reported], {})
-
-
-def test_single_file_join_structure_resolves_no_relationship_from_a_failed_input(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr(
-        joins,
-        "resolve_join_relationship",
-        lambda clause, **_: calls.append(clause.target_binding_name) or (),
-    )
+def test_single_file_join_structure_resolves_no_relationship_from_a_failed_input() -> (
+    None
+):
     run = run_joins(
         _joined_query(
             "    from orders\n    inner join nowhere\n"
@@ -1334,12 +1294,25 @@ def test_single_file_join_structure_resolves_no_relationship_from_a_failed_input
             "    let r = regions\n    inner join r\n" + _SELECT_ID
         )
     )
-    assert located(run.diagnostics) == [
-        ("PIE-S2301", "Unknown relation: nowhere", 20, 5)
-    ]
     # The JOIN of the unknown relation resolves nothing; the later JOINs read
-    # the row of the FROM input, which the failed input does not hide.
-    assert (calls, run.structures) == (["c", "r"], {})
+    # the row of the FROM input, which the failed input does not hide, and
+    # lack only their `on`.
+    assert located(run.diagnostics) == [
+        ("PIE-S2301", "Unknown relation: nowhere", 20, 5),
+        (
+            "PIE-S2335",
+            "JOIN c: write `on` with the condition that matches orders to customers",
+            22,
+            5,
+        ),
+        (
+            "PIE-S2335",
+            "JOIN r: write `on` with the condition that matches orders to regions",
+            24,
+            5,
+        ),
+    ]
+    assert run.structures == {}
     unresolved = run_joins(
         _joined_query(
             "    from nowhere\n    let r = regions\n    cross join r\n"
@@ -1707,8 +1680,7 @@ def test_single_file_join_post_pass_drops_reads_of_relations_it_does_not_analyse
         )
     )
     checks, _ = run.checks()
-    query = run.relation("q")
-    assert checks.unanalysed == (query.span,)
+    assert checks.unanalysed == ()
 
     def at(code: str, line: int, column: int) -> Diagnostic:
         return Diagnostic(
@@ -1724,7 +1696,7 @@ def test_single_file_join_post_pass_drops_reads_of_relations_it_does_not_analyse
         at("PIE-S2334", 23, 13),
         at("PIE-S2102", 27, 13),
     ]
-    assert joins.join_post_pass(before, checks) == [before[2], before[3]]
+    assert joins.join_post_pass(before, checks) == before
 
 
 def test_single_file_join_with_an_unknown_input_row_says_so_unless_explained() -> None:
@@ -1906,51 +1878,6 @@ def test_single_file_join_structures_resolve_every_join_target_for_cycles() -> N
     assert run.join_resolutions[bad.join_clauses[0]] is query
 
 
-def test_single_file_join_facts_fail_closed_on_a_pair_the_rows_lack(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    parsed = parse_source(JOIN_PREFIX)
-    assert parsed.ast is not None
-    # The body of order_customer, `order.customer_id == customer.id`.
-    comparison = cast(ComparisonExpr, parsed.ast.relationship_templates[0].body)
-
-    def misread(
-        clause: JoinClause,
-        *,
-        written_source: JoinBindingView | None,
-        **_: Any,
-    ) -> ResolvedJoinRelationship:
-        assert written_source is not None
-        return ResolvedJoinRelationship(
-            source=written_source,
-            source_inferred=False,
-            relationship="order_customer",
-            step=None,
-            source_role="order",
-            target_role="customer",
-            pairs=(
-                (
-                    "nope",
-                    "id",
-                    comparison,
-                    cast(DottedNameExpr, comparison.left),
-                    cast(DottedNameExpr, comparison.right),
-                ),
-            ),
-        )
-
-    monkeypatch.setattr(joins, "resolve_join_relationship", misread)
-    run = run_joins(
-        _joined_query(
-            "    from orders\n    let c = customers\n    inner join c\n" + _SELECT_ID
-        )
-    )
-    checks, _ = run.checks()
-    assert (run.diagnostics, list(run.structures)) == ([], [run.relation("q")])
-    # No facts, so IR refuses the relation; nothing is reported at check.
-    assert (checks.facts, checks.diagnostics, checks.reads) == ({}, (), ())
-
-
 @pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize(
     ("body", "expected"),
@@ -1960,15 +1887,7 @@ def test_single_file_join_facts_fail_closed_on_a_pair_the_rows_lack(
             "    inner join customer on order_customer(orders, customer)\n"
             '    where customer.name == "x"\n'
             "    select:\n        n = row_number() window(order by orders.id)\n",
-            [
-                (
-                    "PIE-S2334",
-                    "Window functions over JOIN rows are available only when "
-                    "an EXPLICIT_MODULES project (schema version 2) completes them.",
-                    24,
-                    13,
-                )
-            ],
+            [],
         ),
         (
             "    let customer = customers\n"
@@ -1990,10 +1909,7 @@ def test_single_file_join_facts_fail_closed_on_a_pair_the_rows_lack(
             "    let customer = q\n    cross join customer\n"
             '    where customer.name == "x"\n'
             "    select:\n        name = customer.name\n",
-            [
-                ("PIE-S2302", "Relation cycle detected: q -> q", 21, 5),
-                ("PIE-S2382", _SAME_FILE_READ.format("q", "query"), 21, 5),
-            ],
+            [("PIE-S2302", "Relation cycle detected: q -> q", 21, 5)],
         ),
     ),
 )
@@ -2004,14 +1920,9 @@ def test_join_phase_a_and_cycles_suppress_only_unavailable_row_reads(
         _parse(JOIN_PREFIX + "query q:\n    from orders\n" + body), mode_override=mode
     )
     assert located(result.diagnostics) == expected
-    assert all(
-        item.severity is Severity.WARNING
-        for item in result.diagnostics
-        if item.code == "PIE-S2382"
-    )
     query = cast(QueryDef, result.model.relation_symbols["q"])
-    assert query not in result.model.relation_joins
-    assert result.model.relation_row_schemas[query].is_unknown
+    assert (query in result.model.relation_joins) is (expected == [])
+    assert result.model.relation_row_schemas[query].is_unknown is (expected != [])
 
 
 @pytest.mark.parametrize("mode", tuple(CheckMode))
@@ -2043,12 +1954,7 @@ table first:
         ),
         mode_override=mode,
     )
-    # Each JOIN or FROM read of a same-file table or query warns once.
-    assert _graded(result.diagnostics) == [
-        _same_file_read("second", "table", 21, 5),
-        _same_file_read("q", "query", 25, 5),
-        _same_file_read("first", "table", 29, 5),
-    ]
+    assert result.diagnostics == ()
     for name, field in (
         ("q", "n"),
         ("reader", "n"),
@@ -2082,10 +1988,7 @@ table projected:
 """
         )
     )
-    assert _graded(result.diagnostics) == [
-        _same_file_read("projected", "table", 19, 5),
-        _same_file_read("projected", "table", 21, 5),
-    ]
+    assert result.diagnostics == ()
     query = cast(QueryDef, result.model.relation_symbols["q"])
     info = result.model.relation_joins[query]
     assert [info.field_reads[item.expression] for item in query.select_items] == [
@@ -2161,10 +2064,10 @@ def test_join_analyzer_runs_fanout_refusal_after_resolving_reads(
     assert located(result.diagnostics) == [
         (
             "PIE-S2381",
-            "An aggregate may read rows that a JOIN repeats; match a declared "
-            "unique key of customer whose fields are never None in `on` with a "
-            "relationship call, use `any(...)` for an input that only filters "
-            "rows, or aggregate in a separate query first",
+            "An aggregate may read rows repeated by JOIN customer; match a unique "
+            "key of customer in `on`, use "
+            "`any(...)` for an input that only filters rows, or aggregate in a "
+            "separate query first",
             23,
             13,
         )
@@ -2280,7 +2183,6 @@ def test_join_cycle_is_found_even_when_its_written_combination_is_invalid() -> N
     assert _graded(result.diagnostics) == [
         ("PIE-S2302", Severity.ERROR, "Relation cycle detected: q -> q", 21, 5),
         ("PIE-S2336", Severity.ERROR, "CROSS JOIN cannot have ON or VIA.", 21, 5),
-        _same_file_read("q", "query", 21, 5),
     ]
 
 
@@ -2301,12 +2203,5 @@ def test_refused_join_window_keeps_unrelated_scalar_errors(mode: CheckMode) -> N
         mode_override=mode,
     )
     assert located(result.diagnostics) == [
-        (
-            "PIE-S2334",
-            "Window functions over JOIN rows are available only when "
-            "an EXPLICIT_MODULES project (schema version 2) completes them.",
-            23,
-            13,
-        ),
-        ("PIE-S2103", "Unknown function: frob", 24, 15),
+        ("PIE-S2103", "Unknown function: frob", 24, 15)
     ]
