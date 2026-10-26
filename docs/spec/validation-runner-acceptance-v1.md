@@ -16,14 +16,13 @@ window refinement, and to CI remaining-tail maintenance R1. When this version
 is published, no acceptance tool and no qualified environment record exist for
 any runner other than the integration host.
 
-VR1 preparation now provides a bounded candidate source exporter, independent
+VR1 preparation provides a bounded candidate source exporter, independent
 remote tree reconstruction check, static-gate report producer, environment
-assertion checker and evidence receiver. Every successful terminal is explicitly
-`*_NOT_QUALIFIED`: it creates no qualified environment record, accepts no Gate
-2 result, changes no validator, CI workflow, coverage or health schema, worker
-ceiling, product source, package input or version, and moves no domain away
-from the integration host. VR2 remains the separate qualification and E*
-freeze decision.
+assertion checker and evidence receiver. Its existing successful terminals stay
+explicitly `*_NOT_QUALIFIED`; they do not themselves accept a Gate 2 result.
+The VR2 path below reuses those identities and adds only the owner-approved
+Teach split. It does not change hosted CI placement, health history, worker
+ceilings, product source, package inputs or versions.
 Validation keeps the layered policy of
 [Workflow Lifecycle Reader And Validation Efficiency v1](workflow-lifecycle-reader-validation-efficiency-v1.md)
 and the current rules in [Development](../development.md).
@@ -35,9 +34,64 @@ budget. A measured end-to-end gain is material only when every closure passes
 and remote wall time is at least 15% lower; differing strategies are
 `UNKNOWN`. Neither outcome qualifies the runner or starts a Gate 2 split.
 
-The static-gate and environment JSON are assertions for VR1 development, not
+The static-gate and environment JSON are consistency evidence, not independent
 proof that a remote runner executed the commands or observed the stated facts.
-Only a later qualified-record and acceptance path may grant them Gate 2 effect.
+The integration host applies the explicitly approved owner-controlled Teach
+account/scheduler trust premise when it accepts a receipt; hashes do not
+replace that premise.
+
+## VR2 first seal and successor acceptance
+
+VR2 is first sealed entirely on the integration host: it receives ordinary Gate
+2 validation, an ordinary commit, a fast-forward push, and natural exact-head
+CI on `push`/`main`, attempt 1, for `.github/workflows/ci.yml` with its complete
+required consumer inventory successful. The integration host reads the live
+main ref and workflow identity, and records the published head, tree, run,
+workflow blob and adopted validator, receiver and workload-policy bytes. A candidate must have that head as a Git
+ancestor before a Teach receipt can be accepted. The bootstrap candidate cannot
+self-qualify; this rule applies only to successors after its natural CI passes.
+
+For each successor, the integration host independently collects the full node
+set and captures current `ci_workload` marker provenance without changing the
+CI policy or placement. An unmarked node is local. A node is remote eligible
+only when it has an explicit `ci_workload("general-runtime")` declaration and
+resolves to the ordinary core descriptor; every special descriptor remains
+local. The six existing partition names are retained. For every partition the
+acceptance plan names an exact remote subset and its local complement; an empty
+side has an explicit no-op receipt. A gap, overlap, foreign node, changed
+resolved descriptor, changed collection/policy/input/context, failure, or
+remote `PIETTO_NOT_RUN` rejects the whole acceptance.
+
+Teach may run only the five `validate.GATES[:5]` static commands and nonempty
+remote plan subsets through the bounded `ci_validation --nodes-file` path. Its
+receipt names an owner-controlled Teach job and lease, reports an empty
+credential environment, and asserts no canonical-worktree write or push. It
+has no GitHub write credential, model token or private key. The integration
+host retains independent collection, every local complement, storage positives,
+Docker/native work, generated and golden audits, package/installed-consumer
+checks, and the final acceptance decision. Natural CI remains the final
+Python 3.12/3.13 owner.
+
+`validation_runner_receiver.py bootstrap-observe` is the bootstrap producer:
+it checks the live published main ref against local `origin/main`, the expected
+workflow identity, and the exact attempt-1 run and jobs through the bounded
+read-only Actions helper. The operational remote runner first materializes the
+candidate. `teach-produce` verifies that materialization, checks the fixed host
+plan before execution, runs only the five static commands and nonempty remote
+plan rows, then writes a
+`PRODUCED_NOT_QUALIFIED` receipt. It may be used for development before the
+bootstrap publication; it grants nothing. `host-produce` runs the matching
+local complement. Only `accept`, which recaptures marker provenance and
+rederives the plan on the host before combining those two actual outputs, can
+produce repository consistency evidence. It remains
+`VERIFIED_PENDING_HOST_ADOPTION`: the owner-controlled operational caller that
+uses the existing Teach submission/return ledger is the only component that
+may adopt that evidence as the successor-only acceptance terminal. It binds
+the actual job and lease, scheduler terminal, returned artifact checksums,
+live bootstrap observation and local reports from the same invocation. Fake
+scheduler contexts cannot qualify. The accepted result covers only those
+static and pytest parts; generated, golden, package, native and the complete
+Gate 2 seal remain separate host-owned work.
 
 ## Terms
 
@@ -55,11 +109,10 @@ Only a later qualified-record and acceptance path may grant them Gate 2 effect.
 - **Premise**: a checkable property of a runner and its environment. R4 rows 0
   and 0b are the **Gate 2 premises**; rows 1–8 are **domain premises**.
 - **Environment record**: the facts of one runner environment that the
-  premises are judged against. This version defines no record format; the
-  integration host is judged by the observed facts of its accepted core and
-  host, while another runner's record counts only after an acceptance tool on
-  the integration host has accepted it. The premises stay the same; only the
-  evidence path differs.
+  premises are judged against. VR2 binds the named Teach job/lease, empty
+  credential-environment assertion, candidate materialization, exact static
+  report and partition receipts to the host-side acceptance record. The
+  integration host remains judged by its observed accepted core and host.
 - **Acceptance tool**: a checker that the integration host runs to decide
   whether another runner's environment record and reports count toward a
   Gate 2 validation. VR1 preparation is not an acceptance tool: it only

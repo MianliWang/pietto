@@ -12,6 +12,10 @@ from pietto.ast_nodes import EnumDef, Header, Script, ShapeDef, Span, TypeDef
 from pietto.parser_api import parse_file, parse_source
 
 
+# Parser-only owner: no storage, native, generated, golden or package premise.
+pytestmark = pytest.mark.ci_workload("general-runtime")
+
+
 def test_empty_source_parses() -> None:
     result = parse_source("")
 

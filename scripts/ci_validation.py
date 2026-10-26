@@ -353,6 +353,7 @@ def pytest_addoption(parser):
     group.addoption("--ci-context")
     group.addoption("--ci-health")
     group.addoption("--ci-partition", choices=PARTITIONS)
+    group.addoption("--ci-nodes-file")
 
 
 def pytest_configure(config):
@@ -368,6 +369,7 @@ class Coverage:
         self.path = Path(config.getoption("--ci-report"))
         self.context = json.loads(config.getoption("--ci-context"))
         self.partition = config.getoption("--ci-partition")
+        self.nodes_file = config.getoption("--ci-nodes-file")
         self.worker = hasattr(config, "workerinput")
         self.started = time.monotonic()
         self.started_wall = time.time()
@@ -414,10 +416,26 @@ class Coverage:
         )
         self.identity = collection_identity(full, indices)
         if self.partition is None:
+            if self.nodes_file is not None:
+                raise ValueError("explicit CI nodes require a partition")
             self.nodes = full
             self.indices = indices
             return
         self.nodes = partition_nodes(full, indices)[self.partition]
+        if self.nodes_file is not None:
+            selected_path = Path(self.nodes_file)
+            if selected_path.is_symlink() or not selected_path.is_file():
+                raise ValueError("explicit CI node selection is not a regular file")
+            selected = json.loads(selected_path.read_bytes())
+            if (
+                type(selected) is not list
+                or selected != sorted(set(selected))
+                or any(type(node) is not str or not node for node in selected)
+                or not selected
+                or not set(selected) <= set(self.nodes)
+            ):
+                raise ValueError("explicit CI node selection is not this partition")
+            self.nodes = selected
         by_node = dict(zip(full, indices, strict=True))
         self.indices = [by_node[n] for n in self.nodes]
         wanted = set(self.nodes)
@@ -835,6 +853,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--target-status")
     parser.add_argument("--evidence-dir", type=Path)
     parser.add_argument("--partition", choices=PARTITIONS)
+    parser.add_argument("--nodes-file", type=Path)
     parser.add_argument("--checkout")
     parser.add_argument("--run-id")
     parser.add_argument("--run-attempt", type=int)
@@ -965,6 +984,8 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("ambient pytest selection/plugins are not allowed")
         if args.action == "run" and args.partition is None:
             raise ValueError("missing partition")
+        if args.nodes_file is not None and args.action != "run":
+            raise ValueError("explicit nodes only apply to a pytest partition run")
         command = (
             runtime_command(args.max_workers, args.partition)
             if args.action == "run"
@@ -995,6 +1016,11 @@ def main(argv: list[str] | None = None) -> int:
                 "--durations-min=1",
                 "--ci-partition",
                 args.partition,
+                *(
+                    ("--ci-nodes-file", str(args.nodes_file.resolve()))
+                    if args.nodes_file is not None
+                    else ()
+                ),
                 "--basetemp",
                 str(basetemp),
             )

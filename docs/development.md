@@ -145,11 +145,27 @@ document calls validation work or its reports local, it means the integration
 host.
 
 VR1 preparation may export a dirty candidate tree from an exact temporary
-index, reconstruct it independently over a baseline checkout, bind static
-gate and coverage evidence to both identities, and evaluate an environment
-assertion. Its terminals remain explicitly non-qualified. The bounded
-comparison run is development evidence only; E* qualification and the first
-authoritative split remain separate decisions.
+index, reconstruct it independently over a baseline checkout, bind static gate
+and coverage evidence to both identities, and evaluate an environment
+assertion. Its terminals remain explicitly non-qualified.
+
+The owner-approved VR2 bootstrap is sealed first on this integration host by
+ordinary Gate 2 validation, ordinary commit and fast-forward push, then a
+natural exact-head `push`/`main` attempt-1 success for the expected CI workflow
+and its complete required consumer inventory. The bootstrap binds the published
+workflow, workload policy, validator and receiver bytes. Only a successor whose base descends from that published head
+may use the split. For that successor, `scripts/validation_runner_receiver.py`
+captures explicit `ci_workload` provenance from an independent collection:
+unmarked or special nodes stay local; only explicitly declared ordinary
+`general-runtime` nodes may appear in Teach's exact plan subset. The plan keeps
+the six existing partitions and proves each remote/local complement is complete
+and disjoint. Teach runs only static gates and its nonempty subset using
+`scripts/ci_validation.py run --nodes-file`; the host keeps all local nodes,
+storage positives, native/database, generated, golden, package and installed
+consumer work, and accepts the final receipt. The accepted owner-controlled
+Teach account/scheduler is an execution trust premise; returned JSON and hashes
+bind bytes but do not independently prove execution. Natural CI still owns
+final Python 3.12 and 3.13 coverage.
 
 ## Phase-end acquisition consolidation
 
