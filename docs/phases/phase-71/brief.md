@@ -6,7 +6,9 @@ Phase70 `COMPLETED / PUBLISHED`：25 个实际 Slice，S20 审计普通提交 `5
 Phase70 之后的稳定批构成 `0.1.4` 公开 alpha（`4e043a0b`），现代源语法、单文件 JOIN MVP 与 fix batch 7 构成 `0.1.5` 公开 alpha（`6d0f6c6c`，自然 CI `40156617674`），两版都已在 GitHub pre-release 与 PyPI 发布并核验字节。
 所有者计划 v2 的规划证据固定在 `6d0f6c6c`（tree `e0c6c5b4e5f8bbf75e33ba67a537de2887ec4618`）；本路线发布文档的基线是 main `88c11d0839d9f12fee53bd46d777b55b11356a42`（tree `9de164058b5d9cd85c821e443117743fcf468ba2`，`src/` 与 `v0.1.5` 相同，自然 CI40180988546/push/main/attempt1）。
 S01 不绑定 main，而是绑定下一版（`0.1.6`）各项已合成的候选（D71.09）：下一版各项与本期改同一批热文件（fan-out 证明、发射、let 规范化）。
-本 brief、[24 片路线](slices.md)与[外部参考记录](planning-notes.md)随一次只含文档的路线发布提交发布：路线锁定与 Phase71 开始都只在该普通提交的 FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate；尚无已合入的 Phase71 Slice。所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.11。
+本 brief、[24 片路线](slices.md)与[外部参考记录](planning-notes.md)已由只含文档的路线发布提交 `6e9d7be6` 发布，其自然 exact-head CI `40250919248` attempt 1 的 19 个 job 全部成功：路线锁定，Phase71 开始。所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
+
+当前开工绑定见 [S01](slice-01.md)：下一版合成候选已发布为 `9511f13563d0`，B1 按既定批次实施；以下规划观察保留其原始基线，实际状态由 S01 的逐项接收记录承接。
 
 ## R/A/C 与使命
 
@@ -15,7 +17,7 @@ S01 不绑定 main，而是绑定下一版（`0.1.6`）各项已合成的候选�
 2. Phase70 交付了关系 let、命名参数、VALUES、关系读取、显式 capture/LATERAL、有界 `generate_series` 与计算分组键，是本期的组合基础；它保留 no-rewrite 边界，没有交付去相关，本期不能把它当作可用的优化器。
 3. Phase70 之后源码已有现代语法（`None / True / False`、`T | None`、`source name: Shape = ...`、单行 clause 不加冒号、`let name = expression`、JOIN 别名先写 `let buyer = customers` 再 `left join buyer on …`，JOIN 里的 `as` 已退役）、单文件 JOIN 与多批稳定性修正；Arrow pin 是 `pyarrow==26.0.0`。规划与例子一律用现代语法，不搬 0.1.3 的测试数、依赖或例子。
 4. 接口单独通过不等于完整公开消费者通过：Phase69/70 的失败头主要来自只在 CI、hosted 或目标库运行的消费者与字面 pin 读者（[工程教训](../../references/engineering-lessons.md)）。
-5. 开局实测（0.1.5 编译器）：项目模式里 FROM 别名读字段报 `PIE-S2102`，改写法会让 `check --project` 打出 traceback；项目里 `cross join o on True` 多报两条 `PIE-S2334`。这些是 `0.1.6` 修复项，不是本期决定；本期例子读另一个查询的字段时用全名（如 `customers_with_orders.recent_orders`）。
+5. 开局实测（0.1.5 编译器）：项目模式里 FROM 别名读字段报 `PIE-S2102`，改写法会让 `check --project` 打出 traceback；项目里 `cross join o on True` 多报两条 `PIE-S2334`。开局把这些归为 `0.1.6` 修复项，但只有 FROM 别名的修复有所有者决定；在绑定的 `9511f135` 上 FROM 别名的两项已修复，`cross join o on True` 的诊断与 0.1.5 相同（见 [S01](slice-01.md) 的开放项 O2、O3）。它们不是本期决定；本期例子读另一个查询的字段时用全名（如 `customers_with_orders.recent_orders`）。
 
 **教训与本期调整。**
 

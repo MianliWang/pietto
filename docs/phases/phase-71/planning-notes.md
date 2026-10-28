@@ -1,6 +1,6 @@
 # Phase71 planning notes：外部参考、假设与证据缺口
 
-本文件记录 Phase71 开局审阅的外部参考、规划假设与仍未关闭的证据缺口。它随只含文档的路线发布提交发布，只在该提交的自然 exact-head CI 成功后成立，此前是 candidate。所有者采纳的推荐见[决定记录](../../decisions.md)的 D71.01–D71.11。
+本文件记录 Phase71 开局审阅的外部参考、规划假设与开局时仍未关闭的证据缺口。它已由只含文档的路线发布提交 `6e9d7be6` 发布，其自然 exact-head CI `40250919248` attempt 1 的 19 个 job 全部成功。下文保留开局时的观察与基线，之后的实际状态见 [S01](slice-01.md) 的逐项接收记录。所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
 外部行为只为 Pietto 的决定提供依据，永远不成为仓库权威（[phase initiation gate](../../architecture/phase-initiation-gate-v1.md#external-reference-review-record)；[product design lessons](../../references/product-design-lessons-v1.md)）。
 
 片号指 [24 片路线](slices.md)。下文的参考编号 E1–E3 只指外部参考，与 [execution guide](../../execution.md) 中的已保存结果流程 R1（重读）、R2（同源恢复）无关。路线图中本期一行是 [Phase 71](../../roadmap.md#future-roadmap-v6)。
@@ -121,9 +121,9 @@
 | PostgreSQL carrier 的精度、空输入、顺序与对齐，以及真实内存/大小边界 | 只有文档与推论；没有原生实测 | S02（Teach 实验，D71.09） |
 | 写法的可学性 | 推荐写法只经 0.1.5 编译器对照（新写法今天是语法错或语义拒绝），没有学习者探测 | S03 冻结前 |
 | 新诊断码段与逐字消息 | 开局时 `PIE-S28xx` 未被使用；下一版会新增或退役一些码 | S01 在绑定的基线上确认，S03 Gate 1 定稿 |
-| 下一版（`0.1.6`）候选 | 各项尚未合成，只在 main 之外的 worktree；身份未知 | S01 Gate 0 |
-| 项目模式 FROM 别名的缺陷（`PIE-S2102` 与 `inconsistent_scope_relation` traceback）与 JOIN 诊断的多余 `PIE-S2334`、`PIE-S2333` 内部用语 | 0.1.5 上实测复现；归 `0.1.6` 修复项 | S01 核对下一版候选上的结果；Unnest 继承 JOIN 诊断 |
-| runner acceptance | 没有 acceptance tool 与合格环境记录；只有集成主机合格 | S03 之前的单独派发（D71.10） |
+| 下一版（`0.1.6`）候选 | 开局时各项尚未合成，只在 main 之外的 worktree；身份未知 | S01 Gate 0：已绑定合成候选 `9511f135`（见 [S01](slice-01.md)） |
+| 项目模式 FROM 别名的缺陷（`PIE-S2102` 与 `inconsistent_scope_relation` traceback）与 JOIN 诊断的多余 `PIE-S2334`、`PIE-S2333` 内部用语 | 开局时在 0.1.5 上实测复现；规划时归为 `0.1.6` 修复项（FROM 别名的修复有所有者决定，所观察 JOIN 写法的修正没有） | S01 已在 `9511f135` 上核对（见 [S01](slice-01.md) 的开放项 O2、O3）：FROM 别名的 traceback 与 `PIE-S2102` 已修复，但兼容超出 0.1.5 接受的范围；所观察的 JOIN 写法的诊断与 0.1.5 相同，没有可继承的下一版修正（已批准的 B13 对其他 JOIN 诊断的修正已在 9511），S03 以 9511 的输出为基线；以后的修正由 Unnest 按 D71.02 继承 |
+| runner acceptance | 没有 acceptance tool 与合格环境记录；只有集成主机合格 | S03 之前的单独派发（D71.10）：bootstrap `ad7baf65` 已发布，但拒绝 `9511f135` 的后继；所有者 2026-10-27 决定暂不改该机制，B1 的权威验证只在集成主机（见 [S01](slice-01.md)） |
 | CI health | `INSUFFICIENT_EVIDENCE`、可比样本 0；成本记录不完整 | 中点与 S22 消费最新适用样本 |
 | ADBC PostgreSQL 1.12.0、psycopg 3.3.5 对数组与 record 的 loader | 未审阅 | 不在本期（D71.05 拒绝 ADBC 嵌套路线；psycopg 的实际解码由 S02 观察） |
 | 外部页面存档 | 2026-10-25 的阅读没有存档 | 不关闭；记录为阅读笔记 |

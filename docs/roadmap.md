@@ -2950,6 +2950,12 @@ capacity, and leaves LSP, editor integration, syntax editions and migrations
 with Phase75 and the extension owner. The Phase71 release candidate joins
 `0.1.6`; its version, tag and channels still need their own authorization.
 
+On 2026-10-28 the owner set the MySQL cadence: MySQL support may trail
+PostgreSQL by about two to three releases. New features reach PostgreSQL first,
+which finds the problems, and MySQL catches up in later batches. The Phase 77
+row and the other rows above are unchanged, and until MySQL catches up with a
+feature, its MySQL paths keep failing closed with deterministic diagnostics.
+
 ## Tentative later ownership
 
 These separately numbered owners are `TENTATIVE / OWNER ONLY` and authorize no
