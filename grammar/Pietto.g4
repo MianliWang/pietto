@@ -479,7 +479,8 @@ selectWindowItem
     ;
 
 selectItem
-    : fieldName ASSIGN expression
+    : fieldName ASSIGN COLLECT identifier
+    | fieldName ASSIGN expression
     | expression
     ;
 
@@ -787,6 +788,7 @@ identifier
     | CURRENT
     | ROW
     | UNBOUNDED
+    | COLLECT
     | PRECEDING
     | FOLLOWING
     | EXCLUDE
@@ -920,6 +922,7 @@ ANY: 'any';
 FOR: 'for';
 CAPTURE: 'capture';
 SCALAR: 'scalar';
+COLLECT: 'collect';
 DEF: 'def';
 RETURN: 'return';
 TRUE: 'true' | 'True';

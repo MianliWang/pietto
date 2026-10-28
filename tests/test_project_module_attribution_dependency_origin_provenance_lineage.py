@@ -2450,6 +2450,7 @@ def test_builder_rejects_incomplete_or_misaligned_retained_inputs(
         "module_type_source_resolutions",
         "module_relation_resolutions",
         "module_attribution_facts",
+        "nested_relation_facts",
     ):
         with pytest.raises(ValueError, match="require all module sidecars"):
             replace(semantic, **{field_name: None})

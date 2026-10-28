@@ -1,7 +1,7 @@
 """Exact retained source ownership, original graph endpoints and query behavior."""
 
 from dataclasses import replace, FrozenInstanceError
-from types import MappingProxyType
+from types import MappingProxyType, SimpleNamespace
 from typing import cast
 from pathlib import Path
 import sys
@@ -53,14 +53,32 @@ def _mapped(roots, policy=P.BIND_SAFE_LITERALS):
 
 
 def test_unknown_ast_node_source_membership_fails_closed():
-    from types import SimpleNamespace
-
     class UnknownNode(ast.Node):
         pass
 
     script = UnknownNode(
         span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
     )
+    with pytest.raises(ValueError, match="Unknown source AST node"):
+        maps.membership(_source_map_membership_plan(script))
+
+
+def test_collect_ast_node_is_refused_by_unclosed_direct_readers():
+    from pietto._project import project_sql_plan_portable as portable
+
+    collect = ast.CollectRelationExpr(
+        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=15),
+        relation_name="children",
+    )
+
+    with pytest.raises(ValueError, match="Collect relation reads are unavailable"):
+        maps.membership(_source_map_membership_plan(collect))
+    with pytest.raises(portable.TransportError) as raised:
+        portable._fields(collect)
+    assert raised.value.issue is portable.RuntimeIssue.UNSUPPORTED_VALUE
+
+
+def _source_map_membership_plan(script):
     authority = SimpleNamespace(
         catalogs=SimpleNamespace(catalogs=()),
         modules=(
@@ -74,7 +92,7 @@ def test_unknown_ast_node_source_membership_fails_closed():
             ),
         ),
     )
-    plan = SimpleNamespace(
+    return SimpleNamespace(
         scope=SimpleNamespace(
             analysis_bundle=SimpleNamespace(
                 root=SimpleNamespace(
@@ -85,8 +103,6 @@ def test_unknown_ast_node_source_membership_fails_closed():
             )
         )
     )
-    with pytest.raises(ValueError, match="Unknown source AST node"):
-        maps.membership(plan)
 
 
 # Two existence reads: a let and a module query, each an expression block use.

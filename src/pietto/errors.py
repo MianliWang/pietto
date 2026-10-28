@@ -543,6 +543,18 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
                 "A JOIN starts with its kind: `inner`, `left`, `cross`, "
                 "`right` or `full`."
             )
+        # D71.02: a table-function Unnest in a JOIN points to the Unnest let.
+        joined = self._token(_index(token) - 2)
+        if (
+            token.type == PiettoParser.LPAREN
+            and previous is not None
+            and previous.text == "unnest"
+            and joined is not None
+            and joined.type == PiettoParser.JOIN
+        ):
+            return (
+                "Write `let o = unnest(binding.field)` before the JOIN, then join `o`."
+            )
         if token.type == PiettoParser.UNKNOWN and not text.isascii():
             return "Names use ASCII letters, digits and `_`."
         if token.type == PiettoParser.STAR and (
@@ -627,7 +639,13 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             return _WORD_HINTS["case"]
         if token.type == PiettoParser.IDENTIFIER:
             lowered = text.lower()
-            if lowered != text and f"'{lowered}'" in PiettoParser.literalNames:
+            # `collect` is a word only in a Collect item (D71.01), so `Collect`
+            # keeps the message it had before that word existed.
+            if (
+                lowered != text
+                and lowered != "collect"
+                and f"'{lowered}'" in PiettoParser.literalNames
+            ):
                 if lowered in _RETIRED_WORDS:
                     modern = _RETIRED_WORDS[lowered]
                     return None if modern is None else f"Write `{modern}`."
@@ -636,7 +654,16 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
                 # A common table expression starts a line; a WITH later in a
                 # line, as in `with time zone`, is other SQL.
                 return None
-            return _WORD_HINTS.get(lowered)
+            if lowered in _WORD_HINTS:
+                return _WORD_HINTS[lowered]
+        # D71.01: a select line that goes wrong right after the word `collect`
+        # points to the Collect item, unless a hint above explains the token.
+        if (
+            previous is not None
+            and previous.type == PiettoParser.COLLECT
+            and isinstance(recognizer._ctx, PiettoParser.SelectLineContext)
+        ):
+            return "A Collect read is a whole select item: `name = collect relation`."
         return None
 
     def _append(self, token: Token, message: str) -> None:

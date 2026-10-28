@@ -104,6 +104,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.NameExpr,
         ast.DottedNameExpr,
         ast.CallExpr,
+        ast.CollectRelationExpr,
         ast.UnaryExpr,
         ast.ConditionalExpr,
         ast.MembershipExpr,
@@ -2415,6 +2416,10 @@ def _infer(
     elif isinstance(expression, ast.RelationScalarExpr):
         # A scalar read's type is its read block column's, which only the
         # relation-name owner knows; a caller supplies it in ``value_types``.
+        value_type = _UNKNOWN_VALUE_TYPE
+    elif isinstance(expression, ast.CollectRelationExpr):
+        # A collected relation is a nested value, never a scalar one; its
+        # project facts report it (PIE-S2802), so it has no scalar type.
         value_type = _UNKNOWN_VALUE_TYPE
     elif isinstance(expression, ast.RelationMembershipExpr):
         # The left value is checked here; the read relation is resolved,
@@ -5940,6 +5945,14 @@ _UNKNOWN_FUNCTION_HINTS = {
     "concat": "string concatenation is not supported yet",
     "generate_series": "it is a table function, read with "
     "`from generate_series(start, stop, step) as n` in an EXPLICIT_MODULES project",
+    # D71.01/D71.02: the nested-relation spellings no call writes.
+    **dict.fromkeys(
+        ("collect", "list"),
+        "a Collect read is the select item `name = collect relation` in an "
+        "EXPLICIT_MODULES project",
+    ),
+    "unnest": "an Unnest is `let o = unnest(binding.field)` that a later JOIN of "
+    "the same body reads, in an EXPLICIT_MODULES project",
     **dict.fromkeys(
         (
             "array_agg",

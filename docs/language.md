@@ -1577,7 +1577,61 @@ boundaries: relation lets, entry-query header parameters, `exists`, `scalar` and
 `in` reads and every later family become available only for EXPLICIT_MODULES.
 PACKAGE_ROOT `explain --project` does not read relation bodies, so a package
 module using these forms can be explained; that does not make its relations
-available.
+available. The nested-relation spellings below are the exception: a package
+module that uses them is refused with PIE-S2801.
+
+### Nested relations: `collect` and `unnest`
+
+An EXPLICIT_MODULES project reads a relation let of the same declaration as one
+nested value with a `collect` SELECT item, and expands such a nested field with
+an Unnest let that a JOIN then reads:
+
+```pietto PIE-S2345 PIE-S2801 PIE-S2801
+shape Order:
+    id: Int
+    customer_id: Int
+source orders: Order = postgres.table("orders")
+query customers_with_orders:
+    let recent:
+        from orders
+        select:
+            id
+    from orders
+    select:
+        customer_id
+        recent_orders = collect recent
+query expanded:
+    from customers_with_orders
+    let o = unnest(customers_with_orders.recent_orders)
+    cross join o
+    select:
+        customer_id
+```
+
+`collect` is a word only right after `name =` in a SELECT item, so a field,
+function, relation or let named `collect` keeps its meaning and
+`collect(recent)` is an ordinary call. `name = collect recent` is a whole SELECT
+item. A query `let o = unnest(binding.field)` is an Unnest let when a later JOIN
+of the same body names it, the body declares `o` only once and the module
+defines no `def unnest`; any other `unnest(...)` call is an ordinary call, and
+`any(... for x in o)` reads `o` as a relation. An Unnest is `cross join o`,
+`inner join o on o.total > 10` or `left join o on True`, and its JOIN keeps the
+rules of any JOIN: a CROSS JOIN takes no `on` and every other kind needs one. It
+is one JOIN input in its place, so the relation's JOINs report what they report
+beside any JOIN input whose rows are not available yet. A relation, import or
+relation let that is also named `o` makes the JOIN `Ambiguous JOIN input: o`
+(PIE-S2604), as for an alias let.
+
+These values are typed but not yet lowered: each Collect read and each Unnest
+let is PIE-S2802, so such a project does not yet check or emit SQL. A let with
+`capture` lines that `collect` reads may end in ORDER BY and LIMIT, as for
+`scalar` and `in`. A Collect of a FROM-based relation let whose fields are all
+`Bool`, `Date`, `Decimal`, `Float`, `Int`, `Text`, `Timestamp` or `UUID` of
+known nullability is one collection layer that is never None; a VALUES or
+set-operation let is not collected yet. An Unnest reads the one Collect output
+of its binding. Single files, LEGACY_FLAT projects and package modules refuse
+both spellings with PIE-S2801, which says how to make a `schema_version = 2`
+project.
 
 ### Query header parameters in explicit-module projects
 

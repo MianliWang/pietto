@@ -301,6 +301,8 @@ def _fields(value: Any) -> tuple[str, tuple[tuple[str, Any], ...]]:
                 None if value.assessment is None else value.assessment.assessment,
             ),
         )
+    if type(value) is ast_nodes.CollectRelationExpr:
+        raise TransportError(RuntimeIssue.UNSUPPORTED_VALUE)
     kind = _ADAPTERS.get(type(value))
     if isinstance(value, plans.ProjectSQLPlan) and value.existence_generators:
         kind = "project_sql_plan_with_any"

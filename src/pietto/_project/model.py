@@ -30,6 +30,7 @@ from pietto.ast_nodes import (
     CallExpr,
     CapturedFieldExpr,
     CastExpr,
+    CollectRelationExpr,
     CheckDef,
     ComparisonExpr,
     ConditionalExpr,
@@ -97,6 +98,7 @@ if TYPE_CHECKING:
     from pietto._project.module_semantic_fact_preservation import (
         ProjectModuleSemanticFactSet,
     )
+    from pietto._project.nested_relation_facts import ProjectNestedRelationFactSet
     from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
     from pietto._project.row_lineage import ProjectRelationRowLineage
     from pietto._project.window_semantics import WindowResultProjectFact
@@ -222,9 +224,11 @@ class ProjectParsedInput:
     scalar_callables: tuple[FunctionDef, ...] = ()
     existence_generators: tuple[AnyUseInfo, ...] = ()
     existence_values: tuple[AnyValueInfo, ...] = ()
-    # The script as parsed when a LEGACY_FLAT project resolved its query names
-    # into ``script``; that project's semantic checks analyze the parsed one,
-    # and its model refuses each JOIN and any(...) as written there.
+    # The script as parsed when a project resolved its query names into
+    # ``script``. A LEGACY_FLAT project's semantic checks analyze the parsed
+    # one, and its model refuses each JOIN and any(...) as written there; an
+    # EXPLICIT_MODULES project's nested-relation facts read its Unnest lets
+    # and JOINs there.
     authored_script: Script | None = None
 
     def __post_init__(self) -> None:
@@ -1167,6 +1171,7 @@ class ProjectSemanticResult:
         None
     )
     module_inspection_facts: ProjectModuleInspectionFactSet | None = None
+    nested_relation_facts: ProjectNestedRelationFactSet | None = None
 
     def __post_init__(self) -> None:
         """Keep every module sidecar on its exact independent authority roots."""
@@ -1185,6 +1190,7 @@ class ProjectSemanticResult:
             self.module_attribution_facts,
             self.module_package_identity_facts,
             self.module_inspection_facts,
+            self.nested_relation_facts,
         )
         if self.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
             if (
@@ -1318,6 +1324,19 @@ class ProjectSemanticResult:
             raise ValueError(
                 "Project module attribution requires exact semantic-fact authority."
             )
+        nested = self.nested_relation_facts
+        assert nested is not None
+        from pietto._project.nested_relation_facts import (
+            ProjectNestedRelationFactSet,
+        )
+
+        if type(nested) is not ProjectNestedRelationFactSet:
+            raise TypeError("Nested relation facts require an exact fact set.")
+        if (
+            nested.catalogs is not self.module_catalogs
+            or nested.semantic is not semantic_facts
+        ):
+            raise ValueError("Nested relation facts require exact semantic roots.")
         semantic_authority = semantic_facts.authority
         if (
             semantic_authority.modules is not self.modules
@@ -1410,6 +1429,7 @@ class ProjectSemanticResult:
             *module_diagnostic_facts.diagnostics,
             *module_type_source_resolutions.diagnostics,
             *module_relation_resolutions.diagnostics,
+            *nested.diagnostics,
         )
         if len(self.diagnostics) != len(expected_diagnostics) or any(
             diagnostic is not expected
@@ -1511,6 +1531,9 @@ def build_empty_project_semantic_result(
         from pietto._project.module_inspection import (
             _build_project_module_inspection_fact_set,
         )
+        from pietto._project.nested_relation_facts import (
+            build_project_nested_relation_facts,
+        )
         from pietto._project.module_package_neutral_identity import (
             _build_project_module_package_neutral_identity_fact_set,
         )
@@ -1597,6 +1620,9 @@ def build_empty_project_semantic_result(
             module_semantic_facts,
             module_package_identity_facts,
         )
+        nested_relation_facts = build_project_nested_relation_facts(
+            catalogs=module_catalogs, semantic=module_semantic_facts
+        )
 
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -1618,10 +1644,14 @@ def build_empty_project_semantic_result(
             module_attribution_facts=module_attribution_facts,
             module_package_identity_facts=module_package_identity_facts,
             module_inspection_facts=module_inspection_facts,
+            nested_relation_facts=nested_relation_facts,
+            # The nested-relation producer follows the relation resolution it
+            # reads: project stage, then producer, then module order.
             diagnostics=(
                 *module_diagnostic_facts.diagnostics,
                 *module_type_source_resolutions.diagnostics,
                 *module_relation_resolutions.diagnostics,
+                *nested_relation_facts.diagnostics,
             ),
         )
 
@@ -2822,6 +2852,14 @@ def _project_direct_relation_row_schema(
         return _ProjectRelationRowSchemaResult(
             schema=ProjectRowSchema(is_unknown=True),
             state_reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+        )
+
+    if any(
+        type(item.expression) is CollectRelationExpr for item in definition.select_items
+    ):
+        return _ProjectRelationRowSchemaResult(
+            schema=None,
+            state_reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
         )
 
     if let_scope_facts is None:

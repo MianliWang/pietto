@@ -305,12 +305,15 @@ def project_recursion_limit_diagnostic(
     """Report PIE-S2006 once project processing exceeds the recursion limit.
 
     As in a single file it spans one whole source: the parsed module whose
-    syntax nests deepest, the first such module in module order.
+    syntax nests deepest, the first such module in module order. A
+    LEGACY_FLAT module is measured as parsed, the script its semantic checks
+    analyze; any other as the script its project reads.
     """
 
+    legacy_flat = parse_result.compilation_mode is ProjectCompilationMode.LEGACY_FLAT
     return recursion_limit_diagnostic(
         *(
-            parsed.authored_script or parsed.script
+            (parsed.authored_script if legacy_flat else None) or parsed.script
             for parsed in parse_result.parsed_inputs
         )
     )

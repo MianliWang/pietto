@@ -31,6 +31,7 @@ from pietto.ast_nodes import (
     CapturedFieldExpr,
     CastExpr,
     CallExpr,
+    CollectRelationExpr,
     CheckDef,
     ComparisonExpr,
     ConditionalExpr,
@@ -1147,10 +1148,18 @@ class AstBuilder(PiettoVisitor):
     def visitSelectItem(self, ctx: _AntlrContext) -> SelectItem:
         """Build one projection; assignment syntax is confined to this rule."""
 
+        expression = (
+            CollectRelationExpr(
+                span=self._span_from_token(ctx.COLLECT().getSymbol(), ctx.identifier()),
+                relation_name=ctx.identifier().getText(),
+            )
+            if ctx.COLLECT() is not None
+            else self.visit(ctx.expression())
+        )
         return SelectItem(
             span=self._span(ctx),
             alias=ctx.fieldName().getText() if ctx.ASSIGN() is not None else None,
-            expression=self.visit(ctx.expression()),
+            expression=expression,
         )
 
     def visitSelectWindowItem(self, ctx: _AntlrContext) -> SelectItem:

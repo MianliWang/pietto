@@ -20,6 +20,7 @@ from pietto.ast_nodes import (
     BinaryExpr,
     CastExpr,
     CallExpr,
+    CollectRelationExpr,
     CheckDef,
     ConditionalExpr,
     ComparisonExpr,
@@ -1191,7 +1192,15 @@ def _expression_children(expression: Expression) -> tuple[Expression, ...]:
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
     if isinstance(
-        expression, (LiteralExpr, NameExpr, DottedNameExpr, WindowExpr, AnyExpr)
+        expression,
+        (
+            LiteralExpr,
+            NameExpr,
+            DottedNameExpr,
+            CollectRelationExpr,
+            WindowExpr,
+            AnyExpr,
+        ),
     ):
         return ()
     raise AssertionError(f"Unsupported expression: {type(expression).__name__}")

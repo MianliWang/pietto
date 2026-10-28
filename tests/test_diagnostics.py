@@ -250,6 +250,9 @@ _FROM = (
 )
 
 
+_COLLECT = "A Collect read is a whole select item: `name = collect relation`."
+
+
 def _query(body: str) -> str:
     return _SHAPE + "query q:\n    from r\n" + body
 
@@ -571,6 +574,70 @@ PRESENTATION_CASES = {
                 + _ORDER
                 + " A JOIN starts with its kind: `inner`, `left`, `cross`, `right` "
                 "or `full`.",
+            ),
+        ],
+    ),
+    # D71.01/D71.02: a wrong nested-relation spelling points to its form. A
+    # Collect item that goes on after its relation name is reported at the
+    # name, where 0.1.5 reported it when `collect` was only a name.
+    "nested_relation_spellings_point_to_their_form": (
+        _query("    select x = collect r.a\n")
+        + "query q2:\n    from r\n    select:\n        a\n        y = collect r extra\n"
+        + "query q3:\n    from r\n    select a, x = collect r(1)\n"
+        + "query q4:\n    from r\n    select:\n        collect r\n"
+        + "query q5:\n    from r\n    cross join unnest(r.a)\n    select a\n",
+        [
+            (6, 24, "Unexpected 'r'; expected ',' or end of line. " + _COLLECT),
+            (11, 21, "Unexpected 'r'; expected ',' or end of line. " + _COLLECT),
+            (14, 27, "Unexpected 'r'; expected ',' or end of line. " + _COLLECT),
+            (18, 17, "Unexpected 'r'. " + _COLLECT),
+            (
+                21,
+                22,
+                "Unexpected '('. Write `let o = unnest(binding.field)` before the "
+                "JOIN, then join `o`.",
+            ),
+        ],
+    ),
+    # A name `collect` keeps the 0.1.5 hints, no Collect hint goes outside a
+    # select line, and `Collect` is not a miscased keyword.
+    "a_name_collect_keeps_its_hints": (
+        _query("    select:\n        collect;\n")
+        + 'query q2:\n    from r\n    select:\n        x = collect || "a"\n'
+        + "query q3:\n    from r\n    select:\n        x = collect AND 1\n"
+        + "query q4:\n    from r\n    where collect;\n    select a\n"
+        + "query q5:\n    from r\n    where collect rows\n    select a\n"
+        + "def collect x:\n    return 1\n"
+        + "shape S:\n    id: Int Collect\nshape T:\n    id: Int COLLECT\n",
+        [
+            (7, 16, "Unexpected ';'. Lines do not end with `;`."),
+            (
+                11,
+                21,
+                "Unexpected '|'. String concatenation with `||` is not supported yet.",
+            ),
+            (
+                15,
+                21,
+                "Unexpected 'AND'; expected ',' or end of line. Keywords are "
+                "lowercase: write `and`.",
+            ),
+            (
+                18,
+                18,
+                "Unexpected ';'; expected end of line. Lines do not end with `;`.",
+            ),
+            (22, 19, "Unexpected 'rows'; expected end of line."),
+            (24, 13, "Unexpected 'x'."),
+            (
+                27,
+                13,
+                "Unexpected 'Collect'; expected 'derive', 'ensure', '@' or end of line.",
+            ),
+            (
+                29,
+                13,
+                "Unexpected 'COLLECT'; expected 'derive', 'ensure', '@' or end of line.",
             ),
         ],
     ),

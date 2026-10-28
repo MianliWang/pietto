@@ -15,7 +15,7 @@ from pietto._project.existence_values import (
     ProjectAnyLetValue,
     ProjectAnyValue,
 )
-from pietto.ast_nodes import AnyExpr
+from pietto.ast_nodes import AnyExpr, CollectRelationExpr
 from pietto._project.model import ProjectRowFieldNullability
 from pietto._project.project_current_joins import (
     ProjectCurrentJoinRegion,
@@ -1206,6 +1206,8 @@ class ProjectJoinedSelectedOutputIssueKind(StrEnum):
     # A `let:` name selecting no group key: no unknown field (PIE-S2102), so
     # the relation fails closed with PIE-S2333.
     LET_READ_PROJECTION = "let_read_projection"
+    # A Collect read is no scalar output; its own PIE-S2802 reports it.
+    COLLECT_READ_PROJECTION = "collect_read_projection"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1225,9 +1227,16 @@ class ProjectJoinedSelectedOutputIssue:
     def __post_init__(self) -> None:
         definition = _definition(self.input_filter)
         if type(self.kind) is not ProjectJoinedSelectedOutputIssueKind or (
-            # Only a `let:` read leaves its PIE-S2333 to the relation.
+            # Only a `let:` read leaves its PIE-S2333 to the relation, and
+            # a Collect read its own PIE-S2802.
             (not self.diagnostics)
-            != (self.kind is ProjectJoinedSelectedOutputIssueKind.LET_READ_PROJECTION)
+            != (
+                self.kind
+                in {
+                    ProjectJoinedSelectedOutputIssueKind.LET_READ_PROJECTION,
+                    ProjectJoinedSelectedOutputIssueKind.COLLECT_READ_PROJECTION,
+                }
+            )
             or any(type(item) is not Diagnostic for item in self.diagnostics)
         ):
             raise ValueError("Selected-output issue requires an exact diagnostic.")
@@ -1347,6 +1356,17 @@ def _build_stage_outputs(
                         aggregate=aggregate,
                     )
                 )
+            continue
+        if type(item.expression) is CollectRelationExpr:
+            issues.append(
+                ProjectJoinedSelectedOutputIssue(
+                    input_filter=input_filter,
+                    selected_output_ordinal=ordinal,
+                    item=item,
+                    kind=ProjectJoinedSelectedOutputIssueKind.COLLECT_READ_PROJECTION,
+                    diagnostics=(),
+                )
+            )
             continue
         non_aggregate_items.append((ordinal, item))
         if mode is ProjectJoinedAggregationMode.GLOBAL:

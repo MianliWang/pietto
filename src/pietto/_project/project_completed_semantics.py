@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pietto._project.model import CompiledProjectInput
     from pietto._project.module_attribution import CompiledDeclarationOccurrence
+    from pietto._project.nested_relation_facts import ProjectNestedRelationFactSet
     from pietto._project.project_compiled_schema import Address
     from pietto._project.project_sql_emission_rows import Realization
     from pietto.semantic.model import ValueType
@@ -821,12 +822,17 @@ def _fallback_diagnostic(entry: ProjectEffectiveOutputCompletionEntry) -> Diagno
 def _join_causes(
     entry: ProjectEffectiveOutputCompletionEntry,
     conditions: ProjectJoinConditionSet | ProjectJoinConditionCompletion | None,
+    nested: ProjectNestedRelationFactSet | None = None,
 ) -> tuple[tuple[JoinClause, str], ...]:
     """Name what each JOIN without `on` needs once its target is concrete.
 
     A declared relationship never joins by itself: only an `on` matches the
-    rows of such a JOIN, so it names the inputs it would match.
+    rows of such a JOIN, so it names the inputs it would match. The rows of an
+    Unnest JOIN's target are its nested field's (D71.02), so it names them
+    before S05 makes that target concrete.
     """
+    from pietto._project.nested_relation_facts import is_unnest_join
+
     if conditions is None:
         return ()
     uses = conditions.uses
@@ -863,7 +869,9 @@ def _join_causes(
                 # Terminal/resolution/condition errors remain in _final_diagnostics,
                 # including its fallback for an unavailable input with no own error.
                 continue
-            if use.target_binding.output is None:
+            if use.target_binding.output is None and not (
+                nested is not None and is_unnest_join(nested, entry.owner, use.clause)
+            ):
                 continue
             names = tuple(
                 binding.name
@@ -1218,6 +1226,14 @@ def _final_diagnostics(
     resolution_reported = any(
         diagnostic.severity is Severity.ERROR for diagnostic in retained
     )
+    # A relation that selects a Collect read reports that read's own
+    # PIE-S2802, not a completion fallback beside it.
+    nested = semantic_result.nested_relation_facts
+    collect_owners = (
+        frozenset()
+        if nested is None
+        else frozenset(id(fact.selection.owner) for fact in nested.collect_facts)
+    )
     semantic_facts = semantic_result.module_semantic_facts
     for entry in effective_outputs.entries:
         if type(entry) is ProjectExistingEffectiveOutput:
@@ -1262,7 +1278,7 @@ def _final_diagnostics(
         )
         # A JOIN without `on` names what it needs; a JOIN with `on` or a CROSS
         # JOIN retains its own condition diagnostics.
-        causes = () if completed else _join_causes(entry, conditions)
+        causes = () if completed else _join_causes(entry, conditions, nested)
         errors = (
             *errors,
             *(_join_cause_diagnostic(entry, clause, cause) for clause, cause in causes),
@@ -1288,6 +1304,7 @@ def _final_diagnostics(
             and not completed
             and not named_input_error
             and not (unresolved and resolution_reported)
+            and id(entry.owner) not in collect_owners
         ):
             errors = (_fallback_diagnostic(entry),)
         for diagnostic in errors:

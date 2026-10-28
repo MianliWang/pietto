@@ -472,6 +472,16 @@ _NAME_FIRST: frozenset[int] = frozenset(
         PiettoParser.atn.ruleToStartState[PiettoParser.RULE_identifier]
     )
 )
+# `name = collect relation` is a whole select item (D71.01), which ANTLR picks
+# at the relation name.  So that a token after the name is still reported at
+# the name, as when `collect` was only a name, an item that does not end after
+# the name is predicted to be `name = expression`.
+_SELECT_ITEM_DECISION: int = (
+    PiettoParser.atn.ruleToStartState[PiettoParser.RULE_selectItem]
+    .transitions[0]
+    .target.decision
+)
+_SELECT_ITEM_ENDS = frozenset({PiettoParser.COMMA, PiettoParser.NEWLINE})
 
 
 def _first_alternative(decision: int, token: int) -> int:
@@ -533,8 +543,9 @@ _WINDOW_TAIL: frozenset[int] = frozenset(
 
 
 class _PiettoSimulator(ParserATNSimulator):
-    """ANTLR's prediction, except that a shape item never fails on its name
-    and, given the tokens, the decisions of ``_GUESSES`` are guessed."""
+    """ANTLR's prediction, except that a shape item never fails on its name,
+    a Collect select item ends after its relation name and, given the tokens,
+    the decisions of ``_GUESSES`` are guessed."""
 
     tokens: Sequence[Token] | None = None
     guessed = False
@@ -552,7 +563,7 @@ class _PiettoSimulator(ParserATNSimulator):
                 self.guessed = True
                 return guess
         try:
-            return super().adaptivePredict(input, decision, outerContext)
+            alternative = super().adaptivePredict(input, decision, outerContext)
         except NoViableAltException as error:
             if (
                 decision == _SHAPE_ITEM_DECISION
@@ -561,6 +572,13 @@ class _PiettoSimulator(ParserATNSimulator):
             ):
                 return 1  # fieldDefinition
             raise
+        if (
+            decision == _SELECT_ITEM_DECISION
+            and alternative == 1  # name = collect relation
+            and cast(Any, input).LA(5) not in _SELECT_ITEM_ENDS
+        ):
+            return 2  # name = expression
+        return alternative
 
     def _window_follows_call(self, name: int) -> bool:
         """Whether the name at ``name`` opens a call that a window follows."""

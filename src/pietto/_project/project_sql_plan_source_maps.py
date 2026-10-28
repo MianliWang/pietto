@@ -486,6 +486,10 @@ def membership(plan):
             value, owner, container = pending.pop()
             if id(value) in synthetic:
                 continue
+            if type(value) is ast.CollectRelationExpr:
+                raise ValueError(
+                    "Collect relation reads are unavailable in source maps."
+                )
             if isinstance(value, ast.Node) and type(value) not in _KNOWN_NODES:
                 raise ValueError("Unknown source AST node")
             declaration = owners.get((id(module), id(value)))

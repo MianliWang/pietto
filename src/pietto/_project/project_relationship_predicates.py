@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 
 from pietto import ast_nodes as ast
+from pietto._syntax_admission import unnest_lets
 from pietto._project.existence_values import (
     ProjectAnyRowBinding,
     any_argument_scopes,
@@ -811,6 +812,14 @@ def normalize_project_query_names(
             window_names: set[str] = set()
             windows: list[tuple[ast.NamedWindowDeclaration, frozenset[str]]] = []
             scalar_bindings: list[ast.LetBinding] = []
+            # S03 types each Unnest let in its companion facts (D71.02); its
+            # JOIN stays one input in place, which no relation stands for
+            # until S05 binds it.
+            unnest_ids = {
+                id(node)
+                for let, joins_of_let in unnest_lets(definition)
+                for node in (let, *joins_of_let)
+            }
             from_clause = definition.from_clause
             joins: list[ast.JoinClause] = []
             # The input names a let cannot take, as PIE-S2329 refuses them.
@@ -871,6 +880,8 @@ def normalize_project_query_names(
                             )
                         )
                     declared.add(node.name)
+                    if id(node) in unnest_ids:
+                        continue
                     value = node.expression
                     name = value.name if isinstance(value, ast.NameExpr) else None
                     targets = relations(name) if name is not None else ()
@@ -973,7 +984,10 @@ def normalize_project_query_names(
                 else:
                     assert isinstance(node, ast.JoinClause)
                     targets = relations(node.target_relation_name)
-                    if len(targets) > 1:
+                    # An Unnest let is one more local input of its name, so
+                    # another one makes its JOIN ambiguous, as for an alias
+                    # let; no candidate wins (D71.02).
+                    if len(targets) > 1 or (targets and id(node) in unnest_ids):
                         if definition.naming_declarations:
                             diagnostics.append(
                                 _diagnostic(
@@ -1148,6 +1162,7 @@ def normalize_project_query_names(
             replace(
                 source,
                 script=script,
+                authored_script=source.authored_script or source.script,
                 existence_generators=rebind_existence_generators(
                     source.script, script, source.existence_generators
                 ),

@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from pietto._syntax_admission import unadmitted_syntax_diagnostics
+from pietto._syntax_admission import (
+    nested_relation_syntax_diagnostics,
+    unadmitted_syntax_diagnostics,
+)
 from pietto.errors import Severity
 from pietto.parser_api import _parse_legacy_source, parse_file, parse_source
 from pietto.semantic import analyze
@@ -43,6 +46,15 @@ FAMILIES = {
         "projects (schema version 2).",
         "query q:\n    values(id: Int)\n",
         (2, 5, 2, 20),
+    ),
+    "collect_relation": (
+        "PIE-S2801",
+        "Collect relation reads are available only in EXPLICIT_MODULES "
+        "projects (schema version 2). Put this file in a project whose "
+        "pietto.toml sets `schema_version = 2` and check it with `pietto check "
+        "--project`; `collect(relation)` is still an ordinary function call.",
+        "query q:\n    from rows\n    select:\n        nested = collect children\n",
+        (4, 18, 4, 34),
     ),
     "scalar_read": (
         "PIE-S2348",
@@ -213,6 +225,87 @@ def test_every_nested_occurrence_is_an_error_in_source_order(
     assert result.model.mode is (mode or CheckMode.CHECKED)
     loose = _analyzed("mode loose\n" + NESTED)
     assert [d.code for d in loose.diagnostics] == [c for c, _, _ in NESTED_EXPECTED]
+
+
+_TO_EXPLICIT_MODULES = (
+    "Put this file in a project whose pietto.toml sets `schema_version = 2` and "
+    "check it with `pietto check --project`"
+)
+
+
+def test_collect_and_unnest_gate_in_source_order_and_explain_their_context() -> None:
+    source = (
+        "query q:\n"
+        "    from rows\n"
+        "    let expanded = unnest(rows.children)\n"
+        "    cross join expanded\n"
+        "    select:\n"
+        "        nested = collect children\n"
+    )
+    parsed = parse_source(source, path="gate.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+
+    legacy = unadmitted_syntax_diagnostics(parsed.ast)
+    assert _located(legacy) == [("PIE-S2801", 3, 5), ("PIE-S2801", 6, 18)]
+    unnest = (
+        f"{_TO_EXPLICIT_MODULES}; a module that defines its own `unnest` keeps "
+        "an ordinary function call."
+    )
+    collect = f"{_TO_EXPLICIT_MODULES}; `collect(relation)` is still an ordinary function call."
+    # Text output prints only the message, so it ends with the suggestion.
+    assert [(d.message, d.suggestion) for d in legacy] == [
+        (
+            "Unnest is available only in EXPLICIT_MODULES projects (schema version "
+            f"2). {unnest}",
+            unnest,
+        ),
+        (
+            "Collect relation reads are available only in EXPLICIT_MODULES projects "
+            f"(schema version 2). {collect}",
+            collect,
+        ),
+    ]
+    assert nested_relation_syntax_diagnostics(parsed.ast) == legacy
+    assert unadmitted_syntax_diagnostics(parsed.ast, explicit_modules=True) == ()
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        # D71.02: only a let that a later JOIN of its body reads is Unnest.
+        ("    let expanded = unnest(rows.children)\n",),
+        ("    cross join expanded\n", "    let expanded = unnest(rows.children)\n"),
+        # A module that defines `unnest` keeps the ordinary call.
+        (
+            "    let expanded = unnest(rows.children)\n",
+            "    cross join expanded\n",
+            "def unnest(value: Int) -> Int: return value\n",
+        ),
+        # A name the body declares twice is no Unnest let: no candidate wins.
+        (
+            "    let expanded = unnest(rows.children)\n",
+            "    let expanded = unnest(rows.children)\n",
+            "    cross join expanded\n",
+        ),
+        (
+            "    let expanded = unnest(rows.children)\n",
+            "    cross join expanded\n",
+            "    let expanded = window(order by id)\n",
+        ),
+    ],
+    ids=["no-join", "join-before-let", "local-def", "let-twice", "window-of-the-name"],
+)
+def test_an_ordinary_unnest_call_is_not_gated(lines: tuple[str, ...]) -> None:
+    body = "".join(line for line in lines if line.startswith("    "))
+    definitions = "".join(line for line in lines if not line.startswith("    "))
+    parsed = parse_source(
+        f"{definitions}query q:\n    from rows\n{body}    select:\n        id\n",
+        path="gate.pietto",
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+
+    assert nested_relation_syntax_diagnostics(parsed.ast) == ()
+    assert unadmitted_syntax_diagnostics(parsed.ast, single_file=True) == ()
 
 
 def test_existing_sources_and_lookalike_forms_pass_the_gate() -> None:

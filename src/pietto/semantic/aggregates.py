@@ -290,6 +290,7 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
             WindowExpr,
             ParameterRefExpr,
             ast.RelationExistsExpr,
+            ast.CollectRelationExpr,
             ast.AnyExpr,
             ast.RelationScalarExpr,
             ast.CapturedFieldExpr,

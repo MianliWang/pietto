@@ -116,6 +116,7 @@ from pietto.ast_nodes import (
     CapturedFieldExpr,
     CastExpr,
     CallExpr,
+    CollectRelationExpr,
     ConditionalExpr,
     ComparisonExpr,
     DottedNameExpr,
@@ -231,6 +232,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.NameExpr,
         ast.DottedNameExpr,
         ast.CallExpr,
+        ast.CollectRelationExpr,
         ast.UnaryExpr,
         ast.ConditionalExpr,
         ast.MembershipExpr,
@@ -3839,7 +3841,7 @@ def _select_facts(
             expressions=(
                 item.expression
                 for item in definition.select_items
-                if type(item.expression) is not WindowExpr
+                if type(item.expression) not in {WindowExpr, CollectRelationExpr}
             ),
             input_schema=input_schema,
             relation_qualifier=definition.from_clause.binding_name
@@ -3885,6 +3887,32 @@ def _select_facts(
         )
         if output_name is not None:
             output_names.add(output_name)
+        if type(item.expression) is CollectRelationExpr:
+            # A Collect read is a relation-valued output: it keeps its output
+            # name and ordinal, and its nested facts, never scalar inference,
+            # report it (S03).
+            facts.append(
+                ProjectModuleSelectFact(
+                    owner=owner,
+                    selected_output_ordinal=ordinal,
+                    item=item,
+                    output_name=output_name,
+                    expression_schema=None,
+                    field=None,
+                    aggregate_result_fact=None,
+                    references=(),
+                )
+            )
+            contexts.append(
+                ProjectModuleSelectExpressionFact(
+                    selection=facts[-1],
+                    input_schema=input_schema,
+                    let_scope=let_scope,
+                    expression_value_types={},
+                    diagnostics=tuple(expression_diagnostics),
+                )
+            )
+            continue
         retained_types = expression_types
         if (
             input_schema is not None

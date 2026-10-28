@@ -80,6 +80,7 @@ from pietto._project.row_expression_type_facts import (
 )
 from pietto.ast_nodes import (
     AnyExpr,
+    CollectRelationExpr,
     DottedNameExpr,
     FromClause,
     NameExpr,
@@ -1813,6 +1814,12 @@ def _refused_read_positions(
     refused: dict[int, str] = {}
     for read in reads:
         position = read.position
+        if type(read.expression) is CollectRelationExpr:
+            # The grammar writes Collect only as a whole SELECT item (D71.01);
+            # its own facts report its availability.
+            if position is not ProjectExpressionBlockPosition.SELECT:
+                raise ValueError("A Collect relation read is a SELECT item.")
+            continue
         if type(read.expression) is AnyExpr and position in {
             ProjectExpressionBlockPosition.JOIN_ON,
             ProjectExpressionBlockPosition.WHERE,

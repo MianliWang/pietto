@@ -10,6 +10,7 @@ from pathlib import Path
 import stat
 
 import pietto.parser_api as parser_api
+from pietto._syntax_admission import nested_relation_syntax_diagnostics
 from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
 from pietto._project.module_carrier import ProjectModuleIdentity
 from pietto._project.package_locator import LocatedRootPackage
@@ -440,6 +441,9 @@ def _load_package_content(
                 )
             )
             continue
+        # A package reads no relation body, yet its nested-relation spellings
+        # are refused as outside any EXPLICIT_MODULES project (D71.05).
+        diagnostics.extend(nested_relation_syntax_diagnostics(parse_result.ast))
         module_content = object.__new__(_PackageModuleContent)
         object.__setattr__(module_content, "asset", asset)
         object.__setattr__(

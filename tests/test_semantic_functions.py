@@ -285,6 +285,10 @@ def test_unknown_function_reports_pie_s2103() -> None:
 
 
 _AGGREGATES = "the available aggregates are avg, count, count_distinct, max, min, string_agg and sum"
+_COLLECT = (
+    "a Collect read is the select item `name = collect relation` in an "
+    "EXPLICIT_MODULES project"
+)
 
 
 @pytest.mark.parametrize(
@@ -300,6 +304,14 @@ _AGGREGATES = "the available aggregates are avg, count, count_distinct, max, min
         ),
         ("stddev(count)", _AGGREGATES),
         ("mean(count)", _AGGREGATES),
+        # D71.01/D71.02: the nested-relation spellings are no calls.
+        ("collect(email)", _COLLECT),
+        ("list(email)", _COLLECT),
+        (
+            "unnest(email)",
+            "an Unnest is `let o = unnest(binding.field)` that a later JOIN of the "
+            "same body reads, in an EXPLICIT_MODULES project",
+        ),
         # A name written with capitals gets the hint of its lowercase spelling.
         ("LENGTH(email)", "use `len(Text)` instead"),
         ("Median(count)", _AGGREGATES),

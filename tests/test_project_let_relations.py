@@ -689,6 +689,15 @@ READ_ONLY_BY_EXISTS = (
 BODY_SHAPE = (
     "Let m with capture lines may use only FROM, WHERE and an ungrouped SELECT."
 )
+# The body rule's message when ORDER BY or LIMIT is all that breaks it (D71.01).
+ORDERED_BODY_SHAPE = (
+    BODY_SHAPE + " A let read by `collect`, `scalar`, `in` or `not in`, or joined, "
+    "may also end in ORDER BY and LIMIT."
+)
+COLLECT_GATE = (
+    "Collect relation reads are not supported by the current scalar-only project "
+    "boundary."
+)
 # The body rule of a let joined LATERAL or read by scalar, IN or NOT IN.
 LATERAL_BODY_SHAPE = (
     "Let m with capture lines may use only FROM, WHERE, an ungrouped SELECT, "
@@ -811,7 +820,7 @@ CAPTURE_DIAGNOSTICS = {
             "            id\n        order by:\n            id\n        limit 1\n"
             "    from lhs",
         ),
-        [("PIE-S2370", BODY_SHAPE, 7, 5)],
+        [("PIE-S2370", ORDERED_BODY_SHAPE, 7, 5)],
     ),
     "where_aggregate": (
         CAPTURE.replace("where rhs.key == lhs.key", "where count() > lhs.id"),
@@ -1442,7 +1451,37 @@ CORRELATED_READS = {
             )
         ],
     ),
-    "ordered_read_by_exists": (_ordered("exists m"), [("PIE-S2370", BODY_SHAPE, 7, 5)]),
+    "ordered_read_by_exists": (
+        _ordered("exists m"),
+        [("PIE-S2370", ORDERED_BODY_SHAPE, 7, 5)],
+    ),
+    # D71.01: a `collect` read takes the ORDER BY and LIMIT too and is never
+    # refused here (S04 admits its use; PIE-S2802 refuses it until then),
+    # while every other read keeps its rules.
+    "ordered_read_by_collect": (
+        _ordered("exists m").replace("    where exists m\n", "")
+        + "        rows_of_m = collect m\n",
+        [("PIE-S2802", COLLECT_GATE, 19, 21)],
+    ),
+    "ordered_read_by_exists_and_collect": (
+        _ordered("exists m") + "        rows_of_m = collect m\n",
+        [("PIE-S2802", COLLECT_GATE, 20, 21)],
+    ),
+    "ordered_read_by_collect_in_another_let": (
+        _ordered("exists m").replace(
+            "    from lhs\n    where exists m\n",
+            "    let other:\n        from rhs\n        select:\n            id\n"
+            "            rows_of_m = collect m\n    from lhs\n    where exists other\n",
+        ),
+        [("PIE-S2802", COLLECT_GATE, 20, 25)],
+    ),
+    "ordered_captured_key_read_by_collect": (
+        _ordered(
+            "exists m", "        order by:\n            lhs.key\n        limit 1\n"
+        ).replace("    where exists m\n", "")
+        + "        rows_of_m = collect m\n",
+        [("PIE-S2370", LATERAL_BODY_SHAPE, 7, 5)],
+    ),
     "ordered_captured_key": (
         _ordered(
             "lhs.id in m", "        order by:\n            lhs.key\n        limit 1\n"
@@ -1464,7 +1503,10 @@ CORRELATED_READS = {
             "    let other:\n        from rhs\n        where rhs.id == scalar m.id\n"
             "        select:\n            id\n    from lhs\n    where exists other\n",
         ),
-        [("PIE-S2370", BODY_SHAPE, 7, 5), ("PIE-S2370", READ_ONLY_BY_EXISTS, 18, 25)],
+        [
+            ("PIE-S2370", ORDERED_BODY_SHAPE, 7, 5),
+            ("PIE-S2370", READ_ONLY_BY_EXISTS, 18, 25),
+        ],
     ),
     # A let over a relation whose columns are known only after completion has
     # such columns too: `scalar` cannot read it yet, `in` and `not in` can.

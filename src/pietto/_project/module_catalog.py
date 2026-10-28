@@ -27,6 +27,7 @@ from pietto._project.module_carrier import (
 from pietto.ast_nodes import (
     AnyExpr,
     BlockRelationDef,
+    CollectRelationExpr,
     ConstraintDef,
     Definition,
     DeriveDef,
@@ -232,15 +233,25 @@ def _block_view_of(
 
 
 type RelationReadExpression = (
-    AnyExpr | RelationExistsExpr | RelationMembershipExpr | RelationScalarExpr
+    AnyExpr
+    | CollectRelationExpr
+    | RelationExistsExpr
+    | RelationMembershipExpr
+    | RelationScalarExpr
 )
 RELATION_READ_EXPRESSIONS = frozenset(
-    {AnyExpr, RelationExistsExpr, RelationMembershipExpr, RelationScalarExpr}
+    {
+        AnyExpr,
+        CollectRelationExpr,
+        RelationExistsExpr,
+        RelationMembershipExpr,
+        RelationScalarExpr,
+    }
 )
 
 
 def relation_read_expressions(node: object) -> tuple[RelationReadExpression, ...]:
-    """Every ANY, `exists`, `scalar` and `in` relation read under one AST value.
+    """Every relation-valued AST read under one value in source order.
 
     Reads come in source order, a read before the reads nested in it.
     """
@@ -273,7 +284,7 @@ def relation_reads(owner: ProjectDeclarationOccurrence) -> tuple[str, ...]:
     """Every relation name one relation body reads.
 
     These are its FROM and JOIN targets, set operands and the relations of its
-    `exists`, `scalar` and `in` reads. A typed VALUES body or a table function
+    `collect`, `exists`, `scalar` and `in` reads. A typed VALUES body or a table function
     is a zero-input relation and reads none; a table-function FROM input is
     bound by identity, never read by name.
     """

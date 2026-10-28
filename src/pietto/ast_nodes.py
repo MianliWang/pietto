@@ -114,6 +114,13 @@ class CallExpr(Expression):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class CollectRelationExpr(Expression):
+    """Contextual SELECT-only read of an authored relation name."""
+
+    relation_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class UnaryExpr(Expression):
     """A prefix arithmetic expression."""
 

@@ -8,17 +8,21 @@ from threading import Event
 from typing import Any, cast
 
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
     BlockRelationDef,
     CallExpr,
+    CollectRelationExpr,
     CaptureClause,
     FromClause,
     FunctionDef,
     JoinClause,
     LetRelationDef,
     ModuleDeclarationKind,
+    DottedNameExpr,
     NameExpr,
     Node,
     QueryDef,
+    QueryLetDeclaration,
     QueryParameter,
     RelationExistsExpr,
     RelationMembershipExpr,
@@ -130,7 +134,114 @@ def explicit_modules_admits(kind: type[Node]) -> bool:
     return kind in _EXPLICIT_MODULES_ADMITTED
 
 
-def _diagnostic(code: str, message: str, span: Span) -> Diagnostic:
+# D71.01/D71.02: outside an EXPLICIT_MODULES project the nested-relation
+# spellings name how to make one; the call spellings stay ordinary calls. Text
+# output prints only the message, so it states the suggestion too.
+_TO_EXPLICIT_MODULES = (
+    "Put this file in a project whose pietto.toml sets `schema_version = 2` "
+    "and check it with `pietto check --project`"
+)
+_COLLECT_SUGGESTION = (
+    f"{_TO_EXPLICIT_MODULES}; `collect(relation)` is still an ordinary function call."
+)
+_COLLECT_UNADMITTED = (
+    "PIE-S2801",
+    "Collect relation reads are available only in "
+    f"{_EXPLICIT_MODULES}. {_COLLECT_SUGGESTION}",
+    _COLLECT_SUGGESTION,
+)
+_UNNEST_SUGGESTION = (
+    f"{_TO_EXPLICIT_MODULES}; a module that defines its own `unnest` keeps an "
+    "ordinary function call."
+)
+_UNNEST_UNADMITTED = (
+    "PIE-S2801",
+    f"Unnest is available only in {_EXPLICIT_MODULES}. {_UNNEST_SUGGESTION}",
+    _UNNEST_SUGGESTION,
+)
+_EXISTENCE_JOIN_KINDS = frozenset({AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI})
+
+
+def unnest_lets(
+    body: TableDef | QueryDef | SelectBody, user_functions: frozenset[str] = frozenset()
+) -> tuple[tuple[QueryLetDeclaration, tuple[JoinClause, ...]], ...]:
+    """D71.02: each `let o = unnest(binding.field)` of one relation body that
+    a later named JOIN of the same body targets, with every such JOIN in
+    source order. A module defining its own `unnest`, which ``user_functions``
+    names, keeps the ordinary call; a project script needs no names, since
+    the project inlined every call of a module's `def` before reading it. A
+    let whose name the body declares twice never qualifies. A SEMI or ANTI
+    JOIN, which only a lowered `[not] any(...)` writes, reads its name as a
+    relation and is never an Unnest JOIN."""
+
+    if "unnest" in user_functions:
+        return ()
+    names = [item.name for item in (*body.naming_declarations, *body.named_windows)]
+    found: list[tuple[QueryLetDeclaration, tuple[JoinClause, ...]]] = []
+    for let in body.naming_declarations:
+        call = let.expression
+        if not (
+            type(call) is CallExpr
+            and type(call.callee) is NameExpr
+            and call.callee.name == "unnest"
+            and len(call.arguments) == 1
+            and type(call.arguments[0]) is DottedNameExpr
+            and len(call.arguments[0].parts) == 2
+            and names.count(let.name) == 1
+        ):
+            continue
+        joins = tuple(
+            join
+            for join in body.join_clauses
+            if join.uses_named_input
+            and join.kind not in _EXISTENCE_JOIN_KINDS
+            and join.target_relation_name == let.name
+            and (join.span.line, join.span.column) > (let.span.line, let.span.column)
+        )
+        if joins:
+            found.append((let, joins))
+    return tuple(found)
+
+
+def nested_relation_syntax_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
+    """PIE-S2801 at every Collect read and Unnest let, in source order: their
+    spellings outside an EXPLICIT_MODULES project (D71.01, D71.05)."""
+
+    user_functions = frozenset(
+        item.name for item in script.definitions if type(item) is FunctionDef
+    )
+    found: list[Diagnostic] = []
+    pending: list[object] = [script]
+    while pending:
+        value = pending.pop()
+        kind = type(value)
+        if kind is tuple:
+            pending.extend(cast(tuple[object, ...], value))
+            continue
+        if (
+            kind is Span
+            or kind.__module__ != "pietto.ast_nodes"
+            or not is_dataclass(value)
+        ):
+            continue
+        if kind is CollectRelationExpr:
+            code, message, suggestion = _COLLECT_UNADMITTED
+            found.append(_diagnostic(code, message, cast(Node, value).span, suggestion))
+        elif kind in _BODIES:
+            code, message, suggestion = _UNNEST_UNADMITTED
+            found.extend(
+                _diagnostic(code, message, let.span, suggestion)
+                for let, _ in unnest_lets(
+                    cast(TableDef | QueryDef | SelectBody, value), user_functions
+                )
+            )
+        pending.extend(getattr(value, item.name) for item in fields(value))
+    return tuple(sorted(found, key=source_order))
+
+
+def _diagnostic(
+    code: str, message: str, span: Span, suggestion: str | None = None
+) -> Diagnostic:
     return Diagnostic(
         code=code,
         severity=Severity.ERROR,
@@ -142,6 +253,7 @@ def _diagnostic(code: str, message: str, span: Span) -> Diagnostic:
             end_line=span.end_line,
             end_column=span.end_column,
         ),
+        suggestion=suggestion,
     )
 
 
@@ -197,7 +309,9 @@ def unadmitted_syntax_diagnostics(
     EXISTS, scalar or IN read is admitted only inside a relation body.
     """
 
-    found: list[Diagnostic] = []
+    found: list[Diagnostic] = (
+        [] if explicit_modules else list(nested_relation_syntax_diagnostics(script))
+    )
     pending: list[tuple[object, bool]] = [(script, False)]
     while pending:
         value, body = pending.pop()

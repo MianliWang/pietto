@@ -30,6 +30,7 @@ from pietto.ast_nodes import (
     AuthoredJoinKind,
     BlockRelationDef,
     CapturedFieldExpr,
+    CollectRelationExpr,
     FromClause,
     JoinClause,
     LetRelationDef,
@@ -71,6 +72,11 @@ LATERAL_JOINS = frozenset(
     {AuthoredJoinKind.CROSS, AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
 )
 _READS = (RelationExistsExpr, RelationScalarExpr, RelationMembershipExpr)
+# What a let with ORDER BY or LIMIT but no reader that takes them is told.
+_ORDER_HINT = (
+    " A let read by `collect`, `scalar`, `in` or `not in`, or joined, may also "
+    "end in ORDER BY and LIMIT."
+)
 
 
 def _diagnostic(key: str, message: str, span: Span) -> Diagnostic:
@@ -228,7 +234,8 @@ def takes_order_and_limit(block: BlockRelationDef, let: LetRelationDef) -> bool:
     read more than once, which is refused at each later read (PIE-S2370); an
     ``exists`` read does not. Every later layer realizes and verifies those
     bodies inside whatever read renders the let; MySQL emission refuses them
-    inside a ``scalar`` or ``in`` read (D70.05).
+    inside a ``scalar`` or ``in`` read (D70.05). A ``collect`` read in any
+    block of the declaration takes them too (D71.01); S04 admits its use.
     """
 
     body = block.body
@@ -238,9 +245,15 @@ def takes_order_and_limit(block: BlockRelationDef, let: LetRelationDef) -> bool:
         return True
     nodes: list[Node] = []
     _walk(body, nodes)
-    return any(
+    if any(
         type(node) in (RelationScalarExpr, RelationMembershipExpr)
         and _read_name(node) == let.name
+        for node in nodes
+    ):
+        return True
+    _walk(block.let_relations, nodes)
+    return any(
+        type(node) is CollectRelationExpr and _read_name(node) == let.name
         for node in nodes
     )
 
@@ -288,7 +301,8 @@ def admitted_capture_body(let: LetRelationDef, ordered: bool = False) -> bool:
 
 
 def _walk(root: object, found: list[Node]) -> None:
-    """Collect relation names read by FROM, JOIN, set operands and expressions."""
+    """Collect relation names read by FROM, JOIN, set operands and expressions,
+    a ``collect`` read included."""
 
     pending: list[object] = [root]
     while pending:
@@ -303,7 +317,7 @@ def _walk(root: object, found: list[Node]) -> None:
             or not is_dataclass(value)
         ):
             continue
-        if kind in {FromClause, JoinClause, SetOperand, *_READS}:
+        if kind in {FromClause, JoinClause, SetOperand, *_READS, CollectRelationExpr}:
             found.append(cast(Node, value))
         pending.extend(
             reversed(tuple(getattr(value, item.name) for item in fields(value)))
@@ -380,6 +394,7 @@ def _block_diagnostics(block: BlockRelationDef) -> list[Diagnostic]:
                         "without captured fields and LIMIT."
                         if ordered
                         else "WHERE and an ungrouped SELECT."
+                        + (_ORDER_HINT if admitted_capture_body(let, True) else "")
                     ),
                     let.span,
                 )
@@ -403,7 +418,9 @@ def _block_diagnostics(block: BlockRelationDef) -> list[Diagnostic]:
         reads, key=lambda item: (item[0].span.line, item[0].span.column)
     ):
         let = names.get(_read_name(node))
-        if let is None:
+        # S04 admits how a let is collected (D71.01): a `collect` read is
+        # never refused here.
+        if let is None or type(node) is CollectRelationExpr:
             continue
         if type(node) in (*_READS, JoinClause) and in_body and let.name not in admitted:
             admitted.add(let.name)

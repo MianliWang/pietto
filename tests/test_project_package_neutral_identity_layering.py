@@ -1140,8 +1140,9 @@ def test_tenth_sidecar_all_or_none_boundary_is_exact_and_fail_closed(
         "module_attribution_facts",
         "module_package_identity_facts",
         "module_inspection_facts",
+        "nested_relation_facts",
     )
-    assert len(sidecar_names) == 11
+    assert len(sidecar_names) == 12
     assert all(getattr(semantic, name) is not None for name in sidecar_names)
     for name in sidecar_names:
         with pytest.raises(ValueError, match="require all module sidecars"):

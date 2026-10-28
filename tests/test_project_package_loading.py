@@ -408,6 +408,36 @@ def test_parser_diagnostics_are_package_local_and_prevent_success(
     )
 
 
+def test_nested_relation_spellings_are_refused_in_a_package(tmp_path: Path) -> None:
+    # A package reads no relation body, yet `collect` and `unnest` there are
+    # refused as outside an EXPLICIT_MODULES project (D71.01, D71.05).
+    source = (
+        b"shape Row:\n    id: Int\n    note: Text | None\n"
+        b'source rows: Row = postgres.table("rows")\n'
+        b"query q:\n    let children:\n        from rows\n        select:\n"
+        b"            id\n    from rows\n    let child = unnest(rows.note)\n"
+        b"    cross join child\n    select:\n        id\n"
+        b"        nested = collect children\n"
+    )
+    located = _package(
+        tmp_path / "project",
+        package_path="vendor/demo",
+        manifest=_manifest(assets=("nested.pietto",)),
+        assets=(("nested.pietto", source),),
+    )
+
+    result = _load_root_package(located)
+
+    assert not result.ok and result.loaded_package is None
+    assert [
+        (d.code, d.location.path, d.location.line, d.location.column)
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2801", "nested.pietto", 11, 5),
+        ("PIE-S2801", "nested.pietto", 15, 18),
+    ]
+
+
 def test_manifest_and_asset_byte_limits_are_enforced_before_digest(
     tmp_path: Path,
 ) -> None:

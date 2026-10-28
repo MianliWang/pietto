@@ -123,6 +123,37 @@ def test_parse_only_project_check_adds_gate_diagnostics_beside_parse_errors(
     ) + [("PIE-S2348", 11, 19)]
 
 
+@pytest.mark.parametrize(
+    ("schema", "expected"),
+    ((1, (("PIE-S2801", 3, 5), ("PIE-S2801", 6, 18))), (2, ())),
+)
+def test_project_check_gates_collect_and_unnest_before_project_readers(
+    tmp_path: Path, schema: int, expected: tuple[tuple[str, int, int], ...]
+) -> None:
+    root = tmp_path / "project"
+    _write(
+        root,
+        "pietto.toml",
+        f'schema_version = {schema}\n[sources]\ninclude = ["*.pietto"]\n',
+    )
+    _write(
+        root,
+        "nested.pietto",
+        "query q:\n"
+        "    from rows\n"
+        "    let expanded = unnest(rows.children)\n"
+        "    cross join expanded\n"
+        "    select:\n"
+        "        nested = collect children\n",
+    )
+
+    result = check_project_parse_only(root)
+
+    assert [
+        (d.code, d.location.line, d.location.column) for d in result.diagnostics
+    ] == list(expected)
+
+
 _RECURSION_LIMIT = "Semantic analysis recursion limit exceeded while processing source."
 
 
@@ -224,6 +255,38 @@ def test_recursion_limit_diagnostic_measures_modules_with_their_defs_inlined(
         location=SourceLocation(
             path="a.pietto", line=1, column=1, end_line=9, end_column=11
         ),
+    )
+
+
+def test_recursion_limit_diagnostic_measures_explicit_modules_as_normalized(
+    tmp_path: Path,
+) -> None:
+    # Equal chains, a.pietto's in a SELECT item and b.pietto's in a query
+    # let, which the project reads one level deeper as a `let:` binding; the
+    # parsed scripts would tie and name a.pietto.
+    root = tmp_path / "project"
+    _write(
+        root, "pietto.toml", 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    head = "shape Row:\n    id: Int\n" + ('source rows: Row = postgres.table("rows")\n')
+    chain = "id + 1 + 1 + 1"
+    _write(
+        root,
+        "a.pietto",
+        head + f"query a:\n    from rows\n    select:\n        x = {chain}\n",
+    )
+    _write(
+        root,
+        "b.pietto",
+        head.replace("rows", "others")
+        + f"query b:\n    from others\n    let x = {chain}\n    select:\n        x\n",
+    )
+
+    result = check_project_parse_only(root)
+
+    assert result.ok
+    assert project_recursion_limit_diagnostic(result).location == SourceLocation(
+        path="b.pietto", line=1, column=1, end_line=8, end_column=10
     )
 
 

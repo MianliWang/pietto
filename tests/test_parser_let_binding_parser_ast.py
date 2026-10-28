@@ -12,6 +12,7 @@ import pietto.cli as cli
 from pietto.ast_nodes import (
     BinaryExpr,
     CallExpr,
+    CollectRelationExpr,
     ComparisonExpr,
     DottedNameExpr,
     QueryLetDeclaration,
@@ -153,6 +154,43 @@ def test_let_remains_usable_as_identifier_and_name_part() -> None:
     select_expression = relation.select_items[0].expression
     assert isinstance(select_expression, NameExpr)
     assert select_expression.name == "let"
+
+
+def test_collect_is_contextual_in_projection_and_preserves_its_read_span() -> None:
+    relation = _parse_relation(
+        "query collect:\n"
+        "    from collect\n"
+        "    let unpacked = unnest(collect.items)\n"
+        "    select:\n"
+        "        nested = collect child_rows\n"
+        "        named = collect\n"
+        "        called = collect(child_rows)\n"
+    )
+
+    assert relation.name == "collect"
+    assert relation.from_clause.source_name == "collect"
+    (unpacked,) = relation.naming_declarations
+    assert isinstance(unpacked, QueryLetDeclaration)
+    assert isinstance(unpacked.expression, CallExpr)
+    assert isinstance(unpacked.expression.callee, NameExpr)
+    assert unpacked.expression.callee.name == "unnest"
+    assert isinstance(unpacked.expression.arguments[0], DottedNameExpr)
+    assert unpacked.expression.arguments[0].parts == ("collect", "items")
+
+    nested, named, called = relation.select_items
+    assert isinstance(nested.expression, CollectRelationExpr)
+    assert nested.expression.relation_name == "child_rows"
+    assert (
+        nested.expression.span.line,
+        nested.expression.span.column,
+        nested.expression.span.end_line,
+        nested.expression.span.end_column,
+    ) == (5, 18, 5, 36)
+    assert isinstance(named.expression, NameExpr)
+    assert named.expression.name == "collect"
+    assert isinstance(called.expression, CallExpr)
+    assert isinstance(called.expression.callee, NameExpr)
+    assert called.expression.callee.name == "collect"
 
 
 @pytest.mark.parametrize(
