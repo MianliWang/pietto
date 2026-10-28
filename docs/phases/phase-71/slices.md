@@ -1,15 +1,16 @@
 # Phase71 route — 24 rows
 
 Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#future-roadmap-v6) Future Roadmap v6 中 Phase 71 一行：NestedRelation、Collect、Unnest、flatten、outer/inner grain、nested Arrow），只在 EXPLICIT_MODULES 项目与 PostgreSQL 上提供。
-本路线随一次只含文档的路线发布提交发布：路线锁定与 Phase71 开始都只在该普通提交的 FF push 与自然 exact-head CI 全部 job 成功后成立，此前是 candidate；尚无已合入的 Phase71 Slice。
-下表是覆盖与依赖基准；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。三层验收 A01–A12、语义契约与支持域见 [brief](brief.md)，外部参考见[外部参考记录](planning-notes.md)，所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.11。
+本路线已由只含文档的路线发布提交 `6e9d7be6` 发布，其自然 exact-head CI `40250919248` attempt 1 的 19 个 job 全部成功：路线锁定，Phase71 开始。
+当前批次 B1 的 [S01](slice-01.md) 与 [S02](slice-02.md) 记录绑定下一版合成候选 `9511f13563d0`；B1（S01、S02、S03）只在三片提交一起 FF push、批次头的自然 exact-head CI 全部 job 成功后才 `COMPLETED / PUBLISHED`，此前都是 candidate，尚无已合入的 Phase71 产品 Slice。
+下表是覆盖与依赖基准；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。三层验收 A01–A12、语义契约与支持域见 [brief](brief.md)，外部参考见[外部参考记录](planning-notes.md)，所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
 
 ## 授权与依赖顺序
 
 所有者授权（D71.09）：
 - **S02 的 PostgreSQL carrier 实验现在就可以在 Teach 上运行，先于 S01**：只读 SQL、一次性 PostgreSQL 18.6、确切的 `psycopg[binary]==3.3.5` 与 `pyarrow==26.0.0`，在仓库之外运行、自己清理，不写仓库、不提交，结果只作证据；计入本期 Teach 账。它不依赖下一版基线，可以和下一版整合并行。S02 的整片验收仍依赖 S01：S01 在绑定的基线上核对 pin 与读者未变后，才把实验结论接为 S02 的验收输入。
 - **S01 在下一版（`0.1.6`）各项合成为一个候选之后开始**，绑定该候选，不绑定 main；该候选的身份在 S01 的 Gate 0 记录。
-- 路线发布后 S01–S24 按依赖并行实施：一个主集成者，至多 3 个隔离开发 worker（实际数按执行器能力与资源核对，不是给数据库或产品 runtime 授权 3 个并发任务）；每片一个普通提交，就绪片可按批次规则合成一批，以批次最终树的一次权威验证、一次 FF push 与自然 exact-head CI 发布；自然 CI 失败的头保留，以子提交修复，不重跑。
+- 路线发布后 S01–S24 按依赖并行实施：一个主集成者，至多 3 个隔离开发 worker（2026-10-28 的 D71.09 修订先提高到至多 6 个，随后允许按需至多 12 个；实际数按执行器能力与资源核对，不是给数据库或产品 runtime 授权同样数量的并发任务）；每片一个普通提交，就绪片可按批次规则合成一批，以批次最终树的一次权威验证、一次 FF push 与自然 exact-head CI 发布；自然 CI 失败的头保留，以子提交修复，不重跑。
 - S03 之前单独派发一次 runner acceptance（D71.10），不是编号 Slice；设计稿的 Q1（这次改动本身怎样封存）与 Q2（同一 Teach 账户里调度器的剩余信任风险）到派发时由所有者回答。落地并通过自然 CI 之前，每次权威验证都只在集成主机运行。
 - 版本号、tag、GitHub release 与 PyPI 上传不在本授权内：S23 准备发行决策材料，`0.1.6` 的发行另行授权（D71.09）。
 - 每片开工前重新绑定基线；遇到 BLOCKER、拆片，或新的公开、信任、预算决定即停。
@@ -26,7 +27,7 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 
 ## 路线发布与冻结前工作（不编号）
 
-- 路线发布（本提交）只含文档：本路线、[brief](brief.md) 与[外部参考记录](planning-notes.md)、[决定记录](../../decisions.md)的 Phase71 节、`docs/status.md` 与 `docs/roadmap.md` 中的生命周期文字（Phase70 的闭合状态、Phase71 的路线候选、表格后的延期 owner 与 `pietto fmt` 步骤）。不编号，沿用 Phase69/70 路线锁定的先例。Future Roadmap v6 表格被生命周期读者逐字锁定，不改表格行。
+- 路线发布（`6e9d7be6`）只含文档：本路线、[brief](brief.md) 与[外部参考记录](planning-notes.md)、[决定记录](../../decisions.md)的 Phase71 节、`docs/status.md` 与 `docs/roadmap.md` 中的生命周期文字（Phase70 的闭合状态、Phase71 的路线候选、表格后的延期 owner 与 `pietto fmt` 步骤）。不编号，沿用 Phase69/70 路线锁定的先例。Future Roadmap v6 表格被生命周期读者逐字锁定，不改表格行。
 - S02 实验：见上节，经所有者授权先于 S01 运行；结论最晚在 S02 结束时冻结 carrier 编码。
 - 学习者探测：S03 冻结写法之前做一次小型探测（只读，不用 Teach），对象是只会一点 SQL 的 Python 用户，题目覆盖 `collect last_orders`、`let o = unnest(...)` 加三种 JOIN、空列表与 `None` 的区别；探测推翻 D71.01 或 D71.02 的写法时回到所有者。
 - runner acceptance 派发：见上节。
@@ -37,8 +38,8 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 
 | Slice | 目标 | 覆盖验收 | 完整验收依赖 | 类型 |
 | --- | --- | --- | --- | --- |
-| S01 | 绑定实际基线（下一版合成后的候选）、活动 writer、worktree 与授权；消化最新决定（含下一版对诊断码与条数的修正、D-11/D-12 的恢复结果与项目模式 FROM 别名缺陷的修复）；在该基线上确认新诊断码段（开局时 `PIE-S28xx` 未被使用）；建立独立的嵌套反例与实际消费者闭包（遍历、序列化、验证、安装、IPC 读者） | A01, A11, A12 | — | 准备 |
-| S02 | 实测 PostgreSQL carrier、精度、实际内存与大小边界及保存可行性，锁定可证明的准入域（D71.07 的起点假设逐条证实或替换），输出“前提—证据来源—核实时点—适用范围/有效期”表；只有常量输入可行时回到所有者做范围决定 | A06, A08, A09, A10 | S01 | 实验（实验部分已授权先于 S01） |
+| [S01](slice-01.md) | 绑定实际基线（下一版合成后的候选）、活动 writer、worktree 与授权；消化最新决定（含下一版对诊断码与条数的修正、D-11/D-12 的恢复结果与项目模式 FROM 别名缺陷的修复）；在该基线上确认新诊断码段（开局时 `PIE-S28xx` 未被使用）；建立独立的嵌套反例与实际消费者闭包（遍历、序列化、验证、安装、IPC 读者） | A01, A11, A12 | — | 准备 |
+| [S02](slice-02.md) | 实测 PostgreSQL carrier、精度、实际内存与大小边界及保存可行性，锁定可证明的准入域（D71.07 的起点假设逐条证实或替换），输出“前提—证据来源—核实时点—适用范围/有效期”表；只有常量输入可行时回到所有者做范围决定 | A06, A08, A09, A10 | S01 | 实验（实验部分已授权先于 S01） |
 | S03 | 最小现代源语法：`name = collect let_name`（`collect` 为上下文词；预计要改 grammar，并按规定重新生成 parser、跑复现检查）与 `let o = unnest(binding.field)` 作 JOIN 输入（只改语义准入）；同名用户 `def` 的区分规则；嵌套类型与 occurrence/nullability 契约；未知 variant 先失败关闭；单文件、LEGACY_FLAT、PACKAGE_ROOT 的确定诊断（说明怎样建 `schema_version = 2` 项目）；D71.01/D71.02 批准的公开诊断变化与逐字消息；`explain` 嵌套类型显示为 UX 候选 | A01 | S01 | 必做 |
 | S04 | Collect 对已完成关系的绑定：closed/captured、显式 capture 与参数、空集与 bag、限定准入（一次使用、Top-K、未分组 SELECT）；被 collect 读的 let 未写 `order by` 的确定诊断（D71.03） | A01, A02, A03 | S03 | 必做 |
 | S05 | CROSS/INNER/LEFT Unnest 的绑定、presence、输出字段/nullability/grain 与拒绝（JOIN 必须写种类，参数必须是可见 binding 的嵌套字段） | A01, A04 | S03, S04 | 必做 |
