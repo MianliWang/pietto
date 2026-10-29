@@ -202,23 +202,33 @@ def child(program, config):
 
 
 def until(process, expected, seconds=60):
-    """Read barrier lines until the expected one; any other end is a failure."""
+    """Read barrier lines until the expected one; any other end is a failure.
+
+    Bytes come from the pipe one at a time: a buffered readline can take the
+    next barrier into its buffer, where select() never reports it.
+    """
     import selectors
 
+    descriptor = process.stdout.fileno()
     selector = selectors.DefaultSelector()
-    selector.register(process.stdout, selectors.EVENT_READ)
+    selector.register(descriptor, selectors.EVENT_READ)
     try:
         import time
 
         deadline = time.monotonic() + seconds
+        line = b""
         while time.monotonic() < deadline:
             if not selector.select(timeout=max(0.0, deadline - time.monotonic())):
                 break
-            line = process.stdout.readline()
-            if not line:
+            byte = os.read(descriptor, 1)
+            if not byte:
                 break
-            if line.strip() == expected:
+            if byte != b"\n":
+                line += byte
+            elif line.strip() == expected.encode():
                 return
+            else:
+                line = b""
         raise AssertionError("child barrier missing: " + expected)
     finally:
         selector.close()
