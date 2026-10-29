@@ -2,7 +2,7 @@
 
 Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#future-roadmap-v6) Future Roadmap v6 中 Phase 71 一行：NestedRelation、Collect、Unnest、flatten、outer/inner grain、nested Arrow），只在 EXPLICIT_MODULES 项目与 PostgreSQL 上提供。
 本路线已由只含文档的路线发布提交 `6e9d7be6` 发布，其自然 exact-head CI `40250919248` attempt 1 的 19 个 job 全部成功：路线锁定，Phase71 开始。
-当前批次 B1 的 [S01](slice-01.md) 与 [S02](slice-02.md) 记录绑定下一版合成候选 `9511f13563d0`；B1（S01、S02、S03）只在三片提交一起 FF push、批次头的自然 exact-head CI 全部 job 成功后才 `COMPLETED / PUBLISHED`，此前都是 candidate，尚无已合入的 Phase71 产品 Slice。
+批次 B1（S01、S02、S03）已发布：S01 `be385507`、S02 `fc5e685c`、S03 `8e0a77d8` 一起 FF push，批次头的自然 exact-head CI `40770576938` 全部 19 个 job 成功；[S01](slice-01.md) 与 [S02](slice-02.md) 记录绑定下一版合成候选 `9511f13563d0`。之后的批次照此规则：只有 FF push 且批次头自然 CI 全部成功才 `COMPLETED / PUBLISHED`，此前都是 candidate。
 下表是覆盖与依赖基准；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。三层验收 A01–A12、语义契约与支持域见 [brief](brief.md)，外部参考见[外部参考记录](planning-notes.md)，所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
 
 ## 授权与依赖顺序

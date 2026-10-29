@@ -3920,18 +3920,33 @@ def test_handwritten_on_equalities_prove_exactly_what_relationship_calls_prove(
             ]
 
         single_proved = proved and kind in ("inner", "left")
-        if kind == "full" and "region ==" in handwritten:
+        # PIE-S2385 names the first `on` conjunct PostgreSQL's FULL JOIN cannot
+        # take, a relationship call read as its body.
+        tokens, detail = (
+            (
+                ("orders.region", "ByPlace"),
+                "equality is not between canonical Int fields",
+            )
+            if "region ==" in handwritten
+            else (("customers.region !=",) * 2, _FULL_FORM)
+            if "region !=" in handwritten
+            else (("orders.customer_id", "ByCustomer"), _FULL_FORM)
+            if " or " in handwritten
+            else (("not",) * 2, _FULL_FORM)
+            if handwritten.startswith("not")
+            else (None, None)
+        )
+        if kind == "full" and tokens is not None:
             warning = (
-                "Single-file SQL emission is unavailable because this FULL JOIN "
-                "equality is not between canonical Int fields; this warning does "
-                "not change check's exit status, but emit-sql will refuse this "
-                "relation."
+                f"Single-file SQL emission is unavailable because this FULL JOIN "
+                f"{detail}; this warning does not change check's exit status, but "
+                "emit-sql will refuse this relation."
             )
             for name, on, diagnostics in (
                 ("handwritten", handwritten, handwritten_single),
                 ("called", called, called_single),
             ):
-                token = "orders.region" if name == "handwritten" else "ByPlace"
+                token = tokens[name == "called"]
                 column = (
                     _ON_PROOF_SOURCE.format(kind=kind, on=on)
                     .splitlines()[22]
@@ -3951,6 +3966,7 @@ def test_handwritten_on_equalities_prove_exactly_what_relationship_calls_prove(
         ), kind
 
 
+_FULL_FORM = "condition is not an equality between Int fields of its two sides"
 _KEY_PROOF_SOURCE = """shape Customer:
     id: {customer_id}
     region: Text
@@ -4074,6 +4090,72 @@ query named_revenue:
     )
     assert _fanout_check(tmp_path, "project", source) == []
     assert [item[0] for item in _single_file_check(source)] == ["PIE-S2381"]
+
+
+_PRODUCED_KEY = """shape Customer:
+    id: Int
+    slot: Int
+    customer_key = unique(id)
+shape Order:
+    id: Int
+    customer_id: Int
+    order_key = unique(id)
+source customers: Customer = postgres.table("customers")
+source orders: Order = postgres.table("orders")
+query m_source:
+{producer}query p:
+    from customers
+    let m = m_source
+    inner join m on m.k == customers.id
+    select:
+        total = sum(customers.slot)
+"""
+
+
+@pytest.mark.parametrize(
+    ("producer", "proved"),
+    [
+        ("    from orders\n    select:\n        k = id\n", True),
+        ("    from orders\n    where id > 0\n    select:\n        k = id\n", True),
+        (
+            "    from orders\n    group by customer_id\n"
+            "    select:\n        k = customer_id\n        n = count()\n",
+            False,
+        ),
+        (
+            "    from orders\n    group by id\n"
+            "    select:\n        k = id\n        n = count()\n",
+            False,
+        ),
+        (
+            "    from customers\n"
+            "    where any(o.customer_id == customers.id for o in orders)\n"
+            "    select:\n        k = id\n",
+            False,
+        ),
+    ],
+    ids=["carried", "filtered", "grouped", "grouped_by_source_key", "any_filtered"],
+)
+def test_an_on_equality_proves_only_the_keys_a_project_can_match(
+    tmp_path: Path, producer: str, proved: bool
+) -> None:
+    """A key carried through a query without GROUP BY or an any(...) filter
+    proves the ON match; one of a grouped or any(...)-filtered query does not
+    yet, so the refusal does not ask to match it."""
+
+    source = _PRODUCED_KEY.format(producer=producer)
+    assert _fanout_check(tmp_path, "project", source) == (
+        []
+        if proved
+        else [
+            (
+                "PIE-S2333",
+                f"{_UNAVAILABLE}p (an aggregate may read rows repeated by JOIN m; "
+                "use `any(...)` for an input that only filters rows, or "
+                "aggregate in a separate query first)",
+            )
+        ]
+    )
 
 
 _FANOUT_PARITY = """shape Order:

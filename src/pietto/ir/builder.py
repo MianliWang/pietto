@@ -54,6 +54,7 @@ from pietto.ir.lowering import (
     lower_row_schema,
     lower_span,
     lower_type_ref,
+    UnknownRowFields,
 )
 from pietto.ir.model import (
     AggregateCallIR,
@@ -597,7 +598,13 @@ def _lower_relation(
             expression=_require_lowered_expression(
                 definition.qualify_clause.expression,
                 semantic_model,
-                fields=input_schema.fields,
+                fields=(
+                    UnknownRowFields(
+                        frozenset(item.name for item in projections if item.name)
+                    )
+                    if join_reads is None and input_schema.is_unknown
+                    else input_schema.fields
+                ),
                 field_owner=target_symbol,
                 field_qualifier=(
                     definition.from_clause.binding_name
@@ -789,7 +796,11 @@ def _lower_order_by(
             expression = _require_lowered_expression(
                 item.expression,
                 semantic_model,
-                fields=input_schema.fields,
+                fields=(
+                    UnknownRowFields()
+                    if join_reads is None and input_schema.is_unknown
+                    else input_schema.fields
+                ),
                 field_owner=target_symbol,
                 field_qualifier=(
                     definition.from_clause.binding_name
@@ -820,13 +831,14 @@ def _selected_order_expression(
 
     A key that names a SELECT output, and no input field or `let:` binding of
     a known row, is that output restated, as a `let:` name is its value; a
-    selected window result keeps its name.
+    selected window result keeps its name, as does an output over an input
+    row of unknown type, which has no fields.
     """
 
     if (
         type(expression) is not NameExpr
         or expression.name in let_expansions
-        or input_schema.is_unknown
+        or (input_schema.is_unknown and join_reads is not None)
         or (
             expression in join_reads.field_reads
             if join_reads is not None
@@ -837,7 +849,9 @@ def _selected_order_expression(
     for projection in projections:
         if projection.name != expression.name:
             continue
-        if isinstance(projection.expression, (WindowCallIR, AggregateWindowCallIR)):
+        if input_schema.is_unknown or isinstance(
+            projection.expression, (WindowCallIR, AggregateWindowCallIR)
+        ):
             return FieldRefIR(
                 name=expression.name,
                 qualifier=(),

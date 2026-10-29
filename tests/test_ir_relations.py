@@ -30,6 +30,8 @@ from pietto.ir import (
 )
 from pietto.parser_api import parse_source
 from pietto.semantic import CheckMode, SemanticModel, analyze
+from pietto.sql.mysql import emit_mysql_sql
+from pietto.sql.postgres import emit_postgres_sql
 
 SOURCE = (
     "shape User:\n"
@@ -197,6 +199,50 @@ def test_unknown_schema_and_expression_lower_safely() -> None:
     assert isinstance(expression, FieldRefIR)
     assert expression.field is None
     assert expression.value_type.kind is TypeKindIR.UNKNOWN
+
+
+# Over a row of unknown type an ORDER BY key named alone is the SELECT output
+# of that name, if any, else an input field that keeps its identity; SQL reads
+# either by name.
+@pytest.mark.parametrize(
+    ("item", "key", "postgres", "mysql"),
+    (
+        ("id", "price", '"id" AS "id"', "`id` AS `id`"),
+        ("e = lower(email)", "e", 'lower("email") AS "e"', "LOWER(`email`) AS `e`"),
+    ),
+)
+def test_unknown_schema_order_keys_lower_by_name(
+    item: str, key: str, postgres: str, mysql: str
+) -> None:
+    for dialect, projection, emit, quote in (
+        ("postgres", postgres, emit_postgres_sql, '"'),
+        ("mysql", mysql, emit_mysql_sql, "`"),
+    ):
+        result, _, _ = _build(
+            f'source raw = {dialect}.table("raw")\n'
+            "table ordered:\n    from raw\n    select:\n"
+            f"        {item}\n    order by {key}\n"
+        )
+
+        relation = _relation_ir(result, "ordered")
+        (order,) = relation.order_by
+        outputs = {item.name: item.expression for item in relation.projections}
+        assert isinstance(order.expression, FieldRefIR)
+        if key in outputs:
+            assert (order.expression.name, order.expression.field) == (key, None)
+            assert order.expression.value_type == outputs[key].value_type
+        else:
+            assert order.expression.field == FieldId(
+                owner=relation.source.target, name=key
+            )
+            assert order.expression.value_type.kind is TypeKindIR.UNKNOWN
+        assert result.ir is not None
+        emitted = emit(result.ir)
+        assert emitted.diagnostics == ()
+        assert [artifact.sql for artifact in emitted.artifacts] == [
+            f"SELECT\n    {projection}\nFROM {quote}raw{quote}\n"
+            f"ORDER BY\n    {quote}{key}{quote} ASC"
+        ]
 
 
 @pytest.mark.parametrize(

@@ -346,7 +346,7 @@ PostgreSQL 使用现有单一 SELECT 尾部。SEMI/ANTI 变为 EXISTS/NOT EXISTS
 
 所有者 2026-10-25 以「然后这几项批准都全部按照你的推荐来上限 C200/F180/D250/S12，封存前 PG 原生检查允许本机 Docker」答复 Phase71 开局的 P 组详解：P1–P6 与所有者计划 v2 第 12 节的决定 1–3 都按推荐采纳；修复上限由所有者改为 causal 200 / focused 180 / diagnostic 250 / scope 12（推荐值为 185 / 165 / 235 / 9）；封存前的 PostgreSQL 原生检查开出本机 Docker 例外。
 计划 v2（24 片）取代 lead 旧的 14 片草案，旧草案中仍有用的内容按 lead 的校准并入，不另立决定。
-下表只记录所有者的选择、放弃的备选与理由；本节的 D71.01–D71.11 是仓库中首次定义的 D71 编号。实现中的名称、诊断码、逐字消息与逐形态行在所属 Slice 的 Gate 1 定稿，并在该片首个公开提交前写入公开文档。
+下表只记录所有者的选择、放弃的备选与理由；本节的 D71.01–D71.12 是仓库中首次定义的 D71 编号。实现中的名称、诊断码、逐字消息与逐形态行在所属 Slice 的 Gate 1 定稿，并在该片首个公开提交前写入公开文档。
 片号指 [24 片路线](phases/phase-71/slices.md)；语义契约、支持域与可逆实现选择记在 [brief](phases/phase-71/brief.md)，外部参考、假设与证据缺口记在[规划记录](phases/phase-71/planning-notes.md)，都不是另外的所有者决定。
 
 | ID | 已选规则／放弃的备选与理由 | 范围、下一消费者与最晚决定点 |
@@ -365,6 +365,19 @@ PostgreSQL 使用现有单一 SELECT 尾部。SEMI/ANTI 变为 EXISTS/NOT EXISTS
 | D71.12 | Runner acceptance 的首次封存先完整留在集成主机：普通 Gate 2、普通提交、FF push 和 natural exact-head `push/main` attempt 1 全部消费者成功后，才记录 bootstrap；规则只用于该 head 的后继候选，不能自我资格化。接受 owner-controlled Teach 账户/调度器作为受限执行信任前提，只运行五项静态检查和由当前独立 collection 中**显式**普通 `ci_workload` 声明导出的 pytest 子集；未标记或特殊 requirement 一律本机。远端没有 GitHub 写凭据、模型 token 或私钥，不写 canonical worktree、不 push；JSON、digest 和 job id 只核对一致性，不能独立证明执行。生成、golden、package、installed consumer、Docker/native、storage positives、独立 collection 和最终接收仍在本机。放弃：用历史 skip/timing 或默认 placement 猜远端安全性。 | S03 前的单独 runner acceptance；其首次发布自然 CI 成功前仍只有集成主机合格。 |
 
 本节不授权 tag、GitHub release、PyPI 上传或版本变更，不授权任何改写，也不改变 Phase70 与此前已发布的决定。
+
+## Post-Phase70 correction — owner decisions (2026-10-27)
+
+所有者 2026-10-27 批准发布 post70 修正；Runner 一项是所有者自己的指示，其余各项按 lead 的推荐采纳：
+
+| 项 | 已选规则／放弃的备选与理由 |
+| --- | --- |
+| 项目 `on` 键证明 | 0.1.6 的范围收窄为真实的文档与不循环的补救文本：项目 `on` 等式只匹配查询经由 `select`、不含 `any(...)` 的 `where`、`order by` 与 `limit` 保留的键；经 GROUP BY、`any(...)` 过滤、窗口、QUALIFY、`select distinct`、JOIN 或 query block 的键暂不证明 `on` 匹配，拒绝也不再建议去匹配它。放宽键需要新的键事实与健全性评审，留作以后单独评审的项。 |
+| PIE-S2385 覆盖范围 | PIE-S2385 按 (a) 枚举补全：FULL JOIN 逐个 `and` 合取项镜像 PostgreSQL 的原生规则，加上 FULL JOIN 前未消化的 `where [not] any(...)`、全 None 运算、只含 None 的 CASE/`coalesce`/`nullif`、shape 类型字段的 `count` 与 32 位整数字面量的警告，并对 `sql/relations.py`、`sql/joins.py`、`sql/expressions.py` 的其余 PostgreSQL 拒绝逐一复核一次（复核记录在证据中，不作仓库锁）。放弃在 check 中试跑发射 (b)，它推翻“check 不尝试 SQL 发射”并且缺少 MySQL 源的规则。 |
+| 项目 shape 字段 | `check --project` 像单文件一样把 shape 类型的字段（也经 `let` 名、JOIN 之后、`select distinct` 的 WHERE、`let` 与 `any(...)` 中与 capture 读取）读作该 shape：算术、函数调用及其他拒绝 shape 的运算报 PIE-S2105 或 PIE-S2104，与单文件相同；0.1.5 在 WHERE、`let` 与 `any(...)` 中接受这些写法。无 JOIN 输入时直接检验该字段的选择项（如 `b = home is None`、`b = home == work`）与 `select distinct` 的选择项仍报裸 PIE-S2333（同 0.1.5），是已记录的已知限制。项目中无 JOIN 输入、非 `select distinct` 关系的未分组 `order by` 同样把 shape 字段读作该 shape（`order by home + 1` 报 PIE-S2105）；该位置对其他类型仍不做类型检查（`order by name + 1` 通过 `check --project`，由项目发射拒绝），是已记录的已知限制，不在本项内放宽。放弃：保留未知类型读法（同一程序在项目与单文件中结论不同）。 |
+| Runner | Teach／验证 runner 机制暂不改（所有者的指示）：receiver 的行为加固（完整作业清单、拒绝远程 skip、拒绝数字 run id）暂缓，文档只描述现行机制；权威验证仍在集成主机。 |
+
+本节不授权 tag、GitHub release、PyPI 上传或版本变更。
 
 ## Phase71 D71.09 amendment — isolated worker cap (2026-10-28)
 

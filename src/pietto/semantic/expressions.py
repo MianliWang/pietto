@@ -1546,19 +1546,42 @@ def type_relation_expressions(
                 )
                 if name is not None and selected_output_name_counts[name] == 1
             }
+            qualify_input, qualify_lets = input_schema, let_value_types or {}
+            grouped_input = None
+            if single_file and (
+                definition.group_by_clause is not None
+                or any(
+                    contains_semantic_aggregate(selected.expression)
+                    for selected in definition.select_items
+                )
+            ):
+                grouped_input = _grouped_qualify_input(
+                    definition,
+                    input_schema,
+                    qualify_lets,
+                    let_expressions or {},
+                )
             for name in _bare_names(qualify):
                 ambiguity = qualify_output_ambiguity(
                     name,
                     definition,
                     input_schema,
                     let_names={*(let_value_types or {}), *rejected_lets},
+                    readable=None if grouped_input is None else grouped_input[0],
                 )
                 if ambiguity is not None:
                     diagnostics.append(ambiguity)
             start = len(diagnostics)
+            if single_file:
+                # An aggregate is read through the selected output computing it.
+                _append_invalid_count_context_diagnostic(
+                    qualify, diagnostics, context="qualify clause"
+                )
+                if len(diagnostics) == start and grouped_input is not None:
+                    qualify_input, qualify_lets = grouped_input
             qualify_type = _infer(
                 qualify,
-                input_schema,
+                qualify_input,
                 value_types,
                 diagnostics,
                 report_unknown_name=True,
@@ -1566,7 +1589,7 @@ def type_relation_expressions(
                     definition.from_clause.binding_name
                     or definition.from_clause.source_name
                 ),
-                bare_value_types={**(let_value_types or {}), **output_types},
+                bare_value_types={**qualify_lets, **output_types},
                 bare_value_expressions=let_expressions,
                 suppressed_unknown_names=rejected_lets,
                 type_expansions=type_expansions,
@@ -1710,6 +1733,90 @@ def _window_expressions(expression: Expression) -> Iterator[WindowExpr]:
         return
     for child in _captured_field_children(expression):
         yield from _window_expressions(child)
+
+
+def _grouped_qualify_input(
+    definition: TableDef | QueryDef,
+    input_schema: RowSchema,
+    let_value_types: Mapping[str, ValueType],
+    let_expressions: Mapping[str, Expression],
+) -> tuple[RowSchema, dict[str, ValueType]]:
+    """The input a grouped relation's QUALIFY reads: its GROUP BY keys.
+
+    As for a hidden window, the rows QUALIFY filters are the groups, so of
+    the input only the GROUP BY key fields and the `let:` names that are keys
+    or whose values, also inside an `any(...)`, read no other input field
+    remain. A relation with aggregates and no GROUP BY is one group without
+    keys. A row of unknown type is read by the names of its fields, as its
+    grouping reads it.
+    """
+
+    from pietto.semantic.group_by import group_key_fields, open_input_schema
+
+    row = open_input_schema(definition) if input_schema.is_unknown else input_schema
+    if definition.group_by_clause is None:
+        keys: frozenset[str] | None = frozenset()
+        key_names: set[str] = set()
+    else:
+        keys = group_key_fields(definition, row, let_expressions)
+        key_names = {
+            item.key.name
+            for item in definition.group_by_clause.items
+            if type(item.key) is NameExpr
+        }
+    if keys is None:
+        return input_schema, dict(let_value_types)
+    qualifier = (
+        definition.from_clause.binding_name or definition.from_clause.source_name
+    )
+
+    # Each `let:` value is walked once: a let reads another field when its
+    # value does directly or through a let it names that does.
+    reading: set[str] = set()
+    readers: dict[str, list[str]] = {}
+    for name, value in let_expressions.items():
+        if name in key_names:
+            continue
+        pending = [value]
+        while pending:
+            expression = pending.pop()
+            if type(expression) is NameExpr:
+                field = bare_field(row, expression.name)
+                if field is not None:
+                    if field.name not in keys:
+                        reading.add(name)
+                elif (
+                    expression.name in let_expressions
+                    and expression.name not in key_names
+                ):
+                    readers.setdefault(expression.name, []).append(name)
+            elif type(expression) is DottedNameExpr:
+                field = qualified_field(row, expression.parts, qualifier)
+                if field is not None and field.name not in keys:
+                    reading.add(name)
+            elif type(expression) is ast.AnyExpr:
+                # Its own row's fields are qualified with its binder.
+                pending.append(expression.predicate)
+            else:
+                pending.extend(_captured_field_children(expression))
+    spread = list(reading)
+    while spread:
+        for reader in readers.get(spread.pop(), ()):
+            if reader not in reading:
+                reading.add(reader)
+                spread.append(reader)
+
+    schema = dataclasses.replace(
+        row,
+        fields={name: field for name, field in row.fields.items() if name in keys},
+        is_unknown=False,
+    )
+    lets = {
+        name: value_type
+        for name, value_type in let_value_types.items()
+        if name not in reading
+    }
+    return schema, lets
 
 
 def _bare_names(expression: Expression) -> Iterator[NameExpr]:
@@ -4039,11 +4146,28 @@ def _call_value_type(
             )
             return _UNKNOWN_VALUE_TYPE
         if function_name == "string_agg":
-            for argument_type in argument_types:
+            # A null literal, also through a `let:` name or composed of null
+            # literals only, is no Text value.
+            lets = {
+                name: value
+                for name, value in (bare_value_expressions or {}).items()
+                if name in (bare_value_types or {})
+            }
+            for argument, argument_type, null in zip(
+                expression.arguments, argument_types, nulls, strict=True
+            ):
                 if (
-                    argument_type.kind is ValueTypeKind.KNOWN
-                    and not _is_canonical_builtin(
-                        argument_type, "Text", type_expansions
+                    null
+                    or (
+                        argument_type.kind is ValueTypeKind.KNOWN
+                        and not _is_canonical_builtin(
+                            argument_type, "Text", type_expansions
+                        )
+                    )
+                    or (
+                        argument_type.kind is ValueTypeKind.UNKNOWN
+                        and not explained
+                        and _reads_only_null(argument, lets)
                     )
                 ):
                     diagnostics.append(
@@ -4992,6 +5116,29 @@ def _null_reads(
     )
 
 
+def _reads_only_null(expression: Expression, lets: Mapping[str, Expression]) -> bool:
+    """Whether every value `expression` reads, with `let:` names inlined, is
+    the null literal, such as `coalesce(None, None)`, `-None` or
+    `None if id > 1 else None`, whose condition is no value it reads."""
+
+    pending = [expression]
+    inlined: set[str] = set()
+    while pending:
+        node = pending.pop()
+        if type(node) is NameExpr and node.name in lets:
+            if node.name not in inlined:
+                inlined.add(node.name)
+                pending.append(lets[node.name])
+        elif type(node) is ConditionalExpr:
+            pending.extend((node.when_true, node.when_false))
+        elif not _is_null_literal(node):
+            children = _captured_field_children(node)
+            if not children:
+                return False
+            pending.extend(children)
+    return True
+
+
 def _reads_null_literal(
     expressions: Sequence[Expression],
     row_schema: RowSchema,
@@ -5882,11 +6029,14 @@ def qualify_output_ambiguity(
     input_schema: RowSchema,
     *,
     let_names: set[str],
+    readable: RowSchema | None = None,
 ) -> Diagnostic | None:
     """Refuse any QUALIFY name with both input and selected-output candidates.
 
     Unlike ORDER BY, identical values remain distinct candidates here: QUALIFY
     binds after SELECT/window evaluation and must never select a winner.
+    `readable` is the input a grouped QUALIFY reads; the qualified name is
+    offered only when it is readable there.
     """
 
     name = key.name
@@ -5911,19 +6061,25 @@ def qualify_output_ambiguity(
         for item in definition.select_items
     ):
         return None
-    return order_output_ambiguity_diagnostic(key, qualified)
+    field = qualified if input_schema.joined else name
+    return order_output_ambiguity_diagnostic(
+        key, qualified, readable=readable is None or field in readable.fields
+    )
 
 
-def order_output_ambiguity_diagnostic(key: NameExpr, qualified: str) -> Diagnostic:
+def order_output_ambiguity_diagnostic(
+    key: NameExpr, qualified: str, *, readable: bool = True
+) -> Diagnostic:
     """PIE-S2102 for an ORDER BY key that names an input field and an output."""
 
     span = key.span
+    remedy = f"write {qualified}, or " if readable else ""
     return Diagnostic(
         code="PIE-S2102",
         severity=Severity.ERROR,
         message=(
             f"Ambiguous field: {key.name} is both the input field {qualified} and "
-            f"a SELECT output; write {qualified}, or give the output another name"
+            f"a SELECT output; {remedy}give the output another name"
         ),
         location=SourceLocation(
             path=span.path,

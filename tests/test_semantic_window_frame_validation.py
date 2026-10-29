@@ -865,7 +865,13 @@ def test_field_frame_offset_named_like_a_refused_let_is_still_refused() -> None:
 def test_window_count_literal_above_signed64_is_refused_at_check(call: str) -> None:
     name = call.split("(", 1)[0]
 
-    assert _checked_window(call.format(n=_SIGNED64_MAX)) == []
+    # PostgreSQL takes a 32-bit count; check warns of it (PIE-S2385).
+    assert _checked_window(call.format(n=_SIGNED64_MAX)) == [
+        "PIE-S2385 Single-file SQL emission is unavailable because this "
+        f"{name} integer argument is outside PostgreSQL's 32-bit integer range; "
+        "this warning does not change check's exit status, but emit-sql will "
+        "refuse this relation."
+    ]
     assert _checked_window(call.format(n=_SIGNED64_MAX + 1)) == [
         f"PIE-S2104 Invalid arguments for function {name}: integer literal must "
         f"not exceed {_SIGNED64_MAX}"

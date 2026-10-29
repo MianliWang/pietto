@@ -18,46 +18,179 @@ assign a new version or replace the published 0.1.5 release notes.
 
 ### Checking and diagnostics
 
+- **Phase71 nested-relation spellings (batch B1).** `name = collect let_name`
+  in a `select:` block and `let o = unnest(binding.field)` read by a later
+  CROSS, INNER or LEFT JOIN are recognized. In an EXPLICIT_MODULES project
+  (`schema_version = 2`) they are typed, and every Collect read and Unnest let
+  then reports `PIE-S2802` until later Phase71 work lowers them; single files,
+  LEGACY_FLAT projects and package modules report `PIE-S2801`, which says how
+  to make a `schema_version = 2` project. A user `def` named `collect` or
+  `unnest` keeps its ordinary meaning, and syntax errors keep their code,
+  order and position.
 - The bounded D-11 unmatched-row and one-key-value proofs and D-12 typed-NULL
   numeric rules described in the language reference are now accepted. Cases
   outside those proofs remain refused; `min`, `max` and `count_distinct` do
   not gain a general fan-out exemption.
-- An error in inline-def body text copied by a comparison-chain operand is
-  reported once, including when the copied operand is nested. Errors outside
-  copied operand text retain their ordinary expansion multiplicity. The value
-  of an inclusive `lower <= value <= upper` chain is not itself copied.
 
 - `Text(Int)`, `round` and `date_trunc` are now closed scalar forms. `Text`
   accepts only Int; another input type is `PIE-S2105`. `round` accepts Decimal
   with an optional literal or `let`-expanded scale from -30 to 30, or one Float
   argument; `date_trunc` accepts literal units year/month/day for Date and
-  additionally hour/minute for Timestamp. A project Date is obtained with
-  `date_of(Timestamp)`. Unsupported arity or scalar shapes are `PIE-S2104`.
+  additionally hour/minute for Timestamp. A `let`-expanded scale or unit is
+  read also where the call is a project select item. A project Date is
+  obtained with `date_of(Timestamp)`. Unsupported arity or scalar shapes are
+  `PIE-S2104`.
 - `string_agg(value, delimiter, order by key[, key ...])` is a PostgreSQL
-  aggregate with explicit, preserved internal ordering. MySQL and window use
-  fail closed.
+  aggregate with explicit, preserved internal ordering. Without its internal
+  ORDER BY it is `PIE-S2104` (`expected ORDER BY key`) in single files and
+  projects. In a single file an argument of only `None` values, also a
+  conditional whose branches are only `None`, is `PIE-S2104` too (`expected
+  two Text arguments`); an explicit-module project refuses it with the bare
+  `PIE-S2333`, or `PIE-S2315` with JOIN inputs. MySQL and window use fail
+  closed. Over a source without a shape it is an aggregate projection like
+  `max`: beside another projection, a window included, without GROUP BY it
+  is `PIE-S2312`, and `emit-sql` refuses it with `PIE-B1000`, as it refuses
+  every aggregate over such a source.
+- An aggregate called with an extra argument of only `None` values, such as
+  `sum(id, None)` or `max(id, coalesce(None, None))`, is `PIE-S2309`
+  (`Aggregate function sum expects 1 arguments, got 2`) in single files and
+  LEGACY_FLAT projects, as with an extra typed argument. 0.1.5 accepted it at
+  `check`, and `emit-sql` refused it with `PIE-B1000`.
 
 - Handwritten `on` equalities can prove the same at-most-one match as a
-  relationship predicate. Projects also use keys preserved through queries
-  and grouping; single files use declared source keys. Matching a nullable
-  unique key in `on` is allowed, while using a key as GROUP BY protection
-  still requires non-null fields. A key proof does not prove a match exists.
-  Fan-out errors name the JOINs that can repeat the aggregate's input.
+  relationship predicate. Single files use declared source keys. Projects also
+  use a key that a query carries through only `select`, a `where` without
+  `any(...)`, `order by` and `limit`; the key of a query with GROUP BY, an
+  `any(...)` filter, a window, QUALIFY, `select distinct`, a JOIN or a FROM
+  over a query block does not yet prove an `on` match (a grouped query's key
+  still protects its own GROUP BY). Matching a nullable unique key in
+  `on` is allowed, while using a key as GROUP BY protection still requires
+  non-null fields. A key proof does not prove a match exists. Fan-out errors
+  name the JOINs that can repeat the aggregate's input, and suggest matching
+  only keys that `on` can prove.
 - `PIE-S2383` warns when WHERE rejects the NULL-extended side of a LEFT JOIN;
   `PIE-S2384` warns about `not in` with a nullable left value. An explicit
   `None` list option retains the separate `PIE-S2107` warning.
-- `PIE-S2385` warns about known single-file emission limits: RANGE offsets,
-  effective `ignore nulls` or `from last`, non-Int field equalities in a
-  PostgreSQL FULL JOIN, and untyped all-NULL outputs read by another relation.
-  Warnings do not change the check exit status; existing errors remain errors.
+- `PIE-S2385` warns about known single-file PostgreSQL emission limits: RANGE
+  offsets; effective `ignore nulls` or `from last`; a FULL JOIN `on` conjunct
+  that is not an equality between Int fields of its two sides, such as a
+  non-Int equality, a filter, `<`, `True` or an `or`; a FULL JOIN after a
+  pending `where any(...)` or `where not any(...)`; untyped all-NULL outputs
+  read by another relation or by the relation's own QUALIFY, which reads them
+  through a derived table; operators over `None` only (`None + None`); a
+  CASE, `coalesce` or `nullif` of only `None` values where text cannot stand,
+  a QUALIFY condition included; a cast of a value not known to be Int that
+  reads no field of unknown type; a `count` of a field typed by a shape; a
+  `substr`, `ntile`, `lag`, `lead` or `nth_value` integer literal outside the
+  32-bit range; and a CTE that would hide a table read by the same
+  statement. A relation whose FROM ends at a `mysql.table` source gets none of
+  the expression or CTE warnings, and a relation with an error gets none
+  either. Warnings do not change the check exit status; existing errors remain
+  errors.
+- `check --project` in an explicit-module project reads a field of a shape,
+  also through a `let` name, after a JOIN, in the WHERE, `let` and
+  `any(...)` of a `select distinct` query and as a captured field, as that
+  shape, as single files do: `home + 1`, `-work`, `len(work)` or
+  `lower(o.ship)` over such fields are PIE-S2105 or PIE-S2104. 0.1.5
+  accepted them in a WHERE, a `let` or an `any(...)` and refused a select
+  item with the bare PIE-S2333; `lag(h)` or `h is None` for `let h = home`
+  now pass where 0.1.5 reported PIE-S2333. Without JOIN inputs a select item
+  that tests such a field directly, such as `b = home is None` or
+  `b = home == work`, and a select item of a `select distinct` query, where
+  a project types no select item yet (`x = name + 1` is the bare PIE-S2333
+  there too), are still the bare PIE-S2333, as in 0.1.5. The ungrouped
+  `order by` of a relation without JOIN inputs that is not `select distinct`
+  reads such a field as that shape too (`order by home + 1` is PIE-S2105),
+  but a project still types no other part of that `order by`, so
+  `order by name + 1` for a Text `name` passes `check --project`; project
+  emission refuses it.
+- A one-line set-operation body such as `union all a, b` may be followed by
+  blank lines, as a block body may; 0.1.5 reported PIE-P1000
+  (`Unexpected end of line; expected end of block.`) at the blank line.
 - A simple legacy `== null` or `!= null` comparison now suggests `is None` or
   `is not None` directly. `migrate` still refuses output that the modern
   parser cannot accept.
+- In a single file, an `any(...)` predicate that reads a field of the FROM row
+  of a source without a shape, such as `items.id` in
+  `any(o.item_id == items.id for o in orders)`, is PIE-S2102
+  (`Unknown or unavailable field in ANY predicate: items.id`). 0.1.5 accepted
+  it at `check`, and `emit-sql` and `explain` stopped with PIE-I1000. So is
+  a read of an output of no type, such as `o.x` in
+  `any(o.x == items.id for o in t)` for `x = None` of `t`, which 0.1.5 also
+  accepted at `check`.
+- Some programs that 0.1.5 refused with a diagnostic that pointed at the wrong
+  problem now report the problem itself. They are still refused, and no other
+  program or SQL output changes:
+  - A `let` that a later JOIN reads as its input, as in `let c = customers`
+    before `inner join c on ...`, names a relation, as `from` does. When its
+    value names no relation, such as a relation that the module does not
+    import or a misspelled name, it is PIE-S2301 `Unknown relation: <name>` at
+    the value, in single files and projects, and when it names a `let`
+    declared after it, PIE-S2330
+    (`Let binding cannot reference a later binding: <name>`). 0.1.5 reported
+    PIE-S2604 (`A row-value let must follow FROM and every JOIN and precede
+    WHERE`) at the `let`. A value that names a field visible there, a query
+    header parameter or an earlier `let` keeps PIE-S2604.
+  - In a single file, such a `let` of a set-operation query, such as
+    `let b = both` for a `query both:` whose body is `union all a, a`,
+    reports two PIE-S2334,
+    at the set operation
+    (`Set operations are available only when an EXPLICIT_MODULES project
+    (schema version 2) completes them.`) and at the JOIN
+    (`Set-operation inputs are available only when an EXPLICIT_MODULES project
+    (schema version 2) completes them: both`), where 0.1.5 reported
+    PIE-S2604. A `schema_version = 1` project no longer adds PIE-S2604 to its
+    two PIE-S2334, and an explicit-module project still accepts the program.
+  - The value of `lag`, `lead`, `first_value`, `last_value` or `nth_value`,
+    and a `lag` or `lead` default, that names a `let` whose value is not a
+    field, such as `let k = amount + 1` or `let k = 1`, is PIE-S2104 at the
+    call: ``Invalid arguments for function lag: value must be a direct field
+    or Bool, Text, Int, Float, or NULL literal, not the `let` name k``
+    (`default must be` for a default). 0.1.5 reported PIE-S2102
+    `Unknown field: k` at the argument, although `k` is defined. This holds in
+    single files and in projects, except that an explicit-module project still
+    reports the bare PIE-S2333 for `let k = None`. A `let` whose value is a
+    field, such as `let k = amount`, still reads that field.
+  - A JOIN `on` that calls an unknown function with JOIN inputs as its
+    arguments, such as `inner join customer on nosuch(orders, customer)`,
+    reports PIE-S2103 `Unknown function: nosuch` alone: the inputs are row
+    arguments of the call, not ON references. 0.1.5 also reported a PIE-S2335
+    `JOIN ON reference is unknown: <input>` for each such argument in a single
+    file, and in an explicit-module project reported PIE-S2334 (`JOIN-local ON
+    is available only when an EXPLICIT_MODULES project (schema version 2)
+    completes it.`) and such a PIE-S2335 without the name instead of
+    PIE-S2103. A `schema_version = 1` project, which has no JOIN, is unchanged.
+    In an explicit-module project, when the name is a relationship that only
+    other files declare, the message adds
+    `order_customer is a relationship of models.pietto, which a module cannot
+    import: declare it in this module`.
+- In a single file, a SELECT item of a relation with GROUP BY that names a
+  `let` binding (PIE-S2102 `Unknown field: <name>`, or PIE-S2329 for a binding
+  selected by its own name) adds what to write: the field, for a binding of a
+  field that a GROUP BY key groups by
+  (``Unknown field: key; a query with GROUP BY cannot select a `let` name here
+  yet: write status in place of key`` for `let key = status`); an
+  explicit-module project, for a computed binding that is a GROUP BY key
+  (``a query with GROUP BY cannot select a computed `let` value here yet:
+  group by it and select it in an EXPLICIT_MODULES project (schema version
+  2)``); otherwise `<name> is not a GROUP BY key`. A GROUP BY key that names a
+  computed `let` adds ``a query cannot group by a computed `let` value here
+  yet: group by it in an EXPLICIT_MODULES project (schema version 2)``. Codes
+  and locations are unchanged.
 
-- EXPLICIT_MODULES projects again accept the original FROM relation qualifier
-  after an alias: after `let c = customers` and `from c`, both `c.id` and
-  `customers.id` name the same input occurrence. Intermediate aliases and
-  `any`, capture and JOIN scopes remain unavailable to that compatibility rule.
+- EXPLICIT_MODULES projects read a FROM input through its alias and its
+  original name: after `let c = customers` and `from c`, `c.id`, which 0.1.5
+  refused with PIE-S2102 `Unknown field: c.id`, and `customers.id` name the
+  same input occurrence in every clause but HAVING and the ORDER BY of a
+  grouped query, which read no qualified input field (the bare PIE-S2333, as
+  in 0.1.5, also without an alias).
+  0.1.5 accepted `customers.id` in WHERE, GROUP BY, an ungrouped ORDER BY and
+  a grouped SELECT, refused it in a
+  row-value `let` with PIE-S2102 (`Unknown field: customers.id`) and stopped
+  with an internal error (`inconsistent_scope_relation`) on it in an
+  ungrouped SELECT. The original name is read only in a query without a JOIN and
+  outside `any(...)`; intermediate aliases and `any`, capture and JOIN scopes
+  still refuse it, as 0.1.5 did.
 
 - A legacy INNER, LEFT, RIGHT, FULL or CROSS JOIN written with `as` now has a
   PIE-P1000 suggestion for its own JOIN kind; a CROSS JOIN suggestion has no
@@ -84,6 +217,9 @@ assign a new version or replace the published 0.1.5 release notes.
   reported in single files and LEGACY_FLAT projects, `PIE-P1009` wherever
   source is parsed except `migrate`. Programs that assert an empty
   diagnostic list or empty stderr for such source now see the warning.
+- `pietto.semantic.analyze` refuses an AST that carries the legacy JOIN
+  fields with PIE-S2378, and the legacy JOIN codes PIE-S2601 to PIE-S2603 are
+  retired and not reused.
 
 ### SQL emission
 
@@ -94,16 +230,91 @@ assign a new version or replace the published 0.1.5 release notes.
 - Single-file `QUALIFY` now checks and emits for PostgreSQL and MySQL,
   including hidden windows. Its filter follows the window stage and precedes
   ORDER BY and LIMIT; ambiguous input/selected-output names are refused.
+  Under GROUP BY it reads the GROUP BY keys and selected outputs only
+  (PIE-S2102 otherwise, also for a `let` whose `any(...)` reads another
+  field); with aggregates and no GROUP BY it reads selected outputs and `let`
+  names that read no input field, and a hidden window there is PIE-S2103.
+  These hold over a source without a shape too, whose fields it reads by
+  name; over such a source a name that a SELECT output has reads that output,
+  and any other name, a `let` value's fields included, reads the input
+  through a private derived-table port. Under GROUP BY over such a source
+  `check` accepts a selected or hidden window, as 0.1.5 accepted both, and
+  `emit-sql` refuses the relation with PIE-I1000. A window under GROUP BY,
+  hidden or selected, reads the selected keys and aggregates by their
+  output names; a name that an output shares with an input field whose
+  value it is not, such as `cat` for `cat = max(price)` grouped by `cat`, is
+  PIE-S2102 (`Ambiguous field: cat is both the input field items.cat and a
+  SELECT output; give the output another name`), where 0.1.5 read the
+  output. An aggregate call
+  in the QUALIFY condition is PIE-S2308; read the aggregate through its selected alias. Its ambiguity
+  message offers the qualified input name only where QUALIFY can read it.
+  PostgreSQL emission refuses, with PIE-B1000, a QUALIFY that reads an
+  untyped all-None output or whose condition is a CASE, `coalesce` or
+  `nullif` of only `None` values, which PostgreSQL reads as text through the
+  derived table; check warns with PIE-S2385, and MySQL emits it.
+- Over a source without a shape, an ORDER BY key that reads an input field,
+  named alone or through a `let`, is qualified with the name FROM gives the
+  input where a SELECT item would capture it, as over a source with a shape:
+  `order by price` beside `Price = 0 - price` emits
+  ``ORDER BY `items`.`price` `` on MySQL, and `order by p` with `let p =
+  price` beside `price = 0 - price` emits `ORDER BY "items"."price"`. 0.1.5
+  emitted the bare name, which both targets read as the SELECT output.
 - PostgreSQL single files support `sum`, `count`, `avg`, `min`, and `max` as
   window aggregates, with their ordinary argument and logical result
   contracts. An omitted frame keeps SQL's default: ordered peer-inclusive
   accumulation, or the whole partition without ORDER BY. GROUPS requires
-  ORDER BY. MySQL and project aggregate-window support are not introduced.
+  ORDER BY. A `let` name bound to `None` as the argument is PIE-S2315, and a
+  `let` name whose value is no field as a partition or order key is PIE-S2103,
+  as for other windows; over a source without a shape every aggregate window
+  outside GROUP BY that reads a field, `count(x) window()` included, is
+  PIE-S2103 (`count() window()` reads none and is accepted), and a `count`
+  window of a field typed by a shape is PIE-S2104. MySQL and project
+  aggregate-window support are not introduced.
 - Single-file PostgreSQL windows can read JOIN inputs, including named
   specifications and hidden QUALIFY windows, while retaining input identities
   and the visibility limits of existence filters.
-- MySQL refuses a reader whose CTEs have names that differ only by case,
-  with PIE-B1000 at that reader; PostgreSQL is unchanged.
+- MySQL refuses, with PIE-B1000 at that statement, a reader whose CTEs have
+  names that differ only by case, a statement that would define as a CTE a
+  table or query with two outputs whose names differ only by case, and a
+  QUALIFY whose derived table would hold two such outputs; a top-level SELECT
+  keeps them. Each name Pietto generates into a statement (an `any(...)`
+  alias, a hidden SEMI or ANTI JOIN alias, a QUALIFY output or derived
+  table) now skips, on both backends, a name it would capture that differs
+  from it only by case: 0.1.5 aliased the EXISTS of
+  `any(o.price == _Pietto_Value_1.price for o in orders)` over
+  `from _Pietto_Value_1` as `_pietto_value_1`, which MySQL with
+  `lower_case_table_names` 1 or 2 reads as that outer row, so the EXISTS
+  compared each order with itself.
+- An ORDER BY key that reads a SELECT output by its name (a selected window
+  result, or an output over a row of unknown type) is emitted as that
+  output's SELECT list position beside an unaliased item, which PostgreSQL
+  and MySQL each name by rules of their own, and on MySQL beside another
+  output whose name differs from it only in case: `order by n` beside `" n"`
+  and `n = row_number() window(order by id)` emits `ORDER BY 2`. 0.1.5
+  emitted `` ORDER BY `n` ``, which MySQL sorts by the unaliased `' n'`, as it
+  names that item `n`, and `ORDER BY "lower"` beside `lower(cat)`, which
+  PostgreSQL rejects as ambiguous. Beside an unaliased item an input field
+  key is now qualified on MySQL too, as PostgreSQL already qualified it:
+  0.1.5 left `order by price` bare beside `" price"`, so MySQL sorted by that
+  constant.
+- A CTE gives each unaliased output (PIE-S2304) a private alias
+  `__pietto_column_<n>`, which no name the statement selects or reads takes,
+  in any case, so a read of another output never binds to the name the
+  database would give the unaliased one, such as `lower` for `lower(cat)` or
+  for a CASE whose ELSE is `lower(cat)` in PostgreSQL, or `price` for
+  `" price"` in MySQL; the relation's own statement keeps the output
+  unaliased.
+- A statement that reads a table or query of the same file by a name that
+  relation gives no output, such as `lower` for an unaliased `lower(email)`
+  over a source without a shape, is refused by `emit-sql` with PIE-B1000 on
+  PostgreSQL and MySQL, at the reading relation (``Its SQL reads lower from
+  relation a, which names no output lower; if it means the unaliased output
+  at line 6, column 9, which has no name a reader can use, write `lower = ...`
+  there to name it``); `check` still accepts it, as its fields are of unknown
+  type. An ORDER BY key such as `Z` beside an output `z`, or `z + 1`, reads
+  the relation, not the output, and is refused the same way. 0.1.5 read the
+  name the database gives the unaliased output, and emitted a read of a name
+  no output has, which the database rejected.
 
 ### Command startup
 
@@ -689,7 +900,12 @@ version 2) completes it.`). A JOIN after one that failed keeps that PIE-S2334.
   often as the called def's expansion made it, and a query header parameter
   passed to a `def` and read in a position that refuses it (PIE-S2355) at
   each use of the argument. A single file still reports such an error in a
-  def body as often as the expansion makes it.
+  def body as often as the expansion makes it, except anywhere in an operand
+  that a comparison chain copies, such as `x` in `0 < x < 10`, where it is
+  reported once. The value of an inclusive chain `lower <= value <= upper` is
+  not itself copied, so its error still follows the expansion unless the error
+  lies in copied operand text, either around that chain or nested in its
+  value.
 - **Aggregates in a project `any`.** An explicit-module project refuses an
   aggregate in an `any(...)` predicate, such as
   `any(count() > 0 for o in orders)`, with PIE-S2335
@@ -804,7 +1020,11 @@ version 2) completes it.`). A JOIN after one that failed keeps that PIE-S2334.
   `schema_version = 2` project, which reports an equal diagnostic once, an
   identical diagnostic printed twice at one position is a known issue to
   report, except for an error in a def body, which a single file reports as
-  often as the def's expansion makes it.
+  often as the def's expansion makes it, except anywhere in an operand that a
+  comparison chain copies (including a nested operand). The value of an
+  inclusive chain `lower <= value <= upper` is not itself copied; an error is
+  reported once only when it lies in copied operand text, either around that
+  chain or nested in its value.
 
 ### Deferred to the next release
 

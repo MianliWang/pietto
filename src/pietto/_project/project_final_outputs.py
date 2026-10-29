@@ -267,9 +267,18 @@ from pietto.semantic.expressions import (
     order_output_ambiguity_diagnostic,
     unknown_explained,
 )
-from pietto._project.row_expression_type_facts import scalar_read_types_within
+from pietto._project.row_expression_type_facts import (
+    scalar_read_types_within,
+    add_shape_typed_diagnostics,
+)
 from pietto.semantic.group_by import _grouped_order_by_unsupported_diagnostic
-from pietto.semantic.model import CheckMode, RowSchema, ValueType, ValueTypeKind
+from pietto.semantic.model import (
+    CheckMode,
+    RowSchema,
+    TypeKind,
+    ValueType,
+    ValueTypeKind,
+)
 from pietto.semantic.relation_schemas import (
     _duplicate_projection_diagnostic,
     _projection_output_name,
@@ -1339,6 +1348,9 @@ class ProjectRelationOrderingNonConcreteReason(StrEnum):
     # A key named alone that is both an input field and a SELECT output of
     # another value; also reported where no other ORDER result is checked.
     OUTPUT_NAME_AMBIGUOUS = "output_name_ambiguous"
+    # An operator or function refuses a field of a shape, as in a single file
+    # (`home + 1`); also reported where no other ORDER result is checked.
+    SHAPE_OPERAND = "shape_operand"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -3549,19 +3561,37 @@ def _analyze_no_join_scalar(
         record.diagnostics if record is not None else ()
     )
     diagnostics.extend(item for value in any_values for item in value.diagnostics)
-    value_type = infer_row_expression(
-        normalized,
+    seed_types = dict(value_types)
+
+    def infer(
+        schema: RowSchema, found: list[Diagnostic], types: dict[Expression, ValueType]
+    ) -> ValueType:
+        return infer_row_expression(
+            normalized,
+            schema,
+            types,
+            found,
+            report_unknown_name=True,
+            field_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
+            bare_value_types=let_scope.value_types,
+            bare_value_expressions=let_values,
+            relation_columns=read_types,
+            captured_value_types=captures,
+            failed_relationship_calls=() if record is None else record.failed_calls,
+        )
+
+    start = len(diagnostics)
+    value_type = infer(
         project_row_schema_to_semantic_row_schema(input_schema),
-        value_types,
         diagnostics,
-        report_unknown_name=True,
-        field_qualifier=definition.from_clause.binding_name
-        or definition.from_clause.source_name,
-        bare_value_types=let_scope.value_types,
-        bare_value_expressions=let_values,
-        relation_columns=read_types,
-        captured_value_types=captures,
-        failed_relationship_calls=() if record is None else record.failed_calls,
+        value_types,
+    )
+    add_shape_typed_diagnostics(
+        input_schema,
+        diagnostics,
+        start,
+        lambda schema, found: infer(schema, found, dict(seed_types)),
     )
     value_types[expression] = value_type
     retained_diagnostics = tuple(diagnostics)
@@ -4180,6 +4210,62 @@ def _joined_order_output_ambiguity(
         if any(candidate is target for candidate in item.fields)
     )
     return order_output_ambiguity_diagnostic(key, f"{binding}.{key.name}")
+
+
+def _no_join_shape_diagnostics(
+    definition: _DerivedRelation,
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts,
+    key: Expression,
+) -> tuple[Diagnostic, ...]:
+    """The errors an ungrouped no-JOIN ORDER BY key has only because a field
+    of a shape is that shape, also through a `let` name, as in a single file;
+    its other types are not checked here."""
+
+    shape_lets = let_scope.binding_value_types
+    # A project reads a `let` name whose value is a shape as it reads the
+    # field: unknown.
+    project_lets = {
+        name: value_type
+        for name, value_type in shape_lets.items()
+        if value_type.kind is not ValueTypeKind.KNOWN
+        or value_type.resolved_type.kind is not TypeKind.SHAPE
+    }
+
+    def infer(
+        schema: RowSchema, found: list[Diagnostic], lets: Mapping[str, ValueType]
+    ) -> ValueType:
+        return infer_row_expression(
+            key,
+            schema,
+            {},
+            found,
+            report_unknown_name=True,
+            field_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
+            bare_value_types=lets,
+            # Each typing writes the values in with its own types.
+            bare_value_expressions=checked_let_values(
+                let_scope, let_scope.binding_expressions
+            ),
+        )
+
+    reported: list[Diagnostic] = []
+    infer(
+        project_row_schema_to_semantic_row_schema(input_schema), reported, project_lets
+    )
+    first = tuple(reported)
+    add_shape_typed_diagnostics(
+        input_schema,
+        reported,
+        0,
+        lambda schema, found: infer(schema, found, shape_lets),
+    )
+    return tuple(
+        item
+        for item in reported
+        if item not in first and item.severity is Severity.ERROR
+    )
 
 
 def _no_join_order_output_ambiguity(
@@ -4886,6 +4972,23 @@ def _no_join_relation_ordering(
         )
     ordered: list[ProjectRelationOrderItem] = []
     let_values = checked_let_values(let_scope, let_scope.binding_expressions)
+    if mode is not ProjectJoinedAggregationMode.GROUPED:
+        shaped = tuple(
+            diagnostic
+            for item in clause.items
+            if not contains_semantic_aggregate(item.expression)
+            for diagnostic in _no_join_shape_diagnostics(
+                definition, input_schema, let_scope, item.expression
+            )
+        )
+        if shaped:
+            return ProjectNonConcreteRelationOrdering(
+                owner=owner,
+                clause=clause,
+                reason=ProjectRelationOrderingNonConcreteReason.SHAPE_OPERAND,
+                blocker=clause,
+                diagnostics=shaped,
+            )
     for ordinal, item in enumerate(clause.items):
         expression = item.expression
         source: ProjectRelationOrderSource

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from types import MappingProxyType
 
 from pietto._project.model import (
@@ -225,6 +225,45 @@ def project_row_schema_to_semantic_row_schema(
             definition=field.field_def,
         )
     return RowSchema(fields=fields)
+
+
+def add_shape_typed_diagnostics(
+    input_schema: ProjectRowSchema,
+    reported: list[Diagnostic],
+    start: int,
+    infer: Callable[[RowSchema, list[Diagnostic]], object],
+) -> None:
+    """Type the expression of ``input_schema`` whose diagnostics are
+    ``reported[start:]`` again, with each field of a shape typed as that
+    shape, as in a single file: a project types such a field as unknown,
+    which no operator or function refuses, so `home + 1` is PIE-S2105 here
+    too."""
+
+    if input_schema.is_unknown or not any(
+        field.resolved_type.kind is ProjectResolvedTypeKind.SHAPE
+        for field in input_schema.fields.values()
+    ):
+        return
+    found: list[Diagnostic] = []
+    infer(project_row_schema_to_semantic_row_schema(input_schema, shapes=True), found)
+    merge_shape_typed_diagnostics(reported, start, found)
+
+
+def merge_shape_typed_diagnostics(
+    reported: list[Diagnostic], start: int, found: Sequence[Diagnostic]
+) -> None:
+    """Merge into ``reported``, where ``reported[start:]`` came from typing an
+    expression with each field of a shape unknown, the diagnostics ``found``
+    by typing it with each such field a shape. When that adds an error, the
+    expression's diagnostics become ``found``, in its order, as a single file
+    reports them; otherwise what it adds follows them."""
+
+    added = [item for item in found if item not in reported]
+    if any(item.severity is Severity.ERROR for item in added):
+        earlier = reported[:start]
+        reported[start:] = [item for item in found if item not in earlier]
+    else:
+        reported.extend(added)
 
 
 def _semantic_resolved_type(

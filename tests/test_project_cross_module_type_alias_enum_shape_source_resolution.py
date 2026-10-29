@@ -996,6 +996,256 @@ def test_a_project_types_an_imported_enum_field_and_its_alias_as_the_enum(
     ]
 
 
+_SHAPE_FIELDS = """shape Address:
+    city: Text
+shape Customer:
+    id: Int
+    home: Address | None
+    work: Address
+shape Order:
+    customer_id: Int
+source customers: Customer = postgres.table("customers")
+source orders: Order = postgres.table("orders")
+query q:
+    from customers
+"""
+_NUMERIC = "Invalid operands for operator {}: expected numeric operand{}"
+_JOINED = "    let o = orders\n    {} join o on o.customer_id == customers.id\n"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "    where home + 1 > 2\n    select:\n        id\n",
+            ("PIE-S2105", _NUMERIC.format("+", "s"), 13, 11),
+        ),
+        (
+            "    let b = work * 2\n    select:\n        id\n",
+            ("PIE-S2105", _NUMERIC.format("*", "s"), 13, 13),
+        ),
+        (
+            "    let h = home\n    where h + 1 > 2\n    select:\n        id\n",
+            ("PIE-S2105", _NUMERIC.format("+", "s"), 14, 11),
+        ),
+        (
+            "    where any(o.customer_id == id and -work > 0 for o in orders)\n"
+            "    select:\n        id\n",
+            ("PIE-S2105", _NUMERIC.format("-", ""), 13, 39),
+        ),
+        (
+            "    select:\n        id\n        x = home * 2\n",
+            ("PIE-S2105", _NUMERIC.format("*", "s"), 15, 13),
+        ),
+        (
+            "    select:\n        id\n        n = len(work)\n",
+            (
+                "PIE-S2104",
+                "Invalid argument type for function len at position 1: expected "
+                "Text, got Address",
+                15,
+                13,
+            ),
+        ),
+        (
+            _JOINED.format("inner") + "    where customers.home + 1 > 2\n"
+            "    select:\n        id = customers.id\n",
+            ("PIE-S2105", _NUMERIC.format("+", "s"), 15, 11),
+        ),
+        (
+            _JOINED.format("left") + "    where -customers.work > 0\n"
+            "    select:\n        id = customers.id\n",
+            ("PIE-S2105", _NUMERIC.format("-", ""), 15, 11),
+        ),
+        (
+            _JOINED.format("inner") + '    where lower(customers.work) == "x"\n'
+            "    select:\n        id = customers.id\n",
+            (
+                "PIE-S2104",
+                "Invalid argument type for function lower at position 1: expected "
+                "Text, got Address",
+                15,
+                11,
+            ),
+        ),
+        # Before: a `let` value after a JOIN passed `check --project`, or
+        # reported only PIE-S2333 at the query for arithmetic.
+        (
+            _JOINED.format("inner") + "    let s = len(customers.work)\n"
+            "    where s > 0\n    select:\n        id = customers.id\n",
+            (
+                "PIE-S2104",
+                "Invalid argument type for function len at position 1: expected "
+                "Text, got Address",
+                15,
+                13,
+            ),
+        ),
+        (
+            _JOINED.format("inner") + "    let s = customers.work == 1\n"
+            "    where s\n    select:\n        id = customers.id\n",
+            (
+                "PIE-S2105",
+                "Invalid operands for operator ==: expected comparable operands",
+                15,
+                13,
+            ),
+        ),
+        (
+            _JOINED.format("inner") + "    let s = customers.home + 1\n"
+            "    where s > 0\n    select:\n        id = customers.id\n",
+            ("PIE-S2105", _NUMERIC.format("+", "s"), 15, 13),
+        ),
+        # Before: the ungrouped ORDER BY of a relation without JOIN inputs
+        # passed `check --project`, and project emission refused it.
+        (
+            "    select:\n        id\n    order by:\n        work + 1\n",
+            ("PIE-S2105", _NUMERIC.format("+", "s"), 16, 9),
+        ),
+        (
+            "    select:\n        id\n    order by:\n        id\n        -work\n",
+            ("PIE-S2105", _NUMERIC.format("-", ""), 17, 9),
+        ),
+        (
+            "    let h = work\n    select:\n        id\n    order by:\n        h + 1\n",
+            ("PIE-S2105", _NUMERIC.format("+", "s"), 17, 9),
+        ),
+        (
+            "    let h = home\n    let g = h\n    select:\n        id\n"
+            "    order by:\n        lower(g)\n",
+            (
+                "PIE-S2104",
+                "Invalid argument type for function lower at position 1: expected "
+                "Text, got Address",
+                18,
+                9,
+            ),
+        ),
+    ),
+)
+def test_a_project_types_a_shape_field_as_that_shape(
+    tmp_path: Path, body: str, expected: tuple[str, str, int, int]
+) -> None:
+    """A field of a shape, also through a `let` name or after a JOIN, is read
+    as that shape, as in a single file, so arithmetic, `len` and `lower`
+    refuse it. Before, the field was of unknown type: `check --project`
+    passed these in a WHERE, `let` or `any(...)` and reported a select item
+    with the bare PIE-S2333 only."""
+    source = _SHAPE_FIELDS + body
+    _, semantic = _semantic_project(tmp_path, {"a.pietto": source})
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [expected]
+    parsed = parse_source(source, path="a.pietto")
+    assert parsed.ast is not None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in analyze(parsed.ast).diagnostics
+    ] == [expected]
+
+
+# Before: a project listed the error of a shape field after the other errors
+# of its expression, and kept the error that typing the field as unknown gave
+# beside the one a single file reports (`lower(home) + 1`).
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    where home + 1 > 2 and nosuch > 1\n    select:\n        id\n",
+        "    where lower(home) + 1 > 0\n    select:\n        id\n",
+        _JOINED.format("inner") + "    where customers.home + 1 > 2 and nosuch > 1\n"
+        "    select:\n        id = customers.id\n",
+    ),
+    ids=("order", "nested-call", "joined-order"),
+)
+def test_a_project_reports_a_shape_field_error_as_a_single_file_does(
+    tmp_path: Path, body: str
+) -> None:
+    source = _SHAPE_FIELDS + body
+    _, semantic = _semantic_project(tmp_path, {"a.pietto": source})
+    parsed = parse_source(source, path="a.pietto")
+    assert parsed.ast is not None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in analyze(parsed.ast).diagnostics
+    ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    let h = home\n    where home is None\n"
+        "    select:\n        id\n        k = h is None\n        w = work\n",
+        "    where any(o.customer_id == id for o in orders) and work is not None\n"
+        "    select:\n        id\n",
+        "    let h = home\n    select:\n        id\n        p = lag(h) window(order by id)\n",
+        _JOINED.format("inner") + "    where customers.home is None\n"
+        "    select:\n        id = customers.id\n",
+        _JOINED.format("inner") + "    let s = customers.home is None\n"
+        "    where s\n    select:\n        id = customers.id\n",
+        "    select:\n        id\n    order by:\n        id + 1\n",
+    ),
+)
+def test_a_project_keeps_the_reads_a_shape_field_admits(
+    tmp_path: Path, body: str
+) -> None:
+    _, semantic = _semantic_project(tmp_path, {"a.pietto": _SHAPE_FIELDS + body})
+
+    assert build_project_completed_semantic_result(semantic).diagnostics == ()
+
+
+# A `select distinct` query and a captured outer field read a shape as that
+# shape too; a single file accepts neither form, so only the project is shown.
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "    from customers\n    where home + 1 > 2\n"
+            "    select distinct:\n        id\n",
+            [("PIE-S2105", _NUMERIC.format("+", "s"), 13, 11)],
+        ),
+        (
+            "    let ords:\n        capture customers\n        from orders\n"
+            "        where customers.work + 1 > 0\n"
+            "        select:\n            customer_id\n"
+            "    from customers\n    let o = ords\n    cross join o\n"
+            "    select:\n        i = customers.id\n",
+            [
+                ("PIE-S2105", _NUMERIC.format("+", "s"), 15, 15),
+                (
+                    "PIE-S2333",
+                    "Project relation semantic completion is unavailable: q",
+                    11,
+                    1,
+                ),
+            ],
+        ),
+        (
+            "    let ords:\n        capture customers\n        from orders\n"
+            "        where customers.home is None\n"
+            "        select:\n            customer_id\n"
+            "    from customers\n    let o = ords\n    cross join o\n"
+            "    select:\n        i = customers.id\n",
+            [],
+        ),
+    ),
+    ids=("distinct", "captured", "captured_is_none"),
+)
+def test_a_project_types_a_distinct_or_captured_shape_field_as_that_shape(
+    tmp_path: Path, body: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    source = _SHAPE_FIELDS.removesuffix("    from customers\n") + body
+    _, semantic = _semantic_project(tmp_path, {"a.pietto": source})
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == expected
+
+
 def test_local_alias_cycle_emits_one_exact_pie_s2003(tmp_path: Path) -> None:
     _, semantic = _semantic_project(
         tmp_path,

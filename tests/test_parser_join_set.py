@@ -894,6 +894,22 @@ def test_modern_union_shorthand_preserves_repeated_operand_occurrences() -> None
     assert definition.body.operands[0].span != definition.body.operands[2].span
 
 
+# Blank lines may follow a one-line set body, as they follow a block body.
+@pytest.mark.parametrize(
+    "after", ["\n", "\n\n", "\n\nquery other:\n    union all b, a\n"]
+)
+def test_blank_lines_may_follow_a_one_line_set_body(after: str) -> None:
+    result = parse_source("query all_rows:\n    union all a, b" + after)
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    assert [
+        [item.relation_name for item in definition.body.operands]
+        for definition in result.ast.definitions
+        if isinstance(definition, SetRelationDef)
+    ] == [["a", "b"], ["b", "a"]][: 1 + after.count("query")]
+
+
 @pytest.mark.parametrize(
     "entry", [{}, {"single_file": True}, {"explicit_modules": True}]
 )

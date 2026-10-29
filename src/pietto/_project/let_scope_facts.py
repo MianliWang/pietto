@@ -17,6 +17,7 @@ from pietto._project.model import (
 )
 from pietto._project.row_expression_type_facts import (
     project_row_schema_to_semantic_row_schema,
+    add_shape_typed_diagnostics,
 )
 from pietto.ast_nodes import (
     Expression,
@@ -28,7 +29,13 @@ from pietto.ast_nodes import (
 )
 from pietto.semantic.expressions import LetValues, _let_names_with_diagnostics
 from pietto.semantic.let_bindings import analyze_relation_let_bindings
-from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
+from pietto.semantic.model import (
+    LetScopeSemanticInfo,
+    RowSchema,
+    TypeKind,
+    ValueType,
+    ValueTypeKind,
+)
 from pietto.errors import Diagnostic
 
 if TYPE_CHECKING:
@@ -263,16 +270,45 @@ def build_project_relation_let_scope_facts(
             binding_expressions=binding_expressions,
         )
 
-    row_schema = project_row_schema_to_semantic_row_schema(effective_input_schema)
-    scopes, expression_value_types, diagnostics = analyze_relation_let_bindings(
-        (definition,),
-        from_resolutions={definition.from_clause: upstream_definition},
-        source_row_schemas=_source_row_schemas(upstream_definition, row_schema),
-        relation_row_schemas=_relation_row_schemas(upstream_definition, row_schema),
-        allow_unaliased_selected_let_outputs=True,
-        normalized_bindings=normalized_bindings,
-        failed_relationship_calls=failed_relationship_calls,
+    def analyze(
+        schema: RowSchema,
+    ) -> tuple[
+        dict[TableDef | QueryDef, LetScopeSemanticInfo],
+        dict[Expression, ValueType],
+        list[Diagnostic],
+    ]:
+        return analyze_relation_let_bindings(
+            (definition,),
+            from_resolutions={definition.from_clause: upstream_definition},
+            source_row_schemas=_source_row_schemas(upstream_definition, schema),
+            relation_row_schemas=_relation_row_schemas(upstream_definition, schema),
+            allow_unaliased_selected_let_outputs=True,
+            normalized_bindings=normalized_bindings,
+            failed_relationship_calls=failed_relationship_calls,
+        )
+
+    scopes, expression_value_types, diagnostics = analyze(
+        project_row_schema_to_semantic_row_schema(effective_input_schema)
     )
+    # A binding whose value is a shape, as in a single file (`h = home`);
+    # read so, `h + 1` is PIE-S2105 too.
+    shapes: dict[str, ValueType] = {}
+
+    def analyze_shapes(schema: RowSchema, found: list[Diagnostic]) -> None:
+        shape_scopes, _, shape_diagnostics = analyze(schema)
+        found.extend(shape_diagnostics)
+        shape_scope = shape_scopes.get(definition)
+        shapes.update(
+            (name, value_type)
+            for name, value_type in (
+                {} if shape_scope is None else shape_scope.value_types
+            ).items()
+            if value_type.kind is ValueTypeKind.KNOWN
+            and value_type.resolved_type.kind is TypeKind.SHAPE
+        )
+
+    diagnostics = list(diagnostics)
+    add_shape_typed_diagnostics(effective_input_schema, diagnostics, 0, analyze_shapes)
     scope = scopes.get(definition)
     erroneous = _let_names_with_diagnostics(definition, diagnostics)
     binding_values = {
@@ -298,7 +334,12 @@ def build_project_relation_let_scope_facts(
             clause=definition.let_clause,
             bindings=bindings,
             binding_expressions=binding_expressions,
-            binding_value_types=binding_values,
+            binding_value_types={
+                name: shapes.get(name, value_type)
+                if value_type.kind is ValueTypeKind.UNKNOWN
+                else value_type
+                for name, value_type in binding_values.items()
+            },
             definition=definition,
             input_schema=effective_input_schema,
             upstream_definition=upstream_definition,

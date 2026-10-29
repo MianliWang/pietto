@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from dataclasses import fields, is_dataclass, replace
+from itertools import chain, count
 from typing import Any
 
+from pietto._generated_names import generated_name
 from pietto.ir.model import (
     AggregateCallIR,
     AggregateWindowCallIR,
+    AnyFieldIR,
     ExpressionIR,
     ExistsIR,
     FieldId,
     FieldRefIR,
-    LiteralIR,
     OrderDirectionIR,
     OrderItemIR,
     NamedWindowDeclarationIR,
@@ -55,17 +57,23 @@ def render_relation_sql(
 ) -> str:
     """Render a minimal relation, defining the relations it reads as CTEs."""
 
-    if relation.qualify is not None:
-        return _render_qualify_relation_sql(
-            relation,
-            sources=sources,
-            relations=relations,
-        )
-
+    # From the whole relation: a QUALIFY outer stage keeps its `any` reads.
     dependencies = (
         _relation_dependencies(relation, relations) if _include_dependencies else ()
     )
     _validate_exists_targets(relation, sources, relations)
+    if relation.qualify is not None:
+        return _with_dependencies(
+            _render_qualify_relation_sql(
+                relation,
+                sources=sources,
+                relations=relations,
+            ),
+            relation,
+            dependencies,
+            sources=sources,
+            relations=relations,
+        )
     input_name = _relation_input_name(
         relation.source.target,
         sources=sources,
@@ -123,6 +131,7 @@ def render_relation_sql(
             qualifier=alias or input_name[-1],
             mysql=False,
         )
+    positions = order_output_positions(relation, mysql=False)
 
     projection_sql = ",\n".join(
         f"    {_render_projection(projection.expression, projection.name, named_decision)}"
@@ -172,29 +181,106 @@ def render_relation_sql(
             (
                 "ORDER BY",
                 ",\n".join(
-                    f"    {_render_order_item(item)}" for item in relation.order_by
+                    f"    {_render_order_item(item, positions.get(index))}"
+                    for index, item in enumerate(relation.order_by)
                 ),
             )
         )
     if relation.limit is not None:
         lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
-    sql = "\n".join(lines)
-    if dependencies:
-        definitions = ",\n".join(
-            f"{quote_identifier(item.name)} AS (\n{render_relation_sql(item, sources=sources, relations=relations, _include_dependencies=False)}\n)"
-            for item in dependencies
-        )
-        hidden = hidden_table_read(
-            relation, dependencies, sources, relations, mysql=False
-        )
-        if hidden is not None:
-            raise ValueError(
-                f"Its SQL defines relation {hidden[0]} as a CTE, which would "
-                f"hide table {hidden[1]} read in the same SQL; rename the "
-                "relation or read the table with its schema"
+    return _with_dependencies(
+        "\n".join(lines),
+        relation,
+        dependencies,
+        sources=sources,
+        relations=relations,
+    )
+
+
+def _with_dependencies(
+    sql: str,
+    relation: RelationIR,
+    dependencies: tuple[RelationIR, ...],
+    *,
+    sources: Mapping[SymbolId, SourceIR],
+    relations: Mapping[SymbolId, RelationIR],
+) -> str:
+    """Define each relation the statement reads as a CTE before its SQL."""
+
+    if not dependencies:
+        return sql
+    definitions: list[str] = []
+    for item, cte in zip(dependencies, alias_cte_outputs(dependencies, relation)):
+        if cte is not item:
+            # A relation that refuses an output without an alias refuses here.
+            render_relation_sql(
+                item, sources=sources, relations=relations, _include_dependencies=False
             )
-        return f"WITH {definitions}\n{sql}"
-    return sql
+        sql_text = render_relation_sql(
+            cte, sources=sources, relations=relations, _include_dependencies=False
+        )
+        definitions.append(f"{quote_identifier(item.name)} AS (\n{sql_text}\n)")
+    hidden = hidden_table_read(relation, dependencies, sources, relations, mysql=False)
+    if hidden is not None:
+        raise ValueError(
+            f"Its SQL defines relation {hidden[0]} as a CTE, which would "
+            f"hide table {hidden[1]} read in the same SQL; rename the "
+            "relation or read the table with its schema"
+        )
+    unnamed = unnamed_output_read(relation, dependencies, mysql=False)
+    if unnamed is not None:
+        raise ValueError(unnamed)
+    return "WITH " + ",\n".join(definitions) + f"\n{sql}"
+
+
+def alias_cte_outputs(
+    dependencies: tuple[RelationIR, ...], relation: RelationIR
+) -> tuple[RelationIR, ...]:
+    """The statement's CTEs, each output without an alias given a private one.
+
+    PostgreSQL and MySQL each name an output without an alias by rules of
+    their own, and a read of a CTE column by its name, or a bare ORDER BY name
+    inside the CTE, could bind to that name. A private alias takes no name the
+    statement selects or reads, in any case. The main SELECT keeps its
+    unaliased outputs, whose names are the result's.
+    """
+
+    if all(item.name is not None for d in dependencies for item in d.projections):
+        return dependencies
+    names = _statement_names((*dependencies, relation))
+    aliased: list[RelationIR] = []
+    for dependency in dependencies:
+        if all(item.name is not None for item in dependency.projections):
+            aliased.append(dependency)
+            continue
+        used = set(names)
+        projections = tuple(
+            item
+            if item.name is not None
+            else replace(
+                item,
+                name=generated_name((f"__pietto_column_{n}" for n in count(1)), used),
+            )
+            for item in dependency.projections
+        )
+        aliased.append(replace(dependency, projections=projections))
+    return tuple(aliased)
+
+
+def _statement_names(relations: tuple[RelationIR, ...]) -> set[str]:
+    """Each column name the relations select or read, case-folded."""
+
+    found: set[str] = set()
+    pending: list[object] = list(relations)
+    while pending:
+        value = pending.pop()
+        if isinstance(value, (ProjectionIR, FieldRefIR, AnyFieldIR)) and value.name:
+            found.add(value.name.casefold())
+        if isinstance(value, tuple):
+            pending.extend(value)
+        elif is_dataclass(value) and not isinstance(value, type):
+            pending.extend(getattr(value, item.name) for item in fields(value))
+    return found
 
 
 def _render_qualify_relation_sql(
@@ -215,7 +301,27 @@ def _render_qualify_relation_sql(
     )
     if len(names) != len(relation.projections) or any(not name for name in names):
         raise ValueError("PostgreSQL QUALIFY requires named selected outputs")
-    hidden, predicate, order_by = _qualify_outer_stage(relation)
+    derived, hidden, predicate, order_by = _qualify_outer_stage(relation)
+    # The outer stage reads the inner one as a derived table, whose NULL
+    # outputs PostgreSQL types as text, as it does a CTE's.
+    untyped = {
+        projection.name
+        for projection in relation.projections
+        if is_untyped_null(projection.expression)
+    }
+    pending: list[object] = [predicate]
+    while pending:
+        item = pending.pop()
+        if type(item) is FieldRefIR and item.field is None and item.name in untyped:
+            raise ValueError(
+                "PostgreSQL types a NULL output that its QUALIFY stage reads as "
+                "text, which Pietto leaves untyped"
+            )
+        if isinstance(item, ExpressionIR):
+            pending.extend(getattr(item, part.name) for part in fields(item))
+        elif type(item) is tuple:
+            pending.extend(item)
+    refuse_text_null_condition(predicate)
     inner = replace(
         relation,
         qualify=None,
@@ -223,14 +329,17 @@ def _render_qualify_relation_sql(
         order_by=(),
         limit=None,
     )
-    inner_sql = render_relation_sql(inner, sources=sources, relations=relations)
+    # The statement defines the relations both stages read, once, at its top.
+    inner_sql = render_relation_sql(
+        inner, sources=sources, relations=relations, _include_dependencies=False
+    )
     selected = ",\n".join(f"    {quote_identifier(name)}" for name in names)
     lines = [
         "SELECT",
         selected,
         "FROM (",
         inner_sql,
-        ') AS "__pietto_qualify"',
+        f") AS {quote_identifier(derived)}",
         "WHERE",
         f"    {render_expression_sql(predicate)}",
     ]
@@ -248,26 +357,35 @@ def _render_qualify_relation_sql(
 
 def _qualify_outer_stage(
     relation: RelationIR,
-) -> tuple[tuple[ProjectionIR, ...], ExpressionIR, tuple[OrderItemIR, ...]]:
-    """Carry every outer QUALIFY/ORDER input as a private derived-table port."""
+) -> tuple[str, tuple[ProjectionIR, ...], ExpressionIR, tuple[OrderItemIR, ...]]:
+    """Name the derived table and carry every outer QUALIFY/ORDER input as a
+    private port of it."""
 
     qualify = relation.qualify
     if type(qualify) is not QualifyIR:
         raise ValueError("QUALIFY stage requires an exact predicate")
-    used = {projection.name for projection in relation.projections if projection.name}
+    # A port avoids each output name and the derived table each input alias.
+    used = {
+        projection.name.casefold()
+        for projection in relation.projections
+        if projection.name
+    }
+    derived = generated_name(
+        chain(("__pietto_qualify",), (f"__pietto_qualify{n}" for n in count(2))),
+        {
+            name.casefold()
+            for name in (
+                relation.source.name,
+                *(item.binding for item in relation.inputs),
+            )
+        },
+    )
     hidden: list[ProjectionIR] = []
     windows: dict[int, FieldRefIR] = {}
     inputs: dict[FieldId, FieldRefIR] = {}
-    counter = 0
 
     def port(expression: ExpressionIR) -> FieldRefIR:
-        nonlocal counter
-        while True:
-            alias = f"__pietto_qualify_{counter}"
-            counter += 1
-            if alias not in used:
-                used.add(alias)
-                break
+        alias = generated_name((f"__pietto_qualify_{n}" for n in count()), used)
         value = FieldRefIR(
             name=alias,
             qualifier=(),
@@ -285,7 +403,7 @@ def _qualify_outer_stage(
         )
         return value
 
-    def outer(expression: ExpressionIR) -> ExpressionIR:
+    def outer(expression: ExpressionIR, nested: bool = False) -> ExpressionIR:
         if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):
             saved = windows.get(id(expression))
             if saved is None:
@@ -300,17 +418,20 @@ def _qualify_outer_stage(
             saved = inputs.get(expression.field)
             if saved is None:
                 saved = inputs[expression.field] = port(expression)
-            return saved
+            # Inside EXISTS a bare port would first bind to a same-named
+            # column of the subquery's own FROM, so it names the derived table.
+            return replace(saved, qualifier=(derived,)) if nested else saved
+        nested = nested or isinstance(expression, ExistsIR)
         changes: dict[str, object] = {}
         for field in fields(expression):
             value = getattr(expression, field.name)
             if isinstance(value, ExpressionIR):
-                changes[field.name] = outer(value)
+                changes[field.name] = outer(value, nested)
             elif type(value) is tuple and any(
                 isinstance(item, ExpressionIR) for item in value
             ):
                 changes[field.name] = tuple(
-                    outer(item) if isinstance(item, ExpressionIR) else item
+                    outer(item, nested) if isinstance(item, ExpressionIR) else item
                     for item in value
                 )
         return replace(expression, **changes) if changes else expression
@@ -323,7 +444,7 @@ def _qualify_outer_stage(
     order_by = tuple(
         replace(item, expression=outer(item.expression)) for item in relation.order_by
     )
-    return tuple(hidden), predicate, order_by
+    return derived, tuple(hidden), predicate, order_by
 
 
 def _qualify_windows(
@@ -359,39 +480,29 @@ def qualify_alias_captured_order_fields(
     Inside an expression PostgreSQL reads the input column; MySQL documents
     the alias-first lookup for every ORDER BY name, so for MySQL each field
     inside a key is qualified too (window calls and `any` reads keep their
-    own scopes). An output that is the same input field reads the same
-    value, so it captures nothing. PostgreSQL
-    also names an unaliased computed item implicitly (`lower`, `coalesce`,
-    `case`, ...), so there any unaliased computed item counts as a capture.
-    MySQL names it by its expression text; of those names only an unaliased
-    literal's can be a field name: a Text literal's value, or `TRUE`, `FALSE`
-    or `NULL`, as written.
+    own scopes). An output of the field's name captures it unless it is the
+    same input field. PostgreSQL and MySQL each name an item without an
+    alias by rules of their own, so beside one every such field is qualified.
     """
 
     def spelling(name: str) -> str:
         return name.casefold() if mysql else name
 
+    unaliased = any(projection.name is None for projection in relation.projections)
+
     def captures(projection: ProjectionIR, key: FieldRefIR) -> bool:
         expression = projection.expression
-        if projection.name is None:
-            if isinstance(expression, FieldRefIR):
-                return False
-            if not mysql:
-                return True
-            if not isinstance(expression, LiteralIR):
-                return False
-            value = expression.value
-            if type(value) is bool:
-                name = "TRUE" if value else "FALSE"
-            elif value is None:
-                name = "NULL"
-            elif type(value) is str:
-                name = value
-            else:
-                return False
-            return spelling(name) == spelling(key.name)
-        return spelling(projection.name) == spelling(key.name) and not (
-            isinstance(expression, FieldRefIR) and expression.field == key.field
+        return (
+            projection.name is not None
+            and spelling(projection.name) == spelling(key.name)
+            and not (
+                isinstance(expression, FieldRefIR)
+                and (
+                    expression.field == key.field
+                    # A field of a row of unknown type is selected by name alone.
+                    or (expression.field is None and expression.name == key.name)
+                )
+            )
         )
 
     def qualified(expression: ExpressionIR) -> ExpressionIR:
@@ -399,9 +510,12 @@ def qualify_alias_captured_order_fields(
             if (
                 not expression.qualifier
                 and expression.field is not None
-                and any(
-                    captures(projection, expression)
-                    for projection in relation.projections
+                and (
+                    unaliased
+                    or any(
+                        captures(projection, expression)
+                        for projection in relation.projections
+                    )
                 )
             ):
                 return replace(expression, qualifier=(qualifier,))
@@ -426,6 +540,36 @@ def qualify_alias_captured_order_fields(
     if order_by == relation.order_by:
         return relation
     return replace(relation, order_by=order_by)
+
+
+def order_output_positions(relation: RelationIR, *, mysql: bool) -> dict[int, int]:
+    """The SELECT list position each ORDER BY key that reads an output by its
+    name sorts by, keyed by the key's index, where the name could bind to
+    another item: beside an item without an alias, which PostgreSQL and MySQL
+    each name by rules of their own, or, on MySQL, which compares names
+    without case, beside another output whose name differs only in case."""
+
+    names = [projection.name for projection in relation.projections]
+    positions: dict[int, int] = {}
+    for index, item in enumerate(relation.order_by):
+        key = item.expression
+        if (
+            not isinstance(key, FieldRefIR)
+            or key.field is not None
+            or key.qualifier
+            or key.name not in names
+        ):
+            continue
+        if None in names or (
+            mysql
+            and any(
+                name != key.name and name.casefold() == key.name.casefold()
+                for name in names
+                if name is not None
+            )
+        ):
+            positions[index] = names.index(key.name) + 1
+    return positions
 
 
 def _render_input(input_name: tuple[str, ...], alias: str | None) -> str:
@@ -500,22 +644,28 @@ def _relation_dependencies(
     done: set[SymbolId] = set()
     active: set[SymbolId] = {relation.symbol}
     result: list[RelationIR] = []
-
-    def visit(symbol: SymbolId) -> None:
-        dependency = relations.get(symbol)
-        if dependency is None or symbol in done:
-            return
-        if symbol in active:
-            raise ValueError("Relation dependency contains a cycle")
-        active.add(symbol)
-        for child in _read_targets(dependency):
-            visit(child)
-        active.remove(symbol)
-        done.add(symbol)
-        result.append(dependency)
-
-    for target in _read_targets(relation):
-        visit(target)
+    # A depth-first walk on an explicit stack, so a long chain of reads never
+    # exhausts the interpreter's recursion limit.
+    stack: list[tuple[RelationIR | None, Iterator[SymbolId]]] = [
+        (None, iter(_read_targets(relation)))
+    ]
+    while stack:
+        dependency, children = stack[-1]
+        for symbol in children:
+            child = relations.get(symbol)
+            if child is None or symbol in done:
+                continue
+            if symbol in active:
+                raise ValueError("Relation dependency contains a cycle")
+            active.add(symbol)
+            stack.append((child, iter(_read_targets(child))))
+            break
+        else:
+            stack.pop()
+            if dependency is not None:
+                active.remove(dependency.symbol)
+                done.add(dependency.symbol)
+                result.append(dependency)
     return tuple(result)
 
 
@@ -559,6 +709,92 @@ def hidden_table_read(
             )
             if "." not in name and spelling(name) in visible:
                 return visible[spelling(name)], name
+    return None
+
+
+def unnamed_output_read(
+    relation: RelationIR,
+    dependencies: tuple[RelationIR, ...],
+    *,
+    mysql: bool,
+) -> str | None:
+    """Return why the statement reads a CTE column that its relation does not
+    name, at the first such read in source order, or None.
+
+    A check reads any name from a relation over a row of unknown type, such as
+    a source without a shape, yet its CTE has exactly the outputs it names,
+    each unaliased one under a private alias (`alias_cte_outputs`), so a read
+    of another name, such as `lower` for an unaliased `lower(email)`, names
+    no column of the CTE. ORDER BY, HAVING and QUALIFY may also read the
+    reader's own outputs, each as a field of no input; any other name they
+    read, an output's in another case or inside an expression included, is an
+    input field. MySQL compares column names without case.
+    """
+
+    def spelling(name: str) -> str:
+        return name.casefold() if mysql else name
+
+    ctes = {item.symbol: item for item in dependencies if item.row_schema.is_unknown}
+    if not ctes:
+        return None
+    for reader in (*dependencies, relation):
+        inputs = (
+            {item.binding: item.target for item in reader.inputs}
+            if reader.inputs
+            else {"": reader.source.target, reader.source.name: reader.source.target}
+        )
+        found: list[tuple[FieldRefIR | AnyFieldIR, RelationIR]] = []
+        for part in fields(reader):
+            own = part.name in {"order_by", "result_predicate", "qualify"}
+            pending: list[object] = [getattr(reader, part.name)]
+            while pending:
+                item = pending.pop()
+                if isinstance(item, tuple):
+                    pending.extend(item)
+                    continue
+                if not is_dataclass(item) or isinstance(item, type):
+                    continue
+                pending.extend(_ir_children(item))
+                if type(item) is AnyFieldIR:
+                    cte = ctes.get(item.relation)
+                elif (
+                    type(item) is FieldRefIR
+                    and len(item.qualifier) <= 1
+                    and not (own and item.field is None)
+                ):
+                    target = inputs.get("".join(item.qualifier))
+                    cte = None if target is None else ctes.get(target)
+                else:
+                    continue
+                if cte is not None and spelling(item.name) not in {
+                    spelling(output.name) for output in cte.projections if output.name
+                }:
+                    found.append((item, cte))
+        if not found:
+            continue
+        read, cte = min(
+            found, key=lambda pair: (pair[0].span.line, pair[0].span.column)
+        )
+        reason = (
+            f"Its SQL reads {read.name} from relation {cte.name}, which names "
+            f"no output {read.name}"
+        )
+        unnamed = [item.span for item in cte.projections if item.name is None]
+        # A read that differs from an output only in case means that output.
+        if not unnamed or read.name.casefold() in {
+            output.name.casefold() for output in cte.projections if output.name
+        }:
+            return reason
+        where = " and ".join(
+            f"line {span.line}, column {span.column}" for span in unnamed
+        )
+        many = len(unnamed) > 1
+        return (
+            f"{reason}; if it means {'one of ' if many else ''}the unaliased "
+            f"output{'s' if many else ''} at {where}, which "
+            f"{'have' if many else 'has'} no name a reader can use, write "
+            f"`{read.name} = ...` there to name it"
+        )
     return None
 
 
@@ -854,9 +1090,11 @@ def _render_limit(value: int) -> str:
     return str(value)
 
 
-def _render_order_item(item: OrderItemIR) -> str:
-    """Render one validated sorting item without dropping its direction."""
+def _render_order_item(item: OrderItemIR, position: int | None = None) -> str:
+    """Render one validated sorting item, by its SELECT list position when
+    given, without dropping its direction."""
 
     if not isinstance(item.direction, OrderDirectionIR):
         raise ValueError("PostgreSQL relation order direction is invalid")
-    return f"{render_expression_sql(item.expression)} {item.direction.value}"
+    key = render_expression_sql(item.expression) if position is None else position
+    return f"{key} {item.direction.value}"

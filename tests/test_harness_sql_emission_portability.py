@@ -1506,10 +1506,10 @@ def test_variants_outside_the_generation_corpus_have_real_witnesses(
     assert bound == {"source_representation", "field_projection"}
 
 
-def test_c5_ordered_string_agg_mysql_is_explicitly_blocked(tmp_path_factory):
+def test_ordered_string_agg_mysql_is_explicitly_blocked(tmp_path_factory):
     item = emission.ordered_string_agg_witness("mysql")
     _, outcome = emission.build_case(
-        tmp_path_factory.mktemp("c5-ordered-string-agg-mysql"),
+        tmp_path_factory.mktemp("ordered-string-agg-mysql"),
         item["source"],
         item["contract"],
         item["policy"],

@@ -345,7 +345,7 @@ def _signature_evidence(
             _evidence(
                 CapabilityEvidenceSource.TEST,
                 "tests/test_sql_aggregate_expression_argument_sql.py",
-                "test_c5_string_agg_preserves_all_internal_order_keys_and_refuses_mysql",
+                "test_string_agg_preserves_all_internal_order_keys_and_refuses_mysql",
             ),
         )
 

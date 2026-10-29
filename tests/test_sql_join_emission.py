@@ -1167,26 +1167,30 @@ def test_readme_quick_start_checks_strictly_and_emits_the_sql_it_prints(
 
 @pytest.mark.parametrize("output_format", ["text", "json"])
 @pytest.mark.parametrize(
-    ("dialect", "joins", "reason", "expect_warning"),
+    ("dialect", "joins", "reason", "warning"),
     [
         (
             "mysql",
             "    let p = peers\n    inner join p on rows.id == p.id\n",
             "MySQL JOIN emission is not available yet",
-            False,
+            None,
         ),
         (
             "postgres",
             "    let p = peers\n    full join p on rows.name == p.name\n",
             FULL_REFUSAL.format("p"),
-            True,
+            ("13:20", "this FULL JOIN equality is not between canonical Int fields"),
         ),
         (
             "postgres",
             "    where any(rows.id == s.id for s in peers)\n"
             "    let p = peers\n    full join p on rows.id == p.id\n",
             "A SEMI or ANTI JOIN before FULL JOIN p is not available in PostgreSQL emission yet",
-            False,
+            (
+                "14:5",
+                "a `where any(...)` or `where not any(...)` filter comes before "
+                "this FULL JOIN",
+            ),
         ),
     ],
     ids=["mysql", "text-full", "semi-full"],
@@ -1196,7 +1200,7 @@ def test_cli_refuses_one_join_relation_and_keeps_other_artifacts(
     dialect: str,
     joins: str,
     reason: str,
-    expect_warning: bool,
+    warning: tuple[str, str] | None,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1226,16 +1230,20 @@ def test_cli_refuses_one_join_relation_and_keeps_other_artifacts(
         f"{backend} SQL emission is not implemented for RelationIR: refused. {reason}"
     )
     warning_message = (
-        "Single-file SQL emission is unavailable because this FULL JOIN equality is "
-        "not between canonical Int fields; this warning does not change check's "
-        "exit status, but emit-sql will refuse this relation."
+        None
+        if warning is None
+        else (
+            f"Single-file SQL emission is unavailable because {warning[1]}; this "
+            "warning does not change check's exit status, but emit-sql will "
+            "refuse this relation."
+        )
     )
     if output_format == "text":
         assert captured.out == f"-- okay\n{expected_sql};\n"
         assert captured.err == (
             (
-                f"{path}:13:20 PIE-S2385 warning: {warning_message}\n"
-                if expect_warning
+                f"{path}:{warning[0]} PIE-S2385 warning: {warning_message}\n"
+                if warning is not None
                 else ""
             )
             + f"{path}:10:1 PIE-B1000 error: {message}\n"
@@ -1249,18 +1257,18 @@ def test_cli_refuses_one_join_relation_and_keeps_other_artifacts(
             {"kind": "relation", "name": "okay", "sql": expected_sql}
         ]
         diagnostics = payload["diagnostics"]
-        assert len(diagnostics) == 1 + expect_warning
-        if expect_warning:
-            warning = diagnostics.pop(0)
-            assert (warning["code"], warning["severity"]) == (
+        assert len(diagnostics) == 1 + (warning is not None)
+        if warning is not None:
+            reported = diagnostics.pop(0)
+            assert (reported["code"], reported["severity"]) == (
                 "PIE-S2385",
                 "warning",
             )
-            assert warning["message"] == warning_message
-            assert warning["location"]["path"] == str(path)
-            assert (warning["location"]["line"], warning["location"]["column"]) == (
-                13,
-                20,
+            assert reported["message"] == warning_message
+            assert reported["location"]["path"] == str(path)
+            assert (
+                f"{reported['location']['line']}:{reported['location']['column']}"
+                == warning[0]
             )
         diagnostic = diagnostics[0]
         assert diagnostic["code"] == "PIE-B1000"

@@ -34,11 +34,14 @@ from pietto.sql.mysql_render import (
 )
 from pietto.sql.relations import (
     _qualify_outer_stage,
+    alias_cte_outputs,
     has_untyped_result_predicate,
     hidden_table_read,
     _relation_dependencies,
     _validate_exists_targets,
+    order_output_positions,
     qualify_alias_captured_order_fields,
+    unnamed_output_read,
 )
 from pietto.sql.window_strategy import (
     NamedWindowLoweringDecision,
@@ -57,13 +60,7 @@ def render_mysql_relation(
 ) -> str:
     """Render a minimal relation, defining the relations it reads as CTEs."""
 
-    if relation.qualify is not None:
-        return _render_mysql_qualify_relation(
-            relation,
-            sources=sources,
-            relations=relations,
-        )
-
+    # From the whole relation: a QUALIFY outer stage keeps its `any` reads.
     try:
         dependencies = (
             _relation_dependencies(relation, relations) if _include_dependencies else ()
@@ -71,6 +68,18 @@ def render_mysql_relation(
         _validate_exists_targets(relation, sources, relations)
     except ValueError as error:
         raise MySqlRenderError(str(error)) from error
+    if relation.qualify is not None:
+        return _with_dependencies(
+            _render_mysql_qualify_relation(
+                relation,
+                sources=sources,
+                relations=relations,
+            ),
+            relation,
+            dependencies,
+            sources=sources,
+            relations=relations,
+        )
     if relation.joins:
         raise MySqlRenderError("MySQL JOIN emission is not available yet")
     quote_identifier(relation.name, context="relation identifier")
@@ -105,6 +114,7 @@ def render_mysql_relation(
         qualifier=alias or input_reference,
         mysql=True,
     )
+    positions = order_output_positions(relation, mysql=True)
 
     projection_sql = ",\n".join(
         f"    {_render_projection(projection.expression, projection.name, named_decision)}"
@@ -151,38 +161,88 @@ def render_mysql_relation(
             (
                 "ORDER BY",
                 ",\n".join(
-                    f"    {_render_order_item(item)}" for item in relation.order_by
+                    f"    {_render_order_item(item, positions.get(index))}"
+                    for index, item in enumerate(relation.order_by)
                 ),
             )
         )
     if relation.limit is not None:
         lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
-    sql = "\n".join(lines)
-    if dependencies:
-        definitions = ",\n".join(
-            f"{quote_identifier(item.name, context='relation identifier')} AS (\n{render_mysql_relation(item, sources=sources, relations=relations, _include_dependencies=False)}\n)"
-            for item in dependencies
-        )
-        hidden = hidden_table_read(
-            relation, dependencies, sources, relations, mysql=True
-        )
-        if hidden is not None:
-            raise MySqlRenderError(
-                f"Its SQL defines relation {hidden[0]} as a CTE, which would "
-                f"hide table {hidden[1]} read in the same SQL; rename the "
-                "relation or read the table with its schema"
+    return _with_dependencies(
+        "\n".join(lines),
+        relation,
+        dependencies,
+        sources=sources,
+        relations=relations,
+    )
+
+
+def _with_dependencies(
+    sql: str,
+    relation: RelationIR,
+    dependencies: tuple[RelationIR, ...],
+    *,
+    sources: Mapping[SymbolId, SourceIR],
+    relations: Mapping[SymbolId, RelationIR],
+) -> str:
+    """Define each relation the statement reads as a CTE before its SQL."""
+
+    if not dependencies:
+        return sql
+    definitions: list[str] = []
+    for item, cte in zip(dependencies, alias_cte_outputs(dependencies, relation)):
+        if cte is not item:
+            # A relation that refuses an output without an alias refuses here.
+            render_mysql_relation(
+                item, sources=sources, relations=relations, _include_dependencies=False
             )
-        # MySQL may compare CTE names without case: one WITH cannot hold both.
-        names: dict[str, str] = {}
-        for item in dependencies:
-            other = names.setdefault(item.name.casefold(), item.name)
-            if other != item.name:
-                raise MySqlRenderError(
-                    f"Its SQL defines relations {other} and {item.name} as CTEs, "
-                    "whose names MySQL may compare without case; rename one of them"
-                )
-        return f"WITH {definitions}\n{sql}"
-    return sql
+        sql_text = render_mysql_relation(
+            cte, sources=sources, relations=relations, _include_dependencies=False
+        )
+        name = quote_identifier(item.name, context="relation identifier")
+        definitions.append(f"{name} AS (\n{sql_text}\n)")
+    hidden = hidden_table_read(relation, dependencies, sources, relations, mysql=True)
+    if hidden is not None:
+        raise MySqlRenderError(
+            f"Its SQL defines relation {hidden[0]} as a CTE, which would "
+            f"hide table {hidden[1]} read in the same SQL; rename the "
+            "relation or read the table with its schema"
+        )
+    # MySQL may compare CTE names without case: one WITH cannot hold both.
+    names: dict[str, str] = {}
+    for item in dependencies:
+        other = names.setdefault(item.name.casefold(), item.name)
+        if other != item.name:
+            raise MySqlRenderError(
+                f"Its SQL defines relations {other} and {item.name} as CTEs, "
+                "whose names MySQL may compare without case; rename one of them"
+            )
+    # MySQL compares column names without case; a CTE's must be unique.
+    for item in dependencies:
+        outputs = _caseless_duplicate_outputs(item)
+        if outputs is not None:
+            raise MySqlRenderError(
+                f"Its SQL defines relation {item.name} as a CTE with outputs "
+                f"{outputs[0]} and {outputs[1]}, whose names MySQL compares "
+                "without case; rename one of them"
+            )
+    unnamed = unnamed_output_read(relation, dependencies, mysql=True)
+    if unnamed is not None:
+        raise MySqlRenderError(unnamed)
+    return "WITH " + ",\n".join(definitions) + f"\n{sql}"
+
+
+def _caseless_duplicate_outputs(relation: RelationIR) -> tuple[str, str] | None:
+    """Return the first two output names that differ only in case."""
+
+    names: dict[str, str] = {}
+    for projection in relation.projections:
+        if not projection.name:
+            continue
+        other = names.setdefault(projection.name.casefold(), projection.name)
+        if other != projection.name:
+            return other, projection.name
+    return None
 
 
 def _render_mysql_qualify_relation(
@@ -202,7 +262,7 @@ def _render_mysql_qualify_relation(
     if len(names) != len(relation.projections) or any(not name for name in names):
         raise MySqlRenderError("MySQL QUALIFY requires named selected outputs")
     try:
-        hidden, predicate, order_by = _qualify_outer_stage(relation)
+        derived, hidden, predicate, order_by = _qualify_outer_stage(relation)
     except ValueError as error:
         raise MySqlRenderError(str(error)) from error
     inner = replace(
@@ -212,10 +272,17 @@ def _render_mysql_qualify_relation(
         order_by=(),
         limit=None,
     )
-    try:
-        inner_sql = render_mysql_relation(inner, sources=sources, relations=relations)
-    except MySqlRenderError:
-        raise
+    # MySQL compares column names without case; a derived table's must be unique.
+    outputs = _caseless_duplicate_outputs(inner)
+    if outputs is not None:
+        raise MySqlRenderError(
+            f"Its QUALIFY derived table has outputs {outputs[0]} and {outputs[1]}, "
+            "whose names MySQL compares without case; rename one of them"
+        )
+    # The statement defines the relations both stages read, once, at its top.
+    inner_sql = render_mysql_relation(
+        inner, sources=sources, relations=relations, _include_dependencies=False
+    )
     selected = ",\n".join(
         f"    {quote_identifier(name, context='select-list alias')}" for name in names
     )
@@ -224,7 +291,7 @@ def _render_mysql_qualify_relation(
         selected,
         "FROM (",
         inner_sql,
-        ") AS `__pietto_qualify`",
+        f") AS {quote_identifier(derived, context='derived table alias')}",
         "WHERE",
         f"    {render_mysql_expression(predicate)}",
     ]
@@ -507,7 +574,8 @@ def _render_limit(value: int) -> str:
     return str(value)
 
 
-def _render_order_item(item: OrderItemIR) -> str:
+def _render_order_item(item: OrderItemIR, position: int | None = None) -> str:
     if not isinstance(item.direction, OrderDirectionIR):
         raise MySqlRenderError("MySQL relation order direction is invalid")
-    return f"{render_mysql_expression(item.expression)} {item.direction.value}"
+    key = render_mysql_expression(item.expression) if position is None else position
+    return f"{key} {item.direction.value}"

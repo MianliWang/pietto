@@ -153,7 +153,7 @@ C5_POSTGRES_LET_SCALE_BODY = """table result:
 """
 
 
-def test_c5_postgres_scalar_project_forms_are_verified(tmp_path):
+def test_postgres_scalar_project_forms_are_verified(tmp_path):
     checked, outcome = emit(tmp_path, "postgres", C5_POSTGRES_SCALAR_BODY)
     assert checked.verified and outcome.status == "VERIFIED"
     assert outcome.artifact is not None
@@ -190,7 +190,7 @@ def test_c5_postgres_scalar_project_forms_are_verified(tmp_path):
     assert replayed.request.family == "postgres"
 
 
-def test_c5_postgres_high_precision_decimal_rounds_emit(tmp_path):
+def test_postgres_high_precision_decimal_rounds_emit(tmp_path):
     base = probe.fixture("postgres")
     source = base["source"].replace("money: Decimal(9, 2)", "money: Decimal(65, 30)")
     header = source.split("table result:", 1)[0]
@@ -225,7 +225,7 @@ def test_c5_postgres_high_precision_decimal_rounds_emit(tmp_path):
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
 
 
-def test_c5_postgres_literal_let_scale_survives_compiled_replay(tmp_path):
+def test_postgres_literal_let_scale_survives_compiled_replay(tmp_path):
     checked, outcome = emit(tmp_path, "postgres", C5_POSTGRES_LET_SCALE_BODY)
     assert checked.verified and outcome.status == "VERIFIED"
     assert outcome.artifact is not None
@@ -244,7 +244,7 @@ def test_c5_postgres_literal_let_scale_survives_compiled_replay(tmp_path):
     assert emit_compiled(loaded, ()).request.family == "postgres"
 
 
-def test_c5_postgres_literal_let_date_unit_survives_compiled_replay(tmp_path):
+def test_postgres_literal_let_date_unit_survives_compiled_replay(tmp_path):
     source = (
         temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
         + """table result:
@@ -287,7 +287,7 @@ def test_c5_postgres_literal_let_date_unit_survives_compiled_replay(tmp_path):
     assert emit_compiled(loaded, ()).request.family == "postgres"
 
 
-def test_c5_postgres_date_trunc_date_units_preserve_date_carrier(tmp_path):
+def test_postgres_date_trunc_date_units_preserve_date_carrier(tmp_path):
     source = (
         temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
         + """table result:
@@ -1577,3 +1577,56 @@ def test_a_from_alias_qualify_window_keeps_source_and_binding_spellings(
     assert {document["status"] for document in documents} == {"VERIFIED"}
     for key in ("sql", "columns", "fixed_values", "parameter_uses", "requirements"):
         assert all(document[key] == documents[0][key] for document in documents), key
+
+
+def test_postgres_select_item_round_reads_a_let_scale(tmp_path):
+    # Written directly as a select item, the scale is followed through its
+    # `let` as in a single file and in `let rounded = round(money, scale)`.
+    body = """table result:
+    from rows
+    let scale = 2
+    select:
+        id
+        rounded = round(money, scale)
+"""
+    checked, outcome = emit(tmp_path, "postgres", body)
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert json.loads(serialize_project_sql_emission(outcome))["sql"] == (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT '
+        '"s0"."order.id" AS "c0", "s0"."flag value" AS "c1", '
+        '"s0"."text `""é" AS "c2", "s0"."amount value" AS "c3", '
+        '"s0"."ratio value" AS "c4", CAST(2 AS pg_catalog.int8) AS "c5" '
+        'FROM "public"."phase66 source é" AS "s0") '
+        'SELECT "t1"."c0" AS "id", '
+        'round("t1"."c3", CAST("t1"."c5" AS pg_catalog.int4)) AS "rounded" '
+        'FROM "p0" AS "t1"'
+    )
+
+
+def test_postgres_select_item_date_trunc_reads_a_let_unit(tmp_path):
+    source = (
+        temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
+        + """table result:
+    from rows
+    let unit = "month"
+    select:
+        month_stamp = date_trunc(unit, stamp)
+"""
+    )
+    checked = temporal_probe.build_neutral(
+        tmp_path / "project", {"main.pietto": source}
+    )
+    contract = json.loads(temporal_probe.temporal_input("postgres"))
+    contract["environment"].append(
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+    )
+    outcome = emit_project_sql(checked, json.dumps(contract).encode())
+    assert outcome.status == "VERIFIED"
+    assert json.loads(serialize_project_sql_emission(outcome))["sql"] == (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4") AS (SELECT '
+        '"s0"."stamp" AS "c0", "s0"."optional_stamp" AS "c1", '
+        '"s0"."identifier" AS "c2", "s0"."optional_identifier" AS "c3", '
+        "CAST(E'\\155\\157\\156\\164\\150' AS pg_catalog.text) COLLATE \"C\" "
+        'AS "c4" FROM "public"."rows" AS "s0") '
+        'SELECT date_trunc("t1"."c4", "t1"."c0") AS "month_stamp" FROM "p0" AS "t1"'
+    )

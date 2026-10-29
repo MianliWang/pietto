@@ -90,6 +90,7 @@ from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
     project_row_schema_to_semantic_row_schema,
     scalar_read_types_within,
+    add_shape_typed_diagnostics,
 )
 from pietto._project.row_dependency_graph import (
     ProjectRowDependencyNode,
@@ -144,6 +145,7 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
+    internal_order_diagnostic,
     child_expressions,
     invalid_context_diagnostic,
     aggregate_argument_can_use_let_scope,
@@ -3137,6 +3139,7 @@ def _capture_environment(
             types[read] = project_row_field_to_semantic_value_type(
                 field,
                 ProjectRowFieldNullability.NULLABLE if extended else field.nullability,
+                shapes=True,
             )
     return MappingProxyType(types)
 
@@ -3913,6 +3916,12 @@ def _select_facts(
                 )
             )
             continue
+        if type(item.expression) is CallExpr and not definition.join_clauses:
+            # Its aggregate stage refuses the call; the error says why, as in
+            # a single file. JOIN aggregation reports its own.
+            order_diagnostic = internal_order_diagnostic(item.expression)
+            if order_diagnostic is not None:
+                expression_diagnostics.append(order_diagnostic)
         retained_types = expression_types
         if (
             input_schema is not None
@@ -3929,19 +3938,42 @@ def _select_facts(
             # The schema helper omits failed analyses. Retain the existing-rule
             # failure as well, so completion cannot replace it with success.
             failed_types = scalar_read_types_within(item.expression, read_types)
-            infer_row_expression(
-                item.expression,
+
+            def infer(
+                schema: SemanticRowSchema,
+                found: list[Diagnostic],
+                types: dict[Expression, ValueType],
+            ) -> ValueType:
+                return infer_row_expression(
+                    item.expression,
+                    schema,
+                    types,
+                    found,
+                    report_unknown_name=True,
+                    field_qualifier=definition.from_clause.binding_name
+                    or definition.from_clause.source_name,
+                    bare_value_types=let_values,
+                    bare_value_expressions=followed_lets,
+                    suppressed_unknown_names=set(let_names),
+                    relation_columns=read_types,
+                    captured_value_types=captures,
+                )
+
+            start = len(expression_diagnostics)
+            infer(
                 project_row_schema_to_semantic_row_schema(input_schema),
-                failed_types,
                 expression_diagnostics,
-                report_unknown_name=True,
-                field_qualifier=definition.from_clause.binding_name
-                or definition.from_clause.source_name,
-                bare_value_types=let_values,
-                bare_value_expressions=followed_lets,
-                suppressed_unknown_names=set(let_names),
-                relation_columns=read_types,
-                captured_value_types=captures,
+                failed_types,
+            )
+            add_shape_typed_diagnostics(
+                input_schema,
+                expression_diagnostics,
+                start,
+                lambda schema, found: infer(
+                    schema,
+                    found,
+                    scalar_read_types_within(item.expression, read_types),
+                ),
             )
             if type(item.expression) in {NameExpr, DottedNameExpr}:
                 # Other readers report the name itself (PIE-S2102); this one
@@ -4074,20 +4106,28 @@ def _where_fact(
         )
     row_schema = project_row_schema_to_semantic_row_schema(input_schema)
     let_values = checked_let_values(let_scope, let_scope.binding_expressions)
-    where_type = infer_row_expression(
-        clause.expression,
-        row_schema,
-        value_types,
-        diagnostics,
-        report_unknown_name=True,
-        field_qualifier=definition.from_clause.binding_name
-        or definition.from_clause.source_name,
-        bare_value_types=let_scope.binding_value_types,
-        bare_value_expressions=let_values,
-        suppressed_unknown_names=unknown_names or None,
-        relation_columns=read_types,
-        captured_value_types=captures,
-    )
+
+    def infer(schema: SemanticRowSchema, found: list[Diagnostic]) -> ValueType:
+        return infer_row_expression(
+            clause.expression,
+            schema,
+            value_types
+            if schema is row_schema
+            else scalar_read_types_within(clause.expression, read_types),
+            found,
+            report_unknown_name=True,
+            field_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
+            bare_value_types=let_scope.binding_value_types,
+            bare_value_expressions=let_values,
+            suppressed_unknown_names=unknown_names or None,
+            relation_columns=read_types,
+            captured_value_types=captures,
+        )
+
+    start = len(diagnostics)
+    where_type = infer(row_schema, diagnostics)
+    add_shape_typed_diagnostics(input_schema, diagnostics, start, infer)
     diagnostic = _check_bool_expression(
         clause.expression,
         context="where clause",

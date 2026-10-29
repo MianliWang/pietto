@@ -228,15 +228,23 @@ unchanged.
 
 Single-file SQL emits each table and query as its own statement. A statement
 that reads a table or query of the same file, with `from`, a JOIN or
-`any(...)`, defines it, and each table or query that one reads, as a CTE named
+`any(...)`, also an `any(...)` that only its QUALIFY or the ORDER BY after it
+reads, defines it, and each table or query that one reads, as a CTE named
 after it (`WITH "active_users" AS (...)`), each after the ones it reads, so the
 statement runs without that relation in the database; a CTE's body is that
-relation's own statement without its `WITH`. A CTE takes the place of a
+relation's own statement without its `WITH`, except that each unaliased output
+(PIE-S2304) takes a private alias `__pietto_column_<n>`, so no read of a CTE
+column binds to the name the database would give it. A statement that reads
+such a relation by a name it gives no output, such as `lower` for an unaliased
+`lower(email)` over a source without a shape, whose fields a check cannot know,
+is refused with PIE-B1000 at the reading relation: alias the output, as in
+`lower = lower(email)`, and read that name. A CTE takes the place of a
 table named without a schema in the CTEs after it and in the statement's
 SELECT (MySQL compares the names case-insensitively), so `emit-sql` refuses a
 statement with PIE-B1000 when it reads such a table there: read the table
 with its schema, or rename the table or query. MySQL emission also refuses a
-statement with two CTEs whose names differ only in case. A statement that
+statement with two CTEs whose names differ only in case, and a CTE or QUALIFY
+derived table with two outputs whose names differ only in case. A statement that
 reads a table or query whose own SQL is refused is refused with the same
 reason. An explicit-module project also emits the relation it reads as a CTE.
 
@@ -286,11 +294,28 @@ imported (see [project and package](project-package.md#schema-compatibility)).
 | Set combination | `union all a, b`, with an explicit quantifier |
 
 A successful `check` does not prove IR or SQL capability. When completed
-single-file facts already show that PostgreSQL emission will refuse a RANGE
-frame offset, an effective `ignore nulls` or `from last` modifier, a direct
-cross-input FULL JOIN equality outside canonical `Int`, or an untyped all-None
-output read by another relation, `check` also reports PIE-S2385 WARNING. The
-warning does not change the command's exit status or attempt SQL emission.
+single-file facts already show that PostgreSQL emission will refuse a
+relation, `check` also reports PIE-S2385 WARNING at the cause: a RANGE frame
+offset; an effective `ignore nulls` or `from last` modifier; a FULL JOIN `on`
+conjunct, a relationship call read as its body, that is not an equality
+between an `Int` field of the target and one of an earlier input (such as
+`a.id == b.id and b.kind == "x"`, `a.id < b.id`, `True` or an `or`); a FULL
+JOIN after a `where any(...)` or `where not any(...)` that no RIGHT JOIN takes
+into its `on`; an untyped all-None output read by another relation; and, in a
+relation whose FROM does not end at a `mysql.table` source, an untyped
+all-None output that the relation's own QUALIFY reads (through a derived
+table, which PostgreSQL types as text), an operator whose
+operands are all `None` (`None + None`, `-z` for `let z = None`), a CASE,
+`coalesce` or `nullif` of only `None` values that an operator, a condition, a
+numeric or temporal function or a comparison with a non-Text value would
+read, a `Float(...)` or `Text(...)` of a value not known to be `Int` (other
+than one that reads a field of unknown type, such as `Text(x + 1)` over a
+source without a shape), a `count` of a field typed by a shape, a
+`substr` index or `ntile`, `lag`, `lead` or `nth_value` integer literal
+outside PostgreSQL's 32-bit range, and a CTE that would hide a table, named
+without a schema, that the same statement reads. A relation with an error
+gets none of the warnings that follow its expressions or its CTEs. The warning
+does not change the command's exit status or attempt SQL emission.
 Single-file QUALIFY is typed and lowers after the window stage. PostgreSQL and
 MySQL emit it through a private derived-table filter, retaining only visible
 selected outputs and applying relation `order by` and `limit` after the filter.
@@ -454,10 +479,13 @@ output another name. An output of that same field, such as `quantity`,
 the same value and is not ambiguous. Emission restates the SELECT output that
 a key names, as it inlines a `let` value, so `order by total` emits `ORDER BY
 "price_cents" * "quantity"`; a selected window result is ordered by its output
-name. Over an input row of unknown type, such as a source without a shape, no
-key is ambiguous: a key named alone is emitted by its name, which the SQL
-target reads as the output of that name when there is one and else as the
-input field. In a query without GROUP BY, a key that is a bare constant once
+name, or by its position in the SELECT list beside an unaliased item or, on
+MySQL, beside another output whose name differs from it only in case. Over an
+input row of unknown type, such as a source without a shape, no key is
+ambiguous: a key named alone that is a SELECT output of that exact name reads
+that output and is emitted as a selected window result is; any other key, a `let` name
+bound to a field included, reads the input field, which emission qualifies
+where a SELECT item would capture it, as described below. In a query without GROUP BY, a key that is a bare constant once
 `let` names and signs are inlined, such as `label` with `let label = "x"` or
 `-1`, is PIE-S2380, even from a source without a shape, because SQL reads an
 integer as a column position and PostgreSQL rejects other bare constants; so
@@ -471,10 +499,8 @@ output is accepted (`order by n` with `select n = count()`). A JOIN relation
 with an aggregate and no GROUP BY instead refuses the entire ORDER BY clause
 with PIE-S2334. A grouped key stays PIE-S2321. When a SELECT item would capture a key that is a bare input
 field once `let` names and SELECT output names are inlined (an output of the
-same name, which MySQL compares case-insensitively; on PostgreSQL any
-unaliased computed item, which it names implicitly; on MySQL an unaliased Text
-literal, `True`, `False` or `None`, which it names by the Text value or `TRUE`,
-`FALSE` or `NULL`), the emitted SQL qualifies the key with the name FROM
+same name, which MySQL compares case-insensitively, or any unaliased item,
+which PostgreSQL and MySQL each name by rules of their own), the emitted SQL qualifies the key with the name FROM
 already gives the input, as in `FROM "sales"."orders" ... ORDER BY
 "orders"."amount"`; the FROM clause is unchanged. MySQL documents that it
 looks every ORDER BY name up among the SELECT output names first, so on MySQL
@@ -639,7 +665,12 @@ separate row occurrences. The predicate may capture only bindings visible at
 that point: ON sees its pre-match prefix and current target, while WHERE/SELECT
 see the completed joined row and its actual NULL extension. Scalar LET captures
 see only earlier admitted LETs; future, self, an earlier filter's binder and
-out-of-scope bindings remain unavailable.
+out-of-scope bindings remain unavailable. Both rows need known fields: an
+`any` over a relation of unknown row type, such as a source without a shape,
+is PIE-S2334 (`ANY over orders requires known input fields.`), and in a single
+file a read of a field of such a FROM row, such as `items.id`, is PIE-S2102
+(`Unknown or unavailable field in ANY predicate: items.id`), as is a read of
+an output of no type, such as `x = None` of a table the generator reads.
 
 ```pietto
 shape Order:
@@ -753,15 +784,25 @@ the fields of such a source, directly or through other tables or queries that
 do only that. In other cases, for example a relation `let` with no GROUP BY or
 set operation, or a table or query with a `let` clause or a computed SELECT
 output such as `v = id + 1`, those JOINs may report PIE-S2333 at the table or
-query, even when the field is never read. After the JOIN, scalar typing reads
-such a field as of unknown type, so a `where` test, a SELECT output, a `let`
-value or an ORDER BY key may read it only inside an expression whose own type
-stays known: a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), `is None`,
-`is not None`, and `and`, `or` and `not` over such tests, for example
-`c.home is None or c.id > 0`. Any other read there is not supported yet and
-reports PIE-S2333 at the table or query: the field itself (selected, bound in
-`let` or used as an ORDER BY key), a call, and every `in`, `not in`,
-inclusive comparison chains, `like` or `not like` test of it, in `where` too. GROUP BY may name
+query, even when the field is never read. After the JOIN, a `where` test, a
+`let` value, a SELECT output or an ORDER BY key reads such a field as that
+shape where an operator or a function refuses a shape, as a single file does:
+`c.home + 1`, `lower(c.home)`, `c.home like "a%"`, `1 <= c.home <= 2`,
+`c.home in (1, 2)` or `c.home == 1` reports PIE-S2105 or PIE-S2104 at the
+expression. Otherwise
+scalar typing reads such a
+field as of unknown type, so a `where` test, a SELECT output, a `let` value or
+an ORDER BY key may read it only inside an expression whose own type stays
+known: a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`) with another shape
+value, `is None`, `is not None`, and `and`, `or` and `not` over such tests,
+for example `c.home is None or c.id > 0`. Any other read there is not
+supported yet and reports PIE-S2333 at the table or query: the field itself
+(selected, also through a `let` name, or used as an ORDER BY key) and an `in`
+or `not in` test of it among other shape values, in `where` too. Without JOIN
+inputs a SELECT item that tests the field directly, as `b = home is None` and
+`b = home == work` do, and any SELECT item of a `select distinct` relation
+that reads it also report PIE-S2333, while `b = h is None` for `let h = home`
+is typed. GROUP BY may name
 the field, but selecting it from the groups reports PIE-S2333 as well. An
 aggregate of it reports PIE-S2315 at the call, and a window partitioned or
 ordered by it reports PIE-S2103 (`window partition field type must be
@@ -924,11 +965,17 @@ second time (`Duplicate JOIN binding name: <name>`), both PIE-S2335 at the
 name; a second `let` of one name is PIE-S2604 (`Duplicate query local name`).
 
 An EXPLICIT_MODULES project also accepts the resolved FROM relation's original
-qualified spelling for compatibility: after `let c = customers` and `from c`,
-both `c.id` and `customers.id` read the one FROM occurrence. This does not
-make an intermediate alias in an alias chain an input name, and it does not
-cross an `any` binder, a capture boundary or a JOIN binding. Single-file
-checks keep the rule above and accept only `c.id`.
+qualified spelling, which 0.1.5 accepted in WHERE, GROUP BY, an ungrouped
+ORDER BY and a grouped SELECT only: after
+`let c = customers` and `from c`, both `c.id` and `customers.id` read the one
+FROM occurrence, in every clause but HAVING and the ORDER BY of a grouped
+query, but only in a query without a JOIN, and not inside `any(...)`. A
+project HAVING or grouped ORDER BY reads no qualified input field, with or
+without an alias: it is the bare PIE-S2333, as in 0.1.5. Elsewhere, such as in a JOIN's `on`, after a JOIN or in a self
+JOIN, `customers.id` is refused as in 0.1.5. This does not make an
+intermediate alias in an alias chain an input name, and it does not cross a
+capture boundary. Single-file checks keep the rule above and accept only
+`c.id`.
 
 Every JOIN but CROSS has an `on` predicate: a declared relationship never joins
 by itself, and a JOIN without `on` is PIE-S2335
@@ -1015,9 +1062,9 @@ so WHERE drops those rows as `inner join` would. Each LEFT JOIN target that a
 top-level `and` conjunct of the WHERE tests this way is a PIE-S2383 warning in
 every check mode, once, at its first such conjunct. Move the test into the
 JOIN's `on` to keep the unmatched rows, or write `inner join`. An `or`, an
-`is None` test or a built-in call such as `coalesce` is never counted, nor is
-a target that a later INNER JOIN's match already reads; a `def` call counts as
-its body.
+`is None` test, a built-in call such as `coalesce` or an empty `in ()` or
+`not in ()` list, which is a constant, is never counted, nor is a target that
+a later INNER JOIN's match already reads; a `def` call counts as its body.
 
 PostgreSQL writes one flat SELECT per relation. Every input is aliased by its
 name and every field is qualified. Sources use their `postgres.table` name;
@@ -2145,13 +2192,17 @@ PostgreSQL supports `round(value[, digits])` and `date_trunc(unit, value)` in
 both single-file and project SQL emission. MySQL refuses these shapes unless an
 equivalent form is proved. `round` accepts a Decimal value and an optional
 static Int `digits` from -30 through 30 after `let` expansion. A Float value is
-accepted only with integer rounding; Float ties round half away from zero.
+accepted only with integer rounding. A tie rounds half away from zero, for a
+Float and a Decimal alike, as PostgreSQL rounds a `numeric`: `round(2.5)` is 3
+and `round(-2.5)` is -3. This differs from Python, whose `round` takes a tie
+to the even neighbour: `round(2.5) == 2`, also for a `Decimal` under the
+default context.
 `date_trunc` accepts `year`, `month`, or `day` for Date values, and additionally
 `hour` or `minute` for Timestamp values. These calls preserve the operand's
 nullability.
 `in`/`not in`, `not`,
 conditional expressions, `like`/`not like` with `ESCAPE '!'`, and inclusive comparison chains
-retain their ordinary SQL NULL behavior. In a single file, a `not in` list
+retain their ordinary SQL NULL behavior. In a single file, a nonempty `not in` list
 without a `None` option whose value reads a field whose type is `| None`, directly or
 through arithmetic, is a PIE-S2384 warning in every check mode, as it is never True
 when that value is None while Python's `None not in (...)` is: write
@@ -2444,9 +2495,8 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   there are checked no more than the same expression written by hand (the
   argument count, relation-read and position rules above still apply): a type
   or field `ensure`; in a project, a `constraint` or `derive` body and a shape
-  `check`, `index` predicate or field `derive` (a single file checks them); a
-  single-file `qualify:` (which `explain` and `emit-sql` refuse); in a
-  project check, the ungrouped `order by` of a relation without JOIN inputs
+  `check`, `index` predicate or field `derive` (a single file checks them);
+  in a project check, the ungrouped `order by` of a relation without JOIN inputs
   that is not `select distinct` (`emit-sql --project` blocks a mismatched
   argument there with PIE-B1003 without naming it; with JOIN inputs or
   `select distinct` the argument is checked).
@@ -2523,7 +2573,10 @@ count count_distinct sum avg min max string_agg
 expressions and at least one internal order key. It preserves every key,
 direction, duplicate and tie exactly as written; it adds no tie-breaker and is
 not a window aggregate. PostgreSQL emits it; MySQL refuses it rather than use
-a truncating session-dependent aggregate.
+a truncating session-dependent aggregate. Over a source without a shape it is
+still an aggregate projection: beside another projection, a window included,
+without GROUP BY it is PIE-S2312, as `max` is, and `emit-sql` refuses it with
+PIE-B1000 there, as it refuses every aggregate over such a source (see below).
 
 `count()` lowers to `COUNT(*)`; supported `count(field)` forms count non-null
 field values. The selected project numeric boundary admits Int unary `+`/`-`,
@@ -2654,7 +2707,7 @@ key, which would change the result's grain. With
 `customer.name` reports:
 
 ```text
-An aggregate may read rows repeated by JOIN customer; match a unique key of customer in `on` with a relationship call or a mandatory positive equality, use `any(...)` for an input that only filters rows, or aggregate in a separate query first
+An aggregate may read rows repeated by JOIN customer; match a unique key of customer in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first
 ```
 
 Once the shape declares `customer_key = unique(id)`, the same `on` proves that
@@ -2679,9 +2732,13 @@ In both single files and projects a mandatory positive equality is a top-level
 `and` conjunct of `on` that compares two fields, bare or qualified, with `==`;
 one written by hand, as in
 `inner join customers on orders.customer_id == customers.id`, proves what the
-same equality in a relationship body proves. A project also matches a key it
-knows for a relation, such as one carried through a query; a single file
-matches only a key that a source's shape declares. A project takes these
+same equality in a relationship body proves. A project also matches a key
+that a query carries from its FROM input through only `select`, a `where`
+without `any(...)`, `order by` and `limit`. An `on` equality does not match
+yet the key of a query with GROUP BY, an `any(...)` filter, a window, QUALIFY,
+`select distinct`, a JOIN or a FROM over a query block (a grouped query's key
+still protects its own GROUP BY), and a refusal then does not ask to match it.
+A single file matches only a key that a source's shape declares. A project takes these
 equalities only from `on`, never from WHERE, not even from a relationship call
 there; a single file also takes those of a relationship call in WHERE (see
 above), never a hand-written WHERE equality.
@@ -2817,7 +2874,15 @@ The bounded window identities are `row_number`, `rank`, `dense_rank`,
 `percent_rank`, `cume_dist`, `ntile`, `lag`, `lead`, `first_value`,
 `last_value`, and `nth_value`. `sum`, `count`, `avg`, `min`, and `max` may also
 be used as direct aliased window projections when their ordinary aggregate
-argument and result contract admits the call. This is a single-file surface:
+argument and result contract admits the call; a window does not count a field
+typed by a shape (PIE-S2104), and over a source without a shape every
+aggregate window that reads a field, as an argument or a partition or order
+key, is PIE-S2103 (`window input schema must be concrete`), as every window is
+outside GROUP BY, while `count() window()` reads none and is accepted;
+under GROUP BY over such a source `check`
+accepts a window, selected or in QUALIFY, as 0.1.4 did, and `emit-sql`
+refuses the relation (PIE-I1000), since its groups type no field the window
+reads. This is a single-file surface:
 EXPLICIT_MODULES project checks retain their existing unsupported-window
 boundary. Aggregate windows do not accept `ignore nulls`, `respect nulls`,
 `from first`, or `from last`; each reports PIE-S2104 rather than being omitted
@@ -3000,12 +3065,34 @@ not accepted, and adding QUALIFY does not make window expressions legal in
 WHERE, LET, GROUP BY, or the global scalar grammar.
 
 In a single file, outer QUALIFY names resolve across the complete pre-window
-input bucket and complete selected-output bucket. A unique selected alias is
-bare-only and a qualified name remains input-only; duplicate outputs retain
-their own diagnostics. Any input/output collision is ambiguous, including
-candidates that evaluate to the same field, so no candidate wins. A hidden
-window uses only the pre-window input namespace and cannot consume a selected
-result. In an EXPLICIT_MODULES project, the existing query-block rule remains:
+input bucket and complete selected-output bucket. Under GROUP BY the
+pre-window input bucket holds only the GROUP BY keys:
+a key field, bare or qualified, and a `let` name that is a key or whose value,
+also inside an `any(...)`, reads no other input field; any other input read is
+PIE-S2102 (`Unknown field: price`). A query with aggregates and no GROUP BY is
+one group without keys: its QUALIFY reads selected outputs and `let` names
+that read no input field, and a hidden window there is PIE-S2103 (`a query with
+aggregates and no GROUP BY admits no hidden QUALIFY window`). Over a source
+without a shape these rules hold for the names of the fields the relation
+reads, as its grouping reads them, and a name that a SELECT output has reads
+that output: no collision with an unknown input field can be known there. An
+aggregate is read through the selected output that computes it: an aggregate
+call in a
+single-file QUALIFY predicate is PIE-S2308 (`Aggregate count() is not allowed
+in qualify clause; use it only as a direct aliased select projection`), with
+or without GROUP BY; an aggregate window there stays legal. A unique selected
+alias is bare-only and a qualified name remains input-only; duplicate outputs
+retain their own diagnostics. Any collision of a selected output with a field
+of the whole input, grouped or not, is ambiguous, including candidates that
+evaluate to the same field, so no candidate wins; under GROUP BY or
+aggregates the message offers the qualified name only when QUALIFY can read
+it (`Ambiguous field: price is both the input field items.price and a SELECT
+output; give the output another name`). A hidden window reads what a
+selected window of the query reads and cannot consume a selected window
+result: under GROUP BY, the selected keys and aggregates by their output
+names. A name that such an output shares with an input field whose value it
+is not, such as `cat` for `cat = max(price)` grouped by `cat`, is ambiguous
+there too (PIE-S2102), in a hidden or a selected window. In an EXPLICIT_MODULES project, the existing query-block rule remains:
 only selected window results form QUALIFY's selected namespace.
 
 An EXPLICIT_MODULES QUALIFY requires at least one selected or hidden window

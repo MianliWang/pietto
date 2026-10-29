@@ -821,7 +821,21 @@ KIND_INPUTS = {
 
 KIND_EXPECTED = {
     "right": [],
-    "full": [],
+    # PostgreSQL's FULL JOIN takes only Int field equalities in `on`.
+    "full": [
+        (
+            "PIE-S2385",
+            "warning",
+            "Single-file SQL emission is unavailable because this FULL JOIN "
+            "condition is not an equality between Int fields of its two sides; "
+            "this warning does not change check's exit status, but emit-sql will "
+            "refuse this relation.",
+            11,
+            27,
+            11,
+            31,
+        )
+    ],
     "cross": [],
     "semi": [("PIE-S2102", "error", "Unknown field: customer.name", 13, 13, 13, 26)],
     "anti": [("PIE-S2102", "error", "Unknown field: customer.name", 13, 13, 13, 26)],
@@ -1669,9 +1683,7 @@ def test_single_file_join_reads_that_fail_say_why() -> None:
     ]
 
 
-def test_single_file_join_post_pass_drops_reads_of_relations_it_does_not_analyse() -> (
-    None
-):
+def test_single_file_join_post_pass_keeps_reads_of_windowed_join_relations() -> None:
     run = run_joins(
         _joined_query(
             "    from orders\n    let r = regions\n    cross join r\n"

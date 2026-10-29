@@ -590,7 +590,7 @@ def test_window_ir_spec_constructor_validation_is_exact(_case: int) -> None:
         WindowSpecIR(**values)  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("_case", range(16))
+@pytest.mark.parametrize("_case", range(17))
 def test_window_ir_call_constructor_validation_and_arity_are_exact(
     _case: int,
 ) -> None:
@@ -619,6 +619,8 @@ def test_window_ir_call_constructor_validation_and_arity_are_exact(
         {"arguments": (object(),)},
         {"identity": object()},
         {"spec": object()},
+        # A ranking or navigation call needs an order; an aggregate need not.
+        {"spec": _spec(order_by=())},
     )
     values: dict[str, object] = {
         "span": SPAN,

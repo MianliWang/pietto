@@ -338,7 +338,7 @@ def test_q1_cast_and_qualified_field_traversal_render() -> None:
     assert expression_uses_qualified_field(cast)
 
 
-def test_c5_text_cast_and_scalar_function_sql_shapes() -> None:
+def test_text_cast_and_scalar_function_sql_shapes() -> None:
     decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
     float_type = _builtin_type("Float", NullabilityIR.NULLABLE)
     int_type = _builtin_type("Int", NullabilityIR.NON_NULL)
@@ -429,7 +429,7 @@ def test_c5_text_cast_and_scalar_function_sql_shapes() -> None:
     assert render_expression_sql(text_cast) == 'CAST("id" AS text)'
 
 
-def test_c5_postgres_typed_null_arguments_select_unambiguous_overloads() -> None:
+def test_postgres_typed_null_arguments_select_unambiguous_overloads() -> None:
     decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
     date = _builtin_type("Date", NullabilityIR.NULLABLE)
     timestamp = _builtin_type("Timestamp", NullabilityIR.NULLABLE)
@@ -471,7 +471,7 @@ def test_c5_postgres_typed_null_arguments_select_unambiguous_overloads() -> None
     )
 
 
-def test_c5_qualified_internal_aggregate_order_key_is_not_lost() -> None:
+def test_qualified_internal_aggregate_order_key_is_not_lost() -> None:
     text = _builtin_type("Text", NullabilityIR.NON_NULL)
     aggregate = AggregateCallIR(
         span=SPAN,
@@ -542,7 +542,7 @@ def test_c5_qualified_internal_aggregate_order_key_is_not_lost() -> None:
         ),
     ],
 )
-def test_c5_scalar_renderer_refuses_unapproved_typed_shapes(
+def test_scalar_renderer_refuses_unapproved_typed_shapes(
     expression: ExpressionIR,
 ) -> None:
     with pytest.raises(ValueError):

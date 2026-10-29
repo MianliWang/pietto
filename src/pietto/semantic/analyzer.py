@@ -674,6 +674,7 @@ def _analyze(
         cyclic_relations=cyclic_relations,
         failed_relationship_calls=failed_relationship_calls,
         any_binders=any_binders(existence_generators),
+        errors=[d.location for d in diagnostics if d.severity is Severity.ERROR],
     )
     diagnostics.extend(
         d for d in any_diagnostics if id(d) not in failure_diagnostic_ids
@@ -799,6 +800,7 @@ def _analyze(
                 type_expansions=type_expansions,
                 expression_value_types=expression_value_types,
                 from_resolutions=from_resolutions,
+                relationship_calls=relationship_calls,
                 reported=diagnostics,
             )
         )

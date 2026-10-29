@@ -92,6 +92,9 @@ class WindowInputScope:
     bindings: tuple[WindowInputBinding, ...]
     allows_qualified_fields: bool
     has_valid_group_aggregate: bool
+    # Each grouped output name an input field of another value shares, with
+    # that field's qualified spelling: a window reads neither.
+    ambiguous_names: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if type(self.kind) is not WindowInputScopeKind:
@@ -312,6 +315,18 @@ def _build_grouped_scope(
             )
         )
 
+    has_valid_group_aggregate = any(
+        item.origin is WindowInputOriginKind.AGGREGATE_RESULT
+        for item in output_bindings
+    )
+    ambiguous_names = _ambiguous_output_names(
+        output_bindings, input_schema=input_schema, field_qualifier=field_qualifier
+    )
+    output_bindings = [
+        item
+        for item in output_bindings
+        if item.name not in {name for name, _ in ambiguous_names}
+    ]
     bindings = list(output_bindings)
     occupied = {item.name for item in bindings}
     group_key_outputs = tuple(
@@ -363,11 +378,49 @@ def _build_grouped_scope(
         row_schema=RowSchema(fields=grouped_fields),
         bindings=tuple(bindings),
         allows_qualified_fields=False,
-        has_valid_group_aggregate=any(
-            item.origin is WindowInputOriginKind.AGGREGATE_RESULT
-            for item in output_bindings
-        ),
+        has_valid_group_aggregate=has_valid_group_aggregate,
+        ambiguous_names=ambiguous_names,
     )
+
+
+def _ambiguous_output_names(
+    outputs: list[WindowInputBinding],
+    *,
+    input_schema: RowSchema,
+    field_qualifier: str,
+) -> tuple[tuple[str, str], ...]:
+    """The grouped outputs named as an input field whose value they are not.
+
+    As for an outer QUALIFY name, no candidate wins such a collision; an
+    output that is that very key field reads the same value.
+    """
+
+    if input_schema.is_unknown:
+        return ()
+    found: list[tuple[str, str]] = []
+    for output in outputs:
+        if input_schema.joined:
+            keys = [
+                key
+                for key in input_schema.fields
+                if key.partition(".")[2] == output.name
+            ]
+            if len(keys) != 1:
+                continue
+            qualified = keys[0]
+            field = input_schema.fields[qualified]
+        else:
+            field = input_schema.fields.get(output.name)
+            if field is None:
+                continue
+            qualified = f"{field_qualifier}.{output.name}"
+        if (
+            output.origin is WindowInputOriginKind.GROUP_KEY
+            and output.source_field_name == field.name
+        ):
+            continue
+        found.append((output.name, qualified))
+    return tuple(found)
 
 
 def _populate_aggregate_value_types(

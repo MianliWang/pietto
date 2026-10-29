@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import replace
 
 import pytest
@@ -16,6 +17,8 @@ from pietto.ir import (
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlArtifactKind, emit_postgres_sql
+from pietto.sql.mysql import emit_mysql_sql
+from pietto.sql.relations import render_relation_sql
 
 SOURCE = (
     "shape User:\n"
@@ -292,6 +295,420 @@ def test_a_relation_whose_sql_is_refused_refuses_its_readers() -> None:
         )
         for name in ("unset", "reader")
     ]
+
+
+# In a CTE each unaliased output (PIE-S2304 warns of it) takes a private
+# alias, so a read of another output by its name binds to that output alone;
+# the relation's own SELECT keeps the item unaliased. Before: PostgreSQL named
+# `lower(cat)` and `CASE ... ELSE lower(cat) END` `lower`, and `trim(cat)`
+# `btrim`, and Pietto refused, or missed, a read of an output of that name.
+def test_an_unnamed_cte_output_takes_a_private_alias() -> None:
+    result = emit_postgres_sql(
+        _compile_ir(
+            "shape Row:\n    id: Int\n    cat: Text\n"
+            'source items: Row = postgres.table("items")\n'
+            "table base:\n    from items\n    select:\n        id\n"
+            "        lower = id\n        lower(cat)\n"
+            '        "" if id > 1 else lower(cat)\n        btrim = id\n'
+            "        trim(cat)\n"
+            "query reader:\n    from base\n    select:\n        lower\n"
+            "        btrim\n"
+            "query joined:\n    from items\n    let b = base\n"
+            "    inner join b on b.id == items.id\n    select:\n"
+            "        x = b.lower\n"
+            "query filtered:\n    from items\n"
+            "    where any(b.lower == items.id for b in base)\n    select:\n"
+            "        id\n"
+        )
+    )
+
+    items = (
+        '"id" AS "id"',
+        '"id" AS "lower"',
+        'lower("cat")',
+        'CASE WHEN ("id" > 1) THEN \'\' ELSE lower("cat") END',
+        '"id" AS "btrim"',
+        'trim("cat")',
+    )
+    aliased = {2: "__pietto_column_1", 3: "__pietto_column_2", 5: "__pietto_column_3"}
+    base = "SELECT\n    " + ",\n    ".join(items) + '\nFROM "items"'
+    cte = (
+        'WITH "base" AS (\nSELECT\n    '
+        + ",\n    ".join(
+            f'{item} AS "{aliased[index]}"' if index in aliased else item
+            for index, item in enumerate(items)
+        )
+        + '\nFROM "items"\n)\n'
+    )
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        base,
+        f'{cte}SELECT\n    "lower" AS "lower",\n    "btrim" AS "btrim"\nFROM "base"',
+        f'{cte}SELECT\n    "b"."lower" AS "x"\nFROM "items" AS "items"\n'
+        'INNER JOIN "base" AS "b" ON "b"."id" = "items"."id"',
+        f'{cte}SELECT\n    "id" AS "id"\nFROM "items" AS "items"\nWHERE EXISTS '
+        '(SELECT 1 FROM "base" AS "_pietto_value_1" '
+        'WHERE "_pietto_value_1"."lower" = "items"."id")',
+    ]
+
+
+# Over a source without a shape a check reads any name of a relation, yet its
+# CTE has only the outputs the relation names, each unaliased one under a
+# private alias that takes no name the statement reads; a read of another
+# name, such as the one a database gives an unaliased output, is refused at
+# its reader, and MySQL compares the names without case. ORDER BY reads the
+# reader's own output only by a whole key of its exact name, so `Z` beside an
+# output `z`, or `z + 1`, reads the CTE. The hint to name an unaliased output
+# is conditional, and a read that differs from an output only in case gets
+# none. Before: emission read `lower`, which names no column of the CTE, and
+# the database rejected the statement; a key such as `Z` or `z + 1` beside an
+# output `z` passed the check by the output's name and read the CTE.
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+def test_a_read_of_a_name_a_cte_does_not_give_is_refused(dialect: str) -> None:
+    emitter = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
+    q, label = ('"', "PostgreSQL") if dialect == "postgres" else ("`", "MySQL")
+    result = emitter(
+        _compile_ir(
+            f'source items = {dialect}.table("items")\n'
+            "table base:\n    from items\n    select:\n        id\n"
+            "        lower(email)\n        __pietto_column_1\n"
+            "query reader:\n    from base\n    select:\n        __pietto_column_1\n"
+            "        y = id\n    order by y\n"
+            "query implicit:\n    from base\n    select:\n        id\n"
+            "        x = lower\n"
+            "query unknown:\n    from base\n    where nosuch > 1\n    select:\n"
+            "        id\n"
+            "query cased:\n    from base\n    select:\n        x = ID\n"
+            "table named:\n    from items\n    select:\n        id\n"
+            "query stray:\n    from named\n    select:\n        x = nosuch\n"
+            "query sorted:\n    from named\n    select:\n        z = id\n"
+            "    order by Z\n"
+            "query shifted:\n    from named\n    select:\n        z = id\n"
+            "    order by z + 1\n"
+        )
+    )
+
+    lower = "lower" if dialect == "postgres" else "LOWER"
+    column = f"{q}__pietto_column_1{q} AS {q}__pietto_column_1{q}"
+    cte = (
+        f"WITH {q}base{q} AS (\nSELECT\n    {q}id{q} AS {q}id{q},\n"
+        f"    {lower}({q}email{q}) AS {q}__pietto_column_2{q},\n    {column}\n"
+        f"FROM {q}items{q}\n)\n"
+    )
+    sql = [
+        f"SELECT\n    {q}id{q} AS {q}id{q},\n    {lower}({q}email{q}),\n"
+        f"    {column}\nFROM {q}items{q}",
+        f"{cte}SELECT\n    {column},\n    {q}id{q} AS {q}y{q}\nFROM {q}base{q}\n"
+        f"ORDER BY\n    {q}y{q} ASC",
+    ]
+    hint = (
+        "; if it means the unaliased output at line 6, column 9, which has no "
+        "name a reader can use, write `{} = ...` there to name it"
+    )
+    refused = [
+        ("implicit", 14, "lower", "base", hint.format("lower")),
+        ("unknown", 19, "nosuch", "base", hint.format("nosuch")),
+    ]
+    if dialect == "postgres":
+        refused.append(("cased", 24, "ID", "base", ""))
+    else:
+        sql.append(f"{cte}SELECT\n    {q}ID{q} AS {q}x{q}\nFROM {q}base{q}")
+    sql.append(f"SELECT\n    {q}id{q} AS {q}id{q}\nFROM {q}items{q}")
+    refused += [
+        ("stray", 32, "nosuch", "named", ""),
+        ("sorted", 36, "Z", "named", ""),
+        ("shifted", 41, "z", "named", ""),
+    ]
+    assert [artifact.sql for artifact in result.artifacts] == sql
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            line,
+            1,
+            f"{label} SQL emission is not implemented for RelationIR: {name}. "
+            f"Its SQL reads {read} from relation {cte_name}, which names no output "
+            f"{read}{tail}",
+        )
+        for name, line, read, cte_name, tail in refused
+    ]
+
+
+# Generated: whatever name PostgreSQL or MySQL gives an unaliased item (MySQL:
+# a Text value without its leading spaces; PostgreSQL: a CASE by its ELSE,
+# `trim` as `btrim`, a cast by its value), a CTE holds it under a private
+# alias, so a read of an output of that name, or of a name that differs from
+# it only in case, binds to that output alone, directly or inside `any(...)`.
+_UNALIASED_ITEMS = (
+    ('" price"', ("price", "PRICE")),
+    ('"price  "', ("price",)),
+    ('"Price"', ("price",)),
+    ("0 if id > 1 else price", ("price", "case")),
+    ("0 if id > 1 else abs(cost)", ("abs", "ABS")),
+    ("lower(name)", ("lower", "LOWER")),
+    ("trim(name)", ("btrim", "trim")),
+    ("Float(price)", ("price", "float8")),
+    ("price + 1", ("price",)),
+)
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    ("item", "name"),
+    tuple((item, name) for item, names in _UNALIASED_ITEMS for name in names),
+)
+def test_no_cte_read_binds_by_the_name_of_an_unaliased_item(
+    item: str, name: str, dialect: str
+) -> None:
+    emitter = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
+    quote = '"' if dialect == "postgres" else "`"
+    result = emitter(
+        _compile_ir(
+            "shape Row:\n    id: Int\n    price: Int\n    cost: Int\n    name: Text\n"
+            f'source items: Row = {dialect}.table("items")\n'
+            "table base:\n    from items\n    select:\n        id\n"
+            f"        {name} = cost\n        {item}\n"
+            f"query reader:\n    from base\n    select:\n        x = {name}\n"
+            "query filtered:\n    from items\n"
+            f"    where any(b.{name} == items.id for b in base)\n"
+            "    select:\n        id\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    base, *readers = (artifact.sql for artifact in result.artifacts)
+    # The relation's own SELECT keeps the item unaliased, its result's name.
+    assert not base.split("\nFROM ", 1)[0].endswith(quote)
+    for sql in readers:
+        cte = sql.split(" AS (\nSELECT\n    ", 1)[1].split("\nFROM ", 1)[0]
+        aliases = [
+            selected.rsplit(f" AS {quote}", 1)[1].rstrip(quote)
+            for selected in cte.split(",\n    ")
+        ]
+        assert len(aliases) == 3, sql
+        assert len({alias.casefold() for alias in aliases}) == 3, sql
+        assert aliases[1] == name, sql
+
+
+_QUALIFY_ANY = (
+    "shape Row:\n    id: Int\n"
+    "shape Ord:\n    item_id: Int\n    qty: Int\n"
+    'source items: Row = postgres.table("items")\n'
+    'source orders: Ord = postgres.table("orders")\n'
+    "table big_orders:\n    from orders\n    where qty > 10\n    select:\n"
+    "        item_id\n"
+    "table q_any:\n    from items\n"
+    "    let has = any(b.item_id == items.id for b in big_orders)\n"
+    "    select:\n        id\n        rn = row_number() window(order by id)\n"
+)
+_QUALIFY_ANY_EXISTS = (
+    'EXISTS (SELECT 1 FROM "big_orders" AS "_pietto_value_1" '
+    'WHERE "_pietto_value_1"."item_id" = "__pietto_qualify"."__pietto_qualify_0")'
+)
+
+
+@pytest.mark.parametrize(
+    ("clauses", "outer"),
+    (
+        (
+            "    qualify:\n        rn <= 3 and has\n",
+            f'WHERE\n    ("rn" <= 3) AND {_QUALIFY_ANY_EXISTS}',
+        ),
+        (
+            "    qualify:\n        rn <= 3\n    order by has desc, id\n",
+            f'WHERE\n    "rn" <= 3\nORDER BY\n    {_QUALIFY_ANY_EXISTS} DESC,\n'
+            '    "__pietto_qualify_0" ASC',
+        ),
+    ),
+    ids=("qualify", "order_by_after_qualify"),
+)
+def test_a_qualify_statement_defines_the_relations_its_outer_stage_reads(
+    clauses: str, outer: str
+) -> None:
+    """An `any` read that only QUALIFY or the ORDER BY after it keeps is
+    defined as a CTE at the top of the statement, as any other read."""
+
+    result = emit_postgres_sql(_compile_ir(_QUALIFY_ANY + clauses))
+
+    assert result.diagnostics == ()
+    assert result.artifacts[-1].sql == (
+        'WITH "big_orders" AS (\nSELECT\n    "item_id" AS "item_id"\n'
+        'FROM "orders"\nWHERE "qty" > 10\n)\n'
+        'SELECT\n    "id",\n    "rn"\nFROM (\nSELECT\n    "id" AS "id",\n'
+        '    ROW_NUMBER() OVER (ORDER BY "id" ASC) AS "rn",\n'
+        '    "items"."id" AS "__pietto_qualify_0"\nFROM "items" AS "items"\n'
+        f') AS "__pietto_qualify"\n{outer}'
+    )
+
+
+def test_a_qualify_port_read_inside_exists_names_its_derived_table() -> None:
+    """Inside EXISTS a bare port would first bind to a same-named column of
+    the `any` target, so there the outer read names the derived table."""
+
+    result = emit_postgres_sql(
+        _compile_ir(
+            "shape Row:\n    id: Int\n"
+            "shape Ord:\n    __pietto_qualify_0: Int\n"
+            'source items: Row = postgres.table("items")\n'
+            'source orders: Ord = postgres.table("orders")\n'
+            "query q_any:\n    from items\n"
+            "    let has = any(o.__pietto_qualify_0 == items.id for o in orders)\n"
+            "    select:\n        id\n        rn = row_number() window(order by id)\n"
+            "    qualify:\n        rn <= 3 and has\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        'SELECT\n    "id",\n    "rn"\nFROM (\nSELECT\n    "id" AS "id",\n'
+        '    ROW_NUMBER() OVER (ORDER BY "id" ASC) AS "rn",\n'
+        '    "items"."id" AS "__pietto_qualify_0"\nFROM "items" AS "items"\n'
+        ') AS "__pietto_qualify"\nWHERE\n    ("rn" <= 3) AND EXISTS (SELECT 1 '
+        'FROM "orders" AS "_pietto_value_1" WHERE '
+        '"_pietto_value_1"."__pietto_qualify_0" = '
+        '"__pietto_qualify"."__pietto_qualify_0")'
+    ]
+
+
+def test_a_qualify_relation_read_as_a_cte_defines_each_relation_once() -> None:
+    """A CTE's body is the relation's own statement without its WITH, also
+    for QUALIFY: its derived table defines no CTE of its own."""
+
+    result = emit_postgres_sql(
+        _compile_ir(
+            "shape Row:\n    id: Int\n    cat: Text\n"
+            'source items: Row = postgres.table("items")\n'
+            "table base:\n    from items\n    select:\n        id\n        cat\n"
+            "table q1:\n    from base\n    select:\n        id\n        cat\n"
+            "        rn = row_number() window(partition by cat order by id)\n"
+            "    qualify:\n        rn <= 2\n"
+            "table q2:\n    from q1\n    select:\n        id\n"
+            "        rk = row_number() window(order by id)\n"
+            "    qualify:\n        rk <= 5\n"
+            "query reader:\n    from q2\n    select:\n        id\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert result.artifacts[-1].sql == (
+        'WITH "base" AS (\nSELECT\n    "id" AS "id",\n    "cat" AS "cat"\n'
+        'FROM "items"\n),\n'
+        '"q1" AS (\nSELECT\n    "id",\n    "cat",\n    "rn"\nFROM (\nSELECT\n'
+        '    "id" AS "id",\n    "cat" AS "cat",\n'
+        '    ROW_NUMBER() OVER (PARTITION BY "cat" ORDER BY "id" ASC) AS "rn"\n'
+        'FROM "base"\n) AS "__pietto_qualify"\nWHERE\n    "rn" <= 2\n),\n'
+        '"q2" AS (\nSELECT\n    "id",\n    "rk"\nFROM (\nSELECT\n'
+        '    "id" AS "id",\n    ROW_NUMBER() OVER (ORDER BY "id" ASC) AS "rk"\n'
+        'FROM "q1"\n) AS "__pietto_qualify"\nWHERE\n    "rk" <= 5\n)\n'
+        'SELECT\n    "id" AS "id"\nFROM "q2"'
+    )
+
+
+def test_a_relation_read_only_by_a_qualify_any_refuses_its_reader() -> None:
+    range_offset = (
+        "PostgreSQL RANGE offsets are not supported in single-file emit-sql; "
+        "use ROWS, RANGE without an offset, or emit-sql --project with a "
+        "nonnegative Int literal offset and one non-null Int ORDER key stored "
+        "in at most 32 bits"
+    )
+    result = emit_postgres_sql(
+        _compile_ir(
+            "shape Row:\n    id: Int\n    price: Int\n"
+            'source items: Row = postgres.table("items")\n'
+            "table bad:\n    from items\n    select:\n        id\n"
+            "        s = sum(price) window(order by id range between 2 preceding"
+            " and current row)\n"
+            "query reader:\n    from items\n"
+            "    let has = any(b.id == items.id for b in bad)\n"
+            "    select:\n        id\n        rn = row_number() window(order by id)\n"
+            "    qualify:\n        has\n"
+        )
+    )
+
+    assert result.artifacts == ()
+    assert [
+        (item.code, item.message, item.location.line) for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            "PostgreSQL SQL emission is not implemented for RelationIR: "
+            f"{name}. {range_offset}",
+            line,
+        )
+        for name, line in (("bad", 5), ("reader", 10))
+    ]
+
+
+def test_outputs_that_differ_only_in_case_are_two_postgresql_columns() -> None:
+    """PostgreSQL compares quoted names with case (MySQL refuses these)."""
+
+    result = emit_postgres_sql(
+        _compile_ir(
+            "shape Row:\n    id: Int\n    price: Int\n"
+            'source items: Row = postgres.table("items")\n'
+            "table pair:\n    from items\n    select:\n        a = id\n"
+            "        A = price\n"
+            "query reader:\n    from pair\n    select:\n        a\n"
+            "query q_case:\n    from items\n    select:\n        a = id\n"
+            "        A = price\n"
+            "    qualify:\n        row_number() window(order by id) <= 2\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    pair = 'SELECT\n    "id" AS "a",\n    "price" AS "A"\nFROM "items"'
+    assert [artifact.sql for artifact in result.artifacts] == [
+        pair,
+        f'WITH "pair" AS (\n{pair}\n)\nSELECT\n    "a" AS "a"\nFROM "pair"',
+        'SELECT\n    "a",\n    "A"\nFROM (\nSELECT\n    "id" AS "a",\n'
+        '    "price" AS "A",\n'
+        '    ROW_NUMBER() OVER (ORDER BY "id" ASC) AS "__pietto_qualify_0"\n'
+        'FROM "items"\n) AS "__pietto_qualify"\nWHERE\n'
+        '    "__pietto_qualify_0" <= 2',
+    ]
+
+
+def test_a_chain_of_reads_deeper_than_the_recursion_limit_defines_each_cte() -> None:
+    """Finding the CTE order takes no stack depth per relation read."""
+
+    depth = sys.getrecursionlimit() + 10
+    script_ir = _compile_ir(
+        "shape T:\n    a: Int\n"
+        'source t0: T = postgres.table("t0")\n'
+        + "".join(
+            f"table t{index}:\n    from t{index - 1}\n    select:\n        a\n"
+            for index in range(1, depth + 1)
+        )
+    )
+    definitions = {
+        definition.symbol: definition
+        for definition in script_ir.definitions
+        if isinstance(definition, (RelationIR, SourceIR))
+    }
+
+    assert (
+        render_relation_sql(
+            _relation(script_ir, f"t{depth}"),
+            sources={
+                symbol: item
+                for symbol, item in definitions.items()
+                if isinstance(item, SourceIR)
+            },
+            relations={
+                symbol: item
+                for symbol, item in definitions.items()
+                if isinstance(item, RelationIR)
+            },
+        )
+        == "WITH "
+        + ",\n".join(
+            f'"t{index}" AS (\nSELECT\n    "a" AS "a"\nFROM "t{index - 1}"\n)'
+            for index in range(1, depth)
+        )
+        + f'\nSELECT\n    "a" AS "a"\nFROM "t{depth - 1}"'
+    )
 
 
 def _chain_ir() -> ScriptIR:

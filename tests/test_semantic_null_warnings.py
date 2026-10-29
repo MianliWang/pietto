@@ -387,3 +387,34 @@ def test_not_in_over_a_field_of_unknown_nullability_is_silent() -> None:
     codes = {item.code for item in analyze(parsed.ast).diagnostics}
 
     assert not codes & {"PIE-S2383", "PIE-S2384"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        _query(
+            "constant",
+            "    from customers\n"
+            "    where credit not in ()\n"
+            "    select:\n"
+            "        id\n"
+            "        kept = credit not in ()\n"
+            "        dropped = credit in ()\n",
+        ),
+        _query(
+            "constant_after_left_join",
+            _LEFT_O
+            + "    where o.amount not in () and customers.credit not in ()\n"
+            + "    select customer_id = customers.id\n",
+        ),
+        _query(
+            "nothing_after_left_join",
+            _LEFT_O
+            + "    where o.amount in ()\n    select customer_id = customers.id\n",
+        ),
+    ],
+)
+def test_an_empty_in_list_is_a_constant_and_gets_no_null_warning(body: str) -> None:
+    # `not in ()` is True and `in ()` False whatever the value is, so the
+    # value's None never decides the test.
+    assert _check(body) == []

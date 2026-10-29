@@ -384,7 +384,7 @@ joinOnClause
 
 setOperationBody
     : setOperationKind setQuantifier? COLON NEWLINE NEWLINE* INDENT setOperand (setOperand | NEWLINE)* DEDENT
-    | setOperationKind setQuantifier? identifier (COMMA identifier)+ NEWLINE
+    | setOperationKind setQuantifier? identifier (COMMA identifier)+ NEWLINE NEWLINE*
     ;
 
 setOperationKind

@@ -16,6 +16,7 @@ from pietto import ast_nodes as ast
 from pietto._flat_relational_admission import availability_diagnostic
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
+from pietto.semantic.emission_warnings import _holds_span
 from pietto.semantic.existence_generators import (
     AnyUseInfo,
     AnyValueInfo,
@@ -106,11 +107,13 @@ def check_any_values(
     cyclic_relations: set[Owner] | None = None,
     failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
     any_binders: Mapping[str, str] | None = None,
+    errors: Sequence[SourceLocation] = (),
 ) -> tuple[dict[ast.AnyExpr, AnyValueSemanticInfo], list[Diagnostic]]:
     """Validate every occurrence; only completely checked bodies acquire facts.
 
     ``any_binders`` (`existence_generators.any_binders`) lets a diagnostic
-    name the binder of an `any` before a later JOIN as written."""
+    name the binder of an `any` before a later JOIN as written; ``errors``
+    locates the errors reported before."""
     facts: dict[ast.AnyExpr, AnyValueSemanticInfo] = {}
     diagnostics: list[Diagnostic] = []
     by_identity = {id(use.expression): use for use in uses}
@@ -217,6 +220,7 @@ def check_any_values(
             failed = True
         if use.owner.join_clauses and use.owner not in structures:
             failed = True
+        refused = failed
         context = root_context(use)
         allow_lets = not isinstance(context, ast.JoinOnClause)
         scope = let_scopes.get(use.owner) if allow_lets else None
@@ -364,6 +368,10 @@ def check_any_values(
                         and local.is_unknown
                     ) or any(
                         item[3].is_unknown
+                        # Its own `any(...)` refuses a generator row of
+                        # unknown type (PIE-S2334); a FROM row is read here,
+                        # unless an error already refuses this `any(...)`.
+                        and (refused or isinstance(item[0], ast.AnyExpr))
                         and (isinstance(node, ast.NameExpr) or item[2] == node.parts[0])
                         for item in environment
                     )
@@ -388,6 +396,22 @@ def check_any_values(
                 types[node] = value_type
                 if value_type.kind is ValueTypeKind.UNKNOWN:
                     failed = True
+                # A field of a known row has no type when the output that
+                # computes it is untyped, such as `x = None`, or when an error
+                # already refuses that output or this `any(...)`.
+                if (
+                    value_type.kind is ValueTypeKind.UNKNOWN
+                    and not refused
+                    and not any(_holds_span(relation.span, error) for error in errors)
+                ):
+                    diagnostics.append(
+                        _diagnostic(
+                            node.span,
+                            "PIE-S2102",
+                            "Unknown or unavailable field in ANY predicate: "
+                            f"{written_read(node, any_binders or {})}",
+                        )
+                    )
                 if occurrence is not expression:
                     captures.append(read)
                 return

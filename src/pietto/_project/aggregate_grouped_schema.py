@@ -57,6 +57,7 @@ from pietto.semantic.aggregates import (
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
+    internal_order_diagnostic,
     is_supported_semantic_aggregate_argument,
     is_supported_semantic_aggregate_argument_expression,
     is_supported_semantic_aggregate_arity,
@@ -1647,6 +1648,8 @@ def _aggregate_selected_structure_failure_reason(
         function_name,
         len(call.arguments),
     ):
+        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    if internal_order_diagnostic(call) is not None:
         return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
     return None
 

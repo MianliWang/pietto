@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from itertools import count
 from typing import TYPE_CHECKING
 
+from pietto._generated_names import generated_name
 from pietto._window_identity import WindowFunctionRole
 from pietto.ast_nodes import (
     AnyExpr,
@@ -122,6 +124,21 @@ _UNKNOWN_VALUE_TYPE = ValueType(
     nullability=EffectiveNullability.UNKNOWN,
     kind=ValueTypeKind.UNKNOWN,
 )
+
+
+class UnknownRowFields(dict[str, RowField]):
+    """The fields of an input row of unknown type, such as a source without a
+    shape: none is known, yet a name read there is an input field and keeps
+    that identity, so the SQL target never reads it as a SELECT output. Only
+    a name in `outputs` read directly, not through a `let` value, is that
+    output.
+    """
+
+    def __init__(self, outputs: frozenset[str] = frozenset()) -> None:
+        super().__init__()
+        self.outputs = outputs
+
+
 _WINDOW_ARGUMENT_ARITIES = {
     "row_number": frozenset({0}),
     "rank": frozenset({0}),
@@ -228,7 +245,7 @@ def lower_expr(
             lowered = _lower_window_expr(
                 expression,
                 semantic_model,
-                fields=fields or {},
+                fields={} if fields is None else fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions or {},
@@ -239,7 +256,7 @@ def lower_expr(
             lowered = _lower_expr_node(
                 expression,
                 semantic_model,
-                fields=fields or {},
+                fields={} if fields is None else fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
                 let_expansions=let_expansions or {},
@@ -793,16 +810,13 @@ class _AnyReads:
                 if value.use.owner.let_clause is not None
                 for binding in value.use.owner.let_clause.bindings
             )
-            self.aliases = {}
-            counter = 0
-            for any_expression in model.any_values:
-                while True:
-                    counter += 1
-                    alias = f"_pietto_value_{counter}"
-                    if alias not in occupied:
-                        occupied.add(alias)
-                        break
-                self.aliases[id(any_expression)] = alias
+            used = {name.casefold() for name in occupied}
+            self.aliases = {
+                id(any_expression): generated_name(
+                    (f"_pietto_value_{number}" for number in count(1)), used
+                )
+                for any_expression in model.any_values
+            }
 
     def field_ref(
         self,
@@ -1037,7 +1051,10 @@ def _lower_expr_node(
                 expression, span=lower_span(expression.span), value_type=value_type
             )
         field = None
-        if expression.name in fields:
+        if expression.name in fields or (
+            type(fields) is UnknownRowFields
+            and (let_stack or expression.name not in fields.outputs)
+        ):
             field = FieldId(owner=field_owner, name=expression.name)
         return FieldRefIR(
             name=expression.name,
@@ -1054,7 +1071,7 @@ def _lower_expr_node(
         if (
             len(expression.parts) == 2
             and expression.parts[0] == field_qualifier
-            and expression.parts[1] in fields
+            and (expression.parts[1] in fields or type(fields) is UnknownRowFields)
         ):
             field = FieldId(owner=field_owner, name=expression.parts[1])
         return FieldRefIR(

@@ -353,6 +353,7 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `x not in (1, 2)` when `x` may be None | `x is None or x not in (1, 2)` | for a None `x` the test is not true, so its row is dropped |
 | `first + " " + last` | not available yet | `+` does not join text (PIE-S2105) |
 | `email.lower()` | `lower(email)` | functions take the value as an argument; there are no methods |
+| `round(x)` expecting Python's tie rule | `round(x)`, with `round(2.5)` being `3` | a tie rounds away from zero for Float and Decimal, as PostgreSQL rounds a `numeric` (`round(-2.5)` is `-3`); Python rounds a tie to even, so its `round(2.5)` is `2` |
 | `case when ... end` | `a if condition else b` | the conditional is Python's |
 | `&&`, `\|\|`, `!` | `and`, `or`, `not` | |
 | `true`, `null` | `True`, `None` | |

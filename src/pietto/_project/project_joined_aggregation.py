@@ -901,6 +901,15 @@ def _aggregate_attempt(
             kind=ProjectJoinedAggregateIssueKind.WRONG_ARITY,
             diagnostics=(semantic_aggregates.wrong_arity_diagnostic(expression),),
         )
+    order_diagnostic = semantic_aggregates.internal_order_diagnostic(expression)
+    if order_diagnostic is not None:
+        return ProjectJoinedAggregateIssue(
+            input_filter=input_filter,
+            selected_output_ordinal=selected_output_ordinal,
+            item=item,
+            kind=ProjectJoinedAggregateIssueKind.WRONG_ARITY,
+            diagnostics=(order_diagnostic,),
+        )
 
     argument_analysis: ProjectConcreteJoinedNamespaceExpression | None = None
     dependencies: tuple[ProjectJoinedAggregateFieldDependency, ...] = ()

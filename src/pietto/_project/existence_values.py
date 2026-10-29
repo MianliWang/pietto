@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from pietto import ast_nodes as ast
 from pietto._project.model import (
+    ProjectResolvedTypeKind,
     ProjectSemanticResult,
     ProjectRowField,
     ProjectRowSchema,
@@ -21,6 +22,7 @@ from pietto._project.module_relation_resolution import (
 )
 
 from pietto._project.row_expression_type_facts import (
+    merge_shape_typed_diagnostics,
     project_row_field_to_semantic_value_type,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -733,32 +735,55 @@ def analyze_any_values(
         value_type = _UNKNOWN
         predicate_typed = not diagnostics
         if not diagnostics:
-            inferred = infer_row_expression(
-                node.predicate,
-                RowSchema(),
-                types,
-                diagnostics,
-                report_unknown_name=True,
-                bare_value_types={
-                    value.binding.name: value.value_type
-                    for value in let_values
-                    if value.binding.name not in hidden
-                },
-                bare_value_expressions=LetValues(
-                    {
-                        value.binding.name: value.expression
+
+            def infer(
+                read_types: dict[ast.Expression, ValueType], found: list[Diagnostic]
+            ) -> ValueType:
+                return infer_row_expression(
+                    node.predicate,
+                    RowSchema(),
+                    read_types,
+                    found,
+                    report_unknown_name=True,
+                    bare_value_types={
+                        value.binding.name: value.value_type
                         for value in let_values
                         if value.binding.name not in hidden
                     },
-                    field_types={
-                        expression: value_type
-                        for value in let_values
-                        if value.binding.name not in hidden
-                        for expression, value_type in value.value_types.items()
-                    },
-                ),
-                failed_relationship_calls=local_failures,
-            )
+                    bare_value_expressions=LetValues(
+                        {
+                            value.binding.name: value.expression
+                            for value in let_values
+                            if value.binding.name not in hidden
+                        },
+                        field_types={
+                            expression: value_type
+                            for value in let_values
+                            if value.binding.name not in hidden
+                            for expression, value_type in value.value_types.items()
+                        },
+                    ),
+                    failed_relationship_calls=local_failures,
+                )
+
+            # A field of a shape is that shape, as in a single file, for the
+            # operators and functions that refuse it (`home + 1`).
+            shaped = {
+                reference.expression: project_row_field_to_semantic_value_type(
+                    shape, shape.nullability, shapes=True
+                )
+                for reference in references
+                if isinstance(reference.target, ProjectAnyField)
+                and isinstance(shape := reference.target.source_field, ProjectRowField)
+                and shape.resolved_type.kind is ProjectResolvedTypeKind.SHAPE
+            }
+            read_types = {**types, **shaped}
+            start = len(diagnostics)
+            inferred = infer(types, diagnostics)
+            if shaped:
+                found: list[Diagnostic] = []
+                infer(read_types, found)
+                merge_shape_typed_diagnostics(diagnostics, start, found)
             for failure in local_failures:
                 for diagnostic in failure.diagnostics:
                     if not any(diagnostic is item for item in diagnostics):

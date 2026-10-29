@@ -127,7 +127,8 @@ def _tested_values(test: Expression) -> tuple[Expression, ...]:
     if type(test) is ComparisonExpr:
         return (test.left, test.right)
     if type(test) is MembershipExpr:
-        return (test.value,)
+        # An empty list is a constant: `in ()` is False, `not in ()` True.
+        return (test.value,) if test.options else ()
     if type(test) is BetweenExpr:
         return (test.value, test.lower, test.upper)
     return ()
@@ -290,10 +291,12 @@ def _nullable_not_in(
             if isinstance(leaf, (NameExpr, DottedNameExpr))
         }
         for node in nodes:
-            # A `None` option makes the test never True for any value.
+            # A `None` option makes the test never True for any value; an
+            # empty list makes it True whatever the value is.
             if (
                 type(node) is not MembershipExpr
                 or not node.negated
+                or not node.options
                 or any(
                     type(option) is LiteralExpr and option.value is None
                     for option in node.options

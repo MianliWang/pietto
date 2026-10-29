@@ -161,17 +161,17 @@ def _scalar_function_evidence(
             _evidence(
                 CapabilityEvidenceSource.TEST,
                 "tests/test_semantic_functions.py",
-                "test_c5_scalar_functions_keep_their_approved_types",
+                "test_scalar_functions_keep_their_approved_types",
             ),
             _evidence(
                 CapabilityEvidenceSource.TEST,
                 "tests/test_sql_postgres_expressions.py",
-                "test_c5_text_cast_and_scalar_function_sql_shapes",
+                "test_text_cast_and_scalar_function_sql_shapes",
             ),
             _evidence(
                 CapabilityEvidenceSource.TEST,
                 "tests/test_sql_mysql_expressions.py",
-                "test_c5_mysql_refuses_unproven_function_shapes",
+                "test_mysql_refuses_unproven_function_shapes",
             ),
             _evidence(
                 CapabilityEvidenceSource.SPEC,
@@ -440,7 +440,7 @@ def _conversion_evidence(target: str) -> tuple[CapabilityEvidence, ...]:
             _evidence(
                 CapabilityEvidenceSource.TEST,
                 "tests/test_semantic_functions.py",
-                "test_c5_scalar_functions_keep_their_approved_types",
+                "test_scalar_functions_keep_their_approved_types",
             ),
             _evidence(
                 CapabilityEvidenceSource.TEST,
@@ -450,12 +450,12 @@ def _conversion_evidence(target: str) -> tuple[CapabilityEvidence, ...]:
             _evidence(
                 CapabilityEvidenceSource.TEST,
                 "tests/test_sql_postgres_expressions.py",
-                "test_c5_text_cast_and_scalar_function_sql_shapes",
+                "test_text_cast_and_scalar_function_sql_shapes",
             ),
             _evidence(
                 CapabilityEvidenceSource.TEST,
                 "tests/test_project_numeric_carriers.py",
-                "test_c5_postgres_scalar_carriers_have_their_own_physical_laws",
+                "test_postgres_scalar_carriers_have_their_own_physical_laws",
             ),
             _evidence(
                 CapabilityEvidenceSource.SPEC,

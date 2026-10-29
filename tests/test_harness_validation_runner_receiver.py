@@ -711,6 +711,259 @@ def test_bootstrap_rejects_unpublished_rule_bytes(tmp_path, monkeypatch):
     assert inventory
 
 
+def _jobs(*names: str, failed: str = "") -> list[dict[str, str]]:
+    return [
+        {"name": name, "conclusion": "failure" if name == failed else "success"}
+        for name in names
+    ]
+
+
+_ALL_JOBS = _natural_ci_job_names()
+BOOTSTRAP_REFUSALS = {
+    "failed_job": (
+        "incomplete bootstrap natural CI jobs",
+        {"jobs": _jobs(*_ALL_JOBS, failed=_ALL_JOBS[0])},
+        {},
+    ),
+    "failed_run": (
+        "invalid bootstrap natural CI observation",
+        {"conclusion": "failure"},
+        {},
+    ),
+    "pull_request": (
+        "invalid bootstrap natural CI observation",
+        {"event": "pull_request"},
+        {},
+    ),
+    "rerun": ("invalid bootstrap natural CI observation", {"attempt": 2}, {}),
+    "itself": ("bootstrap publication cannot qualify itself", {}, {"tree": None}),
+    "older_base": (
+        "candidate does not succeed bootstrap publication",
+        {},
+        {"base": "HEAD~1"},
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(BOOTSTRAP_REFUSALS))
+def test_bootstrap_refuses_failed_or_unrelated_publications(
+    tmp_path, monkeypatch, case
+):
+    source, _output, manifest, *_rest = _manifest(tmp_path, monkeypatch)
+    bootstrap = _bootstrap(source)
+    assert runner.verify_bootstrap(bootstrap, manifest, source) == bootstrap
+    match, natural, candidate = BOOTSTRAP_REFUSALS[case]
+    bootstrap["natural_ci"].update(natural)
+    if "tree" in candidate:
+        candidate = {"tree": bootstrap["published"]["tree"]}
+    elif "base" in candidate:
+        candidate = {"base": _git(source, "rev-parse", candidate["base"])}
+    manifest = {**manifest, "candidate": {**manifest["candidate"], **candidate}}
+    with pytest.raises(ValueError, match=match):
+        runner.verify_bootstrap(bootstrap, manifest, source)
+
+
+def test_bootstrap_refuses_a_candidate_that_changes_adopted_rule_bytes(
+    tmp_path, monkeypatch
+):
+    source, _output, manifest, *_rest = _manifest(tmp_path, monkeypatch)
+    # The published head changes a rule path that the candidate keeps.
+    rule = source / "docs/development.md"
+    rule.write_text(rule.read_text() + "\nPublished rule change.\n")
+    subprocess.run(("git", "add", "docs/development.md"), cwd=source, check=True)
+    _commit(source, "test: publish a changed acceptance rule")
+    with pytest.raises(ValueError, match="candidate changes adopted acceptance rule"):
+        runner.verify_bootstrap(_bootstrap(source), manifest, source)
+
+
+# Each tiny test file stands for the node of the same index in NODES; the
+# markers resolve to the indices `_collection` declares.
+_CAPTURED_MARKERS = {
+    1: '@pytest.mark.ci_workload("process-portability", family="emission")\n',
+    2: '@pytest.mark.ci_workload("process-portability", family="plan")\n',
+    3: (
+        '@pytest.mark.ci_workload("shared-acquisition", '
+        'family="compiler-differential")\n'
+    ),
+    4: '@pytest.mark.ci_workload("general-runtime")\n',
+}
+
+
+def test_captured_markers_send_only_explicit_core_nodes_to_teach(tmp_path, monkeypatch):
+    _source, _output, manifest, collection, collection_path, *_rest = _manifest(
+        tmp_path, monkeypatch
+    )
+    tree = tmp_path / "collected"
+    (tree / "tests").mkdir(parents=True)
+    (tree / "ci").mkdir()
+    shutil.copy2(runner.ROOT / "ci/workloads.toml", tree / "ci/workloads.toml")
+    (tree / "pytest.ini").write_text("[pytest]\n")
+    for index, node in enumerate(NODES):
+        (tree / node.split("::", 1)[0]).write_text(
+            "import pytest\n\n\n"
+            + _CAPTURED_MARKERS.get(index, "")
+            + "def test_x():\n    pass\n"
+        )
+    # The collector subprocess imports this repository's plugin and package.
+    monkeypatch.setenv(
+        "PYTHONPATH",
+        os.pathsep.join(
+            filter(None, (str(runner.ROOT), os.environ.get("PYTHONPATH", "")))
+        ),
+    )
+    monkeypatch.setattr(runner, "ROOT", tree)
+    monkeypatch.setattr(
+        runner,
+        "sys",
+        SimpleNamespace(
+            version_info=SimpleNamespace(major=3, minor=13, micro=13),
+            executable=runner.sys.executable,
+        ),
+    )
+    # The tiny tree has none of the repository's legacy selector files.
+    resolve = runner.workloads.resolve
+    monkeypatch.setattr(
+        runner.workloads,
+        "resolve",
+        lambda policy, nodes, marks: resolve(
+            {**policy, "legacy_files": [], "legacy_nodes": []}, nodes, marks
+        ),
+    )
+    output = tmp_path / "requirements.json"
+    requirements = runner.capture_acceptance_requirements(
+        tree, manifest, collection_path, output
+    )
+    assert runner.read_json(output, runner.MAX_ACCEPTANCE_BYTES) == requirements
+    collected: Any = collection["requirements"]
+    assert requirements["nodes"] == [
+        {"node": node, "index": index, "explicit": position in _CAPTURED_MARKERS}
+        for position, (node, index) in enumerate(
+            zip(NODES, collected["indices"], strict=True)
+        )
+    ]
+    plan = runner.acceptance_plan(manifest, collection, requirements)
+    assert [row["nodes"] for row in plan["remote"]] == [[], [], [], [], [NODES[4]], []]
+    with pytest.raises(ValueError, match="must be fresh"):
+        runner.capture_acceptance_requirements(tree, manifest, collection_path, output)
+
+
+def test_accept_recaptures_requirements_and_checks_the_bootstrap(tmp_path, monkeypatch):
+    (
+        source,
+        _output,
+        manifest,
+        collection,
+        collection_path,
+        _removed,
+        _remote,
+        inventory,
+        proof,
+    ) = _materialized(tmp_path, monkeypatch)
+    captured = []
+
+    def capture(repo, captured_manifest, path, output):
+        captured.append((repo, captured_manifest, path))
+        return _acceptance_requirements(manifest, collection, (NODES[4],))
+
+    monkeypatch.setattr(runner, "capture_acceptance_requirements", capture)
+    plan = runner.acceptance_plan(
+        manifest,
+        collection,
+        _acceptance_requirements(manifest, collection, (NODES[4],)),
+    )
+    receipt = {
+        "format": runner.ACCEPTANCE_RECEIPT_FORMAT,
+        "runner": {
+            "category": runner.TEACH_RUNNER_CATEGORY,
+            "job_id": "teach-1",
+            "lease_id": "lease-1",
+            "credential_env_names": [],
+            "canonical_worktree_written": False,
+            "push_attempted": False,
+        },
+        "environment": _acceptance_environment(manifest, plan),
+        "materialization": proof,
+        "static": runner.static_report(
+            manifest,
+            [(name, command, 0, 1.0) for name, command in runner.validate.GATES[:5]],
+        ),
+        "remote": _acceptance_reports(manifest, plan, "remote"),
+    }
+    paths = {
+        name: tmp_path / f"{name}.json" for name in ("receipt", "local", "bootstrap")
+    }
+    paths["receipt"].write_text(json.dumps(receipt))
+    paths["local"].write_text(json.dumps(_acceptance_reports(manifest, plan, "local")))
+    bootstrap = _bootstrap(source)
+    paths["bootstrap"].write_text(json.dumps(bootstrap))
+
+    def accept():
+        return runner.accept_successor(
+            source,
+            manifest,
+            inventory,
+            collection_path,
+            paths["bootstrap"],
+            paths["receipt"],
+            paths["local"],
+        )
+
+    assert accept() == {
+        "status": "VERIFIED_PENDING_HOST_ADOPTION",
+        "candidate": manifest["candidate"],
+        "remote_nodes": 1,
+        "local_nodes": len(NODES) - 1,
+    }
+    assert captured == [(source, manifest, collection_path)]
+    bootstrap["natural_ci"]["conclusion"] = "failure"
+    paths["bootstrap"].write_text(json.dumps(bootstrap))
+    with pytest.raises(ValueError, match="invalid bootstrap natural CI observation"):
+        accept()
+
+
+def test_main_rejects_missing_arguments_and_inputs(tmp_path, monkeypatch, capsys):
+    with pytest.raises(SystemExit) as stopped:
+        runner.main([])
+    assert stopped.value.code == 2
+    with pytest.raises(SystemExit) as stopped:
+        runner.main(["accept", "--repo", str(tmp_path)])
+    assert stopped.value.code == 2
+    capsys.readouterr()
+
+    monkeypatch.delenv("PIETTO_TEST_ABSENT_TOKEN", raising=False)
+    output = tmp_path / "bootstrap.json"
+    assert (
+        runner.main(
+            [
+                "bootstrap-observe",
+                "--repo",
+                str(tmp_path),
+                "--run-id",
+                "42",
+                "--token-env",
+                "PIETTO_TEST_ABSENT_TOKEN",
+                "--output",
+                str(output),
+            ]
+        )
+        == 2
+    )
+    assert capsys.readouterr().err == (
+        '[validation-runner] rejected: "missing bootstrap run identity or '
+        'read-only token"\n'
+    )
+    assert not output.exists()
+
+    missing = tmp_path / "missing.json"
+    assert (
+        runner.main(
+            ["predicate", "--manifest", str(missing), "--environment", str(missing)]
+        )
+        == 2
+    )
+    assert capsys.readouterr().err.startswith("[validation-runner] rejected: ")
+
+
 def test_teach_environment_rejects_credentials_before_static(monkeypatch, tmp_path):
     _clear_teach_credentials(monkeypatch)
     cache = tmp_path / "cache"
@@ -742,7 +995,12 @@ def test_teach_environment_rejects_credentials_before_static(monkeypatch, tmp_pa
 def test_bootstrap_observer_requires_exact_workflow_consumers_and_adopted_bytes(
     tmp_path, monkeypatch
 ):
-    source = _clone(tmp_path, candidate=False)
+    source = _clone(tmp_path)
+    subprocess.run(("git", "add", *CANDIDATE_FILES), cwd=source, check=True)
+    _commit(source, "test: publish runner bootstrap")
+    # The published main is the commit under test, not whatever local main the
+    # cloned checkout has (stale on Teach, absent in a pull-request checkout).
+    _git(source, "update-ref", "refs/remotes/origin/main", "HEAD")
     published = _git(source, "rev-parse", "refs/remotes/origin/main")
     tree = _git(source, "rev-parse", published + "^{tree}")
     jobs = [

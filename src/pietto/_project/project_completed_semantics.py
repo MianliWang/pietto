@@ -1094,7 +1094,7 @@ def _fanout_clause(
         protected = frozenset().union(*(inputs[name][1] for name in picked))
         return all(final <= closure(seed | protected, own) for seed, own in seeds)
 
-    picked = tuple(
+    keyed = tuple(
         name
         for name, (binding, factors) in inputs.items()
         if factors
@@ -1109,6 +1109,12 @@ def _fanout_clause(
             )
         )
     )
+    # An `on` equality proves only the keys its condition can match (not yet
+    # those of a grouped or any(...)-filtered query), so only those are named.
+    matchable = {
+        id(binding) for join in joins for binding, _ in join.condition.match_inputs
+    }
+    picked = tuple(name for name in keyed if id(inputs[name][0]) in matchable)
     if grouped(picked):
         for name in picked:
             if grouped(rest_names := tuple(item for item in picked if item != name)):
@@ -1139,15 +1145,17 @@ def _fanout_clause(
         )
     )
     remedies = []
+    others = (
+        "use `any(...)` for an input that only filters rows, or "
+        "aggregate in a separate query first"
+    )
     if picked:
         # Grouping by such a key would pass too, but would change the result's
         # grain, so the remedies keep the authored GROUP BY.
         noun = "a unique key" if len(picked) == 1 else "unique keys"
-        remedies.append(
-            f"match {noun} of {_and_list(picked)} in "
-            "`on`, use `any(...)` for an input that only filters rows, or "
-            "aggregate in a separate query first"
-        )
+        remedies.append(f"match {noun} of {_and_list(picked)} in `on`, {others}")
+    elif grouped(keyed):
+        remedies.append(others)
     if not repeated and not remedies:
         return ""
     cause = (
@@ -1201,13 +1209,16 @@ def _final_diagnostics(
 ) -> tuple[Diagnostic, ...]:
     retired_ids = {id(diagnostic) for diagnostic in retired}
     # A check reports no other ORDER result of an existing entry.
+    reported_reasons = {
+        project_final_outputs.ProjectRelationOrderingNonConcreteReason.OUTPUT_NAME_AMBIGUOUS,
+        project_final_outputs.ProjectRelationOrderingNonConcreteReason.SHAPE_OPERAND,
+    }
     ambiguous_orders = {
         id(facts.entry): facts.ordering.diagnostics
         for facts in orders
         if type(facts.ordering)
         is project_final_outputs.ProjectNonConcreteRelationOrdering
-        and facts.ordering.reason
-        is project_final_outputs.ProjectRelationOrderingNonConcreteReason.OUTPUT_NAME_AMBIGUOUS
+        and facts.ordering.reason in reported_reasons
     }
     conditions = effective_outputs.operative_conditions
     retained = [

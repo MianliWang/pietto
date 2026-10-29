@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
+from itertools import count
 from typing import cast
 
 from pietto import ast_nodes as ast
+from pietto._generated_names import generated_name
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__ = ()
@@ -248,10 +250,9 @@ def normalize_existence_generators(
         for attribute in ("name", "binding_name", "source_name", "target_binding_name"):
             name = getattr(node, attribute, None)
             if isinstance(name, str):
-                used.add(name)
+                used.add(name.casefold())
         if isinstance(node, ast.DottedNameExpr):
-            used.add(node.parts[0])
-    counter = 0
+            used.add(node.parts[0].casefold())
     consumed: set[int] = set()
     uses: list[AnyUseInfo] = []
     diagnostics: list[Diagnostic] = []
@@ -269,7 +270,6 @@ def normalize_existence_generators(
             context: ast.JoinFilterClause,
             prefix: int,
         ) -> bool:
-            nonlocal counter
             if isinstance(condition, ast.UnaryExpr) and condition.operator == "not":
                 negative = True
                 expression = condition.operand
@@ -279,12 +279,9 @@ def normalize_existence_generators(
             if not isinstance(expression, ast.AnyExpr):
                 return False
             consumed.add(id(expression))
-            while True:
-                counter += 1
-                binding = f"_pietto_any_{counter}"
-                if binding not in used:
-                    used.add(binding)
-                    break
+            binding = generated_name(
+                (f"_pietto_any_{number}" for number in count(1)), used
+            )
 
             def rename(before: object, after: object) -> object:
                 if (

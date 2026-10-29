@@ -11,6 +11,7 @@ from pietto.ast_nodes import CallExpr, QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import (
+    CheckMode,
     EffectiveNullability,
     SemanticResult,
     TypeKind,
@@ -386,6 +387,29 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
                 13,
             ),
         ),
+        # Before: a `string_agg` of such fields passed check beside another
+        # projection, and failed to emit (PIE-I1000 beside a window).
+        (
+            '    select:\n        kind\n        s = string_agg(t, ",", order by x)\n',
+            (
+                "PIE-S2312",
+                "Aggregate projections cannot be mixed with non-aggregate "
+                "projections without GROUP BY",
+                6,
+                13,
+            ),
+        ),
+        (
+            '    select:\n        s = string_agg(t, ",", order by x)\n'
+            "        w = rank() window(order by x)\n",
+            (
+                "PIE-S2312",
+                "Aggregate projections cannot be mixed with non-aggregate "
+                "projections without GROUP BY",
+                5,
+                13,
+            ),
+        ),
         (
             "    select:\n        c = count(x, y)\n",
             (
@@ -486,6 +510,56 @@ def test_aggregate_over_a_source_without_a_shape_checks_its_argument_form(
         for diagnostic in result.diagnostics
         if diagnostic.severity is Severity.ERROR
     ] == [expected]
+
+
+# A value of only `None` has no type and no error of its own, so an extra one
+# makes a wrong number of arguments, as an extra typed one does.
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ("    select:\n        c = count(amount, None)\n", ("count", "0 or 1", 2, 14)),
+        ("    select:\n        m = max(amount, None)\n", ("max", "1", 2, 14)),
+        ("    select:\n        m = min(amount, None, None)\n", ("min", "1", 3, 14)),
+        (
+            "    group by status\n    select:\n        status\n"
+            "        s = sum(amount, None)\n",
+            ("sum", "1", 2, 16),
+        ),
+        (
+            "    let nothing = None\n    select:\n        a = avg(amount, nothing)\n",
+            ("avg", "1", 2, 15),
+        ),
+        (
+            "    select:\n        d = count_distinct(status, coalesce(None, None))\n",
+            ("count_distinct", "1", 2, 14),
+        ),
+    ],
+)
+def test_an_extra_none_argument_is_a_wrong_aggregate_arity(
+    body: str, expected: tuple[str, str, int, int]
+) -> None:
+    name, arity, count, line = expected
+    result = analyze(
+        _parse(SOURCE_PREFIX + "query q:\n    from orders\n" + body),
+        mode_override=CheckMode.STRICT,
+    )
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [
+        (
+            "PIE-S2309",
+            f"Aggregate function {name} expects {arity} arguments, got {count}",
+            line,
+            13,
+        )
+    ]
 
 
 @pytest.mark.parametrize(
@@ -763,3 +837,51 @@ def test_unknown_aggregate_let_expression_fails_closed() -> None:
             let_expansions={},
             let_stack=frozenset(),
         )
+
+
+@pytest.mark.parametrize(
+    ("aggregate", "codes"),
+    (
+        ("count(a40)", ["PIE-S2315", "PIE-S2328"]),
+        ('string_agg(a40, ",", order by id)', ["PIE-S2328"]),
+    ),
+)
+def test_aggregate_let_argument_expands_each_shared_let_value_once(
+    monkeypatch: pytest.MonkeyPatch, aggregate: str, codes: list[str]
+) -> None:
+    from pietto.semantic import aggregates
+
+    # Each let names the one before it twice: an expansion along every path
+    # takes 2**40 steps (before: check never finished); one per let, some tens.
+    lets = "    let a0 = cat\n" + "".join(
+        f"    let a{i} = coalesce(a{i - 1}, a{i - 1})\n" for i in range(1, 41)
+    )
+    source = (
+        "shape Row:\n    id: Int\n    cat: Text\n    price: Int\n"
+        'source items: Row = postgres.table("items")\n'
+        f"table q:\n    from items\n{lets}    group by price\n"
+        f"    select:\n        price\n        s = {aggregate}\n"
+    )
+    original = aggregates._expand_let_references
+    calls = 0
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        assert calls <= 10_000, "an aggregate argument expanded a let value again"
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(aggregates, "_expand_let_references", counted)
+    result = analyze(_parse(source))
+
+    messages = {
+        "PIE-S2315": "Aggregate function count requires a direct field argument; "
+        "expression arguments are not supported yet",
+        "PIE-S2328": "Expression exceeds the single-file let inline expansion limit "
+        "of 100000 expression nodes after inlining the let bindings it reads "
+        "(first at let binding a16)",
+    }
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [(code, 52, 13, messages[code]) for code in codes]

@@ -2498,16 +2498,15 @@ def _check_file(
     return code, [
         (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
         for d in json.loads(out.getvalue())["diagnostics"]
-        # A single file warns that it reads a table of its own file by name.
-        if d["code"] != "PIE-S2382"
     ]
 
 
 # The FROM input's name is the name written after `from`: after `let r = lhs`
-# and `from r` a query reads `r.id`, not `lhs.id` (language.md, Single-file
-# JOINs). A project reads it so in every clause, as a single file does; before,
-# most of its clauses read the relation's name instead, and selecting `lhs.id`
-# stopped `check --project` with a canonical-inspection ValueError.
+# and `from r` a query reads `r.id` (language.md, Single-file JOINs), and a
+# project reads it so in every clause. A project keeps reading `lhs.id` there
+# too where 0.1.5 admitted it: in a query without a JOIN, outside `any(...)`;
+# before, selecting `lhs.id` stopped `check --project` with a
+# canonical-inspection ValueError. A single file refuses `lhs.id`.
 _FROM_ALIAS = "query q:\n    let r = lhs\n    from r\n"
 FROM_ALIAS_READS = {
     "select": (_FROM_ALIAS, "    select:\n        id = {}.id\n", "r", "lhs", ()),
@@ -2616,6 +2615,64 @@ def test_a_from_alias_source_name_outside_an_any_still_reads_the_from_input(
         "    select:\n        id\n"
     )
     assert _check(tmp_path, body) == (0, [])
+
+
+# Inside `any(...)` and in a query with a JOIN a project refuses the relation's
+# own name, as 0.1.5 did and with its diagnostics; a self JOIN would otherwise
+# pick the FROM occurrence of `lhs` over the JOINed one.
+_FROM_ALIAS_JOIN = _FROM_ALIAS + "    let o = rhs\n"
+_ANY_UNAVAILABLE = "ANY predicate reference is unavailable."
+FROM_ALIAS_REFUSED = {
+    "any": (
+        _FROM_ALIAS + "    where any(x.key == lhs.id for x in rhs)\n"
+        "    select:\n        id\n",
+        [("PIE-S2334", _ANY_UNAVAILABLE, 9, 24)],
+    ),
+    "nested_any": (
+        _FROM_ALIAS
+        + "    where any(any(y.id == x.id and y.key == lhs.id for y in rhs) "
+        "for x in rhs)\n    select:\n        id\n",
+        [("PIE-S2334", _ANY_UNAVAILABLE, 9, 45)],
+    ),
+    "join_on": (
+        _FROM_ALIAS_JOIN + "    left join o on o.key == lhs.id\n"
+        "    select:\n        id = r.id\n",
+        [
+            (
+                "PIE-S2334",
+                "JOIN-local ON is available only when an EXPLICIT_MODULES "
+                "project (schema version 2) completes it.",
+                10,
+                17,
+            ),
+            ("PIE-S2335", "JOIN ON reference is unknown.", 10, 29),
+        ],
+    ),
+    "join_where": (
+        _FROM_ALIAS_JOIN + "    inner join o on o.key == r.id\n"
+        "    where lhs.id > 1\n    select:\n        id = r.id\n",
+        [("PIE-S2102", "Unknown field: lhs.id", 11, 11)],
+    ),
+    "join_select": (
+        _FROM_ALIAS_JOIN + "    inner join o on o.key == r.id\n"
+        "    select:\n        a = lhs.id\n",
+        [("PIE-S2102", "Unknown field: lhs.id", 12, 13)],
+    ),
+    "self_join": (
+        _FROM_ALIAS + "    let s = lhs\n    inner join s on s.id == r.id\n"
+        "    select:\n        a = lhs.id\n",
+        [("PIE-S2102", "Unknown field: lhs.id", 12, 13)],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FROM_ALIAS_REFUSED))
+def test_a_from_alias_source_name_stays_refused_in_any_and_join_scopes(
+    tmp_path: Path, case: str
+) -> None:
+    body, expected = FROM_ALIAS_REFUSED[case]
+    assert _check(tmp_path / "project", body) == (1, expected)
+    assert _check_file(tmp_path / "file", body)[0] == 1
 
 
 def test_a_from_alias_source_name_keeps_an_unknown_field_diagnostic(

@@ -25,19 +25,23 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
-    accepts_argument_form,
     child_expressions,
     contains_semantic_aggregate,
+    deferred_argument_expression_diagnostic,
     has_unknown_field_reference,
     is_supported_semantic_aggregate_arity,
-    semantic_aggregate_result_value_type,
+    nested_aggregate_diagnostic,
+    nested_semantic_aggregate,
     semantic_aggregate_call_name,
 )
 from pietto.semantic.expressions import (
     LetValues,
     _aggregate_value_type,
     _call_argument_types,
+    _canonical_resolved_type,
     _reads_erroneous_let,
+    _reads_only_null,
+    order_output_ambiguity_diagnostic,
 )
 from pietto.semantic.generic_compatibility import (
     ConcreteTypeExpression,
@@ -394,6 +398,31 @@ def analyze_window_expression(
     )
 
 
+def _window_name_reads(
+    expression: WindowExpr, named_composition: ComposedNamedWindowUse | None
+) -> list[NameExpr]:
+    """Each bare name the window reads, in source order."""
+
+    spec = expression.spec if named_composition is None else named_composition
+    pending: list[Expression] = [
+        *reversed(
+            (
+                *expression.call.arguments,
+                *spec.partition_by,
+                *(item.expression for item in spec.order_by),
+            )
+        )
+    ]
+    found: list[NameExpr] = []
+    while pending:
+        node = pending.pop()
+        if type(node) is NameExpr:
+            found.append(node)
+        else:
+            pending.extend(reversed(tuple(child_expressions(node))))
+    return found
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _WindowComputationAdmissionFailure:
     reason: str
@@ -526,12 +555,22 @@ def _analyze_recognized_window_expression(
         contains_semantic_aggregate(selected.expression)
         for selected in definition.select_items
     ):
-        admission = _WindowComputationAdmissionFailure(
-            reason=(
-                "no-group aggregate context does not admit "
-                f"{source_expression.identity.name}"
-            ),
-            code=None,
+        # A selected window here is the mixed projection PIE-S2312 reports.
+        admission = (
+            _WindowComputationAdmissionFailure(
+                reason=(
+                    "a query with aggregates and no GROUP BY admits no hidden "
+                    "QUALIFY window"
+                ),
+            )
+            if item.alias is None and allow_hidden
+            else _WindowComputationAdmissionFailure(
+                reason=(
+                    "no-group aggregate context does not admit "
+                    f"{source_expression.identity.name}"
+                ),
+                code=None,
+            )
         )
     else:
         input_scope = build_window_input_scope(
@@ -554,6 +593,25 @@ def _analyze_recognized_window_expression(
                 ),
                 code=None,
             )
+        elif input_scope.ambiguous_names:
+            ambiguous = dict(input_scope.ambiguous_names)
+            reads = [
+                node
+                for node in _window_name_reads(source_expression, named_composition)
+                if node.name in ambiguous
+            ]
+            if reads:
+                for node in reads:
+                    # Windows that share a named window read its names once.
+                    diagnostic = order_output_ambiguity_diagnostic(
+                        node, ambiguous[node.name], readable=False
+                    )
+                    if diagnostic not in diagnostics:
+                        diagnostics.append(diagnostic)
+                admission = _WindowComputationAdmissionFailure(
+                    reason="window reads a name an output and an input field share",
+                    code=None,
+                )
 
     if (
         semantic_aggregate_call_name(source_expression.call)
@@ -717,6 +775,15 @@ def _analyze_aggregate_window_expression(
             code="PIE-S2104",
             message=f"Invalid modifiers for function {name}: {modifier_error}",
         )
+    # The ordinary aggregate argument rules hold in a window too.
+    nested = nested_semantic_aggregate(expression.call)
+    if nested is not None:
+        diagnostics.append(nested_aggregate_diagnostic(nested))
+        return WindowComputationUnsupported(
+            expression=expression,
+            identity=expression.identity,
+            reason=f"{name} argument nests an aggregate",
+        )
     argument_diagnostic_count = len(diagnostics)
     argument_types, _ = _call_argument_types(
         expression.call,
@@ -746,21 +813,32 @@ def _analyze_aggregate_window_expression(
                 else set()
             ),
         )
-        if (
-            name == "count"
-            and not explained
-            and argument is not None
-            and has_unknown_field_reference(argument, value_types)
-            and accepts_argument_form(name, argument, let_expansions=let_expressions)
-        ):
-            result_type = semantic_aggregate_result_value_type(name)
-            assert result_type is not None
-        else:
+        if explained:
             return WindowExpressionUnsupported(
                 occurrence=occurrence,
                 expression=expression,
                 identity=expression.identity,
                 reason=f"{name} argument type is unavailable",
+            )
+        elif (
+            argument is not None
+            and has_unknown_field_reference(argument, value_types)
+            and not _reads_only_null(argument, let_expressions or {})
+        ):
+            # As every window over a row or a field of unknown type.
+            return _unsupported_computation(
+                expression=expression,
+                reason="window input schema must be concrete"
+                if input_schema.is_unknown
+                else f"{name} argument type must be concrete",
+                diagnostics=diagnostics,
+            )
+        else:
+            diagnostics.append(deferred_argument_expression_diagnostic(expression.call))
+            return WindowComputationUnsupported(
+                expression=expression,
+                identity=expression.identity,
+                reason=f"{name} argument is no admitted aggregate argument",
             )
     else:
         result_type = _aggregate_value_type(
@@ -770,6 +848,13 @@ def _analyze_aggregate_window_expression(
             row_schema=input_schema,
             type_expansions=type_expansions,
         )
+        # A window counts a value of a built-in type only, not a shape's.
+        if any(
+            (canonical := _canonical_resolved_type(item, type_expansions)) is not None
+            and canonical.kind is TypeKind.SHAPE
+            for item in argument_types
+        ):
+            result_type = None
     if result_type is None:
         return _unsupported_computation(
             expression=expression,
@@ -779,14 +864,15 @@ def _analyze_aggregate_window_expression(
             message=f"Invalid arguments for function {name}",
         )
     partition_expressions = expression.spec.partition_by
-    if any(
-        type(item) not in {NameExpr, DottedNameExpr} for item in partition_expressions
-    ):
+    # A `let:` name whose value is no field is no direct field either.
+    computed = computed_let_names(let_expressions or {})
+    if any(not _direct_field(item, computed) for item in partition_expressions):
         return _unsupported_computation(
             expression=expression,
             reason="window partition expression must be a direct field",
             diagnostics=diagnostics,
         )
+    binding_diagnostic_count = len(diagnostics)
     partition_bindings = bind_window_partition_fields(
         partition_expressions=cast(
             tuple[NameExpr | DottedNameExpr, ...], partition_expressions
@@ -799,17 +885,18 @@ def _analyze_aggregate_window_expression(
         allow_qualified_fields=allow_qualified_fields,
     )
     if partition_bindings is None:
-        return WindowExpressionUnsupported(
-            occurrence=occurrence,
-            expression=expression,
-            identity=expression.identity,
-            reason="window partition field type must be concrete",
+        return _unbound_window_field(
+            expression,
+            occurrence,
+            "window partition field type must be concrete",
+            input_schema,
+            diagnostics,
+            binding_diagnostic_count,
         )
     order_bindings = None
     if expression.spec.order_by:
         if any(
-            type(item) is not OrderItem
-            or type(item.expression) not in {NameExpr, DottedNameExpr}
+            type(item) is not OrderItem or not _direct_field(item.expression, computed)
             for item in expression.spec.order_by
         ):
             return _unsupported_computation(
@@ -817,6 +904,7 @@ def _analyze_aggregate_window_expression(
                 reason="window order expression must be a direct field",
                 diagnostics=diagnostics,
             )
+        binding_diagnostic_count = len(diagnostics)
         bindings = bind_window_order_fields(
             order_items=expression.spec.order_by,
             input_schema=input_schema,
@@ -827,11 +915,13 @@ def _analyze_aggregate_window_expression(
             allow_qualified_fields=allow_qualified_fields,
         )
         if bindings is None:
-            return WindowExpressionUnsupported(
-                occurrence=occurrence,
-                expression=expression,
-                identity=expression.identity,
-                reason="window order field type must be concrete",
+            return _unbound_window_field(
+                expression,
+                occurrence,
+                "window order field type must be concrete",
+                input_schema,
+                diagnostics,
+                binding_diagnostic_count,
             )
         order_bindings = bindings
     validation = _validate_recognized_window_specification(
@@ -1426,6 +1516,33 @@ def _direct_field(
 
     return type(expression) is DottedNameExpr or (
         type(expression) is NameExpr and expression.name not in computed_let_names
+    )
+
+
+def _unbound_window_field(
+    expression: WindowExpr,
+    occurrence: WindowOccurrenceIdentity,
+    reason: str,
+    input_schema: RowSchema,
+    diagnostics: list[Diagnostic],
+    diagnostic_count: int,
+) -> WindowExpressionUnsupported | WindowComputationUnsupported:
+    """An aggregate window whose partition or order field has no binding;
+    one that no diagnostic explains is refused as every other window is."""
+
+    if len(diagnostics) > diagnostic_count:
+        return WindowExpressionUnsupported(
+            occurrence=occurrence,
+            expression=expression,
+            identity=expression.identity,
+            reason=reason,
+        )
+    return _unsupported_computation(
+        expression=expression,
+        reason="window input schema must be concrete"
+        if input_schema.is_unknown
+        else reason,
+        diagnostics=diagnostics,
     )
 
 

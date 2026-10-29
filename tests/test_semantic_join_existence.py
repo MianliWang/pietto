@@ -29,7 +29,7 @@ from pietto._project.project_final_outputs import (
 from pietto._project.project_query_block_ir import build_project_query_block_ir
 from pietto._project.project_current_join_inputs import ProjectCurrentPreMatchInputs
 from pietto import cli
-from pietto.errors import Diagnostic
+from pietto.errors import Diagnostic, Severity
 from pietto.semantic.model import CheckMode
 from pietto.parser_api import parse_source
 from pietto.semantic.analyzer import analyze_project_namespace
@@ -1261,6 +1261,133 @@ def test_any_before_a_later_join_names_its_binder_as_written(
         (item.code, item.message, item.location.line, item.location.column)
         for item in result.diagnostics
     ] == [(code, message, 14, column)]
+
+
+# Before: an `any(...)` that read a field of a FROM row of unknown type passed
+# check, and lowering it failed (PIE-I1000); one whose generator row is of
+# unknown type keeps its one PIE-S2334.
+@pytest.mark.parametrize(
+    ("orders", "expected"),
+    (
+        (
+            "orders: Ord",
+            (
+                "PIE-S2102",
+                "Unknown or unavailable field in ANY predicate: items.id",
+                28,
+            ),
+        ),
+        ("orders", ("PIE-S2334", "ANY over orders requires known input fields.", 46)),
+    ),
+)
+def test_any_never_reads_a_field_of_a_from_row_of_unknown_type(
+    orders: str, expected: tuple[str, str, int]
+) -> None:
+    parsed = parse_source(
+        "shape Ord:\n    id: Int\n    item_id: Int\n"
+        'source items = postgres.table("items")\n'
+        f'source {orders} = postgres.table("orders")\n'
+        "table w:\n    from items\n"
+        "    where any(o.item_id == items.id for o in orders)\n"
+        "    select:\n        id\n",
+        path="any.pietto",
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in analyze(parsed.ast).diagnostics
+        if item.severity is Severity.ERROR
+    ] == [(expected[0], expected[1], 8, expected[2])]
+
+
+# Before: an `any(...)` that read an output of no type, such as `x = None`,
+# passed check, and lowering it failed (PIE-I1000); one that reads only typed
+# outputs of that relation is lowered.
+@pytest.mark.parametrize(
+    ("predicate", "column"),
+    (
+        ("o.x == items.id", 15),
+        ("o.id == items.id and o.x is None", 36),
+        ("o.id == items.id", None),
+    ),
+    ids=("compared", "null-test", "typed"),
+)
+def test_any_never_reads_an_output_of_no_type(
+    predicate: str, column: int | None
+) -> None:
+    parsed = parse_source(
+        "shape Row:\n    id: Int\n"
+        'source items: Row = postgres.table("items")\n'
+        "table t:\n    from items\n    select:\n        id\n        x = None\n"
+        f"table q:\n    from items\n    where any({predicate} for o in t)\n"
+        "    select:\n        id\n",
+        path="any.pietto",
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    result = analyze(parsed.ast)
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == (
+        []
+        if column is None
+        else [
+            (
+                "PIE-S2102",
+                "Unknown or unavailable field in ANY predicate: o.x",
+                11,
+                column,
+            )
+        ]
+    )
+    if column is None:
+        assert result.script is not None
+        lowered = build_ir(result.script, result.model)
+        assert lowered.diagnostics == ()
+
+
+@pytest.mark.parametrize(
+    ("relations", "expected"),
+    (
+        (
+            "table t:\n    from items\n    select:\n        id\n"
+            "        x = nosuch + 1\n",
+            [("PIE-S2102", "Unknown field: nosuch", 9)],
+        ),
+        (
+            "table t:\n    from items\n    select:\n        id\n        x = cat * 2\n",
+            [
+                (
+                    "PIE-S2105",
+                    "Invalid operands for operator *: expected numeric operands",
+                    9,
+                )
+            ],
+        ),
+        (
+            "table t:\n    from t\n    select:\n        id\n        x = id\n",
+            [("PIE-S2302", "Relation cycle detected: t -> t", 6)],
+        ),
+    ),
+    ids=("unknown-field", "invalid-operands", "cycle"),
+)
+def test_any_adds_no_error_for_an_output_whose_own_error_is_reported(
+    relations: str, expected: list[tuple[str, str, int]]
+) -> None:
+    parsed = parse_source(
+        "shape Row:\n    id: Int\n    cat: Text\n"
+        'source items: Row = postgres.table("items")\n'
+        + relations
+        + "table q:\n    from items\n    where any(o.x == items.id for o in t)\n"
+        "    select:\n        id\n",
+        path="any.pietto",
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert [
+        (item.code, item.message, item.location.line)
+        for item in analyze(parsed.ast).diagnostics
+        if item.severity is Severity.ERROR
+    ] == expected
 
 
 @pytest.mark.parametrize("relationship", (False, True))

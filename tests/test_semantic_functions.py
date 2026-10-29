@@ -87,7 +87,7 @@ def test_len_returns_int() -> None:
     assert result.model.expression_value_types[expression].resolved_type.name == "Int"
 
 
-def test_c5_scalar_functions_keep_their_approved_types() -> None:
+def test_scalar_functions_keep_their_approved_types() -> None:
     result = analyze(
         _parse(
             "shape Values:\n"
@@ -138,6 +138,63 @@ def test_string_agg_checks_a_known_bad_delimiter_beside_an_unknown_value() -> No
         (
             "PIE-S2104",
             "Invalid arguments for aggregate string_agg: expected two Text arguments",
+        )
+    ]
+
+
+# string_agg takes two Text row expressions and orders them by its own keys.
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    (
+        ('string_agg(None, ",", order by count)', "expected two Text arguments"),
+        ("string_agg(email, None, order by count)", "expected two Text arguments"),
+        ('string_agg(nothing, ",", order by count)', "expected two Text arguments"),
+        ("string_agg(email, nothing, order by count)", "expected two Text arguments"),
+        (
+            'string_agg(coalesce(None, None), ",", order by count)',
+            "expected two Text arguments",
+        ),
+        (
+            "string_agg(email, coalesce(nothing, None), order by count)",
+            "expected two Text arguments",
+        ),
+        ('string_agg(None + None, ",", order by count)', "expected two Text arguments"),
+        ('string_agg(-nothing, ",", order by count)', "expected two Text arguments"),
+        # A condition is no value of the conditional.
+        (
+            'string_agg(None if count > 1 else None, ",", order by count)',
+            "expected two Text arguments",
+        ),
+        (
+            "string_agg(email, coalesce(nothing if True else None), order by count)",
+            "expected two Text arguments",
+        ),
+        ('string_agg(email, ",")', "expected ORDER BY key"),
+    ),
+)
+def test_string_agg_refuses_a_null_argument_and_a_missing_order(
+    call: str, expected: str
+) -> None:
+    result = analyze(
+        _parse(
+            SOURCE + "table projected:\n"
+            "    from users\n"
+            "    let nothing = None\n"
+            "    select:\n"
+            f"        summary = {call}\n",
+            path="main.pietto",
+        )
+    )
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            f"Invalid arguments for aggregate string_agg: {expected}",
+            9,
+            19,
         )
     ]
 

@@ -387,7 +387,7 @@ def test_explicit_int_conversions_are_the_closed_conversion_facts() -> None:
         "date-trunc-timestamp",
     ),
 )
-def test_c5_scalar_function_fact_is_found(
+def test_scalar_function_fact_is_found(
     subject: str, operation: str, operands: tuple[str, ...]
 ) -> None:
     fact = next(
@@ -400,7 +400,7 @@ def test_c5_scalar_function_fact_is_found(
     assert _lookup(fact.key) == Found(fact)
 
 
-def test_c5_mysql_gaps_are_provenance_not_generic_fact_support() -> None:
+def test_mysql_gaps_are_provenance_not_generic_fact_support() -> None:
     scalar_facts = tuple(
         fact
         for fact in _facts("_SCALAR_FUNCTION_FACTS")

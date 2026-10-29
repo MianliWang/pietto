@@ -39,6 +39,7 @@ from pietto.semantic.aggregates import (
 )
 from pietto.semantic.expressions import (
     _canonical_value_type,
+    _reads_only_null,
     rejected_let_names,
 )
 from pietto.semantic.group_by import (
@@ -403,6 +404,7 @@ def _aggregate_projection_diagnostics(
             if not _has_unknown_argument(
                 expression,
                 expression_value_types=expression_value_types,
+                let_expansions=let_expansions,
             ) or (
                 open_schema is not None
                 and unknown_row_arguments(
@@ -424,15 +426,38 @@ def _aggregate_projection_diagnostics(
                 expression_value_types.get(argument)
                 for argument in expression.arguments
             )
-            if any(
-                value_type is None
-                or value_type.kind is not ValueTypeKind.KNOWN
-                or _canonical_value_type(
+            texts = tuple(
+                value_type is not None
+                and value_type.kind is ValueTypeKind.KNOWN
+                and _canonical_value_type(
                     value_type, type_expansions, enum=True
                 ).resolved_type.name
-                != "Text"
+                == "Text"
                 for value_type in argument_types
-            ):
+            )
+            if not all(texts):
+                # Without a type only because it reads fields of a row of
+                # unknown type, it is still an aggregate projection, which
+                # cannot be mixed with another projection (PIE-S2312).
+                if (
+                    open_schema is not None
+                    and all(
+                        text
+                        or value_type is None
+                        or value_type.kind is not ValueTypeKind.KNOWN
+                        for text, value_type in zip(texts, argument_types)
+                    )
+                    and unknown_row_arguments(
+                        function_name,
+                        expression,
+                        definition=definition,
+                        input_schema=open_schema,
+                        let_expansions=let_expansions,
+                        value_types=expression_value_types,
+                        type_expansions=type_expansions,
+                    )
+                ):
+                    valid_aggregate_items.append(item)
                 invalid_items.add(item)
                 continue
 
@@ -559,12 +584,19 @@ def _has_unknown_argument(
     expression: CallExpr,
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
+    let_expansions: Mapping[str, Expression] | None,
 ) -> bool:
+    """Whether an argument has no type, other than a value of only `None`,
+    whose arity is still checked."""
+
     if expression_value_types is None:
         return False
     return any(
-        (value_type := expression_value_types.get(argument)) is None
-        or value_type.kind is ValueTypeKind.UNKNOWN
+        (
+            (value_type := expression_value_types.get(argument)) is None
+            or value_type.kind is ValueTypeKind.UNKNOWN
+        )
+        and not _reads_only_null(argument, let_expansions or {})
         for argument in expression.arguments
     )
 

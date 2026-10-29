@@ -532,7 +532,13 @@ def test_let_key_of_an_input_field_beside_an_output_of_its_name_reads_the_field(
         (
             "    select:\n        id\n        lower(email)\n    order by:\n        id\n",
             '"users"."id" ASC',
-            "`id` ASC",
+            "`users`.`id` ASC",
+        ),
+        (
+            "    group by:\n        email\n    select:\n        Email = count()\n"
+            "        email\n    order by:\n        email\n",
+            '"email" ASC',
+            "`users`.`email` ASC",
         ),
     ],
     ids=(
@@ -541,7 +547,8 @@ def test_let_key_of_an_input_field_beside_an_output_of_its_name_reads_the_field(
         "grouped",
         "mysql-casefold",
         "expression-field-mysql-only",
-        "postgres-unaliased-computed-item",
+        "unaliased-computed-item",
+        "grouped-mysql-casefold",
     ),
 )
 def test_input_order_key_that_a_select_item_would_capture_is_qualified(
@@ -561,6 +568,40 @@ def test_input_order_key_that_a_select_item_would_capture_is_qualified(
     ):
         assert f"ORDER BY\n    {order}" in sql
         assert f"\nFROM {quote}users{quote}\n" in sql
+
+
+# A key that reads an output by its name alone sorts by the output's position
+# beside an unaliased item, which PostgreSQL names by rules of its own. Before:
+# PostgreSQL named `lower(email)` `lower` too and rejected `ORDER BY "lower"`
+# as ambiguous.
+@pytest.mark.parametrize("item", ("lower", "upper"))
+@pytest.mark.parametrize(
+    ("prefix", "output", "sql"),
+    (
+        (
+            POSTGRES_PREFIX,
+            "row_number() window(order by id)",
+            'ROW_NUMBER() OVER (ORDER BY "id" ASC)',
+        ),
+        ('source users = postgres.table("users")\n', "upper(email)", 'upper("email")'),
+    ),
+    ids=("window", "unshaped"),
+)
+def test_postgres_order_by_output_key_sorts_by_its_position(
+    prefix: str, output: str, sql: str, item: str
+) -> None:
+    result = sql_api.emit_postgres_sql(
+        _compile_ir(
+            prefix + "table q:\n    from users\n    select:\n"
+            f"        {item}(email)\n        lower = {output}\n    order by lower\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        f'SELECT\n    {item}("email"),\n    {sql} AS "lower"\nFROM "users"\n'
+        "ORDER BY\n    2 ASC"
+    ]
 
 
 def test_mysql_qualifies_a_captured_field_inside_an_order_key() -> None:
@@ -622,9 +663,9 @@ def test_postgresql_implicit_column_name_of_an_unaliased_item_is_not_bound(
     assert postgres.artifacts[0].sql.endswith(
         f'FROM "sales"."rows"\nORDER BY\n    "rows"."{field}" ASC'
     )
-    # MySQL names the unaliased item by its expression text, so it stays bare.
+    # MySQL names the item otherwise; beside it the key is qualified all the same.
     assert mysql.artifacts[0].sql.endswith(
-        f"FROM `sales`.`rows`\nORDER BY\n    `{field}` ASC"
+        f"FROM `sales`.`rows`\nORDER BY\n    `rows`.`{field}` ASC"
     )
 
 
@@ -643,16 +684,91 @@ def test_mysql_unaliased_true_false_null_item_names_capture_the_key() -> None:
 
     # Before: the bare `TRUE`, `fAlSe` and `NULL` keys stayed bare, and MySQL
     # bound them to the unaliased TRUE, FALSE and NULL items, which it names
-    # by that text, so the rows were sorted by constants. An unaliased Int
-    # literal is named `1` and captures no key.
+    # by that text, so the rows were sorted by constants. Beside an unaliased
+    # item every input key is qualified, `id` too.
     assert mysql.diagnostics == ()
     assert mysql.artifacts[0].sql == (
         "SELECT\n    `id` AS `id`,\n    TRUE,\n    FALSE,\n    NULL,\n"
         "    'amount',\n    1\n"
         "FROM `sales`.`rows`\nORDER BY\n    `rows`.`TRUE` ASC,\n"
         "    `rows`.`fAlSe` ASC,\n    `rows`.`NULL` ASC,\n"
-        "    `rows`.`Amount` ASC,\n    `id` ASC"
+        "    `rows`.`Amount` ASC,\n    `rows`.`id` ASC"
     )
+
+
+# Generated: PostgreSQL and MySQL each name an unaliased SELECT item by rules
+# of their own (MySQL: a Text value without its leading spaces; PostgreSQL: a
+# CASE by its ELSE, `trim` as `btrim`, a cast by its value), so beside one a
+# key never binds by a name. An input key is qualified with its input and an
+# output key sorts by its SELECT list position, for each name that equals, or
+# differs only in case from, a name either target may give the item. Before:
+# MySQL left `order by price` bare beside `" price"`, and PostgreSQL left
+# `order by abs` bare beside a CASE whose ELSE is `abs(cost)`.
+_UNALIASED_ITEMS = (
+    ('" price"', ("price", "PRICE")),
+    ('"price  "', ("price",)),
+    ('"Price"', ("price",)),
+    ("0 if id > 1 else price", ("price", "case")),
+    ("0 if id > 1 else abs(cost)", ("abs", "ABS")),
+    ("lower(name)", ("lower", "LOWER")),
+    ("trim(name)", ("btrim", "trim")),
+    ("Float(price)", ("price", "float8")),
+    ("price + 1", ("price",)),
+)
+_ROW_FIELDS = ("id", "price", "cost", "name")
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    ("item", "name", "shaped"),
+    tuple(
+        (item, name, shaped)
+        for item, names in _UNALIASED_ITEMS
+        for name in names
+        for shaped in (True, False)
+        # Without a shape `price` is not known to be Int, and no target casts it.
+        if shaped or not item.startswith("Float(")
+    ),
+)
+def test_no_order_key_binds_by_the_name_of_an_unaliased_item(
+    item: str, name: str, dialect: str, shaped: bool
+) -> None:
+    emitter = sql_api.emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
+    quote = '"' if dialect == "postgres" else "`"
+
+    def emit(fields: tuple[str, ...], outputs: str, key: str) -> str:
+        source = f'source items = {dialect}.table("items")\n'
+        if shaped:
+            types = {"name": "Text"}
+            source = (
+                "shape Row:\n"
+                + "".join(
+                    f"    {field}: {types.get(field, 'Int')}\n" for field in fields
+                )
+                + source.replace("items =", "items: Row =")
+            )
+        result = emitter(
+            _compile_ir(
+                source + "query q:\n    from items\n    select:\n        id\n"
+                f"        {item}\n{outputs}    order by {key}\n"
+            )
+        )
+        assert result.diagnostics == ()
+        return result.artifacts[0].sql
+
+    # A key that reads the input field of the name.
+    fields = _ROW_FIELDS if name in _ROW_FIELDS else (*_ROW_FIELDS, name)
+    sql = emit(fields, "", name)
+    assert sql.endswith(f"ORDER BY\n    {quote}items{quote}.{quote}{name}{quote} ASC")
+
+    # A key that reads the output of the name, which no input field has.
+    if shaped and name in _ROW_FIELDS:
+        return
+    value = "row_number() window(order by id)" if shaped else "cost * 2"
+    sql = emit(_ROW_FIELDS, f"        {name} = {value}\n", name)
+    assert sql.endswith("ORDER BY\n    3 ASC")
+    selected = sql.split("\nFROM ", 1)[0].split(",\n    ")
+    assert selected[2].endswith(f" AS {quote}{name}{quote}")
 
 
 def test_captured_key_uses_the_name_from_already_gives_the_input() -> None:
@@ -688,6 +804,85 @@ def test_captured_key_uses_the_name_from_already_gives_the_input() -> None:
             f"FROM {q('sales')}.{q('orders')} AS {q('o')}\n"
             f"ORDER BY\n    {q('o')}.{q('amount')} ASC"
         )
+
+
+# Generated collisions: a key that reads an input field, directly or through
+# a `let`, is never left where a SELECT item would capture it, and a shape
+# that matches the table does not change the SQL. Before: over a source
+# without a shape the key stayed bare and the target sorted by the output.
+@pytest.mark.parametrize("shaped", (True, False), ids=("shape", "no-shape"))
+@pytest.mark.parametrize(
+    ("let", "item", "key", "postgres", "mysql"),
+    (
+        (
+            "p = price",
+            "price = 0 - price",
+            "p",
+            ('0 - "price" AS "price"', '"items"."price"'),
+            ("0 - `price` AS `price`", "`items`.`price`"),
+        ),
+        (
+            None,
+            "Price = 0 - price",
+            "price",
+            ('0 - "price" AS "Price"', '"price"'),
+            ("0 - `price` AS `Price`", "`items`.`price`"),
+        ),
+        (
+            "p = price + 1",
+            "Price = 0 - price",
+            "p",
+            ('0 - "price" AS "Price"', '"price" + 1'),
+            ("0 - `price` AS `Price`", "`items`.`price` + 1"),
+        ),
+        (
+            None,
+            "lower(email)",
+            "lower",
+            ('lower("email")', '"items"."lower"'),
+            ("LOWER(`email`)", "`items`.`lower`"),
+        ),
+        (
+            None,
+            '"price"',
+            "price",
+            ("'price'", '"items"."price"'),
+            ("'price'", "`items`.`price`"),
+        ),
+    ),
+    ids=("let-same-name", "case-only", "let-in-expression", "implicit", "literal"),
+)
+def test_input_key_is_never_captured_with_or_without_a_shape(
+    shaped: bool,
+    let: str | None,
+    item: str,
+    key: str,
+    postgres: tuple[str, str],
+    mysql: tuple[str, str],
+) -> None:
+    for connector, emitter, quote, (projection, order) in (
+        ("postgres", sql_api.emit_postgres_sql, '"', postgres),
+        ("mysql", emit_mysql_sql, "`", mysql),
+    ):
+        source = (
+            (
+                "shape Item:\n    id: Int\n    price: Int\n    email: Text\n"
+                "    lower: Int\n"
+                f'source items: Item = {connector}.table("items")\n'
+            )
+            if shaped
+            else f'source items = {connector}.table("items")\n'
+        )
+        source += "query q:\n    from items\n" + (f"    let {let}\n" if let else "")
+        source += f"    select:\n        id\n        {item}\n    order by {key}\n"
+
+        emitted = emitter(_compile_ir(source + "    limit 1\n"))
+
+        assert emitted.diagnostics == ()
+        assert [artifact.sql for artifact in emitted.artifacts] == [
+            f"SELECT\n    {quote}id{quote} AS {quote}id{quote},\n    {projection}\n"
+            f"FROM {quote}items{quote}\nORDER BY\n    {order} ASC\nLIMIT 1"
+        ]
 
 
 @pytest.mark.parametrize(

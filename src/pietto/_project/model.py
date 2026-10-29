@@ -2892,7 +2892,7 @@ def _project_direct_relation_row_schema(
         bare_value_types=let_value_types,
         bare_value_expressions=(
             None
-            if concrete_lets or let_value_types is None
+            if let_value_types is None
             else {
                 name: let_scope_facts.binding_expressions[name]
                 for name in let_value_types

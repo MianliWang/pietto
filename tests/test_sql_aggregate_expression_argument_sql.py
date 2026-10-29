@@ -896,7 +896,7 @@ def _direct_field_aggregate(case: str) -> AggregateCallIR:
     raise AssertionError(f"Unknown direct aggregate case: {case}")
 
 
-def test_c5_string_agg_preserves_all_internal_order_keys_and_refuses_mysql() -> None:
+def test_string_agg_preserves_all_internal_order_keys_and_refuses_mysql() -> None:
     value = _field("status", TEXT_NON_NULL, qualifier=("orders",))
     delimiter = _literal("//", TEXT_NON_NULL)
     period_end = _field("period_end", INT_NON_NULL, qualifier=("orders",))
@@ -978,7 +978,7 @@ def test_c5_string_agg_preserves_all_internal_order_keys_and_refuses_mysql() -> 
         ),
     ],
 )
-def test_c5_signed_decimal_scale_reaches_both_sql_backends_from_source(
+def test_signed_decimal_scale_reaches_both_sql_backends_from_source(
     connector: str,
     emitter: Callable[[ScriptIR], SqlResult],
     expected_round: str,
@@ -999,7 +999,7 @@ def test_c5_signed_decimal_scale_reaches_both_sql_backends_from_source(
     assert expected_text_cast in result.artifacts[0].sql
 
 
-def test_c5_mysql_source_preserves_proven_artifact_and_refuses_string_agg() -> None:
+def test_mysql_source_preserves_proven_artifact_and_refuses_string_agg() -> None:
     source = (
         BASE_SHAPE
         + 'source orders: Order = mysql.table("physical_orders")\n'

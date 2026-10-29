@@ -211,6 +211,301 @@ def test_ctes_whose_names_differ_only_in_case_are_refused() -> None:
     ]
 
 
+def test_outputs_that_differ_only_in_case_never_share_a_cte_or_derived_table() -> None:
+    """MySQL compares column names without case, and a CTE body or a derived
+    table must name its columns uniquely; a top-level SELECT may repeat one."""
+
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n    price: Int\n"
+            'source items: Row = mysql.table("items")\n'
+            "table pair:\n    from items\n    select:\n        a = id\n"
+            "        A = price\n"
+            "query reader:\n    from pair\n    select:\n        a\n"
+            "query q_case:\n    from items\n    select:\n        a = id\n"
+            "        A = price\n"
+            "    qualify:\n        row_number() window(order by id) <= 2\n"
+            "query q_reader:\n    from q_case\n    select:\n        a\n"
+        )
+    )
+
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n    `id` AS `a`,\n    `price` AS `A`\nFROM `items`"
+    ]
+    derived = (
+        "Its QUALIFY derived table has outputs a and A, whose names MySQL "
+        "compares without case; rename one of them"
+    )
+    assert [
+        (item.code, item.message, item.location.line) for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            "MySQL SQL emission is not implemented for RelationIR: reader. Its SQL "
+            "defines relation pair as a CTE with outputs a and A, whose names "
+            "MySQL compares without case; rename one of them",
+            10,
+        ),
+        (
+            "PIE-B1000",
+            f"MySQL SQL emission is not implemented for RelationIR: q_case. {derived}",
+            14,
+        ),
+        (
+            "PIE-B1000",
+            f"MySQL SQL emission is not implemented for RelationIR: q_reader. {derived}",
+            21,
+        ),
+    ]
+
+
+# MySQL names an unaliased item by rules of its own, and a CTE's column names
+# must differ without case: in a CTE each unaliased output (PIE-S2304 warns
+# of it) takes a private alias, while the relation's own SELECT keeps it
+# unaliased. Before: `"ID"` beside `id` and `"x"` twice were refused.
+@pytest.mark.parametrize(
+    "outputs",
+    ('"ID"', '"x"\n        "x"', '"x"\n        lower(cat)'),
+    ids=("value", "twice", "distinct"),
+)
+def test_an_unnamed_cte_output_takes_a_private_alias(outputs: str) -> None:
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n    cat: Text\n"
+            'source items: Row = mysql.table("items")\n'
+            f"table base:\n    from items\n    select:\n        id\n        {outputs}\n"
+            "query reader:\n    from base\n    select:\n        id\n"
+        )
+    )
+
+    items = [
+        "LOWER(`cat`)" if item == "lower(cat)" else item.replace('"', "'")
+        for item in outputs.split("\n        ")
+    ]
+    aliased = [
+        f"{item} AS `__pietto_column_{number}`"
+        for number, item in enumerate(items, start=1)
+    ]
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n    `id` AS `id`,\n    " + ",\n    ".join(items) + "\nFROM `items`",
+        "WITH `base` AS (\nSELECT\n    `id` AS `id`,\n    "
+        + ",\n    ".join(aliased)
+        + "\nFROM `items`\n)\nSELECT\n    `id` AS `id`\nFROM `base`",
+    ]
+
+
+# MySQL binds a bare ORDER BY name, compared without case, to a SELECT item by
+# rules of its own; beside an unaliased item or another output whose name
+# differs only in case, an output key sorts by its position. Before: these
+# were refused, or bound by MySQL's rules as Pietto emulated them.
+@pytest.mark.parametrize(
+    ("source", "body", "position"),
+    (
+        (
+            "items: Row",
+            "    select:\n        id\n        RN = 0 - price\n"
+            "        rn = row_number() window(order by price)\n    order by rn\n",
+            3,
+        ),
+        (
+            "items: Row",
+            '    select:\n        id\n        "rn"\n'
+            "        rn = row_number() window(order by price)\n    order by rn\n",
+            3,
+        ),
+        (
+            "items: Row",
+            '    select:\n        id\n        " rn"\n'
+            "        rn = row_number() window(order by price)\n    order by rn\n",
+            3,
+        ),
+        (
+            "items",
+            "    select:\n        id\n        price\n        PRICE = 0 - price\n"
+            "    order by price\n",
+            2,
+        ),
+        (
+            "items: Row",
+            "    group by cat\n    select:\n        cat\n        N = count()\n"
+            "        n = rank() window(order by cat)\n    order by n\n",
+            3,
+        ),
+        (
+            "items: Row",
+            "    select:\n        id\n        Rn = id\n"
+            "        rn = row_number() window(order by price)\n    order by rn\n",
+            3,
+        ),
+        (
+            "items: Row",
+            "    group by cat\n    select:\n        cat\n"
+            "        n = rank() window(order by cat)\n        N = count()\n"
+            "    order by n\n",
+            2,
+        ),
+    ),
+    ids=(
+        "computed",
+        "literal",
+        "spaced-literal",
+        "later",
+        "grouped",
+        "column",
+        "first",
+    ),
+)
+def test_an_order_by_output_key_is_never_bound_to_another_item(
+    source: str, body: str, position: int
+) -> None:
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n    cat: Text\n    price: Int\n"
+            f'source {source} = mysql.table("items")\n'
+            f"table q:\n    from items\n{body}"
+        )
+    )
+
+    assert result.diagnostics == ()
+    sql = result.artifacts[0].sql
+    assert sql.endswith(f"ORDER BY\n    {position} ASC")
+    key = body.rsplit(" ", 1)[1].strip()
+    selected = sql.split("\nFROM ", 1)[0].split(",\n    ")
+    assert selected[position - 1].endswith(f" AS `{key}`")
+
+
+_QUALIFY_ANY = (
+    "shape Row:\n    id: Int\n"
+    "shape Ord:\n    item_id: Int\n    qty: Int\n"
+    'source items: Row = mysql.table("items")\n'
+    'source orders: Ord = mysql.table("orders")\n'
+    "table big_orders:\n    from orders\n    where qty > 10\n    select:\n"
+    "        item_id\n"
+    "table q_any:\n    from items\n"
+    "    let has = any(b.item_id == items.id for b in big_orders)\n"
+    "    select:\n        id\n        rn = row_number() window(order by id)\n"
+)
+_QUALIFY_ANY_EXISTS = (
+    "EXISTS (SELECT 1 FROM `big_orders` AS `_pietto_value_1` "
+    "WHERE `_pietto_value_1`.`item_id` = `__pietto_qualify`.`__pietto_qualify_0`)"
+)
+
+
+@pytest.mark.parametrize(
+    ("clauses", "outer"),
+    (
+        (
+            "    qualify:\n        rn <= 3 and has\n",
+            f"WHERE\n    (`rn` <= 3) AND {_QUALIFY_ANY_EXISTS}",
+        ),
+        (
+            "    qualify:\n        rn <= 3\n    order by has desc, id\n",
+            f"WHERE\n    `rn` <= 3\nORDER BY\n    {_QUALIFY_ANY_EXISTS} DESC,\n"
+            "    `__pietto_qualify_0` ASC",
+        ),
+    ),
+    ids=("qualify", "order_by_after_qualify"),
+)
+def test_a_qualify_statement_defines_the_relations_its_outer_stage_reads(
+    clauses: str, outer: str
+) -> None:
+    result = emit_mysql_sql(_compile(_QUALIFY_ANY + clauses))
+
+    assert result.diagnostics == ()
+    assert result.artifacts[-1].sql == (
+        "WITH `big_orders` AS (\nSELECT\n    `item_id` AS `item_id`\n"
+        "FROM `orders`\nWHERE `qty` > 10\n)\n"
+        "SELECT\n    `id`,\n    `rn`\nFROM (\nSELECT\n    `id` AS `id`,\n"
+        "    ROW_NUMBER() OVER (ORDER BY `id` ASC) AS `rn`,\n"
+        "    `items`.`id` AS `__pietto_qualify_0`\nFROM `items` AS `items`\n"
+        f") AS `__pietto_qualify`\n{outer}"
+    )
+
+
+def test_a_qualify_port_read_inside_exists_names_its_derived_table() -> None:
+    """MySQL compares column names without case, so a column spelled in
+    capitals would capture a bare port inside EXISTS."""
+
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n"
+            "shape Ord:\n    __PIETTO_QUALIFY_0: Int\n"
+            'source items: Row = mysql.table("items")\n'
+            'source orders: Ord = mysql.table("orders")\n'
+            "query q_any:\n    from items\n"
+            "    let has = any(o.__PIETTO_QUALIFY_0 == items.id for o in orders)\n"
+            "    select:\n        id\n        rn = row_number() window(order by id)\n"
+            "    qualify:\n        rn <= 3 and has\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n    `id`,\n    `rn`\nFROM (\nSELECT\n    `id` AS `id`,\n"
+        "    ROW_NUMBER() OVER (ORDER BY `id` ASC) AS `rn`,\n"
+        "    `items`.`id` AS `__pietto_qualify_0`\nFROM `items` AS `items`\n"
+        ") AS `__pietto_qualify`\nWHERE\n    (`rn` <= 3) AND EXISTS (SELECT 1 "
+        "FROM `orders` AS `_pietto_value_1` WHERE "
+        "`_pietto_value_1`.`__PIETTO_QUALIFY_0` = "
+        "`__pietto_qualify`.`__pietto_qualify_0`)"
+    ]
+
+
+def test_a_qualify_relation_read_as_a_cte_defines_each_relation_once() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n    cat: Text\n"
+            'source items: Row = mysql.table("items")\n'
+            "table base:\n    from items\n    select:\n        id\n        cat\n"
+            "table top:\n    from base\n    select:\n        id\n        cat\n"
+            "        rn = row_number() window(partition by cat order by id)\n"
+            "    qualify:\n        rn == 1\n"
+            "query reader:\n    from top\n    where id > 5\n    select:\n"
+            "        id\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert result.artifacts[-1].sql == (
+        "WITH `base` AS (\nSELECT\n    `id` AS `id`,\n    `cat` AS `cat`\n"
+        "FROM `items`\n),\n"
+        "`top` AS (\nSELECT\n    `id`,\n    `cat`,\n    `rn`\nFROM (\nSELECT\n"
+        "    `id` AS `id`,\n    `cat` AS `cat`,\n"
+        "    ROW_NUMBER() OVER (PARTITION BY `cat` ORDER BY `id` ASC) AS `rn`\n"
+        "FROM `base`\n) AS `__pietto_qualify`\nWHERE\n    `rn` = 1\n)\n"
+        "SELECT\n    `id` AS `id`\nFROM `top`\nWHERE `id` > 5"
+    )
+
+
+def test_a_relation_read_only_by_a_qualify_any_refuses_its_reader() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n    price: Int\n"
+            'source items: Row = mysql.table("items")\n'
+            "table bad:\n    from items\n    select:\n        id\n"
+            "        s = sum(price) window(order by id)\n"
+            "query reader:\n    from items\n"
+            "    let has = any(b.id == items.id for b in bad)\n"
+            "    select:\n        id\n        rn = row_number() window(order by id)\n"
+            "    qualify:\n        has\n"
+        )
+    )
+
+    assert result.artifacts == ()
+    assert [
+        (item.code, item.message, item.location.line) for item in result.diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            f"MySQL SQL emission is not implemented for RelationIR: {name}. "
+            "MySQL aggregate windows are not supported",
+            line,
+        )
+        for name, line in (("bad", 5), ("reader", 10))
+    ]
+
+
 def test_a_relation_whose_sql_is_refused_refuses_its_readers() -> None:
     """A reader is never emitted with a by-name read of a refused relation."""
 

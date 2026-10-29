@@ -243,7 +243,7 @@ def test_int_cast_and_substr_controls_require_proven_ranges() -> None:
     assert problem == ("PIE-B1004", "substring_result_bound_missing")
 
 
-def test_c5_postgres_scalar_carriers_have_their_own_physical_laws() -> None:
+def test_postgres_scalar_carriers_have_their_own_physical_laws() -> None:
     from pietto.ir.model import SymbolId, SymbolNamespace
 
     integer = _literal_integer("postgres", -(1 << 63))

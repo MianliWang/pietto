@@ -4,7 +4,8 @@ A ```pietto block is one complete file, checked as `pietto check --check-mode
 strict` checks it. With nothing after `pietto` on its opening fence line it
 reports no diagnostic; otherwise the words after `pietto` are the codes it
 reports, in report order (an example that shows a diagnostic, or a form that a
-single file refuses, such as a project-only one). See docs/development.md.
+single file refuses, such as a project-only one). See docs/style.md,
+Documentation examples.
 """
 
 from __future__ import annotations

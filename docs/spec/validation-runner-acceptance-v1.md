@@ -1,20 +1,21 @@
 # Validation Runner Acceptance v1
 
 It takes effect once the parallelism interlude closure publication passes
-natural CI. Until an acceptance tool and a qualified environment record exist
-for another runner, only the integration host qualifies.
+natural CI. Only the integration host qualifies, except for the Teach part that
+the VR2 acceptance below accepts for a successor of its recorded bootstrap.
 
 ## Scope
 
 This version publishes the premise-based core of the validation runner rules
 approved for the parallelism interlude: R1, R4, R10 and R12, numbered as in the
 interlude dispatch. The dispatch's other numbers (R2, R3, R5–R9 and R11) are
-not rules of this version; they stay reserved for a later dispatch that
-provides an acceptance tool. These numbers follow the interlude dispatch only;
+not rules of this version; they stay reserved for a later dispatch. These
+numbers follow the interlude dispatch only;
 they are unrelated to the Phase68 recovery modes R1 and R2, including the R2
 window refinement, and to CI remaining-tail maintenance R1. When this version
-is published, no acceptance tool and no qualified environment record exist for
-any runner other than the integration host.
+was first published, no acceptance tool and no qualified environment record
+existed for any runner other than the integration host; D71.12 later added the
+VR2 acceptance below.
 
 VR1 preparation provides a bounded candidate source exporter, independent
 remote tree reconstruction check, static-gate report producer, environment
@@ -47,16 +48,28 @@ VR2 is first sealed entirely on the integration host: it receives ordinary Gate
 CI on `push`/`main`, attempt 1, for `.github/workflows/ci.yml` with its complete
 required consumer inventory successful. The integration host reads the live
 main ref and workflow identity, and records the published head, tree, run,
-workflow blob and adopted validator, receiver and workload-policy bytes. A candidate must have that head as a Git
+its complete job inventory, workflow blob and the adopted bytes of the eight
+acceptance rule paths: `.github/workflows/ci.yml`, `ci/workloads.toml`,
+`scripts/ci_workloads.py`, `scripts/validate.py`, `scripts/ci_validation.py`,
+`scripts/validation_runner_receiver.py`, `docs/development.md` and this
+specification. `bootstrap-observe` refuses a run whose job list is not exactly
+that inventory; `accept` checks that every recorded job succeeded. A candidate
+must have that head as a Git
 ancestor before a Teach receipt can be accepted. The bootstrap candidate cannot
 self-qualify; this rule applies only to successors after its natural CI passes.
+A candidate that changes the bytes of any acceptance rule path cannot use a
+recorded bootstrap: the split stays void until such a change is itself sealed
+on the integration host and its natural exact-head CI is recorded as a new
+bootstrap with `bootstrap-observe`.
 
 For each successor, the integration host independently collects the full node
 set and captures current `ci_workload` marker provenance without changing the
 CI policy or placement. An unmarked node is local. A node is remote eligible
-only when it has an explicit `ci_workload("general-runtime")` declaration and
-resolves to the ordinary core descriptor; every special descriptor remains
-local. The six existing partition names are retained. For every partition the
+only when it has an explicit `ci_workload("general-runtime")` declaration,
+resolves to the ordinary core descriptor and is not in
+`tests/test_harness_validation_runner_receiver.py`, which tests these rules;
+every special descriptor remains local. The six existing partition names are
+retained. For every partition the
 acceptance plan names an exact remote subset and its local complement; an empty
 side has an explicit no-op receipt. A gap, overlap, foreign node, changed
 resolved descriptor, changed collection/policy/input/context, failure, or
@@ -239,9 +252,9 @@ runners executing natural CI keep the permissions their workflow declares.
 - No candidate whose Gate 2 validation starts before this specification takes
   effect selects runners under it; the earliest candidate that may is the
   Phase69 route-lock commit.
-- Until an acceptance tool and a qualified environment record exist for
-  another runner, only the integration host qualifies. Providing both needs a
-  later dispatch, which also decides the reserved rules.
+- Only the integration host qualifies, except for the Teach part that the
+  VR2 acceptance accepts for a successor of its recorded bootstrap. A later
+  dispatch decides the reserved rules.
 - Apart from replacing places with premises (R1), this specification relaxes
   no validation rule. The authoritative validation still runs exactly once per
   candidate, and independent full collection, complete coverage, auxiliary

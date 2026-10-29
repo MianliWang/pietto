@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import re
+from collections.abc import Callable
+
 import pytest
 
 from pietto.ir import build_ir
+from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
+from pietto.sql.mysql import emit_mysql_sql
 from pietto.sql.postgres import emit_postgres_sql
 from pietto.sql.model import SqlResult
 
@@ -24,13 +29,18 @@ relationship Matches(left: Row, right: Other):
 """
 
 
-def _sql(body: str) -> SqlResult:
+def _sql(body: str, warned: tuple[int, ...] = ()) -> SqlResult:
+    """`warned` holds the line of each PIE-S2385 that check reports."""
+
     parsed = parse_source(_PREFIX + body, path="any-sql.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None, parsed.diagnostics
     semantic = analyze(parsed.ast)
-    assert semantic.diagnostics == () and semantic.script is not None, (
+    assert [
+        (item.code, item.severity, item.location.line) for item in semantic.diagnostics
+    ] == [("PIE-S2385", Severity.WARNING, line) for line in warned], (
         semantic.diagnostics
     )
+    assert semantic.script is not None
     lowered = build_ir(semantic.script, semantic.model)
     assert lowered.diagnostics == () and lowered.ir is not None, lowered.diagnostics
     return emit_postgres_sql(lowered.ir)
@@ -74,14 +84,17 @@ def test_any_before_right_join_is_placed_in_right_on_not_final_where() -> None:
 
 
 def test_any_before_full_join_retains_the_existing_backend_boundary() -> None:
-    result = _sql("""query q:
+    result = _sql(
+        """query q:
     from rows
     where any(Matches(rows, candidate) for candidate in others)
     let after = others
     full join after on rows.id == after.id
     select:
         id = after.id
-""")
+""",
+        (16,),
+    )
     assert result.artifacts == ()
     assert [item.code for item in result.diagnostics] == ["PIE-B1000"]
     assert "A SEMI or ANTI JOIN before FULL JOIN after" in result.diagnostics[0].message
@@ -353,7 +366,7 @@ def test_any_dependency_cte_never_hides_a_table_read_without_a_schema(
     refused: tuple[tuple[str, int, str, str], ...],
     emitted: tuple[str, ...],
 ) -> None:
-    result = _sql(body)
+    result = _sql(body, tuple(line for _name, line, _cte, _table in refused))
     assert [
         (
             item.code,
@@ -442,3 +455,88 @@ def test_an_any_chain_operand_emits_the_exists_of_each_comparison() -> None:
     assert chain.diagnostics == written.diagnostics == ()
     assert chain.artifacts[0].sql == written.artifacts[0].sql
     assert chain.artifacts[0].sql.count("EXISTS (") == 2
+
+
+_SOURCES = (
+    "shape Row:\n    id: Int\n    price: Int\n"
+    'source items: Row = {d}.table("items")\n'
+    'source orders: Row = {d}.table("orders")\n'
+)
+_USER_SOURCE = 'source {u}: Row = {d}.table("items")\n'
+_GENERATED = re.compile(
+    r"_pietto_value_\d+|_pietto_any_\d+|__pietto_qualify(?:\d+|_\d+)?", re.IGNORECASE
+)
+# Each generator, by the name it takes in a statement with no user name in
+# its way: a program with a user name `{u}`, and the pattern of the names it
+# generates there.
+_GENERATORS = {
+    # The EXISTS alias of an `any(...)` value.
+    "_pietto_value_1": (
+        _USER_SOURCE + "query q:\n    from {u}\n"
+        "    where any(o.price == {u}.price for o in orders)\n"
+        "    select:\n        id\n",
+        r"_pietto_value_\d+",
+    ),
+    # The alias of the hidden SEMI JOIN input of an `any(...)` before a JOIN.
+    "_pietto_any_1": (
+        _USER_SOURCE + "query q:\n    from {u}\n"
+        "    where any(o.price == {u}.price for o in orders)\n"
+        "    let x = orders\n    inner join x on x.id == {u}.id\n"
+        "    select:\n        id = {u}.id\n",
+        r"_pietto_any_\d+",
+    ),
+    # A QUALIFY port, beside an output of its name.
+    "__pietto_qualify_0": (
+        "query q:\n    from items\n"
+        "    let has = any(o.price == items.price for o in orders)\n"
+        "    select:\n        id\n        {u} = price\n"
+        "        rn = row_number() window(order by id)\n"
+        "    qualify:\n        rn <= 3 and has\n",
+        r"__pietto_qualify_\d+",
+    ),
+    # The QUALIFY derived table, beside an input of its name.
+    "__pietto_qualify": (
+        _USER_SOURCE + "query q:\n    from {u}\n"
+        "    let has = any(o.price == {u}.price for o in orders)\n"
+        "    select:\n        id\n        rn = row_number() window(order by id)\n"
+        "    qualify:\n        rn <= 3 and has\n",
+        r"__pietto_qualify\d*",
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+@pytest.mark.parametrize("spelling", (str, str.upper, str.title))
+@pytest.mark.parametrize("generated", tuple(_GENERATORS))
+def test_no_generated_name_equals_a_user_name_in_any_case(
+    generated: str, spelling: Callable[[str], str], dialect: str
+) -> None:
+    """MySQL compares aliases and column names without case, so a name Pietto
+    generates that a user name spells in another case would capture it."""
+
+    user = spelling(generated)
+    program, own = _GENERATORS[generated]
+    parsed = parse_source(
+        (_SOURCES + program).format(u=user, d=dialect), path="generated-names.pietto"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None, parsed.diagnostics
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == () and semantic.script is not None
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.diagnostics == () and lowered.ir is not None, lowered.diagnostics
+    if dialect == "postgres":
+        result, quote = emit_postgres_sql(lowered.ir), '"'
+    else:
+        result, quote = emit_mysql_sql(lowered.ir), "`"
+    if dialect == "mysql" and generated == "_pietto_any_1":
+        # MySQL emits no JOIN yet.
+        assert [item.code for item in result.diagnostics] == ["PIE-B1000"]
+        return
+    assert result.diagnostics == (), result.diagnostics
+    sql = result.artifacts[-1].sql
+    names = set(re.findall(f"{quote}([^{quote}]+){quote}", sql)) - {user}
+    assert any(re.fullmatch(own, name) for name in names), sql
+    assert not any(
+        _GENERATED.fullmatch(name) and name.casefold() == user.casefold()
+        for name in names
+    ), sql

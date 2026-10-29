@@ -128,7 +128,7 @@ def test_approved_function_mappings_are_uppercase_and_recursive() -> None:
     )
 
 
-def test_c5_mysql_only_emits_proven_decimal_round_and_int_text_cast() -> None:
+def test_mysql_only_emits_proven_decimal_round_and_int_text_cast() -> None:
     decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
     int_type = _builtin_type("Int", NullabilityIR.NON_NULL)
     text = _builtin_type("Text", NullabilityIR.NON_NULL)
@@ -198,7 +198,7 @@ def test_c5_mysql_only_emits_proven_decimal_round_and_int_text_cast() -> None:
         ),
     ],
 )
-def test_c5_mysql_refuses_unproven_function_shapes(expression: ExpressionIR) -> None:
+def test_mysql_refuses_unproven_function_shapes(expression: ExpressionIR) -> None:
     with pytest.raises(MySqlRenderError):
         render_mysql_expression(expression)
 

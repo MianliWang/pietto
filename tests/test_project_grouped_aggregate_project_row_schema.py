@@ -1072,3 +1072,87 @@ def _location(expression: Expression, *, fallback_path: str) -> SourceLocation:
         end_line=span.end_line,
         end_column=span.end_column,
     )
+
+
+_STRING_AGG_HEAD = """shape Customer:
+    id: Int
+    name: Text
+    customer_key = unique(id)
+shape Order:
+    id: Int
+    customer_id: Int
+    status: Text
+source customers: Customer = postgres.table("shop.customers")
+source orders: Order = postgres.table("shop.orders")
+"""
+_UNORDERED = "Invalid arguments for aggregate string_agg: expected ORDER BY key"
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "query q:\n    from orders\n    group by customer_id\n"
+            '    select customer_id, notes = string_agg(status, ", ")\n',
+            [("PIE-S2104", _UNORDERED, 14, 33)],
+        ),
+        (
+            'query q:\n    from orders\n    select notes = string_agg(status, ", ")\n',
+            [("PIE-S2104", _UNORDERED, 13, 20)],
+        ),
+        (
+            "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on c.id == orders.customer_id\n    group by c.name\n"
+            '    select name = c.name, notes = string_agg(orders.status, ", ")\n',
+            [("PIE-S2104", _UNORDERED, 16, 35)],
+        ),
+        (
+            "query q:\n    from orders\n    group by customer_id\n"
+            "    select customer_id, n = count(status, order by id)\n",
+            [
+                (
+                    "PIE-S2104",
+                    "Internal ORDER BY is only supported by string_agg",
+                    14,
+                    29,
+                )
+            ],
+        ),
+        (
+            "query q:\n    from orders\n    group by customer_id\n"
+            '    select customer_id, notes = string_agg(status, ", ", order by id)\n',
+            [],
+        ),
+    ],
+    ids=["grouped", "ungrouped", "joined", "other_aggregate", "ordered"],
+)
+def test_project_check_requires_the_string_agg_internal_order_as_a_file_does(
+    tmp_path, capsys, body, expected
+):
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(_STRING_AGG_HEAD + body)
+    found = []
+    for argv in (
+        ["check", "--project", str(tmp_path), "--format", "json"],
+        ["check", str(tmp_path / "main.pietto"), "--format", "json"],
+    ):
+        code = cli.main(argv)
+        found.append(
+            (
+                code,
+                [
+                    (
+                        d["code"],
+                        d["message"],
+                        d["location"]["line"],
+                        d["location"]["column"],
+                    )
+                    for d in json.loads(capsys.readouterr().out)["diagnostics"]
+                ],
+            )
+        )
+    assert found == [(1 if expected else 0, expected)] * 2

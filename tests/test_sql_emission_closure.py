@@ -2191,7 +2191,7 @@ def test_ordered_string_agg_pure_boundary_rechecks_every_key_direction(tmp_path)
     assert _pure(bad_order)[0] is not pure.Status.OK
 
 
-def test_c5_scalar_and_date_carrier_mutations_fail_the_pure_reader(tmp_path):
+def test_scalar_and_date_carrier_mutations_fail_the_pure_reader(tmp_path):
     scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")
     header = scalar["source"].split("table result:", 1)[0]
     contract = json.loads(scalar["contract"])
@@ -2286,7 +2286,7 @@ def test_c5_scalar_and_date_carrier_mutations_fail_the_pure_reader(tmp_path):
     assert _pure(forged)[0] is not pure.Status.OK
 
 
-def test_c5_direct_fixed_scalar_carriers_reach_and_constrain_the_pure_reader(tmp_path):
+def test_direct_fixed_scalar_carriers_reach_and_constrain_the_pure_reader(tmp_path):
     scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")
     contract = json.loads(scalar["contract"])
     contract["environment"].append(
@@ -2331,7 +2331,7 @@ def test_c5_direct_fixed_scalar_carriers_reach_and_constrain_the_pure_reader(tmp
     assert _pure(forged)[0] is not pure.Status.OK
 
 
-def test_c5_decimal_round_uses_the_same_default_and_explicit_zero_carrier_law(
+def test_decimal_round_uses_the_same_default_and_explicit_zero_carrier_law(
     tmp_path,
 ):
     scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")

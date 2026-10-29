@@ -36,7 +36,20 @@ def test_unary_numeric_matrix_preserves_current_behavior() -> None:
             )
         value, diagnostics = expression_facts(operator + "None")
         assert value.kind is ValueTypeKind.UNKNOWN
-        assert diagnostics == ()
+        # Check passes it; PostgreSQL cannot type `-NULL` (PIE-S2385).
+        assert diagnostics == (
+            (
+                (
+                    "PIE-S2385",
+                    "Single-file SQL emission is unavailable because PostgreSQL "
+                    "cannot type operator - when every operand is None; this "
+                    "warning does not change check's exit status, but emit-sql "
+                    "will refuse this relation.",
+                ),
+            )
+            if operator == "-"
+            else ()
+        )
 
 
 def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() -> None:
@@ -234,10 +247,27 @@ def test_a_null_arithmetic_operand_takes_the_type_of_the_other_operand() -> None
             EffectiveNullability.NULLABLE,
         ), expression
         assert diagnostics == (), expression
-    for expression in ("None / price", "None + None", "-None"):
+    for expression, operator in (
+        ("None / price", None),
+        ("None + None", "+"),
+        ("-None", "-"),
+    ):
         value, diagnostics = expression_facts(expression)
         assert value.kind is ValueTypeKind.UNKNOWN
-        assert diagnostics == (), expression
+        # Check passes an operator over None only; PostgreSQL cannot type it.
+        assert diagnostics == (
+            ()
+            if operator is None
+            else (
+                (
+                    "PIE-S2385",
+                    "Single-file SQL emission is unavailable because PostgreSQL "
+                    f"cannot type operator {operator} when every operand is None; "
+                    "this warning does not change check's exit status, but "
+                    "emit-sql will refuse this relation.",
+                ),
+            )
+        ), expression
 
     for expression, operator, expected in (
         (

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
@@ -25,8 +25,14 @@ from pietto._project.project_scalar_bindings import (
     ProjectVisibleJoinedBinding,
     resolve_project_joined_scalar_reference,
 )
-from pietto._project.row_expression_type_facts import scalar_read_types_within
+from pietto._project.model import ProjectResolvedTypeKind
+from pietto._project.row_expression_type_facts import (
+    merge_shape_typed_diagnostics,
+    project_row_field_to_semantic_value_type,
+    scalar_read_types_within,
+)
 from pietto._project.project_scalar_references import (
+    _source_field_parts,
     ProjectScalarEnvironmentField,
     ProjectScalarReferenceOccurrence,
     ProjectScalarReferenceResolution,
@@ -735,27 +741,39 @@ def analyze_project_joined_namespace_expression(
         record.diagnostics if record is not None else ()
     )
     diagnostics.extend(item for value in any_values for item in value.diagnostics)
-    root_value_type = infer_row_expression(
-        normalized,
-        RowSchema(),
-        value_types,
-        diagnostics,
-        report_unknown_name=True,
-        # A field read that resolves to no field stays untyped and is an
-        # unknown field, as in a relation without JOIN inputs; no binding
-        # qualifies a field here, so a dotted one is reported as a bare one is.
-        field_qualifier="" if blockers else None,
-        bare_value_types={
-            value.occurrence.binding.name: value.value_type
-            for value in namespace.let_values
-        },
-        # A `let:` name is typed as its value; a def argument is checked with
-        # the values written in, as emission writes it, and a check that reads
-        # a value through its name (a LIKE pattern) follows it.
-        bare_value_expressions=namespace.written_lets,
-        relation_columns=read_types,
-        failed_relationship_calls=() if record is None else record.failed_calls,
-    )
+    shaped = _shape_value_types(resolutions)
+    seed_types = {**value_types, **shaped}
+
+    def infer(types: dict[Expression, ValueType], found: list[Diagnostic]) -> ValueType:
+        return infer_row_expression(
+            normalized,
+            RowSchema(),
+            types,
+            found,
+            report_unknown_name=True,
+            # A field read that resolves to no field stays untyped and is an
+            # unknown field, as in a relation without JOIN inputs; no binding
+            # qualifies a field here, so a dotted one is reported as a bare
+            # one is.
+            field_qualifier="" if blockers else None,
+            bare_value_types={
+                value.occurrence.binding.name: value.value_type
+                for value in namespace.let_values
+            },
+            # A `let:` name is typed as its value; a def argument is checked
+            # with the values written in, as emission writes it, and a check
+            # that reads a value through its name (a LIKE pattern) follows it.
+            bare_value_expressions=namespace.written_lets,
+            relation_columns=read_types,
+            failed_relationship_calls=() if record is None else record.failed_calls,
+        )
+
+    start = len(diagnostics)
+    root_value_type = infer(value_types, diagnostics)
+    if shaped:
+        found: list[Diagnostic] = []
+        infer(seed_types, found)
+        merge_shape_typed_diagnostics(diagnostics, start, found)
     value_types[expression] = root_value_type
     retained_diagnostics = tuple(diagnostics)
     if blockers:
@@ -797,6 +815,26 @@ def analyze_project_joined_namespace_expression(
         value_types=value_types,
         diagnostics=retained_diagnostics,
     )
+
+
+def _shape_value_types(
+    resolutions: Iterable[object],
+) -> dict[Expression, ValueType]:
+    """Each read of a field of a shape, typed as that shape, as in a single
+    file, for the operators and functions that refuse it (`o.ship + 1`)."""
+
+    return {
+        resolution.reference.expression: project_row_field_to_semantic_value_type(
+            resolution.target.evidence,
+            _source_field_parts(resolution.target.source_field)[2],
+            shapes=True,
+        )
+        for resolution in resolutions
+        if type(resolution) is ProjectScalarReferenceResolution
+        and resolution.target is not None
+        and resolution.target.evidence.resolved_type.kind
+        is ProjectResolvedTypeKind.SHAPE
+    }
 
 
 def _joined_any_values(
@@ -1176,24 +1214,40 @@ def build_project_joined_let_namespaces(
             resolution.status is ProjectModuleCandidateBucketStatus.ABSENT
             for resolution in local_blockers
         ):
-            root_type = infer_row_expression(
-                normalized,
-                RowSchema(),
-                value_types,
-                local_diagnostics,
-                report_unknown_name=True,
-                field_qualifier="" if local_blockers else None,
-                suppressed_unknown_names=all_names,
-                bare_value_types={
-                    **{
-                        value.occurrence.binding.name: value.value_type
-                        for value in values
+            # Copied before the first pass records the types it infers.
+            shaped = _shape_value_types(resolutions)
+            seed_types = {**value_types, **shaped}
+
+            def infer(
+                types: dict[Expression, ValueType], found: list[Diagnostic]
+            ) -> ValueType:
+                return infer_row_expression(
+                    normalized,
+                    RowSchema(),
+                    types,
+                    found,
+                    report_unknown_name=True,
+                    field_qualifier="" if local_blockers else None,
+                    suppressed_unknown_names=all_names,
+                    bare_value_types={
+                        **{
+                            value.occurrence.binding.name: value.value_type
+                            for value in values
+                        },
+                        **unadmitted,
                     },
-                    **unadmitted,
-                },
-                bare_value_expressions=let_values,
-                failed_relationship_calls=() if record is None else record.failed_calls,
-            )
+                    bare_value_expressions=let_values,
+                    failed_relationship_calls=(
+                        () if record is None else record.failed_calls
+                    ),
+                )
+
+            start = len(local_diagnostics)
+            root_type = infer(value_types, local_diagnostics)
+            if shaped:
+                found: list[Diagnostic] = []
+                infer(seed_types, found)
+                merge_shape_typed_diagnostics(local_diagnostics, start, found)
         if root_type is not None:
             value_types[occurrence.expression] = root_type
         diagnostics.extend(local_diagnostics)

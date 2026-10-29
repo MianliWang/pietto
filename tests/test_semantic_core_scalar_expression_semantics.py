@@ -1152,6 +1152,16 @@ def test_a_decimal_quotient_is_refused_where_no_number_fits() -> None:
         ("PIE-S2104", argument.format("lower", "Text"), 27, 13),
         ("PIE-S2104", arguments.format("coalesce", "type"), 28, 13),
         ("PIE-S2105", operands.format("==", "comparable"), 29, 13),
+        # Check passes it, but PostgreSQL converts only an Int to Float.
+        (
+            "PIE-S2385",
+            "Single-file SQL emission is unavailable because PostgreSQL emission "
+            "converts only a value known to be Int to Float or Text; this warning "
+            "does not change check's exit status, but emit-sql will refuse this "
+            "relation.",
+            43,
+            13,
+        ),
     ]
 
 

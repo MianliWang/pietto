@@ -133,10 +133,10 @@ runner executes a domain as part of a Gate 2 validation only when its
 environment record satisfies that domain's premises. These rules take effect
 once natural exact-head CI passes on the head that publishes the parallelism
 interlude closure, or on the batch head when the closure is pushed in a batch.
-Until an acceptance tool and a qualified environment record exist for another
-runner, only the integration host qualifies, so every part of a Gate 2
-validation still runs there as this document describes; providing that tool
-needs a later dispatch. A non-authoritative run on another runner, such as a
+Only the integration host qualifies, except for the Teach part that the VR2
+acceptance below accepts for a successor of its recorded bootstrap, so every
+other part of a Gate 2 validation runs there as this document describes. A
+non-authoritative run on another runner, such as a
 development loop, never counts toward or stands in for any part of a Gate 2
 validation, and the specification's credential and trust rules still apply to
 it. Under these premises hosted CI currently runs no part of a Gate 2
@@ -153,11 +153,21 @@ The owner-approved VR2 bootstrap is sealed first on this integration host by
 ordinary Gate 2 validation, ordinary commit and fast-forward push, then a
 natural exact-head `push`/`main` attempt-1 success for the expected CI workflow
 and its complete required consumer inventory. The bootstrap binds the published
-workflow, workload policy, validator and receiver bytes. Only a successor whose base descends from that published head
-may use the split. For that successor, `scripts/validation_runner_receiver.py`
+bytes of the eight acceptance rule paths: `.github/workflows/ci.yml`,
+`ci/workloads.toml`, `scripts/ci_workloads.py`, `scripts/validate.py`,
+`scripts/ci_validation.py`, `scripts/validation_runner_receiver.py`, this
+document and the [specification](spec/validation-runner-acceptance-v1.md). A
+candidate that changes any of them cannot use the recorded bootstrap: the split
+stays void until such a change is itself sealed on this host (ordinary Gate 2
+validation, ordinary commit, fast-forward push) and its natural exact-head CI
+is recorded as a new bootstrap with `validation_runner_receiver.py
+bootstrap-observe`. Only a successor whose base descends from that published
+head may use the split. For that successor, `scripts/validation_runner_receiver.py`
 captures explicit `ci_workload` provenance from an independent collection:
 unmarked or special nodes stay local; only explicitly declared ordinary
-`general-runtime` nodes may appear in Teach's exact plan subset. The plan keeps
+`general-runtime` nodes may appear in Teach's exact plan subset, never one of
+`tests/test_harness_validation_runner_receiver.py`, which tests these rules
+(`LOCAL_ACCEPTANCE_FILES`). The plan keeps
 the six existing partitions and proves each remote/local complement is complete
 and disjoint. Teach runs only static gates and its nonempty subset using
 `scripts/ci_validation.py run --nodes-file`; the host keeps all local nodes,

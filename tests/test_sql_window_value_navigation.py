@@ -616,7 +616,8 @@ def test_range_offset_refusal_names_the_forms_that_emit(
 def test_postgresql_refuses_window_counts_outside_int32(call: str) -> None:
     name = call.split("(", 1)[0]
     accepted, _ = _compile(call.format(n=2147483647))
-    refused, _ = _compile(call.format(n=2147483648))
+    # Check warns that PostgreSQL will refuse it (PIE-S2385).
+    refused, _ = _compile(call.format(n=2147483648), expected_warning=True)
     mysql, _ = _compile(call.format(n=2147483648), connector="mysql.table")
 
     assert emit_postgres_sql(accepted).diagnostics == ()

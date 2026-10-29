@@ -480,7 +480,10 @@ def _expand_let_references(
     *,
     let_expansions: Mapping[str, Expression],
     let_stack: frozenset[str],
+    memo: dict[tuple[str, frozenset[str]], Expression] | None = None,
 ) -> Expression:
+    if memo is None:
+        memo = {}
     if type(expression) not in _KNOWN_EXPRESSIONS:
         raise AssertionError(
             f"Unsupported aggregate expression: {type(expression).__name__}"
@@ -488,11 +491,17 @@ def _expand_let_references(
     if isinstance(expression, NameExpr) and expression.name in let_expansions:
         if expression.name in let_stack:
             return expression
-        return _expand_let_references(
-            let_expansions[expression.name],
-            let_expansions=let_expansions,
-            let_stack=let_stack | frozenset((expression.name,)),
-        )
+        # A let read again on the same path expands to the same value; reuse
+        # it, so a chain of lets that each read the last twice stays linear.
+        key = (expression.name, let_stack)
+        if key not in memo:
+            memo[key] = _expand_let_references(
+                let_expansions[expression.name],
+                let_expansions=let_expansions,
+                let_stack=let_stack | frozenset((expression.name,)),
+                memo=memo,
+            )
+        return memo[key]
     if isinstance(expression, UnaryExpr):
         return UnaryExpr(
             operator=expression.operator,
@@ -500,6 +509,7 @@ def _expand_let_references(
                 expression.operand,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             span=expression.span,
         )
@@ -509,12 +519,14 @@ def _expand_let_references(
                 expression.left,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             operator=expression.operator,
             right=_expand_let_references(
                 expression.right,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             span=expression.span,
         )
@@ -526,6 +538,7 @@ def _expand_let_references(
                     argument,
                     let_expansions=let_expansions,
                     let_stack=let_stack,
+                    memo=memo,
                 )
                 for argument in expression.arguments
             ),
@@ -535,6 +548,7 @@ def _expand_let_references(
                         item.expression,
                         let_expansions=let_expansions,
                         let_stack=let_stack,
+                        memo=memo,
                     ),
                     direction=item.direction,
                     span=item.span,
@@ -549,12 +563,14 @@ def _expand_let_references(
                 expression.left,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             operator=expression.operator,
             right=_expand_let_references(
                 expression.right,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             span=expression.span,
         )
@@ -564,16 +580,19 @@ def _expand_let_references(
                 expression.value,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             lower=_expand_let_references(
                 expression.lower,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             upper=_expand_let_references(
                 expression.upper,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             span=expression.span,
         )
@@ -583,6 +602,7 @@ def _expand_let_references(
                 expression.value,
                 let_expansions=let_expansions,
                 let_stack=let_stack,
+                memo=memo,
             ),
             negated=expression.negated,
             span=expression.span,
@@ -1053,4 +1073,19 @@ def _diagnostic(
             end_line=span.end_line,
             end_column=span.end_column,
         ),
+    )
+
+
+def internal_order_diagnostic(expression: CallExpr) -> Diagnostic | None:
+    """PIE-S2104 for a string_agg without its internal ORDER BY.
+
+    Syntax admission already refuses an internal ORDER BY on any other call.
+    """
+
+    if callee_name(expression) != "string_agg" or expression.aggregate_order_by:
+        return None
+    return _diagnostic(
+        expression,
+        code="PIE-S2104",
+        message="Invalid arguments for aggregate string_agg: expected ORDER BY key",
     )

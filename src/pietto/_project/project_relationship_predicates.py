@@ -1047,8 +1047,13 @@ def normalize_project_query_names(
                 if from_binding is not None and visible
                 else frozenset()
             )
-            source_is_join_binding = any(
-                join.target_binding_name == from_source for join in joins
+            # The compatibility rule keeps only what 0.1.5 admitted: an
+            # original-name read in a query without an authored JOIN, outside
+            # any `any(...)` (a lowered one keeps its scope over its ON).
+            original_reads = not any(
+                id(join) not in generated_joins
+                or join.target_binding_name == from_source
+                for join in definition.join_clauses
             )
 
             def normalize_iterator(before: object, after: object) -> object:
@@ -1084,14 +1089,11 @@ def normalize_project_query_names(
                     type(after) is ast.DottedNameExpr
                     and from_binding is not None
                     and from_binding != from_source
-                    and not source_is_join_binding
+                    and original_reads
                     and len(after.parts) == 2
                     and after.parts[0] == from_source
                     and after.parts[1] in from_fields
-                    and not any(
-                        scope.binding_name in {from_source, from_binding}
-                        for scope in scopes.get(id(before), ())
-                    )
+                    and not scopes.get(id(before))
                 ):
                     result = replace(after, parts=(from_binding, after.parts[1]))
                 return _scalar_contracts(before, result)

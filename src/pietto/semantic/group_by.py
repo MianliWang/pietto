@@ -50,6 +50,7 @@ from pietto.semantic.aggregates import (
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BUILTIN_TYPE_NAMES
 from pietto.semantic.expressions import (
     _canonical_value_type,
+    _reads_only_null,
     condition_value_type,
     let_value,
     null_arithmetic_argument_diagnostics,
@@ -308,6 +309,24 @@ def project_grouped_schema(
     return RowSchema(fields=fields), diagnostics
 
 
+def group_key_fields(
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression] | None,
+) -> frozenset[str] | None:
+    """The input fields that the GROUP BY keys name, directly or through a
+    `let` name; None when a key names none or repeats one, which is reported
+    where it is written."""
+
+    keys, _, _ = _resolve_group_keys(
+        definition, input_schema, let_expansions=let_expansions
+    )
+    assert definition.group_by_clause is not None
+    if len(keys) != len(definition.group_by_clause.items):
+        return None
+    return frozenset(key.identity for key in keys)
+
+
 def _resolve_group_keys(
     definition: DerivedRelation,
     input_schema: RowSchema,
@@ -444,6 +463,7 @@ def _aggregate_output_field(
         if not _has_unknown_argument(
             expression,
             expression_value_types=expression_value_types,
+            let_expansions=let_expansions,
         ) or (
             input_schema.is_unknown
             and unknown_row_arguments(
@@ -595,12 +615,19 @@ def _has_unknown_argument(
     expression: CallExpr,
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
+    let_expansions: Mapping[str, Expression] | None,
 ) -> bool:
+    """Whether an argument has no type, other than a value of only `None`,
+    whose arity is still checked."""
+
     if expression_value_types is None:
         return False
     return any(
-        (value_type := expression_value_types.get(argument)) is None
-        or value_type.kind is ValueTypeKind.UNKNOWN
+        (
+            (value_type := expression_value_types.get(argument)) is None
+            or value_type.kind is ValueTypeKind.UNKNOWN
+        )
+        and not _reads_only_null(argument, let_expansions or {})
         for argument in expression.arguments
     )
 
