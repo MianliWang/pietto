@@ -48,7 +48,7 @@ execute-mysql = [
 execute-postgres-adbc = [
     "pyarrow==26.0.0",
     "adbc-driver-postgresql==1.12.0",
-    "adbc-driver-manager==1.12.0",
+    "adbc-driver-manager==1.13.0",
 ]
 
 [project.scripts]
