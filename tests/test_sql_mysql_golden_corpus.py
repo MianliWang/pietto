@@ -31,6 +31,27 @@ MYSQL_CASES = (
         "emit_mysql_compatibility_ordering_metadata.sql",
         ("FirstRelation", "SecondRelation"),
     ),
+    (
+        "tests/fixtures/mysql/join_mvp.pietto",
+        "emit_mysql_join_mvp.sql",
+        (
+            "order_names",
+            "customer_regions",
+            "orders_or_customers",
+            "order_customer_pairs",
+            "order_region_pairs",
+            "customers_with_orders",
+            "customers_without_big_orders",
+            "big_order_names",
+            "orders_with_named_customers",
+            "recent_order_regions",
+            "regions_and_ordering_customers",
+            "customer_peers",
+            "named_customers",
+            "orders_of_named_customers",
+            "order_stats",
+        ),
+    ),
 )
 POSTGRES_CASES = (
     ("examples/tables/active_users.pietto", "emit_sql_active_users.sql"),
@@ -113,7 +134,9 @@ def _compile(path: str) -> ScriptIR:
         for diagnostic in semantic_result.diagnostics
     )
 
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    # The analyzed script, which carries the JOIN facts that lowering reads.
+    assert semantic_result.script is not None
+    ir_result = build_ir(semantic_result.script, semantic_result.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir

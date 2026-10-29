@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import fields, is_dataclass
+
 from pietto.ir.model import (
     AggregateCallIR,
     AggregateWindowCallIR,
@@ -47,6 +50,8 @@ from pietto.sql.mysql_render import (
     render_literal,
 )
 from pietto.sql.window_strategy import (
+    MYSQL_EXCLUDE_REFUSAL,
+    MYSQL_GROUPS_OFFSET_REFUSAL,
     WindowTargetDialect,
     decide_inline_window_target,
     range_offset_refusal,
@@ -179,7 +184,9 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
     if isinstance(expression, AggregateCallIR):
         return _render_aggregate_call(expression)
     if isinstance(expression, AggregateWindowCallIR):
-        raise MySqlRenderError("MySQL aggregate windows are not supported")
+        if nested:
+            raise MySqlRenderError("MySQL aggregate windows are direct projections")
+        return render_mysql_aggregate_window_call(expression)
     if isinstance(expression, WindowCallIR):
         if nested:
             raise MySqlRenderError(
@@ -384,6 +391,36 @@ def render_mysql_window_call(
     return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}){suffix} OVER {over_sql}"
 
 
+def render_mysql_aggregate_window_call(
+    expression: AggregateWindowCallIR,
+    *,
+    over_sql: str | None = None,
+) -> str:
+    """Render the five admitted aggregate windows."""
+
+    if type(expression) is not AggregateWindowCallIR:
+        raise MySqlRenderError("MySQL aggregate window requires an exact carrier")
+    aggregate_sql = _render_aggregate_call(
+        AggregateCallIR(
+            span=expression.span,
+            value_type=expression.value_type,
+            function=expression.function,
+            arguments=expression.arguments,
+        ),
+        allow_grouped_aggregate=True,
+    )
+    if over_sql is None:
+        components = render_mysql_window_components(
+            expression.spec.partition_by,
+            expression.spec.order_by,
+            expression.spec.frame,
+        )
+        over_sql = f"({' '.join(components)})"
+    if type(over_sql) is not str or not over_sql:
+        raise MySqlRenderError("MySQL aggregate window OVER SQL must be nonempty")
+    return f"{aggregate_sql} OVER {over_sql}"
+
+
 def render_mysql_window_components(
     partition_by: tuple[ExpressionIR, ...],
     order_by: tuple[WindowOrderItemIR, ...],
@@ -420,8 +457,6 @@ def _render_mysql_window_frame(frame: WindowFrameIR) -> str:
         raise MySqlRenderError("MySQL window frame must be exact")
     if type(frame.unit) is not WindowFrameUnitIR:
         raise MySqlRenderError("MySQL window frame unit must be exact")
-    if frame.unit is WindowFrameUnitIR.GROUPS:
-        raise MySqlRenderError("MySQL does not support GROUPS frames")
     offset_bounds = tuple(
         bound
         for bound in (frame.start, frame.end)
@@ -431,6 +466,8 @@ def _render_mysql_window_frame(frame: WindowFrameIR) -> str:
             WindowFrameBoundKindIR.OFFSET_FOLLOWING,
         }
     )
+    if frame.unit is WindowFrameUnitIR.GROUPS and offset_bounds:
+        raise MySqlRenderError(MYSQL_GROUPS_OFFSET_REFUSAL)
     if frame.unit is WindowFrameUnitIR.RANGE and offset_bounds:
         raise MySqlRenderError(range_offset_refusal("MySQL"))
     if any(
@@ -440,16 +477,18 @@ def _render_mysql_window_frame(frame: WindowFrameIR) -> str:
         for bound in offset_bounds
     ):
         raise MySqlRenderError("MySQL frame offsets require nonnegative Int literals")
-    if (
-        frame.exclusion is not WindowFrameExclusionIR.NO_OTHERS
-        or frame.exclusion_is_explicit
-    ):
-        raise MySqlRenderError("MySQL does not support authored EXCLUDE frames")
+    # MySQL frames never exclude a row, which is EXCLUDE NO OTHERS, and MySQL
+    # refuses an EXCLUDE clause, so the clause is left out.
+    if frame.exclusion is not WindowFrameExclusionIR.NO_OTHERS:
+        raise MySqlRenderError(MYSQL_EXCLUDE_REFUSAL)
     start = _render_mysql_window_frame_bound(frame.start)
     end = _render_mysql_window_frame_bound(frame.end)
+    # Without an offset a GROUPS bound is the current row's peer group or a
+    # partition end, as the same RANGE bound is; MySQL refuses GROUPS.
+    unit = "RANGE" if frame.unit is WindowFrameUnitIR.GROUPS else frame.unit.value
     if frame.frame_is_explicit and not frame.end_is_explicit:
-        return f"{frame.unit.value} {start}"
-    return f"{frame.unit.value} BETWEEN {start} AND {end}"
+        return f"{unit} {start}"
+    return f"{unit} BETWEEN {start} AND {end}"
 
 
 def _render_mysql_window_frame_bound(bound: WindowFrameBoundIR) -> str:
@@ -498,35 +537,54 @@ def _render_mysql_window_order_item(item: WindowOrderItemIR) -> str:
     )
 
 
-def _render_aggregate_call(expression: AggregateCallIR) -> str:
+def _render_aggregate_call(
+    expression: AggregateCallIR,
+    *,
+    allow_grouped_aggregate: bool = False,
+) -> str:
     if expression.function == "string_agg":
         raise MySqlRenderError("MySQL aggregate string_agg is not supported")
     if expression.function == "count":
-        sql = _render_count_aggregate(expression)
+        sql = _render_count_aggregate(
+            expression, allow_grouped_aggregate=allow_grouped_aggregate
+        )
     elif expression.function == "count_distinct":
         sql = _render_count_distinct_aggregate(expression)
     elif (
         function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
     ) is not None:
-        sql = _render_extrema_aggregate(expression, function_name=function_name)
+        sql = _render_extrema_aggregate(
+            expression,
+            function_name=function_name,
+            allow_grouped_aggregate=allow_grouped_aggregate,
+        )
     else:
         function_name = _NUMERIC_AGGREGATE_NAMES.get(expression.function)
         if function_name is None:
             raise MySqlRenderError(
                 f"Unsupported MySQL aggregate call: {expression.function}"
             )
-        sql = _render_numeric_aggregate(expression, function_name=function_name)
+        sql = _render_numeric_aggregate(
+            expression,
+            function_name=function_name,
+            allow_grouped_aggregate=allow_grouped_aggregate,
+        )
     if not aggregate_call_contract(
         expression.function,
         expression.arguments,
         expression.value_type,
         order_by=expression.order_by,
+        allow_grouped_value=allow_grouped_aggregate,
     ):
         raise MySqlRenderError("MySQL aggregate call violates its IR contract")
     return sql
 
 
-def _render_count_aggregate(expression: AggregateCallIR) -> str:
+def _render_count_aggregate(
+    expression: AggregateCallIR,
+    *,
+    allow_grouped_aggregate: bool = False,
+) -> str:
     if not _has_builtin_type(expression, "Int", NullabilityIR.NON_NULL):
         raise MySqlRenderError("MySQL aggregate count expects Int non-null result")
     if not expression.arguments:
@@ -545,7 +603,9 @@ def _render_count_aggregate(expression: AggregateCallIR) -> str:
         raise MySqlRenderError(
             "MySQL aggregate count supports only concrete non-Any field arguments"
         )
-    if not _is_count_argument_expression(argument):
+    if not _is_count_argument_expression(
+        argument, allow_grouped_aggregate=allow_grouped_aggregate
+    ):
         raise MySqlRenderError(
             "MySQL aggregate count expects a direct field argument or approved "
             "field-bearing expression argument"
@@ -589,13 +649,16 @@ def _render_numeric_aggregate(
     expression: AggregateCallIR,
     *,
     function_name: str,
+    allow_grouped_aggregate: bool = False,
 ) -> str:
     if len(expression.arguments) != 1:
         raise MySqlRenderError(
             f"MySQL aggregate {expression.function} expects 1 argument(s)"
         )
     argument = expression.arguments[0]
-    argument_type = _numeric_aggregate_argument_type(argument)
+    argument_type = _numeric_aggregate_argument_type(
+        argument, allow_grouped_aggregate=allow_grouped_aggregate
+    )
     if argument_type is None:
         raise MySqlRenderError(
             f"MySQL aggregate {expression.function} expects a field-only Int, "
@@ -624,9 +687,13 @@ def _render_numeric_aggregate(
     return f"{function_name}({argument_sql})"
 
 
-def _numeric_aggregate_argument_type(expression: ExpressionIR) -> str | None:
+def _numeric_aggregate_argument_type(
+    expression: ExpressionIR,
+    *,
+    allow_grouped_aggregate: bool = False,
+) -> str | None:
     expression_type, has_field, has_literal = _numeric_aggregate_argument_shape(
-        expression
+        expression, allow_grouped_aggregate=allow_grouped_aggregate
     )
     if expression_type is None:
         return None
@@ -637,6 +704,8 @@ def _numeric_aggregate_argument_type(expression: ExpressionIR) -> str | None:
 
 def _numeric_aggregate_argument_shape(
     expression: ExpressionIR,
+    *,
+    allow_grouped_aggregate: bool = False,
 ) -> tuple[str | None, bool, bool]:
     """Return (builtin type, has resolved field, has Int/Float literal)."""
 
@@ -647,6 +716,9 @@ def _numeric_aggregate_argument_shape(
     if isinstance(expression, FieldRefIR):
         if expression.field is None:
             return None, False, False
+        return expression_type, True, False
+
+    if isinstance(expression, AggregateCallIR) and allow_grouped_aggregate:
         return expression_type, True, False
 
     if isinstance(expression, LiteralIR):
@@ -663,7 +735,9 @@ def _numeric_aggregate_argument_shape(
             operand_type,
             operand_has_field,
             operand_has_literal,
-        ) = _numeric_aggregate_argument_shape(expression.operand)
+        ) = _numeric_aggregate_argument_shape(
+            expression.operand, allow_grouped_aggregate=allow_grouped_aggregate
+        )
         if operand_type != expression_type:
             return None, False, False
         return expression_type, operand_has_field, operand_has_literal
@@ -672,10 +746,12 @@ def _numeric_aggregate_argument_shape(
         if expression.operator not in {"+", "-", "*"}:
             return None, False, False
         left_type, left_has_field, left_has_literal = _numeric_aggregate_argument_shape(
-            expression.left
+            expression.left, allow_grouped_aggregate=allow_grouped_aggregate
         )
         right_type, right_has_field, right_has_literal = (
-            _numeric_aggregate_argument_shape(expression.right)
+            _numeric_aggregate_argument_shape(
+                expression.right, allow_grouped_aggregate=allow_grouped_aggregate
+            )
         )
         if left_type is None or right_type is None:
             return None, False, False
@@ -726,13 +802,21 @@ def _is_count_distinct_text_transform_argument(expression: ExpressionIR) -> bool
     return _is_count_distinct_text_transform_argument(argument)
 
 
-def _is_count_argument_expression(expression: ExpressionIR) -> bool:
-    is_valid, has_field = _count_argument_expression_shape(expression)
+def _is_count_argument_expression(
+    expression: ExpressionIR,
+    *,
+    allow_grouped_aggregate: bool = False,
+) -> bool:
+    is_valid, has_field = _count_argument_expression_shape(
+        expression, allow_grouped_aggregate=allow_grouped_aggregate
+    )
     return is_valid and has_field
 
 
 def _count_argument_expression_shape(
     expression: ExpressionIR,
+    *,
+    allow_grouped_aggregate: bool = False,
 ) -> tuple[bool, bool]:
     """Return (valid shape, has resolved field leaf) for count expressions."""
 
@@ -741,18 +825,24 @@ def _count_argument_expression_shape(
 
     if isinstance(expression, FieldRefIR):
         return expression.field is not None, expression.field is not None
+    if isinstance(expression, AggregateCallIR) and allow_grouped_aggregate:
+        return True, True
     if isinstance(expression, LiteralIR):
         return True, False
     if isinstance(expression, UnaryIR):
         if expression.operator not in _UNARY_OPERATORS:
             return False, False
-        return _count_argument_expression_shape(expression.operand)
+        return _count_argument_expression_shape(
+            expression.operand, allow_grouped_aggregate=allow_grouped_aggregate
+        )
     if isinstance(expression, BinaryIR):
         if expression.operator not in {"+", "-", "*", "%", "and", "or"}:
             return False, False
-        left_valid, left_has_field = _count_argument_expression_shape(expression.left)
+        left_valid, left_has_field = _count_argument_expression_shape(
+            expression.left, allow_grouped_aggregate=allow_grouped_aggregate
+        )
         right_valid, right_has_field = _count_argument_expression_shape(
-            expression.right
+            expression.right, allow_grouped_aggregate=allow_grouped_aggregate
         )
         return left_valid and right_valid, left_has_field or right_has_field
     if isinstance(expression, CallIR):
@@ -763,7 +853,9 @@ def _count_argument_expression_shape(
             return False, False
         if len(expression.arguments) != 1:
             return False, False
-        return _count_argument_expression_shape(expression.arguments[0])
+        return _count_argument_expression_shape(
+            expression.arguments[0], allow_grouped_aggregate=allow_grouped_aggregate
+        )
     return False, False
 
 
@@ -777,13 +869,19 @@ def _render_extrema_aggregate(
     expression: AggregateCallIR,
     *,
     function_name: str,
+    allow_grouped_aggregate: bool = False,
 ) -> str:
     if len(expression.arguments) != 1:
         raise MySqlRenderError(
             f"MySQL aggregate {expression.function} expects 1 argument(s)"
         )
     argument = expression.arguments[0]
-    if not isinstance(argument, FieldRefIR) or argument.field is None:
+    if not (
+        isinstance(argument, FieldRefIR)
+        and argument.field is not None
+        or allow_grouped_aggregate
+        and isinstance(argument, AggregateCallIR)
+    ):
         raise MySqlRenderError(
             f"MySQL aggregate {expression.function} expects a direct field argument"
         )
@@ -841,7 +939,7 @@ def _render_call(expression: CallIR) -> str:
     if expression.callee == "round":
         return _render_round_call(expression)
     if expression.callee == "date_trunc":
-        raise MySqlRenderError("MySQL function date_trunc is not supported")
+        return _render_date_trunc_call(expression)
     if expression.callee not in _FUNCTION_ARITIES:
         raise MySqlRenderError(f"Unsupported MySQL function call: {expression.callee}")
     expected_arity = _FUNCTION_ARITIES[expression.callee]
@@ -876,10 +974,28 @@ def _render_round_call(expression: CallIR) -> str:
     if len(expression.arguments) not in {1, 2}:
         raise MySqlRenderError("MySQL function round expects 1 or 2 argument(s)")
     value = expression.arguments[0]
-    if _builtin_type_name(value) != "Decimal" or not _same_value_type(
+    value_kind = _builtin_type_name(value)
+    if value_kind not in {"Decimal", "Float"} or not _same_value_type(
         expression, value
     ):
-        raise MySqlRenderError("MySQL supports round only for Decimal")
+        raise MySqlRenderError("MySQL supports round only for Decimal and Float")
+    if value_kind == "Float":
+        if len(expression.arguments) != 1:
+            raise MySqlRenderError("MySQL function round(Float) expects 1 argument")
+        if has_inexact_float_arithmetic(value):
+            raise MySqlRenderError(
+                "MySQL function round(Float) supports Float arithmetic only "
+                "with a DOUBLE operand"
+            )
+        # MySQL ROUND of a DOUBLE follows the C library, which may round half
+        # to even; this is PostgreSQL's half away from zero, on the same value.
+        value_sql = _render_mysql_expression(value, nested=True)
+        trunc_sql = f"TRUNCATE({value_sql}, 0)"
+        return (
+            f"CASE WHEN ABS({value_sql} - {trunc_sql}) >= 0.5 THEN {trunc_sql} + "
+            f"CASE WHEN {value_sql} < 0 THEN -1.0 ELSE 1.0 END "
+            f"ELSE {trunc_sql} END"
+        )
     if len(expression.arguments) == 1:
         return f"ROUND({_render_mysql_expression(value, nested=True)})"
     scale = expression.arguments[1]
@@ -891,6 +1007,189 @@ def _render_round_call(expression: CallIR) -> str:
         f"ROUND({_render_mysql_expression(value, nested=True)}, "
         f"{_render_mysql_expression(scale, nested=True)})"
     )
+
+
+def has_inexact_float_arithmetic(expression: ExpressionIR) -> bool:
+    """Whether a Float `+`, `-`, `*` or `/` in an expression has no DOUBLE operand.
+
+    PostgreSQL computes it as an exact `numeric`, such as `amount + 0.5`, and
+    MySQL as a DECIMAL, with a smaller division scale, or as a DOUBLE beside an
+    exponent literal such as `1e-17`, so the two may differ near a tie that
+    round(Float) then decides. Beside a DOUBLE both compute in binary64 from
+    the same operand values.
+    """
+
+    decided: dict[int, bool] = {}
+    return any(
+        type(node) is BinaryIR
+        and _builtin_type_name(node) == "Float"
+        and not (
+            _is_mysql_double(node.left, decided)
+            or _is_mysql_double(node.right, decided)
+        )
+        for node in _ir_nodes(expression)
+    )
+
+
+def is_mysql_double(expression: ExpressionIR) -> bool:
+    """Whether PostgreSQL and MySQL both hold a Float value as a DOUBLE.
+
+    A Float field counts as a DOUBLE column, which render_mysql_relation
+    proves. A DOUBLE beside an exact value, or chosen with one by CASE or
+    COALESCE, keeps the result a DOUBLE on both targets.
+    """
+
+    return _is_mysql_double(expression, {})
+
+
+def _is_mysql_double(expression: ExpressionIR, decided: dict[int, bool]) -> bool:
+    """is_mysql_double, which records each node it decides in `decided` by id.
+
+    The caller holds every node recorded, so no id is reused. The walk keeps
+    an explicit stack, so a deep expression never exhausts the interpreter's
+    recursion limit.
+    """
+
+    pending = [expression]
+    while pending:
+        node = pending[-1]
+        if id(node) in decided:
+            pending.pop()
+            continue
+        parts = _mysql_double_parts(node)
+        if type(parts) is bool:
+            decided[id(node)] = parts
+            pending.pop()
+            continue
+        undecided = [part for part in parts if id(part) not in decided]
+        if undecided:
+            pending.extend(undecided)
+            continue
+        pending.pop()
+        decided[id(node)] = any(decided[id(part)] for part in parts)
+    return decided[id(expression)]
+
+
+def _mysql_double_parts(expression: ExpressionIR) -> bool | tuple[ExpressionIR, ...]:
+    """Whether a node is a DOUBLE, or the parts of which any one makes it one."""
+
+    if _builtin_type_name(expression) != "Float":
+        return False
+    if type(expression) in {FieldRefIR, AnyFieldIR, CastIR}:
+        return True
+    if type(expression) is UnaryIR:
+        return (expression.operand,)
+    if type(expression) is BinaryIR:
+        return (expression.left, expression.right)
+    if type(expression) is ConditionalIR:
+        return (expression.when_true, expression.when_false)
+    if type(expression) is CallIR and expression.callee in {
+        "abs",
+        "coalesce",
+        "round",
+    }:
+        return expression.arguments
+    if type(expression) is CallIR and expression.callee == "nullif":
+        return expression.arguments[:1]
+    if isinstance(expression, (AggregateCallIR, AggregateWindowCallIR)):
+        # Both targets read the Int of an avg as a DOUBLE.
+        if any(_builtin_type_name(part) == "Int" for part in expression.arguments):
+            return True
+        return expression.arguments
+    if type(expression) is WindowCallIR:
+        if expression.identity.name in {"percent_rank", "cume_dist"}:
+            return True
+        return expression.arguments[:1]
+    return False
+
+
+def mysql_rounded_float_fields(value: object) -> Iterator[FieldRefIR | AnyFieldIR]:
+    """Yield each Float field that a round(Float) call in an IR value reads."""
+
+    for node in _ir_nodes(value):
+        if (
+            type(node) is CallIR
+            and node.callee == "round"
+            and _builtin_type_name(node) == "Float"
+            and node.arguments
+        ):
+            yield from mysql_float_fields(node.arguments[0])
+
+
+def mysql_float_fields(value: object) -> Iterator[FieldRefIR | AnyFieldIR]:
+    """Yield each Float field in an IR value, in pre-order."""
+
+    for node in _ir_nodes(value):
+        if (
+            isinstance(node, (FieldRefIR, AnyFieldIR))
+            and _builtin_type_name(node) == "Float"
+        ):
+            yield node
+
+
+def _ir_nodes(value: object) -> Iterator[object]:
+    """Yield an IR value and each value inside it, in pre-order."""
+
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        yield item
+        if isinstance(item, tuple):
+            pending.extend(reversed(item))
+        elif is_dataclass(item) and not isinstance(item, type):
+            pending.extend(
+                getattr(item, field.name) for field in reversed(fields(item))
+            )
+
+
+def _render_date_trunc_call(expression: CallIR) -> str:
+    """Truncate a civil Date or Timestamp to the start of its unit.
+
+    MySQL has no date_trunc; each unit rebuilds the value from its parts with
+    every lower part zero, as PostgreSQL date_trunc on a timestamp without
+    time zone does. Every function used returns NULL for NULL. A year or month
+    steps back by days, as MAKEDATE would read a year below 100 as two digits.
+    """
+
+    if len(expression.arguments) != 2:
+        raise MySqlRenderError("MySQL function date_trunc expects 2 argument(s)")
+    unit, value = expression.arguments
+    if (
+        type(unit) is not LiteralIR
+        or type(unit.value) is not str
+        or _builtin_type_name(unit) != "Text"
+    ):
+        raise MySqlRenderError("MySQL function date_trunc unit must be a Text literal")
+    value_kind = _builtin_type_name(value)
+    if value_kind not in {"Date", "Timestamp"} or not _same_value_type(
+        expression, value
+    ):
+        raise MySqlRenderError("MySQL function date_trunc has an invalid typed shape")
+    units = {"year", "month", "day"}
+    if value_kind == "Timestamp":
+        units |= {"hour", "minute"}
+    if unit.value not in units:
+        raise MySqlRenderError("MySQL function date_trunc unit is unsupported")
+    # Each unit but day repeats the value, so a date_trunc inside it would
+    # grow the SQL exponentially with nesting.
+    if unit.value != "day" and any(
+        type(node) is CallIR and node.callee == "date_trunc"
+        for node in _ir_nodes(value)
+    ):
+        raise MySqlRenderError(
+            f"MySQL function date_trunc with unit {unit.value} repeats its "
+            "value, which must not hold another date_trunc"
+        )
+    x = _render_mysql_expression(value, nested=True)
+    day = x if value_kind == "Date" else f"DATE({x})"
+    date_sql = {
+        "year": f"DATE_SUB({day}, INTERVAL (DAYOFYEAR({x}) - 1) DAY)",
+        "month": f"DATE_SUB({day}, INTERVAL (DAYOFMONTH({x}) - 1) DAY)",
+        "day": day,
+        "hour": f"{day}, MAKETIME(HOUR({x}), 0, 0)",
+        "minute": f"{day}, MAKETIME(HOUR({x}), MINUTE({x}), 0)",
+    }[unit.value]
+    return date_sql if value_kind == "Date" else f"TIMESTAMP({date_sql})"
 
 
 def _approved_round_scale(expression: ExpressionIR) -> bool:

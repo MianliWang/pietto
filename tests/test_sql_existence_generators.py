@@ -528,10 +528,6 @@ def test_no_generated_name_equals_a_user_name_in_any_case(
         result, quote = emit_postgres_sql(lowered.ir), '"'
     else:
         result, quote = emit_mysql_sql(lowered.ir), "`"
-    if dialect == "mysql" and generated == "_pietto_any_1":
-        # MySQL emits no JOIN yet.
-        assert [item.code for item in result.diagnostics] == ["PIE-B1000"]
-        return
     assert result.diagnostics == (), result.diagnostics
     sql = result.artifacts[-1].sql
     names = set(re.findall(f"{quote}([^{quote}]+){quote}", sql)) - {user}

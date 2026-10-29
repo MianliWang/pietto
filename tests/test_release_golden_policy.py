@@ -187,8 +187,8 @@ def test_real_audit_runs_from_outside_the_repository(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "verified 40 fixtures" in result.stdout
-    assert "33 SQL byte-exact" in result.stdout
+    assert "verified 41 fixtures" in result.stdout
+    assert "34 SQL byte-exact" in result.stdout
     assert "7 JSON structural" in result.stdout
 
 

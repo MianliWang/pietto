@@ -553,7 +553,7 @@ def test_backend_modifier_and_frame_limits_fail_closed() -> None:
     ]
     mysql_groups, _ = _compile(
         "first_value(value)",
-        frame="groups current row",
+        frame="groups 1 preceding",
         connector="mysql.table",
     )
     assert [item.code for item in emit_mysql_sql(mysql_groups).diagnostics] == [
@@ -569,7 +569,7 @@ def test_backend_modifier_and_frame_limits_fail_closed() -> None:
     ]
     mysql_exclude, _ = _compile(
         "first_value(value)",
-        frame="rows current row exclude no others",
+        frame="rows current row exclude current row",
         connector="mysql.table",
     )
     assert [item.code for item in emit_mysql_sql(mysql_exclude).diagnostics] == [

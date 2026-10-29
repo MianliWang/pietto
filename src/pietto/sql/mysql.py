@@ -18,7 +18,7 @@ from pietto.ir import (
     TypeIR,
 )
 from pietto.sql.model import SqlArtifact, SqlArtifactKind, SqlResult
-from pietto.sql.mysql_relations import render_mysql_relation
+from pietto.sql.mysql_relations import MySqlEmission, render_mysql_relation
 from pietto.sql.mysql_render import MySqlRenderError
 
 _EMITTING_DEFINITION_TYPES = (RelationIR,)
@@ -55,6 +55,7 @@ def emit_mysql_sql(script_ir: ScriptIR) -> SqlResult:
         for definition in script_ir.definitions
         if isinstance(definition, RelationIR)
     }
+    emission = MySqlEmission()
     artifacts: list[SqlArtifact] = []
     diagnostics: list[Diagnostic] = []
     for definition in script_ir.definitions:
@@ -66,6 +67,7 @@ def emit_mysql_sql(script_ir: ScriptIR) -> SqlResult:
                     definition,
                     sources=sources,
                     relations=relations,
+                    emission=emission,
                 )
             except MySqlRenderError as error:
                 diagnostics.append(

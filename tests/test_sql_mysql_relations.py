@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import sys
 from dataclasses import replace
 from typing import Callable
 
@@ -209,6 +210,120 @@ def test_ctes_whose_names_differ_only_in_case_are_refused() -> None:
             "compare without case; rename one of them",
         )
     ]
+
+
+def test_round_float_reads_a_relation_output_only_as_a_double() -> None:
+    """PostgreSQL holds an output of exact values alone as numeric, which MySQL
+    may compute as a DOUBLE, so their round(Float) could differ."""
+
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n    ratio: Float\n"
+            'source items: Row = mysql.table("items")\n'
+            "table k:\n    from items\n    select:\n        id\n"
+            "        v = 0.5 - 0.00000000000000001\n        w = ratio * 2\n"
+            "        a = avg(id) window(order by id)\n"
+            "query exact:\n    from k\n    select:\n        r = round(v)\n"
+            "query double:\n    from k\n    select:\n        id\n"
+            "        x = w\n    qualify:\n"
+            "        round(x) > row_number() window(order by id)\n"
+            "query full:\n    from items\n    let kk = k\n"
+            "    full join kk on kk.id == items.id\n    select:\n"
+            "        id = items.id\n        r = round(kk.w + kk.a - 0.5)\n"
+        )
+    )
+
+    assert [artifact.name for artifact in result.artifacts] == ["k", "double", "full"]
+    assert "TRUNCATE(`x`, 0)" in result.artifacts[1].sql
+    assert "UNION ALL" in result.artifacts[2].sql
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-B1000",
+            "MySQL SQL emission is not implemented for RelationIR: exact. MySQL "
+            "function round(Float) reads Float field v, which is not proved a "
+            "DOUBLE on both targets",
+        )
+    ]
+
+
+def test_round_float_proves_each_output_of_a_deep_chain_of_reads_once() -> None:
+    """The proof walks reads on an explicit stack and decides each relation
+    output once, so neither depth nor two outputs that each read both upstream
+    outputs make it exhaust the recursion limit or grow with every layer."""
+
+    depth = sys.getrecursionlimit() + 10
+    script_ir = _compile(
+        "shape T:\n    f: Float\n    h: Float\n"
+        'source t0: T = mysql.table("t0")\n'
+        "table t1:\n    from t0\n    select:\n        f\n        h\n"
+        "        g = 0.5 - 0.00000000000000001\n"
+        + "".join(
+            f"table t{index}:\n    from t{index - 1}\n    select:\n"
+            "        f = f + h\n        h = h + f\n        g = g + f\n"
+            for index in range(2, depth + 1)
+        )
+        + f"query double:\n    from t{depth}\n    select:\n        r = round(f)\n"
+        + f"query exact:\n    from t{depth}\n    select:\n        r = round(g)\n"
+    )
+    sources = {
+        item.symbol: item
+        for item in script_ir.definitions
+        if isinstance(item, SourceIR)
+    }
+    relations = {
+        item.symbol: item
+        for item in script_ir.definitions
+        if isinstance(item, RelationIR)
+    }
+
+    assert relation_module.render_mysql_relation(
+        _definition(script_ir, RelationIR, "double"),
+        sources=sources,
+        relations=relations,
+    ).endswith(
+        "\nSELECT\n    CASE WHEN ABS(`f` - TRUNCATE(`f`, 0)) >= 0.5 THEN "
+        "TRUNCATE(`f`, 0) + CASE WHEN `f` < 0 THEN -1.0 ELSE 1.0 END "
+        f"ELSE TRUNCATE(`f`, 0) END AS `r`\nFROM `t{depth}`"
+    )
+    with pytest.raises(
+        relation_module.MySqlRenderError,
+        match=r"^MySQL function round\(Float\) reads Float field g, which is not "
+        "proved a DOUBLE on both targets$",
+    ):
+        relation_module.render_mysql_relation(
+            _definition(script_ir, RelationIR, "exact"),
+            sources=sources,
+            relations=relations,
+        )
+
+
+def test_round_float_reads_a_float_expression_as_deep_as_let_inlining_admits() -> None:
+    """The DOUBLE check of round(Float) and of the outputs it reads walks an
+    expression on an explicit stack, so a let-inlined Float expression that
+    PostgreSQL emits never exhausts the recursion limit on MySQL."""
+
+    terms = " + ".join(["ratio"] * 251)
+    result = emit_mysql_sql(
+        _compile(
+            "shape Row:\n    id: Int\n    ratio: Float\n"
+            'source items: Row = mysql.table("items")\n'
+            "query q:\n    from items\n"
+            f"    let a1 = {terms}\n    let a2 = a1 + {terms}\n"
+            "    select:\n        r = round(a2)\n"
+            "table k:\n    from items\n"
+            f"    let b1 = {terms}\n    let b2 = b1 + {terms}\n"
+            "    select:\n        v = b2\n"
+            "query fin:\n    from k\n    select:\n        r = round(v)\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert [artifact.name for artifact in result.artifacts] == ["q", "k", "fin"]
+    assert result.artifacts[2].sql.endswith(
+        "SELECT\n    CASE WHEN ABS(`v` - TRUNCATE(`v`, 0)) >= 0.5 THEN "
+        "TRUNCATE(`v`, 0) + CASE WHEN `v` < 0 THEN -1.0 ELSE 1.0 END "
+        "ELSE TRUNCATE(`v`, 0) END AS `r`\nFROM `k`"
+    )
 
 
 def test_outputs_that_differ_only_in_case_never_share_a_cte_or_derived_table() -> None:
@@ -452,7 +567,18 @@ def test_a_qualify_port_read_inside_exists_names_its_derived_table() -> None:
     ]
 
 
-def test_a_qualify_relation_read_as_a_cte_defines_each_relation_once() -> None:
+@pytest.mark.parametrize(
+    ("limit", "limit_sql"),
+    [
+        # Without its own LIMIT, MySQL could merge the CTE into each read and
+        # run its windows once per read.
+        pytest.param("", "LIMIT 18446744073709551615", id="every-row"),
+        pytest.param("    limit 2\n", "LIMIT 2", id="authored"),
+    ],
+)
+def test_a_qualify_relation_read_as_a_cte_defines_each_relation_once(
+    limit: str, limit_sql: str
+) -> None:
     result = emit_mysql_sql(
         _compile(
             "shape Row:\n    id: Int\n    cat: Text\n"
@@ -460,7 +586,7 @@ def test_a_qualify_relation_read_as_a_cte_defines_each_relation_once() -> None:
             "table base:\n    from items\n    select:\n        id\n        cat\n"
             "table top:\n    from base\n    select:\n        id\n        cat\n"
             "        rn = row_number() window(partition by cat order by id)\n"
-            "    qualify:\n        rn == 1\n"
+            f"    qualify:\n        rn == 1\n{limit}"
             "query reader:\n    from top\n    where id > 5\n    select:\n"
             "        id\n"
         )
@@ -473,7 +599,8 @@ def test_a_qualify_relation_read_as_a_cte_defines_each_relation_once() -> None:
         "`top` AS (\nSELECT\n    `id`,\n    `cat`,\n    `rn`\nFROM (\nSELECT\n"
         "    `id` AS `id`,\n    `cat` AS `cat`,\n"
         "    ROW_NUMBER() OVER (PARTITION BY `cat` ORDER BY `id` ASC) AS `rn`\n"
-        "FROM `base`\n) AS `__pietto_qualify`\nWHERE\n    `rn` = 1\n)\n"
+        "FROM `base`\n) AS `__pietto_qualify`\nWHERE\n    `rn` = 1\n"
+        f"{limit_sql}\n)\n"
         "SELECT\n    `id` AS `id`\nFROM `top`\nWHERE `id` > 5"
     )
 
@@ -481,10 +608,10 @@ def test_a_qualify_relation_read_as_a_cte_defines_each_relation_once() -> None:
 def test_a_relation_read_only_by_a_qualify_any_refuses_its_reader() -> None:
     result = emit_mysql_sql(
         _compile(
-            "shape Row:\n    id: Int\n    price: Int\n"
+            "shape Row:\n    id: Int\n    name: Text\n"
             'source items: Row = mysql.table("items")\n'
             "table bad:\n    from items\n    select:\n        id\n"
-            "        s = sum(price) window(order by id)\n"
+            '        s = matches(name, "@")\n'
             "query reader:\n    from items\n"
             "    let has = any(b.id == items.id for b in bad)\n"
             "    select:\n        id\n        rn = row_number() window(order by id)\n"
@@ -499,7 +626,7 @@ def test_a_relation_read_only_by_a_qualify_any_refuses_its_reader() -> None:
         (
             "PIE-B1000",
             f"MySQL SQL emission is not implemented for RelationIR: {name}. "
-            "MySQL aggregate windows are not supported",
+            "Unsupported MySQL function call: matches",
             line,
         )
         for name, line in (("bad", 5), ("reader", 10))
@@ -511,9 +638,10 @@ def test_a_relation_whose_sql_is_refused_refuses_its_readers() -> None:
 
     result = emit_mysql_sql(
         _compile(
-            SOURCE + "table joined:\n    from users\n    let p = users\n"
-            "    inner join p on users.age == p.age\n    select:\n        users.age\n"
-            "query reader:\n    from joined\n    select:\n        age\n"
+            SOURCE + "table refused:\n    from users\n"
+            '    where matches(email, "@")\n    select:\n        age\n'
+            "query reader:\n    from users\n    let r = refused\n"
+            "    inner join r on users.age == r.age\n    select:\n        users.age\n"
             "table direct:\n    from users\n    select:\n        age\n"
         )
     )
@@ -523,9 +651,243 @@ def test_a_relation_whose_sql_is_refused_refuses_its_readers() -> None:
         (
             "PIE-B1000",
             f"MySQL SQL emission is not implemented for RelationIR: {name}. "
-            "MySQL JOIN emission is not available yet",
+            "Unsupported MySQL function call: matches",
         )
-        for name in ("joined", "reader")
+        for name in ("refused", "reader")
+    ]
+
+
+_JOINED = (
+    "shape Order:\n    id: Int\n    customer_id: Int | None\n    amount: Int\n"
+    "    status: Status\n"
+    "shape Customer:\n    id: Int\n    name: Text\n    region_id: Int | None\n"
+    "enum Status:\n    open\n    closed\n"
+    'source orders: Order = mysql.table("shop.orders")\n'
+    'source customers: Customer = mysql.table("shop.customers")\n'
+)
+
+
+def test_a_join_reads_a_relation_of_the_file_as_a_cte() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            _JOINED + "table named:\n    from customers\n"
+            '    where name != ""\n    select:\n        id\n        name\n'
+            "query q:\n    from orders\n    let c = named\n"
+            "    left join c on orders.customer_id == c.id\n    select:\n"
+            "        oid = orders.id\n        cname = c.name\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert result.artifacts[-1].sql == (
+        "WITH `named` AS (\nSELECT\n    `id` AS `id`,\n    `name` AS `name`\n"
+        "FROM `shop`.`customers`\nWHERE `name` <> ''\n)\n"
+        "SELECT\n    `orders`.`id` AS `oid`,\n    `c`.`name` AS `cname`\n"
+        "FROM `shop`.`orders` AS `orders`\n"
+        "LEFT JOIN `named` AS `c` ON `orders`.`customer_id` = `c`.`id`"
+    )
+
+
+def test_an_any_inside_a_join_on_reads_its_table_correlated() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            _JOINED + "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id and "
+            "any(o.amount > orders.amount for o in orders)\n"
+            "    select:\n        oid = orders.id\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert result.artifacts[-1].sql == (
+        "SELECT\n    `orders`.`id` AS `oid`\nFROM `shop`.`orders` AS `orders`\n"
+        "INNER JOIN `shop`.`customers` AS `c` ON (`orders`.`customer_id` = `c`.`id`) "
+        "AND EXISTS (SELECT 1 FROM `shop`.`orders` AS `_pietto_value_1` "
+        "WHERE `_pietto_value_1`.`amount` > `orders`.`amount`)"
+    )
+
+
+def test_a_qualify_over_a_join_keeps_its_hidden_input_port() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            _JOINED + "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id\n    select:\n"
+            "        oid = orders.id\n"
+            "    qualify:\n        c.region_id is not None and "
+            "row_number() window(partition by c.id order by orders.id) <= 2\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert result.artifacts[-1].sql == (
+        "SELECT\n    `oid`\nFROM (\nSELECT\n    `orders`.`id` AS `oid`,\n"
+        "    ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) "
+        "AS `__pietto_qualify_0`,\n    `c`.`region_id` AS `__pietto_qualify_1`\n"
+        "FROM `shop`.`orders` AS `orders`\n"
+        "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+        ") AS `__pietto_qualify`\nWHERE\n"
+        "    (`__pietto_qualify_1` IS NOT NULL) AND (`__pietto_qualify_0` <= 2)"
+    )
+
+
+def test_a_full_join_derived_table_skips_an_alias_of_its_name_in_any_case() -> None:
+    """MySQL may compare aliases without case, so `__PIETTO_FULL` would be the
+    derived table `__pietto_full`."""
+
+    result = emit_mysql_sql(
+        _compile(
+            _JOINED + "query q:\n    from orders\n    let __PIETTO_FULL = customers\n"
+            "    full join __PIETTO_FULL on orders.customer_id == __PIETTO_FULL.id\n"
+            "    select:\n        a = orders.id\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    branch = (
+        "SELECT\n    `orders`.`id` AS `__pietto_full2_0`\n"
+        "FROM `shop`.`orders` AS `orders`\n"
+        "{} JOIN `shop`.`customers` AS `__PIETTO_FULL` "
+        "ON `orders`.`customer_id` = `__PIETTO_FULL`.`id`\n"
+    )
+    assert result.artifacts[-1].sql == (
+        "SELECT\n    `__pietto_full2`.`__pietto_full2_0` AS `a`\nFROM (\n"
+        + branch.format("LEFT")
+        + "UNION ALL\n"
+        + branch.format("RIGHT")
+        + "WHERE `orders`.`customer_id` IS NULL\n) AS `__pietto_full2`"
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        pytest.param(
+            "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id\n"
+            "    let C = customers\n    inner join C on orders.customer_id == C.id\n"
+            "    select:\n        a = c.name\n        b = C.name\n",
+            "Its SQL aliases inputs c and C, whose names MySQL may compare without "
+            "case; rename one of them",
+            id="two-bindings",
+        ),
+        pytest.param(
+            "query q:\n    from orders\n    let Orders = orders\n"
+            "    cross join Orders\n    select:\n        a = orders.id\n"
+            "        b = Orders.id\n",
+            "Its SQL aliases inputs orders and Orders, whose names MySQL may compare "
+            "without case; rename one of them",
+            id="binding-and-from",
+        ),
+        pytest.param(
+            "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id\n"
+            "    let C = customers\n    inner join C on orders.customer_id == C.id\n"
+            "    select:\n        a = c.name\n        A = C.name\n"
+            "    qualify:\n        row_number() window(order by orders.id) <= 2\n",
+            "Its SQL aliases inputs c and C, whose names MySQL may compare without "
+            "case; rename one of them",
+            id="two-bindings-before-qualify-outputs",
+        ),
+        pytest.param(
+            "query q:\n    from orders\n    let __PIETTO_FULL = customers\n"
+            "    full join __PIETTO_FULL on orders.customer_id == __PIETTO_FULL.id "
+            "and orders.amount > 0\n"
+            "    select:\n        a = orders.id\n",
+            "MySQL FULL JOIN __PIETTO_FULL needs an ON made only of equalities "
+            "between Int fields of its two sides; Pietto does not rewrite other "
+            "FULL JOIN conditions yet",
+            id="full-derived-table-alias-outside-full-limits",
+        ),
+        pytest.param(
+            "query q:\n    from orders\n    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    select:\n        cid = c.id\n        status = orders.status\n",
+            "MySQL emulates FULL JOIN c with UNION ALL, which keeps the column types "
+            "of builtin types other than Any only; orders.status has type Status",
+            id="full-enum-port",
+        ),
+        pytest.param(
+            "query q:\n    from orders\n"
+            + "".join(
+                f"    let c{index} = customers\n"
+                f"    full join c{index} on orders.id == c{index}.id\n"
+                for index in range(9)
+            )
+            + "    select:\n        a = orders.id\n",
+            "MySQL emulates at most 8 FULL JOINs in one relation, as each repeats "
+            "the inputs before it",
+            id="full-past-the-doubling-limit",
+        ),
+        pytest.param(
+            "query q:\n    from orders\n"
+            + "".join(
+                f"    let c{index} = customers\n"
+                f"    full join c{index} on orders.id == c{index}.id"
+                + (" and orders.amount > 0\n" if index == 8 else "\n")
+                for index in range(9)
+            )
+            + "    select:\n        a = orders.id\n",
+            "MySQL FULL JOIN c8 needs an ON made only of equalities between Int "
+            "fields of its two sides; Pietto does not rewrite other FULL JOIN "
+            "conditions yet",
+            id="full-predicate-before-the-doubling-limit",
+        ),
+        pytest.param(
+            "query q:\n    from orders\n"
+            "    where any(x.id == orders.customer_id for x in customers)\n"
+            + "".join(
+                f"    let c{index} = customers\n"
+                f"    full join c{index} on orders.id == c{index}.id\n"
+                for index in range(9)
+            )
+            + "    select:\n        a = orders.id\n",
+            "A SEMI or ANTI JOIN before FULL JOIN c0 is not available in MySQL "
+            "emission yet",
+            id="full-pending-filter-before-the-doubling-limit",
+        ),
+        pytest.param(
+            "query q:\n    from orders\n    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    let d = customers\n"
+            "    full join d on orders.id == d.id and orders.amount > 0\n"
+            "    select:\n        status = orders.status\n",
+            "MySQL FULL JOIN d needs an ON made only of equalities between Int "
+            "fields of its two sides; Pietto does not rewrite other FULL JOIN "
+            "conditions yet",
+            id="full-predicate-before-an-earlier-enum-port",
+        ),
+    ],
+)
+def test_mysql_refuses_a_join_it_cannot_keep_exact(body: str, message: str) -> None:
+    result = emit_mysql_sql(_compile(_JOINED + body))
+
+    assert result.artifacts == ()
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-B1000",
+            f"MySQL SQL emission is not implemented for RelationIR: q. {message}",
+        )
+    ]
+
+
+def test_a_join_cte_with_outputs_that_differ_only_in_case_refuses_its_reader() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            _JOINED + "table base:\n    from orders\n    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id\n    select:\n"
+            "        name = c.name\n        NAME = orders.id\n"
+            "query reader:\n    from base\n    select:\n        name\n"
+        )
+    )
+
+    assert [artifact.name for artifact in result.artifacts] == ["base"]
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-B1000",
+            "MySQL SQL emission is not implemented for RelationIR: reader. Its SQL "
+            "defines relation base as a CTE with outputs name and NAME, whose names "
+            "MySQL compares without case; rename one of them",
+        )
     ]
 
 

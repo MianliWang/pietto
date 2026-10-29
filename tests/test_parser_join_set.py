@@ -677,18 +677,15 @@ def test_public_join_emission_and_set_refusal_follow_dialect_support(
         ["check", str(path), "--format", "json"],
         ["emit-sql", str(path), "--dialect", dialect, "--format", "json"],
     ):
-        is_set = source in NEW_SOURCES[4:]
-        is_mysql_join = not is_set and command[0] == "emit-sql" and dialect == "mysql"
-        refused = is_set or is_mysql_join
+        refused = source in NEW_SOURCES[4:]
         assert cli.main(command) == int(refused)
         captured = capsys.readouterr()
         assert not captured.err
         document = json.loads(captured.out)
         assert document["ok"] is not refused
         if refused:
-            code = "PIE-S2334" if is_set else "PIE-B1000"
             assert any(
-                d["code"] == code and d["severity"] == "error"
+                d["code"] == "PIE-S2334" and d["severity"] == "error"
                 for d in document["diagnostics"]
             )
             assert not document.get("artifacts", [])

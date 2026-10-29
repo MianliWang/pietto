@@ -71,22 +71,24 @@ assign a new version or replace the published 0.1.5 release notes.
 - `PIE-S2383` warns when WHERE rejects the NULL-extended side of a LEFT JOIN;
   `PIE-S2384` warns about `not in` with a nullable left value. An explicit
   `None` list option retains the separate `PIE-S2107` warning.
-- `PIE-S2385` warns about known single-file PostgreSQL emission limits: RANGE
-  offsets; effective `ignore nulls` or `from last`; a FULL JOIN `on` conjunct
-  that is not an equality between Int fields of its two sides, such as a
-  non-Int equality, a filter, `<`, `True` or an `or`; a FULL JOIN after a
-  pending `where any(...)` or `where not any(...)`; untyped all-NULL outputs
-  read by another relation or by the relation's own QUALIFY, which reads them
-  through a derived table; operators over `None` only (`None + None`); a
-  CASE, `coalesce` or `nullif` of only `None` values where text cannot stand,
-  a QUALIFY condition included; a cast of a value not known to be Int that
-  reads no field of unknown type; a `count` of a field typed by a shape; a
-  `substr`, `ntile`, `lag`, `lead` or `nth_value` integer literal outside the
-  32-bit range; and a CTE that would hide a table read by the same
-  statement. A relation whose FROM ends at a `mysql.table` source gets none of
-  the expression or CTE warnings, and a relation with an error gets none
-  either. Warnings do not change the check exit status; existing errors remain
-  errors.
+- `PIE-S2385` warns about known single-file emission limits. PostgreSQL and
+  MySQL both refuse RANGE offsets; effective `ignore nulls` or `from last`; a
+  FULL JOIN `on` conjunct that is not an equality between Int fields of its
+  two sides, such as a non-Int equality, a filter, `<`, `True` or an `or`;
+  and a FULL JOIN after a pending `where any(...)` or `where not any(...)`.
+  In a relation whose FROM does not end at a `mysql.table` source it also
+  warns about untyped all-NULL outputs read by another relation or by the
+  relation's own QUALIFY, which reads them through a derived table;
+  operators over `None` only (`None + None`); a CASE, `coalesce` or `nullif`
+  of only `None` values where text cannot stand, a QUALIFY condition
+  included; a cast of a value not known to be Int that reads no field of
+  unknown type; a `count` of a field typed by a shape; a `substr`, `ntile`,
+  `lag`, `lead` or `nth_value` integer literal outside the 32-bit range; and
+  a CTE that would hide a table read by the same statement. MySQL emits an
+  untyped all-NULL output that another relation reads, except a field read
+  after a FULL JOIN, which it refuses without this warning. A relation with
+  an error gets none of the expression or CTE warnings. Warnings do not
+  change the check exit status; existing errors remain errors.
 - `check --project` in an explicit-module project reads a field of a shape,
   also through a `let` name, after a JOIN, in the WHERE, `let` and
   `any(...)` of a `select distinct` query and as a captured field, as that
@@ -252,6 +254,9 @@ assign a new version or replace the published 0.1.5 release notes.
   untyped all-None output or whose condition is a CASE, `coalesce` or
   `nullif` of only `None` values, which PostgreSQL reads as text through the
   derived table; check warns with PIE-S2385, and MySQL emits it.
+  A MySQL statement that reads a QUALIFY relation ends its CTE, when it has
+  no `limit`, with `LIMIT 18446744073709551615`, which keeps every row and
+  makes MySQL compute its windows once, however often the statement reads it.
 - Over a source without a shape, an ORDER BY key that reads an input field,
   named alone or through a `let`, is qualified with the name FROM gives the
   input where a SELECT item would capture it, as over a source with a shape:
@@ -268,8 +273,8 @@ assign a new version or replace the published 0.1.5 release notes.
   as for other windows; over a source without a shape every aggregate window
   outside GROUP BY that reads a field, `count(x) window()` included, is
   PIE-S2103 (`count() window()` reads none and is accepted), and a `count`
-  window of a field typed by a shape is PIE-S2104. MySQL and project
-  aggregate-window support are not introduced.
+  window of a field typed by a shape is PIE-S2104. Project aggregate-window
+  support is not introduced; for MySQL see Single-file MySQL parity.
 - Single-file PostgreSQL windows can read JOIN inputs, including named
   specifications and hidden QUALIFY windows, while retaining input identities
   and the visibility limits of existence filters.
@@ -315,6 +320,65 @@ assign a new version or replace the published 0.1.5 release notes.
   the relation, not the output, and is refused the same way. 0.1.5 read the
   name the database gives the unaliased output, and emitted a read of a name
   no output has, which the database rejected.
+
+### Single-file MySQL parity
+
+Single-file `emit-sql --dialect mysql` now emits the following forms that
+PostgreSQL emits, each with the same matches, duplicates and NULL-extended
+rows under each target's own comparison rules. A form without such a MySQL
+8.4 spelling is still refused with `PIE-B1000`, and PostgreSQL SQL is
+unchanged. As in the MySQL SQL emitted before, the place of NULLs in an
+ascending or descending order, Text comparison under the column's collation,
+and the type and scale of an aggregate's result follow MySQL. Project MySQL
+emission is unchanged.
+
+- **JOINs.** INNER, LEFT, RIGHT and CROSS JOINs, every `on` form,
+  relationship and `def` calls in `on`, self-JOINs, JOIN chains, a JOIN of a
+  table or query of the same file (read as a CTE), `any` and `not any` filters
+  before a later JOIN, `any` inside `on`, `where` or `select`, and the ordinary
+  tail after a JOIN. The pending-filter rules are PostgreSQL's: the next RIGHT
+  JOIN takes a pending filter into its `on`, else it leads the `where`.
+- **Windows, QUALIFY, GROUP BY and aggregates over JOIN rows**, as
+  PostgreSQL emits them.
+- **FULL JOIN** within PostgreSQL's FULL JOIN limits (only `Int` field
+  equalities across its two sides, no pending `any` filter). MySQL has no
+  FULL JOIN, so the inputs through it become a derived table `__pietto_full`
+  (`__pietto_full2`, ... beside an alias of that name in any case): the LEFT
+  JOIN, then UNION ALL the RIGHT JOIN rows whose first earlier-input key is
+  NULL. A field read after it whose type is not builtin or is `Any`, such as
+  an enum, is refused, and so is a relation with more than 8 FULL JOINs, as
+  each repeats the inputs before it. Other FULL JOINs keep PostgreSQL's two
+  refusals, worded for MySQL, which come before these two for every FULL JOIN
+  of the relation; the old `MySQL JOIN emission is not available yet` refusal
+  is gone.
+- **Aggregate windows.** `sum`, `count`, `avg`, `min` and `max` windows,
+  direct, named, over grouped rows, in QUALIFY and over JOIN rows, with the
+  grouped MySQL aggregate contract (`SUM` of Int is DECIMAL, `avg` of Int
+  casts to DOUBLE). A sliding Float `sum` or `avg` frame assumes MySQL's
+  default `windowing_use_high_precision = ON`. As with a grouped `sum`, an
+  Int `/` of a `sum` that PostgreSQL holds as `numeric`, such as one over a
+  `bigint` column, truncates on MySQL but not yet on PostgreSQL.
+- **Window frames.** A GROUPS frame without an offset bound is written as the
+  same RANGE frame, and an authored EXCLUDE NO OTHERS is left out. GROUPS with
+  an offset bound (`MySQL does not support GROUPS frames with an offset`) and
+  EXCLUDE CURRENT ROW, GROUP or TIES (`MySQL does not support EXCLUDE CURRENT
+  ROW, GROUP or TIES`) stay refused.
+- **`round(Float)` and `date_trunc`.** `round` of a Float rounds a tie away
+  from zero with `TRUNCATE` arithmetic, as MySQL's own `ROUND` of a DOUBLE may
+  not. It refuses Float arithmetic without a DOUBLE operand in its argument,
+  such as `round(amount + 0.5 - 0.00000000000000001)` with an Int `amount`,
+  which PostgreSQL computes as `numeric` and MySQL may not, and a read of a
+  Float relation output, such as a CTE column, that is not such a DOUBLE;
+  `date_trunc` of a Date or Timestamp is built from the value's parts, so a
+  unit other than `day`, which repeats the value, refuses a value that holds
+  another `date_trunc`.
+- **Aliases that differ only in case.** A MySQL JOIN statement with two input
+  or `any` aliases whose names differ only in case is refused, as MySQL may
+  compare aliases without case: `Its SQL aliases inputs <first> and <second>,
+  whose names MySQL may compare without case; rename one of them`. PostgreSQL
+  emits them.
+- `string_agg`, `matches`, `ignore nulls`, `from last` and RANGE offsets stay
+  refused on MySQL.
 
 ### Command startup
 

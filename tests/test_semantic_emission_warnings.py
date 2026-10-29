@@ -629,6 +629,26 @@ query read:
     ]
 
 
+@pytest.mark.parametrize(
+    ("connector", "warned"), [("postgres.table", True), ("mysql.table", False)]
+)
+def test_only_a_postgresql_file_warns_for_a_read_of_an_all_null_output(
+    connector: str, warned: bool
+) -> None:
+    """MySQL emission keeps an untyped NULL output; PostgreSQL types it as text."""
+
+    source = _PREFIX.replace("postgres.table", connector) + (
+        "table produced:\n    from rows\n    select value = None\n"
+        "query read:\n    from produced\n    select value\n"
+    )
+
+    result = _analyze(source)
+
+    assert [(item.code, item.severity) for item in result] == (
+        [("PIE-S2385", Severity.WARNING)] if warned else []
+    )
+
+
 def test_all_null_output_warns_for_join_target_and_multi_hop_reader() -> None:
     source = (
         _PREFIX

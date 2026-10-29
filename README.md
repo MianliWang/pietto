@@ -196,8 +196,8 @@ row exists or perform database writes. See the complete
 [multi-JOIN example](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#named-inputs-and-reusable-relationship-predicates).
 
 `check` does not generate SQL, so only `emit-sql --dialect X` shows that a
-file emits for X: MySQL emission refuses each JOIN relation for now
-(`PIE-B1000`) and keeps the other statements. `pietto explain FILE` prints the
+file emits for X: a relation that X cannot emit is refused with
+`PIE-B1000`, and the other statements are kept. `pietto explain FILE` prints the
 semantic metadata of a file whose relations have no JOINs, and `pietto --help`
 lists every command.
 

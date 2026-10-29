@@ -260,34 +260,39 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
         [
             "mysql_groups",
             "not_lowerable",
-            "MySQL does not support GROUPS frames",
-            [["frame_shape", "MySQL does not support GROUPS frames"]],
+            "MySQL does not support GROUPS frames with an offset",
+            [["frame_shape", "MySQL does not support GROUPS frames with an offset"]],
             [
                 {
                     "code": "PIE-B1000",
                     "severity": "error",
                     "message": "MySQL SQL emission is not implemented for RelationIR: result. MySQL "
-                    "does not support GROUPS frames",
+                    "does not support GROUPS frames with an offset",
                     "location": ["mysql_groups.pietto", 6, 1, 13, 54],
                 }
             ],
-            "e93916a1eb9252a3e6965fc4085b4b3dd851fda97ba9c95ed14cda5f08986281",
+            "149c164d0b57adc347d23489b723752338e70c1d6214ea21e8a95d5c6f5f20d3",
         ],
         [
             "mysql_exclude",
             "not_lowerable",
-            "MySQL does not support authored EXCLUDE frames",
-            [["exclusion", "MySQL does not support authored EXCLUDE frames"]],
+            "MySQL does not support EXCLUDE CURRENT ROW, GROUP or TIES",
+            [
+                [
+                    "exclusion",
+                    "MySQL does not support EXCLUDE CURRENT ROW, GROUP or TIES",
+                ]
+            ],
             [
                 {
                     "code": "PIE-B1000",
                     "severity": "error",
                     "message": "MySQL SQL emission is not implemented for RelationIR: result. MySQL "
-                    "does not support authored EXCLUDE frames",
+                    "does not support EXCLUDE CURRENT ROW, GROUP or TIES",
                     "location": ["mysql_exclude.pietto", 6, 1, 13, 54],
                 }
             ],
-            "2e7eda78de16c613edc8036cdeff5c4bb628c48f4d82d1749c43d7a0498dec2d",
+            "e6868997d9b9a255e13e0dbba30246696fea3bd34e4a8e762f1b53c1039e2e86",
         ],
         [
             "mysql_ignore_nulls",
@@ -434,8 +439,8 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
             "",
         ],
     ],
-    "observation_sha256": "31bedd3b0dae83217ebe581ea4e1854bbaf012acf162d52d03f4b0d12cc94d70",
-    "observation_size": 50265,
+    "observation_sha256": "34103e5bdb549fb8135d8dc14d653bdec390849bfb9dbfbf8e173115aed2307a",
+    "observation_size": 50373,
 }
 
 

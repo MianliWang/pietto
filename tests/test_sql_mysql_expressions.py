@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import sys
 from dataclasses import replace
 from typing import cast
 
@@ -171,36 +172,225 @@ def test_mysql_only_emits_proven_decimal_round_and_int_text_cast() -> None:
     assert render_mysql_expression(text_cast) == "CAST(`id` AS CHAR)"
 
 
-@pytest.mark.parametrize(
-    "expression",
-    [
-        CallIR(
-            span=SPAN,
-            value_type=_builtin_type("Float", NullabilityIR.NON_NULL),
-            callee="round",
-            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "round"),
-            arguments=(
-                FieldRefIR(
-                    span=SPAN,
-                    value_type=_builtin_type("Float", NullabilityIR.NON_NULL),
-                    name="ratio",
-                    qualifier=(),
-                    field=None,
-                ),
-            ),
+def _typed_call(callee: str, type_name: str, *arguments: ExpressionIR) -> CallIR:
+    return replace(
+        _call(callee, *arguments),
+        value_type=_builtin_type(type_name, NullabilityIR.NULLABLE),
+    )
+
+
+def _typed_field(name: str, type_name: str) -> FieldRefIR:
+    return replace(
+        _field(name), value_type=_builtin_type(type_name, NullabilityIR.NULLABLE)
+    )
+
+
+def _text(value: str) -> LiteralIR:
+    return replace(
+        _literal(value), value_type=_builtin_type("Text", NullabilityIR.NON_NULL)
+    )
+
+
+def test_mysql_rounds_a_float_half_away_from_zero_without_round() -> None:
+    expression = _typed_call("round", "Float", _typed_field("ratio", "Float"))
+
+    # MySQL ROUND of a DOUBLE may round half to even, so Pietto never uses it.
+    assert render_mysql_expression(expression) == (
+        "CASE WHEN ABS(`ratio` - TRUNCATE(`ratio`, 0)) >= 0.5 THEN "
+        "TRUNCATE(`ratio`, 0) + CASE WHEN `ratio` < 0 THEN -1.0 ELSE 1.0 END "
+        "ELSE TRUNCATE(`ratio`, 0) END"
+    )
+
+
+def test_mysql_round_float_refuses_float_arithmetic_without_a_double_operand() -> None:
+    def float_op(left: ExpressionIR, operator: str, right: ExpressionIR) -> BinaryIR:
+        float_type = _builtin_type("Float", NullabilityIR.NULLABLE)
+        return BinaryIR(
+            span=SPAN, value_type=float_type, left=left, operator=operator, right=right
+        )
+
+    ratio = _typed_field("ratio", "Float")
+    amount = _typed_field("amount", "Int")
+    half = replace(_literal(0.5), value_type=FLOAT_TYPE)
+    tiny = replace(_literal(1e-17), value_type=FLOAT_TYPE)
+
+    # PostgreSQL computes 0.5 - 1e-17 and amount + 0.5 - 1e-17 exactly as
+    # numeric and rounds them to 0 at amount 0; MySQL reads 1e-17 as a
+    # DOUBLE, gets 0.5 and would round it to 1.
+    for value in (
+        float_op(half, "-", tiny),
+        float_op(ratio, "-", float_op(half, "-", tiny)),
+        float_op(float_op(amount, "+", half), "-", tiny),
+        float_op(float_op(amount, "*", tiny), "+", half),
+        float_op(amount, "/", half),
+    ):
+        with pytest.raises(MySqlRenderError) as raised:
+            render_mysql_expression(_typed_call("round", "Float", value))
+        assert str(raised.value) == (
+            "MySQL function round(Float) supports Float arithmetic only with a "
+            "DOUBLE operand"
+        )
+    # Beside a DOUBLE, each operand is read as a DOUBLE on both targets.
+    for value, text in (
+        (float_op(ratio, "-", tiny), "(`ratio` - 1e-17)"),
+        (
+            float_op(float_op(amount, "+", ratio), "-", tiny),
+            "((`amount` + `ratio`) - 1e-17)",
         ),
-        CallIR(
-            span=SPAN,
-            value_type=_builtin_type("Date", NullabilityIR.NON_NULL),
-            callee="date_trunc",
-            callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "date_trunc"),
-            arguments=(),
+        (
+            float_op(amount, "/", _typed_call("nullif", "Float", ratio, half)),
+            "(`amount` / NULLIF(`ratio`, 0.5))",
+        ),
+    ):
+        assert render_mysql_expression(_typed_call("round", "Float", value)).startswith(
+            f"CASE WHEN ABS({text} - TRUNCATE({text}, 0))"
+        )
+
+
+@pytest.mark.parametrize(
+    ("type_name", "unit", "expected"),
+    [
+        ("Date", "year", "DATE_SUB(`at`, INTERVAL (DAYOFYEAR(`at`) - 1) DAY)"),
+        ("Date", "month", "DATE_SUB(`at`, INTERVAL (DAYOFMONTH(`at`) - 1) DAY)"),
+        ("Date", "day", "`at`"),
+        (
+            "Timestamp",
+            "year",
+            "TIMESTAMP(DATE_SUB(DATE(`at`), INTERVAL (DAYOFYEAR(`at`) - 1) DAY))",
+        ),
+        (
+            "Timestamp",
+            "month",
+            "TIMESTAMP(DATE_SUB(DATE(`at`), INTERVAL (DAYOFMONTH(`at`) - 1) DAY))",
+        ),
+        ("Timestamp", "day", "TIMESTAMP(DATE(`at`))"),
+        ("Timestamp", "hour", "TIMESTAMP(DATE(`at`), MAKETIME(HOUR(`at`), 0, 0))"),
+        (
+            "Timestamp",
+            "minute",
+            "TIMESTAMP(DATE(`at`), MAKETIME(HOUR(`at`), MINUTE(`at`), 0))",
         ),
     ],
 )
-def test_mysql_refuses_unproven_function_shapes(expression: ExpressionIR) -> None:
-    with pytest.raises(MySqlRenderError):
+def test_mysql_truncates_a_date_or_timestamp_from_its_parts(
+    type_name: str, unit: str, expected: str
+) -> None:
+    expression = _typed_call(
+        "date_trunc", type_name, _text(unit), _typed_field("at", type_name)
+    )
+
+    assert render_mysql_expression(expression) == expected
+
+
+def test_mysql_date_trunc_repeats_its_value_only_without_another_date_trunc() -> None:
+    """Each unit but day repeats its value, so nested date_trunc calls would
+    grow the SQL exponentially; only a day truncation holds another."""
+
+    minute = _typed_call(
+        "date_trunc", "Timestamp", _text("minute"), _typed_field("at", "Timestamp")
+    )
+
+    assert render_mysql_expression(
+        _typed_call("date_trunc", "Timestamp", _text("day"), minute)
+    ) == (
+        "TIMESTAMP(DATE(TIMESTAMP(DATE(`at`), MAKETIME(HOUR(`at`), MINUTE(`at`), 0))))"
+    )
+    with pytest.raises(MySqlRenderError) as raised:
+        render_mysql_expression(
+            _typed_call(
+                "date_trunc",
+                "Timestamp",
+                _text("hour"),
+                _typed_call("date_trunc", "Timestamp", _text("day"), minute),
+            )
+        )
+    assert str(raised.value) == (
+        "MySQL function date_trunc with unit hour repeats its value, which must "
+        "not hold another date_trunc"
+    )
+
+
+def test_mysql_round_float_decides_a_deep_float_expression_without_recursion() -> None:
+    float_type = _builtin_type("Float", NullabilityIR.NULLABLE)
+    exact = replace(_literal(0.5), value_type=FLOAT_TYPE)
+    double = _typed_field("ratio", "Float")
+    for leaf, inexact in ((double, False), (exact, True)):
+        value: ExpressionIR = leaf
+        for _ in range(sys.getrecursionlimit() + 10):
+            value = BinaryIR(
+                span=SPAN, value_type=float_type, left=value, operator="+", right=exact
+            )
+
+        assert expression_module.is_mysql_double(value) is not inexact
+        assert expression_module.has_inexact_float_arithmetic(value) is inexact
+
+
+@pytest.mark.parametrize(
+    ("expression", "message"),
+    [
+        pytest.param(
+            _typed_call(
+                "round",
+                "Float",
+                _typed_field("ratio", "Float"),
+                replace(_literal(2), value_type=INT_TYPE),
+            ),
+            "MySQL function round(Float) expects 1 argument",
+            id="float-with-scale",
+        ),
+        pytest.param(
+            _typed_call("round", "Int", _typed_field("id", "Int")),
+            "MySQL supports round only for Decimal and Float",
+            id="int",
+        ),
+        pytest.param(
+            _typed_call("date_trunc", "Date"),
+            "MySQL function date_trunc expects 2 argument(s)",
+            id="date-trunc-arity",
+        ),
+        pytest.param(
+            _typed_call(
+                "date_trunc", "Date", _text("hour"), _typed_field("at", "Date")
+            ),
+            "MySQL function date_trunc unit is unsupported",
+            id="date-trunc-hour-of-a-date",
+        ),
+        pytest.param(
+            _typed_call(
+                "date_trunc",
+                "Timestamp",
+                _text("week"),
+                _typed_field("at", "Timestamp"),
+            ),
+            "MySQL function date_trunc unit is unsupported",
+            id="date-trunc-week",
+        ),
+        pytest.param(
+            _typed_call(
+                "date_trunc",
+                "Timestamp",
+                _typed_field("unit", "Text"),
+                _typed_field("at", "Timestamp"),
+            ),
+            "MySQL function date_trunc unit must be a Text literal",
+            id="date-trunc-unit-field",
+        ),
+        pytest.param(
+            _typed_call(
+                "date_trunc", "Date", _text("day"), _typed_field("at", "Timestamp")
+            ),
+            "MySQL function date_trunc has an invalid typed shape",
+            id="date-trunc-type-mismatch",
+        ),
+    ],
+)
+def test_mysql_refuses_unproven_function_shapes(
+    expression: ExpressionIR, message: str
+) -> None:
+    with pytest.raises(MySqlRenderError) as raised:
         render_mysql_expression(expression)
+
+    assert str(raised.value) == message
 
 
 def test_q1_control_expressions_and_fixed_like_escape_render() -> None:

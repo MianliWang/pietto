@@ -21,6 +21,7 @@ SQL_FIXTURES = frozenset(
         "emit_mysql_grouped_decimal_aggregate.sql",
         "emit_mysql_grouped_count_field_aggregate.sql",
         "emit_mysql_group_by_aggregate.sql",
+        "emit_mysql_join_mvp.sql",
         "emit_mysql_compatibility_expressions.sql",
         "emit_mysql_compatibility_literals_identifiers.sql",
         "emit_mysql_compatibility_ordering_metadata.sql",
@@ -81,6 +82,7 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_mysql_compatibility_ordering_metadata.sql": (
         "tests/fixtures/mysql/compatibility_ordering_metadata.pietto",
     ),
+    "emit_mysql_join_mvp.sql": ("tests/fixtures/mysql/join_mvp.pietto",),
     "emit_mysql_count_aggregate.sql": (
         "tests/fixtures/phase19/mysql_count_aggregate.pietto",
     ),

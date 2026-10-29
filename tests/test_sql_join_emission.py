@@ -50,14 +50,23 @@ from pietto.ir import (
 from pietto.ir.model import LimitIR, OrderDirectionIR, OrderItemIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-from pietto.sql import emit_postgres_sql
-from pietto.sql.joins import render_conjunction_sql, render_join_sql
+from pietto.sql import SqlResult, emit_postgres_sql
+from pietto.sql.joins import MYSQL, POSTGRESQL, render_conjunction_sql, render_join_sql
 from pietto.sql.mysql import emit_mysql_sql
-from pietto.sql.render import IdentifierTooLongError
+from pietto.sql.mysql_render import MySqlRenderError
+from pietto.sql.mysql_render import (
+    quote_qualified_identifier as quote_mysql_identifier,
+)
+from pietto.sql.relations import render_relation_sql
+from pietto.sql.render import IdentifierTooLongError, quote_qualified_identifier
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_INPUT = "tests/fixtures/postgres/join_mvp.pietto"
 GOLDEN_SQL = "tests/fixtures/golden/emit_sql_join_mvp.sql"
+# The same input through mysql.table, and its MySQL SQL.
+MYSQL_GOLDEN_INPUT = "tests/fixtures/mysql/join_mvp.pietto"
+MYSQL_GOLDEN_SQL = "tests/fixtures/golden/emit_mysql_join_mvp.sql"
+DIALECTS = ("postgres", "mysql")
 SPAN = SourceSpan(
     path="join-emission.pietto", line=3, column=5, end_line=3, end_column=9
 )
@@ -102,6 +111,22 @@ FULL_REFUSAL = (
     "PostgreSQL FULL JOIN {} needs an ON made only of equalities between Int "
     "fields of its two sides; Pietto does not rewrite other FULL JOIN conditions yet"
 )
+PENDING_FULL_REFUSAL = (
+    "A SEMI or ANTI JOIN before FULL JOIN {} is not available in PostgreSQL "
+    "emission yet"
+)
+
+
+def _for(dialect: str, postgresql: str) -> str:
+    """The PostgreSQL SQL or message as MySQL spells it, for `dialect`.
+
+    MySQL quotes with backticks where PostgreSQL uses double quotes; these
+    tests use no double quote inside a literal.
+    """
+
+    if dialect == "postgres":
+        return postgresql
+    return postgresql.replace('"', "`").replace("PostgreSQL", "MySQL")
 
 
 def _type(
@@ -238,11 +263,19 @@ def _relation(
     )
 
 
-def _sql(relation: RelationIR) -> str:
+def _sql(relation: RelationIR, dialect: str = "postgres") -> str:
     """The FROM and JOIN lines, then a WHERE of the pending filters, if any."""
 
+    quote = (
+        quote_qualified_identifier if dialect == "postgres" else quote_mysql_identifier
+    )
     lines, filters = render_join_sql(
-        relation, [NAMES[item.target.name] for item in relation.inputs]
+        relation,
+        [
+            f"{quote(NAMES[item.target.name])} AS {quote((item.binding,))}"
+            for item in relation.inputs
+        ],
+        POSTGRESQL if dialect == "postgres" else MYSQL,
     )
     if filters:
         lines = (*lines, f"WHERE {render_conjunction_sql(filters)}")
@@ -308,16 +341,17 @@ def _full_on(left: str, operator: str, right: ExpressionIR | str) -> JoinSpec:
     )
 
 
-def _golden_artifacts() -> dict[str, str]:
+def _golden_artifacts(dialect: str) -> dict[str, str]:
     """Each query of the golden input and its artifact of the golden SQL."""
 
-    source = (REPO_ROOT / GOLDEN_INPUT).read_text(encoding="utf-8")
+    source_path, sql_path = GOLDENS[dialect]
+    source = (REPO_ROOT / source_path).read_text(encoding="utf-8")
     names = [
         line.removeprefix("query ").removesuffix(":")
         for line in source.splitlines()
         if line.startswith("query ")
     ]
-    golden = (REPO_ROOT / GOLDEN_SQL).read_text(encoding="utf-8")
+    golden = (REPO_ROOT / sql_path).read_text(encoding="utf-8")
     # emit-sql text: a `-- <name>` line, then the SQL ending with `;`.
     statements = golden.removesuffix(";\n").split(";\n\n")
     return {
@@ -326,7 +360,11 @@ def _golden_artifacts() -> dict[str, str]:
     }
 
 
-GOLDEN_ARTIFACTS = _golden_artifacts()
+GOLDENS = {
+    "postgres": (GOLDEN_INPUT, GOLDEN_SQL),
+    "mysql": (MYSQL_GOLDEN_INPUT, MYSQL_GOLDEN_SQL),
+}
+GOLDEN_ARTIFACTS = {dialect: _golden_artifacts(dialect) for dialect in DIALECTS}
 # The JOIN relations of the golden as IR lowers them, with the lines their
 # artifacts carry after the JOIN block: a tail sql/relations.py writes.
 GOLDEN_JOINS = {
@@ -445,21 +483,31 @@ GOLDEN_JOINS = {
 
 
 # The golden's other queries have no JOIN: `named_customers`, and the two that
-# filter with a tail `where [not] any(...)`, a correlated EXISTS read.
+# filter with a tail `where [not] any(...)`, a correlated EXISTS read. MySQL
+# emulates the FULL JOIN of `order_customer_pairs` with a derived table.
 @pytest.mark.parametrize(
-    "name", [name for name in GOLDEN_ARTIFACTS if name in GOLDEN_JOINS]
+    ("dialect", "name"),
+    [
+        (dialect, name)
+        for dialect in DIALECTS
+        for name in GOLDEN_ARTIFACTS[dialect]
+        if name in GOLDEN_JOINS and (dialect, name) != ("mysql", "order_customer_pairs")
+    ],
 )
 def test_each_golden_join_relation_renders_its_reviewed_from_and_join_lines(
-    name: str,
+    dialect: str, name: str
 ) -> None:
     relation, tail = GOLDEN_JOINS[name]
-    lines = GOLDEN_ARTIFACTS[name].split("\n")
+    lines = GOLDEN_ARTIFACTS[dialect][name].split("\n")
     # The statement's own SELECT follows the CTEs it defines.
     if lines[0].startswith("WITH "):
         lines = lines[lines.index(")") + 1 :]
     start = next(index for index, line in enumerate(lines) if line.startswith("FROM "))
 
-    assert lines[start:] == [*_sql(relation).split("\n"), *tail]
+    assert lines[start:] == [
+        *_sql(relation, dialect).split("\n"),
+        *(_for(dialect, line) for line in tail),
+    ]
 
 
 # The golden's last-position existence filters, once a SEMI and an ANTI JOIN:
@@ -472,19 +520,25 @@ GOLDEN_TAIL_ANY = {
 }
 
 
+@pytest.mark.parametrize("dialect", DIALECTS)
 @pytest.mark.parametrize(
     "name",
     [
         name
-        for name in GOLDEN_ARTIFACTS
+        for name in GOLDEN_ARTIFACTS["postgres"]
         if name not in GOLDEN_JOINS and name != "named_customers"
     ],
 )
-def test_each_golden_tail_any_renders_its_reviewed_exists_filter(name: str) -> None:
-    lines = GOLDEN_ARTIFACTS[name].split("\n")
+def test_each_golden_tail_any_renders_its_reviewed_exists_filter(
+    name: str, dialect: str
+) -> None:
+    lines = GOLDEN_ARTIFACTS[dialect][name].split("\n")
     start = next(index for index, line in enumerate(lines) if line.startswith("FROM "))
 
-    assert lines[start:] == [CUSTOMERS_FROM, f"WHERE {GOLDEN_TAIL_ANY[name]}"]
+    assert lines[start:] == [
+        _for(dialect, CUSTOMERS_FROM),
+        _for(dialect, f"WHERE {GOLDEN_TAIL_ANY[name]}"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -524,12 +578,13 @@ def test_each_golden_tail_any_renders_its_reviewed_exists_filter(name: str) -> N
         ),
     ],
 )
+@pytest.mark.parametrize("dialect", DIALECTS)
 def test_a_pending_filter_stays_until_a_right_join_takes_it_into_its_on(
-    join: JoinSpec, expected: str
+    join: JoinSpec, expected: str, dialect: str
 ) -> None:
     relation = _relation(COR, _join(SEMI, "customers", CUSTOMER_ORDER), join)
 
-    assert _sql(relation) == f"{CUSTOMERS_FROM}\n{expected}"
+    assert _sql(relation, dialect) == _for(dialect, f"{CUSTOMERS_FROM}\n{expected}")
 
 
 @pytest.mark.parametrize(
@@ -591,10 +646,16 @@ def test_a_pending_filter_stays_until_a_right_join_takes_it_into_its_on(
         ),
     ],
 )
+@pytest.mark.parametrize("dialect", DIALECTS)
 def test_pending_filters_enter_the_next_right_join_in_join_order(
-    relation: RelationIR, expected: str
+    relation: RelationIR, expected: str, dialect: str
 ) -> None:
-    assert _sql(relation) == f"{CUSTOMERS_FROM}\n{expected}"
+    if dialect == "mysql" and any(join.kind is FULL for join in relation.joins):
+        # MySQL has no FULL JOIN; its emitter renders one as a derived table.
+        with pytest.raises(MySqlRenderError, match="^MySQL has no FULL JOIN$"):
+            _sql(relation, dialect)
+        return
+    assert _sql(relation, dialect) == _for(dialect, f"{CUSTOMERS_FROM}\n{expected}")
 
 
 @pytest.mark.parametrize(
@@ -639,16 +700,14 @@ def test_pending_filters_enter_the_next_right_join_in_join_order(
         ),
     ],
 )
+@pytest.mark.parametrize("dialect", DIALECTS)
 def test_a_full_join_after_a_pending_filter_is_refused(
-    relation: RelationIR, binding: str
+    relation: RelationIR, binding: str, dialect: str
 ) -> None:
-    with pytest.raises(ValueError) as raised:
-        _sql(relation)
+    with pytest.raises((ValueError, MySqlRenderError)) as raised:
+        _sql(relation, dialect)
 
-    assert str(raised.value) == (
-        f"A SEMI or ANTI JOIN before FULL JOIN {binding} is not available in "
-        "PostgreSQL emission yet"
-    )
+    assert str(raised.value) == _for(dialect, PENDING_FULL_REFUSAL.format(binding))
 
 
 @pytest.mark.parametrize(
@@ -931,13 +990,14 @@ def test_a_full_join_on_int_field_equalities_across_its_sides_is_native(
         ),
     ],
 )
+@pytest.mark.parametrize("dialect", DIALECTS)
 def test_a_full_join_on_anything_else_is_refused(
-    relation: RelationIR, binding: str
+    relation: RelationIR, binding: str, dialect: str
 ) -> None:
-    with pytest.raises(ValueError) as raised:
-        _sql(relation)
+    with pytest.raises((ValueError, MySqlRenderError)) as raised:
+        _sql(relation, dialect)
 
-    assert str(raised.value) == FULL_REFUSAL.format(binding)
+    assert str(raised.value) == _for(dialect, FULL_REFUSAL.format(binding))
 
 
 @pytest.mark.parametrize(
@@ -960,10 +1020,13 @@ def test_a_full_join_on_anything_else_is_refused(
         ),
     ],
 )
+@pytest.mark.parametrize("dialect", DIALECTS)
 def test_a_composite_relationship_matches_every_pair_in_declared_order(
-    join: JoinSpec, expected: str
+    join: JoinSpec, expected: str, dialect: str
 ) -> None:
-    assert _sql(_relation(LS, join)) == f"{LINES_FROM}\n{expected}"
+    assert _sql(_relation(LS, join), dialect) == _for(
+        dialect, f"{LINES_FROM}\n{expected}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -981,14 +1044,51 @@ def test_one_conjunct_stays_bare_and_several_are_each_parenthesized(
 
 
 def test_a_join_binding_postgresql_would_truncate_is_refused() -> None:
-    relation = _relation(("orders", LONG_BINDING), _join(CROSS, "orders"))
+    bindings = ("orders", LONG_BINDING)
+    relation = replace(
+        _relation(bindings, _join(CROSS, "orders")),
+        projections=(_projection("id", _read(bindings, "orders.id")),),
+    )
 
     with pytest.raises(IdentifierTooLongError) as raised:
-        _sql(relation)
+        render_relation_sql(
+            relation,
+            sources={
+                item.symbol: item
+                for item in (_postgres_source("orders"), _postgres_source("regions"))
+            },
+            relations={},
+        )
 
     assert str(raised.value) == (
         f'PostgreSQL identifier "{"r" * 24}..." is 64 bytes, over the 63 bytes '
         "PostgreSQL keeps of a name"
+    )
+
+
+def test_every_join_input_resolves_before_a_binding_is_quoted() -> None:
+    bindings = ("orders", LONG_BINDING, "customer")
+    relation = replace(
+        _relation(bindings, _join(CROSS, "orders"), _join(CROSS, "orders")),
+        projections=(_projection("id", _read(bindings, "orders.id")),),
+    )
+
+    with pytest.raises(ValueError) as raised:
+        render_relation_sql(
+            relation,
+            sources={
+                item.symbol: item
+                for item in (
+                    _postgres_source("orders"),
+                    _postgres_source("regions"),
+                    _mysql_source("customers"),
+                )
+            },
+            relations={},
+        )
+
+    assert str(raised.value) == (
+        "PostgreSQL relation emission requires postgres.table(Text)"
     )
 
 
@@ -1020,30 +1120,46 @@ def test_a_join_kind_is_read_as_its_join_kind_or_refused(
     assert str(raised.value) == message
 
 
-def test_mysql_refuses_each_join_relation_and_keeps_the_other_artifacts() -> None:
+def test_mysql_emits_each_join_relation_and_refuses_a_name_too_long() -> None:
+    def order_names(name: str) -> RelationIR:
+        return replace(
+            _relation(OC, _join(INNER, "orders", ORDER_CUSTOMER), name=name),
+            projections=(
+                _projection("order_id", _read(OC, "orders.id")),
+                _projection("customer_name", _read(OC, "customer.name", TEXT)),
+            ),
+        )
+
     script = ScriptIR(
         definitions=(
             _mysql_source("orders"),
             _mysql_source("customers"),
-            _relation(OC, _join(INNER, "orders", ORDER_CUSTOMER), name="order_names"),
+            order_names("order_names"),
             _order_ids(),
-            # Refused before its name, too long for MySQL, is read.
-            _relation(OC, _join(INNER, "orders", ORDER_CUSTOMER), name="n" * 65),
+            order_names("n" * 65),
         )
     )
 
     result = emit_mysql_sql(script)
 
     assert [(artifact.name, artifact.sql) for artifact in result.artifacts] == [
+        (
+            "order_names",
+            "SELECT\n    `orders`.`id` AS `order_id`,\n"
+            "    `customer`.`name` AS `customer_name`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "INNER JOIN `shop`.`customers` AS `customer` "
+            "ON `orders`.`customer_id` = `customer`.`id`",
+        ),
         ("order_ids", "SELECT\n    `id` AS `id`\nFROM `shop`.`orders`"),
     ]
-    assert result.diagnostics == tuple(
+    assert result.diagnostics == (
         Diagnostic(
             code="PIE-B1000",
             severity=Severity.ERROR,
             message=(
-                f"MySQL SQL emission is not implemented for RelationIR: {name}. "
-                "MySQL JOIN emission is not available yet"
+                f"MySQL SQL emission is not implemented for RelationIR: {'n' * 65}. "
+                "MySQL relation identifier must not exceed 64 characters"
             ),
             location=SourceLocation(
                 path="join-emission.pietto",
@@ -1052,8 +1168,7 @@ def test_mysql_refuses_each_join_relation_and_keeps_the_other_artifacts() -> Non
                 end_line=3,
                 end_column=9,
             ),
-        )
-        for name in ("order_names", "n" * 65)
+        ),
     )
 
 
@@ -1112,14 +1227,19 @@ def _compile_source(source: str) -> ScriptIR:
     return lowered.ir
 
 
-def test_complete_join_sql_matches_golden() -> None:
-    result = emit_postgres_sql(_compile_source((REPO_ROOT / GOLDEN_INPUT).read_text()))
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_complete_join_sql_matches_golden(dialect: str) -> None:
+    source_path, sql_path = GOLDENS[dialect]
+    emitter = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
+    result = emitter(_compile_source((REPO_ROOT / source_path).read_text()))
 
     assert result.diagnostics == ()
-    assert [(a.name, a.sql) for a in result.artifacts] == list(GOLDEN_ARTIFACTS.items())
+    assert [(a.name, a.sql) for a in result.artifacts] == list(
+        GOLDEN_ARTIFACTS[dialect].items()
+    )
     assert (
         "\n\n".join(f"-- {a.name}\n{a.sql};" for a in result.artifacts) + "\n"
-    ).encode() == (REPO_ROOT / GOLDEN_SQL).read_bytes()
+    ).encode() == (REPO_ROOT / sql_path).read_bytes()
 
 
 @pytest.mark.parametrize("mode", ["loose", "checked", "strict"])
@@ -1170,30 +1290,28 @@ def test_readme_quick_start_checks_strictly_and_emits_the_sql_it_prints(
     ("dialect", "joins", "reason", "warning"),
     [
         (
-            "mysql",
-            "    let p = peers\n    inner join p on rows.id == p.id\n",
-            "MySQL JOIN emission is not available yet",
-            None,
-        ),
-        (
-            "postgres",
+            dialect,
             "    let p = peers\n    full join p on rows.name == p.name\n",
-            FULL_REFUSAL.format("p"),
+            _for(dialect, FULL_REFUSAL.format("p")),
             ("13:20", "this FULL JOIN equality is not between canonical Int fields"),
-        ),
+        )
+        for dialect in DIALECTS
+    ]
+    + [
         (
-            "postgres",
+            dialect,
             "    where any(rows.id == s.id for s in peers)\n"
             "    let p = peers\n    full join p on rows.id == p.id\n",
-            "A SEMI or ANTI JOIN before FULL JOIN p is not available in PostgreSQL emission yet",
+            _for(dialect, PENDING_FULL_REFUSAL.format("p")),
             (
                 "14:5",
                 "a `where any(...)` or `where not any(...)` filter comes before "
                 "this FULL JOIN",
             ),
-        ),
+        )
+        for dialect in DIALECTS
     ],
-    ids=["mysql", "text-full", "semi-full"],
+    ids=["text-full", "mysql-text-full", "semi-full", "mysql-semi-full"],
 )
 def test_cli_refuses_one_join_relation_and_keeps_other_artifacts(
     output_format: str,
@@ -1309,6 +1427,13 @@ def test_join_and_exists_conditions_keep_the_text_null_guard(kind: JoinKindIR) -
         else "PostgreSQL types a CASE, COALESCE or NULLIF of only NULL values as text, "
         "which a condition does not take"
     )
+    # MySQL takes a NULL of any type where it takes a Boolean.
+    if kind is not FULL:
+        condition = replace(
+            condition, callee_symbol=SymbolId(SymbolNamespace.CALLABLE, "coalesce")
+        )
+        relation = _relation(OC, _join(kind, "orders", on=condition))
+        assert "COALESCE(NULL, NULL)" in _sql(relation, "mysql")
 
 
 @pytest.mark.parametrize("wrapped", [False, True])
@@ -1355,7 +1480,10 @@ def test_untyped_null_output_is_refused_when_a_join_target_reads_it(
     )
 
 
-def test_grouped_self_join_keeps_both_occurrence_keys_and_the_existing_tail() -> None:
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_grouped_self_join_keeps_both_occurrence_keys_and_the_existing_tail(
+    dialect: str,
+) -> None:
     left, right = _read(CP, "customers.id"), _read(CP, "peer.id")
     count = AggregateCallIR(span=SPAN, value_type=INT, function="count", arguments=())
     relation = replace(
@@ -1374,40 +1502,741 @@ def test_grouped_self_join_keeps_both_occurrence_keys_and_the_existing_tail() ->
         ),
         limit=LimitIR(value=5, span=SPAN),
     )
-    result = emit_postgres_sql(
-        ScriptIR(definitions=(_postgres_source("customers"), relation))
-    )
+    result = _emit(dialect, relation, "customers")
     assert result.diagnostics == ()
-    assert result.artifacts[0].sql == (
+    assert result.artifacts[0].sql == _for(
+        dialect,
         'SELECT\n    "customers"."id" AS "left_id",\n    "peer"."id" AS "right_id",\n'
         '    COUNT(*) AS "n"\nFROM "shop"."customers" AS "customers"\n'
         'CROSS JOIN "shop"."customers" AS "peer"\nGROUP BY\n'
         '    "customers"."id",\n    "peer"."id"\nHAVING\n    COUNT(*) > 1\n'
-        'ORDER BY\n    "peer"."id" DESC\nLIMIT 5'
+        'ORDER BY\n    "peer"."id" DESC\nLIMIT 5',
     )
 
 
-def test_pending_exists_precedes_authored_where() -> None:
+def _emit(dialect: str, relation: RelationIR, *sources: str) -> SqlResult:
+    """Emit `relation` for `dialect`, reading each named shop table."""
+
+    if dialect == "postgres":
+        return emit_postgres_sql(
+            ScriptIR(definitions=(*map(_postgres_source, sources), relation))
+        )
+    return emit_mysql_sql(
+        ScriptIR(definitions=(*map(_mysql_source, sources), relation))
+    )
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+def test_pending_exists_precedes_authored_where(dialect: str) -> None:
     condition = _compare(_read(CO, "customers.id"), ">", _literal(1))
     relation = replace(
         _relation(CO, _join(SEMI, "customers", CUSTOMER_ORDER)),
         projections=(_projection("id", _read(CO, "customers.id")),),
         filter=FilterIR(expression=condition, span=SPAN),
     )
-    result = emit_postgres_sql(
-        ScriptIR(
-            definitions=(
-                _postgres_source("customers"),
-                _postgres_source("orders"),
-                relation,
-            )
-        )
-    )
+    result = _emit(dialect, relation, "customers", "orders")
     assert result.diagnostics == ()
-    assert result.artifacts[0].sql == (
+    assert result.artifacts[0].sql == _for(
+        dialect,
         'SELECT\n    "customers"."id" AS "id"\n' + CUSTOMERS_FROM + "\n"
-        f'WHERE ({HAS_ORDERS}) AND ("customers"."id" > 1)'
+        f'WHERE ({HAS_ORDERS}) AND ("customers"."id" > 1)',
     )
+
+
+# Single-file sources whose `q` both targets emit; the MySQL SQL, then the
+# PostgreSQL SQL when it is not the MySQL SQL with double quotes.
+JOIN_PRELUDE = (
+    "shape Order:\n"
+    "    id: Int\n"
+    "    customer_id: Int | None\n"
+    "    amount: Int\n"
+    "    day: Date\n"
+    "    order_key = unique(id)\n"
+    "shape Customer:\n"
+    "    id: Int\n"
+    "    name: Text\n"
+    "    region_id: Int | None\n"
+    "    customer_key = unique(id)\n"
+    "shape Region:\n"
+    "    id: Int\n"
+    "    label: Text\n"
+    "    region_key = unique(id)\n"
+    'source orders: Order = {dialect}.table("shop.orders")\n'
+    'source customers: Customer = {dialect}.table("shop.customers")\n'
+    'source regions: Region = {dialect}.table("shop.regions")\n'
+    "relationship order_customer(order: Order, customer: Customer):\n"
+    "    order.customer_id == customer.id\n"
+)
+LIMITED_ORDERS = (
+    "query top:\n"
+    "    from orders\n"
+    "    select:\n"
+    "        id\n"
+    "        customer_id\n"
+    "    order by:\n"
+    "        amount desc\n"
+    "    limit 2\n"
+)
+EMITTED_JOINS = {
+    "window": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        rn = row_number() window(partition by c.id order by orders.id)\n"
+            "        prev = lag(orders.amount) window(partition by c.id order by orders.id)\n"
+        ),
+        (
+            "SELECT\n"
+            "    `orders`.`id` AS `oid`,\n"
+            "    ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS `rn`,\n"
+            "    LAG(`orders`.`amount`) OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS `prev`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`"
+        ),
+        None,
+    ),
+    "named-window": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id\n"
+            "    let w = window(partition by c.id order by orders.id)\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        rn = row_number() window w\n"
+            "        rk = rank() window w\n"
+        ),
+        (
+            "SELECT\n"
+            "    `orders`.`id` AS `oid`,\n"
+            "    ROW_NUMBER() OVER `w` AS `rn`,\n"
+            "    RANK() OVER `w` AS `rk`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WINDOW\n"
+            "    `w` AS (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC)"
+        ),
+        None,
+    ),
+    "qualify-hidden-input": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "    qualify c.region_id is not None and row_number() window(partition by c.id order by orders.id) <= 2\n"
+            "    order by:\n"
+            "        oid asc\n"
+            "    limit 3\n"
+        ),
+        (
+            "SELECT\n"
+            "    `oid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `oid`,\n"
+            "    ROW_NUMBER() OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS `__pietto_qualify_0`,\n"
+            "    `c`.`region_id` AS `__pietto_qualify_1`,\n"
+            "    `orders`.`id` AS `__pietto_qualify_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            ") AS `__pietto_qualify`\n"
+            "WHERE\n"
+            "    (`__pietto_qualify_1` IS NOT NULL) AND (`__pietto_qualify_0` <= 2)\n"
+            "ORDER BY\n"
+            "    `__pietto_qualify_2` ASC\n"
+            "LIMIT 3"
+        ),
+        None,
+    ),
+    "aggregate-window": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    inner join c on orders.customer_id == c.id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        running = sum(orders.amount) window(partition by c.id order by orders.id)\n"
+            "        n = count() window(partition by c.id)\n"
+        ),
+        (
+            "SELECT\n"
+            "    `orders`.`id` AS `oid`,\n"
+            "    SUM(`orders`.`amount`) OVER (PARTITION BY `c`.`id` ORDER BY `orders`.`id` ASC) AS `running`,\n"
+            "    COUNT(*) OVER (PARTITION BY `c`.`id`) AS `n`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`"
+        ),
+        None,
+    ),
+    "date-trunc": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    left join c on orders.customer_id == c.id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            '        m = date_trunc("month", orders.day)\n'
+        ),
+        (
+            "SELECT\n"
+            "    `orders`.`id` AS `oid`,\n"
+            "    DATE_SUB(`orders`.`day`, INTERVAL (DAYOFMONTH(`orders`.`day`) - 1) DAY) AS `m`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    CAST(date_trunc(\'month\', CAST("orders"."day" AS timestamp)) AS date) AS "m"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'LEFT JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"'
+        ),
+    ),
+    "full-target-side-first": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on c.id == orders.customer_id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = c.id\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `cid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `c`.`id` = `orders`.`customer_id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `c`.`id` = `orders`.`customer_id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    "c"."id" AS "cid"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "c"."id" = "orders"."customer_id"'
+        ),
+    ),
+    "full-two-equalities": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on orders.customer_id == c.id and orders.amount == c.region_id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = c.id\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `cid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON (`orders`.`customer_id` = `c`.`id`) AND (`orders`.`amount` = `c`.`region_id`)\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON (`orders`.`customer_id` = `c`.`id`) AND (`orders`.`amount` = `c`.`region_id`)\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    "c"."id" AS "cid"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON ("orders"."customer_id" = "c"."id") AND ("orders"."amount" = "c"."region_id")'
+        ),
+    ),
+    "full-relationship": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on order_customer(orders, c)\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = c.id\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `cid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    "c"."id" AS "cid"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"'
+        ),
+    ),
+    "full-then-left": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    let r = regions\n"
+            "    left join r on r.id == c.region_id\n"
+            "    where orders.amount > 1\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        label = r.label\n"
+            "    order by:\n"
+            "        orders.id desc\n"
+            "    limit 5\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `r`.`label` AS `label`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`region_id` AS `__pietto_full_1`,\n"
+            "    `orders`.`amount` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`region_id` AS `__pietto_full_1`,\n"
+            "    `orders`.`amount` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`\n"
+            "LEFT JOIN `shop`.`regions` AS `r` ON `r`.`id` = `__pietto_full`.`__pietto_full_1`\n"
+            "WHERE `__pietto_full`.`__pietto_full_2` > 1\n"
+            "ORDER BY\n"
+            "    `__pietto_full`.`__pietto_full_0` DESC\n"
+            "LIMIT 5"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    "r"."label" AS "label"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"\n'
+            'LEFT JOIN "shop"."regions" AS "r" ON "r"."id" = "c"."region_id"\n'
+            'WHERE "orders"."amount" > 1\n'
+            "ORDER BY\n"
+            '    "orders"."id" DESC\n'
+            "LIMIT 5"
+        ),
+    ),
+    "full-then-right": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    let r = regions\n"
+            "    right join r on r.id == c.region_id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = c.id\n"
+            "        rid = r.id\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `cid`,\n"
+            "    `r`.`id` AS `rid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`,\n"
+            "    `c`.`region_id` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`,\n"
+            "    `c`.`region_id` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`\n"
+            "RIGHT JOIN `shop`.`regions` AS `r` ON `r`.`id` = `__pietto_full`.`__pietto_full_2`"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    "c"."id" AS "cid",\n'
+            '    "r"."id" AS "rid"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"\n'
+            'RIGHT JOIN "shop"."regions" AS "r" ON "r"."id" = "c"."region_id"'
+        ),
+    ),
+    "full-then-full": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    let r = regions\n"
+            "    full join r on r.id == c.region_id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = c.id\n"
+            "        rid = r.id\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `cid`,\n"
+            "    `__pietto_full`.`__pietto_full_2` AS `rid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `__pietto_full_0`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `__pietto_full_1`,\n"
+            "    `r`.`id` AS `__pietto_full_2`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`,\n"
+            "    `c`.`region_id` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`,\n"
+            "    `c`.`region_id` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`\n"
+            "LEFT JOIN `shop`.`regions` AS `r` ON `r`.`id` = `__pietto_full`.`__pietto_full_2`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `__pietto_full_0`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `__pietto_full_1`,\n"
+            "    `r`.`id` AS `__pietto_full_2`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`,\n"
+            "    `c`.`region_id` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`,\n"
+            "    `c`.`region_id` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`\n"
+            "RIGHT JOIN `shop`.`regions` AS `r` ON `r`.`id` = `__pietto_full`.`__pietto_full_2`\n"
+            "WHERE `__pietto_full`.`__pietto_full_2` IS NULL\n"
+            ") AS `__pietto_full`"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    "c"."id" AS "cid",\n'
+            '    "r"."id" AS "rid"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"\n'
+            'FULL JOIN "shop"."regions" AS "r" ON "r"."id" = "c"."region_id"'
+        ),
+    ),
+    "full-group-count": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    group by c.id\n"
+            "    select:\n"
+            "        cid = c.id\n"
+            "        n = count()\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `cid`,\n"
+            "    COUNT(*) AS `n`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `c`.`id` AS `__pietto_full_0`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `c`.`id` AS `__pietto_full_0`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`\n"
+            "GROUP BY\n"
+            "    `__pietto_full`.`__pietto_full_0`"
+        ),
+        (
+            "SELECT\n"
+            '    "c"."id" AS "cid",\n'
+            '    COUNT(*) AS "n"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"\n'
+            "GROUP BY\n"
+            '    "c"."id"'
+        ),
+    ),
+    "full-window": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        rn = row_number() window(order by c.id)\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    ROW_NUMBER() OVER (ORDER BY `__pietto_full`.`__pietto_full_1` ASC) AS `rn`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    ROW_NUMBER() OVER (ORDER BY "c"."id" ASC) AS "rn"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"'
+        ),
+    ),
+    "full-qualify": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = c.id\n"
+            "    qualify row_number() window(partition by c.id order by orders.id) == 1\n"
+        ),
+        (
+            "SELECT\n"
+            "    `oid`,\n"
+            "    `cid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `cid`,\n"
+            "    ROW_NUMBER() OVER (PARTITION BY `__pietto_full`.`__pietto_full_1` ORDER BY `__pietto_full`.`__pietto_full_0` ASC) AS `__pietto_qualify_0`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`\n"
+            ") AS `__pietto_qualify`\n"
+            "WHERE\n"
+            "    `__pietto_qualify_0` = 1"
+        ),
+        (
+            "SELECT\n"
+            '    "oid",\n'
+            '    "cid"\n'
+            "FROM (\n"
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    "c"."id" AS "cid",\n'
+            '    ROW_NUMBER() OVER (PARTITION BY "c"."id" ORDER BY "orders"."id" ASC) AS "__pietto_qualify_0"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"\n'
+            ') AS "__pietto_qualify"\n'
+            "WHERE\n"
+            '    "__pietto_qualify_0" = 1'
+        ),
+    ),
+    "full-over-limit-cte": (
+        LIMITED_ORDERS
+        + "query q:\n"
+        + (
+            "    from top\n"
+            "    let c = customers\n"
+            "    full join c on top.customer_id == c.id\n"
+            "    select:\n"
+            "        oid = top.id\n"
+            "        cid = c.id\n"
+        ),
+        (
+            "WITH `top` AS (\n"
+            "SELECT\n"
+            "    `id` AS `id`,\n"
+            "    `customer_id` AS `customer_id`\n"
+            "FROM `shop`.`orders`\n"
+            "ORDER BY\n"
+            "    `amount` DESC\n"
+            "LIMIT 2\n"
+            ")\n"
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `cid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `top`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `top` AS `top`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `top`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `top`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`\n"
+            "FROM `top` AS `top`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `top`.`customer_id` = `c`.`id`\n"
+            "WHERE `top`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`"
+        ),
+        (
+            'WITH "top" AS (\n'
+            "SELECT\n"
+            '    "id" AS "id",\n'
+            '    "customer_id" AS "customer_id"\n'
+            'FROM "shop"."orders"\n'
+            "ORDER BY\n"
+            '    "amount" DESC\n'
+            "LIMIT 2\n"
+            ")\n"
+            "SELECT\n"
+            '    "top"."id" AS "oid",\n'
+            '    "c"."id" AS "cid"\n'
+            'FROM "top" AS "top"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "top"."customer_id" = "c"."id"'
+        ),
+    ),
+    "full-tail-any": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    full join c on orders.customer_id == c.id\n"
+            "    where any(r.id == c.region_id for r in regions)\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = c.id\n"
+        ),
+        (
+            "SELECT\n"
+            "    `__pietto_full`.`__pietto_full_0` AS `oid`,\n"
+            "    `__pietto_full`.`__pietto_full_1` AS `cid`\n"
+            "FROM (\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`,\n"
+            "    `c`.`region_id` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "LEFT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "UNION ALL\n"
+            "SELECT\n"
+            "    `orders`.`id` AS `__pietto_full_0`,\n"
+            "    `c`.`id` AS `__pietto_full_1`,\n"
+            "    `c`.`region_id` AS `__pietto_full_2`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "WHERE `orders`.`customer_id` IS NULL\n"
+            ") AS `__pietto_full`\n"
+            "WHERE EXISTS (SELECT 1 FROM `shop`.`regions` AS `_pietto_value_1` WHERE `_pietto_value_1`.`id` = `__pietto_full`.`__pietto_full_2`)"
+        ),
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    "c"."id" AS "cid"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'FULL JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"\n'
+            'WHERE EXISTS (SELECT 1 FROM "shop"."regions" AS "_pietto_value_1" WHERE "_pietto_value_1"."id" = "c"."region_id")'
+        ),
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize("name", EMITTED_JOINS)
+def test_each_join_relation_emits_on_both_targets(name: str, dialect: str) -> None:
+    body, mysql_sql, postgres_sql = EMITTED_JOINS[name]
+    source = JOIN_PRELUDE.format(dialect=dialect) + "\n" + body
+    emitter = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
+    result = emitter(_compile_source(source))
+
+    assert result.diagnostics == ()
+    assert result.artifacts[-1].name == "q"
+    if dialect == "mysql":
+        assert result.artifacts[-1].sql == mysql_sql
+    else:
+        assert result.artifacts[-1].sql == (
+            mysql_sql.replace("`", '"') if postgres_sql is None else postgres_sql
+        )
 
 
 _GOLDEN_INVENTORY = runpy.run_path(str(REPO_ROOT / "scripts/check_goldens.py"))
@@ -1456,19 +2285,10 @@ def test_appending_a_join_keeps_every_existing_golden_artifact(
     )
     emitter = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
     before, after = emitter(original), emitter(appended)
-    if dialect == "postgres":
-        assert after.artifacts[:-1] == before.artifacts
-        assert after.artifacts[-1].name == name
-        assert "CROSS JOIN " in after.artifacts[-1].sql
-        assert after.diagnostics == before.diagnostics
-    else:
-        assert after.artifacts == before.artifacts
-        assert after.diagnostics[:-1] == before.diagnostics
-        assert after.diagnostics[-1].code == "PIE-B1000"
-        assert after.diagnostics[-1].message == (
-            f"MySQL SQL emission is not implemented for RelationIR: {name}. "
-            "MySQL JOIN emission is not available yet"
-        )
+    assert after.artifacts[:-1] == before.artifacts
+    assert after.artifacts[-1].name == name
+    assert "CROSS JOIN " in after.artifacts[-1].sql
+    assert after.diagnostics == before.diagnostics
 
 
 @pytest.mark.parametrize("command", ["check", "emit-sql"])

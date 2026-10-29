@@ -1000,6 +1000,57 @@ def test_postgres_exact_sql_bytes_for_all_identities(_case: int) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("frame", "expected"),
+    [
+        pytest.param(
+            "groups between unbounded preceding and current row",
+            "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+            id="groups-to-current-row",
+        ),
+        pytest.param(
+            "groups current row", "RANGE CURRENT ROW", id="groups-current-row"
+        ),
+        pytest.param(
+            "groups between current row and unbounded following",
+            "RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING",
+            id="groups-from-current-row",
+        ),
+        pytest.param(
+            "rows between 1 preceding and current row exclude no others",
+            "ROWS BETWEEN 1 PRECEDING AND CURRENT ROW",
+            id="rows-exclude-no-others",
+        ),
+        pytest.param(
+            "groups current row exclude no others",
+            "RANGE CURRENT ROW",
+            id="groups-exclude-no-others",
+        ),
+    ],
+)
+@pytest.mark.parametrize("named", [False, True])
+def test_mysql_renders_offset_free_groups_as_range_and_leaves_out_no_others(
+    frame: str, expected: str, named: bool
+) -> None:
+    """Offset-free GROUPS bounds are peer groups or partition ends, as RANGE
+    bounds are, and EXCLUDE NO OTHERS excludes nothing, as MySQL frames do."""
+
+    window = f"window(order by amount {frame})"
+    source = (
+        _source_connector("mysql")
+        + "query windows:\n    from rows\n"
+        + (f"    let w = {window}\n" if named else "")
+        + "    select:\n        id\n"
+        + f"        result = first_value(id) {'window w' if named else window}\n"
+    )
+    over = f"(ORDER BY `amount` ASC {expected})"
+    assert _sql_for(source, "mysql") == (
+        "SELECT\n    `id` AS `id`,\n"
+        f"    FIRST_VALUE(`id`) OVER {'`w`' if named else over} AS `result`\n"
+        "FROM `rows`" + (f"\nWINDOW\n    `w` AS {over}" if named else "")
+    )
+
+
 @pytest.mark.parametrize("_case", range(8))
 def test_mysql_exact_sql_bytes_for_all_identities(_case: int) -> None:
     identity = IDENTITIES[_case]

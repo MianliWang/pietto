@@ -82,9 +82,19 @@ def render_relation_sql(
     join_lines, conjuncts = (
         render_join_sql(
             relation,
+            # Every input name resolves before any is quoted.
             [
-                _relation_input_name(item.target, sources=sources, relations=relations)
-                for item in relation.inputs
+                _render_input(name, item.binding)
+                for item, name in zip(
+                    relation.inputs,
+                    [
+                        _relation_input_name(
+                            item.target, sources=sources, relations=relations
+                        )
+                        for item in relation.inputs
+                    ],
+                    strict=True,
+                )
             ],
         )
         if relation.joins

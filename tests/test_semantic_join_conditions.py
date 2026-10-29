@@ -566,27 +566,18 @@ def test_public_sql_condition_admission_and_no_partial_artifact(
         ["check", str(path), "--format", "json"],
         ["emit-sql", str(path), "--dialect", dialect, "--format", "json"],
     ):
-        mysql_join = valid and command[0] == "emit-sql" and dialect == "mysql"
-        succeeds = valid and not mysql_join
-        assert cli.main(command) == (0 if succeeds else 1)
+        assert cli.main(command) == (0 if valid else 1)
         captured = capsys.readouterr()
         assert not captured.err
         document = json.loads(captured.out)
-        assert document["ok"] is succeeds
-        if succeeds:
+        assert document["ok"] is valid
+        if valid:
             assert document["diagnostics"] == []
             if command[0] == "emit-sql":
                 assert document["artifacts"]
         else:
             assert not document.get("artifacts", [])
-            assert [d["code"] for d in document["diagnostics"]] == [
-                "PIE-B1000" if mysql_join else "PIE-S2202"
-            ]
-            if mysql_join:
-                assert (
-                    "MySQL JOIN emission is not available yet"
-                    in document["diagnostics"][0]["message"]
-                )
+            assert [d["code"] for d in document["diagnostics"]] == ["PIE-S2202"]
 
 
 def test_package_root_boundary_precedes_condition_analysis(tmp_path: Path) -> None:

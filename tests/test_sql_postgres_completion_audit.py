@@ -330,9 +330,16 @@ def test_sql_backend_has_no_forbidden_integration_or_runtime_features() -> None:
         "CREATE TABLE",
         "CREATE VIEW",
         "WINDOW ",
-        "UNION ",
     ):
         assert sql_keyword not in source
+    # Single-file set operations are refused at check (PIE-S2334); the one
+    # UNION ALL is MySQL's FULL JOIN emulation.
+    assert source.count("UNION") == source.count("UNION ALL")
+    assert [
+        path.as_posix()
+        for path in Path("src/pietto/sql").rglob("*.py")
+        if "UNION" in path.read_text(encoding="utf-8")
+    ] == ["src/pietto/sql/mysql_relations.py"]
 
 
 def test_sql_public_entry_point_type_contract_uses_script_ir() -> None:

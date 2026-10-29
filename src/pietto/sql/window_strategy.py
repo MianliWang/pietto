@@ -455,6 +455,10 @@ def _offset_bounds(call: WindowCallIR):
     )
 
 
+MYSQL_GROUPS_OFFSET_REFUSAL = "MySQL does not support GROUPS frames with an offset"
+MYSQL_EXCLUDE_REFUSAL = "MySQL does not support EXCLUDE CURRENT ROW, GROUP or TIES"
+
+
 def range_offset_refusal(target_name: str) -> str:
     """Why single-file SQL renders no RANGE frame with an offset, and the way out."""
 
@@ -477,8 +481,12 @@ def _frame_is_supported(
     target_name = "PostgreSQL" if dialect is WindowTargetDialect.POSTGRESQL else "MySQL"
     if frame.unit is WindowFrameUnitIR.RANGE and offsets:
         return False, range_offset_refusal(target_name)
-    if dialect is WindowTargetDialect.MYSQL and frame.unit is WindowFrameUnitIR.GROUPS:
-        return False, "MySQL does not support GROUPS frames"
+    if (
+        dialect is WindowTargetDialect.MYSQL
+        and frame.unit is WindowFrameUnitIR.GROUPS
+        and offsets
+    ):
+        return False, MYSQL_GROUPS_OFFSET_REFUSAL
     if any(
         type(bound.offset) is not LiteralIR
         or type(bound.offset.value) is not int
@@ -496,16 +504,13 @@ def _exclusion_is_supported(
     frame = call.spec.frame
     if frame is None or dialect is WindowTargetDialect.POSTGRESQL:
         return True, "effective exclusion is target-representable"
-    supported = (
-        frame.exclusion is WindowFrameExclusionIR.NO_OTHERS
-        and not frame.exclusion_is_explicit
-    )
+    supported = frame.exclusion is WindowFrameExclusionIR.NO_OTHERS
     return (
         supported,
         (
             "mysql fixed NO OTHERS behavior is exact"
             if supported
-            else "MySQL does not support authored EXCLUDE frames"
+            else MYSQL_EXCLUDE_REFUSAL
         ),
     )
 

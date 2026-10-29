@@ -409,14 +409,16 @@ def test_static_audit_no_temporal_runtime_or_metadata_surface_was_added() -> Non
         for forbidden in (
             "AT TIME ZONE",
             "DATE_TRUNC",
-            "TIMESTAMP(",
             "DATETIME",
-            "INTERVAL",
             "timezone",
             "native_database",
             "native_db",
         ):
             assert forbidden not in renderer_source
+    # MySQL's date_trunc builds a civil Timestamp with TIMESTAMP() and steps
+    # back to the first of the month with INTERVAL; neither reads a zone.
+    for forbidden in ("TIMESTAMP(", "INTERVAL"):
+        assert forbidden not in postgres
 
     assert "emit_mysql_sql" not in sql_api
     assert '"types"' not in cli_json

@@ -147,7 +147,7 @@ NEGATIVE_CASES = (
     (
         "mysql_groups",
         WindowTargetDialect.MYSQL,
-        _negative_source("mysql.table", "first_value(value)", "groups current row"),
+        _negative_source("mysql.table", "first_value(value)", "groups 1 preceding"),
     ),
     (
         "mysql_exclude",
@@ -155,7 +155,7 @@ NEGATIVE_CASES = (
         _negative_source(
             "mysql.table",
             "first_value(value)",
-            "rows current row exclude no others",
+            "rows current row exclude current row",
         ),
     ),
     (

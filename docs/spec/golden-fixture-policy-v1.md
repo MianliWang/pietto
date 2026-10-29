@@ -56,6 +56,7 @@ least one Pietto input and referenced by an owning test:
 | `emit_sql_active_user_emails.sql` | `examples/queries/active_user_emails.pietto` | `tests/test_cli_golden_outputs.py` |
 | PostgreSQL compatibility SQL | matching `tests/fixtures/postgres/compatibility_*.pietto` | `tests/test_cli_golden_outputs.py` and `tests/test_sql_mysql_golden_corpus.py` |
 | `emit_sql_join_mvp.sql` | `tests/fixtures/postgres/join_mvp.pietto` | `tests/test_sql_join_emission.py` |
+| `emit_mysql_join_mvp.sql` | `tests/fixtures/mysql/join_mvp.pietto` | `tests/test_sql_mysql_golden_corpus.py` and `tests/test_sql_join_emission.py` |
 | MySQL compatibility SQL | matching `tests/fixtures/mysql/*.pietto` | `tests/test_sql_mysql_golden_corpus.py` |
 | MySQL ordering metadata JSON | `tests/fixtures/mysql/compatibility_ordering_metadata.pietto` | `tests/test_cli_mysql_cli_enablement.py` |
 | Phase 12 PostgreSQL composition SQL | `tests/fixtures/phase12/postgres_order_limit_composition.pietto` | `tests/test_cli_composition_cli_json_goldens.py` |
@@ -63,7 +64,9 @@ least one Pietto input and referenced by an owning test:
 
 The JOIN fixture input and its complete expected SQL, including the grouped
 `order_stats` artifact, have explicit owner approval. Further changes require
-a new review of both the input and the complete expected SQL. Inventory
+a new review of both the input and the complete expected SQL. The MySQL JOIN
+fixture reads the same input through `mysql.table`; its expected SQL, including
+the UNION ALL that emulates `order_customer_pairs`, needs the same review. Inventory
 registration and successful byte comparisons alone do not constitute approval.
 
 The audit reports:

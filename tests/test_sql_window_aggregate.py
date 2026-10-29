@@ -25,16 +25,16 @@ from pietto.sql.postgres import emit_postgres_sql
 from pietto.sql.expressions import render_window_components_sql
 
 
-def test_postgres_emits_aggregate_window_and_mysql_refuses_the_relation():
+def test_postgres_emits_an_aggregate_window_with_its_explicit_frame():
     source = """shape Row:
     id: Int
-source rows: Row = {target}.table("rows")
+source rows: Row = postgres.table("rows")
 table totals:
     from rows
     select:
         running = sum(id) window(order by id rows between unbounded preceding and current row)
 """
-    postgres_parsed = parse_source(source.format(target="postgres"))
+    postgres_parsed = parse_source(source)
     assert postgres_parsed.ast is not None
     postgres_lowered = build_ir(postgres_parsed.ast, analyze(postgres_parsed.ast).model)
     assert postgres_lowered.ir is not None
@@ -43,13 +43,6 @@ table totals:
         'SUM("id") OVER (ORDER BY "id" ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS)'
         in postgres.artifacts[0].sql
     )
-    mysql_parsed = parse_source(source.format(target="mysql"))
-    assert mysql_parsed.ast is not None
-    mysql_lowered = build_ir(mysql_parsed.ast, analyze(mysql_parsed.ast).model)
-    assert mysql_lowered.ir is not None
-    mysql = emit_mysql_sql(mysql_lowered.ir)
-    assert not mysql.artifacts
-    assert tuple(item.code for item in mysql.diagnostics) == ("PIE-B1000",)
 
 
 def test_named_aggregate_window_preserves_its_inherited_specification():
@@ -112,33 +105,140 @@ table totals:
     assert "WINDOW" not in sql
 
 
-def test_mysql_refuses_each_aggregate_window_relation_without_losing_other_artifacts():
-    parsed = parse_source("""shape Row:
-    id: Int
-source rows: Row = mysql.table("rows")
-table before:
-    from rows
-    select:
-        id
-table blocked_first:
-    from rows
-    select:
-        total = sum(id) window()
-table blocked_second:
-    from rows
-    select:
-        count = count() window(order by id)
-table after:
-    from rows
-    select:
-        id
-""")
+_MYSQL_AGGREGATE_WINDOWS = (
+    "shape Row:\n"
+    "    id: Int\n"
+    "    account: Int\n"
+    "    score: Float | None\n"
+    "    note: Text | None\n"
+    'source rows: Row = mysql.table("rows")\n'
+    "table before:\n"
+    "    from rows\n"
+    "    select:\n"
+    "        id\n"
+    "table totals:\n"
+    "    from rows\n"
+    "    select:\n"
+    "        total = sum(id) window()\n"
+    "        running = sum(id) window(order by id rows between unbounded preceding and current row)\n"
+    "table counts:\n"
+    "    from rows\n"
+    "    select:\n"
+    "        all_rows = count() window(order by id)\n"
+    "        notes = count(note) window(partition by account)\n"
+    "table moving:\n"
+    "    from rows\n"
+    "    select:\n"
+    "        id\n"
+    "        mean = avg(id) window(order by id rows between 1 preceding and current row)\n"
+    "        float_mean = avg(score) window(order by id rows between 1 preceding and 1 following)\n"
+    "        float_sum = sum(score) window(order by id rows between 1 preceding and 1 following)\n"
+    "        lo = min(score) window(partition by account order by id)\n"
+    "        hi = max(id) window(partition by account order by id groups between unbounded preceding and current row)\n"
+    "table named:\n"
+    "    from rows\n"
+    "    let recent = window(partition by account order by id)\n"
+    "    select:\n"
+    "        running = sum(id) window recent\n"
+    "        n = count() window recent\n"
+    "table grouped:\n"
+    "    from rows\n"
+    "    group by account\n"
+    "    select:\n"
+    "        account\n"
+    "        n = count()\n"
+    "        running = sum(account) window(order by account)\n"
+    "table qualified:\n"
+    "    from rows\n"
+    "    select:\n"
+    "        id\n"
+    "    qualify:\n"
+    "        count() window(partition by account) > 1"
+)
+
+
+def test_mysql_emits_each_aggregate_window_as_postgresql_does():
+    parsed = parse_source(_MYSQL_AGGREGATE_WINDOWS + "\n")
     assert parsed.ast is not None
     lowered = build_ir(parsed.ast, analyze(parsed.ast).model)
     assert lowered.ir is not None
     result = emit_mysql_sql(lowered.ir)
-    assert [artifact.name for artifact in result.artifacts] == ["before", "after"]
-    assert tuple(item.code for item in result.diagnostics) == ("PIE-B1000", "PIE-B1000")
+    assert result.diagnostics == ()
+    assert [(artifact.name, artifact.sql) for artifact in result.artifacts] == [
+        (
+            "before",
+            ("SELECT\n    `id` AS `id`\nFROM `rows`"),
+        ),
+        (
+            "totals",
+            (
+                "SELECT\n"
+                "    SUM(`id`) OVER () AS `total`,\n"
+                "    SUM(`id`) OVER (ORDER BY `id` ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS `running`\n"
+                "FROM `rows`"
+            ),
+        ),
+        (
+            "counts",
+            (
+                "SELECT\n"
+                "    COUNT(*) OVER (ORDER BY `id` ASC) AS `all_rows`,\n"
+                "    COUNT(`note`) OVER (PARTITION BY `account`) AS `notes`\n"
+                "FROM `rows`"
+            ),
+        ),
+        (
+            "moving",
+            (
+                "SELECT\n"
+                "    `id` AS `id`,\n"
+                "    AVG(CAST(`id` AS DOUBLE)) OVER (ORDER BY `id` ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS `mean`,\n"
+                "    AVG(`score`) OVER (ORDER BY `id` ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) AS `float_mean`,\n"
+                "    SUM(`score`) OVER (ORDER BY `id` ASC ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING) AS `float_sum`,\n"
+                "    MIN(`score`) OVER (PARTITION BY `account` ORDER BY `id` ASC) AS `lo`,\n"
+                "    MAX(`id`) OVER (PARTITION BY `account` ORDER BY `id` ASC RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS `hi`\n"
+                "FROM `rows`"
+            ),
+        ),
+        (
+            "named",
+            (
+                "SELECT\n"
+                "    SUM(`id`) OVER `recent` AS `running`,\n"
+                "    COUNT(*) OVER `recent` AS `n`\n"
+                "FROM `rows`\n"
+                "WINDOW\n"
+                "    `recent` AS (PARTITION BY `account` ORDER BY `id` ASC)"
+            ),
+        ),
+        (
+            "grouped",
+            (
+                "SELECT\n"
+                "    `account` AS `account`,\n"
+                "    COUNT(*) AS `n`,\n"
+                "    SUM(`account`) OVER (ORDER BY `account` ASC) AS `running`\n"
+                "FROM `rows`\n"
+                "GROUP BY\n"
+                "    `account`"
+            ),
+        ),
+        (
+            "qualified",
+            (
+                "SELECT\n"
+                "    `id`\n"
+                "FROM (\n"
+                "SELECT\n"
+                "    `id` AS `id`,\n"
+                "    COUNT(*) OVER (PARTITION BY `account`) AS `__pietto_qualify_0`\n"
+                "FROM `rows`\n"
+                ") AS `__pietto_qualify`\n"
+                "WHERE\n"
+                "    `__pietto_qualify_0` > 1"
+            ),
+        ),
+    ]
 
 
 def test_postgres_carries_aggregate_windows_through_qualify_and_grouped_order_aliases():

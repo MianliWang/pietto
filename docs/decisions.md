@@ -342,6 +342,12 @@ PostgreSQL 使用现有单一 SELECT 尾部。SEMI/ANTI 变为 EXISTS/NOT EXISTS
 
 暂不开放 JOIN 上的窗口、多步 VIA、未知字段集合输入、通过 table/query 的关系匹配、非分组聚合后的 ORDER BY、MySQL JOIN 发射与 JOIN EXPLAIN v2。QUALIFY、DISTINCT、集合、关系 let、LATERAL capture、VALUES、表函数及头参数保持各自既有边界。LEGACY_FLAT、PACKAGE_ROOT、EXPLICIT_MODULES、无 JOIN 输出与显式执行/resource 契约不因本次实现放宽；共享内核提取和项目行为变更需要后续独立授权。
 
+## Single-file MySQL parity — owner decision (2026-10-27)
+
+所有者 2026-10-27 要求「让mysql和psql先在单文件join等方面齐平」，即 MySQL 先在单文件 JOIN 及同类单文件家族上达到与 PostgreSQL 相同的能力。实施只采用 MySQL 8.4 下与 PostgreSQL 写法意思相同的形态：在各目标自己的比较规则下，匹配、重复行与外连接的 NULL 扩展相同；NULL 在排序中的位置、Text 按列排序规则的比较以及聚合结果的类型与小数位，同既有 MySQL 发射一样按 MySQL 的规则（Phase66 R19 的 NULL 位置由目标决定）。没有这样写法的形态继续以 PIE-B1000 拒绝。据此，单文件 MySQL 发射 INNER/LEFT/RIGHT/CROSS JOIN、SEMI/ANTI 过滤、JOIN 上的窗口、QUALIFY 与聚合、聚合窗口、无 offset 的 GROUPS 帧（写成相同的 RANGE 帧）、显式 EXCLUDE NO OTHERS（省略）、`round(Float)` 与 `date_trunc`。
+
+FULL JOIN 只在 PostgreSQL 的 FULL 域内（两侧 Int 字段相等的 AND 条件，且没有待处理的 `any` 过滤）以派生表模拟：LEFT JOIN，UNION ALL 首个前侧键为 NULL 的 RIGHT JOIN 行；之后读取的字段须是 `Any` 以外的内建类型；派生表名 `__pietto_full` 与其他生成名一样，跳过语句中忽略大小写后与它相同的别名（依次改用 `__pietto_full2`、`__pietto_full3` 等）。这在单文件范围内取代 Phase66 R10「MySQL FULL 总是否定、无 UNION 替代」；项目 MySQL 的 FULL 仍是 `mysql_full_join_approved_non_support`（PIE-B1003），目标一致性用例不变。带 offset 的 GROUPS 帧本轮仍按 Phase66 R15 拒绝（DENSE_RANK 两段模拟另行实施），EXCLUDE CURRENT ROW/GROUP/TIES、`string_agg`、`matches`、IGNORE NULLS、FROM LAST 与 RANGE offset 维持拒绝。MySQL 可能不分大小写比较表别名，所以仅大小写不同的两个输入或 `any` 别名被拒绝。
+
 ## Phase71 Phase Start — owner decisions (2026-10-25)
 
 所有者 2026-10-25 以「然后这几项批准都全部按照你的推荐来上限 C200/F180/D250/S12，封存前 PG 原生检查允许本机 Docker」答复 Phase71 开局的 P 组详解：P1–P6 与所有者计划 v2 第 12 节的决定 1–3 都按推荐采纳；修复上限由所有者改为 causal 200 / focused 180 / diagnostic 250 / scope 12（推荐值为 185 / 165 / 235 / 9）；封存前的 PostgreSQL 原生检查开出本机 Docker 例外。

@@ -702,14 +702,14 @@ def test_target_failure_keeps_project_lineage_and_semantic_provenance(
             "mysql.table",
             WindowTargetDialect.MYSQL,
             "first_value(value)",
-            "groups current row",
+            "groups 1 preceding",
             WindowTargetEvidenceKind.FRAME_SHAPE,
         ),
         (
             "mysql.table",
             WindowTargetDialect.MYSQL,
             "first_value(value)",
-            "rows current row exclude no others",
+            "rows current row exclude current row",
             WindowTargetEvidenceKind.EXCLUSION,
         ),
         (

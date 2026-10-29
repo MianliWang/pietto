@@ -115,16 +115,17 @@ def emission_warnings(
                 info, relationship_calls, type_expansions, expression_value_types
             )
         )
+    mysql = _mysql_readers(script, from_resolutions)
     found.extend(
         _all_null_relation_reads(
             script,
             relation_joins,
             let_scopes,
             from_resolutions,
+            mysql,
             reported,
         )
     )
-    mysql = _mysql_readers(script, from_resolutions)
     found.extend(
         _expression_warnings(
             script,
@@ -730,15 +731,21 @@ def _all_null_relation_reads(
     relation_joins: Mapping[TableDef | QueryDef, RelationJoinsInfo],
     let_scopes: Mapping[TableDef | QueryDef, LetScopeSemanticInfo],
     from_resolutions: Mapping[FromClause, object],
+    mysql: set[int],
     reported: Sequence[Diagnostic],
 ) -> list[Diagnostic]:
-    """Warn when an untyped all-NULL output has any downstream relation reader."""
+    """Warn when an untyped all-NULL output has any downstream relation reader.
+
+    PostgreSQL emission refuses such a read; MySQL emission refuses it only
+    after a FULL JOIN, which this does not see, so a relation that reads a
+    MySQL table is left to that target.
+    """
 
     errors = [item.location for item in reported if item.severity is Severity.ERROR]
     outputs = tuple(
         (definition, name, item.expression)
         for definition in script.definitions
-        if isinstance(definition, (TableDef, QueryDef))
+        if isinstance(definition, (TableDef, QueryDef)) and id(definition) not in mysql
         for item in definition.select_items
         if (name := _relation_projection_output_name(item)) is not None
         and _untyped_all_null_output(
