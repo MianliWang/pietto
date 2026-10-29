@@ -50,8 +50,8 @@ EXTRAS = {
     "execute-mysql": ["pyarrow==26.0.0", "mysql-connector-python==26.10.0"],
     "execute-postgres-adbc": [
         "pyarrow==26.0.0",
-        "adbc-driver-postgresql==1.12.0",
-        "adbc-driver-manager==1.12.0",
+        "adbc-driver-postgresql==1.13.0",
+        "adbc-driver-manager==1.13.0",
     ],
 }
 ROUTES = ("execute-postgres", "execute-mysql", "execute-postgres-adbc")
@@ -65,9 +65,8 @@ POSTGRES = ARROW | {
 }
 MYSQL = ARROW | {"mysql-connector-python==26.10.0"}
 ADBC = ARROW | {
-    "adbc-driver-manager==1.12.0",
-    "adbc-driver-postgresql==1.12.0",
-    "importlib-resources==7.1.0",
+    "adbc-driver-manager==1.13.0",
+    "adbc-driver-postgresql==1.13.0",
     "typing-extensions==4.16.0",
 }
 CLOSURES = {
@@ -122,7 +121,6 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
             "adbc-driver-manager",
             "adbc-driver-postgresql",
             "antlr4-python3-runtime",
-            "importlib-resources",
             "mysql-connector-python",
             "psycopg",
             "psycopg-binary",
@@ -131,10 +129,9 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
             "typing-extensions",
         )
     } == {
-        "adbc-driver-manager": "1.12.0",
-        "adbc-driver-postgresql": "1.12.0",
+        "adbc-driver-manager": "1.13.0",
+        "adbc-driver-postgresql": "1.13.0",
         "antlr4-python3-runtime": "4.13.2",
-        "importlib-resources": "7.1.0",
         "mysql-connector-python": "26.10.0",
         "psycopg": "3.3.5",
         "psycopg-binary": "3.3.5",
@@ -148,7 +145,7 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
     }
     assert edges == {
         "adbc-driver-manager": ["typing-extensions"],
-        "adbc-driver-postgresql": ["adbc-driver-manager", "importlib-resources"],
+        "adbc-driver-postgresql": ["adbc-driver-manager"],
     }
     # The tested ADBC Linux wheels keep their recorded S01 URL/hash provenance.
     premise = (REPO_ROOT / "ci/phase68-executor-premise-requirements.txt").read_text()
@@ -245,12 +242,12 @@ ROUTE_DAMAGE = {
         b"Requires-Dist: pyarrow==26.0.0\n",
     ): REQUIREMENTS_DIFFER,
     (
+        b"Requires-Dist: adbc-driver-manager==1.13.0;",
         b"Requires-Dist: adbc-driver-manager==1.12.0;",
-        b"Requires-Dist: adbc-driver-manager==1.11.0;",
     ): REQUIREMENTS_DIFFER,
     (
-        b"adbc-driver-postgresql==1.12.0; extra == 'execute-postgres-adbc'",
-        b"adbc-driver-postgresql==1.12.0; extra == 'execute-postgres'",
+        b"adbc-driver-postgresql==1.13.0; extra == 'execute-postgres-adbc'",
+        b"adbc-driver-postgresql==1.13.0; extra == 'execute-postgres'",
     ): REQUIREMENTS_DIFFER,
     (b"Provides-Extra: execute-postgres-adbc\n", b""): EXTRAS_DIFFER,
     (

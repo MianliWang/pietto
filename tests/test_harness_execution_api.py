@@ -1407,8 +1407,8 @@ def postgres_adbc_native_report():
                 "qualification": ["postgres_adbc"] * 5,
                 "driver": {
                     "prefix": "/prefix",
-                    "postgresql_version": "1.12.0",
-                    "manager_version": "1.12.0",
+                    "postgresql_version": "1.13.0",
+                    "manager_version": "1.13.0",
                     "module": "/prefix/lib/python3.13/site-packages/adbc_driver_postgresql/__init__.py",
                     "manager_module": "/prefix/lib/python3.13/site-packages/adbc_driver_manager/__init__.py",
                     "library": "/prefix/lib/python3.13/site-packages/adbc_driver_postgresql/libadbc_driver_postgresql.so",

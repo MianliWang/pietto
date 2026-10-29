@@ -871,7 +871,7 @@ def check_postgres_adbc_native(report: Any) -> Any:
     )
     driver = native.get("driver") or {}
     need(
-        driver.get("postgresql_version") == driver.get("manager_version") == "1.12.0"
+        driver.get("postgresql_version") == driver.get("manager_version") == "1.13.0"
         and all(
             driver.get(name) is True
             for name in (

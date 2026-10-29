@@ -539,8 +539,8 @@ def verify(report):
         "psycopg-binary": "3.3.5",
         "mysql-connector-python": "26.10.0",
         "pyarrow": "26.0.0",
-        "adbc-driver-manager": "1.12.0",
-        "adbc-driver-postgresql": "1.12.0",
+        "adbc-driver-manager": "1.13.0",
+        "adbc-driver-postgresql": "1.13.0",
     }.items():
         require(meta["runtime"]["versions"][name] == version, "pinned runtime")
     for route in ROUTES:

@@ -21,10 +21,10 @@ __all__: tuple[str, ...] = ()
 # own stream reader keeps a server error raised while a result is read as the
 # driver's error with its SQLSTATE; PyArrow's reader alone reports an Arrow error.
 DRIVERS = (
-    ("adbc-driver-postgresql", "1.12.0", "adbc_driver_postgresql"),
-    ("adbc-driver-manager", "1.12.0", "adbc_driver_manager"),
+    ("adbc-driver-postgresql", "1.13.0", "adbc_driver_postgresql"),
+    ("adbc-driver-manager", "1.13.0", "adbc_driver_manager"),
     ("pyarrow", "26.0.0", "pyarrow"),
-    ("adbc-driver-manager", "1.12.0", "adbc_driver_manager._reader"),
+    ("adbc-driver-manager", "1.13.0", "adbc_driver_manager._reader"),
 )
 CONTEXT_SQL = "SELECT current_setting('server_version_num')::integer,current_database()::text,current_user::text,session_user::text,(SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname=current_user),(SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=current_database()),pg_backend_pid(),pg_current_xact_id()::text,current_setting('transaction_isolation'),current_setting('transaction_read_only'),current_setting('client_encoding'),current_setting('search_path'),current_setting('TimeZone'),current_setting('standard_conforming_strings'),inet_server_addr()::text,inet_server_port(),pg_postmaster_start_time()::text"
 # Generated refinement pages run with JIT off for the rest of their transaction.

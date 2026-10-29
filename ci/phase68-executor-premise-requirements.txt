@@ -3,8 +3,7 @@
 psycopg[binary]==3.3.5
 mysql-connector-python==26.10.0
 pyarrow==26.0.0
-adbc-driver-postgresql @ https://files.pythonhosted.org/packages/00/bb/ee19e7d56824c05892f82a3a2abca94fd2345b7de3dc22baac9e65a46acc/adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl#sha256=2c2dc9c29db07ba3e0caf293c57a7ab1259dd772d3725ff1f1aeedb7a1895dd4
-adbc-driver-manager @ https://files.pythonhosted.org/packages/00/c6/a35e38ef5e0db391be79e0e14c019ce378b87d9d7e31d1dfcd451e9d291f/adbc_driver_manager-1.12.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=532ab290b3d923ce0a75bca21dc6e13f55835625f78808e1664755939f3ebdf6
-importlib-resources==7.1.0
+adbc-driver-postgresql @ https://files.pythonhosted.org/packages/37/6b/dd22c016305e84b8b9959784e77bbd20c454bd82463dc8de5a839abde206/adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl#sha256=a86819ba7c79b1d067c4a5344358b4d346bab58e888d7879ed2b25d97cc59ba1
+adbc-driver-manager @ https://files.pythonhosted.org/packages/9f/4f/e9098132e7892ba95582ab62880730ed3070a6d0218a04b56ef54a5211ae/adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl#sha256=b81819bd35fb47b59757ab075041e326ec278ddaec33f75b6baadf11be1bc066
 typing-extensions==4.16.0
 antlr4-python3-runtime==4.13.2

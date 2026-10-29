@@ -333,8 +333,9 @@ class ArrowInvalid(ValueError):
     """PyArrow's error for a failed stream read: it carries no SQLSTATE."""
 
 
-class ProgrammingError(Exception):
-    """The driver manager's error for a server error: it carries the SQLSTATE."""
+class OperationalError(Exception):
+    """The pinned driver's error for a multi-row scalar read: it carries the
+    SQLSTATE."""
 
     def __init__(self, sqlstate):
         super().__init__("[libpq] more than one row returned by a subquery")
@@ -343,7 +344,7 @@ class ProgrammingError(Exception):
 
 @pytest.mark.parametrize(
     ("error", "sqlstate"),
-    ((ProgrammingError("21000"), "21000"), (ArrowInvalid("stream failed"), None)),
+    ((OperationalError("21000"), "21000"), (ArrowInvalid("stream failed"), None)),
     ids=("server_error", "arrow_error"),
 )
 def test_adbc_error_raised_while_the_result_stream_is_read_keeps_its_sqlstate(

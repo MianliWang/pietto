@@ -37,9 +37,8 @@ POSTGRES = {**ARROW, "psycopg": "3.3.5", "psycopg-binary": "3.3.5"}
 MYSQL = {**ARROW, "mysql-connector-python": "26.10.0"}
 ADBC = {
     **ARROW,
-    "adbc-driver-postgresql": "1.12.0",
-    "adbc-driver-manager": "1.12.0",
-    "importlib-resources": "7.1.0",
+    "adbc-driver-postgresql": "1.13.0",
+    "adbc-driver-manager": "1.13.0",
     "typing-extensions": "4.16.0",
 }
 # Installed closure of each selection on CPython 3.13 Linux x86-64.
@@ -69,8 +68,8 @@ REQUIRES = frozenset(
         ("pyarrow", (), "==26.0.0", "execute-mysql"),
         ("mysql-connector-python", (), "==26.10.0", "execute-mysql"),
         ("pyarrow", (), "==26.0.0", "execute-postgres-adbc"),
-        ("adbc-driver-postgresql", (), "==1.12.0", "execute-postgres-adbc"),
-        ("adbc-driver-manager", (), "==1.12.0", "execute-postgres-adbc"),
+        ("adbc-driver-postgresql", (), "==1.13.0", "execute-postgres-adbc"),
+        ("adbc-driver-manager", (), "==1.13.0", "execute-postgres-adbc"),
     }
 )
 PROVIDES = ("arrow", "execute-postgres", "execute-mysql", "execute-postgres-adbc")

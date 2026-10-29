@@ -101,7 +101,7 @@ def check_native_column(
         "pg_numeric": "extension<arrow.opaque[storage_type=string, type_name=numeric, vendor_name=PostgreSQL]>",
         "pg_date": "date32[day]",
         "pg_timestamp": "timestamp[us]",
-        "pg_uuid": "extension<arrow.opaque[storage_type=binary, type_name=uuid, vendor_name=PostgreSQL]>",
+        "pg_uuid": "extension<arrow.uuid>",
     }
     storage = real.storage["kind"]
     if route == "postgres_rows":
@@ -220,16 +220,14 @@ def check_native_column(
             or meta["type"] != arrow_types.get(storage)
         ):
             raise ResultError("EXECUTION_METADATA")
-        if real.tag in ("Decimal", "UUID"):
-            typename = {"Decimal": "numeric", "UUID": "uuid"}[real.tag]
+        if real.tag in ("Decimal", "UUID", "Date"):
+            # The pinned driver names each column's type as POSTGRESQL:type;
+            # only an opaque column (numeric) also has ADBC:postgresql:typname.
+            typename = {"Decimal": "numeric", "UUID": "uuid", "Date": "date"}[real.tag]
             if (
-                meta["metadata"].get(b"ADBC:postgresql:typname".hex())
+                meta["metadata"].get(b"POSTGRESQL:type".hex())
                 != typename.encode().hex()
             ):
-                raise ResultError("EXECUTION_METADATA")
-        elif real.tag == "Date":
-            typename = meta["metadata"].get(b"ADBC:postgresql:typname".hex())
-            if typename is not None and typename != b"date".hex():
                 raise ResultError("EXECUTION_METADATA")
         nullable = meta["nullable"]
     if route == "postgres_rows" and real.tag == "Decimal":
@@ -357,7 +355,6 @@ def decode_native_rows(output, route, metadata, rows):
     """Closed lossless transport conversions, never inferred from result labels."""
     from decimal import Decimal, InvalidOperation
     import re
-    from uuid import UUID
 
     producer = bind_native_output(output, route, metadata)
     result = []
@@ -379,10 +376,6 @@ def decode_native_rows(output, route, metadata, rows):
                         value = Decimal(value)
                     except InvalidOperation as exc:
                         raise ResultError("EXECUTION_CARRIER") from exc
-                elif route == "postgres_adbc" and kind == "UUID":
-                    if type(value) is not bytes or len(value) != 16:
-                        raise ResultError("EXECUTION_CARRIER")
-                    value = UUID(bytes=value)
                 elif route == "mysql_rows" and kind == "Text" and type(value) is bytes:
                     try:
                         value = value.decode("utf-8", errors="strict")

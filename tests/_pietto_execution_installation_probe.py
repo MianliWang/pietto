@@ -57,9 +57,8 @@ WHEELHOUSE = {
     "psycopg": "psycopg-3.3.5-py3-none-any.whl",
     "psycopg-binary": "psycopg_binary-3.3.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
     "mysql-connector-python": "mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl",
-    "adbc-driver-manager": "adbc_driver_manager-1.12.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
-    "adbc-driver-postgresql": "adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
-    "importlib-resources": "importlib_resources-7.1.0-py3-none-any.whl",
+    "adbc-driver-manager": "adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
+    "adbc-driver-postgresql": "adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
     "typing-extensions": "typing_extensions-4.16.0-py3-none-any.whl",
 }
 TRACKED = (

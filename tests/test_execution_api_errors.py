@@ -403,8 +403,8 @@ def test_a_multi_row_scalar_read_is_the_server_error_with_sqlstate_21000():
     from pietto._project import project_execution_mysql_native as mysql_native
     from pietto._project import project_execution_postgres_adbc_native as adbc
 
-    class AdbcProgrammingError(Exception):
-        """The ADBC driver manager's error shape: a message and a sqlstate."""
+    class AdbcOperationalError(Exception):
+        """The pinned ADBC driver's error for 21000: a message and a sqlstate."""
 
         def __init__(self, message, sqlstate):
             super().__init__(message)
@@ -416,7 +416,7 @@ def test_a_multi_row_scalar_read_is_the_server_error_with_sqlstate_21000():
     mysql = mysql_errors.get_mysql_exception(
         1242, "Subquery returns more than 1 row", "21000"
     )
-    adbc_error = AdbcProgrammingError("[libpq] more than one row", "21000")
+    adbc_error = AdbcOperationalError("[libpq] more than one row", "21000")
     for error in (postgres, mysql, adbc_error):
         refusal = errors.attempt_failure(
             error, phase="read", deadline=False, connected=True

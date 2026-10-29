@@ -1089,7 +1089,7 @@ singular, product code imports neither changed transitive dependency, and lesson
 execution, and no current test repeats that drift check.
 Package, generated and golden auxiliaries are not required locally while the sdist/wheel inputs (`pyproject.toml` and
 everything it packages: `README.md`, its `license-files`, `src/**`) and generator inputs are unchanged; natural CI still runs every hosted consumer on the exact
-publication. The S19 native-qualified profile (importlib-resources 6.5.2, typing-extensions 4.15.0) and the current
+publication. The S19 native-qualified profile (importlib-resources 6.5.2, typing-extensions 4.15.0) and the S20
 locked profile (7.1.0, 4.16.0) stay separate, and a real PostgreSQL ADBC query under the updated pair is NOT_OBSERVED.
 
 

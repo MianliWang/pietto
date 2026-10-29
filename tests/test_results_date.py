@@ -108,7 +108,7 @@ def test_derived_date_result_uses_exact_carrier_and_lazy_date32(tmp_path, target
                     "ordinal": 0,
                     "name": "event_date",
                     "type": "date32[day]",
-                    "metadata": {b"ADBC:postgresql:typname".hex(): b"date".hex()},
+                    "metadata": {b"POSTGRESQL:type".hex(): b"date".hex()},
                     "nullable": True,
                 },
                 label="event_date",
@@ -117,38 +117,27 @@ def test_derived_date_result_uses_exact_carrier_and_lazy_date32(tmp_path, target
             )
             is True
         )
-        assert (
-            check_native_column(
-                real,
-                "postgres_adbc",
-                {
-                    "ordinal": 0,
-                    "name": "event_date",
-                    "type": "date32[day]",
-                    "metadata": {},
-                    "nullable": True,
-                },
-                label="event_date",
-                ordinal=0,
-                source_field=output.columns[0].source_field,
-            )
-            is True
-        )
-        with pytest.raises(contract.ResultError, match="EXECUTION_METADATA"):
-            check_native_column(
-                real,
-                "postgres_adbc",
-                {
-                    "ordinal": 0,
-                    "name": "event_date",
-                    "type": "date32[day]",
-                    "metadata": {b"ADBC:postgresql:typname".hex(): b"timestamp".hex()},
-                    "nullable": True,
-                },
-                label="event_date",
-                ordinal=0,
-                source_field=output.columns[0].source_field,
-            )
+        # The pinned driver names a date column's type only as POSTGRESQL:type.
+        for metadata in (
+            {},
+            {b"POSTGRESQL:type".hex(): b"timestamp".hex()},
+            {b"ADBC:postgresql:typname".hex(): b"date".hex()},
+        ):
+            with pytest.raises(contract.ResultError, match="EXECUTION_METADATA"):
+                check_native_column(
+                    real,
+                    "postgres_adbc",
+                    {
+                        "ordinal": 0,
+                        "name": "event_date",
+                        "type": "date32[day]",
+                        "metadata": metadata,
+                        "nullable": True,
+                    },
+                    label="event_date",
+                    ordinal=0,
+                    source_field=output.columns[0].source_field,
+                )
     else:
         assert (
             check_native_column(

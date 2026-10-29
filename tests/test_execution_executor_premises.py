@@ -373,6 +373,16 @@ def test_source_oracle_keeps_duplicates_null_and_float_bits():
         {"actual": changed}, "carriers_populated", "postgres_rows"
     )
     assert p.scalar(-0.0) != p.scalar(0.0)
+    from uuid import UUID
+
+    identifier = "00112233445566778899aabbccddeeff"
+    # psycopg and the pinned ADBC driver read uuid as UUID; MySQL reads bytes.
+    for route, native in (
+        ("postgres_rows", UUID(hex=identifier)),
+        ("postgres_adbc", UUID(hex=identifier)),
+        ("mysql_rows", bytes.fromhex(identifier)),
+    ):
+        assert c.expected_rows("carriers_populated", route)[0][6] == p.scalar(native)
 
 
 # These exercise the exact pump used by run_child, with owned real OS pipes.

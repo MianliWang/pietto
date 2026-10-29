@@ -484,7 +484,7 @@ def check_transport(record, route, sql, args):
         for value in row:
             if route == "mysql_rows" and value["kind"] == "bool":
                 value = dict(kind="int", value="1" if value["value"] else "0")
-            elif value["kind"] == "uuid":
+            elif route == "mysql_rows" and value["kind"] == "uuid":
                 value = dict(kind="bytes", value=value["value"])
             elif route == "postgres_adbc" and value["kind"] == "decimal":
                 coefficient = value["coefficient"]
@@ -676,8 +676,8 @@ def check_seven_record(record, precision, state, route):
             expected_types = (
                 "timestamp[us]",
                 "timestamp[us]",
-                "extension<arrow.opaque[storage_type=binary, type_name=uuid, vendor_name=PostgreSQL]>",
-                "extension<arrow.opaque[storage_type=binary, type_name=uuid, vendor_name=PostgreSQL]>",
+                "extension<arrow.uuid>",
+                "extension<arrow.uuid>",
                 "int32",
                 "bool",
                 "double",
@@ -698,7 +698,7 @@ def check_seven_record(record, precision, state, route):
                     raise ValueError("seven native metadata")
                 if (
                     i in (2, 3, 8)
-                    and meta["metadata"].get(b"ADBC:postgresql:typname".hex())
+                    and meta["metadata"].get(b"POSTGRESQL:type".hex())
                     != (b"numeric" if i == 8 else b"uuid").hex()
                 ):
                     raise ValueError("seven opaque metadata")

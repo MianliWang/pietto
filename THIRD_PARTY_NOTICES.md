@@ -32,8 +32,8 @@ Dependencies are installed from their own distributions and are not bundled:
   (LGPL-3.0-only); `mysql-connector-python` (GPLv2 with additional permissions,
   including the Universal FOSS Exception 1.0, per its license file);
   `adbc-driver-postgresql` and `adbc-driver-manager` (Apache-2.0). The extras
-  also install `importlib-resources` (Apache-2.0) and `typing-extensions`
-  (PSF-2.0), and on Windows `tzdata` (see its own metadata).
+  also install `typing-extensions` (PSF-2.0), and on Windows `tzdata` (see its
+  own metadata).
 - In the CPython 3.13 manylinux x86-64 wheels that were inspected, several of
   these dependencies bundle or statically link further native libraries. The
   license files of `pyarrow`, `mysql-connector-python` and

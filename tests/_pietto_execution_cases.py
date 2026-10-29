@@ -38,9 +38,8 @@ PINS = {
     "psycopg-binary": "3.3.5",
     "mysql-connector-python": "26.10.0",
     "pyarrow": "26.0.0",
-    "adbc-driver-manager": "1.12.0",
-    "adbc-driver-postgresql": "1.12.0",
-    "importlib-resources": "7.1.0",
+    "adbc-driver-manager": "1.13.0",
+    "adbc-driver-postgresql": "1.13.0",
     "typing-extensions": "4.16.0",
     "antlr4-python3-runtime": "4.13.2",
 }
@@ -128,7 +127,7 @@ def expected_rows(case, route):
             else {"kind": "decimal", "coefficient": "1230", "scale": 2},
             {"kind": "datetime", "value": "2001-02-03T04:05:06.123456"},
             {
-                "kind": "uuid" if route == "postgres_rows" else "bytes",
+                "kind": "bytes" if route == "mysql_rows" else "uuid",
                 "value": "00112233445566778899aabbccddeeff",
             },
         ]

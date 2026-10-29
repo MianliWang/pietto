@@ -33,13 +33,24 @@ def adbc_metadata():
     types = (
         "timestamp[us]",
         "timestamp[us]",
-        "extension<arrow.opaque[storage_type=binary, type_name=uuid, vendor_name=PostgreSQL]>",
-        "extension<arrow.opaque[storage_type=binary, type_name=uuid, vendor_name=PostgreSQL]>",
+        "extension<arrow.uuid>",
+        "extension<arrow.uuid>",
         "int32",
         "bool",
         "double",
         "string",
         "extension<arrow.opaque[storage_type=string, type_name=numeric, vendor_name=PostgreSQL]>",
+    )
+    typnames = (
+        "timestamp",
+        "timestamp",
+        "uuid",
+        "uuid",
+        "int4",
+        "bool",
+        "float8",
+        "text",
+        "numeric",
     )
     return [
         dict(
@@ -47,15 +58,16 @@ def adbc_metadata():
             name=n,
             type=t,
             nullable=True,
-            metadata={}
-            if i not in (2, 3, 8)
-            else {
-                b"ADBC:postgresql:typname".hex(): (
-                    b"numeric" if i == 8 else b"uuid"
-                ).hex()
-            },
+            # The pinned driver names every column's type; numeric alone also
+            # keeps its deprecated ADBC:postgresql:typname.
+            metadata={b"POSTGRESQL:type".hex(): pg.encode().hex()}
+            | (
+                {b"ADBC:postgresql:typname".hex(): b"numeric".hex()}
+                if pg == "numeric"
+                else {}
+            ),
         )
-        for i, (n, t) in enumerate(zip(names, types, strict=True))
+        for i, (n, t, pg) in enumerate(zip(names, types, typnames, strict=True))
     ]
 
 
@@ -64,12 +76,12 @@ def test_qualified_adbc_carriers_and_coordinated_damage(tmp_path):
     meta = adbc_metadata()
     original = list(seven_rows("postgres")[0])
     raw = list(original)
-    raw[2] = original[2].bytes
     raw[8] = str(original[8])
     _, values = decode_native_rows(output, "postgres_adbc", meta, (raw,))
     assert values == (tuple(original),)
     for index, value in (
         (2, b"short"),
+        (2, original[2].bytes),
         (2, "00112233445566778899aabbccddeeff"),
         (8, "NaN"),
         (8, "1e100"),
@@ -83,7 +95,14 @@ def test_qualified_adbc_carriers_and_coordinated_damage(tmp_path):
             decode_native_rows(output, "postgres_adbc", meta, (raw, damaged))
     for index, member, value in (
         (2, "type", "binary"),
+        (
+            2,
+            "type",
+            "extension<arrow.opaque[storage_type=binary, type_name=uuid, vendor_name=PostgreSQL]>",
+        ),
         (2, "metadata", {}),
+        (2, "metadata", {b"ADBC:postgresql:typname".hex(): b"uuid".hex()}),
+        (8, "metadata", {b"ADBC:postgresql:typname".hex(): b"numeric".hex()}),
         (8, "type", "string"),
         (4, "type", "int64"),
         (0, "type", "timestamp[us, tz=UTC]"),
@@ -337,7 +356,10 @@ def test_metadata_primitives_and_foreign_runtime_prefix(tmp_path):
 def test_data_only_transport_checks_calls_and_raw_values(route):
     from _pietto_execution_rows_probe import check_transport
 
-    row = [{"kind": "int", "value": "1"}]
+    uuid = {"kind": "uuid", "value": "00112233445566778899aabbccddeeff"}
+    row = [{"kind": "int", "value": "1"}, uuid]
+    # The pinned ADBC driver reads uuid as arrow.uuid; MySQL BINARY(16) stays bytes.
+    native = [row[0], uuid if route == "postgres_adbc" else dict(uuid, kind="bytes")]
     record = dict(
         rows=[row],
         transaction="COMMIT_ACK",
@@ -345,9 +367,12 @@ def test_data_only_transport_checks_calls_and_raw_values(route):
         raw=dict(
             sql="synthetic",
             parameters=[],
-            actual=[row],
-            raw_actual=[row],
-            metadata=[["n", 8, None, None, None, None, 0, 0, 63]],
+            actual=[native],
+            raw_actual=[native],
+            metadata=[
+                ["n", 8, None, None, None, None, 0, 0, 63],
+                ["u", 254, None, None, None, None, 0, 0, 63],
+            ],
             api_calls=[dict(method="execute", sql="synthetic", values=[])],
             native=dict(close_send="complete_no_ack", unread_final=False),
             source_terminal="arrow_StopIteration"
@@ -358,7 +383,7 @@ def test_data_only_transport_checks_calls_and_raw_values(route):
         native_calls=[
             dict(method="cmd_stmt_prepare", event="call", sql="synthetic"),
             dict(method="cmd_stmt_execute", event="call", arguments=[], statement_id=1),
-            dict(method="get_rows", event="return", rows=[row], eof={}),
+            dict(method="get_rows", event="return", rows=[native], eof={}),
             dict(method="cmd_stmt_close", event="return", statement_id=1),
         ],
     )

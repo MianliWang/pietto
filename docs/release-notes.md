@@ -396,6 +396,19 @@ emission is unchanged.
   characters can contain `0x5c` (`big5`, `sjis`, `gbk`, and newly `cp932` and
   `gb18030`); the `utf8mb4` connection that `mysql_rows` opens quotes
   parameters as before.
+- `pietto[execute-postgres-adbc]` now installs `adbc-driver-postgresql==1.13.0`
+  and `adbc-driver-manager==1.13.0` instead of `1.12.0`, and the
+  `postgres_adbc` route accepts only `1.13.0`: an environment that keeps
+  `1.12.0` is refused with `PIE-R2002` before any connection.
+  `adbc-driver-postgresql` `1.13.0` no longer depends on `importlib-resources`,
+  so the extra no longer installs it. The `1.13.0` driver returns a PostgreSQL
+  `uuid` result column as the canonical `arrow.uuid` type instead of an opaque
+  binary value; `postgres_adbc` checks that type and still delivers the same
+  `UUID` values. The driver now classifies server errors by SQLSTATE, so the
+  exception class in `failure.cause` can differ from `1.12.0`, which reported
+  `ProgrammingError` for most of them: a multi-row scalar read (`21000`) now
+  reports `OperationalError` and a data exception (class `22`) `DataError`.
+  `code` and `sqlstate` are unchanged.
 
 ## Modern-syntax public alpha release notes — 0.1.5
 

@@ -452,7 +452,7 @@ This is not a broader platform/version support promise.
 Phase68 S18 adds three route selectors, each Arrow plus one route's exact pins:
 `execute-postgres` (`psycopg[binary]==3.3.5`), `execute-mysql`
 (`mysql-connector-python==26.10.0`; the published `0.1.5` selects `26.7.0`) and `execute-postgres-adbc`
-(`adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0`); see the
+(`adbc-driver-postgresql==1.13.0`, `adbc-driver-manager==1.13.0`; the published `0.1.5` selects `1.12.0`); see the
 [execution install](execution.md#install). Installation never chooses
 a route, grants execution or qualifies storage; all three routes are
 [public alpha interfaces](execution.md). The

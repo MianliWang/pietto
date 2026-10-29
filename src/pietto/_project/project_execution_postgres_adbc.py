@@ -237,9 +237,10 @@ class PostgresADBCExecution:
         before = self._check_connection(completed_copy=pending)
         if self._active is not None:
             raise ExecutionError("POSTGRES_ADBC_ACTIVE_READER")
-        # PG's COPY reader has already checked CommandComplete. This fixed
-        # non-COPY context command completes the remaining ReadyForQuery drain;
-        # it never runs with a live Arrow stream or on an error/partial terminal.
+        # PG's COPY reader has already checked CommandComplete, and the pinned
+        # driver drains the remaining results when that stream ends. This fixed
+        # non-COPY context command rereads the context; it never runs with a
+        # live Arrow stream or on an error/partial terminal.
         current, reply = native_context(self)
         if current != self.context:
             raise ExecutionError("POSTGRES_ADBC_TRANSACTION_CHANGED")
