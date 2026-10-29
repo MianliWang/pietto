@@ -56,7 +56,7 @@ WHEELHOUSE = {
     "pyarrow": "pyarrow-26.0.0-cp313-cp313-manylinux_2_28_x86_64.whl",
     "psycopg": "psycopg-3.3.5-py3-none-any.whl",
     "psycopg-binary": "psycopg_binary-3.3.5-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl",
-    "mysql-connector-python": "mysql_connector_python-26.7.0-cp313-cp313-manylinux_2_28_x86_64.whl",
+    "mysql-connector-python": "mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl",
     "adbc-driver-manager": "adbc_driver_manager-1.12.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl",
     "adbc-driver-postgresql": "adbc_driver_postgresql-1.12.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl",
     "importlib-resources": "importlib_resources-7.1.0-py3-none-any.whl",
@@ -548,8 +548,8 @@ def install(directory, ledger, *, dist, interpreter, cache, house_root=None):
     copy = directory / (PREFIX + "damaged-union")
     shutil.copytree(prefixes["union"], copy, symlinks=True)
     (site,) = list((copy / "lib").glob("python3.*/site-packages"))
-    (meta,) = list(site.glob("mysql_connector_python-26.7.0.dist-info/METADATA"))
-    meta.write_text(meta.read_text().replace("Version: 26.7.0", "Version: 26.6.0", 1))
+    (meta,) = list(site.glob("mysql_connector_python-26.10.0.dist-info/METADATA"))
+    meta.write_text(meta.read_text().replace("Version: 26.10.0", "Version: 26.6.0", 1))
     (site / "adbc_driver_postgresql/libadbc_driver_postgresql.so").unlink()
     for native in (site / "psycopg_binary").glob("*.so"):
         native.write_bytes(b"")

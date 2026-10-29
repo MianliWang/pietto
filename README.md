@@ -381,7 +381,7 @@ because captured results are Arrow IPC:
 | --- | --- |
 | `pietto[arrow]` | `pyarrow==26.0.0` (typed Arrow results; saved results without a database driver) |
 | `pietto[execute-postgres]` | `psycopg[binary]==3.3.5` (PostgreSQL rows) |
-| `pietto[execute-mysql]` | `mysql-connector-python==26.7.0` (MySQL rows) |
+| `pietto[execute-mysql]` | `mysql-connector-python==26.10.0` (MySQL rows; the published `0.1.5` selects `26.7.0`) |
 | `pietto[execute-postgres-adbc]` | `adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0` (PostgreSQL ADBC) |
 
 Extras combine, for example `pip install "pietto[execute-postgres,execute-mysql]"`.

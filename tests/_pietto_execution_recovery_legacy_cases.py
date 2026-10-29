@@ -537,7 +537,7 @@ def verify(report):
     for name, version in {
         "psycopg": "3.3.5",
         "psycopg-binary": "3.3.5",
-        "mysql-connector-python": "26.7.0",
+        "mysql-connector-python": "26.10.0",
         "pyarrow": "26.0.0",
         "adbc-driver-manager": "1.12.0",
         "adbc-driver-postgresql": "1.12.0",

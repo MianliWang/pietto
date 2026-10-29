@@ -47,7 +47,7 @@ from pietto._project.project_job_workspace import JobStoreError
 EXTRAS = {
     "arrow": ["pyarrow==26.0.0"],
     "execute-postgres": ["pyarrow==26.0.0", "psycopg[binary]==3.3.5"],
-    "execute-mysql": ["pyarrow==26.0.0", "mysql-connector-python==26.7.0"],
+    "execute-mysql": ["pyarrow==26.0.0", "mysql-connector-python==26.10.0"],
     "execute-postgres-adbc": [
         "pyarrow==26.0.0",
         "adbc-driver-postgresql==1.12.0",
@@ -63,7 +63,7 @@ POSTGRES = ARROW | {
     "typing-extensions==4.16.0 ; python_full_version < '3.13'",
     "tzdata==2026.4 ; sys_platform == 'win32'",
 }
-MYSQL = ARROW | {"mysql-connector-python==26.7.0"}
+MYSQL = ARROW | {"mysql-connector-python==26.10.0"}
 ADBC = ARROW | {
     "adbc-driver-manager==1.12.0",
     "adbc-driver-postgresql==1.12.0",
@@ -135,11 +135,11 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
         "adbc-driver-postgresql": "1.12.0",
         "antlr4-python3-runtime": "4.13.2",
         "importlib-resources": "7.1.0",
-        "mysql-connector-python": "26.7.0",
+        "mysql-connector-python": "26.10.0",
         "psycopg": "3.3.5",
         "psycopg-binary": "3.3.5",
         "pyarrow": "26.0.0",
-        "ruff": "0.17.1",
+        "ruff": "0.17.2",
         "typing-extensions": "4.16.0",
     }
     edges = {
@@ -236,7 +236,7 @@ ROUTE_DAMAGE = {
     ): REQUIREMENTS_DIFFER,
     # A required route dependency is removed.
     (
-        b"Requires-Dist: mysql-connector-python==26.7.0; extra == 'execute-mysql'\n",
+        b"Requires-Dist: mysql-connector-python==26.10.0; extra == 'execute-mysql'\n",
         b"",
     ): REQUIREMENTS_DIFFER,
     # An optional dependency is moved into the unconditional core.

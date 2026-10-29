@@ -321,6 +321,18 @@ assign a new version or replace the published 0.1.5 release notes.
 - Help, version and single-file commands start faster. Running without a
   subcommand still prints help and exits 0.
 
+### Python execution
+
+- `pietto[execute-mysql]` now installs `mysql-connector-python==26.10.0`
+  instead of `26.7.0`, and the `mysql_rows` route accepts only `26.10.0`: an
+  environment that keeps `26.7.0` is refused with `PIE-R2002` before any
+  connection. The connector's connection, protocol, cursor, network and
+  authentication modules that `mysql_rows` uses are unchanged in `26.10.0`.
+  Its parameter conversion changed only for character sets whose multibyte
+  characters can contain `0x5c` (`big5`, `sjis`, `gbk`, and newly `cp932` and
+  `gb18030`); the `utf8mb4` connection that `mysql_rows` opens quotes
+  parameters as before.
+
 ## Modern-syntax public alpha release notes — 0.1.5
 
 **Status:** These notes cover the `0.1.5` public alpha, published from

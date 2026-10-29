@@ -5,7 +5,8 @@ candidate. Release availability is established only when the exact accepted
 files appear on the versioned GitHub pre-release and PyPI `0.1.5` channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
 `0.1.3` and `0.1.4` distributions and this candidate select `pyarrow==26.0.0`. The
-historical `0.1.1` wheel does not provide this alpha surface.
+published `0.1.5` distributions select `mysql-connector-python==26.7.0`; this
+candidate selects `mysql-connector-python==26.10.0`. The historical `0.1.1` wheel does not provide this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
 PostgreSQL 18.6 through the PostgreSQL rows route, and hands you typed Arrow
@@ -54,7 +55,7 @@ Linux-only (see [Known limitations](#known-limitations)).
 | Route | Selected target and dependencies | Explicit prerequisites | Qualified native evidence | Not claimed |
 | --- | --- | --- | --- | --- |
 | `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.5`; `pyarrow==26.0.0` | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256. | Linux x86-64, CPython 3.13.13. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile. |
-| `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.7.0`; `pyarrow==26.0.0` | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13. | Windows native execution; another MySQL release, connector version or provider profile. |
+| `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.0` | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13. | Windows native execution; another MySQL release, connector version or provider profile. |
 | `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.12.0`; `adbc-driver-manager==1.12.0`; `pyarrow==26.0.0` | PostgreSQL TCP access, deployment premise, SCRAM profile, and the selected driver closure. | Linux x86-64, CPython 3.13.13. | Windows native execution; another ADBC/libpq closure, PostgreSQL release or platform. |
 
 The qualified profile is the integration host with the lock's exact artifacts.
@@ -78,7 +79,7 @@ pip install "pietto[execute-postgres]"
 | --- | --- | --- |
 | `execute-postgres` | `postgres_rows` | `psycopg[binary]==3.3.5` |
 | `execute-postgres-adbc` | `postgres_adbc` | `adbc-driver-postgresql==1.12.0`, `adbc-driver-manager==1.12.0` |
-| `execute-mysql` | `mysql_rows` | `mysql-connector-python==26.7.0` |
+| `execute-mysql` | `mysql_rows` | `mysql-connector-python==26.10.0` |
 
 Each extra also selects `pyarrow==26.0.0`, because captured results are Arrow
 IPC; saved-result use without any database driver needs only `pietto[arrow]`.
@@ -1215,7 +1216,7 @@ route, cursor API or whole-result materializer.
   its compiled sources, and treats the schemas declaration as an explicit managed
   deployment premise, not a grant or proof of compliance.
 - **Selected dependency and ambient inputs.** Only
-  `mysql-connector-python==26.7.0`, its own `mysql.connector.connection` file,
+  `mysql-connector-python==26.10.0`, its own `mysql.connector.connection` file,
   and `pyarrow==26.0.0` are accepted. A missing selected dependency is
   `PIE-R2001`; a wrong, shadowed or unloadable selected file is `PIE-R2002`.
   `SSLKEYLOGFILE`, `OPENSSL_CONF` and `OPENSSL_MODULES` are refused before the

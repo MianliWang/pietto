@@ -20,8 +20,8 @@ BINARY_CHARSET = 63
 @cache
 def driver_sources() -> dict[str, str]:
     distribution = importlib.metadata.distribution("mysql-connector-python")
-    if distribution.version != "26.7.0":
-        raise ValueError("native adapter requires Connector/Python26.7.0")
+    if distribution.version != "26.10.0":
+        raise ValueError("native adapter requires Connector/Python26.10.0")
     return {
         name: hashlib.sha256(
             Path(str(distribution.locate_file(name))).read_bytes()
@@ -109,7 +109,7 @@ def native_data(observation, *, session=17, statement=3):
     event("cmd_stmt_prepare.return", None if prepare_failed else prepared)
     native = {
         "adapter": API,
-        "driver_version": "26.7.0",
+        "driver_version": "26.10.0",
         "driver_sources": driver_sources(),
         "session_id": session,
         "statement_id": None if prepare_failed else statement,
@@ -201,7 +201,7 @@ class NativeStatement:
         self.previous: Any = None
         self.record: dict[str, Any] = {
             "adapter": API,
-            "driver_version": "26.7.0",
+            "driver_version": "26.10.0",
             "driver_sources": driver_sources(),
             "session_id": connection.connection_id,
             "statement_id": None,
@@ -414,7 +414,7 @@ def verify_native(observation):
         raise ValueError("native observation fields")
     if (
         native["adapter"] != API
-        or native["driver_version"] != "26.7.0"
+        or native["driver_version"] != "26.10.0"
         or native["driver_sources"] != driver_sources()
         or type(native["session_id"]) is not int
         or native["session_id"] <= 0

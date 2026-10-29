@@ -43,7 +43,7 @@ execute-postgres = [
 ]
 execute-mysql = [
     "pyarrow==26.0.0",
-    "mysql-connector-python==26.7.0",
+    "mysql-connector-python==26.10.0",
 ]
 execute-postgres-adbc = [
     "pyarrow==26.0.0",
@@ -68,7 +68,7 @@ build-backend = "uv_build"
 [dependency-groups]
 target-conformance = [
     "psycopg[binary]==3.3.5",
-    "mysql-connector-python==26.7.0",
+    "mysql-connector-python==26.10.0",
 ]
 dev = [
     "pyright>=1.1.411",

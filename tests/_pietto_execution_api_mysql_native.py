@@ -92,7 +92,7 @@ def check(report: Any) -> dict[str, str]:
     )
     need(
         identity.get("drivers")
-        == {"mysql-connector-python": "26.7.0", "pyarrow": "26.0.0"},
+        == {"mysql-connector-python": "26.10.0", "pyarrow": "26.0.0"},
         "DRIVER_PINS",
     )
     telemetry = document(report.get("telemetry"), "OTEL")

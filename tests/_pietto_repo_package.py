@@ -87,7 +87,7 @@ def metadata_bytes() -> bytes:
             b"Requires-Dist: psycopg[binary]==3.3.5; extra == 'execute-postgres'\n",
             b"Provides-Extra: execute-mysql\n",
             b"Requires-Dist: pyarrow==26.0.0; extra == 'execute-mysql'\n",
-            b"Requires-Dist: mysql-connector-python==26.7.0; extra == 'execute-mysql'\n",
+            b"Requires-Dist: mysql-connector-python==26.10.0; extra == 'execute-mysql'\n",
             b"Provides-Extra: execute-postgres-adbc\n",
             b"Requires-Dist: pyarrow==26.0.0; extra == 'execute-postgres-adbc'\n",
             b"Requires-Dist: adbc-driver-postgresql==1.12.0; extra == 'execute-postgres-adbc'\n",

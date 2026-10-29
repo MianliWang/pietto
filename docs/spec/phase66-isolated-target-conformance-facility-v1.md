@@ -152,6 +152,17 @@ runtime仍仅antlr。uv.lock保留已有版本并冻结新增transitives/hashes�
 PG实际要求binary implementation及RawCursor；MY固定use_pure=True和prepared cursor。
 执行收据记录实际driver/Python/libpq/library版本，不拿development-doc banner当pin。
 
+Dependabot #101只将公开`execute-mysql`extra、`target-conformance`group、
+`ci/phase68-executor-premise-requirements.txt`及uv.lock改为固定
+[Connector/Python26.10.0](https://pypi.org/project/mysql-connector-python/26.10.0/)；
+`phase66_target_pins.json`不在#101内（故其两target cell以invalid target receipt失败），由本次
+maintenance commit同步为26.10.0。2026-10-29只读核实：按uv.lock hash核验的26.7.0与26.10.0 wheel中，
+`connection.py`、`protocol.py`、`abstracts.py`、`network.py`、`cursor.py`、认证与错误模块逐字节相同，
+收据`driver_sources`不变，只有`driver_version`改变。`constants.py`把`CharacterSet.slash_charsets`
+扩大到cp932（95、96）与gb18030（248–250）；`conversion.py`在slash字符集中把非空bytes与bytearray
+参数也改用hex literal（编码含0x5c的str参数原已如此，现也覆盖新增字符集）；`custom_types.py`的
+`HexLiteral`因此接受bytes。utf8mb4不是slash字符集，Pietto的utf8mb4 converter（charset_id 255）行为不变。
+
 `phase66_target_pins.json`是唯一target pin输入；不接受其它image/DSN/SQL-file/callback/command。
 执行使用repository@platform-digest，并按当前Docker image store实际暴露的identity契约核验
 immutable image、architecture及实际server build；`platform_digest`与`config_digest`仍是两个

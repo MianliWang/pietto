@@ -16,7 +16,7 @@ from pietto._project.project_execution import (
 
 __all__: tuple[str, ...] = ()
 # The pinned driver closure of `pietto[execute-mysql]`.
-DRIVERS = (("mysql-connector-python", "26.7.0", "mysql.connector.connection"),)
+DRIVERS = (("mysql-connector-python", "26.10.0", "mysql.connector.connection"),)
 
 
 def drivers():

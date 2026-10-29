@@ -26,7 +26,7 @@ def report():
             "wheel_sha256": origin,
             "origins": {"pietto": origin, "mysql.connector.connection": origin},
             "drivers": {
-                "mysql-connector-python": "26.7.0",
+                "mysql-connector-python": "26.10.0",
                 "pyarrow": "26.0.0",
             },
         },

@@ -34,7 +34,7 @@ CORE = {
 }
 ARROW = {**CORE, "pyarrow": "26.0.0"}
 POSTGRES = {**ARROW, "psycopg": "3.3.5", "psycopg-binary": "3.3.5"}
-MYSQL = {**ARROW, "mysql-connector-python": "26.7.0"}
+MYSQL = {**ARROW, "mysql-connector-python": "26.10.0"}
 ADBC = {
     **ARROW,
     "adbc-driver-postgresql": "1.12.0",
@@ -67,7 +67,7 @@ REQUIRES = frozenset(
         ("pyarrow", (), "==26.0.0", "execute-postgres"),
         ("psycopg", ("binary",), "==3.3.5", "execute-postgres"),
         ("pyarrow", (), "==26.0.0", "execute-mysql"),
-        ("mysql-connector-python", (), "==26.7.0", "execute-mysql"),
+        ("mysql-connector-python", (), "==26.10.0", "execute-mysql"),
         ("pyarrow", (), "==26.0.0", "execute-postgres-adbc"),
         ("adbc-driver-postgresql", (), "==1.12.0", "execute-postgres-adbc"),
         ("adbc-driver-manager", (), "==1.12.0", "execute-postgres-adbc"),
