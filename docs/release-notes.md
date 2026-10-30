@@ -1,9 +1,104 @@
 # Pietto release notes
 
-## Unreleased changes following 0.1.5
+## Corrections and MySQL parity public alpha release notes — 0.1.6
 
-These notes cover changes after the published 0.1.5 release. They do not
-assign a new version or replace the published 0.1.5 release notes.
+**Status:** These notes cover the `0.1.6` public-alpha candidate. A release is
+established only when the accepted wheel and sdist are available from both the
+versioned GitHub pre-release and PyPI channels; this document neither creates
+those channels nor substitutes for their byte verification.
+
+`0.1.6` retires no source spelling of `0.1.5`. It corrects single-file SQL and
+checking, brings single-file MySQL `emit-sql` close to PostgreSQL for JOINs,
+FULL JOINs and windows, corrects project mode, and moves the driver pins of
+two Python execution extras. Of Phase71 it contains only
+batch B1: the nested-relation spellings are recognized and refused. The
+sections from 0.1.5 down describe published files.
+
+### Highlights
+
+- **Same-file reads are CTEs.** A single-file read of a table or query of the
+  same file includes its SQL as a dependency CTE, in text and JSON output
+  alike, and the `PIE-S2382` warning of 0.1.5 is retired. `emit-sql` text
+  output also names each statement with a `-- name` line and ends it with `;`;
+  JSON artifact SQL has no name line and no `;`.
+- **Single-file QUALIFY and aggregate windows.** `QUALIFY` checks and emits
+  for PostgreSQL and MySQL; `sum`, `count`, `avg`, `min` and `max` windows
+  emit in single files; and single-file windows read JOIN inputs.
+- **Single-file MySQL parity.** `emit-sql --dialect mysql` emits INNER, LEFT,
+  RIGHT and CROSS JOINs, most FULL JOINs within PostgreSQL's FULL JOIN limits
+  (as a derived table), windows, QUALIFY and aggregates over JOIN rows,
+  aggregate windows, `round(Float)` and `date_trunc`, with the same matches,
+  duplicates and NULL-extended rows as PostgreSQL under each target's own
+  comparison rules. Some forms that PostgreSQL emits stay `PIE-B1000` on
+  MySQL, among them GROUPS frames with an offset bound, EXCLUDE CURRENT ROW,
+  GROUP or TIES, a read of an enum or other non-builtin field after a FULL
+  JOIN, and more than 8 FULL JOINs in one relation. Project MySQL emission
+  gains none of these forms.
+- **Fewer conservative fan-out refusals.** A hand-written `on` equality to a
+  unique key proves an at-most-one match as a relationship call does, and the
+  bounded D-11 and D-12 proofs accept some outer-JOIN aggregates and typed-NULL
+  arithmetic that 0.1.5 refused.
+- **Warnings for what a Python reader may misread.** `PIE-S2106` (`/` of two
+  Int values truncates), `PIE-S2107` (a `None` option of an `in` list never
+  matches), `PIE-P1009` (`--` is not a comment), `PIE-S2383` (a WHERE test
+  that rejects the NULL-extended side of a LEFT JOIN), `PIE-S2384` (`not in`
+  with a nullable left value) and `PIE-S2385` (a single-file relation that
+  emission will refuse). Warnings do not change the exit status of `check`.
+- **Checking corrections.** An explicit-module project reads a shape-typed
+  field as that shape in more places, as a single file does, and reads a FROM
+  input through its alias; several diagnostics that pointed at the wrong
+  problem now name it.
+- **Project mode.** After an external review of 0.1.5 project mode,
+  `check --project` and `emit-sql --project` report what a single file
+  reports in many more places. An ambiguous or unknown read, a failed import
+  and a grouping or aggregate error in a relation without JOIN inputs keep
+  their single-file code, message and position instead of a bare
+  `PIE-S2333`; follow-on diagnostics of an error already reported are
+  dropped; each module gets the single-file declaration checks; and import
+  or export statements outside a `schema_version = 2` project are
+  `PIE-S2708`. A wrong-kind import is `PIE-S2705`, re-exports resolve
+  through any number of modules, and an unresolved import or an unknown name
+  suggests the path or import it may mean. JSON v2 counts a file with only a
+  semantic error as a file with errors, configuration, selector and contract
+  errors name their fault, emission blockers point at their item, and the
+  project guide and contracts match the code. The SQL that project emission
+  still produces is unchanged. The known limitations under Project mode below
+  list what remains, among them slow checks of layered JOIN DAGs, some bare
+  `PIE-S2333`, a mixed aggregate JOIN with ORDER BY that reports only
+  `PIE-S2312`, a relation-name qualifier through a `let` alias that is still
+  accepted, and a repeated unknown SELECT item reported twice.
+- **R2 and a trailing `any`.** `save_recoverable` and `recover` accept a
+  trailing `where any(...)` or `where not any(...)`.
+- **Python execution dependencies.** `pietto[execute-mysql]` installs
+  `mysql-connector-python==26.10.0` and `pietto[execute-postgres-adbc]` installs
+  `1.13.0` of both ADBC packages; each route refuses the previous driver
+  version with `PIE-R2002` before any connection.
+- **Phase71 nested-relation spellings, recognized and refused.**
+  `name = collect let_name` and `let o = unnest(binding.field)` are recognized:
+  an explicit-module project types them and reports `PIE-S2802`, and every
+  other mode reports `PIE-S2801`.
+- **A style page.** [Pietto style](style.md) shows one way to write each thing
+  for readers who know Python and a little SQL.
+
+### Upgrading from 0.1.5
+
+- 0.1.6 retires no source spelling, so a 0.1.5 file needs no `pietto migrate`
+  step.
+- Some programs that 0.1.5 accepted are refused or warned about, and some
+  emit different SQL; the entries below describe each change. Programs that
+  assert an empty diagnostic list or empty stderr see the new warnings.
+- Bundles and saved-job records made by 0.1.5 or earlier are refused by the
+  changed code identity; keep their matching old environment.
+- In project mode, `check --project` refuses more programs that a single file
+  refuses and `emit-sql --project` blocks them, a `schema_version = 1`
+  project with import or export statements fails `check --project`
+  (`PIE-S2708`), and many project diagnostics, the project JSON v2
+  `files_with_errors` count, related locations and some error kinds change;
+  Project mode below lists each change.
+- An environment that keeps `mysql-connector-python==26.7.0` or the `1.12.0`
+  ADBC packages is refused on that route; install the extra of this release.
+- `0.1.6` is a normal version number: `pip install -U pietto` upgrades to it,
+  and so do the pins `pietto~=0.1` and `pietto<0.2`.
 
 ### Refinement
 
@@ -22,9 +117,9 @@ assign a new version or replace the published 0.1.5 release notes.
   in a `select:` block and `let o = unnest(binding.field)` read by a later
   CROSS, INNER or LEFT JOIN are recognized. In an EXPLICIT_MODULES project
   (`schema_version = 2`) they are typed, and every Collect read and Unnest let
-  then reports `PIE-S2802` until later Phase71 work lowers them; single files,
-  LEGACY_FLAT projects and package modules report `PIE-S2801`, which says how
-  to make a `schema_version = 2` project. A user `def` named `collect` or
+  then reports `PIE-S2802`, as this release cannot lower or return them;
+  single files, LEGACY_FLAT projects and package modules report `PIE-S2801`,
+  which says how to make a `schema_version = 2` project. A user `def` named `collect` or
   `unnest` keeps its ordinary meaning, and syntax errors keep their code,
   order and position.
 - The bounded D-11 unmatched-row and one-key-value proofs and D-12 typed-NULL
@@ -226,9 +321,11 @@ assign a new version or replace the published 0.1.5 release notes.
 ### SQL emission
 
 - Single-file reads of a table or query now include its SQL as a dependency
-  CTE. An unsupported dependency also prevents SQL for its reader; the old
+  CTE, in the text output and in the JSON `sql` of the reading artifact alike.
+  An unsupported dependency also prevents SQL for its reader; the old
   `PIE-S2382` warning is retired. Text output names each statement with a
-  `-- name` line and terminates it with `;`; JSON artifact SQL is unchanged.
+  `-- name` line and terminates it with `;`; JSON artifact SQL has no name
+  line and no `;`.
 - Single-file `QUALIFY` now checks and emits for PostgreSQL and MySQL,
   including hidden windows. Its filter follows the window stage and precedes
   ORDER BY and LIMIT; ambiguous input/selected-output names are refused.
@@ -326,11 +423,11 @@ assign a new version or replace the published 0.1.5 release notes.
 Single-file `emit-sql --dialect mysql` now emits the following forms that
 PostgreSQL emits, each with the same matches, duplicates and NULL-extended
 rows under each target's own comparison rules. A form without such a MySQL
-8.4 spelling is still refused with `PIE-B1000`, and PostgreSQL SQL is
-unchanged. As in the MySQL SQL emitted before, the place of NULLs in an
+8.4 spelling is still refused with `PIE-B1000`, and MySQL parity does not
+change PostgreSQL SQL. As in the MySQL SQL emitted before, the place of NULLs in an
 ascending or descending order, Text comparison under the column's collation,
 and the type and scale of an aggregate's result follow MySQL. Project MySQL
-emission is unchanged.
+emission gains none of these forms.
 
 - **JOINs.** INNER, LEFT, RIGHT and CROSS JOINs, every `on` form,
   relationship and `def` calls in `on`, self-JOINs, JOIN chains, a JOIN of a

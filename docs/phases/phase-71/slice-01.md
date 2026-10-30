@@ -198,7 +198,7 @@ S02 的验收。[既有批次路线](slices.md#分批发布)仍是 B1–B9，不
 | 2 outcome；3 semantic model；22 UX | 类型化的父行带子行结果与显式 Unnest，一个 collection 层，D71.01–D71.05。S03 的真实学习者探测先于写法/诊断冻结；不使用合成的参与者结果。 |
 | 4 identity；5 construction states | 父/子/字段/输出 occurrence 各自独立。只发布闭合的受检状态；现有 scalar 消费者在所属片完成前拒绝新 variant。 |
 | 7 layers；8 dependencies；17 invalidation | 上文 owner 表按 AST → semantic authority → IR/plan → backend → execution/result 排列。改动使实际下游事实失效；下游不重新决定语义。 |
-| 9 migration；25 packaging；27 release | D71.06 保留历史产物，不自动迁移。只升级受影响的兼容维度。S23 准备 0.1.6；版本/tag/release/PyPI 需要各自的授权。 |
+| 9 migration；25 packaging；27 release | D71.06 保留历史产物，不自动迁移。只升级受影响的兼容维度。S23 准备 0.1.6（所有者 2026-10-30 改为 `0.1.7`，见[决定记录](../../decisions.md)）；版本/tag/release/PyPI 需要各自的授权。 |
 | 10 requirements/capabilities；26 support | D71.05 明确选择 v2 模块/PostgreSQL/postgres_rows 与有界的 Arrow/保存/R1/export。requirement 从不成为 provider 或执行证据。 |
 | 11 interchange；12 execution；13 lifecycle | 逻辑嵌套 schema 与 SQL 运输、Arrow 分开。S07–S19 拥有受检的递归交换、显式执行与父行级的所有权/清理。 |
 | 14 trust；19 concurrency | 既有的 trusted-opened-byte 与 runner 边界不变。Teach 上没有模型 token、GitHub 写凭据或私钥；不写 canonical。开发隔离不增加产品并发。 |

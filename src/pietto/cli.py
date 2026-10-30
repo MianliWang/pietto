@@ -44,7 +44,7 @@ if TYPE_CHECKING:
         ProjectSemanticResult,
     )
 
-_FALLBACK_VERSION = "0.1.5"
+_FALLBACK_VERSION = "0.1.6"
 _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"

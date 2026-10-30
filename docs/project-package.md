@@ -670,10 +670,10 @@ result proof; caller JSON cannot supply that proof.
 
 The rules in the previous paragraph postdate the published `0.1.2` (GitHub
 pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those
-distributions; the published `0.1.3` and `0.1.4` include them. This `0.1.5`
-candidate is available only when its accepted files appear on its versioned release
-channels. Git publication and natural exact-head CI remain the lifecycle
-authority.
+distributions; the published `0.1.3`, `0.1.4` and `0.1.5` include them. This
+`0.1.6` candidate is available only when its accepted files appear on its
+versioned release channels. Git publication and natural exact-head CI remain
+the lifecycle authority.
 
 These proofs belong to project SQL emission, not to `check --project`: the
 check accepts, for example, `sum` over an `Int`, `Decimal` or `Float` field,
@@ -721,21 +721,21 @@ Install a release from PyPI into a virtual environment, as the
 verified with CPython 3.12 and 3.13 on Linux x86-64; other platforms and
 Python versions are not covered by this evidence.
 
-The `0.1.5` wheel and sdist on PyPI are the files attached to the
-[v0.1.5 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.5),
+The `0.1.6` wheel and sdist on PyPI are the files attached to the
+[v0.1.6 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.6),
 together with `SHA256SUMS`, which lists the SHA-256 of the wheel and the sdist.
 To check files downloaded from that release, keep their names and run
 `sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
 also offers an automatic source archive under the same name as the sdist,
-`pietto-0.1.5.tar.gz`; it is a snapshot of the v0.1.5 repository tag, not the
+`pietto-0.1.6.tar.gz`; it is a snapshot of the v0.1.6 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`.
 
-Version `0.1.5` rejects bundles and saved jobs produced by `0.1.4` or earlier
+Version `0.1.6` rejects bundles and saved jobs produced by `0.1.5` or earlier
 by code identity; Pietto neither migrates nor rewrites those bytes, so retained
 state needs its matching old environment (see
 [execution](execution.md#known-limitations)). The VS Code extension `0.1.0`
 accepts only the `0.1.2` wheel or its baseline fingerprint and refuses
-`0.1.5`.
+`0.1.6`.
 
 ## Optional Arrow dependency
 
@@ -744,7 +744,7 @@ The public selector `pietto[arrow]` adds exactly `pyarrow==26.0.0`; it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 exposes the three
 execution routes and saved-result APIs as public alpha under
-`pietto.execution`. Package/CLI version is `0.1.5` and `requires-python`
+`pietto.execution`. Package/CLI version is `0.1.6` and `requires-python`
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
 distribution availability once the accepted files are available.
 The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow26.0.0.
