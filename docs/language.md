@@ -995,19 +995,21 @@ query reads `base.id`, not `rows.id`. A JOIN may not take the FROM input's name
 second time (`Duplicate JOIN binding name: <name>`), both PIE-S2335 at the
 name; a second `let` of one name is PIE-S2604 (`Duplicate query local name`).
 
-An EXPLICIT_MODULES project also accepts the resolved FROM relation's original
-qualified spelling, which 0.1.5 accepted in WHERE, GROUP BY, an ungrouped
-ORDER BY and a grouped SELECT only: after
-`let c = customers` and `from c`, both `c.id` and `customers.id` read the one
-FROM occurrence, in every clause but HAVING and the ORDER BY of a grouped
-query, but only in a query without a JOIN, and not inside `any(...)`. A
-project HAVING or grouped ORDER BY reads no qualified input field, with or
-without an alias: it reports PIE-S2327 or PIE-S2321 as a single file does
-(0.1.5 reported the bare PIE-S2333). Elsewhere, such as in a JOIN's `on`, after a JOIN or in a self
-JOIN, `customers.id` is refused as in 0.1.5. This does not make an
-intermediate alias in an alias chain an input name, and it does not cross a
-capture boundary. Single-file checks keep the rule above and accept only
-`c.id`.
+An EXPLICIT_MODULES project names the FROM input the same way: after
+`let c = customers` and `from c` it reads `c.id`, and refuses `customers.id`
+as it refuses any name that is no input. At the read it reports what a
+single file reports, such as PIE-S2102 `Unknown field: customers.id`,
+with three differences: a QUALIFY predicate that reads it outside a window
+reports PIE-S2332 `Unknown QUALIFY reference: customers.id`, as for any
+unknown name there; after a JOIN a single file also says that `customers`
+names a relation, not a binding, and a project does not yet; and a
+project can list a SELECT item's diagnostic before a WHERE test's or a
+GROUP BY key's, where a single file follows the source order. 0.1.6
+projects accepted `customers.id` in a query without a JOIN, outside
+`any(...)`, in every clause but HAVING and the ORDER BY of a grouped query;
+write `c.id` there. A project HAVING or grouped ORDER BY reads no qualified
+input field, with or without an alias: it reports PIE-S2327 or PIE-S2321 as
+a single file does.
 
 Every JOIN but CROSS has an `on` predicate: a declared relationship never joins
 by itself, and a JOIN without `on` is PIE-S2335

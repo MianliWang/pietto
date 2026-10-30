@@ -190,8 +190,10 @@ digest. Schema-v2 extension requirements remain valid legacy unbound data.
 (`pietto.project-explain.v1`), not a project JSON v2 envelope; see the
 [JSON contract](spec/phase58-slice8-project-explain-json-v1.md) and the
 [CLI contract](spec/phase58-slice14-project-explain-cli-text-json-v1.md).
-For a schema 1 or 2 project it fails with `config_schema` at `pietto.toml`
-and a suggestion; explain for explicit-module projects is a
+For a schema 1 or 2 project it fails with `config_schema` at `pietto.toml`,
+whose message names the commands that read that project (`check --project`,
+and for schema 2 also `emit-sql --project`); explain for explicit-module
+projects is a
 [roadmap](roadmap.md#project-mode-follow-up) item. A schema 3 project converts
 in one step: set `schema_version = 4` and add an empty
 `[capability_environment]` table.

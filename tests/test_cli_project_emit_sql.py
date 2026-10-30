@@ -216,7 +216,12 @@ def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
     code, out, err = run(["emit-sql", "missing.pietto", "--dialect", "sqlite"])
     assert code == 2 and out == b""
     assert run(["emit-sql", "--help"])[0] == 0
-    assert b"project mode: pietto emit-sql --project" in run(["emit-sql", "--help"])[1]
+    help_text = b" ".join(run(["emit-sql", "--help"])[1].split())
+    assert b"project mode: pietto emit-sql --project" in help_text
+    # Project mode --output always writes the JSON artifact (Slice13).
+    assert b"In project mode --output writes the JSON artifact in either --format." in (
+        help_text
+    )
     assert run([])[0] == 0 and run(["--version"])[0] == 0
     assert run(["check", str(LEGACY_INPUT)])[0] == 0
     assert run(["explain", str(LEGACY_INPUT), "--format", "json"])[0] == 0

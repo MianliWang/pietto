@@ -30,8 +30,14 @@ from pietto._project.module_exports import (
     ProjectModuleExportSurfaceSet,
 )
 from pietto._project.model import ProjectParsedInput, ProjectSymbolKind
+from pietto._project.module_catalog import relation_read_expressions
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
-from pietto.ast_nodes import ImportStatement, ModuleDeclarationKind, Span
+from pietto.ast_nodes import (
+    CollectRelationExpr,
+    ImportStatement,
+    ModuleDeclarationKind,
+    Span,
+)
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
@@ -2136,9 +2142,16 @@ def import_hints(
     once a diagnostic asks: an export that is refused (PIE-S2704, a
     duplicate request included), a re-export whose own import fails, or one
     of a module whose path is not valid UTF-8, which no import can spell, is
-    none. A module that already declares or imports the name, of either
+    none, nor is a module that imports the module of the diagnostic,
+    directly or through others, since that import would close a cycle
+    (PIE-S2703). With no exporter, the modules that declare the name without
+    any export request of it are named the same way, with the export to add.
+    A module that already declares or imports the name, of either
     namespace, gets no import hint, since that import would collide with the
-    declaration or binding (PIE-S2706). A message that already has a hint, and every code, span and
+    declaration or binding (PIE-S2706), and neither does a Collect read,
+    which reads only a relation let of its own body (PIE-S2803), never an
+    import. The hint ends the message and is the
+    suggestion. A message that already has a hint, and every code, span and
     order, are kept. With no hint the same tuple is returned, since readers
     may compare diagnostics by identity."""
 
@@ -2168,11 +2181,14 @@ def import_hints(
                 if any(item.name == name for item in module.scalar_callables)
             )
             if files:
+                hint = (
+                    f"{name} is a def of {_listed(files)}, which a module "
+                    "cannot import: declare it in this module"
+                )
                 hinted[position] = replace(
                     diagnostic,
-                    message=f"{diagnostic.message}; {name} is a def of "
-                    f"{_listed(files)}, which a module cannot import: "
-                    "declare it in this module",
+                    message=f"{diagnostic.message}; {hint}",
+                    suggestion=hint,
                 )
             continue
         if any(
@@ -2188,53 +2204,118 @@ def import_hints(
             }
             for module in modules
             if module.path == diagnostic.location.path
-        ):
+        ) or _at_collect_read(diagnostic.location, modules):
             continue
         if surfaces is None:
             surfaces = exports()
-        exporters = tuple(
-            (module.path, ModuleDeclarationKind(entry.declaration_kind.value))
+        cyclic = _importers(modules, diagnostic.location.path)
+        candidates = tuple(
+            surface
             for module in others
-            if _spellable(module.path)
+            if _spellable(module.path) and module.path not in cyclic
             for surface in surfaces.find_module_path(module.path)
-            for entry in surface.entries
-            if entry.exposed_name == name
-            and entry.declaration_kind.value in {kind.value for kind in kinds}
-            and not any(
-                issue.request.local_name == name
-                and issue.request.declaration_kind is entry.declaration_kind
-                for issue in surface.issues
+        )
+        wanted = {kind.value for kind in kinds}
+        found = tuple(
+            dict.fromkeys(
+                (
+                    surface.module.path,
+                    ModuleDeclarationKind(entry.declaration_kind.value),
+                )
+                for surface in candidates
+                for entry in surface.entries
+                if entry.exposed_name == name
+                and entry.declaration_kind.value in wanted
+                and not any(
+                    issue.request.local_name == name
+                    and issue.request.declaration_kind is entry.declaration_kind
+                    for issue in surface.issues
+                )
             )
         )
-        exporters = tuple(dict.fromkeys(exporters))
-        if not exporters:
+        verb, advice = "exported by", ""
+        if not found:
+            found = tuple(
+                (surface.module.path, ModuleDeclarationKind(kind.value))
+                for surface in candidates
+                if not any(request.local_name == name for request in surface.requests)
+                for kind in _declared_kinds(surface.module, name)
+                if kind.value in wanted
+            )
+            verb = "declared but not exported by"
+            advice = (
+                "export it there with "
+                + " or ".join(
+                    dict.fromkeys(
+                        f"export ({kind.value} {name})"
+                        for _, kind in found[:_IMPORT_HINT_LIMIT]
+                    )
+                )
+                + ", then "
+            )
+        if not found:
             continue
-        shown = exporters[:_IMPORT_HINT_LIMIT]
-        exported_kinds = {kind for _, kind in exporters}
-        if len(exported_kinds) == 1:
-            (kind,) = exported_kinds
+        found_kinds = {kind for _, kind in found}
+        if len(found_kinds) == 1:
+            (kind,) = found_kinds
             head = (
                 f"{name} is {_kinds_text((ProjectSymbolKind(kind.value),))} "
-                f"exported by {_listed(tuple(path for path, _ in exporters))}"
+                f"{verb} {_listed(tuple(path for path, _ in found))}"
             )
         else:
-            head = f"{name} is exported by " + _listed(
+            head = f"{name} is {verb} " + _listed(
                 tuple(
                     f"{path} ({_kinds_text((ProjectSymbolKind(kind.value),))})"
-                    for path, kind in exporters
+                    for path, kind in found
                 )
             )
         imports = " or ".join(
             f"from {_copyable_path(path)} import ({kind.value} {name})"
-            for path, kind in shown
+            for path, kind in found[:_IMPORT_HINT_LIMIT]
         )
+        hint = f"{head}: {advice}import it with {imports}"
         hinted[position] = replace(
             diagnostic,
-            message=f"{diagnostic.message}; {head}: import it with {imports}",
+            message=f"{diagnostic.message}; {hint}",
+            suggestion=hint,
         )
     if all(new is old for new, old in zip(hinted, diagnostics, strict=True)):
         return diagnostics
     return tuple(hinted)
+
+
+def _at_collect_read(
+    location: SourceLocation, modules: tuple[ProjectParsedInput, ...]
+) -> bool:
+    """Whether a Collect read of a module stands at a location."""
+
+    return any(
+        type(read) is CollectRelationExpr
+        and _location(read.span, fallback_path=module.path) == location
+        for module in modules
+        if module.path == location.path
+        for read in relation_read_expressions(module.script.definitions)
+    )
+
+
+def _importers(
+    modules: tuple[ProjectParsedInput, ...], path: str | None
+) -> frozenset[str]:
+    """The modules that import a module, directly or through others."""
+
+    imported_by: dict[str | None, set[str]] = {}
+    for module in modules:
+        for statement in module.script.module_statements:
+            if isinstance(statement, ImportStatement):
+                imported_by.setdefault(statement.target, set()).add(module.path)
+    found: set[str] = set()
+    pending: list[str | None] = [path]
+    while pending:
+        for importer in imported_by.get(pending.pop(), ()):
+            if importer not in found:
+                found.add(importer)
+                pending.append(importer)
+    return frozenset(found)
 
 
 def _listed(items: tuple[str, ...]) -> str:

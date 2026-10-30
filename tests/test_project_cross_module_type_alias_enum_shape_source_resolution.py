@@ -1395,6 +1395,166 @@ def test_unknown_names_say_which_modules_export_them_and_how_to_import_them(
         ),
     ]
     assert {item["location"]["path"] for item in diagnostics} == {"b.pietto"}
+    # The hint that ends each message is also its JSON suggestion.
+    assert [item["suggestion"] for item in diagnostics] == [
+        item["message"].partition("; ")[2] for item in diagnostics
+    ]
+
+
+def test_an_import_hint_names_a_declaration_that_is_not_exported(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # A module that exports its sources but not their shapes: the hint says to
+    # export each shape there and import it, and doing both checks.
+    types = (
+        "export (source orders, source customers)\n"
+        "shape Customer:\n    id: Int\n    customer_key = unique(id)\n"
+        "shape Order:\n    id: Int\n    customer_id: Int\n    order_key = unique(id)\n"
+        'source orders: Order = postgres.table("orders")\n'
+        'source customers: Customer = postgres.table("customers")\n'
+    )
+    query = (
+        'from "types.pietto" import (source orders, source customers)\n'
+        "relationship PlacedBy(order: Order, customer: Customer): "
+        "order.customer_id == customer.id\n"
+    )
+    root = _configured_project(
+        tmp_path / "private", {"types.pietto": types, "q.pietto": query}
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    hints = {
+        name: f"{name} is a shape declared but not exported by types.pietto: "
+        f"export it there with export (shape {name}), then import it with "
+        f'from "types.pietto" import (shape {name})'
+        for name in ("Order", "Customer")
+    }
+    assert [
+        (item["code"], item["message"], item["suggestion"]) for item in diagnostics
+    ] == [
+        (
+            "PIE-S2604",
+            f"Unknown relationship parameter shape: {name}; {hint}",
+            hint,
+        )
+        for name, hint in hints.items()
+    ]
+    followed = _configured_project(
+        tmp_path / "followed",
+        {
+            "types.pietto": types + "export (shape Order, shape Customer)\n",
+            "q.pietto": 'from "types.pietto" import (shape Order, shape Customer)\n'
+            + query,
+        },
+    )
+    assert cli.main(["check", "--project", str(followed), "--format", "json"]) == 0
+    capsys.readouterr()
+    # Every declaring module is named in path order, with the kind it declares.
+    mixed = _configured_project(
+        tmp_path / "mixed",
+        {
+            "a.pietto": "type Money = Int\n",
+            "b.pietto": "shape Money:\n    id: Int\n",
+            "m.pietto": "shape Row:\n    m: Money\n",
+        },
+    )
+    assert cli.main(["check", "--project", str(mixed), "--format", "json"]) == 1
+    assert [
+        item["message"] for item in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == [
+        "Unknown type: Money; Money is declared but not exported by a.pietto "
+        "(a type) and b.pietto (a shape): export it there with export (type "
+        "Money) or export (shape Money), then import it with from "
+        '"a.pietto" import (type Money) or from "b.pietto" import (shape Money)'
+    ]
+
+
+def test_a_collect_read_gets_no_import_hint(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Collect reads only a relation let of its own body (PIE-S2803), so no
+    # import gives its relation, whether another module exports the name or
+    # only declares it; a scalar read of the same name gets the hint.
+    ghost = (
+        "shape S:\n    id: Int\n    k = unique(id)\n"
+        'source src: S = postgres.table("t")\n'
+        "query ghost:\n    from src\n    select:\n        id\n"
+    )
+
+    def main(read: str) -> str:
+        return (
+            "shape Customer:\n    id: Int\n    k2 = unique(id)\n"
+            'source customers: Customer = postgres.table("customers")\n'
+            f"query p:\n    from customers\n    select:\n        id\n        {read}\n"
+        )
+
+    hinted = (
+        "ghost is a query declared but not exported by a.pietto: export it "
+        'there with export (query ghost), then import it with from "a.pietto" '
+        "import (query ghost)"
+    )
+    for case, a, read, expected in (
+        ("declared", ghost, "c = collect ghost", None),
+        ("exported", "export (query ghost)\n" + ghost, "c = collect ghost", None),
+        ("scalar", ghost, "c = scalar ghost.id", hinted),
+    ):
+        root = _configured_project(
+            tmp_path / case, {"a.pietto": a, "main.pietto": main(read)}
+        )
+        assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+        assert [
+            (item["code"], item["message"], item["suggestion"])
+            for item in json.loads(capsys.readouterr().out)["diagnostics"]
+        ] == [
+            (
+                "PIE-S2301",
+                "Unknown relation: ghost"
+                + ("" if expected is None else f"; {expected}"),
+                expected,
+            )
+        ], case
+
+
+def test_an_import_hint_names_no_module_that_imports_the_module(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # types.pietto imports q.pietto, and u.pietto imports types.pietto: an
+    # import of either into q.pietto would close a cycle (PIE-S2703).
+    sources = {
+        "q.pietto": "export (shape Item)\nshape Item:\n    id: Int\n"
+        "relationship Same(a: Order, b: Order): a.id == b.id\n",
+        "types.pietto": 'from "q.pietto" import (shape Item)\n'
+        "export (shape Order)\nshape Order:\n    id: Int\n",
+        "u.pietto": 'from "types.pietto" import (shape Order)\nexport (shape Order)\n',
+    }
+    root = _configured_project(tmp_path / "cyclic", sources)
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    assert [
+        (item["code"], item["message"], item["suggestion"])
+        for item in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == [("PIE-S2604", "Unknown relationship parameter shape: Order", None)] * 2
+    root = _configured_project(
+        tmp_path / "acyclic",
+        {**sources, "v.pietto": "shape Order:\n    id: Int\nexport (shape Order)\n"},
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    hint = (
+        'Order is a shape exported by v.pietto: import it with from "v.pietto" '
+        "import (shape Order)"
+    )
+    assert [
+        (item["code"], item["message"], item["suggestion"])
+        for item in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == [
+        (
+            "PIE-S2604",
+            f"Unknown relationship parameter shape: Order; {hint}",
+            hint,
+        )
+    ] * 2
 
 
 def test_an_import_hint_names_only_resolved_exports(
@@ -1402,7 +1562,8 @@ def test_an_import_hint_names_only_resolved_exports(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     # An export that is refused, or a re-export whose own import fails, is no
-    # export to import from.
+    # export to import from, and a module that asks to export the name is not
+    # told to export it.
     root = _configured_project(
         tmp_path,
         {

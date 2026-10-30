@@ -421,11 +421,21 @@ def _build_project_explain_runtime(
     assert type(config) is ProjectConfig
     assert pinned_root is not None
     if config.schema_version != 4:
+        message = "Project Explain runtime requires project schema version 4."
+        if config.schema_version < 3:
+            commands = (
+                "check --project"
+                if config.schema_version == 1
+                else "check --project and emit-sql --project"
+            )
+            message += (
+                f" Use {commands} for this schema version "
+                f"{config.schema_version} project."
+            )
         suggestion = (
             "explain --project reads only a schema version 4 package-root "
-            "project; check --project and emit-sql --project read schema "
-            "version 2 projects, and changing schema_version alone does not "
-            "convert a project."
+            "project, and changing schema_version alone does not convert a "
+            "project."
         )
         if config.schema_version == 3:
             # Schema 4 is schema 3 with a required environment table, which
@@ -441,7 +451,7 @@ def _build_project_explain_runtime(
                 _project_error_diagnostic(
                     ProjectDiscoveryError(
                         ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
-                        "Project Explain runtime requires project schema version 4.",
+                        message,
                         _CONFIG_PATH,
                     ),
                     ProjectExplainLogicalPathKind.PROJECT_RELATIVE,

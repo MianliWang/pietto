@@ -56,7 +56,8 @@ _PROJECT_EMIT_SQL_USAGE = (
     "project mode: pietto emit-sql --project PATH --module LOGICAL_MODULE"
     " --kind {table,query} --name NAME --dialect {postgres,mysql}"
     " --emission-contract FILE [--literal-policy {preserve,bind-safe}]"
-    " [--format {text,json}] [--output FILE]"
+    " [--format {text,json}] [--output FILE]. In project mode --output writes"
+    " the JSON artifact in either --format."
 )
 _METADATA_FAILURE_MESSAGES = {
     "parse": "Semantic Metadata Artifact v1 metadata is unavailable because parsing failed.",

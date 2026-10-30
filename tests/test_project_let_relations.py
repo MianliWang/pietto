@@ -2599,49 +2599,63 @@ def _check_file(
 
 # The FROM input's name is the name written after `from`: after `let r = lhs`
 # and `from r` a query reads `r.id` (language.md, Single-file JOINs), and a
-# project reads it so in every clause. A project keeps reading `lhs.id` there
-# too where 0.1.5 admitted it: in a query without a JOIN, outside `any(...)`;
-# before, selecting `lhs.id` stopped `check --project` with a
-# canonical-inspection ValueError. A single file refuses `lhs.id`.
+# project reads it so in every clause. Every other name, the relation's own
+# included, is refused at the read with the single file's code and message;
+# 0.1.5 and 0.1.6 projects accepted `lhs.id` in a query without a JOIN,
+# outside `any(...)`.
 _FROM_ALIAS = "query q:\n    let r = lhs\n    from r\n"
 FROM_ALIAS_READS = {
-    "select": (_FROM_ALIAS, "    select:\n        id = {}.id\n", "r", "lhs", ()),
-    "select_unaliased": (_FROM_ALIAS, "    select:\n        {}.key\n", "r", "lhs", ()),
+    "select": (_FROM_ALIAS, "    select:\n        id = {}.id\n", "r", ("lhs",)),
+    "select_unaliased": (_FROM_ALIAS, "    select:\n        {}.key\n", "r", ("lhs",)),
     "where": (
         _FROM_ALIAS,
         "    where {}.id > 1\n    select:\n        id\n",
         "r",
-        "lhs",
-        (),
+        ("lhs",),
     ),
     "expression": (
         _FROM_ALIAS,
         "    select:\n        id = {}.id + 1\n",
         "r",
-        "lhs",
-        (),
+        ("lhs",),
     ),
     "window": (
         _FROM_ALIAS,
         "    select:\n        id\n        n = row_number() window(order by {}.id)\n",
         "r",
-        "lhs",
-        (),
+        ("lhs",),
+    ),
+    "order_by": (
+        _FROM_ALIAS,
+        "    select:\n        id\n    order by {}.id\n",
+        "r",
+        ("lhs",),
+    ),
+    "row_let": (
+        _FROM_ALIAS,
+        "    let k = {}.id\n    select:\n        k\n",
+        "r",
+        ("lhs",),
+    ),
+    "aggregate": (_FROM_ALIAS, "    select:\n        m = max({}.key)\n", "r", ("lhs",)),
+    "table": (
+        "table t:\n    let r = lhs\n    from r\n",
+        "    select:\n        id = {}.id\n",
+        "r",
+        ("lhs",),
     ),
     "alias_of_an_alias": (
         "query q:\n    let r = lhs\n    let s = r\n    from s\n",
         "    select:\n        id = {}.id\n",
         "s",
-        "lhs",
-        ("r",),
+        ("lhs", "r"),
     ),
     "alias_of_a_table": (
         "table base:\n    from lhs\n    select:\n        id\n"
         "query q:\n    let r = base\n    from r\n",
         "    select:\n        id = {}.id\n",
         "r",
-        "base",
-        ("lhs",),
+        ("base", "lhs"),
     ),
 }
 
@@ -2650,24 +2664,11 @@ FROM_ALIAS_READS = {
 def test_a_from_alias_names_the_input_in_a_project_as_in_a_single_file(
     tmp_path: Path, case: str
 ) -> None:
-    head, tail, alias, source_name, invalid_names = FROM_ALIAS_READS[case]
-    field = "key" if case == "select_unaliased" else "id"
+    head, tail, alias, invalid_names = FROM_ALIAS_READS[case]
+    field = "key" if case in {"select_unaliased", "aggregate"} else "id"
     body = head + tail.format(alias)
     assert _check(tmp_path / "project", body) == (0, [])
     assert _check_file(tmp_path / "file", body) == (0, [])
-    source_body = head + tail.format(source_name)
-    assert _check(tmp_path / "project-source", source_body) == (0, [])
-    source = (HEAD + source_body).splitlines()
-    line = next(
-        number
-        for number, text in enumerate(source, 1)
-        if f"{source_name}.{field}" in text
-    )
-    column = source[line - 1].index(f"{source_name}.{field}") + 1
-    assert _check_file(tmp_path / "file-source", source_body) == (
-        1,
-        [("PIE-S2102", f"Unknown field: {source_name}.{field}", line, column)],
-    )
     for name in invalid_names:
         body = head + tail.format(name)
         source = (HEAD + body).splitlines()
@@ -2705,7 +2706,7 @@ def test_a_from_alias_source_name_stays_refused_when_an_any_shadows_the_alias(
     assert _check_file(tmp_path / "file", body) == expected
 
 
-def test_a_from_alias_source_name_outside_an_any_still_reads_the_from_input(
+def test_a_from_alias_source_name_outside_an_any_is_refused_as_in_a_single_file(
     tmp_path: Path,
 ) -> None:
     body = (
@@ -2713,7 +2714,9 @@ def test_a_from_alias_source_name_outside_an_any_still_reads_the_from_input(
         "    where any(c.id == r.key for r in rhs) and lhs.id > 0\n"
         "    select:\n        id\n"
     )
-    assert _check(tmp_path, body) == (0, [])
+    expected = (1, [("PIE-S2102", "Unknown field: lhs.id", 9, 47)])
+    assert _check(tmp_path / "project", body) == expected
+    assert _check_file(tmp_path / "file", body) == expected
 
 
 # Inside `any(...)` and in a query with a JOIN a project refuses the relation's
@@ -2785,7 +2788,7 @@ def test_a_from_alias_source_name_keeps_an_unknown_field_diagnostic(
 
 
 @pytest.mark.parametrize("argument", ("{}.text", "lower({}.text)"))
-def test_a_from_alias_source_name_keeps_inline_def_argument_checks(
+def test_a_from_alias_keeps_inline_def_argument_checks(
     tmp_path: Path, argument: str
 ) -> None:
     prefix = (
@@ -2814,7 +2817,9 @@ def test_a_from_alias_source_name_keeps_inline_def_argument_checks(
                 "Invalid argument for def need_int at position 1 (x): expected Int, got Text",
             )
         ]
-    ] * 3
+    ] * 2 + [[("PIE-S2102", "Unknown field: texts.text")]]
+    # The relation's own name is no input, as in a single file.
+    assert results[2] == _check_file(tmp_path / "file", prefix + bodies[2])
 
 
 # Clauses whose refusal of a name that is no input differs between the two
@@ -2826,18 +2831,7 @@ FROM_ALIAS_ACCEPTED = {
         "        n = count()\n    having:\n        n > 1\n",
         True,
     ),
-    "aggregate": (_FROM_ALIAS + "    select:\n        m = max(r.key)\n", True),
-    "aggregate_source": (
-        _FROM_ALIAS + "    select:\n        m = max(lhs.key)\n",
-        False,
-    ),
     "distinct": (_FROM_ALIAS + "    select distinct:\n        id = r.id\n", False),
-    "group_having_source": (
-        _FROM_ALIAS
-        + "    group by:\n        lhs.id\n    select:\n        id = lhs.id\n"
-        "        n = count()\n    having:\n        n > 1\n",
-        False,
-    ),
     "relation_let_body": (
         "query q:\n    let a:\n        let r = lhs\n        from r\n"
         "        select:\n            id = r.id\n    from a\n    select:\n        id\n",
@@ -2854,3 +2848,76 @@ def test_a_from_alias_reads_in_every_clause_a_project_checks(
     assert _check(tmp_path / "project", body) == (0, [])
     if single_file:
         assert _check_file(tmp_path / "file", body) == (0, [])
+
+
+def test_a_from_alias_source_name_is_refused_in_group_by_and_a_relation_let(
+    tmp_path: Path,
+) -> None:
+    grouped = (
+        _FROM_ALIAS
+        + "    group by:\n        lhs.id\n    select:\n        id = lhs.id\n"
+        "        n = count()\n    having:\n        n > 1\n"
+    )
+    group_key = ("PIE-S2102", "Unknown field: lhs.id", 10, 9)
+    selected = ("PIE-S2102", "Unknown field: lhs.id", 12, 14)
+    assert _check_file(tmp_path / "file", grouped) == (1, [group_key, selected])
+    # A project reports a SELECT item's unknown field before a GROUP BY key's,
+    # whatever the name.
+    assert _check(tmp_path / "project", grouped) == (1, [selected, group_key])
+    nested = (
+        "query q:\n    let a:\n        let r = lhs\n        from r\n"
+        "        select:\n            id = lhs.id\n    from a\n    select:\n        id\n"
+    )
+    assert _check(tmp_path / "nested", nested) == (
+        1,
+        [("PIE-S2102", "Unknown field: lhs.id", 11, 18)],
+    )
+
+
+# A project refuses the relation's own name as it refuses any name that is no
+# input, which differs from a single file in two places (language.md): a
+# QUALIFY predicate reports PIE-S2332, and a SELECT item's unknown field comes
+# before a WHERE test's.
+FROM_ALIAS_PROJECT_REFUSALS = {
+    "qualify": (
+        "    select:\n        id\n        n = row_number() window(order by r.id)\n"
+        "    qualify n == 1 and lhs.id > 1\n",
+        [("PIE-S2332", "Unknown QUALIFY reference: lhs.id", 12, 24)],
+        [("PIE-S2102", "Unknown field: lhs.id", 12, 24)],
+    ),
+    "qualify_block": (
+        "    select:\n        id\n        n = row_number() window(order by r.id)\n"
+        "    qualify:\n        lhs.id > 1\n",
+        [("PIE-S2332", "Unknown QUALIFY reference: lhs.id", 13, 9)],
+        [("PIE-S2102", "Unknown field: lhs.id", 13, 9)],
+    ),
+    "where_and_select": (
+        "    where lhs.id > 1\n    select:\n        a = lhs.key\n",
+        [
+            ("PIE-S2102", "Unknown field: lhs.key", 11, 13),
+            ("PIE-S2102", "Unknown field: lhs.id", 9, 11),
+        ],
+        [
+            ("PIE-S2102", "Unknown field: lhs.id", 9, 11),
+            ("PIE-S2102", "Unknown field: lhs.key", 11, 13),
+        ],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(FROM_ALIAS_PROJECT_REFUSALS))
+def test_a_from_alias_source_name_is_refused_as_any_unknown_project_name(
+    tmp_path: Path, case: str
+) -> None:
+    tail, project, file = FROM_ALIAS_PROJECT_REFUSALS[case]
+    body = _FROM_ALIAS + tail
+    assert _check(tmp_path / "project", body) == (1, project)
+    assert _check_file(tmp_path / "file", body) == (1, file)
+    nosuch = body.replace("lhs.", "nosuch.")
+    assert _check(tmp_path / "nosuch", nosuch) == (
+        1,
+        [
+            (code, message.replace("lhs.", "nosuch."), line, column)
+            for code, message, line, column in project
+        ],
+    )

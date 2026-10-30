@@ -2,8 +2,9 @@
 
 ## Unreleased changes following 0.1.6
 
-These notes cover changes after the published 0.1.6 release. They do not
-assign a new version or replace the published 0.1.6 release notes.
+These changes are on `main` after `0.1.6` and are in no published release
+yet. They do not assign a new version or replace the published 0.1.6 release
+notes.
 
 ### Checking and diagnostics
 
@@ -50,6 +51,67 @@ assign a new version or replace the published 0.1.6 release notes.
   Unnest in a relation let, or one beside grouping, aggregates, windows,
   `select distinct`, `any(...)`, a Collect read, another Unnest or a RIGHT or
   FULL JOIN that may null-extend its binding.
+
+### Project mode
+
+- **A relation-name qualifier through a `let` alias is refused, as in a
+  single file.** After `let c = customers` and `from c`, `0.1.6` projects
+  accepted a read such as `customers.price` in a query without a JOIN,
+  outside `any(...)`, in every clause but HAVING and the ORDER BY of a
+  grouped query, and `emit-sql --project` read the field of `c`. An
+  explicit-module project now refuses it as it refuses any name that is no
+  input, so such a program fails `check --project` and is blocked by
+  `emit-sql --project`. Rewrite the read with the alias: `c.price`. A query
+  with a JOIN, or a read inside `any(...)`, already refused it. At the read
+  a project reports what a single file reports, such as PIE-S2102
+  `Unknown field: customers.price`, with these known limitations, which
+  predate this change:
+  - a QUALIFY predicate that reads it outside a window reports PIE-S2332
+    `Unknown QUALIFY reference: customers.price`, as for any unknown name
+    there, where a single file reports PIE-S2102;
+  - after a JOIN a single file adds
+    `; customers names a relation, not a binding: write c.price`, and a
+    project does not;
+  - when a query has several such reads, a project can list a SELECT item's
+    diagnostic before a WHERE test's or a GROUP BY key's, as for any unknown
+    field, where a single file follows the source order.
+- **An import hint is also the JSON suggestion, names a declaration that is
+  not exported, and never closes a cycle.** The hint that `0.1.6` added to
+  PIE-S2002, PIE-S2303, PIE-S2604 and PIE-S2301 when another module exports
+  the unknown name, and to PIE-S2103 for a `def` of another module, is now
+  also the diagnostic's JSON `suggestion`, which was null; the message is
+  unchanged. A module that imports the module of the diagnostic, directly
+  or through others, is no longer named, since that import would close a
+  module import cycle (PIE-S2703). When no other module exports the name,
+  the modules that declare it without asking to export it are named the
+  same way, with the export to add, where `0.1.6` gave no hint:
+  `Unknown relationship parameter shape: Order; Order is a shape declared but not exported by types.pietto: export it there with export (shape Order), then import it with from "types.pietto" import (shape Order)`.
+  The unknown relation of a Collect read gets no hint, since `collect`
+  reads only a relation let of its own table or query (PIE-S2803), which
+  no import gives.
+- **`explain --project` names the commands for schema 1 and 2 projects.**
+  Its `config_schema` refusal of a `schema_version = 2` project now reads
+  `Project Explain runtime requires project schema version 4. Use check --project and emit-sql --project for this schema version 2 project.`,
+  and of a `schema_version = 1` project
+  `Project Explain runtime requires project schema version 4. Use check --project for this schema version 1 project.`;
+  `0.1.6` gave only the first sentence. Its suggestion, for every schema
+  version below 4, is now
+  `explain --project reads only a schema version 4 package-root project, and changing schema_version alone does not convert a project.`,
+  followed for schema 3 by the one-step conversion as before; it no longer
+  names the commands, which the message of a schema 1 or 2 project now
+  does. The code, location and exit status are unchanged.
+
+### Command line
+
+- `pietto emit-sql --help` ends its project-mode usage line with
+  `In project mode --output writes the JSON artifact in either --format.`,
+  as the [project guide](project-package.md) and the project-mode help of
+  `--output` already say. The behaviour is unchanged.
+
+### Release notes
+
+- The 0.1.6 notes below were corrected after publication: see
+  [Corrections after publication](#corrections-after-publication).
 
 ## Corrections and MySQL parity public alpha release notes — 0.1.6
 
@@ -101,10 +163,11 @@ sections from 0.1.5 down describe published files.
   problem now name it.
 - **Project mode.** After an external review of 0.1.5 project mode,
   `check --project` and `emit-sql --project` report what a single file
-  reports in many more places. An ambiguous or unknown read, a failed import
-  and a grouping or aggregate error in a relation without JOIN inputs keep
-  their single-file code, message and position instead of a bare
-  `PIE-S2333`; follow-on diagnostics of an error already reported are
+  reports in many more places. An ambiguous or unknown read and a grouping
+  or aggregate error in a relation without JOIN inputs keep their
+  single-file code, message and position instead of a bare `PIE-S2333`; a
+  failed import is no longer masked, and the relations that read it add no
+  bare `PIE-S2333`; follow-on diagnostics of an error already reported are
   dropped; each module gets the single-file declaration checks; and import
   or export statements outside a `schema_version = 2` project are
   `PIE-S2708`. A wrong-kind import is `PIE-S2705`, re-exports resolve
@@ -115,9 +178,9 @@ sections from 0.1.5 down describe published files.
   project guide and contracts match the code. The SQL that project emission
   still produces is unchanged. The known limitations under Project mode below
   list what remains, among them slow checks of layered JOIN DAGs, some bare
-  `PIE-S2333`, a mixed aggregate JOIN with ORDER BY that reports only
-  `PIE-S2312`, a relation-name qualifier through a `let` alias that is still
-  accepted, and a repeated unknown SELECT item reported twice.
+  `PIE-S2333`, a mixed aggregate JOIN that reports only `PIE-S2312`, a
+  relation-name qualifier through a `let` alias that is still accepted, and
+  a repeated unknown SELECT item reported twice.
 - **R2 and a trailing `any`.** `save_recoverable` and `recover` accept a
   trailing `where any(...)` or `where not any(...)`.
 - **Python execution dependencies.** `pietto[execute-mysql]` installs
@@ -1105,16 +1168,21 @@ These project-mode limits remain. None of them produces wrong SQL.
   UTF-8 prints `pietto: error: terminal output could not be encoded` on
   stderr and no `INPUT_REJECTED` usage document (exit `2`), as 0.1.5 did;
   `--format text` prints the usage error.
-- **A mixed aggregate JOIN with ORDER BY.** A relation with JOIN inputs that
-  mixes an aggregate with another projection and has ORDER BY reports only
-  PIE-S2312 in a project; a single file also reports the PIE-S2380 of an
-  ORDER BY key that reads an input field outside an aggregate.
+- **A mixed aggregate JOIN.** A relation with JOIN inputs that mixes an
+  aggregate with another projection reports only PIE-S2312 in a project,
+  with or without ORDER BY. A single file also reports PIE-S2381 when an
+  aggregate may read rows repeated by a JOIN and, with ORDER BY, the
+  PIE-S2380 of an ORDER BY key that reads an input field outside an
+  aggregate. A project relation whose projections are all aggregates still
+  reports that fan-out, as a PIE-S2333 with its cause.
 - **A relation-name qualifier through a `let` alias is accepted.** After
   `let c = customers` and `from c`, a read such as `customers.price` is
   accepted by `check --project`, and `emit-sql --project` reads the field of
   `c`, while a single file refuses it with PIE-S2102
   `Unknown field: customers.price`. Refusing it in a project would refuse
-  programs that check today, so it waits for a decision.
+  programs that check today, so it waits for a decision. The change after
+  `0.1.6` that refuses it is described under
+  [Unreleased changes following 0.1.6](#unreleased-changes-following-016).
 - **A repeated unknown SELECT item.** A SELECT item of an unknown name
   written twice, such as `nosuch`, reports PIE-S2102 at both items in a
   project; a single file reports it at the first, with the PIE-S2305 that
@@ -1126,6 +1194,35 @@ These project-mode limits remain. None of them produces wrong SQL.
   `Imported declaration is private or not exported: ...`) beside the
   target's error, which it follows. An import of the very kind and name
   whose export the target refuses (PIE-S2704) adds nothing.
+
+### Still deferred
+
+- Reporting a swapped argument pair as one diagnostic, which the 0.1.5 notes
+  deferred, is not in this release: a relationship call whose arguments are
+  given in the wrong order, such as `PlacedBy(customers, order)` for
+  `relationship PlacedBy(order: Order, customer: Customer)`, still reports
+  PIE-S2604 at each argument.
+
+### Corrections after publication
+
+These notes were corrected after `0.1.6` was published; the release itself
+is unchanged.
+
+- The Project mode highlight said that a failed import keeps its single-file
+  code, message and position. A single file resolves no import, so it has no
+  such code; the highlight now says what changed, as
+  [Module diagnostics](#module-diagnostics) describes: the import error is no
+  longer masked, and the relations that read the failed import add no bare
+  `PIE-S2333`.
+- The known limitation of a mixed aggregate JOIN named only an ORDER BY
+  case and the PIE-S2380 that a single file adds. It now also names the
+  fan-out PIE-S2381 that a single file reports, with or without ORDER BY.
+- The section [Still deferred](#still-deferred) was added: the 0.1.5 notes
+  deferred reporting a swapped argument pair as one diagnostic, and these
+  notes did not say that it stays deferred.
+- The known limitation that a project accepts a relation-name qualifier
+  through a `let` alias now points to the change after `0.1.6` that refuses
+  it; `0.1.6` itself accepts such a read.
 
 ## Modern-syntax public alpha release notes — 0.1.5
 

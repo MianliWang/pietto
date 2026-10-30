@@ -1529,10 +1529,6 @@ FROM_ALIAS_PROJECTS = {
         _CAPTURE.format("r", "    let r = lhs\n    from r\n"),
         _CAPTURE.format("lhs", "    from lhs\n"),
     ),
-    "source_name": (
-        "query result:\n    let r = lhs\n    from r\n    select:\n        a = lhs.id\n",
-        "query result:\n    from lhs\n    select:\n        a = lhs.id\n",
-    ),
 }
 
 
@@ -1556,19 +1552,15 @@ def test_a_from_alias_emits_the_project_sql_of_the_relation_read_directly(
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_a_from_alias_qualify_window_keeps_source_and_binding_spellings(
-    tmp_path, target
-):
+def test_a_from_alias_qualify_window_keeps_the_binding_spelling(tmp_path, target):
     bodies = (
         "query result:\n    from lhs\n    select:\n        id\n"
         "    qualify row_number() window(order by lhs.id) <= 3\n",
         "query result:\n    let r = lhs\n    from r\n    select:\n        id\n"
         "    qualify row_number() window(order by r.id) <= 3\n",
-        "query result:\n    let r = lhs\n    from r\n    select:\n        id\n"
-        "    qualify row_number() window(order by lhs.id) <= 3\n",
     )
     documents = []
-    for name, body in zip(("direct", "binding", "source"), bodies, strict=True):
+    for name, body in zip(("direct", "binding"), bodies, strict=True):
         item = probe.join_witness(target, body)
         _, outcome = probe.build_case(
             tmp_path / name, item["source"], item["contract"], item["policy"]
@@ -1577,6 +1569,45 @@ def test_a_from_alias_qualify_window_keeps_source_and_binding_spellings(
     assert {document["status"] for document in documents} == {"VERIFIED"}
     for key in ("sql", "columns", "fixed_values", "parameter_uses", "requirements"):
         assert all(document[key] == documents[0][key] for document in documents), key
+
+
+# After `let r = lhs` and `from r` the relation's own name is no input: the
+# read is the single file's PIE-S2102 and emission is BLOCKED. 0.1.5 and 0.1.6
+# projects emitted it as `r.id`.
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("tail", "column"),
+    (
+        ("    select:\n        a = lhs.id\n", 13),
+        (
+            "    select:\n        id\n    qualify row_number() window(order by lhs.id) <= 3\n",
+            42,
+        ),
+    ),
+    ids=("select", "qualify"),
+)
+def test_a_from_alias_source_name_is_blocked_with_the_unknown_field(
+    tmp_path, target, tail, column
+):
+    body = "query result:\n    let r = lhs\n    from r\n" + tail
+    item = probe.join_witness(target, body)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "BLOCKED"
+    # The read is on the body's last line, after the five lines of shape and
+    # sources that the witness puts first.
+    line = body.count("\n") + 5
+    assert [
+        (
+            diagnostic["code"],
+            diagnostic["message"],
+            diagnostic["location"]["line"],
+            diagnostic["location"]["column"],
+        )
+        for diagnostic in document["diagnostics"]
+    ] == [("PIE-S2102", "Unknown field: lhs.id", line, column)]
 
 
 def test_postgres_select_item_round_reads_a_let_scale(tmp_path):

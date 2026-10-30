@@ -1451,29 +1451,6 @@ def normalize_project_query_names(
 
             any_trace.record(definition, normalized_definition)
             scopes = _lexical_any_scopes(normalized_definition, lowered)
-            from_binding = (
-                from_clause.binding_name
-                if isinstance(from_clause, ast.FromClause)
-                else None
-            )
-            from_source = (
-                from_clause.source_name
-                if isinstance(from_clause, ast.FromClause)
-                else None
-            )
-            from_fields = (
-                frozenset(input_field_names(visible[0]))
-                if from_binding is not None and visible
-                else frozenset()
-            )
-            # The compatibility rule keeps only what 0.1.5 admitted: an
-            # original-name read in a query without an authored JOIN, outside
-            # any `any(...)` (a lowered one keeps its scope over its ON).
-            original_reads = not any(
-                id(join) not in generated_joins
-                or join.target_binding_name == from_source
-                for join in definition.join_clauses
-            )
 
             def normalize_iterator(before: object, after: object) -> object:
                 result = after
@@ -1513,18 +1490,6 @@ def normalize_project_query_names(
                         result = replace(
                             after, relation_name=failed_aliases[after.relation_name]
                         )
-                    return _scalar_contracts(before, result)
-                if (
-                    type(after) is ast.DottedNameExpr
-                    and from_binding is not None
-                    and from_binding != from_source
-                    and original_reads
-                    and len(after.parts) == 2
-                    and after.parts[0] == from_source
-                    and after.parts[1] in from_fields
-                    and not scopes.get(id(before))
-                ):
-                    result = replace(after, parts=(from_binding, after.parts[1]))
                 return _scalar_contracts(before, result)
 
             rewritten = _rebuild(

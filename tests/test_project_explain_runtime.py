@@ -522,20 +522,30 @@ _SCHEMA3_CONVERSION = (
 
 
 @pytest.mark.parametrize(
-    ("config", "conversion"),
+    ("config", "commands", "conversion"),
     (
-        ('schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n', ""),
-        ('schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', ""),
+        (
+            'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n',
+            " Use check --project for this schema version 1 project.",
+            "",
+        ),
+        (
+            'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n',
+            " Use check --project and emit-sql --project for this schema version 2"
+            " project.",
+            "",
+        ),
         (
             'schema_version = 3\n[package]\npath = "pkg"\nnamespace = "test"\n'
             f'name = "example"\nversion = "1.0.0"\nsha256 = "{"a" * 64}"\n',
+            "",
             _SCHEMA3_CONVERSION,
         ),
     ),
     ids=("schema1", "schema2", "schema3"),
 )
 def test_a_root_below_schema4_is_refused_with_the_commands_that_read_it(
-    tmp_path: Path, config: str, conversion: str
+    tmp_path: Path, config: str, commands: str, conversion: str
 ) -> None:
     (tmp_path / "pietto.toml").write_text(config, encoding="utf-8")
 
@@ -560,9 +570,8 @@ def test_a_root_below_schema4_is_refused_with_the_commands_that_read_it(
                 end_line=None,
                 end_column=None,
             ),
-            "Project Explain runtime requires project schema version 4.",
-            "explain --project reads only a schema version 4 package-root project; "
-            "check --project and emit-sql --project read schema version 2 projects, "
+            "Project Explain runtime requires project schema version 4." + commands,
+            "explain --project reads only a schema version 4 package-root project, "
             "and changing schema_version alone does not convert a project."
             + conversion,
         )
