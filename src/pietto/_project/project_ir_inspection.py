@@ -816,6 +816,10 @@ def _project_ir_pure_document(
     )
     for position, fragment in enumerate(inspection.fragments):
         identity = fragment.subject.anchor.identity
+        # An Unnest shares its declaration's positions: no record has its
+        # locator yet (S06), so its inspection fails closed here.
+        if identity.unnest_position is not None:
+            raise ValueError("Project IR inspection has no Unnest locator.")
         _pure_record(
             records,
             "fragment",

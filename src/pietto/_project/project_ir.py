@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pietto._project.model import (
+    project_declaration_occurrence_identity,
     ProjectRelationRowSchemaStatus,
     ProjectSymbolKind,
     ProjectSymbolNamespace,
@@ -108,13 +109,7 @@ def _declaration_identity(
 ) -> ProjectDeclarationOccurrenceIdentity:
     if type(occurrence) is not ProjectDeclarationOccurrence:
         raise TypeError("Declaration identity requires an exact occurrence.")
-    return ProjectDeclarationOccurrenceIdentity(
-        identity=occurrence.identity,
-        module_position=occurrence.module_position,
-        declaration_position=occurrence.declaration_position,
-        let_position=occurrence.let_position,
-        table_function=occurrence.table_function is not None,
-    )
+    return project_declaration_occurrence_identity(occurrence)
 
 
 def _validate_relation_identity(identity: object, *, label: str) -> None:

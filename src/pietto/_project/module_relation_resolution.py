@@ -6,6 +6,7 @@ from pietto.ast_nodes import (
     SetOperand,
     SetRelationDef,
     TableFunctionRelationDef,
+    UnnestRelationDef,
     ValuesRelationDef,
 )
 
@@ -128,6 +129,7 @@ _DefinitionT = (
     | SetRelationDef
     | ValuesRelationDef
     | TableFunctionRelationDef
+    | UnnestRelationDef
 )
 _KeyT = TypeVar("_KeyT")
 _ObjectT = TypeVar("_ObjectT")
@@ -657,6 +659,9 @@ class ProjectModuleRelationResolutionEnvironment:
     expression_reads: tuple[ProjectResolvedExpressionBlockRead, ...] = ()
     # One symbol per table-function occurrence, bound only to its own reader.
     table_function_symbols: tuple[ProjectResolvedModuleRelationSymbol, ...] = ()
+    # One symbol per Unnest occurrence, bound only to its own JOIN by
+    # identity (D-S05-1); no scoped name lookup ever returns one.
+    unnest_symbols: tuple[ProjectResolvedModuleRelationSymbol, ...] = ()
     _symbols_by_name: Mapping[str, tuple[ProjectResolvedModuleRelationSymbol, ...]] = (
         field(init=False, repr=False, compare=False, hash=False)
     )
@@ -736,6 +741,22 @@ class ProjectModuleRelationResolutionEnvironment:
             raise ValueError(
                 "Table-function symbols must retain their module-local occurrence."
             )
+        _require_tuple_items(
+            self.unnest_symbols,
+            ProjectResolvedModuleRelationSymbol,
+            "Relation environment Unnest symbols",
+        )
+        if any(
+            symbol.local_occurrence is None
+            or symbol.local_occurrence.unnest is None
+            or symbol.owning_module_path != self.module.path
+            for symbol in self.unnest_symbols
+        ) or len({id(s.local_occurrence) for s in self.unnest_symbols}) != len(
+            self.unnest_symbols
+        ):
+            raise ValueError(
+                "Unnest symbols must retain their module-local occurrence."
+            )
         if type(self.blocked_let_scopes) is not tuple or any(
             type(item) is not tuple
             or len(item) != 2
@@ -803,6 +824,7 @@ class ProjectModuleRelationResolutionEnvironment:
                 SetRelationDef,
                 ValuesRelationDef,
                 TableFunctionRelationDef,
+                UnnestRelationDef,
             }:
                 raise ValueError("Relation row fact requires a relation definition.")
             row_facts.setdefault(cast(_DefinitionT, definition), []).append(fact)
@@ -850,6 +872,17 @@ class ProjectModuleRelationResolutionEnvironment:
             return ()
         return self._let_symbols_by_scope.get(scope) or self.find_relation_name(
             local_name
+        )
+
+    def find_unnest_symbol(
+        self, occurrence: ProjectDeclarationOccurrence
+    ) -> tuple[ProjectResolvedModuleRelationSymbol, ...]:
+        """Return the one symbol of an exact Unnest occurrence, or empty."""
+
+        return tuple(
+            symbol
+            for symbol in self.unnest_symbols
+            if symbol.local_occurrence is occurrence
         )
 
     def find_scoped_issues(
@@ -917,6 +950,7 @@ class ProjectModuleRelationResolutionEnvironment:
             SetRelationDef,
             ValuesRelationDef,
             TableFunctionRelationDef,
+            UnnestRelationDef,
         }:
             raise TypeError("Row-fact lookup requires a relation definition.")
         return self._row_facts_by_definition.get(definition, ())
@@ -1033,6 +1067,9 @@ class _RelationResolutionDraft:
     table_function_symbols: list[ProjectResolvedModuleRelationSymbol] = field(
         default_factory=list
     )
+    unnest_symbols: list[ProjectResolvedModuleRelationSymbol] = field(
+        default_factory=list
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1146,6 +1183,7 @@ def _build_project_module_relation_resolution_set(
             blocked_let_scopes=tuple(sorted(draft.blocked_let_scopes)),
             expression_reads=tuple(draft.expression_reads),
             table_function_symbols=tuple(draft.table_function_symbols),
+            unnest_symbols=tuple(draft.unnest_symbols),
         )
         environments.append(environment)
         environment_by_path[module.path] = environment
@@ -1672,6 +1710,10 @@ def _exact_imported_target_blocker_roots(
 
 
 def _collect_and_resolve_references(draft: _RelationResolutionDraft) -> None:
+    draft.unnest_symbols.extend(
+        _local_relation_symbol(draft.module.path, occurrence)
+        for occurrence in draft.catalog.unnests
+    )
     symbols_by_name = {symbol.local_name: symbol for symbol in draft.symbols}
     lets_by_scope = {
         (symbol.target_occurrence.declaration_position, symbol.local_name): symbol
@@ -2415,6 +2457,7 @@ def _build_module_row_facts(
             SetRelationDef,
             ValuesRelationDef,
             TableFunctionRelationDef,
+            UnnestRelationDef,
         }:
             draft.row_facts[occurrence] = ProjectModuleRelationRowFact(
                 owner=occurrence,

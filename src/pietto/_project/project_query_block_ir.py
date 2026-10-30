@@ -211,6 +211,7 @@ from pietto._project.project_scalar_references import (
 from pietto._project.project_scalar_namespaces import (
     ProjectConcreteJoinedNamespaceExpression,
 )
+from pietto._project.project_unnest import ProjectUnnestRelation
 from pietto.ast_nodes import (
     CapturedFieldExpr,
     DottedNameExpr,
@@ -4806,6 +4807,10 @@ def build_project_query_block_ir(
 def _build_values_structure(
     entry: ProjectCompletedValuesOutput, allocation: ProjectIRAllocationState
 ) -> _PendingValues:
+    # An Unnest's rows have no query-block operator yet (S06), never VALUES:
+    # it fails closed here.
+    if isinstance(entry.root, ProjectUnnestRelation):
+        raise ValueError("Query-block IR has no Unnest operator.")
     relation = ProjectIRRelationAnchor(identity=_declaration_identity(entry.owner))
     node = ProjectIRPlanNodeOccurrence(
         ref=ProjectIRPlanNodeRef(

@@ -43,7 +43,7 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 | [S02](slice-02.md) | 实测 PostgreSQL carrier、精度、实际内存与大小边界及保存可行性，锁定可证明的准入域（D71.07 的起点假设逐条证实或替换），输出“前提—证据来源—核实时点—适用范围/有效期”表；只有常量输入可行时回到所有者做范围决定 | A06, A08, A09, A10 | S01 | 实验（实验部分已授权先于 S01） |
 | S03 | 最小现代源语法：`name = collect let_name`（`collect` 为上下文词；预计要改 grammar，并按规定重新生成 parser、跑复现检查）与 `let o = unnest(binding.field)` 作 JOIN 输入（只改语义准入）；同名用户 `def` 的区分规则；嵌套类型与 occurrence/nullability 契约；未知 variant 先失败关闭；单文件、LEGACY_FLAT、PACKAGE_ROOT 的确定诊断（说明怎样建 `schema_version = 2` 项目）；D71.01/D71.02 批准的公开诊断变化与逐字消息；`explain` 嵌套类型显示为 UX 候选 | A01 | S01 | 必做 |
 | [S04](slice-04.md) | Collect 对已完成关系的绑定：closed/captured、显式 capture 与参数、空集与 bag、限定准入（一次使用、Top-K、未分组 SELECT）；被 collect 读的 let 未写 `order by` 的确定诊断（D71.03） | A01, A02, A03 | S03 | 必做 |
-| S05 | CROSS/INNER/LEFT Unnest 的绑定、presence、输出字段/nullability/grain 与拒绝（JOIN 必须写种类，参数必须是可见 binding 的嵌套字段） | A01, A04 | S03, S04 | 必做 |
+| [S05](slice-05.md) | CROSS/INNER/LEFT Unnest 的绑定、presence、输出字段/nullability/grain 与拒绝（JOIN 必须写种类，参数必须是可见 binding 的嵌套字段） | A01, A04 | S03, S04 | 必做 |
 | S06 | IR/ProjectSQLPlan 中的 Collect/Unnest 表达、source closure、需求与独立 correspondence | A02, A03, A04, A06 | S04, S05 | 必做 |
 | S07 | 递归 ResultContract、可移植闭合 schema、层级意义与完整 digest 规则 | A07, A08 | S02, S06 | 必做 |
 | S08 | PostgreSQL 的 Collect source emission：closed/captured、空集、顺序契约与 Top-K、并列子表的独立运输与真实 artifact | A02, A03, A05, A06 | S02, S06, S07 | 必做 |

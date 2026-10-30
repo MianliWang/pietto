@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
+from pietto.ast_nodes import (
+    SetRelationDef,
+    TableFunctionRelationDef,
+    UnnestRelationDef,
+    ValuesRelationDef,
+)
 from pietto._flat_relational_admission import (
     _EXPLICIT_MODULES,
     availability_diagnostic,
@@ -82,7 +87,10 @@ if TYPE_CHECKING:
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
     from pietto._project.module_attribution import ProjectModuleAttributionFactSet
     from pietto._project.module_bindings import ProjectModuleBindingEnvironmentSet
-    from pietto._project.module_catalog import ProjectModuleCatalogSet
+    from pietto._project.module_catalog import (
+        ProjectDeclarationOccurrence,
+        ProjectModuleCatalogSet,
+    )
     from pietto._project.module_exports import ProjectModuleExportSurfaceSet
     from pietto._project.module_graph import (
         ProjectModuleDiagnosticSet,
@@ -617,7 +625,9 @@ class ProjectSymbol:
     name: str
     path: str
     location: SourceLocation
-    definition: Definition | ValuesRelationDef | TableFunctionRelationDef
+    definition: (
+        Definition | ValuesRelationDef | TableFunctionRelationDef | UnnestRelationDef
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -666,6 +676,9 @@ class ProjectDeclarationOccurrenceIdentity:
     let_position: int | None = None
     # True for the table-function input of the body at these positions.
     table_function: bool = False
+    # D-S05-1: the Unnest let at this index of the declaration body's
+    # authored `let` declarations; one body may write several.
+    unnest_position: int | None = None
 
     def __post_init__(self) -> None:
         if type(self.identity) is not ProjectNominalDeclarationIdentity:
@@ -676,12 +689,40 @@ class ProjectDeclarationOccurrenceIdentity:
             _validate_position(self.let_position, "let")
         if type(self.table_function) is not bool:
             raise TypeError("Declaration occurrence table-function flag is a bool.")
+        if self.unnest_position is not None:
+            _validate_position(self.unnest_position, "Unnest")
+            if self.let_position is not None or self.table_function:
+                raise ValueError(
+                    "An Unnest occurrence is neither a relation let nor a "
+                    "table-function input."
+                )
 
     @property
     def block_local(self) -> bool:
-        """A relation let or table-function input, never a declaration."""
+        """A relation let, table-function input or Unnest, never a declaration."""
 
-        return self.let_position is not None or self.table_function
+        return (
+            self.let_position is not None
+            or self.table_function
+            or self.unnest_position is not None
+        )
+
+
+def project_declaration_occurrence_identity(
+    occurrence: ProjectDeclarationOccurrence,
+) -> ProjectDeclarationOccurrenceIdentity:
+    """The one semantic locator of one catalog occurrence (D-S05-1): every
+    reader builds it here, so an Unnest occurrence never takes the identity
+    of the declaration whose body writes it."""
+
+    return ProjectDeclarationOccurrenceIdentity(
+        identity=occurrence.identity,
+        module_position=occurrence.module_position,
+        declaration_position=occurrence.declaration_position,
+        let_position=occurrence.let_position,
+        table_function=occurrence.table_function is not None,
+        unnest_position=occurrence.unnest_position,
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -3796,12 +3837,21 @@ def _project_symbol(
 
 
 def _classify_project_definition(
-    definition: Definition | ValuesRelationDef | TableFunctionRelationDef,
+    definition: Definition
+    | ValuesRelationDef
+    | TableFunctionRelationDef
+    | UnnestRelationDef,
 ) -> tuple[ProjectSymbolNamespace, ProjectSymbolKind]:
     """Classify a top-level definition into the Phase 45 hybrid namespace."""
 
     if isinstance(
-        definition, (SetRelationDef, ValuesRelationDef, TableFunctionRelationDef)
+        definition,
+        (
+            SetRelationDef,
+            ValuesRelationDef,
+            TableFunctionRelationDef,
+            UnnestRelationDef,
+        ),
     ):
         return ProjectSymbolNamespace.RELATION, ProjectSymbolKind(definition.kind.value)
     if isinstance(definition, TypeDef):

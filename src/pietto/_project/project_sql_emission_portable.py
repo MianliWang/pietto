@@ -323,6 +323,9 @@ def _occurrence(occurrence):
     }
     # A relation let and a table-function input stay apart from their
     # declaration; a declaration's own occurrence keeps its existing encoding.
+    # An Unnest locator has no portable form yet, so it fails closed.
+    if occurrence.unnest_position is not None:
+        raise TypeError("Portable emission has no Unnest locator.")
     if occurrence.let_position is not None:
         encoded["let_position"] = occurrence.let_position
     if occurrence.table_function:

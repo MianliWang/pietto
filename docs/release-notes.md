@@ -29,6 +29,17 @@ assign a new version or replace the published 0.1.6 release notes.
   read is `PIE-S2370`, whose read-once message now reads ``... can be read
   only once, by exists, scalar, in, collect or a join in the body of q.`` in
   every project, including those that use no `collect`.
+- **Unnest binding in explicit-module projects.** `let o = unnest(p.field)`
+  followed by one `cross join o`, `inner join o on ...` or `left join o on True`
+  now reads the rows of a nested field that a `collect` SELECT item outputs:
+  `o` has the collected let's fields, and its JOIN reports what any JOIN
+  reports. Each Unnest let is still `PIE-S2802`, so such a project does not
+  yet check or emit SQL. New errors say why an Unnest is not admitted: `PIE-S2806` for an argument that is not a nested field of the FROM
+  input or a CROSS, INNER or LEFT JOIN written before the let, and `PIE-S2807`
+  for a RIGHT or FULL JOIN of it, a second JOIN, another read of its name, an
+  Unnest in a relation let, or one beside grouping, aggregates, windows,
+  `select distinct`, `any(...)`, a Collect read, another Unnest or a RIGHT or
+  FULL JOIN that may null-extend its binding.
 
 ## Corrections and MySQL parity public alpha release notes — 0.1.6
 

@@ -47,6 +47,7 @@ from pietto._project import (
     project_value_fds,
 )
 from pietto._project.model import (
+    project_declaration_occurrence_identity,
     ProjectRelationRowSchemaReason,
     ProjectSemanticResult,
     ProjectSymbolNamespace,
@@ -105,6 +106,7 @@ from pietto.ast_nodes import (
     SetRelationDef,
     ShapeDef,
     SourceDef,
+    Span,
     TableDef,
     TableFunctionRelationDef,
     ValuesRelationDef,
@@ -883,12 +885,20 @@ def _join_causes(
     """Name what each JOIN without `on` needs once its target is concrete.
 
     A declared relationship never joins by itself: only an `on` matches the
-    rows of such a JOIN, so it names the inputs it would match. The rows of an
-    Unnest JOIN's target are its nested field's (D71.02), so it names them
-    before S05 makes that target concrete.
+    rows of such a JOIN, so it names the inputs it would match. An Unnest
+    occurrence whose field is typed is such a target too: like a table
+    function's, its rows are complete only when completion reads them
+    (D-S05-1), and its JOIN binds it by identity.
     """
-    from pietto._project.nested_relation_facts import is_unnest_join
-
+    typed_unnests = (
+        ()
+        if nested is None
+        else tuple(
+            fact.occurrence
+            for fact in nested.unnest_inputs
+            if fact.nested_type is not None
+        )
+    )
     if conditions is None:
         return ()
     uses = conditions.uses
@@ -925,8 +935,12 @@ def _join_causes(
                 # Terminal/resolution/condition errors remain in _final_diagnostics,
                 # including its fallback for an unavailable input with no own error.
                 continue
+            target = use.target_binding.target
             if use.target_binding.output is None and not (
-                nested is not None and is_unnest_join(nested, entry.owner, use.clause)
+                target is not None
+                and target.target_occurrence.unnest is not None
+                and project_declaration_occurrence_identity(target.target_occurrence)
+                in typed_unnests
             ):
                 continue
             names = tuple(
@@ -1589,6 +1603,90 @@ def _final_diagnostics(
         for facts in environment.relation_facts
         if any(item.nested_type is None for item in facts.collect_reads)
     )
+    # An Unnest of one resolved binding whose field is not typed has its own
+    # error (PIE-S2102, PIE-S2806) or its producer's: its JOIN reports nothing
+    # of its own, and neither does the relation that writes it (D-S05-5). A
+    # binding that several inputs share or that does not resolve explains no
+    # field, so that JOIN reports what any JOIN reports (D-S05-2).
+    untyped_unnests = (
+        ()
+        if nested is None
+        else tuple(
+            fact.occurrence
+            for fact in nested.unnest_inputs
+            if fact.nested_type is None and fact.source_target is not None
+        )
+    )
+    unnest_conditions = tuple(
+        condition
+        for condition in (() if conditions is None else conditions.entries)
+        if (target := condition.use.target_binding.target) is not None
+        and target.target_occurrence.unnest is not None
+        and project_declaration_occurrence_identity(target.target_occurrence)
+        in untyped_unnests
+    )
+    unnest_owners = frozenset(id(item.ledger.owner) for item in unnest_conditions)
+    # Only the JOIN's input diagnostics are retired; its other errors stay
+    # (Gate-1 S05 section 5.1).
+    unnest_join_ids = frozenset(
+        id(item)
+        for condition in unnest_conditions
+        for item in condition.diagnostics
+        if item.code in {"PIE-S2333", "PIE-S2334", "PIE-S2335"}
+    )
+    unnest_join_sites = frozenset(
+        _site_key(span)
+        for condition in unnest_conditions
+        for span in (
+            condition.use.clause.span,
+            *(
+                ()
+                if condition.use.clause.on_clause is None
+                else (condition.use.clause.on_clause.span,)
+            ),
+        )
+    )
+
+    def unnest_join_noise(diagnostic: Diagnostic) -> bool:
+        return id(diagnostic) in unnest_join_ids or (
+            diagnostic.code == "PIE-S2334"
+            and diagnostic.location is not None
+            and _location_key(diagnostic.location) in unnest_join_sites
+        )
+
+    final_entries = {id(entry.owner): entry for entry in effective_outputs.entries}
+
+    def unnest_field_diagnostics(
+        facts: tuple[
+            module_semantic_fact_preservation.ProjectModuleRelationSemanticFacts, ...
+        ],
+    ) -> tuple[Diagnostic, ...]:
+        """An Unnest whose producer's row only completion builds checks its
+        field against that completed row; a producer that does not complete
+        has its own error (D-S05-5)."""
+
+        found: list[Diagnostic] = []
+        for item in facts:
+            fact = item.unnest_occurrence
+            if fact is None or not fact.awaits_producer_row:
+                continue
+            assert fact.source_target is not None
+            producer = final_entries[id(fact.source_target.target_occurrence)]
+            if isinstance(
+                producer,
+                (
+                    ProjectEffectiveOutputTerminal,
+                    ProjectEffectiveOutputCompletionTerminal,
+                ),
+            ):
+                continue
+            diagnostic = module_semantic_fact_preservation.unnest_field_diagnostic(
+                fact.query_let, project_final_outputs._entry_schema(producer)
+            )
+            if diagnostic is not None:
+                found.append(diagnostic)
+        return tuple(found)
+
     for entry in effective_outputs.entries:
         if type(entry) is ProjectExistingEffectiveOutput:
             for diagnostic in (
@@ -1627,6 +1725,7 @@ def _final_diagnostics(
                 *module_semantic_fact_preservation.merge_in_source_order(
                     () if completed else _entry_error_diagnostics(entry), distinct
                 ),
+                *unnest_field_diagnostics(owner_facts),
                 *(
                     diagnostic
                     for facts in owner_facts
@@ -1640,6 +1739,7 @@ def _final_diagnostics(
             if id(diagnostic) not in retired_ids
             and id(diagnostic) not in unavailable_ids
             and diagnostic not in admissions
+            and not unnest_join_noise(diagnostic)
         )
         # A JOIN without `on` names what it needs; a JOIN with `on` or a CROSS
         # JOIN retains its own condition diagnostics.
@@ -1672,6 +1772,9 @@ def _final_diagnostics(
             and not (unresolved and resolution_reported)
             and not follows(entry)
             and id(entry.owner) not in refused_collect_owners
+            # An Unnest whose field is untyped has its producer's error.
+            and entry.owner.unnest is None
+            and id(entry.owner) not in unnest_owners
         ):
             fallback = _fallback_diagnostic(entry)
             # A fallback without a cause adds nothing beside an error that an
@@ -1698,6 +1801,7 @@ def _final_diagnostics(
             for diagnostic in conditions.diagnostics
             if id(diagnostic) not in unavailable_ids
             and id(diagnostic) not in retained_ids
+            and not unnest_join_noise(diagnostic)
         )
     # A call of a relationship that a failed import alone stops follows that
     # reported error.
@@ -1784,11 +1888,8 @@ def _blocked_inputs(
 ) -> list[ProjectDeclarationOccurrence | bool]:
     """For each binding that a JOIN condition reads and that has no input to
     read, its relation, or whether an error in ``reported`` reports its name
-    that does not resolve, or the Unnest let that it joins (D71.02)."""
+    that does not resolve."""
 
-    from pietto._project.nested_relation_facts import unnest_join_lets
-
-    nested = condition.root.uses.semantic_result.nested_relation_facts
     return [
         any(
             diagnostic in reported
@@ -1798,21 +1899,26 @@ def _blocked_inputs(
                 *issue.suppressing_diagnostics,
             )
         )
-        or any(
-            diagnostic.location is not None and _within(diagnostic.location, let.span)
-            for let in (
-                ()
-                if nested is None or type(binding.site) is not JoinClause
-                else unnest_join_lets(
-                    nested, condition.ledger.owner, cast(JoinClause, binding.site)
-                )
-            )
-            for diagnostic in reported
-        )
         if binding.target is None
         else binding.target.target_occurrence
         for binding in condition.environment.blocked_bindings
     ]
+
+
+def _site_key(span: Span) -> tuple[str | None, int, int, int | None, int | None]:
+    return (span.path, span.line, span.column, span.end_line, span.end_column)
+
+
+def _location_key(
+    location: SourceLocation,
+) -> tuple[str | None, int, int, int | None, int | None]:
+    return (
+        location.path,
+        location.line,
+        location.column,
+        location.end_line,
+        location.end_column,
+    )
 
 
 def _one_report_per_nested_read(

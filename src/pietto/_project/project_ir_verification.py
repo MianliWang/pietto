@@ -11,7 +11,11 @@ from typing import cast
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadinessStatus,
 )
-from pietto._project.model import ProjectRelationRowSchemaStatus, ProjectSymbolKind
+from pietto._project.model import (
+    ProjectRelationRowSchemaStatus,
+    ProjectSymbolKind,
+    project_declaration_occurrence_identity,
+)
 from pietto._project.module_attribution import (
     ProjectDeclarationOccurrenceIdentity,
     ProjectModuleDependencyKind,
@@ -426,13 +430,7 @@ def _semantic_identity(
     evidence: ProjectModuleRelationSemanticFacts,
 ) -> ProjectDeclarationOccurrenceIdentity:
     owner = evidence.owner
-    return ProjectDeclarationOccurrenceIdentity(
-        identity=owner.identity,
-        module_position=owner.module_position,
-        declaration_position=owner.declaration_position,
-        let_position=owner.let_position,
-        table_function=owner.table_function is not None,
-    )
+    return project_declaration_occurrence_identity(owner)
 
 
 def _semantic_has_ambiguity(evidence: ProjectModuleRelationSemanticFacts) -> bool:

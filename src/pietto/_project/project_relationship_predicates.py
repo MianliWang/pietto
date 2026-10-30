@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
+from typing import cast
 
 from pietto import ast_nodes as ast
-from pietto._syntax_admission import unnest_lets
+from pietto._syntax_admission import (
+    UNNEST_JOIN_KINDS,
+    unnest_lets,
+    unnest_source_inputs,
+)
 from pietto._project.existence_values import (
     ProjectAnyRowBinding,
     any_argument_scopes,
@@ -36,7 +41,7 @@ from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
     scalar_field_reference_leaves,
 )
-from pietto.errors import Diagnostic
+from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.analyzer import _within
 from pietto.semantic.model import (
     EffectiveNullability,
@@ -720,6 +725,326 @@ def select_project_predicate_expression(
     return None
 
 
+_UNNEST_READ_USES: Mapping[type[ast.Node], str] = MappingProxyType(
+    {
+        ast.RelationExistsExpr: "exists",
+        ast.RelationScalarExpr: "scalar",
+        ast.CollectRelationExpr: "collect",
+    }
+)
+
+
+def _unnest_error(
+    code: str, node: ast.Node, message: str, suggestion: str | None = None
+) -> Diagnostic:
+    span = node.span
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+        suggestion=suggestion,
+    )
+
+
+def _unnest_use_diagnostics(
+    definition: ast.TableDef | ast.QueryDef | ast.BlockRelationDef,
+    collides: Callable[[str], bool],
+    generated: Mapping[int, ast.AnyExpr],
+) -> tuple[list[Diagnostic], frozenset[int], frozenset[int]]:
+    """PIE-S2807 for every Unnest let of one declaration (D-S05-4, D-S05-5).
+
+    Each Unnest let of a relation let body reports L alone. Each one of the
+    declaration's own body reports K at a RIGHT or FULL JOIN of it, M at
+    every JOIN of it after the first, R at every other read of its name
+    (unless the name is also a relation's, whose ambiguity keeps its own
+    error) and S once, naming the first construct in source order it cannot
+    yet stand beside. ``generated`` maps each hidden SEMI/ANTI JOIN a lowered
+    WHERE `any(...)` wrote to that `any`. Returns the diagnostics, the lets
+    that reported one, and the `let x = o` reads that R refused.
+    """
+
+    from pietto.semantic.aggregates import is_semantic_aggregate_call
+    from pietto.semantic.inline_functions import _tree_nodes
+
+    from pietto._project.module_catalog import relation_read_expressions
+
+    found: list[Diagnostic] = []
+    reported: set[int] = set()
+    refused_lets: set[int] = set()
+    main: ast.TableDef | ast.QueryDef | ast.SelectBody | None = None
+    relation_lets: tuple[ast.LetRelationDef, ...] = ()
+    if isinstance(definition, ast.BlockRelationDef):
+        if isinstance(definition.body, ast.SelectBody):
+            main = definition.body
+        relation_lets = definition.let_relations
+    else:
+        main = definition
+    for relation_let in relation_lets:
+        if type(relation_let.body) is not ast.SelectBody:
+            continue
+        for let, _ in unnest_lets(relation_let.body):
+            reported.add(id(let))
+            found.append(
+                _unnest_error(
+                    "PIE-S2807",
+                    let,
+                    f"Unnest {let.name} is not yet available in a relation let: "
+                    "unnest in the table or query itself.",
+                )
+            )
+    if main is None:
+        return found, frozenset(reported), frozenset(refused_lets)
+    lets = unnest_lets(main)
+    if not lets:
+        return found, frozenset(reported), frozenset(refused_lets)
+
+    def reads(
+        body: ast.TableDef | ast.QueryDef | ast.SelectBody,
+        name: str,
+        let: ast.QueryLetDeclaration | None,
+        own: tuple[ast.JoinClause, ...],
+    ) -> list[tuple[ast.Node, str]]:
+        """Every read of ``name`` in one body other than the Unnest's own JOINs."""
+
+        result: list[tuple[ast.Node, str]] = []
+        if type(body.from_clause) is ast.FromClause and (
+            body.from_clause.source_name == name
+        ):
+            result.append((body.from_clause, "from"))
+        result.extend(
+            (join, "a JOIN written before the let")
+            for join in body.join_clauses
+            if join.target_relation_name == name
+            and id(join) not in generated
+            and not any(join is item for item in own)
+        )
+        for read in relation_read_expressions(body):
+            if read.relation_name != name or type(read) is ast.AnyExpr:
+                continue
+            if type(read) is ast.RelationMembershipExpr:
+                result.append((read, "not in" if read.negated else "in"))
+            else:
+                result.append((read, _UNNEST_READ_USES[type(read)]))
+        result.extend(
+            (item, "a let")
+            for item in body.naming_declarations
+            if item is not let
+            and type(item.expression) is ast.NameExpr
+            and item.expression.name == name
+        )
+        return result
+
+    def relation_let_reads(name: str) -> list[tuple[ast.Node, str]]:
+        result: list[tuple[ast.Node, str]] = []
+        for relation_let in relation_lets:
+            result.extend(
+                (capture, "a capture line")
+                for capture in relation_let.captures
+                if capture.name == name
+            )
+            body = relation_let.body
+            if type(body) is ast.SetOperationBody:
+                result.extend(
+                    (operand, "a set operation")
+                    for operand in body.operands
+                    if operand.relation_name == name
+                )
+            elif type(body) is ast.SelectBody and not any(
+                # A let body that names its own `o` reads that one.
+                item.name == name
+                for item in body.naming_declarations
+            ):
+                result.extend(reads(body, name, None, ()))
+        return result
+
+    nodes = _tree_nodes(main)
+    window_calls = {id(node.call) for node in nodes if type(node) is ast.WindowExpr}
+    shape: list[tuple[tuple[int, int], str]] = []
+    # `collect o` of an Unnest o is R alone, never also S.
+    collected: dict[tuple[int, int], str] = {}
+    for node in nodes:
+        if type(node) is ast.WindowExpr or type(node) is ast.NamedWindowDeclaration:
+            shape.append(((node.span.line, node.span.column), "a window"))
+        elif type(node) is ast.AnyExpr:
+            shape.append(((node.span.line, node.span.column), "any(...)"))
+        elif type(node) is ast.CollectRelationExpr:
+            shape.append(((node.span.line, node.span.column), "a Collect read"))
+            collected[(node.span.line, node.span.column)] = node.relation_name
+        elif (
+            type(node) is ast.CallExpr
+            and id(node) not in window_calls
+            and is_semantic_aggregate_call(node)
+        ):
+            shape.append(((node.span.line, node.span.column), "an aggregate"))
+    shape.extend(
+        ((generated[id(join)].span.line, generated[id(join)].span.column), "any(...)")
+        for join in main.join_clauses
+        if id(join) in generated
+    )
+    for clause, construct in (
+        (main.group_by_clause, "GROUP BY"),
+        (main.satisfying_clause, "HAVING"),
+        (main.qualify_clause, "QUALIFY"),
+        (main.distinct_clause, "SELECT DISTINCT"),
+    ):
+        if clause is not None:
+            shape.append(((clause.span.line, clause.span.column), construct))
+    bindings = (
+        main.from_clause.binding_name
+        if type(main.from_clause) is ast.TableFunctionFromClause
+        else cast(ast.FromClause, main.from_clause).binding_name
+        or cast(ast.FromClause, main.from_clause).source_name,
+        *(join.target_binding_name for join in main.join_clauses),
+    )
+    for let, own in lets:
+        name = let.name
+        flagged = False
+        for join in own:
+            if join.kind not in UNNEST_JOIN_KINDS:
+                flagged = True
+                found.append(
+                    _unnest_error(
+                        "PIE-S2807",
+                        join,
+                        f"Unnest {name} can be joined only by cross, inner or "
+                        "left join.",
+                        f"Write `cross join {name}`, `inner join {name} on ...` "
+                        f"or `left join {name} on True`.",
+                    )
+                )
+        for join in own[1:]:
+            flagged = True
+            found.append(
+                _unnest_error(
+                    "PIE-S2807",
+                    join,
+                    f"Unnest {name} is joined more than once: one JOIN reads an "
+                    "Unnest.",
+                )
+            )
+        if not collides(name):
+            for node, use in (*reads(main, name, let, own), *relation_let_reads(name)):
+                flagged = True
+                if type(node) is ast.QueryLetDeclaration:
+                    refused_lets.add(id(node))
+                found.append(
+                    _unnest_error(
+                        "PIE-S2807",
+                        node,
+                        f"Unnest {name} is read only by its JOIN, not by {use}.",
+                        f"Read `{name}.field` after its JOIN; to use the unnested "
+                        "rows elsewhere, read this table or query with `from`.",
+                    )
+                )
+        binding = cast(
+            ast.DottedNameExpr, cast(ast.CallExpr, let.expression).arguments[0]
+        ).parts[0]
+        constructs = [
+            *(
+                item
+                for item in shape
+                if collides(name) or collected.get(item[0]) != name
+            ),
+            *(
+                ((other.span.line, other.span.column), "another Unnest")
+                for other, _ in lets
+                if other is not let
+            ),
+        ]
+        first_join = (own[0].span.line, own[0].span.column)
+        for position, join in enumerate(main.join_clauses):
+            if join.kind not in {ast.AuthoredJoinKind.RIGHT, ast.AuthoredJoinKind.FULL}:
+                continue
+            if (join.span.line, join.span.column) >= first_join:
+                continue
+            nulled = set(range(position + 1))
+            if join.kind is ast.AuthoredJoinKind.FULL:
+                nulled.add(position + 1)
+            if any(bindings[item] == binding for item in nulled):
+                constructs.append(
+                    (
+                        (join.span.line, join.span.column),
+                        f"a RIGHT or FULL JOIN that may null-extend {binding}",
+                    )
+                )
+        if constructs:
+            flagged = True
+            construct = min(constructs, key=lambda item: item[0])[1]
+            found.append(
+                _unnest_error(
+                    "PIE-S2807",
+                    let,
+                    f"Unnest {name} is not yet available beside {construct} in the "
+                    "same table or query: unnest in one table or query, and read "
+                    "it with `from` in another that does the rest.",
+                )
+            )
+        if flagged:
+            reported.add(id(let))
+    return found, frozenset(reported), frozenset(refused_lets)
+
+
+def _unnest_argument_diagnostic(
+    body: ast.TableDef | ast.QueryDef | ast.SelectBody,
+    let: ast.QueryLetDeclaration,
+    from_clause: ast.FromClause | ast.TableFunctionFromClause,
+) -> Diagnostic | None:
+    """PIE-S2806 B1-B3 at one Unnest argument whose binding is not one row
+    binding written before its let (D-S05-2); ``from_clause`` is the body's
+    FROM input as normalized, which names a FROM alias's relation. Several
+    inputs of the binding's name keep their own error: none wins."""
+
+    argument = cast(ast.DottedNameExpr, cast(ast.CallExpr, let.expression).arguments[0])
+    binding, field_name = argument.parts
+    written = f"{binding}.{field_name}"
+    inputs = tuple(
+        clause for name, clause in unnest_source_inputs(body, let) if name == binding
+    )
+    if len(inputs) > 1:
+        return None
+    if len(inputs) == 1:
+        if type(inputs[0]) is not ast.TableFunctionFromClause:
+            return None
+        return _unnest_error(
+            "PIE-S2806",
+            argument,
+            f"Unnest argument {written} is not available: {binding} is a table "
+            "function, which has no nested fields.",
+        )
+    authored = body.from_clause
+    alias = from_clause.binding_name if type(from_clause) is ast.FromClause else None
+    if (
+        type(from_clause) is ast.FromClause
+        and alias is not None
+        and alias != from_clause.source_name
+        and binding == from_clause.source_name
+        and (authored.span.line, authored.span.column)
+        < (let.span.line, let.span.column)
+    ):
+        return _unnest_error(
+            "PIE-S2806",
+            argument,
+            f"Unnest argument {written} is not available: FROM reads {binding} as "
+            f"{alias}; write `unnest({alias}.{field_name})`.",
+            f"Write `unnest({alias}.{field_name})`.",
+        )
+    return _unnest_error(
+        "PIE-S2806",
+        argument,
+        f"Unnest argument {written} is not available: {binding} is not the FROM "
+        f"input or a CROSS, INNER or LEFT JOIN written before let {let.name}.",
+        f"Write `let {let.name} = unnest(binding.field)` after the FROM or JOIN "
+        "whose binding has the nested field.",
+    )
+
+
 def normalize_project_query_names(
     parsed: ProjectParseCheckResult,
 ) -> ProjectParseCheckResult:
@@ -850,6 +1175,10 @@ def normalize_project_query_names(
             for use in source.existence_generators
         }
         (catalog,) = catalogs.find_module_path(source.path)
+        # D-S05-5: the Unnest lets a PIE-S2807 refused, and the `let x = o`
+        # reads of an Unnest it refused, of the declaration being normalized.
+        unnest_reported: frozenset[int] = frozenset()
+        unnest_refused: frozenset[int] = frozenset()
 
         def normalize_body(
             definition: ast.TableDef | ast.QueryDef | ast.SelectBody,
@@ -869,12 +1198,13 @@ def normalize_project_query_names(
             window_names: set[str] = set()
             windows: list[tuple[ast.NamedWindowDeclaration, frozenset[str]]] = []
             scalar_bindings: list[ast.LetBinding] = []
-            # S03 types each Unnest let in its companion facts (D71.02); its
-            # JOIN stays one input in place, which no relation stands for
-            # until S05 binds it.
+            # Each Unnest let is its own catalog occurrence (D-S05-1); its
+            # JOIN stays one input in place, which that occurrence binds by
+            # identity, never by name.
+            body_unnests = unnest_lets(definition)
             unnest_ids = {
                 id(node)
-                for let, joins_of_let in unnest_lets(definition)
+                for let, joins_of_let in body_unnests
                 for node in (let, *joins_of_let)
             }
             from_clause = definition.from_clause
@@ -937,7 +1267,7 @@ def normalize_project_query_names(
                             )
                         )
                     declared.add(node.name)
-                    if id(node) in unnest_ids:
+                    if id(node) in unnest_ids or id(node) in unnest_refused:
                         continue
                     value = node.expression
                     name = value.name if isinstance(value, ast.NameExpr) else None
@@ -1085,6 +1415,20 @@ def normalize_project_query_names(
                         input_names.update(
                             (node.target_binding_name, joins[-1].target_relation_name)
                         )
+            assert isinstance(
+                from_clause, (ast.FromClause, ast.TableFunctionFromClause)
+            )
+            diagnostics.extend(
+                diagnostic
+                for let, _ in body_unnests
+                if id(let) not in unnest_reported
+                and (
+                    diagnostic := _unnest_argument_diagnostic(
+                        definition, let, from_clause
+                    )
+                )
+                is not None
+            )
             if not definition.naming_declarations:
                 # Only windows: the check above leaves the body as written.
                 return definition
@@ -1193,6 +1537,34 @@ def normalize_project_query_names(
 
         definitions: list[ast.Definition] = []
         for position, definition in enumerate(source.script.definitions):
+            if isinstance(
+                definition, (ast.TableDef, ast.QueryDef, ast.BlockRelationDef)
+            ):
+                declaration_lets = (
+                    catalog.find_lets(position)
+                    if isinstance(definition, ast.BlockRelationDef)
+                    else ()
+                )
+                unnest_found, unnest_reported, unnest_refused = _unnest_use_diagnostics(
+                    definition,
+                    lambda name: (
+                        any(
+                            let.identity.declared_name == name
+                            for let in declaration_lets
+                        )
+                        or bool(
+                            candidates(
+                                source.path, ProjectSymbolNamespace.RELATION, name
+                            )
+                        )
+                    ),
+                    {
+                        id(use.clause): use.expression
+                        for use in source.existence_generators
+                        if use.owner is definition
+                    },
+                )
+                diagnostics.extend(unnest_found)
             if isinstance(definition, (ast.TableDef, ast.QueryDef)):
                 rewritten = normalize_body(
                     definition,

@@ -3660,17 +3660,19 @@ def _identity_data(value: object) -> object:
             value,
         )
         # A module declaration has no let position; only a relation let's
-        # locator carries one. A table-function locator has no portable form
-        # yet, so its inspection fails closed here.
+        # locator carries one. A table-function or Unnest locator has no
+        # portable form yet, so its inspection fails closed here.
         if getattr(identity, "table_function", False) is not False:
             raise TypeError("Portable identity has no table-function locator.")
+        if getattr(identity, "unnest_position", None) is not None:
+            raise TypeError("Portable identity has no Unnest locator.")
         return {
             item.name: _identity_data(getattr(identity, item.name))
             for item in dataclass_fields(identity)
             if not (
                 item.name == "let_position" and getattr(identity, item.name) is None
             )
-            and item.name != "table_function"
+            and item.name not in {"table_function", "unnest_position"}
         }
     raise TypeError("Portable identity requires a closed semantic locator.")
 

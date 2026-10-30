@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 
 from pietto import ast_nodes as ast
 from pietto._project.model import (
@@ -17,59 +16,23 @@ from pietto._project.module_catalog import (
     ProjectModuleCatalogSet,
 )
 from pietto._project.module_relation_resolution import (
-    ProjectModuleRelationResolutionEnvironment,
     ProjectResolvedExpressionBlockRead,
-    ProjectResolvedModuleRelationSymbol,
 )
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCollectReadFact,
     ProjectModuleRelationSemanticFacts,
     ProjectModuleSelectFact,
-    ProjectModuleSemanticFactEnvironment,
     ProjectModuleSemanticFactSet,
+    ProjectModuleUnnestOccurrenceFact,
+    ProjectNestedRelationFactReason,
+    ProjectNestedRelationFactStatus,
     _occurrence_identity as _identity,
+    _require_nested_state as _require_state,
 )
 from pietto._syntax_admission import unnest_lets
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
-
-# D71.04: CROSS, INNER and LEFT Unnest; every JOIN but CROSS has an `on`.
-_UNNEST_JOIN_KINDS = frozenset(
-    {ast.AuthoredJoinKind.CROSS, ast.AuthoredJoinKind.INNER, ast.AuthoredJoinKind.LEFT}
-)
-
-
-class ProjectNestedRelationFactStatus(StrEnum):
-    AVAILABLE = "available"
-    UNAVAILABLE = "unavailable"
-
-
-class ProjectNestedRelationFactReason(StrEnum):
-    TARGET_NOT_LOCAL_LET = "target_not_local_let"
-    # The target is unknown or not available; for a Collect, also a read its
-    # read fact does not type, whose PIE-S2803 or PIE-S2804 says why.
-    TARGET_UNAVAILABLE = "target_unavailable"
-    OUTPUT_UNAVAILABLE = "output_unavailable"
-    JOIN_UNAVAILABLE = "join_unavailable"
-    SCALAR_BOUNDARY = "scalar_boundary"
-
-
-def _require_state(
-    status: object, reason: object, *, operation: str
-) -> ProjectNestedRelationFactStatus:
-    """Bind availability to its reason: only SCALAR_BOUNDARY is available."""
-
-    if (
-        type(status) is not ProjectNestedRelationFactStatus
-        or type(reason) is not ProjectNestedRelationFactReason
-    ):
-        raise TypeError(f"{operation} fact requires an exact availability state.")
-    if (status is ProjectNestedRelationFactStatus.AVAILABLE) != (
-        reason is ProjectNestedRelationFactReason.SCALAR_BOUNDARY
-    ):
-        raise ValueError(f"{operation} fact availability must match its reason.")
-    return status
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -155,74 +118,15 @@ class ProjectCollectOccurrenceFact:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectUnnestInputFact:
-    owner: ProjectDeclarationOccurrenceIdentity
-    query_let: ast.QueryLetDeclaration
-    binding_name_span: ast.Span
-    source_binding_name: str
-    source_target: ProjectResolvedModuleRelationSymbol | None
-    source_field: ProjectModuleRowFieldIdentity | None
-    nested_type: ProjectNestedRelationType | None
-    # Every visible FROM or earlier JOIN binding of the authored binding name,
-    # in written order: its one resolved relation, or None when its relation
-    # is blocked, ambiguous or unknown.
-    binding_candidates: tuple[ProjectResolvedModuleRelationSymbol | None, ...]
-    join_candidates: tuple[ast.JoinClause, ...]
-    status: ProjectNestedRelationFactStatus
-    reason: ProjectNestedRelationFactReason
-
-    def __post_init__(self) -> None:
-        if type(self.owner) is not ProjectDeclarationOccurrenceIdentity:
-            raise TypeError("Unnest fact requires an exact owner identity.")
-        if type(self.query_let) is not ast.QueryLetDeclaration:
-            raise TypeError("Unnest fact requires its exact query let.")
-        if self.binding_name_span is not self.query_let.name_span:
-            raise ValueError("Unnest fact must retain its binding-name span.")
-        binding, field_name = _unnest_argument(self.query_let)
-        if self.source_binding_name != binding:
-            raise ValueError("Unnest fact must retain its authored binding name.")
-        if type(self.binding_candidates) is not tuple or any(
-            item is not None and type(item) is not ProjectResolvedModuleRelationSymbol
-            for item in self.binding_candidates
-        ):
-            raise TypeError("Unnest facts require exact visible binding candidates.")
-        if type(self.join_candidates) is not tuple or any(
-            type(item) is not ast.JoinClause for item in self.join_candidates
-        ):
-            raise TypeError("Unnest facts require exact authored JOIN candidates.")
-        if self.source_target is not (
-            self.binding_candidates[0] if len(self.binding_candidates) == 1 else None
-        ):
-            raise ValueError("Unnest source target must be its one visible binding.")
-        if (self.source_field is None) != (self.nested_type is None):
-            raise ValueError("Unnest nested-field evidence must be complete.")
-        source_field = self.source_field
-        if source_field is not None and (
-            type(source_field) is not ProjectModuleRowFieldIdentity
-            or type(self.nested_type) is not ProjectNestedRelationType
-            or self.source_target is None
-            or source_field.owner != _identity(self.source_target.target_occurrence)
-            or source_field.kind is not ProjectModuleRowFieldKind.RELATION_OUTPUT
-            or source_field.name != field_name
-        ):
-            raise ValueError("Unnest source field must be its binding's nested output.")
-        status = _require_state(self.status, self.reason, operation="Unnest")
-        if status is ProjectNestedRelationFactStatus.AVAILABLE and (
-            source_field is None
-            or len(self.join_candidates) != 1
-            or not _valid_unnest_join(self.join_candidates[0])
-        ):
-            raise ValueError(
-                "Available Unnest facts require exact nested input evidence."
-            )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectNestedRelationFactSet:
+    """S03's Collect facts and, D-S05-7, the semantic root's own Unnest
+    input facts: the same objects, which this sidecar only orders and
+    checks."""
+
     catalogs: ProjectModuleCatalogSet
     semantic: ProjectModuleSemanticFactSet
     collect_facts: tuple[ProjectCollectOccurrenceFact, ...]
-    unnest_inputs: tuple[ProjectUnnestInputFact, ...]
+    unnest_inputs: tuple[ProjectModuleUnnestOccurrenceFact, ...]
     diagnostics: tuple[Diagnostic, ...]
 
     def __post_init__(self) -> None:
@@ -246,7 +150,8 @@ class ProjectNestedRelationFactSet:
         ):
             raise TypeError("Nested relation facts require exact Collect facts.")
         if type(self.unnest_inputs) is not tuple or any(
-            type(item) is not ProjectUnnestInputFact for item in self.unnest_inputs
+            type(item) is not ProjectModuleUnnestOccurrenceFact
+            for item in self.unnest_inputs
         ):
             raise TypeError("Nested relation facts require exact Unnest facts.")
         if type(self.diagnostics) is not tuple or any(
@@ -301,23 +206,17 @@ def _derive_nested_facts(
     semantic: ProjectModuleSemanticFactSet,
 ) -> tuple[
     tuple[ProjectCollectOccurrenceFact, ...],
-    tuple[ProjectUnnestInputFact, ...],
+    tuple[ProjectModuleUnnestOccurrenceFact, ...],
     tuple[Diagnostic, ...],
 ]:
     """Every authored Collect and Unnest occurrence in module and source
     order, and their PIE-S2802 diagnostics: modules in the order of the
     semantic environments, which relation resolution reports in, and each
-    module's in source order."""
+    module's in source order. Each Unnest fact is its occurrence's own input
+    fact (D-S05-7)."""
 
     collects: list[ProjectCollectOccurrenceFact] = []
-    bodies: list[
-        tuple[
-            ProjectModuleSemanticFactEnvironment,
-            ProjectModuleRelationSemanticFacts,
-            ast.TableDef | ast.QueryDef | ast.SelectBody,
-            tuple[tuple[ast.QueryLetDeclaration, tuple[ast.JoinClause, ...]], ...],
-        ]
-    ] = []
+    unnests: list[ProjectModuleUnnestOccurrenceFact] = []
     found: list[tuple[int, Diagnostic]] = []
     for index, environment in enumerate(semantic.environments):
         parsed = environment.module.parsed_input
@@ -326,8 +225,14 @@ def _derive_nested_facts(
         # The bodies as written, before the project normalized their names.
         script = parsed.authored_script or parsed.script
         for semantic_fact in environment.relation_facts:
+            if semantic_fact.unnest_occurrence is not None:
+                unnests.append(semantic_fact.unnest_occurrence)
+                continue
             # A table-function occurrence's body is its containing relation's.
-            if semantic_fact.owner.table_function is not None:
+            if (
+                semantic_fact.owner.table_function is not None
+                or semantic_fact.owner.unnest is not None
+            ):
                 continue
             own = _collect_facts(semantic_fact)
             collects.extend(own)
@@ -337,31 +242,10 @@ def _derive_nested_facts(
             )
             body = _authored_body(script, semantic_fact.owner)
             if body is not None:
-                lets = unnest_lets(body)
-                bodies.append((environment, semantic_fact, body, lets))
                 found.extend(
-                    (index, _unsupported(item.span, "Unnest")) for item, _ in lets
+                    (index, _unsupported(item.span, "Unnest"))
+                    for item, _ in unnest_lets(body)
                 )
-    available: dict[
-        tuple[ProjectDeclarationOccurrenceIdentity, str],
-        list[ProjectCollectOccurrenceFact],
-    ] = {}
-    for fact in collects:
-        if fact.status is ProjectNestedRelationFactStatus.AVAILABLE:
-            assert fact.output is not None
-            available.setdefault((fact.owner, fact.output.name), []).append(fact)
-    unnests = tuple(
-        _unnest_fact(
-            environment.resolution_environment,
-            semantic_fact,
-            body,
-            item,
-            joins,
-            available,
-        )
-        for environment, semantic_fact, body, lets in bodies
-        for item, joins in lets
-    )
     found.sort(
         key=lambda item: (
             item[0],
@@ -371,7 +255,7 @@ def _derive_nested_facts(
     )
     return (
         tuple(collects),
-        unnests,
+        tuple(unnests),
         tuple(diagnostic for _, diagnostic in found),
     )
 
@@ -444,63 +328,6 @@ def _collect_facts(
     return tuple(found)
 
 
-def _unnest_fact(
-    resolution_environment: ProjectModuleRelationResolutionEnvironment,
-    semantic_fact: ProjectModuleRelationSemanticFacts,
-    body: ast.TableDef | ast.QueryDef | ast.SelectBody,
-    item: ast.QueryLetDeclaration,
-    joins: tuple[ast.JoinClause, ...],
-    available: dict[
-        tuple[ProjectDeclarationOccurrenceIdentity, str],
-        list[ProjectCollectOccurrenceFact],
-    ],
-) -> ProjectUnnestInputFact:
-    """One Unnest let with all its visible bindings and JOINs; never a winner."""
-
-    binding, field_name = _unnest_argument(item)
-    candidates = tuple(
-        target
-        for name, target in _visible_bindings(
-            resolution_environment, semantic_fact.owner, body, before=item.span
-        )
-        if name == binding
-    )
-    source_target = candidates[0] if len(candidates) == 1 else None
-    collected = (
-        ()
-        if source_target is None
-        else available.get((_identity(source_target.target_occurrence), field_name), ())
-    )
-    source = collected[0] if len(collected) == 1 else None
-    owner = _identity(semantic_fact.owner)
-    if source_target is None:
-        # No visible binding, or none with exactly one relation.
-        reason = ProjectNestedRelationFactReason.TARGET_UNAVAILABLE
-    elif source is None:
-        reason = ProjectNestedRelationFactReason.OUTPUT_UNAVAILABLE
-    elif len(joins) != 1 or not _valid_unnest_join(joins[0]):
-        reason = ProjectNestedRelationFactReason.JOIN_UNAVAILABLE
-    else:
-        reason = ProjectNestedRelationFactReason.SCALAR_BOUNDARY
-    return ProjectUnnestInputFact(
-        owner=owner,
-        query_let=item,
-        binding_name_span=item.name_span,
-        source_binding_name=binding,
-        source_target=source_target,
-        source_field=None if source is None else source.output,
-        nested_type=None if source is None else source.nested_type,
-        binding_candidates=candidates,
-        join_candidates=joins,
-        status=(
-            ProjectNestedRelationFactStatus.AVAILABLE
-            if reason is ProjectNestedRelationFactReason.SCALAR_BOUNDARY
-            else ProjectNestedRelationFactStatus.UNAVAILABLE
-        ),
-        reason=reason,
-    )
-
-
 def _same_collect(
     supplied: ProjectCollectOccurrenceFact, expected: ProjectCollectOccurrenceFact
 ) -> bool:
@@ -515,28 +342,13 @@ def _same_collect(
 
 
 def _same_unnest(
-    supplied: ProjectUnnestInputFact, expected: ProjectUnnestInputFact
+    supplied: ProjectModuleUnnestOccurrenceFact,
+    expected: ProjectModuleUnnestOccurrenceFact,
 ) -> bool:
-    return (
-        supplied.query_let is expected.query_let
-        and supplied.source_target is expected.source_target
-        and len(supplied.binding_candidates) == len(expected.binding_candidates)
-        and all(
-            item is other
-            for item, other in zip(
-                supplied.binding_candidates, expected.binding_candidates, strict=True
-            )
-        )
-        and len(supplied.join_candidates) == len(expected.join_candidates)
-        and all(
-            item is other
-            for item, other in zip(
-                supplied.join_candidates, expected.join_candidates, strict=True
-            )
-        )
-        and supplied == expected
-        and _same_child_fields(supplied.nested_type, expected.nested_type)
-    )
+    """An Unnest fact is its occurrence's own input fact, not an equal copy
+    (D-S05-7)."""
+
+    return supplied is expected
 
 
 def _same_child_fields(
@@ -557,7 +369,7 @@ def _same_child_fields(
 
 def _validate_unnest_sources(
     collect_facts: tuple[ProjectCollectOccurrenceFact, ...],
-    unnest_inputs: tuple[ProjectUnnestInputFact, ...],
+    unnest_inputs: tuple[ProjectModuleUnnestOccurrenceFact, ...],
 ) -> None:
     """Bind each Unnest nested field to one exact available Collect output."""
 
@@ -568,7 +380,8 @@ def _validate_unnest_sources(
             collect
             for collect in collect_facts
             if collect.status is ProjectNestedRelationFactStatus.AVAILABLE
-            and collect.output is unnest.source_field
+            and collect.output == unnest.source_field
+            and collect.collect_read is unnest.collect_read
             and collect.nested_type is unnest.nested_type
         )
         if len(matches) != 1:
@@ -591,24 +404,6 @@ def _is_local_let(
     )
 
 
-def _unnest_argument(item: ast.QueryLetDeclaration) -> tuple[str, str]:
-    """The `binding.field` of one classified `unnest(binding.field)` let."""
-
-    call = item.expression
-    if type(call) is not ast.CallExpr or len(call.arguments) != 1:
-        raise ValueError("Unnest facts require an exact unnest call.")
-    argument = call.arguments[0]
-    if type(argument) is not ast.DottedNameExpr or len(argument.parts) != 2:
-        raise ValueError("Unnest facts require one binding.field argument.")
-    return argument.parts[0], argument.parts[1]
-
-
-def _valid_unnest_join(join: ast.JoinClause) -> bool:
-    return join.kind in _UNNEST_JOIN_KINDS and (
-        (join.kind is ast.AuthoredJoinKind.CROSS) == (join.on_clause is None)
-    )
-
-
 def _authored_body(
     script: ast.Script, owner: ProjectDeclarationOccurrence
 ) -> ast.TableDef | ast.QueryDef | ast.SelectBody | None:
@@ -625,79 +420,6 @@ def _authored_body(
     if type(definition) is ast.TableDef or type(definition) is ast.QueryDef:
         return definition
     return None
-
-
-def _visible_bindings(
-    environment: ProjectModuleRelationResolutionEnvironment,
-    owner: ProjectDeclarationOccurrence,
-    body: ast.TableDef | ast.QueryDef | ast.SelectBody,
-    *,
-    before: ast.Span,
-) -> tuple[tuple[str, ProjectResolvedModuleRelationSymbol | None], ...]:
-    """Reuse normalized FROM/JOIN resolution authority in written input order."""
-
-    definition = owner.definition
-    if type(definition) is not ast.TableDef and type(definition) is not ast.QueryDef:
-        return ()
-    position = (before.line, before.column)
-    result: list[tuple[str, ProjectResolvedModuleRelationSymbol | None]] = []
-    authored_from = body.from_clause
-    from_clause = definition.from_clause
-    if (authored_from.span.line, authored_from.span.column) < position:
-        if type(from_clause) is ast.FromClause:
-            targets = tuple(
-                item.target_symbol for item in environment.find_from_clause(from_clause)
-            )
-            result.append(
-                (
-                    from_clause.binding_name or from_clause.source_name,
-                    targets[0] if len(targets) == 1 else None,
-                )
-            )
-        elif type(from_clause) is ast.TableFunctionFromClause:
-            result.append((from_clause.binding_name, None))
-    for join in definition.join_clauses:
-        if (join.span.line, join.span.column) >= position:
-            break
-        targets = environment.find_scoped_relation_name(
-            owner, join.target_relation_name
-        )
-        result.append(
-            (join.target_binding_name, targets[0] if len(targets) == 1 else None)
-        )
-    return tuple(result)
-
-
-def is_unnest_join(
-    facts: ProjectNestedRelationFactSet,
-    owner: ProjectDeclarationOccurrence,
-    join: ast.JoinClause,
-) -> bool:
-    """Whether ``join``, a JOIN of ``owner``'s relation as its row reads it,
-    joins one of that relation's Unnest lets (D71.02)."""
-
-    return bool(unnest_join_lets(facts, owner, join))
-
-
-def unnest_join_lets(
-    facts: ProjectNestedRelationFactSet,
-    owner: ProjectDeclarationOccurrence,
-    join: ast.JoinClause,
-) -> tuple[ast.QueryLetDeclaration, ...]:
-    """The Unnest lets of ``owner``'s relation that ``join`` joins."""
-
-    identity = _identity(owner)
-    position = (join.span.path, join.span.line, join.span.column)
-    return tuple(
-        fact.query_let
-        for fact in facts.unnest_inputs
-        if fact.owner == identity
-        and any(
-            (candidate.span.path, candidate.span.line, candidate.span.column)
-            == position
-            for candidate in fact.join_candidates
-        )
-    )
 
 
 def _unsupported(span: ast.Span, operation: str) -> Diagnostic:

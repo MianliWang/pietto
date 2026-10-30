@@ -203,6 +203,47 @@ def unnest_lets(
     return tuple(found)
 
 
+# D71.04: the JOIN kinds of an Unnest; D-S05-2: those of a JOIN whose binding
+# an Unnest argument may read.
+UNNEST_JOIN_KINDS = frozenset(
+    {AuthoredJoinKind.CROSS, AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+)
+
+
+def unnest_source_inputs(
+    body: TableDef | QueryDef | SelectBody, let: QueryLetDeclaration
+) -> tuple[tuple[str, FromClause | TableFunctionFromClause | JoinClause], ...]:
+    """D-S05-2: the row bindings `let o = unnest(binding.field)` may read,
+    each with its written input, in written order: the FROM input when it is
+    written before the let, and every CROSS, INNER or LEFT named JOIN written
+    before it. A RIGHT or FULL JOIN target is not one, nor a SEMI or ANTI
+    target, which only a lowered `any(...)` writes. This is the one
+    visibility rule of an Unnest argument: normalization and the Unnest facts
+    both read it."""
+
+    position = (let.span.line, let.span.column)
+    found: list[tuple[str, FromClause | TableFunctionFromClause | JoinClause]] = []
+    clause = body.from_clause
+    if (clause.span.line, clause.span.column) < position:
+        found.append(
+            (
+                clause.binding_name
+                if type(clause) is TableFunctionFromClause
+                else cast(FromClause, clause).binding_name
+                or cast(FromClause, clause).source_name,
+                clause,
+            )
+        )
+    found.extend(
+        (join.target_binding_name, join)
+        for join in body.join_clauses
+        if join.uses_named_input
+        and join.kind in UNNEST_JOIN_KINDS
+        and (join.span.line, join.span.column) < position
+    )
+    return tuple(found)
+
+
 def nested_relation_syntax_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
     """PIE-S2801 at every Collect read and Unnest let, in source order: their
     spellings outside an EXPLICIT_MODULES project (D71.01, D71.05)."""

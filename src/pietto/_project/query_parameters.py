@@ -57,6 +57,7 @@ from pietto.semantic.expressions import QUERY_PARAMETER_TYPES
 if TYPE_CHECKING:
     from pietto._project.module_catalog import (
         ProjectDeclarationOccurrence,
+        ProjectModuleCatalog,
         ProjectModuleCatalogSet,
     )
     from pietto._project.module_relation_resolution import (
@@ -601,7 +602,9 @@ def query_parameter_semantic_diagnostics(
                         found.append(_diagnostic(INPUT_CODE, INPUT_MESSAGE, span))
                 if type(definition) is QueryDef and definition.parameters:
                     names = set(
-                        _visible_names(owner, definition, environment, input_fields)
+                        _visible_names(
+                            owner, definition, environment, catalog, input_fields
+                        )
                     )
                     # Each relation let reads the header too: its name and every
                     # name visible in its own body are collisions as well.
@@ -610,7 +613,11 @@ def query_parameter_semantic_diagnostics(
                         if type(let.definition) is QueryDef:
                             names.update(
                                 _visible_names(
-                                    let, let.definition, environment, input_fields
+                                    let,
+                                    let.definition,
+                                    environment,
+                                    catalog,
+                                    input_fields,
                                 )
                             )
                     seen: set[str] = set()
@@ -661,6 +668,7 @@ def _visible_names(
     owner: ProjectDeclarationOccurrence,
     definition: QueryDef,
     environment: ProjectModuleRelationResolutionEnvironment,
+    catalog: ProjectModuleCatalog,
     input_fields: Mapping[ProjectDeclarationOccurrence, frozenset[str]],
 ) -> frozenset[str]:
     names = {symbol.local_name for symbol in environment.symbols}
@@ -679,13 +687,20 @@ def _visible_names(
         names.add(definition.from_clause.binding_name)
     for clause in definition.join_clauses:
         names.add(clause.target_binding_name)
-    for relation in (
-        definition.from_clause.source_name,
-        *(clause.target_relation_name for clause in definition.join_clauses),
-    ):
-        for symbol in environment.find_scoped_relation_name(owner, relation):
-            # An input without a concrete completed output has no field names
-            # here; it also leaves the completed result unsuccessful, so no
-            # header name ever binds a read in its place.
-            names.update(input_fields.get(symbol.target_occurrence, ()))
+    symbols = list(
+        environment.find_scoped_relation_name(owner, definition.from_clause.source_name)
+    )
+    for clause in definition.join_clauses:
+        # An Unnest JOIN reads its occurrence by identity (D-S05-1).
+        unnest = catalog.find_unnest(owner, clause)
+        symbols.extend(
+            environment.find_scoped_relation_name(owner, clause.target_relation_name)
+            if unnest is None
+            else environment.find_unnest_symbol(unnest)
+        )
+    for symbol in symbols:
+        # An input without a concrete completed output has no field names
+        # here; it also leaves the completed result unsuccessful, so no
+        # header name ever binds a read in its place.
+        names.update(input_fields.get(symbol.target_occurrence, ()))
     return frozenset(names)

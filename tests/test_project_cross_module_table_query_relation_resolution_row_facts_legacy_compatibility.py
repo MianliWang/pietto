@@ -164,6 +164,7 @@ def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_o
             "blocked_let_scopes",
             "expression_reads",
             "table_function_symbols",
+            "unnest_symbols",
             "_symbols_by_name",
             "_let_symbols_by_scope",
             "_resolutions_by_from_clause",

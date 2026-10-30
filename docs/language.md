@@ -1720,16 +1720,7 @@ query expanded:
 `collect` is a word only right after `name =` in a SELECT item, so a field,
 function, relation or let named `collect` keeps its meaning and
 `collect(recent)` is an ordinary call. `name = collect recent` is a whole SELECT
-item. A query `let o = unnest(binding.field)` is an Unnest let when a later JOIN
-of the same body names it, the body declares `o` only once and the module
-defines no `def unnest`; any other `unnest(...)` call is an ordinary call, and
-`any(... for x in o)` reads `o` as a relation. An Unnest is `cross join o`,
-`inner join o on o.total > 10` or `left join o on True`, and its JOIN keeps the
-rules of any JOIN: a CROSS JOIN takes no `on` and every other kind needs one. It
-is one JOIN input in its place, so the relation's JOINs report what they report
-beside any JOIN input whose rows are not available yet. A relation, import or
-relation let that is also named `o` makes the JOIN `Ambiguous JOIN input: o`
-(PIE-S2604), as for an alias let.
+item.
 
 `collect r` reads a relation let `r` of the same table or query, closed or
 with `capture` lines, as the bag of its rows: a row that repeats in `r`
@@ -1773,11 +1764,57 @@ itself (in WHERE, JOIN ON, a row `let`, GROUP BY, `having`, a window,
 selecting it again in another relation, `select distinct` with a Collect item,
 and a set operation over it are PIE-S2805.
 
+An Unnest expands a nested field into rows: write `from p`, then
+`let o = unnest(p.field)`, then exactly one `cross join o`,
+`inner join o on o.total > 10` or `left join o on True`. A query
+`let o = unnest(binding.field)` is an Unnest let when a later JOIN of the same
+body names it, the body declares `o` only once and the module defines no
+`def unnest`; any other `unnest(...)` call is an ordinary call, and
+`any(... for x in o)` reads `o` as a relation. The argument is no expression:
+`binding` is the FROM input or a CROSS, INNER or LEFT JOIN written before the
+let, and `field` is a nested field that a `collect` SELECT item of its relation
+outputs. After `let p = parent` and `from p`, write `unnest(p.nested)`, since
+`parent` is no binding of the body. Another binding, a field of another type or
+one of unknown type is PIE-S2806, and an unknown field PIE-S2102.
+
+`o` has the fields of the collected let, with their types and nullability, and
+`o.total` reads one after the JOIN, in `on`, `where`, the SELECT and
+`order by`; name a field that `o` and another input both have with its binding,
+such as `o.id` or `p.id`. For each row of the relation so far:
+
+| Its nested value | `cross join o`, `inner join o on ...` | `left join o on ...` |
+| --- | --- | --- |
+| `[]` | no row | one row, every `o` field None |
+| None (an outer JOIN found no row for it) | no row | one row |
+| child rows, none of which match `on` | no row | one row |
+| k child rows that match `on` | k rows | k rows |
+
+`[]` is zero child rows, None is a missing container and `[{v: None}]` is one
+real child row whose `v` is None: a LEFT JOIN's placeholder row is told apart by
+the JOIN, never by its fields being None, and after a LEFT JOIN every `o` field
+may be None. With `left join`, a condition in `on` keeps every row of the
+relation; the same condition in `where` also removes the rows whose placeholder
+fails it. The rows have no order, so order the query itself, and a key of the
+relation is no longer unique once each of its rows may repeat per child. The
+JOIN keeps the rules of any JOIN: a CROSS JOIN takes no `on`, every other kind
+needs one (PIE-S2333 names the bindings its `on` would match), and a relation,
+import or relation let that is also named `o` makes it `Ambiguous JOIN input: o`
+(PIE-S2604), as for an alias let.
+
+Before semantic analysis, PIE-S2807 refuses a RIGHT or FULL JOIN of an Unnest,
+a second JOIN of it, any other read of `o` (`from o`, an earlier JOIN, `exists`,
+`scalar`, `in`, `not in`, `collect o`, a set operand, `let x = o` or a capture
+line), an Unnest in a relation let, and an Unnest beside GROUP BY, an
+aggregate, `having`, a window, `qualify`, `select distinct`, `any(...)`, a
+Collect read, another Unnest, or a RIGHT or FULL JOIN written before it that
+may null-extend its binding, in the same table or query. Unnest in one table or
+query, and read it with `from` in another that does the rest.
+
 These values are typed but not yet lowered: each Collect read and each Unnest
-let is PIE-S2802, so such a project does not yet check or emit SQL. An Unnest
-reads the one Collect output of its binding. Single files, LEGACY_FLAT
-projects and package modules refuse both spellings with PIE-S2801, which says
-how to make a `schema_version = 2` project.
+let is PIE-S2802, so such a project, the admitted programs above included,
+does not yet check or emit SQL. Single files, LEGACY_FLAT projects and package
+modules refuse both spellings with PIE-S2801, which says how to make a
+`schema_version = 2` project.
 
 ### Query header parameters in explicit-module projects
 

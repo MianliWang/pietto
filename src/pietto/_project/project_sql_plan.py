@@ -1916,9 +1916,12 @@ def _owner_key(owner: ProjectDeclarationOccurrence) -> tuple[int, int, int, int]
     """Coordinates of one relation-body owner; a relation let has its own.
 
     A table-function input shares its body's positions and is told apart by
-    the last coordinate.
+    the last coordinate. An Unnest occurrence shares them too and has no
+    coordinate of its own yet (S06), so it fails closed rather than collide.
     """
 
+    if owner.unnest is not None:
+        raise ValueError("ProjectSQLPlan has no Unnest locator.")
     let_position = -1 if owner.let_position is None else owner.let_position
     function = 0 if owner.table_function is None else 1
     return owner.module_position, owner.declaration_position, let_position, function

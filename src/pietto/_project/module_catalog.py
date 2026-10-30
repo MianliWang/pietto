@@ -6,6 +6,7 @@ from pietto.ast_nodes import (
     SetRelationDef,
     TableFunctionFromClause,
     TableFunctionRelationDef,
+    UnnestRelationDef,
     ValuesBody,
     ValuesRelationDef,
 )
@@ -25,6 +26,7 @@ from pietto._project.module_carrier import (
     ProjectLogicalModule,
     ProjectModuleIdentity,
 )
+from pietto._syntax_admission import unnest_lets
 from pietto.ast_nodes import (
     AnyExpr,
     BlockRelationDef,
@@ -34,9 +36,11 @@ from pietto.ast_nodes import (
     DeriveDef,
     EnumDef,
     FromClause,
+    JoinClause,
     LetRelationDef,
     ModuleDeclarationKind,
     QueryDef,
+    QueryLetDeclaration,
     QueryParameter,
     RelationBody,
     RelationExistsExpr,
@@ -57,6 +61,7 @@ _DEFINITION_TYPES = (
     SetRelationDef,
     ValuesRelationDef,
     TableFunctionRelationDef,
+    UnnestRelationDef,
     TypeDef,
     EnumDef,
     ShapeDef,
@@ -147,8 +152,37 @@ def table_function_input(
     return None
 
 
+def declaration_unnests(
+    authored: object,
+) -> tuple[tuple[int, QueryLetDeclaration], ...]:
+    """Each Unnest let one authored declaration writes in its own body, with
+    its index among that body's `let` declarations, in source order (D71.02).
+    A relation let's Unnest has no occurrence: normalization refuses it
+    (PIE-S2807)."""
+
+    body: object = authored
+    if type(authored) is BlockRelationDef:
+        body = authored.body
+    if type(body) not in {TableDef, QueryDef, SelectBody}:
+        return ()
+    written = cast(TableDef | QueryDef | SelectBody, body)
+    positions = {
+        id(let): index for index, let in enumerate(written.naming_declarations)
+    }
+    return tuple((positions[id(let)], let) for let, _ in unnest_lets(written))
+
+
+def authored_definitions(module: ProjectLogicalModule) -> tuple[Definition, ...]:
+    """A module's definitions as written, before the project normalized their
+    query-local names: only these still hold each body's `let` declarations."""
+
+    parsed = module.parsed_input
+    assert parsed is not None
+    return (parsed.authored_script or parsed.script).definitions
+
+
 def _is_relation_block_view(
-    view: Definition | ValuesRelationDef | TableFunctionRelationDef,
+    view: Definition | ValuesRelationDef | TableFunctionRelationDef | UnnestRelationDef,
     *,
     span: Span,
     name: str,
@@ -339,7 +373,9 @@ class ProjectDeclarationOccurrence:
     identity: ProjectNominalDeclarationIdentity
     module_position: int
     declaration_position: int
-    definition: Definition | ValuesRelationDef | TableFunctionRelationDef
+    definition: (
+        Definition | ValuesRelationDef | TableFunctionRelationDef | UnnestRelationDef
+    )
     let_position: int | None = None
     authored_block: BlockRelationDef | LetRelationDef | None = field(
         default=None, compare=False, hash=False, repr=False
@@ -348,12 +384,25 @@ class ProjectDeclarationOccurrence:
     # in the body of the declaration at ``declaration_position`` or of its let
     # at ``let_position``. Its nominal identity is display only.
     table_function: TableFunctionFromClause | None = None
+    # An Unnest occurrence (D-S05-1): the relation of one Unnest let of the
+    # body of the declaration at ``declaration_position``, at index
+    # ``unnest_position`` of that body's authored `let` declarations. Its
+    # nominal identity is display only; its JOIN binds it by identity.
+    unnest: QueryLetDeclaration | None = field(
+        default=None, compare=False, hash=False, repr=False
+    )
+    unnest_position: int | None = None
 
     @property
     def block_local(self) -> bool:
-        """A relation let or table-function occurrence, never a declaration."""
+        """A relation let, table-function or Unnest occurrence, never a
+        declaration."""
 
-        return self.let_position is not None or self.table_function is not None
+        return (
+            self.let_position is not None
+            or self.table_function is not None
+            or self.unnest is not None
+        )
 
     @property
     def authored(
@@ -362,13 +411,17 @@ class ProjectDeclarationOccurrence:
         Definition
         | ValuesRelationDef
         | TableFunctionRelationDef
+        | UnnestRelationDef
         | LetRelationDef
         | TableFunctionFromClause
+        | QueryLetDeclaration
     ):
         """Return the exact source node this occurrence was built from."""
 
         if self.table_function is not None:
             return self.table_function
+        if self.unnest is not None:
+            return self.unnest
         return self.definition if self.authored_block is None else self.authored_block
 
     @property
@@ -403,6 +456,22 @@ class ProjectDeclarationOccurrence:
         ):
             raise ValueError("Declaration occurrence must match its nominal identity.")
         block = self.authored_block
+        if (
+            self.unnest is not None
+            or self.unnest_position is not None
+            or type(self.definition) is UnnestRelationDef
+        ):
+            if (
+                type(self.definition) is not UnnestRelationDef
+                or self.definition.source is not self.unnest
+                or type(self.unnest_position) is not int
+                or self.unnest_position < 0
+                or block is not None
+                or self.let_position is not None
+                or self.table_function is not None
+            ):
+                raise ValueError("Unnest occurrence requires its exact let.")
+            return
         if self.table_function is not None or (
             type(self.definition) is TableFunctionRelationDef
         ):
@@ -449,6 +518,7 @@ class ProjectModuleCatalog:
     occurrences: tuple[ProjectDeclarationOccurrence, ...] = ()
     lets: tuple[ProjectDeclarationOccurrence, ...] = ()
     table_functions: tuple[ProjectDeclarationOccurrence, ...] = ()
+    unnests: tuple[ProjectDeclarationOccurrence, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject incomplete, reordered, or mismatched module catalogs."""
@@ -531,6 +601,27 @@ class ProjectModuleCatalog:
                 raise ValueError(
                     "Module catalog table functions must match their FROM inputs."
                 )
+        expected_unnests = tuple(
+            (position, unnest_position, let)
+            for position, authored in enumerate(authored_definitions(self.module))
+            for unnest_position, let in declaration_unnests(authored)
+        )
+        if type(self.unnests) is not tuple or len(self.unnests) != len(
+            expected_unnests
+        ):
+            raise ValueError("Module catalog must retain every Unnest let.")
+        for occurrence, (position, unnest_position, let) in zip(
+            self.unnests, expected_unnests, strict=True
+        ):
+            if (
+                type(occurrence) is not ProjectDeclarationOccurrence
+                or occurrence.identity.module_path != self.module.path
+                or occurrence.module_position != self.module.position
+                or occurrence.declaration_position != position
+                or occurrence.unnest_position != unnest_position
+                or occurrence.unnest is not let
+            ):
+                raise ValueError("Module catalog Unnests must match their lets.")
 
     @property
     def relation_owners(self) -> tuple[ProjectDeclarationOccurrence, ...]:
@@ -539,11 +630,13 @@ class ProjectModuleCatalog:
         A declaration's lets come in read order: each after every other let
         of the declaration it reads, otherwise (and inside a cycle) in source
         order. A table-function occurrence comes right before the body that
-        reads it. Module-level readers (namespaces, exports, packages) keep
-        reading ``occurrences``; relation-body readers read this sequence.
+        reads it, and each Unnest occurrence of a declaration's body right
+        before that declaration, in source order. Module-level readers
+        (namespaces, exports, packages) keep reading ``occurrences``;
+        relation-body readers read this sequence.
         """
 
-        if not self.lets and not self.table_functions:
+        if not self.lets and not self.table_functions and not self.unnests:
             return self.occurrences
         lets_by_position: dict[int, list[ProjectDeclarationOccurrence]] = {}
         for let in self.lets:
@@ -557,7 +650,16 @@ class ProjectModuleCatalog:
             reader: ProjectDeclarationOccurrence, let_position: int | None
         ) -> tuple[ProjectDeclarationOccurrence, ...]:
             function = functions.get((reader.declaration_position, let_position))
-            return (reader,) if function is None else (function, reader)
+            unnests = (
+                tuple(
+                    item
+                    for item in self.unnests
+                    if item.declaration_position == reader.declaration_position
+                )
+                if let_position is None
+                else ()
+            )
+            return (*(() if function is None else (function,)), *unnests, reader)
 
         return tuple(
             owner
@@ -588,6 +690,42 @@ class ProjectModuleCatalog:
         if len(matches) != 1:
             raise ValueError("Table-function input requires one exact occurrence.")
         return matches[0]
+
+    def find_unnest(
+        self, owner: ProjectDeclarationOccurrence, join: JoinClause
+    ) -> ProjectDeclarationOccurrence | None:
+        """Return the Unnest occurrence one JOIN of a declaration's body
+        reads, if it reads one: matched by the JOIN's authored span, since
+        normalization may rebuild the clause, never by its target's name."""
+
+        if (
+            owner.block_local
+            or owner.identity.module_path != self.module.path
+            or not self.unnests
+        ):
+            return None
+        authored = authored_definitions(self.module)[owner.declaration_position]
+        body: object = authored.body if type(authored) is BlockRelationDef else authored
+        if type(body) not in {TableDef, QueryDef, SelectBody}:
+            return None
+        joins = {
+            id(let): written
+            for let, written in unnest_lets(
+                cast(TableDef | QueryDef | SelectBody, body)
+            )
+        }
+        matches = tuple(
+            item
+            for item in self.unnests
+            if item.declaration_position == owner.declaration_position
+            and any(
+                candidate.span == join.span
+                for candidate in joins.get(id(item.unnest), ())
+            )
+        )
+        if len(matches) > 1:
+            raise ValueError("One JOIN reads at most one Unnest occurrence.")
+        return matches[0] if matches else None
 
     def find_lets(
         self, declaration_position: int
@@ -703,9 +841,34 @@ def _build_project_module_catalog_set(
         occurrences: list[ProjectDeclarationOccurrence] = []
         lets: list[ProjectDeclarationOccurrence] = []
         functions: list[ProjectDeclarationOccurrence] = []
+        unnests: list[ProjectDeclarationOccurrence] = []
+        written = authored_definitions(module)
         for declaration_position, definition in enumerate(
             module.parsed_input.script.definitions
         ):
+            unnests.extend(
+                ProjectDeclarationOccurrence(
+                    identity=ProjectNominalDeclarationIdentity(
+                        module_path=module.path,
+                        namespace=ProjectSymbolNamespace.RELATION,
+                        declaration_kind=ProjectSymbolKind.QUERY,
+                        declared_name=let.name,
+                    ),
+                    module_position=module.position,
+                    declaration_position=declaration_position,
+                    definition=UnnestRelationDef(
+                        span=let.span,
+                        name=let.name,
+                        kind=ModuleDeclarationKind.QUERY,
+                        source=let,
+                    ),
+                    unnest=let,
+                    unnest_position=unnest_position,
+                )
+                for unnest_position, let in declaration_unnests(
+                    written[declaration_position]
+                )
+            )
             block = definition if type(definition) is BlockRelationDef else None
             view = definition if block is None else _block_view_of(block)
             namespace, declaration_kind = _classify_project_definition(view)
@@ -773,6 +936,7 @@ def _build_project_module_catalog_set(
                 occurrences=tuple(occurrences),
                 lets=tuple(lets),
                 table_functions=tuple(functions),
+                unnests=tuple(unnests),
             )
         )
 

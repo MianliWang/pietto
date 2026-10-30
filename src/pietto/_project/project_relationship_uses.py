@@ -15,10 +15,16 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import cast
 
-from pietto._project.model import ProjectSemanticResult
+from pietto._project.model import (
+    ProjectSemanticResult,
+    project_declaration_occurrence_identity,
+)
 from pietto._project.module_attribution import ProjectDeclarationOccurrenceIdentity
 from pietto._project.module_carrier import ProjectCompilationMode
-from pietto._project.module_catalog import ProjectDeclarationOccurrence
+from pietto._project.module_catalog import (
+    ProjectDeclarationOccurrence,
+    ProjectModuleCatalog,
+)
 from pietto._project.module_relation_resolution import (
     ProjectModuleRelationResolutionEnvironment,
     ProjectModuleRelationResolutionIssue,
@@ -94,13 +100,7 @@ def _require_position(value: object, label: str) -> None:
 def _owner_identity(
     owner: ProjectDeclarationOccurrence,
 ) -> ProjectDeclarationOccurrenceIdentity:
-    return ProjectDeclarationOccurrenceIdentity(
-        identity=owner.identity,
-        module_position=owner.module_position,
-        declaration_position=owner.declaration_position,
-        let_position=owner.let_position,
-        table_function=owner.table_function is not None,
-    )
+    return project_declaration_occurrence_identity(owner)
 
 
 def _derived_definition(
@@ -458,6 +458,7 @@ def _binding(
     environment: ProjectModuleRelationResolutionEnvironment,
     relational: ProjectIRRelationalPropertyStage,
     duplicate: bool,
+    catalog: ProjectModuleCatalog | None,
 ) -> ProjectRelationBindingOccurrence:
     definition = _derived_definition(owner)
     site: FromClause | JoinClause
@@ -472,8 +473,15 @@ def _binding(
         site = definition.join_clauses[position - 1]
         name = site.target_binding_name
         relation_name = site.target_relation_name
-        targets = environment.find_scoped_relation_name(owner, relation_name)
-        issues = _relation_issues(environment, owner, relation_name)
+        # An Unnest JOIN reads its occurrence by identity (D-S05-1); no
+        # scoped name lookup reaches it, nor its name another relation.
+        unnest = None if catalog is None else catalog.find_unnest(owner, site)
+        if unnest is not None:
+            targets = environment.find_unnest_symbol(unnest)
+            issues = ()
+        else:
+            targets = environment.find_scoped_relation_name(owner, relation_name)
+            issues = _relation_issues(environment, owner, relation_name)
     target = targets[0] if len(targets) == 1 else None
     output = None if target is None else _final_output(relational, target)
     if duplicate or len(targets) > 1:
@@ -595,6 +603,12 @@ def validate_project_join_input_bindings(
     if len(environments) != 1:
         raise ValueError("Pre-match bindings require one exact module environment.")
     names = tuple(binding.name for binding in ledger.bindings)
+    catalogs = roots.semantic_result.module_catalogs
+    local = (
+        ()
+        if catalogs is None
+        else catalogs.find_module_path(ledger.owner.identity.module_path)
+    )
     for position, binding in enumerate(ledger.bindings):
         expected = _binding(
             owner=ledger.owner,
@@ -602,6 +616,7 @@ def validate_project_join_input_bindings(
             environment=environments[0],
             relational=roots.relational,
             duplicate=names.count(binding.name) > 1,
+            catalog=local[0] if len(local) == 1 else None,
         )
         if (
             binding.target is not expected.target
@@ -701,6 +716,7 @@ def build_project_relationship_uses(
                     environment=relation_environment,
                     relational=relational,
                     duplicate=name in duplicates,
+                    catalog=catalog,
                 )
                 for position, name in enumerate(names)
             )

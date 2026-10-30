@@ -125,7 +125,9 @@ def test_parse_only_project_check_adds_gate_diagnostics_beside_parse_errors(
 
 @pytest.mark.parametrize(
     ("schema", "expected"),
-    ((1, (("PIE-S2801", 3, 5), ("PIE-S2801", 6, 18))), (2, ())),
+    # S05: a schema-2 Unnest beside a Collect read of the same body is
+    # refused before semantics (PIE-S2807 S, D-S05-4).
+    ((1, (("PIE-S2801", 3, 5), ("PIE-S2801", 6, 18))), (2, (("PIE-S2807", 3, 5),))),
 )
 def test_project_check_gates_collect_and_unnest_before_project_readers(
     tmp_path: Path, schema: int, expected: tuple[tuple[str, int, int], ...]

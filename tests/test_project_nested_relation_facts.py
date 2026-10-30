@@ -34,6 +34,8 @@ from pietto._project.project_ir_pipeline import build_project_ir_pipeline
 from pietto._project.project_row_equivalence import same_canonical_type
 from pietto._project.project_row_keys import build_project_row_keys
 from pietto._project.project_value_fds import build_project_value_fds
+from pietto._syntax_admission import unnest_lets
+from pietto.ast_nodes import QueryDef
 from pietto.cli import main as cli_main
 
 
@@ -289,7 +291,9 @@ def test_unnest_retains_the_exact_nested_output_occurrence(tmp_path: Path) -> No
     (collect,) = facts.collect_facts
     (unnest,) = facts.unnest_inputs
     assert unnest.status is ProjectNestedRelationFactStatus.AVAILABLE
-    assert unnest.source_field is collect.output
+    # S05 (D-S05-7): the Unnest's link is the S04 Collect read fact itself.
+    assert unnest.source_field == collect.output
+    assert unnest.collect_read is collect.collect_read
     assert unnest.nested_type is collect.nested_type
     assert unnest.query_let.name == "child"
     assert _located(facts.diagnostics) == [("PIE-S2802", 13, 18), ("PIE-S2802", 16, 5)]
@@ -319,23 +323,53 @@ def test_unnest_resolves_the_authored_from_alias_not_the_source_name(
 
 
 @pytest.mark.parametrize(
-    ("sources", "candidates"),
+    ("source", "expected"),
     [
-        ({"main.pietto": _expanded("cross join child", binding="ghost")}, 0),
         (
-            {
-                "main.pietto": SOURCE
-                + """query expanded:
+            _expanded("cross join child", binding="ghost"),
+            ("PIE-S2806", 16, 24, "ghost.nested", "ghost", "child"),
+        ),
+        (
+            SOURCE
+            + """query expanded:
     let p = parent
     let child = unnest(p.nested)
     from p
     cross join child
     select:
         id
-"""
-            },
-            0,
+""",
+            ("PIE-S2806", 16, 24, "p.nested", "p", "child"),
         ),
+    ],
+    ids=["unknown-binding", "binding-after-let"],
+)
+def test_unnest_without_a_row_binding_written_before_it_is_refused_first(
+    tmp_path: Path, source: str, expected: tuple[str, int, int, str, str, str]
+) -> None:
+    # S05 (D-S05-2): a binding that is no FROM or earlier JOIN binding is
+    # refused before semantics (PIE-S2806 B1), so no fact claims it.
+    code, line, column, argument, binding, let = expected
+    parsed = _parsed_files(tmp_path, {"main.pietto": source})
+    assert [
+        (d.code, d.location.line, d.location.column, d.message, d.suggestion)
+        for d in parsed.diagnostics
+    ] == [
+        (
+            code,
+            line,
+            column,
+            f"Unnest argument {argument} is not available: {binding} is not the "
+            f"FROM input or a CROSS, INNER or LEFT JOIN written before let {let}.",
+            f"Write `let {let} = unnest(binding.field)` after the FROM or JOIN "
+            "whose binding has the nested field.",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("sources", "candidates"),
+    [
         (
             {
                 "main.pietto": SOURCE
@@ -362,7 +396,7 @@ def test_unnest_resolves_the_authored_from_alias_not_the_source_name(
             1,
         ),
     ],
-    ids=["unknown-binding", "binding-after-let", "unknown-input", "blocked-input"],
+    ids=["unknown-input", "blocked-input"],
 )
 def test_unnest_without_one_resolved_binding_retains_its_visible_inputs(
     tmp_path: Path, sources: dict[str, str], candidates: int
@@ -404,14 +438,24 @@ def test_unnest_resolves_a_preceding_join_binding(tmp_path: Path) -> None:
 def test_unnest_with_multiple_join_candidates_is_unavailable_not_first_match(
     tmp_path: Path,
 ) -> None:
-    semantic = _semantic(
-        tmp_path, _expanded("cross join child\n    left join child on True")
+    # S05 (D-S05-4): one JOIN reads an Unnest; every later one is refused
+    # before semantics (PIE-S2807 M), and none wins.
+    parsed = _parsed_files(
+        tmp_path,
+        {"main.pietto": _expanded("cross join child\n    left join child on True")},
     )
 
-    (unnest,) = _facts(semantic).unnest_inputs
-    assert unnest.status is ProjectNestedRelationFactStatus.UNAVAILABLE
-    assert unnest.reason is ProjectNestedRelationFactReason.JOIN_UNAVAILABLE
-    assert len(unnest.join_candidates) == 2
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in parsed.diagnostics
+    ] == [
+        (
+            "PIE-S2807",
+            18,
+            5,
+            "Unnest child is joined more than once: one JOIN reads an Unnest.",
+        )
+    ]
 
 
 _WRITE_ON = (
@@ -437,22 +481,23 @@ def _beside_alias(
 ) -> tuple[list[tuple[str, int, int, str]], list[tuple[str, int, int, str]]]:
     """The checked diagnostics of ``source`` and of its alias-let control.
 
-    The control names `parent` instead, whose collected let has no ORDER BY:
-    its Collect read is refused (PIE-S2804, dropped here), so its rows are
-    unavailable, as the rows of an Unnest are until S05 binds them.
+    S05 (D-S05-1): the control reads `kids`, a query of the collected let's
+    fields appended after every line, through an alias let in the Unnest's
+    place; its write-on hints name `kids` where the Unnest's name its let.
     """
 
     unnest = _messages(_semantic(tmp_path / "unnest", source))
     alias = _messages(
         _semantic(
             tmp_path / "alias",
-            source.replace("unnest(parent.nested)", "parent").replace(
-                "        select id, note\n        order by:\n            id\n",
-                "        select:\n            id\n            note\n",
-            ),
+            source.replace("unnest(parent.nested)", "kids")
+            + "query kids:\n    from rows\n    select id, note\n",
         )
     )
-    return unnest, [item for item in alias if item[0] != "PIE-S2804"]
+    return unnest, [
+        (code, line, column, message.replace(" to kids)", " to child)"))
+        for code, line, column, message in alias
+    ]
 
 
 @pytest.mark.parametrize(
@@ -472,45 +517,52 @@ def _beside_alias(
 def test_an_unnest_join_reports_what_a_join_of_an_alias_let_reports(
     tmp_path: Path, join: str
 ) -> None:
-    # D71.02: until S05 binds it, an Unnest JOIN is one JOIN input in its
-    # place, so it reports what any JOIN of an unavailable input reports, in
-    # the same order. A JOIN without `on` of another kind than CROSS also
-    # names the inputs its `on` would match, as for a known input, in place
-    # of the relation's fallback.
+    # S05 (D-S05-1, PIE-S2802 row): a CROSS, INNER or LEFT Unnest JOIN reads
+    # the rows of its nested field in its place, so it reports what a JOIN of
+    # an alias let of the same fields reports, in the same order, after its
+    # gate; a JOIN without `on` of another kind than CROSS names the inputs
+    # its `on` would match. A RIGHT or FULL one is refused before semantics
+    # (PIE-S2807 K, D71.04).
+    if join.startswith(("right", "full")):
+        parsed = _parsed_files(tmp_path, {"main.pietto": _expanded(join)})
+        assert [
+            (d.code, d.location.line, d.location.column, d.message, d.suggestion)
+            for d in parsed.diagnostics
+        ] == [
+            (
+                "PIE-S2807",
+                17,
+                5,
+                "Unnest child can be joined only by cross, inner or left join.",
+                "Write `cross join child`, `inner join child on ...` or "
+                "`left join child on True`.",
+            )
+        ]
+        return
     unnest, alias = _beside_alias(tmp_path, _expanded(join))
 
     gate = ("PIE-S2802", 16, 5, _UNNEST_GATE)
     hint = ("PIE-S2333", 17, 5, _WRITE_ON[1])
-    fallback = (
-        "PIE-S2333",
-        14,
-        1,
-        "Project relation semantic completion is unavailable: expanded",
-    )
     writes_on = not join.startswith("cross") and " on " not in join
+    cross_on = join == "cross join child on True"
+    assert unnest == [alias[0], gate, *alias[1:]]
     assert (hint in unnest) is writes_on
-    # The control's input `parent` fails with its own refused Collect read,
-    # and the Unnest with its let's error, so neither relation reports a
-    # fallback beside them.
-    assert fallback not in alias
-    assert [item for item in unnest if item != hint] == [
-        alias[0],
-        gate,
-        *(item for item in alias[1:] if item != fallback),
-    ]
-    cross_on = ("PIE-S2336", 17, 5, "CROSS JOIN cannot have ON or VIA.")
-    assert (cross_on in unnest) is (join == "cross join child on True")
+    assert (("PIE-S2336", 17, 5, "CROSS JOIN cannot have ON or VIA.") in unnest) is (
+        cross_on
+    )
+    # A legal Unnest JOIN reports only the lowering boundary (AC-03).
+    assert len(unnest) == 2 + writes_on + cross_on
 
 
 @pytest.mark.parametrize(
-    ("body", "let_line"),
+    ("body", "expected"),
     [
-        # A table-function FROM.
+        # A table-function FROM has no nested field (S05, PIE-S2806).
         (
             "query q:\n    from generate_series(1, 3, 1) as n\n"
             "    let child = unnest(n.nested)\n    cross join child\n"
             "    select:\n        v = n.value\n",
-            16,
+            ("PIE-S2806", 16, 24),
         ),
         # A relation let beside the Unnest let.
         (
@@ -518,27 +570,37 @@ def test_an_unnest_join_reports_what_a_join_of_an_alias_let_reports(
             "            id\n    from parent\n    let child = unnest(parent.nested)\n"
             "    cross join child\n    where parent.id in extra\n"
             "    select:\n        id = parent.id\n",
-            20,
+            ("PIE-S2802", 20, 5),
         ),
-        # An Unnest let inside a relation let.
+        # An Unnest let inside a relation let is refused before semantics
+        # (S05, PIE-S2807).
         (
             "query q:\n    let sub:\n        from parent\n"
             "        let child = unnest(parent.nested)\n        cross join child\n"
             "        select:\n            id = parent.id\n    from sub\n"
             "    select:\n        id\n",
-            17,
+            ("PIE-S2807", 17, 9),
         ),
     ],
 )
 def test_an_unnest_join_of_a_block_body_is_no_unknown_relation(
-    tmp_path: Path, body: str, let_line: int
+    tmp_path: Path, body: str, expected: tuple[str, int, int]
 ) -> None:
     # D71.02 holds in every relation body: the JOIN is the Unnest let's one
     # input in its place, never a named relation the module lacks.
-    checked = _checked(_semantic(tmp_path, SOURCE + body))
+    parsed = _parsed_files(tmp_path / "parsed", {"main.pietto": SOURCE + body})
+    checked = (
+        _checked(_semantic(tmp_path, SOURCE + body))
+        if parsed.ok
+        else [
+            (d.code, d.location.line, d.location.column)
+            for d in parsed.diagnostics
+            if d.location is not None
+        ]
+    )
 
     assert "PIE-S2301" not in {code for code, _, _ in checked}
-    assert ("PIE-S2802", let_line, 5 if let_line != 17 else 9) in checked
+    assert expected in checked
 
 
 def test_unnest_join_diagnostics_take_the_completion_place_of_any_join(
@@ -589,13 +651,9 @@ def test_joins_beside_an_unnest_join_name_it_in_source_order(tmp_path: Path) -> 
         "(JOIN other: write `on` with the condition that matches parent or child "
         "to rows)",
     )
-    assert alias[1:] == [later]
-    assert unnest == [
-        alias[0],
-        ("PIE-S2802", 16, 5, _UNNEST_GATE),
-        ("PIE-S2333", 17, 5, _WRITE_ON[1]),
-        later,
-    ]
+    hint = ("PIE-S2333", 17, 5, _WRITE_ON[1])
+    assert alias[1:] == [hint, later]
+    assert unnest == [alias[0], ("PIE-S2802", 16, 5, _UNNEST_GATE), hint, later]
 
 
 @pytest.mark.parametrize(
@@ -617,21 +675,15 @@ def test_joins_beside_an_unnest_join_name_it_in_source_order(tmp_path: Path) -> 
             "    let x = rows\n    left join x\n",
             16,
         ),
-        (
-            "    where any(r.id == 1 for r in rows)\n"
-            "    let child = unnest(parent.nested)\n    cross join child\n"
-            "    let c = rows\n    left join c on c.id == child.id\n",
-            17,
-        ),
     ],
-    ids=["between-joins", "on-reads-it", "cross-on-first", "after-any"],
+    ids=["between-joins", "on-reads-it", "cross-on-first"],
 )
 def test_joins_beside_an_unnest_join_report_what_they_report_beside_an_alias_let(
     tmp_path: Path, body: str, let_line: int
 ) -> None:
-    # The Unnest JOIN stays one JOIN input in its place (D71.02): no other
-    # JOIN of the relation reads it as missing, and every diagnostic keeps the
-    # order an alias let in that place gives.
+    # The Unnest JOIN stays one JOIN input in its place (D71.02), bound to its
+    # occurrence (S05): every JOIN of the relation reports what it reports
+    # beside an alias let in that place, in the same order.
     unnest, alias = _beside_alias(
         tmp_path,
         SOURCE
@@ -639,8 +691,31 @@ def test_joins_beside_an_unnest_join_report_what_they_report_beside_an_alias_let
         + body
         + "    select:\n        id\n",
     )
+
     assert unnest == [alias[0], ("PIE-S2802", let_line, 5, _UNNEST_GATE), *alias[1:]]
     assert not any("unknown" in message for _, _, _, message in unnest)
+
+
+def test_an_unnest_beside_a_where_any_is_refused_before_semantics(
+    tmp_path: Path,
+) -> None:
+    # S05 (D-S05-4): `any(...)` beside an Unnest in one body is PIE-S2807 S,
+    # the S03 after-any shape.
+    parsed = _parsed_files(
+        tmp_path,
+        {
+            "main.pietto": SOURCE + "query expanded:\n    from parent\n"
+            "    where any(r.id == 1 for r in rows)\n"
+            "    let child = unnest(parent.nested)\n    cross join child\n"
+            "    let c = rows\n    left join c on c.id == child.id\n"
+            "    select:\n        id\n"
+        },
+    )
+
+    assert [
+        (d.code, d.location.line, d.location.column) for d in parsed.diagnostics
+    ] == [("PIE-S2807", 17, 5)]
+    assert "beside any(...)" in parsed.diagnostics[0].message
 
 
 @pytest.mark.parametrize(
@@ -747,10 +822,7 @@ def test_collect_rejects_non_admitted_builtin_child_leaves(
 
 
 def test_table_function_bodies_keep_one_collect_occurrence(tmp_path: Path) -> None:
-    semantic = _semantic(
-        tmp_path,
-        HEAD
-        + """query q:
+    body = """query q:
     let children:
         from rows
         select:
@@ -761,17 +833,38 @@ def test_table_function_bodies_keep_one_collect_occurrence(tmp_path: Path) -> No
     select:
         n
         nested = collect children
-""",
+"""
+    # S05 (D-S05-4): the Unnest beside that Collect read is refused before
+    # semantics (PIE-S2807 S).
+    parsed = _parsed_files(tmp_path / "beside", {"main.pietto": HEAD + body})
+    assert [
+        (d.code, d.location.line, d.location.column) for d in parsed.diagnostics
+    ] == [("PIE-S2807", 11, 5)]
+    assert "beside a Collect read" in parsed.diagnostics[0].message
+    semantic = _semantic(
+        tmp_path,
+        HEAD
+        + body.replace("    let child = unnest(n.nested)\n    cross join child\n", ""),
     )
-
-    facts = _facts(semantic)
-    assert len(facts.collect_facts) == 1
-    (unnest,) = facts.unnest_inputs
-    # The table function binding is visible, and has no nested output.
-    assert unnest.source_target is not None
-    assert unnest.source_target.target_occurrence.table_function is not None
-    assert unnest.status is ProjectNestedRelationFactStatus.UNAVAILABLE
-    assert unnest.reason is ProjectNestedRelationFactReason.OUTPUT_UNAVAILABLE
+    assert len(_facts(semantic).collect_facts) == 1
+    # The table function binding is visible, and has no nested output
+    # (PIE-S2806 B3).
+    parsed = _parsed_files(
+        tmp_path / "function",
+        {"main.pietto": HEAD + body.replace("        nested = collect children\n", "")},
+    )
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in parsed.diagnostics
+    ] == [
+        (
+            "PIE-S2806",
+            11,
+            24,
+            "Unnest argument n.nested is not available: n is a table function, "
+            "which has no nested fields.",
+        )
+    ]
 
 
 def test_fact_set_rejects_omitted_reordered_and_foreign_occurrences(
@@ -863,7 +956,9 @@ def test_fact_set_derives_every_status_reason_target_and_type(tmp_path: Path) ->
                 ),
             ),
         )
-    with pytest.raises(ValueError, match="one exact Collect authority"):
+    # S05 (D-S05-7): the set holds the semantic root's own Unnest facts; an
+    # equal copy, even one keeping the Collect authority, is no fact of it.
+    with pytest.raises(ValueError, match="every Unnest occurrence"):
         replace(
             facts,
             unnest_inputs=(
@@ -874,6 +969,7 @@ def test_fact_set_derives_every_status_reason_target_and_type(tmp_path: Path) ->
                 ),
             ),
         )
+    assert unnest.collect_read is collect.collect_read
 
 
 def test_semantic_result_requires_the_nested_relation_sidecar(tmp_path: Path) -> None:
@@ -1114,7 +1210,8 @@ def test_a_join_filter_any_keeps_its_hidden_join_beside_an_unnest(
 ) -> None:
     # The project keeps the Unnest JOIN in its place among the relation's
     # JOINs, reading no relation; the hidden JOIN of a `where any(...)`
-    # written before a later JOIN keeps its own place.
+    # written before a later JOIN keeps its own place. S05 (D-S05-4) then
+    # refuses the Unnest beside `any(...)` before semantics (PIE-S2807 S).
     parsed = _parsed_files(
         tmp_path,
         {
@@ -1124,7 +1221,11 @@ def test_a_join_filter_any_keeps_its_hidden_join_beside_an_unnest(
             + "    select:\n        rows.id\n"
         },
     )
-    assert parsed.ok, parsed.diagnostics
+    let_line = 7 + body.count("\n", 0, body.index("let child"))
+    assert [
+        (d.code, d.location.line, d.location.column) for d in parsed.diagnostics
+    ] == [("PIE-S2807", let_line, 5)]
+    assert "beside any(...)" in parsed.diagnostics[0].message
     (source,) = parsed.parsed_inputs
     (use,) = source.existence_generators
     assert [join.kind.value for join in use.owner.join_clauses] == kinds
@@ -1136,34 +1237,38 @@ def test_a_join_filter_any_keeps_its_hidden_join_beside_an_unnest(
     )
     assert unnest_join.target_relation_name == "child"
 
-    semantic = build_empty_project_semantic_result(parsed)
-    (unnest,) = _facts(semantic).unnest_inputs
-    assert [join.kind.value for join in unnest.join_candidates] == ["cross"]
-    let_line = 7 + body.count("\n", 0, body.index("let child"))
-    assert ("PIE-S2802", let_line, 5) in _checked(semantic)
-
 
 def test_a_hidden_any_join_over_an_unnest_name_is_no_unnest_join(
     tmp_path: Path,
 ) -> None:
     # A `where any(...)` before the JOIN reads its name as a relation; only
-    # the written JOIN is the Unnest's.
-    semantic = _semantic(
+    # the written JOIN is the Unnest's. S05 (D-S05-4) refuses `any(...)`
+    # beside an Unnest once, at the let, and never as another read of it.
+    parsed = _parsed_files(
         tmp_path,
-        SOURCE
-        + """query expanded:
+        {
+            "main.pietto": SOURCE
+            + """query expanded:
     from parent
     let child = unnest(parent.nested)
     where any(x.id == 1 for x in child)
     cross join child
     select:
         id
-""",
+"""
+        },
     )
 
-    (unnest,) = _facts(semantic).unnest_inputs
-    assert [join.kind.value for join in unnest.join_candidates] == ["cross"]
-    assert unnest.status is ProjectNestedRelationFactStatus.AVAILABLE
+    assert [
+        (d.code, d.location.line, d.location.column) for d in parsed.diagnostics
+    ] == [("PIE-S2807", 16, 5)]
+    assert "beside any(...)" in parsed.diagnostics[0].message
+    (source,) = parsed.parsed_inputs
+    expanded = (source.authored_script or source.script).definitions[-1]
+    assert isinstance(expanded, QueryDef)
+    ((let, joins),) = unnest_lets(expanded)
+    assert let.name == "child"
+    assert [join.kind.value for join in joins] == ["cross"]
 
 
 # --- S04: Collect admission, its read facts and the nested-field boundary ---
@@ -2676,9 +2781,8 @@ def test_the_check_outputs_name_no_internal_nested_type(
 
 
 def test_an_unnest_argument_is_no_nested_field_read(tmp_path: Path) -> None:
-    # The language reference example, in an EXPLICIT_MODULES project: the
-    # Unnest let keeps its S03 facts, and its JOIN, whose input the let's own
-    # error reports, adds nothing beside it (S05 binds it).
+    # The language reference example, in an EXPLICIT_MODULES project: S05
+    # binds the Unnest let, so only the lowering boundary remains (AC-03).
     source = (
         "shape Order:\n    id: Int\n    customer_id: Int\nsource orders: Order = "
         'postgres.table("orders")\nquery customers_with_orders:\n    let recent:\n'

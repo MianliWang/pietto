@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
+from pietto.ast_nodes import (
+    SetRelationDef,
+    TableFunctionRelationDef,
+    UnnestRelationDef,
+    ValuesRelationDef,
+)
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -11,6 +16,7 @@ from types import MappingProxyType
 from typing import TypeVar, cast
 
 from pietto._project.model import (
+    project_declaration_occurrence_identity,
     ProjectDeclarationOccurrenceIdentity,
     ProjectModuleRowFieldIdentity,
     ProjectModuleRowFieldKind,
@@ -1063,7 +1069,7 @@ class ProjectModuleAttributionFactSet:
         declaration_ids = {item.identity for item in self.declarations} | {
             _declaration_identity(let)
             for catalog in self._authority.catalogs.catalogs
-            for let in (*catalog.lets, *catalog.table_functions)
+            for let in (*catalog.lets, *catalog.table_functions, *catalog.unnests)
         }
         import_ids = {item.identity for item in self.imports}
         facades_by_id = {item.identity: item for item in self.facades}
@@ -1462,7 +1468,7 @@ def _derive_project_module_attribution_fact_collections(
             *(
                 _declaration_identity(let)
                 for catalog in catalogs.catalogs
-                for let in (*catalog.lets, *catalog.table_functions)
+                for let in (*catalog.lets, *catalog.table_functions, *catalog.unnests)
             ),
         )
     )
@@ -2225,6 +2231,7 @@ def _build_row_facts(
             SetRelationDef,
             ValuesRelationDef,
             TableFunctionRelationDef,
+            UnnestRelationDef,
         }:
             if fact.state.status is ProjectRelationRowSchemaStatus.CONCRETE:
                 raise ValueError("Set syntax cannot publish concrete lineage.")
@@ -3251,13 +3258,7 @@ def _declaration_identity(
 ) -> ProjectDeclarationOccurrenceIdentity:
     if type(occurrence) is not ProjectDeclarationOccurrence:
         raise TypeError("Declaration identity requires an occurrence.")
-    return ProjectDeclarationOccurrenceIdentity(
-        identity=occurrence.identity,
-        module_position=occurrence.module_position,
-        declaration_position=occurrence.declaration_position,
-        let_position=occurrence.let_position,
-        table_function=occurrence.table_function is not None,
-    )
+    return project_declaration_occurrence_identity(occurrence)
 
 
 def _import_identity(

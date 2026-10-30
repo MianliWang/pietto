@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from pietto.ast_nodes import SetRelationDef, TableFunctionRelationDef, ValuesRelationDef
+from pietto.ast_nodes import (
+    SetRelationDef,
+    TableFunctionRelationDef,
+    UnnestRelationDef,
+    ValuesRelationDef,
+)
 
 from collections import deque
 from dataclasses import dataclass, field
@@ -1056,7 +1061,14 @@ def _dependencies(
                         )
                     )
             continue
-        if type(definition) in {SourceDef, ValuesRelationDef, TableFunctionRelationDef}:
+        if type(definition) in {
+            SourceDef,
+            ValuesRelationDef,
+            TableFunctionRelationDef,
+            UnnestRelationDef,
+        }:
+            # An Unnest reads its source binding laterally, through its
+            # declaration's row (D-S05-1), never as a completion input.
             continue
         if type(definition) not in {TableDef, QueryDef}:
             raise TypeError("Completion inventory requires relation-producing owners.")

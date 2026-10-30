@@ -157,6 +157,7 @@ from pietto._project.project_grain import (
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto._project.project_values import ProjectValuesColumn, ProjectValuesRelation
 from pietto._project.project_table_function import ProjectTableFunctionRelation
+from pietto._project.project_unnest import ProjectUnnestColumn, ProjectUnnestRelation
 from pietto._project.project_set_operations import (
     ProjectSetInputScope,
     ProjectSetOperandUse,
@@ -247,6 +248,7 @@ from pietto.ast_nodes import (
     DistinctClause,
     SetRelationDef,
     TableFunctionRelationDef,
+    UnnestRelationDef,
     ValuesRelationDef,
     SetOperationKind,
     SetOperationQuantifier,
@@ -1944,16 +1946,17 @@ class ProjectCompletedSetOutput:
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectCompletedValuesOutputField:
-    """One typed VALUES header column as a canonical non-SELECT field."""
+    """One typed VALUES header column, or one Unnest element field, as a
+    canonical non-SELECT field."""
 
     owner: ProjectDeclarationOccurrence = field(repr=False)
-    source: ProjectValuesColumn = field(repr=False)
+    source: ProjectValuesColumn | ProjectUnnestColumn = field(repr=False)
     output_name: str = field(init=False)
     identity: ProjectModuleRowFieldIdentity = field(init=False)
     field: ProjectRowField = field(init=False)
 
     def __post_init__(self) -> None:
-        if type(self.source) is not ProjectValuesColumn:
+        if type(self.source) not in {ProjectValuesColumn, ProjectUnnestColumn}:
             raise TypeError("VALUES field requires its exact header column.")
         object.__setattr__(self, "output_name", self.source.name)
         object.__setattr__(
@@ -1976,23 +1979,32 @@ class ProjectCompletedValuesOutputField:
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectValuesGrainOrigin(ProjectGrainOriginAuthority):
-    """VALUES or generated series rows have no row identity of their own."""
+    """VALUES, generated series or Unnest element rows have no row identity
+    of their own."""
 
-    witness: ProjectValuesRelation | ProjectTableFunctionRelation = field(repr=False)
+    witness: (
+        ProjectValuesRelation | ProjectTableFunctionRelation | ProjectUnnestRelation
+    ) = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectCompletedValuesOutput:
     """The zero-input typed variant in the canonical effective-output ledger.
 
-    It reads no relation: its schema is a VALUES header and its rows fixed
-    literal tuples, or its root is one bounded table-function input whose one
-    ``Int not null`` column is its binding. It has no dependencies, keys,
-    functional dependencies or grain.
+    It reads no completed relation: its schema is a VALUES header and its
+    rows fixed literal tuples, or its root is one bounded table-function
+    input whose one ``Int not null`` column is its binding, or one Unnest
+    occurrence whose element fields its input fact types. An Unnest's rows
+    depend on each row of its source binding, which that fact records
+    (D-S05-1) and no completion dependency does; lowering it is S06's, never
+    as VALUES. It has no dependencies, keys, functional dependencies or
+    grain.
     """
 
     base_entry: ProjectEffectiveOutputTerminal = field(repr=False)
-    root: ProjectValuesRelation | ProjectTableFunctionRelation = field(repr=False)
+    root: (
+        ProjectValuesRelation | ProjectTableFunctionRelation | ProjectUnnestRelation
+    ) = field(repr=False)
     fields: tuple[ProjectCompletedValuesOutputField, ...] = field(init=False)
     schema: ProjectRowSchema = field(init=False)
     row_domain: ProjectCompletedRowDomain = field(init=False)
@@ -2005,7 +2017,11 @@ class ProjectCompletedValuesOutput:
         if (
             type(self.base_entry) is not ProjectEffectiveOutputTerminal
             or type(self.root)
-            not in {ProjectValuesRelation, ProjectTableFunctionRelation}
+            not in {
+                ProjectValuesRelation,
+                ProjectTableFunctionRelation,
+                ProjectUnnestRelation,
+            }
             or self.root.definition is not self.base_entry.owner.definition
             or self.root.diagnostics
         ):
@@ -2038,7 +2054,8 @@ class ProjectCompletedValuesOutput:
         if (
             self.base_entry.dependencies
             or not isinstance(
-                self.owner.definition, (ValuesRelationDef, TableFunctionRelationDef)
+                self.owner.definition,
+                (ValuesRelationDef, TableFunctionRelationDef, UnnestRelationDef),
             )
             or len(self.fields) != len(self.root.columns)
             or any(
@@ -2051,6 +2068,8 @@ class ProjectCompletedValuesOutput:
             or tuple(self.schema.fields) != tuple(f.output_name for f in self.fields)
             or self.row_domain.kind is not ProjectCompletedRowDomainKind.VALUES
             or self.origin.witness is not self.root
+            or isinstance(self.root, ProjectUnnestRelation)
+            and tuple(f.identity for f in self.fields) != self.root.fact.element_fields
         ):
             raise ValueError("Completed VALUES output lost its exact typed header.")
 
@@ -6181,7 +6200,9 @@ def _complete_values_output(
     """
     owner = base_entry.owner
     definition = owner.definition
-    assert isinstance(definition, (ValuesRelationDef, TableFunctionRelationDef))
+    assert isinstance(
+        definition, (ValuesRelationDef, TableFunctionRelationDef, UnnestRelationDef)
+    )
     if (
         type(base_entry) is not ProjectEffectiveOutputTerminal
         or base_entry.dependencies
@@ -6189,14 +6210,21 @@ def _complete_values_output(
         raise ValueError(
             "VALUES completion requires its dependency-free base terminal."
         )
-    root = (
-        ProjectValuesRelation(definition=definition)
-        if isinstance(definition, ValuesRelationDef)
-        else ProjectTableFunctionRelation(definition=definition)
-    )
-    if _semantic_facts(completion, owner).helper_diagnostics != root.diagnostics:
+    facts = _semantic_facts(completion, owner)
+    root: ProjectValuesRelation | ProjectTableFunctionRelation | ProjectUnnestRelation
+    if isinstance(definition, ValuesRelationDef):
+        root = ProjectValuesRelation(definition=definition)
+    elif isinstance(definition, TableFunctionRelationDef):
+        root = ProjectTableFunctionRelation(definition=definition)
+    else:
+        unnest = facts.unnest_occurrence
+        if unnest is None:
+            raise ValueError("Unnest completion requires its exact input fact.")
+        root = ProjectUnnestRelation(definition=definition, fact=unnest)
+    if facts.helper_diagnostics != root.diagnostics:
         raise ValueError("VALUES completion lost its exact semantic diagnostics.")
-    if root.diagnostics:
+    if root.diagnostics or root.schema is None:
+        # An Unnest whose field is untyped also keeps its base terminal.
         return base_entry
     return ProjectCompletedValuesOutput(base_entry=base_entry, root=root)
 
@@ -7812,7 +7840,10 @@ def build_project_effective_output_completion(
             built_by_owner[id(owner)] = entry
             changed_current.add(id(owner))
             continue
-        if isinstance(definition, (ValuesRelationDef, TableFunctionRelationDef)):
+        if isinstance(
+            definition,
+            (ValuesRelationDef, TableFunctionRelationDef, UnnestRelationDef),
+        ):
             entry = _complete_values_output(completion, base_entry)
             built_by_owner[id(owner)] = entry
             if entry is not base_entry:
@@ -8014,7 +8045,8 @@ def completed_set_admission_diagnostics(
             facts = _semantic_facts(overlay.base, entry.owner)
             definition = entry.owner.definition
             if isinstance(
-                definition, (ValuesRelationDef, TableFunctionRelationDef)
+                definition,
+                (ValuesRelationDef, TableFunctionRelationDef, UnnestRelationDef),
             ) or facts.helper_diagnostics != syntax_diagnostics(definition):
                 raise ValueError(
                     "Set admission requires its exact owner-held temporary cause."

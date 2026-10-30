@@ -176,8 +176,12 @@ def test_schema_shared_emission_constants():
         return SimpleNamespace(**{**{n: n for n in field_names(cls)}, **nested})
 
     nominal = namespace(ProjectNominalDeclarationIdentity)
+    # An Unnest locator has no portable form yet (S06): the encoder refuses a
+    # present one, so the encoded fields are those of every other occurrence.
     occurrence = namespace(
-        attribution.ProjectDeclarationOccurrenceIdentity, identity=nominal
+        attribution.ProjectDeclarationOccurrenceIdentity,
+        identity=nominal,
+        unnest_position=None,
     )
     imported = namespace(
         attribution.ProjectModuleImportOccurrenceIdentity,
@@ -202,7 +206,7 @@ def test_schema_shared_emission_constants():
     assert set(encoded_path) == field_names(attribution.ProjectModuleOriginPath)
     assert set(encoded_path["target_occurrence"]) == field_names(
         attribution.ProjectDeclarationOccurrenceIdentity
-    )
+    ) - {"unnest_position"}
     assert set(encoded_path["target_occurrence"]["identity"]) == field_names(
         ProjectNominalDeclarationIdentity
     )

@@ -6,6 +6,7 @@ from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
     SetRelationDef,
     TableFunctionRelationDef,
+    UnnestRelationDef,
     ValuesRelationDef,
     inlined_arguments,
 )
@@ -45,6 +46,7 @@ from pietto._project.let_scope_facts import (
     checked_let_values,
 )
 from pietto._project.model import (
+    project_declaration_occurrence_identity,
     ProjectAggregateResultFact,
     ProjectDeclarationOccurrenceIdentity,
     ProjectModuleRowFieldIdentity,
@@ -75,6 +77,7 @@ from pietto._project.module_catalog import (
     ProjectDeclarationOccurrence,
     ProjectModuleCatalog,
     ProjectModuleCatalogSet,
+    authored_definitions,
 )
 from pietto._project.relation_captures import (
     captured_field_diagnostic,
@@ -89,6 +92,7 @@ from pietto._project.module_relation_resolution import (
     ProjectModuleRelationRowFact,
     ProjectResolvedExpressionBlockRead,
     ProjectResolvedModuleRelationReference,
+    ProjectResolvedModuleRelationSymbol,
 )
 from pietto._project.row_expression_schema import (
     ProjectExpressionSchemaResult,
@@ -160,6 +164,11 @@ from pietto.ast_nodes import (
     WhereClause,
     WindowExpr,
     WindowSpec,
+)
+from pietto._syntax_admission import (
+    UNNEST_JOIN_KINDS,
+    unnest_lets,
+    unnest_source_inputs,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -286,6 +295,8 @@ _RelationDefinition = (
     | ValuesRelationDef
     | TableFunctionRelationDef
 )
+# An owner is also an Unnest occurrence, which no FROM or name reads.
+_OwnerDefinition = _RelationDefinition | UnnestRelationDef
 _WindowAnalysis = WindowExpressionAnalysis | WindowExpressionUnsupported
 _NAMED_WINDOW_DIAGNOSTIC_CODES = frozenset(
     {"PIE-S2110", "PIE-S2111", "PIE-S2112", "PIE-S2113"}
@@ -1569,6 +1580,213 @@ class ProjectModuleCollectReadFact:
         return ProjectRowFieldNullability.NON_NULL
 
 
+class ProjectNestedRelationFactStatus(StrEnum):
+    AVAILABLE = "available"
+    UNAVAILABLE = "unavailable"
+
+
+class ProjectNestedRelationFactReason(StrEnum):
+    TARGET_NOT_LOCAL_LET = "target_not_local_let"
+    # The target is unknown or not available; for a Collect, also a read its
+    # read fact does not type, whose PIE-S2803 or PIE-S2804 says why.
+    TARGET_UNAVAILABLE = "target_unavailable"
+    OUTPUT_UNAVAILABLE = "output_unavailable"
+    JOIN_UNAVAILABLE = "join_unavailable"
+    SCALAR_BOUNDARY = "scalar_boundary"
+
+
+def _require_nested_state(
+    status: object, reason: object, *, operation: str
+) -> ProjectNestedRelationFactStatus:
+    """Bind availability to its reason: only SCALAR_BOUNDARY is available."""
+
+    if (
+        type(status) is not ProjectNestedRelationFactStatus
+        or type(reason) is not ProjectNestedRelationFactReason
+    ):
+        raise TypeError(f"{operation} fact requires an exact availability state.")
+    if (status is ProjectNestedRelationFactStatus.AVAILABLE) != (
+        reason is ProjectNestedRelationFactReason.SCALAR_BOUNDARY
+    ):
+        raise ValueError(f"{operation} fact availability must match its reason.")
+    return status
+
+
+def valid_unnest_join(join: ast.JoinClause) -> bool:
+    """D71.04: a CROSS, INNER or LEFT Unnest JOIN, with `on` unless CROSS."""
+
+    return join.kind in UNNEST_JOIN_KINDS and (
+        (join.kind is ast.AuthoredJoinKind.CROSS) == (join.on_clause is None)
+    )
+
+
+def unnest_argument(item: ast.QueryLetDeclaration) -> tuple[str, str]:
+    """The `binding.field` of one classified `unnest(binding.field)` let."""
+
+    call = item.expression
+    if type(call) is not ast.CallExpr or len(call.arguments) != 1:
+        raise ValueError("Unnest facts require an exact unnest call.")
+    argument = call.arguments[0]
+    if type(argument) is not ast.DottedNameExpr or len(argument.parts) != 2:
+        raise ValueError("Unnest facts require one binding.field argument.")
+    return argument.parts[0], argument.parts[1]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectModuleUnnestOccurrenceFact:
+    """One Unnest occurrence, the one authority of its input (D-S05-7).
+
+    ``owner`` is the declaration whose body writes `let o = unnest(b.f)` and
+    ``occurrence`` the catalog occurrence of that let. The binding ``b`` is
+    every row binding written before the let with that name
+    (``binding_candidates``, each its one resolved relation or None, never a
+    winner); ``source_target`` is the one of them, and ``source_binding_position``
+    its binding position in the declaration's row (0 for the FROM input).
+    ``nested_type`` is the type the linked S04 Collect read fact gives the
+    nested field ``f`` of that relation, whose element relation is the
+    collected let; the element fields are then this occurrence's own outputs.
+    ``diagnostic`` is PIE-S2102 or PIE-S2806 (F1, F2) when the field is not
+    such a field of its producer's known row and no error of its producer
+    explains it; a typed Unnest has none. ``awaits_producer_row`` is set
+    when that row is not known before completion, which then checks the
+    field against the completed row, or leaves it to the producer's own
+    error. ``join_candidates`` are the let's authored JOINs, and an
+    available Unnest has one admitted JOIN.
+    """
+
+    owner: ProjectDeclarationOccurrenceIdentity
+    occurrence: ProjectDeclarationOccurrenceIdentity
+    query_let: ast.QueryLetDeclaration
+    binding_name_span: ast.Span
+    source_binding_name: str
+    binding_candidates: tuple[ProjectResolvedModuleRelationSymbol | None, ...]
+    source_binding_position: int | None
+    source_target: ProjectResolvedModuleRelationSymbol | None
+    source_field: ProjectModuleRowFieldIdentity | None
+    collect_read: ProjectModuleCollectReadFact | None = field(
+        repr=False, compare=False, hash=False
+    )
+    nested_type: ProjectNestedRelationType | None
+    element_fields: tuple[ProjectModuleRowFieldIdentity, ...]
+    join_candidates: tuple[ast.JoinClause, ...]
+    status: ProjectNestedRelationFactStatus
+    reason: ProjectNestedRelationFactReason
+    diagnostic: Diagnostic | None = None
+    awaits_producer_row: bool = False
+
+    def __post_init__(self) -> None:
+        if (
+            type(self.owner) is not ProjectDeclarationOccurrenceIdentity
+            or type(self.occurrence) is not ProjectDeclarationOccurrenceIdentity
+        ):
+            raise TypeError("Unnest fact requires an exact owner identity.")
+        if type(self.awaits_producer_row) is not bool or (
+            self.awaits_producer_row
+            and (
+                self.source_target is None
+                or self.nested_type is not None
+                or self.diagnostic is not None
+            )
+        ):
+            raise ValueError("Only an untyped Unnest awaits its producer's row.")
+        occurrence = self.occurrence
+        if (
+            self.owner.block_local
+            or occurrence.unnest_position is None
+            or occurrence.module_position != self.owner.module_position
+            or occurrence.declaration_position != self.owner.declaration_position
+            or occurrence.identity.module_path != self.owner.identity.module_path
+        ):
+            raise ValueError("Unnest fact requires the occurrence of its own body.")
+        if type(self.query_let) is not ast.QueryLetDeclaration:
+            raise TypeError("Unnest fact requires its exact query let.")
+        if (
+            self.binding_name_span is not self.query_let.name_span
+            or occurrence.identity.declared_name != self.query_let.name
+        ):
+            raise ValueError("Unnest fact must retain its binding-name span.")
+        binding, field_name = unnest_argument(self.query_let)
+        if self.source_binding_name != binding:
+            raise ValueError("Unnest fact must retain its authored binding name.")
+        if type(self.binding_candidates) is not tuple or any(
+            item is not None and type(item) is not ProjectResolvedModuleRelationSymbol
+            for item in self.binding_candidates
+        ):
+            raise TypeError("Unnest facts require exact visible binding candidates.")
+        if type(self.join_candidates) is not tuple or any(
+            type(item) is not ast.JoinClause for item in self.join_candidates
+        ):
+            raise TypeError("Unnest facts require exact authored JOIN candidates.")
+        if self.source_target is not (
+            self.binding_candidates[0] if len(self.binding_candidates) == 1 else None
+        ) or (self.source_target is None) != (self.source_binding_position is None):
+            raise ValueError("Unnest source target must be its one visible binding.")
+        if self.source_binding_position is not None and (
+            type(self.source_binding_position) is not int
+            or self.source_binding_position < 0
+        ):
+            raise ValueError("Unnest source binding position must be exact.")
+        nested = self.nested_type
+        source_field = self.source_field
+        collect = self.collect_read
+        if (source_field is None) != (nested is None) or (
+            (collect is None) != (nested is None)
+        ):
+            raise ValueError("Unnest nested-field evidence must be complete.")
+        if nested is not None and (
+            type(nested) is not ProjectNestedRelationType
+            or type(collect) is not ProjectModuleCollectReadFact
+            or collect.nested_type is not nested
+            or type(source_field) is not ProjectModuleRowFieldIdentity
+            or self.source_target is None
+            or source_field.owner
+            != _occurrence_identity(self.source_target.target_occurrence)
+            or source_field.kind is not ProjectModuleRowFieldKind.RELATION_OUTPUT
+            or source_field.name != field_name
+        ):
+            raise ValueError("Unnest source field must be its binding's nested output.")
+        expected = (
+            ()
+            if nested is None
+            else tuple(
+                ProjectModuleRowFieldIdentity(
+                    owner=occurrence,
+                    kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+                    field_position=item.position,
+                    name=item.field.name,
+                )
+                for item in nested.element_fields
+            )
+        )
+        if self.element_fields != expected:
+            raise ValueError("Unnest element fields are its occurrence's own outputs.")
+        if self.diagnostic is not None and (
+            type(self.diagnostic) is not Diagnostic
+            or self.diagnostic.code not in {"PIE-S2102", "PIE-S2806"}
+            or nested is not None
+        ):
+            raise ValueError("A typed Unnest has no diagnostic.")
+        status = _require_nested_state(self.status, self.reason, operation="Unnest")
+        if status is ProjectNestedRelationFactStatus.AVAILABLE and (
+            nested is None
+            or len(self.join_candidates) != 1
+            or not valid_unnest_join(self.join_candidates[0])
+        ):
+            raise ValueError(
+                "Available Unnest facts require exact nested input evidence."
+            )
+
+    @property
+    def join(self) -> ast.JoinClause | None:
+        """The one admitted JOIN of an available Unnest."""
+
+        return (
+            self.join_candidates[0]
+            if self.status is ProjectNestedRelationFactStatus.AVAILABLE
+            else None
+        )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectNestedReferenceFacts:
     """PIE-S2805 for each read of a nested relation field in one body, with
@@ -1673,6 +1891,9 @@ class ProjectModuleRelationSemanticFacts:
 
     captured_value_types: _CaptureEnvironment = _NO_CAPTURES
     """The capture environment of a let with capture lines, else empty."""
+
+    unnest_occurrence: ProjectModuleUnnestOccurrenceFact | None = None
+    """The input fact of an Unnest occurrence (D-S05-7), else None."""
 
     @property
     def collect_read_types(self) -> Mapping[Expression, ProjectResolvedType]:
@@ -1808,10 +2029,21 @@ class ProjectModuleRelationSemanticFacts:
                 "Non-concrete semantic facts cannot publish aggregate results."
             )
         definition = self.owner.definition
+        unnest = self.unnest_occurrence
+        if (unnest is not None or type(definition) is UnnestRelationDef) and (
+            type(definition) is not UnnestRelationDef
+            or type(unnest) is not ProjectModuleUnnestOccurrenceFact
+            or unnest.occurrence != _occurrence_identity(self.owner)
+            or unnest.query_let is not self.owner.unnest
+            or self.helper_diagnostics
+            != (() if unnest.diagnostic is None else (unnest.diagnostic,))
+        ):
+            raise ValueError("An Unnest occurrence keeps its one input fact.")
         if type(definition) in {
             SetRelationDef,
             ValuesRelationDef,
             TableFunctionRelationDef,
+            UnnestRelationDef,
         }:
             if (
                 self.state is not self.base_row_fact.state
@@ -1833,7 +2065,8 @@ class ProjectModuleRelationSemanticFacts:
                         self.named_window_namespace is not None,
                     )
                 )
-                or self.helper_diagnostics
+                or not isinstance(definition, UnnestRelationDef)
+                and self.helper_diagnostics
                 != (
                     values_diagnostics(definition)
                     if isinstance(definition, ValuesRelationDef)
@@ -2135,6 +2368,7 @@ class ProjectModuleSemanticFactEnvironment:
                 SetRelationDef,
                 ValuesRelationDef,
                 TableFunctionRelationDef,
+                UnnestRelationDef,
             }:
                 expected_resolution = None
             elif type(definition) in {TableDef, QueryDef}:
@@ -2161,7 +2395,7 @@ class ProjectModuleSemanticFactEnvironment:
         for fact in self.relation_facts:
             if fact.owner.identity.module_path != self.module.path:
                 raise ValueError("Semantic relation fact must be module-local.")
-            definition = cast(_RelationDefinition, fact.owner.definition)
+            definition = cast(_OwnerDefinition, fact.owner.definition)
             buckets.setdefault(id(definition), []).append(fact)
         object.__setattr__(
             self,
@@ -2173,7 +2407,7 @@ class ProjectModuleSemanticFactEnvironment:
 
     def find_definition(
         self,
-        definition: _RelationDefinition,
+        definition: _OwnerDefinition,
     ) -> tuple[ProjectModuleRelationSemanticFacts, ...]:
         """Return the complete exact AST-definition bucket."""
 
@@ -2184,6 +2418,7 @@ class ProjectModuleSemanticFactEnvironment:
             SetRelationDef,
             ValuesRelationDef,
             TableFunctionRelationDef,
+            UnnestRelationDef,
         }:
             raise TypeError("Semantic fact lookup requires a relation definition.")
         return tuple(
@@ -2681,6 +2916,7 @@ def _validate_relation_window_fact_set_closure(
         SetRelationDef,
         ValuesRelationDef,
         TableFunctionRelationDef,
+        UnnestRelationDef,
     }:
         relation.__post_init__()
         if upstream is not None or relation.state is not pre_window_state:
@@ -3092,6 +3328,26 @@ def _build_project_module_semantic_fact_set(
                         helper_diagnostics=table_function_diagnostics(definition),
                     )
                     pre_window_state = base_row_fact.state
+                elif type(definition) is UnnestRelationDef:
+                    unnest = _unnest_occurrence_fact(
+                        owner, catalog, resolution_environment, completed, pending
+                    )
+                    if unnest is None:
+                        continue
+                    semantic_fact = ProjectModuleRelationSemanticFacts(
+                        owner=owner,
+                        base_row_fact=base_row_fact,
+                        resolution=None,
+                        input_state=None,
+                        base_result_state=None,
+                        state=base_row_fact.state,
+                        let_scope_facts=None,
+                        helper_diagnostics=(
+                            () if unnest.diagnostic is None else (unnest.diagnostic,)
+                        ),
+                        unnest_occurrence=unnest,
+                    )
+                    pre_window_state = base_row_fact.state
                 elif type(definition) is SourceDef:
                     semantic_fact = ProjectModuleRelationSemanticFacts(
                         owner=owner,
@@ -3174,6 +3430,32 @@ def _build_project_module_semantic_fact_set(
             if progressed:
                 continue
             for base_row_fact in tuple(pending):
+                if type(base_row_fact.owner.definition) is UnnestRelationDef:
+                    # Its producer is never built first: it waits no longer.
+                    unnest = _unnest_occurrence_fact(
+                        base_row_fact.owner, catalog, resolution_environment, completed
+                    )
+                    assert unnest is not None
+                    semantic_fact = ProjectModuleRelationSemanticFacts(
+                        owner=base_row_fact.owner,
+                        base_row_fact=base_row_fact,
+                        resolution=None,
+                        input_state=None,
+                        base_result_state=None,
+                        state=base_row_fact.state,
+                        let_scope_facts=None,
+                        helper_diagnostics=(
+                            () if unnest.diagnostic is None else (unnest.diagnostic,)
+                        ),
+                        unnest_occurrence=unnest,
+                    )
+                    built_for_module.append(semantic_fact)
+                    completed.append(semantic_fact)
+                    relation_pre_window_projections.append(
+                        (semantic_fact, base_row_fact.state)
+                    )
+                    pending.remove(base_row_fact)
+                    continue
                 definition = cast(_DerivedRelation, base_row_fact.owner.definition)
                 resolutions = resolution_environment.find_from_clause(
                     definition.from_clause
@@ -3216,6 +3498,7 @@ def _build_project_module_semantic_fact_set(
                 SetRelationDef,
                 ValuesRelationDef,
                 TableFunctionRelationDef,
+                UnnestRelationDef,
             }
         )
         ordered = tuple(
@@ -3450,6 +3733,219 @@ def _find_exact_owner(
     if len(matches) > 1:
         raise ValueError("Exact relation owner cannot have multiple semantic facts.")
     return matches[0] if matches else None
+
+
+def _unnest_occurrence_fact(
+    occurrence: ProjectDeclarationOccurrence,
+    catalog: ProjectModuleCatalog,
+    environment: ProjectModuleRelationResolutionEnvironment,
+    completed: list[ProjectModuleRelationSemanticFacts],
+    pending: list[ProjectModuleRelationRowFact] | None = None,
+) -> ProjectModuleUnnestOccurrenceFact | None:
+    """The input fact of one Unnest occurrence (D-S05-2, D-S05-7), or None
+    while the relation of its one visible binding is still ``pending``.
+
+    The binding is every row binding of its name that the shared visibility
+    rule admits before the let, each resolved as the declaration's FROM or
+    JOIN resolves it; no candidate wins. The field is typed only by the
+    Collect read fact of that relation's output of its name; a nested output
+    whose Collect is untyped already has its producer's error. Any other
+    field is checked against that relation's row (``unnest_field_diagnostic``)
+    here when it is known, else by completion against its completed row.
+    """
+
+    let = occurrence.unnest
+    assert let is not None
+    declaration = catalog.occurrences[occurrence.declaration_position]
+    authored = authored_definitions(catalog.module)[occurrence.declaration_position]
+    body = authored.body if type(authored) is ast.BlockRelationDef else authored
+    if type(body) not in {TableDef, QueryDef, ast.SelectBody}:
+        raise ValueError("An Unnest occurrence requires its authored body.")
+    written = cast(TableDef | QueryDef | ast.SelectBody, body)
+    (joins,) = (items for item, items in unnest_lets(written) if item is let)
+    definition = declaration.definition
+    if type(definition) is not TableDef and type(definition) is not QueryDef:
+        raise ValueError("An Unnest occurrence requires its declaration's row.")
+    binding, field_name = unnest_argument(let)
+    candidates: list[tuple[int, ProjectResolvedModuleRelationSymbol | None]] = []
+    for name, clause in unnest_source_inputs(written, let):
+        if name != binding:
+            continue
+        if type(clause) is not ast.JoinClause:
+            targets = tuple(
+                item.target_symbol
+                for item in environment.find_from_clause(definition.from_clause)
+            )
+            candidates.append((0, targets[0] if len(targets) == 1 else None))
+            continue
+        (position,) = (
+            position
+            for position, join in enumerate(definition.join_clauses, 1)
+            if join.span == clause.span
+        )
+        targets = environment.find_scoped_relation_name(
+            declaration, definition.join_clauses[position - 1].target_relation_name
+        )
+        candidates.append((position, targets[0] if len(targets) == 1 else None))
+    source = candidates[0] if len(candidates) == 1 else None
+    target = None if source is None else source[1]
+    if (
+        target is not None
+        and pending is not None
+        and _owner_is_pending(pending, target.target_occurrence)
+    ):
+        return None
+    produced = (
+        None
+        if target is None
+        else _find_exact_owner(completed, target.target_occurrence)
+    )
+    collect: ProjectModuleCollectReadFact | None = None
+    source_field: ProjectModuleRowFieldIdentity | None = None
+    diagnostic: Diagnostic | None = None
+    awaits_producer_row = False
+    schema = None if produced is None else _concrete_relation_schema(produced)
+    # A Collect output is typed by its read fact even while completion still
+    # builds its relation's row (an authored JOIN in that relation).
+    selections = (
+        ()
+        if produced is None
+        else tuple(
+            item for item in produced.select_facts if item.output_name == field_name
+        )
+    )
+    selection = selections[0] if len(selections) == 1 else None
+    reads = (
+        ()
+        if produced is None or selection is None
+        else tuple(
+            read
+            for read in produced.collect_reads
+            if read.expression is selection.item.expression
+        )
+    )
+    if produced is None or target is None:
+        pass
+    elif reads:
+        # A Collect output: typed by its read fact, or its read's own error
+        # (PIE-S2803, PIE-S2804) explains it.
+        if (
+            selection is not None
+            and len(reads) == 1
+            and reads[0].nested_type is not None
+        ):
+            collect = reads[0]
+            source_field = ProjectModuleRowFieldIdentity(
+                owner=_occurrence_identity(target.target_occurrence),
+                kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+                field_position=selection.selected_output_ordinal,
+                name=field_name,
+            )
+    elif schema is None:
+        # Completion builds that row (an authored JOIN, a set, VALUES or a
+        # table function), or an error of its producer blocks it.
+        awaits_producer_row = True
+    else:
+        diagnostic = unnest_field_diagnostic(let, schema)
+    nested = None if collect is None else collect.nested_type
+    identity = _occurrence_identity(occurrence)
+    if target is None:
+        reason = ProjectNestedRelationFactReason.TARGET_UNAVAILABLE
+    elif nested is None:
+        reason = ProjectNestedRelationFactReason.OUTPUT_UNAVAILABLE
+    elif len(joins) != 1 or not valid_unnest_join(joins[0]):
+        reason = ProjectNestedRelationFactReason.JOIN_UNAVAILABLE
+    else:
+        reason = ProjectNestedRelationFactReason.SCALAR_BOUNDARY
+    return ProjectModuleUnnestOccurrenceFact(
+        owner=_occurrence_identity(declaration),
+        occurrence=identity,
+        query_let=let,
+        binding_name_span=let.name_span,
+        source_binding_name=binding,
+        binding_candidates=tuple(item for _, item in candidates),
+        source_binding_position=None if target is None or source is None else source[0],
+        source_target=target,
+        source_field=source_field,
+        collect_read=collect,
+        nested_type=nested,
+        element_fields=(
+            ()
+            if nested is None
+            else tuple(
+                ProjectModuleRowFieldIdentity(
+                    owner=identity,
+                    kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+                    field_position=item.position,
+                    name=item.field.name,
+                )
+                for item in nested.element_fields
+            )
+        ),
+        join_candidates=joins,
+        status=(
+            ProjectNestedRelationFactStatus.AVAILABLE
+            if reason is ProjectNestedRelationFactReason.SCALAR_BOUNDARY
+            else ProjectNestedRelationFactStatus.UNAVAILABLE
+        ),
+        reason=reason,
+        diagnostic=diagnostic,
+        awaits_producer_row=awaits_producer_row,
+    )
+
+
+def unnest_field_diagnostic(
+    let: ast.QueryLetDeclaration, schema: ProjectRowSchema
+) -> Diagnostic | None:
+    """PIE-S2102 or PIE-S2806 (F1, F2) at the argument of one Unnest whose
+    field is no Collect output of its producer's known row (D-S05-5): an
+    unknown field, a field of a scalar type, or of an unknown type. A nested
+    field has its producer's own error (PIE-S2805)."""
+
+    binding, field_name = unnest_argument(let)
+    argument = cast(ast.CallExpr, let.expression).arguments[0]
+    written = f"{binding}.{field_name}"
+    if field_name not in schema.fields:
+        return Diagnostic(
+            code="PIE-S2102",
+            severity=Severity.ERROR,
+            message=f"Unknown field: {written}",
+            location=_span_location(argument.span),
+        )
+    resolved = schema.fields[field_name].resolved_type
+    if resolved.kind is ProjectResolvedTypeKind.NESTED_RELATION:
+        return None
+    if resolved.kind is ProjectResolvedTypeKind.UNKNOWN:
+        return _unnest_argument_error(
+            argument,
+            f"Unnest argument {written} is not available: the type of field "
+            f"{field_name} of {binding} is not known.",
+        )
+    return _unnest_argument_error(
+        argument,
+        f"Unnest argument {written} is not available: field {field_name} of "
+        f"{binding} has type {resolved.name}; only a field that a `collect` "
+        "SELECT item outputs can be unnested.",
+    )
+
+
+def _span_location(span: ast.Span) -> SourceLocation:
+    return SourceLocation(
+        path=span.path,
+        line=span.line,
+        column=span.column,
+        end_line=span.end_line,
+        end_column=span.end_column,
+    )
+
+
+def _unnest_argument_error(argument: Expression, message: str) -> Diagnostic:
+    return Diagnostic(
+        code="PIE-S2806",
+        severity=Severity.ERROR,
+        message=message,
+        location=_span_location(argument.span),
+    )
 
 
 def _owner_is_pending(
@@ -3786,13 +4282,7 @@ def _collect_diagnostic(
 def _occurrence_identity(
     occurrence: ProjectDeclarationOccurrence,
 ) -> ProjectDeclarationOccurrenceIdentity:
-    return ProjectDeclarationOccurrenceIdentity(
-        identity=occurrence.identity,
-        module_position=occurrence.module_position,
-        declaration_position=occurrence.declaration_position,
-        let_position=occurrence.let_position,
-        table_function=occurrence.table_function is not None,
-    )
+    return project_declaration_occurrence_identity(occurrence)
 
 
 def _is_local_let(
@@ -3981,7 +4471,12 @@ def _build_derived_relation_facts(
     )
     if isinstance(
         upstream_definition,
-        (SetRelationDef, ValuesRelationDef, TableFunctionRelationDef),
+        (
+            SetRelationDef,
+            ValuesRelationDef,
+            TableFunctionRelationDef,
+            UnnestRelationDef,
+        ),
     ):
         raise ValueError("Set input cannot supply a concrete semantic row.")
     upstream_symbol = _project_symbol_for_resolution(resolution)

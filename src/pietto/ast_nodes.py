@@ -1241,6 +1241,29 @@ class TableFunctionRelationDef(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class UnnestRelationDef(Node):
+    """QUERY relation view of one Unnest let (D71.02, D-S05-1).
+
+    The parser never builds it: a project catalog presents each
+    `let o = unnest(binding.field)` of a declaration body as its own
+    relation named by the let and read only by that let's one JOIN.
+    """
+
+    name: str
+    kind: ModuleDeclarationKind
+    source: QueryLetDeclaration
+
+    def __post_init__(self) -> None:
+        if (
+            self.kind is not ModuleDeclarationKind.QUERY
+            or type(self.source) is not QueryLetDeclaration
+            or self.name != self.source.name
+            or self.span != self.source.span
+        ):
+            raise TypeError("Unnest relation requires its exact let")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class LetRelationDef(Node):
     """A one-level ``let NAME:`` relation binding at the start of a body."""
 
