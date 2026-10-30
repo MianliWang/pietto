@@ -8,7 +8,11 @@ from typing import Any
 
 from pietto import ast_nodes as ast
 from pietto._project import project_result_contract_pure_boundary as pure
-from pietto._project.project_result_contract import ResultError, verify_result_contract
+from pietto._project.project_result_contract import (
+    NestedShape,
+    ResultError,
+    verify_result_contract,
+)
 from pietto._project.project_ir_properties import ProjectIRProvidedRelationOrdering
 from pietto._project.project_final_outputs import ProjectRelationOrdering
 
@@ -72,6 +76,15 @@ class _Projection:
             declaration_position=value.declaration_position,
         )
 
+    def let_owner(self, value):
+        """A collected let; only an element's records name it this way."""
+        return self.obj(
+            identity=self.nominal(value.identity),
+            module_position=value.module_position,
+            declaration_position=value.declaration_position,
+            let_position=value.let_position,
+        )
+
     def coordinate(self, value):
         if value is None:
             return None
@@ -99,6 +112,15 @@ class _Projection:
             return self.obj(tag="literal", kind=kind, value=item, location=span)
         if type(value) is ast.NameExpr:
             return self.obj(tag="name", name=value.name, location=span)
+        if type(value) is ast.ParameterRefExpr:
+            return self.obj(
+                tag="parameter",
+                name=value.name,
+                ordinal=value.ordinal,
+                type_name=value.type_name,
+                nullability=value.nullability.value,
+                location=span,
+            )
         if type(value) is ast.DottedNameExpr:
             parts = []
             for item in self.sequence(value.parts):
@@ -200,13 +222,13 @@ class _Projection:
             location=self.location(value.location),
         )
 
-    def output(self, value):
+    def output(self, value, owner=None):
         occurrence = value.occurrence
         return self.obj(
             kind="relation_output",
             position=occurrence.ref.position,
             producer=occurrence.producer.ref.position,
-            owner=self.owner(occurrence.producer.anchor.identity),
+            owner=(owner or self.owner)(occurrence.producer.anchor.identity),
             field_count=len(value.row_shape.fields),
         )
 
@@ -421,16 +443,15 @@ class _Projection:
             origins=origins,
         )
 
-    def leaf(self, leaf):
+    def leaf_head(self, leaf, owner):
+        """The keys every leaf shares: its identity, port and output."""
         port = leaf.port
-        evidence = port.field.evidence
-        provenance = leaf.provenance
         identity = port.identity
         return self.obj(
             ordinal=leaf.ordinal,
             label=leaf.label,
             identity=self.obj(
-                owner=self.owner(identity.owner),
+                owner=owner(identity.owner),
                 kind=identity.kind.value,
                 position=identity.field_position,
                 name=identity.name,
@@ -440,8 +461,25 @@ class _Projection:
                 owner=self.coordinate(port.owner),
                 producer=self.coordinate(port.producer_port),
             ),
-            output=self.output(port.field.output),
+            output=self.output(port.field.output, owner),
             position=port.field.field_position,
+        )
+
+    def provenance(self, value):
+        if value is None:
+            return None
+        return self.obj(
+            kind=value.kind.value,
+            symbol=self.symbol(value.symbol),
+            location=self.location(value.location),
+        )
+
+    def leaf(self, leaf, owner=None):
+        if type(leaf.shape) is NestedShape:
+            return self.collection(leaf)
+        evidence = leaf.port.field.evidence
+        described = self.obj(
+            **self.leaf_head(leaf, owner or self.owner),
             declared=self.declared(leaf.shape.declared),
             canonical=self.obj(
                 kind=leaf.shape.canonical.kind.value,
@@ -451,17 +489,41 @@ class _Projection:
             nullability=leaf.nullability.value,
             declared_nullability=evidence.nullability.value,
             role=evidence.result_role.value,
-            provenance=None
-            if provenance is None
-            else self.obj(
-                kind=provenance.kind.value,
-                symbol=self.symbol(provenance.symbol),
-                location=self.location(provenance.location),
-            ),
+            provenance=self.provenance(leaf.provenance),
             type_resolution=self.resolution(leaf.shape.declared),
         )
+        # A verified leaf has a meaning only under a scalar meaning bundle.
+        if leaf.meaning is not None:
+            described["meaning"] = leaf.meaning.ordinal
+        return described
 
-    def ordering(self, value):
+    def collection(self, leaf):
+        """A container and its element; types are reached by the child leaves,
+        then by the element ordering, as the closed schema walks them."""
+        evidence = leaf.port.field.evidence
+        shape = leaf.shape
+        head = self.leaf_head(leaf, self.owner)
+        children = [self.leaf(f, self.let_owner) for f in self.sequence(shape.fields)]
+        ordering = self.ordering(shape.ordering, self.let_owner)
+        return self.obj(
+            **head,
+            kind="collection",
+            element=self.obj(
+                owner=self.let_owner(shape.owner),
+                output=self.output(shape.output, self.let_owner),
+                multiplicity=shape.multiplicity.value,
+                nullability="non_null",
+                ordering=ordering,
+                field_count=len(children),
+                fields=children,
+            ),
+            nullability=leaf.nullability.value,
+            declared_nullability=evidence.nullability.value,
+            role=evidence.result_role.value,
+            provenance=self.provenance(leaf.provenance),
+        )
+
+    def ordering(self, value, owner_record=None):
         if value is None:
             return None
         pure.require(
@@ -493,7 +555,9 @@ class _Projection:
                 )
             )
         return self.obj(
-            kind="provided" if provided else "final", owner=self.owner(owner), keys=keys
+            kind="provided" if provided else "final",
+            owner=(owner_record or self.owner)(owner),
+            keys=keys,
         )
 
     def scalar_meaning(self, bundle):
@@ -536,10 +600,14 @@ class _Projection:
         return self.obj(format="pietto.scalar-meaning.v1", sources=entries)
 
     def document(self, contract):
-        pure.require(len(contract.shape.fields) <= self.budget.limits.fields, "LIMIT")
-        leaves = [self.leaf(f) for f in self.sequence(contract.shape.fields)]
+        fields = contract.shape.fields
+        nested = [f for f in fields if type(f.shape) is NestedShape]
+        # One budget for top-level and child leaves, as the closed schema counts.
+        total = len(fields) + sum(len(f.shape.fields) for f in nested)
+        pure.require(total <= self.budget.limits.fields, "LIMIT")
+        leaves = [self.leaf(f) for f in self.sequence(fields)]
         document = self.obj(
-            format=pure.FORMAT,
+            format=pure.FORMAT_V2 if nested else pure.FORMAT,
             owner=self.owner(contract.owner),
             output=self.output(contract.output),
             field_count=len(leaves),
@@ -550,9 +618,6 @@ class _Projection:
         )
         if contract.scalar_meaning is not None:
             document["scalar_meaning"] = self.scalar_meaning(contract.scalar_meaning)
-            for leaf, described in zip(contract.shape.fields, leaves, strict=True):
-                if leaf.meaning is not None:
-                    described["meaning"] = leaf.meaning.ordinal
         return document
 
 

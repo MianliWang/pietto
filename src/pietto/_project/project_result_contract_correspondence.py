@@ -13,8 +13,11 @@ from pietto._project import project_result_contract_pure_boundary as pure
 from pietto._project.project_result_contract import ResultError, verify_result_contract
 from pietto._project.project_ir_properties import ProjectIRProvidedRelationOrdering
 from pietto._project.project_final_outputs import ProjectRelationOrdering
+from pietto._project.model import ProjectResolvedTypeKind
 
 __all__: tuple[str, ...] = ()
+
+NESTED = ProjectResolvedTypeKind.NESTED_RELATION
 
 
 def same(actual, expected):
@@ -56,6 +59,10 @@ class _Correspondence:
             (value.module_position, value.declaration_position),
         )
 
+    def let_owner(self, doc, value):
+        self.owner(doc, value)
+        same(doc["let_position"], value.let_position)
+
     def coordinate(self, doc, value):
         if value is None:
             same(doc, None)
@@ -84,6 +91,23 @@ class _Correspondence:
             same(doc["value"], expected)
         elif type(value) is ast.NameExpr:
             same((doc["tag"], doc["name"]), ("name", value.name))
+        elif type(value) is ast.ParameterRefExpr:
+            same(
+                (
+                    doc["tag"],
+                    doc["name"],
+                    doc["ordinal"],
+                    doc["type_name"],
+                    doc["nullability"],
+                ),
+                (
+                    "parameter",
+                    value.name,
+                    value.ordinal,
+                    value.type_name,
+                    value.nullability.value,
+                ),
+            )
         elif type(value) is ast.DottedNameExpr:
             same((doc["tag"], tuple(doc["parts"])), ("dotted", value.parts))
         elif type(value) is ast.CallExpr:
@@ -162,7 +186,7 @@ class _Correspondence:
         )
         self.location(doc["location"], value.location)
 
-    def output(self, doc, value):
+    def output(self, doc, value, owner=None):
         occurrence = value.occurrence
         same(
             (doc["position"], doc["producer"], doc["field_count"]),
@@ -172,7 +196,7 @@ class _Correspondence:
                 len(value.row_shape.fields),
             ),
         )
-        self.owner(doc["owner"], occurrence.producer.anchor.identity)
+        (owner or self.owner)(doc["owner"], occurrence.producer.anchor.identity)
 
     def import_site(self, doc, value):
         binding = value.binding_identity
@@ -452,72 +476,125 @@ class _Correspondence:
         same(len(self.doc["fields"]), len(ports))
         for ordinal, port in enumerate(ports):
             doc = self.doc["fields"][ordinal]
-            evidence = port.field.evidence
-            same(
-                (doc["ordinal"], doc["label"], doc["position"]),
-                (ordinal, port.identity.name, port.field.field_position),
-            )
-            identity = doc["identity"]
-            self.owner(identity["owner"], port.identity.owner)
-            same(
-                (identity["kind"], identity["position"], identity["name"]),
-                (port.identity.kind, port.identity.field_position, port.identity.name),
-            )
-            self.coordinate(doc["port"]["coordinate"], port.ref)
-            self.coordinate(doc["port"]["owner"], port.owner)
-            self.coordinate(doc["port"]["producer"], port.producer_port)
-            self.output(doc["output"], port.field.output)
-            declared = (
-                None if evidence.field_def is None else evidence.field_def.type_expr
-            )
-            self.declared(doc["declared"], declared)
-            same(
-                (doc["canonical"]["kind"], doc["canonical"]["name"]),
-                (evidence.resolved_type.kind, evidence.resolved_type.name),
-            )
-            self.symbol(doc["canonical"]["symbol"], evidence.resolved_type.symbol)
-            same(
-                (doc["nullability"], doc["declared_nullability"], doc["role"]),
-                (
-                    port.field.effective_nullability,
-                    evidence.nullability,
-                    evidence.result_role,
-                ),
-            )
-            if evidence.provenance is None:
-                same(doc["provenance"], None)
+            leaf = contract.shape.fields[ordinal]
+            if port.field.evidence.resolved_type.kind is NESTED:
+                self.collection(doc, ordinal, port, leaf)
             else:
-                same(doc["provenance"]["kind"], evidence.provenance.kind)
-                self.symbol(doc["provenance"]["symbol"], evidence.provenance.symbol)
-                self.location(
-                    doc["provenance"]["location"], evidence.provenance.location
-                )
-            self.resolution(doc["type_resolution"], declared)
-            entry = contract.shape.fields[ordinal].meaning
-            if entry is None:
-                same("meaning" in doc, False)
-            else:
-                same(doc["meaning"], entry.ordinal)
+                self.leaf(doc, ordinal, port, leaf.meaning, self.owner)
 
-    def ordering(self, retained):
-        doc = self.doc["ordering"]
+    def head(self, doc, ordinal, port, owner):
+        evidence = port.field.evidence
+        same(
+            (doc["ordinal"], doc["label"], doc["position"]),
+            (ordinal, port.identity.name, port.field.field_position),
+        )
+        identity = doc["identity"]
+        owner(identity["owner"], port.identity.owner)
+        same(
+            (identity["kind"], identity["position"], identity["name"]),
+            (port.identity.kind, port.identity.field_position, port.identity.name),
+        )
+        self.coordinate(doc["port"]["coordinate"], port.ref)
+        self.coordinate(doc["port"]["owner"], port.owner)
+        self.coordinate(doc["port"]["producer"], port.producer_port)
+        self.output(doc["output"], port.field.output, owner)
+        same(
+            (doc["nullability"], doc["declared_nullability"], doc["role"]),
+            (
+                port.field.effective_nullability,
+                evidence.nullability,
+                evidence.result_role,
+            ),
+        )
+        if evidence.provenance is None:
+            same(doc["provenance"], None)
+        else:
+            same(doc["provenance"]["kind"], evidence.provenance.kind)
+            self.symbol(doc["provenance"]["symbol"], evidence.provenance.symbol)
+            self.location(doc["provenance"]["location"], evidence.provenance.location)
+
+    def leaf(self, doc, ordinal, port, meaning, owner):
+        self.head(doc, ordinal, port, owner)
+        evidence = port.field.evidence
+        declared = None if evidence.field_def is None else evidence.field_def.type_expr
+        self.declared(doc["declared"], declared)
+        same(
+            (doc["canonical"]["kind"], doc["canonical"]["name"]),
+            (evidence.resolved_type.kind, evidence.resolved_type.name),
+        )
+        self.symbol(doc["canonical"]["symbol"], evidence.resolved_type.symbol)
+        self.resolution(doc["type_resolution"], declared)
+        if meaning is None:
+            same("meaning" in doc, False)
+        else:
+            same(doc["meaning"], meaning.ordinal)
+
+    def collection(self, doc, ordinal, port, leaf):
+        """Enumerate the element from the S06 Collect read of this export and
+        the S04 descriptor of its type, never from the contract's shape."""
+        from pietto._project.project_sql_plan_nested import collect_of
+
+        plan = self.checked.plan
+        self.head(doc, ordinal, port, self.owner)
+        same(doc["kind"], "collection")
+        collect = collect_of(plan, port.ref)
+        (definition,) = (
+            d for d in plan.bindings.definitions if d.ref is collect.producer
+        )
+        entry, children = definition.entry, definition.exports
+        descriptor = port.field.evidence.resolved_type.nested.element_fields
+        same(len(collect.children), len(children))
+        same(len(descriptor), len(children))
+        # A rebuilt producer row (DISTINCT, QUALIFY) has other field evidence
+        # than the descriptor: the children are the Collect read's, and the
+        # descriptor agrees on their count, identity and nullability.
+        for ref, child, item in zip(
+            collect.children, children, descriptor, strict=True
+        ):
+            same(ref is child.ref, True)
+            same(
+                (child.identity, child.field.effective_nullability),
+                (item.identity, item.effective_nullability),
+            )
+        element = doc["element"]
+        self.let_owner(element["owner"], entry.owner)
+        self.output(element["output"], entry.active_output, self.let_owner)
+        same(
+            (element["multiplicity"], element["nullability"]),
+            (entry.active_properties.multiplicity, "non_null"),
+        )
+        same(element["field_count"], len(children))
+        same(len(element["fields"]), len(children))
+        for position, child in enumerate(children):
+            meaning = leaf.shape.fields[position].meaning
+            self.leaf(
+                element["fields"][position], position, child, meaning, self.let_owner
+            )
+        self.ordering(
+            element["ordering"],
+            entry.active_properties.ordering,
+            entry.owner,
+            self.let_owner,
+        )
+
+    def ordering(self, doc, retained, relation, owner):
         if retained is None:
             same(doc, None)
             return
         if type(retained) is ProjectIRProvidedRelationOrdering:
             same(doc["kind"], "provided")
-            self.owner(doc["owner"], retained.evidence.owner)
+            owner(doc["owner"], retained.evidence.owner)
             authored = retained.items
         elif type(retained) is ProjectRelationOrdering:
             same(doc["kind"], "final")
-            self.owner(doc["owner"], retained.owner)
+            owner(doc["owner"], retained.owner)
             authored = tuple(i.item for i in retained.items)
         else:
             raise ResultError("CORRESPONDENCE")
         prepared = [
             order.source
             for order in self.checked.plan.orders
-            if order.source.owner is self.checked.selected_owner
+            if order.source.owner is relation
         ]
         same(len(prepared), 1)
         same(len(prepared[0].items), len(authored))
@@ -554,12 +631,23 @@ def verify_contract_correspondence(view, contract, verification):
     # Read the fresh retained upstream entry after verifying exact runtime continuity.
     (entry,) = verification.analysis_bundle.root.find_owner(verification.selected_owner)
     try:
+        # The format follows the upstream exports: v2 only with a collection.
+        nested = any(
+            port.field.evidence.resolved_type.kind is NESTED
+            for port in verification.plan.exports
+        )
+        same(doc["format"], pure.FORMAT_V2 if nested else pure.FORMAT)
         checker.owner(doc["owner"], verification.selected_owner)
         checker.output(doc["output"], entry.active_output)
         same(doc["multiplicity"], entry.active_properties.multiplicity)
         checker.fields(contract)
         checker.scalar_meaning(contract.scalar_meaning)
-        checker.ordering(entry.active_properties.ordering)
+        checker.ordering(
+            doc["ordering"],
+            entry.active_properties.ordering,
+            verification.selected_owner,
+            checker.owner,
+        )
         same(len(doc["types"]), len(checker.seen_types))
     except (KeyError, TypeError, IndexError, AttributeError) as exc:
         raise ResultError("CORRESPONDENCE") from exc

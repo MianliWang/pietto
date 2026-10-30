@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field as dc_field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
 from pietto._project.project_result_contract import (
     PiettoResultContract,
     ResultError,
-    ResultField,
+    scalar_fields,
     verify_result_contract,
 )
 from pietto._project.project_sql_emission_ast import SQLColumn, SQLSelect
 from pietto._project.project_sql_emission_inspection import inspect_project_sql_emission
 from pietto._project.project_sql_emission_rows import field_realization, signed_range
+
+if TYPE_CHECKING:
+    from pietto._project.project_result_contract import ScalarField
 
 __all__: tuple[str, ...] = ()
 
@@ -54,7 +57,7 @@ class ProducerObservation:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ProducerFieldBinding:
-    field: ResultField = dc_field(repr=False)
+    field: ScalarField = dc_field(repr=False)
     column: Any = dc_field(repr=False)
     observation: ProducerObservation
     nullable: bool
@@ -83,6 +86,9 @@ def _columns(contract, artifact, projection=None, output=None) -> tuple[Any, ...
     verify_result_contract(contract, view.request.verification)
     if contract.scalar_meaning is not view.request.scalar_meaning:
         raise ResultError("PRODUCER_ROOT")
+    # Every route below reads scalar leaves; execution checks reach here before
+    # any connection, so a nested shape is refused explicitly first.
+    scalar_fields(contract)
     if output is not None:
         from pietto._project.project_result_output import verify_output
 
@@ -115,7 +121,7 @@ def bind_producer(
             if output is not None
             else f.nullability is ProjectRowFieldNullability.NULLABLE,
         )
-        for f, c, o in zip(contract.shape.fields, columns, observations, strict=True)
+        for f, c, o in zip(scalar_fields(contract), columns, observations, strict=True)
     )
     binding = ProducerResultBinding(contract, artifact, fields, projection, output)
     verify_producer_binding(binding, contract, artifact)
@@ -167,7 +173,7 @@ def verify_producer_binding(binding, contract, artifact) -> None:
             "Text": (*storages["Text"], "my_utf8mb4_text"),
         }
     for ordinal, (bound, leaf, column) in enumerate(
-        zip(binding.fields, contract.shape.fields, columns, strict=True)
+        zip(binding.fields, scalar_fields(contract), columns, strict=True)
     ):
         if (
             type(bound) is not ProducerFieldBinding

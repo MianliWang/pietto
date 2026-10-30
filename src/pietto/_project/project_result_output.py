@@ -11,6 +11,7 @@ from typing import Any
 from pietto._project.project_result_contract import (
     ResultError,
     build_result_contract,
+    scalar_fields,
     verify_result_contract,
 )
 from pietto._project.project_sql_emission_ast import (
@@ -90,7 +91,7 @@ def _prepare_output(artifact, *, binding=None, guarded=None):
     else:
         raise ResultError("OUTPUT_ROOT")
     columns = []
-    for original, leaf in zip(view.columns, contract.shape.fields, strict=True):
+    for original, leaf in zip(view.columns, scalar_fields(contract), strict=True):
         if type(original) is SQLColumn:
             source = original.source_field
             realized = field_realization(source)
@@ -148,6 +149,7 @@ def verify_output(output, artifact, contract, *, binding=None):
     verify_result_contract(contract, view.request.verification)
     if contract.scalar_meaning is not view.request.scalar_meaning:
         raise ResultError("OUTPUT_MEANING")
+    leaves = scalar_fields(contract)
     ast = artifact.ast
     if type(ast) is SQLSelect:
         expected_units = tuple(c.body for c in ast.ctes) + (ast,)
@@ -162,12 +164,12 @@ def verify_output(output, artifact, contract, *, binding=None):
         or len(output.units) != len(expected_units)
         or any(a is not b for a, b in zip(output.units, expected_units, strict=True))
         or type(output.columns) is not tuple
-        or len(output.columns) != len(contract.shape.fields)
+        or len(output.columns) != len(leaves)
         or len(view.columns) != len(output.columns)
     ):
         raise ResultError("OUTPUT_INVENTORY")
     for ordinal, (supplied, original, leaf) in enumerate(
-        zip(output.columns, view.columns, contract.shape.fields, strict=True)
+        zip(output.columns, view.columns, leaves, strict=True)
     ):
         if (
             type(supplied) is not OutputColumn

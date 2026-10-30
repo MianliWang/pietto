@@ -429,3 +429,86 @@ def test_document_limit_is_not_the_arrow_field_limit(tmp_path):
             contract, checked, limits=pure.DocumentLimits(fields=64)
         )
     c.verify_result_contract(contract, checked)
+
+
+ORDERED = """{types}shape Row:
+    id: {id_type}
+    created: Int
+source rows: Row = postgres.table("rows")
+{entry}:
+    from rows
+    select:
+        id
+    order by {key}, id
+"""
+
+
+@pytest.mark.parametrize(
+    ("tag", "types", "id_type", "key"),
+    (
+        ("conditional", "", "Int", "1 if id > 0 else 2"),
+        ("membership", "", "Int", "id in (1, 2)"),
+        ("cast", "", "Int", "Float(id)"),
+        ("ensure", "type Pos = Int:\n    ensure self in (1, 2)\n", "Pos", "id"),
+        ("parameter", "", "Int", "created > p"),
+    ),
+    ids=("conditional", "membership", "cast", "ensure", "parameter"),
+)
+def test_every_written_expression_tag_is_a_closed_wire_tag(
+    tmp_path, tag, types, id_type, key
+):
+    entry = "query result(p: Int | None)" if tag == "parameter" else "table result"
+    source = ORDERED.format(types=types, id_type=id_type, entry=entry, key=key)
+    checked = probe.build_neutral(tmp_path / tag, {"main.pietto": source})
+    exported = writer.export_result_contract(c.build_result_contract(checked), checked)
+    runtime.verify_bound_export(exported, checked)
+    assert pure.reencode_contract(exported.view) == exported.canonical_bytes
+    doc = exported.view.document
+    path = {
+        "ensure": ("types", 0, "ensures", 0),
+        "parameter": ("ordering", "keys", 0, "expression", "right"),
+    }.get(tag, ("ordering", "keys", 0, "expression"))
+
+    def written(document):
+        for step in path:
+            document = document[step]
+        return document
+
+    expected = {
+        "conditional": ("when_true", "condition", "when_false"),
+        "membership": ("value", "options", "negated"),
+        "cast": ("value", "target"),
+        "ensure": ("value", "options", "negated"),
+        "parameter": ("name", "ordinal", "type_name", "nullability"),
+    }[tag]
+    assert set(written(doc)) == {"tag", "location", *expected}
+    if tag == "parameter":
+        assert [written(doc)[key] for key in expected] == ["p", 0, "Int", "nullable"]
+    for damage in ("extra", *expected):
+        bad = json.loads(json.dumps(doc))
+        if damage == "extra":
+            written(bad)["extra"] = None
+        else:
+            del written(bad)[damage]
+        with pytest.raises(pure.ContractDocumentError, match="DOCUMENT"):
+            pure.encode_document(bad)
+    bad = json.loads(json.dumps(doc))
+    field = {
+        "conditional": "condition",
+        "cast": "target",
+        "parameter": "nullability",
+    }.get(tag, "negated")
+    written(bad)[field] = None
+    with pytest.raises(pure.ContractDocumentError, match="DOCUMENT"):
+        pure.encode_document(bad)
+    if tag == "parameter":
+        for key, value in (("type_name", "Date"), ("nullability", "implicit")):
+            bad = json.loads(json.dumps(doc))
+            written(bad)[key] = value
+            with pytest.raises(pure.ContractDocumentError, match="DOCUMENT"):
+                pure.encode_document(bad)
+        bad = json.loads(json.dumps(doc))
+        written(bad)["ordinal"] = 1
+        changed = pure.decode_contract(pure.encode_document(bad))
+        with pytest.raises(c.ResultError, match="CORRESPONDENCE"):
+            runtime.verify_contract_correspondence(changed, exported.contract, checked)

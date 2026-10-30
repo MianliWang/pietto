@@ -11,6 +11,7 @@ from typing import Any
 
 __all__: tuple[str, ...] = ()
 FORMAT = "pietto.result-contract.v1"
+FORMAT_V2 = "pietto.result-contract.v2"
 NULLABILITY = {"non_null", "nullable", "unknown"}
 BUILTINS = {
     "Int",
@@ -172,6 +173,20 @@ def owner(value):
     index(value["declaration_position"])
 
 
+def let_owner(value):
+    """A collected let: its declaration plus the let position that identifies it.
+
+    A collected let is never a table-function input, so the occurrence's
+    `table_function` flag is always false and is not written."""
+    record(value, "identity module_position declaration_position let_position")
+    nominal(value["identity"])
+    require(value["identity"]["namespace"] == "relation")
+    require(value["identity"]["kind"] == "query")
+    index(value["module_position"])
+    index(value["declaration_position"])
+    index(value["let_position"])
+
+
 def coordinate(value, kinds):
     record(value, "kind position")
     require(value["kind"] in kinds, "REFERENCE")
@@ -184,6 +199,7 @@ def expression(value):
     names = {
         "literal": "tag kind value location",
         "name": "tag name location",
+        "parameter": "tag name ordinal type_name nullability location",
         "dotted": "tag parts location",
         "call": "tag callee arguments location",
         "unary": "tag operator operand location",
@@ -191,6 +207,9 @@ def expression(value):
         "comparison": "tag operator left right location",
         "between": "tag value lower upper location",
         "is_null": "tag value negated location",
+        "conditional": "tag when_true condition when_false location",
+        "membership": "tag value options negated location",
+        "cast": "tag value target location",
     }
     require(type(tag) is str and tag in names, "TAG")
     record(value, names[tag])
@@ -218,6 +237,12 @@ def expression(value):
             text(item, empty=True)
     elif tag == "name":
         text(value["name"])
+    elif tag == "parameter":
+        # A header parameter read: the four parameter types, never implicit.
+        text(value["name"])
+        index(value["ordinal"])
+        require(value["type_name"] in ("Bool", "Int", "Float", "Text"))
+        require(value["nullability"] in ("nullable", "not_null"))
     elif tag == "dotted":
         require(type(value["parts"]) is list and len(value["parts"]) >= 2)
         for item in value["parts"]:
@@ -228,6 +253,16 @@ def expression(value):
         require(type(value["arguments"]) is list)
         for item in value["arguments"]:
             expression(item)
+    elif tag == "membership":
+        expression(value["value"])
+        require(type(value["options"]) is list)
+        for item in value["options"]:
+            expression(item)
+        require(type(value["negated"]) is bool)
+    elif tag == "cast":
+        expression(value["value"])
+        require(value["target"] is not None)
+        declared(value["target"])
     else:
         children = {
             "unary": ("operand",),
@@ -235,12 +270,13 @@ def expression(value):
             "comparison": ("left", "right"),
             "between": ("value", "lower", "upper"),
             "is_null": ("value",),
+            "conditional": ("when_true", "condition", "when_false"),
         }[tag]
         for key in children:
             expression(value[key])
         if tag == "is_null":
             require(type(value["negated"]) is bool)
-        elif tag != "between":
+        elif tag in ("unary", "binary", "comparison"):
             text(value["operator"])
 
 
@@ -267,12 +303,12 @@ def symbol(value):
     location(value["location"])
 
 
-def output(value):
+def output(value, holder=owner):
     record(value, "kind position producer owner field_count")
     require(value["kind"] == "relation_output")
     for key in ("position", "producer", "field_count"):
         index(value[key])
-    owner(value["owner"])
+    holder(value["owner"])
 
 
 def origin(value):
@@ -556,6 +592,255 @@ def scalar_meaning_description(value, budget):
     return sources
 
 
+SCALAR_LEAF = (
+    "ordinal label identity port output position declared canonical nullability"
+    " declared_nullability role provenance type_resolution"
+)
+NESTED_LEAF = (
+    "ordinal label identity port output position kind element nullability"
+    " declared_nullability role provenance"
+)
+
+
+class _Walk:
+    """One document walk: type reach order, export coordinates and leaf total."""
+
+    def __init__(self, types, budget, meanings, leaves):
+        self.types = types
+        self.budget = budget
+        self.meanings = meanings
+        self.reached = []
+        self.ports = set()
+        self.leaves = leaves
+        self.owners = {}
+        self.elements = {}
+
+    def owned(self, kind, position, holder):
+        """A relation's own coordinate belongs to that one relation owner."""
+        require(self.owners.setdefault((kind, position), holder) == holder, "REFERENCE")
+
+
+def leaf_port(walk, leaf, position, siblings, parent_owner, parent_output, holder):
+    """One leaf's identity, port and output under its parent relation."""
+    require(type(leaf["ordinal"]) is int and leaf["ordinal"] == position, "INDEX")
+    text(leaf["label"])
+    record(leaf["identity"], "owner kind position name")
+    ident = leaf["identity"]
+    holder(ident["owner"])
+    require(
+        ident["owner"] == parent_owner
+        and ident["kind"] == "relation_output"
+        and type(ident["position"]) is int
+        and ident["position"] == position
+        and ident["name"] == leaf["label"],
+        "REFERENCE",
+    )
+    record(leaf["port"], "coordinate owner producer")
+    coordinate(leaf["port"]["coordinate"], {"export"})
+    coordinate(leaf["port"]["owner"], {"definition"})
+    walk.owned("definition", leaf["port"]["owner"]["position"], parent_owner)
+    if leaf["port"]["producer"] is not None:
+        coordinate(leaf["port"]["producer"], {"source_port", "input_port", "export"})
+    port_key = leaf["port"]["coordinate"]["position"]
+    require(port_key not in walk.ports, "REFERENCE")
+    walk.ports.add(port_key)
+    output(leaf["output"], holder)
+    index(leaf["position"])
+    require(
+        leaf["output"] == parent_output and leaf["position"] == position,
+        "REFERENCE",
+    )
+    require(leaf["port"]["owner"] == siblings[0]["port"]["owner"], "REFERENCE")
+
+
+def provenance(value):
+    if value is None:
+        return
+    record(value, "kind symbol location")
+    require(
+        value["kind"]
+        in {
+            "source_field",
+            "direct_projection",
+            "derived_expression",
+            "let_derived",
+            "expression",
+            "aggregate",
+            "unknown",
+        }
+    )
+    symbol(value["symbol"])
+    location(value["location"])
+
+
+def scalar_leaf(walk, leaf, position, siblings, parent_owner, parent_output, holder):
+    record(leaf, SCALAR_LEAF + (" meaning" if "meaning" in leaf else ""))
+    leaf_port(walk, leaf, position, siblings, parent_owner, parent_output, holder)
+    types, reached, budget, meanings = (
+        walk.types,
+        walk.reached,
+        walk.budget,
+        walk.meanings,
+    )
+    declared(leaf["declared"])
+    record(leaf["canonical"], "kind name symbol")
+    canonical = leaf["canonical"]
+    require(canonical["kind"] in {"builtin", "type", "enum"}, "TAG")
+    text(canonical["name"])
+    symbol(canonical["symbol"])
+    require((canonical["kind"] == "builtin") == (canonical["symbol"] is None))
+    if canonical["kind"] == "builtin":
+        require(canonical["name"] in BUILTINS, "TAG")
+    if (
+        meanings is not None
+        and canonical["kind"] == "builtin"
+        and canonical["name"] in {"Timestamp", "UUID"}
+    ):
+        require(
+            "meaning" in leaf
+            and type(leaf["meaning"]) is int
+            and 0 <= leaf["meaning"] < len(meanings),
+            "REFERENCE",
+        )
+        require(meanings[leaf["meaning"]]["canonical"] == canonical, "REFERENCE")
+        budget.reference()
+    else:
+        require("meaning" not in leaf, "REFERENCE")
+    require(
+        leaf["nullability"] in NULLABILITY
+        and leaf["declared_nullability"] in NULLABILITY
+    )
+    require(
+        leaf["role"]
+        in {"ordinary_row_value", "group_key", "aggregate_result", "window_result"}
+    )
+    provenance(leaf["provenance"])
+    resolution = leaf["type_resolution"]
+    if resolution is not None:
+        record(
+            resolution,
+            "direct_kind canonical_kind canonical_name aliases target origins",
+        )
+        require(leaf["declared"] is not None)
+        require(
+            resolution["canonical_kind"] == canonical["kind"]
+            and resolution["canonical_name"] == canonical["name"]
+        )
+        require(resolution["direct_kind"] in {"builtin", "type", "enum"})
+        require(
+            type(resolution["aliases"]) is list and type(resolution["origins"]) is list
+        )
+        local = []
+        for ref in resolution["aliases"] + (
+            [] if resolution["target"] is None else [resolution["target"]]
+        ):
+            record(ref, "kind index")
+            require(ref["kind"] == "type_declaration", "REFERENCE")
+            index(ref["index"])
+            require(ref["index"] < len(types), "REFERENCE")
+            budget.reference()
+            local.append(ref["index"])
+            if ref["index"] not in reached:
+                reached.append(ref["index"])
+        require(len(local) == len(set(local)), "REFERENCE")
+        require(
+            all(
+                types[r["index"]]["owner"]["identity"]["kind"] == "type"
+                for r in resolution["aliases"]
+            ),
+            "REFERENCE",
+        )
+        require((resolution["direct_kind"] == "type") == bool(resolution["aliases"]))
+        require(
+            (resolution["canonical_kind"] == "enum")
+            == (resolution["target"] is not None)
+        )
+        if resolution["target"] is not None:
+            target = types[resolution["target"]["index"]]
+            require(
+                target["owner"]["identity"]["kind"] == "enum"
+                and target["owner"]["identity"]["name"] == resolution["canonical_name"],
+                "REFERENCE",
+            )
+        require(bool(resolution["origins"]), "REFERENCE")
+        for item in resolution["origins"]:
+            provenance_paths(item)
+
+
+def ordering(walk, value, expected_owner, holder):
+    record(value, "kind owner keys")
+    require(value["kind"] in {"provided", "final"})
+    holder(value["owner"])
+    require(value["owner"] == expected_owner)
+    require(type(value["keys"]) is list and bool(value["keys"]))
+    for position, key in enumerate(value["keys"]):
+        record(key, "position expression authored_direction direction nulls prepared")
+        require(type(key["position"]) is int and key["position"] == position, "INDEX")
+        expression(key["expression"])
+        require(key["authored_direction"] in {None, "asc", "desc"})
+        require(key["direction"] == (key["authored_direction"] or "asc"))
+        require(key["nulls"] == "unspecified")
+        prepared_order(key["prepared"], walk.types, walk.reached, walk.budget)
+        require(
+            key["prepared"]["order"] == value["keys"][0]["prepared"]["order"],
+            "REFERENCE",
+        )
+    require(
+        len({key["prepared"]["item"]["position"] for key in value["keys"]})
+        == len(value["keys"]),
+        "REFERENCE",
+    )
+    order = value["keys"][0]["prepared"]["order"]["position"]
+    walk.owned("relation_order", order, expected_owner)
+
+
+def nested_leaf(walk, leaf, position, doc):
+    """One collection: container facts, then its closed one-level element."""
+    record(leaf, NESTED_LEAF)
+    leaf_port(walk, leaf, position, doc["fields"], doc["owner"], doc["output"], owner)
+    require(leaf["kind"] == "collection", "TAG")
+    require(
+        leaf["nullability"] in NULLABILITY
+        and leaf["declared_nullability"] in NULLABILITY
+    )
+    require(leaf["role"] == "ordinary_row_value")
+    provenance(leaf["provenance"])
+    element = leaf["element"]
+    record(element, "owner output multiplicity nullability ordering field_count fields")
+    let = element["owner"]
+    let_owner(let)
+    index(element["field_count"])
+    walk.leaves += element["field_count"]
+    require(walk.leaves <= walk.budget.limits.fields, "LIMIT")
+    # One let has one element: collecting it again repeats the same record.
+    key = (let["module_position"], let["declaration_position"], let["let_position"])
+    if key in walk.elements:
+        first = walk.elements[key]
+        require(
+            json.dumps(element, sort_keys=True) == json.dumps(first, sort_keys=True),
+            "REFERENCE",
+        )
+        return
+    walk.elements[key] = element
+    output(element["output"], let_owner)
+    require(element["output"]["owner"] == let)
+    walk.owned("relation_output", element["output"]["position"], let)
+    # Closed by this version: relaxing either constant needs another format.
+    require(element["multiplicity"] == "bag" and element["nullability"] == "non_null")
+    require(element["ordering"] is not None)
+    children = element["fields"]
+    require(
+        type(children) is list
+        and bool(children)
+        and len(children) == element["field_count"] == element["output"]["field_count"]
+    )
+    for child_position, child in enumerate(children):
+        scalar_leaf(
+            walk, child, child_position, children, let, element["output"], let_owner
+        )
+    ordering(walk, element["ordering"], let, let_owner)
+
+
 def _validate_document(doc, *, limits=DocumentLimits()):
     budget = bounded(doc, limits)
     record(
@@ -568,7 +853,7 @@ def _validate_document(doc, *, limits=DocumentLimits()):
         if "scalar_meaning" in doc
         else None
     )
-    require(doc["format"] == FORMAT, "VERSION")
+    require(doc["format"] in (FORMAT, FORMAT_V2), "VERSION")
     owner(doc["owner"])
     require(doc["owner"]["identity"]["kind"] in {"table", "query"})
     output(doc["output"])
@@ -600,176 +885,22 @@ def _validate_document(doc, *, limits=DocumentLimits()):
         len({json.dumps(t["owner"], sort_keys=True) for t in types}) == len(types),
         "REFERENCE",
     )
-    reached = []
-    port_keys = set()
+    walk = _Walk(types, budget, meanings, doc["field_count"])
+    walk.owned("relation_output", doc["output"]["position"], doc["owner"])
+    nested = False
     for position, leaf in enumerate(doc["fields"]):
-        record(
-            leaf,
-            "ordinal label identity port output position declared canonical nullability declared_nullability role provenance type_resolution"
-            + (" meaning" if "meaning" in leaf else ""),
-        )
-        require(type(leaf["ordinal"]) is int and leaf["ordinal"] == position, "INDEX")
-        text(leaf["label"])
-        record(leaf["identity"], "owner kind position name")
-        ident = leaf["identity"]
-        owner(ident["owner"])
-        require(
-            ident["owner"] == doc["owner"]
-            and ident["kind"] == "relation_output"
-            and type(ident["position"]) is int
-            and ident["position"] == position
-            and ident["name"] == leaf["label"],
-            "REFERENCE",
-        )
-        record(leaf["port"], "coordinate owner producer")
-        coordinate(leaf["port"]["coordinate"], {"export"})
-        coordinate(leaf["port"]["owner"], {"definition"})
-        if leaf["port"]["producer"] is not None:
-            coordinate(
-                leaf["port"]["producer"], {"source_port", "input_port", "export"}
-            )
-        port_key = leaf["port"]["coordinate"]["position"]
-        require(port_key not in port_keys, "REFERENCE")
-        port_keys.add(port_key)
-        output(leaf["output"])
-        index(leaf["position"])
-        require(
-            leaf["output"] == doc["output"] and leaf["position"] == position,
-            "REFERENCE",
-        )
-        require(leaf["port"]["owner"] == doc["fields"][0]["port"]["owner"], "REFERENCE")
-        declared(leaf["declared"])
-        record(leaf["canonical"], "kind name symbol")
-        canonical = leaf["canonical"]
-        require(canonical["kind"] in {"builtin", "type", "enum"}, "TAG")
-        text(canonical["name"])
-        symbol(canonical["symbol"])
-        require((canonical["kind"] == "builtin") == (canonical["symbol"] is None))
-        if canonical["kind"] == "builtin":
-            require(canonical["name"] in BUILTINS, "TAG")
-        if (
-            meanings is not None
-            and canonical["kind"] == "builtin"
-            and canonical["name"] in {"Timestamp", "UUID"}
-        ):
-            require(
-                "meaning" in leaf
-                and type(leaf["meaning"]) is int
-                and 0 <= leaf["meaning"] < len(meanings),
-                "REFERENCE",
-            )
-            require(meanings[leaf["meaning"]]["canonical"] == canonical, "REFERENCE")
-            budget.reference()
+        if doc["format"] == FORMAT_V2 and type(leaf) is dict and "element" in leaf:
+            nested_leaf(walk, leaf, position, doc)
+            nested = True
         else:
-            require("meaning" not in leaf, "REFERENCE")
-        require(
-            leaf["nullability"] in NULLABILITY
-            and leaf["declared_nullability"] in NULLABILITY
-        )
-        require(
-            leaf["role"]
-            in {"ordinary_row_value", "group_key", "aggregate_result", "window_result"}
-        )
-        provenance = leaf["provenance"]
-        if provenance is not None:
-            record(provenance, "kind symbol location")
-            require(
-                provenance["kind"]
-                in {
-                    "source_field",
-                    "direct_projection",
-                    "derived_expression",
-                    "let_derived",
-                    "expression",
-                    "aggregate",
-                    "unknown",
-                }
+            scalar_leaf(
+                walk, leaf, position, doc["fields"], doc["owner"], doc["output"], owner
             )
-            symbol(provenance["symbol"])
-            location(provenance["location"])
-        resolution = leaf["type_resolution"]
-        if resolution is not None:
-            record(
-                resolution,
-                "direct_kind canonical_kind canonical_name aliases target origins",
-            )
-            require(leaf["declared"] is not None)
-            require(
-                resolution["canonical_kind"] == canonical["kind"]
-                and resolution["canonical_name"] == canonical["name"]
-            )
-            require(resolution["direct_kind"] in {"builtin", "type", "enum"})
-            require(
-                type(resolution["aliases"]) is list
-                and type(resolution["origins"]) is list
-            )
-            local = []
-            for ref in resolution["aliases"] + (
-                [] if resolution["target"] is None else [resolution["target"]]
-            ):
-                record(ref, "kind index")
-                require(ref["kind"] == "type_declaration", "REFERENCE")
-                index(ref["index"])
-                require(ref["index"] < len(types), "REFERENCE")
-                budget.reference()
-                local.append(ref["index"])
-                if ref["index"] not in reached:
-                    reached.append(ref["index"])
-            require(len(local) == len(set(local)), "REFERENCE")
-            require(
-                all(
-                    types[r["index"]]["owner"]["identity"]["kind"] == "type"
-                    for r in resolution["aliases"]
-                ),
-                "REFERENCE",
-            )
-            require(
-                (resolution["direct_kind"] == "type") == bool(resolution["aliases"])
-            )
-            require(
-                (resolution["canonical_kind"] == "enum")
-                == (resolution["target"] is not None)
-            )
-            if resolution["target"] is not None:
-                target = types[resolution["target"]["index"]]
-                require(
-                    target["owner"]["identity"]["kind"] == "enum"
-                    and target["owner"]["identity"]["name"]
-                    == resolution["canonical_name"],
-                    "REFERENCE",
-                )
-            require(bool(resolution["origins"]), "REFERENCE")
-            for item in resolution["origins"]:
-                provenance_paths(item)
-    ordering = doc["ordering"]
-    if ordering is not None:
-        record(ordering, "kind owner keys")
-        require(ordering["kind"] in {"provided", "final"})
-        owner(ordering["owner"])
-        require(ordering["owner"] == doc["owner"])
-        require(type(ordering["keys"]) is list and bool(ordering["keys"]))
-        for position, key in enumerate(ordering["keys"]):
-            record(
-                key, "position expression authored_direction direction nulls prepared"
-            )
-            require(
-                type(key["position"]) is int and key["position"] == position, "INDEX"
-            )
-            expression(key["expression"])
-            require(key["authored_direction"] in {None, "asc", "desc"})
-            require(key["direction"] == (key["authored_direction"] or "asc"))
-            require(key["nulls"] == "unspecified")
-            prepared_order(key["prepared"], types, reached, budget)
-            require(
-                key["prepared"]["order"] == ordering["keys"][0]["prepared"]["order"],
-                "REFERENCE",
-            )
-        require(
-            len({key["prepared"]["item"]["position"] for key in ordering["keys"]})
-            == len(ordering["keys"]),
-            "REFERENCE",
-        )
-    require(reached == list(range(len(types))), "REFERENCE")
+    # One meaning, one encoding: a contract without a collection is only v1.
+    require(nested == (doc["format"] == FORMAT_V2), "VERSION")
+    if doc["ordering"] is not None:
+        ordering(walk, doc["ordering"], doc["owner"], owner)
+    require(walk.reached == list(range(len(types))), "REFERENCE")
     return doc
 
 

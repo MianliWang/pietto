@@ -45,7 +45,7 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 | [S04](slice-04.md) | Collect 对已完成关系的绑定：closed/captured、显式 capture 与参数、空集与 bag、限定准入（一次使用、Top-K、未分组 SELECT）；被 collect 读的 let 未写 `order by` 的确定诊断（D71.03） | A01, A02, A03 | S03 | 必做 |
 | [S05](slice-05.md) | CROSS/INNER/LEFT Unnest 的绑定、presence、输出字段/nullability/grain 与拒绝（JOIN 必须写种类，参数必须是可见 binding 的嵌套字段） | A01, A04 | S03, S04 | 必做 |
 | [S06](slice-06.md) | IR/ProjectSQLPlan 中的 Collect/Unnest 表达、source closure、需求与独立 correspondence | A02, A03, A04, A06 | S04, S05 | 必做 |
-| S07 | 递归 ResultContract、可移植闭合 schema、层级意义与完整 digest 规则 | A07, A08 | S02, S06 | 必做 |
+| [S07](slice-07.md) | 递归 ResultContract、可移植闭合 schema、层级意义与完整 digest 规则 | A07, A08 | S02, S06 | 必做 |
 | S08 | PostgreSQL 的 Collect source emission：closed/captured、空集、顺序契约与 Top-K、并列子表的独立运输与真实 artifact | A02, A03, A05, A06 | S02, S06, S07 | 必做 |
 | S09 | Collect 的 compiled build/verify/lowering 与 source-free 契约；为 Unnest 保留最小闭合表示，未接通时确定拒绝 | A07, A11 | S06, S07, S08 | 必做 |
 | S10 | 真实 emission 的 producer/Arrow binding、owned construction、递归验证与 children/bytes 计量 | A08, A09 | S07, S08 | 必做 |

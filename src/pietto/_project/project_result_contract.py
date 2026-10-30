@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_sql_plan import ProjectSQLPlan
@@ -31,11 +31,23 @@ class ScalarShape:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class NestedShape:
+    """One collected child relation: retained element facts and scalar child leaves."""
+
+    collect: Any = field(repr=False)
+    owner: Any = field(repr=False)
+    output: Any = field(repr=False)
+    multiplicity: Any = field(repr=False)
+    ordering: Any = field(repr=False)
+    fields: tuple[ResultField, ...] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class ResultField:
     ordinal: int
     label: str
     port: Any = field(repr=False)
-    shape: ScalarShape
+    shape: ScalarShape | NestedShape
     nullability: Any = field(repr=False)
     provenance: Any = field(repr=False)
     meaning: Any = field(default=None, repr=False)
@@ -43,7 +55,7 @@ class ResultField:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class ResultShape:
-    """Ordered scalar leaves only. Nested shapes are not admitted yet."""
+    """Ordered top-level fields: a scalar leaf, or one level of scalar leaves."""
 
     fields: tuple[ResultField, ...] = field(repr=False)
 
@@ -57,6 +69,33 @@ class PiettoResultContract:
     multiplicity: Any = field(repr=False)
     ordering: Any = field(repr=False)
     scalar_meaning: Any = field(default=None, repr=False)
+
+
+if TYPE_CHECKING:
+
+    @dataclass(frozen=True, slots=True, eq=False)
+    class ScalarField(ResultField):
+        """Static view only: a verified leaf whose shape is scalar."""
+
+        shape: ScalarShape
+
+
+# An allowlist: a new resolved kind is never a scalar leaf by default.
+_SCALAR_KINDS = frozenset(
+    (
+        ProjectResolvedTypeKind.BUILTIN,
+        ProjectResolvedTypeKind.TYPE_ALIAS,
+        ProjectResolvedTypeKind.ENUM,
+    )
+)
+
+
+def scalar_fields(contract) -> tuple[ScalarField, ...]:
+    """The verified fields of a reader that is not open to nested shapes yet."""
+    fields = contract.shape.fields
+    if any(type(leaf.shape) is not ScalarShape for leaf in fields):
+        raise ResultError("NESTED_UNAVAILABLE")
+    return cast("tuple[ScalarField, ...]", fields)
 
 
 def _neutral(checked):
@@ -99,7 +138,6 @@ def build_result_contract(
     entry = _neutral(checked)
     from pietto._project.project_scalar_meaning import (
         verify_scalar_meaning,
-        _output_entry,
         ScalarMeaningError,
     )
 
@@ -111,26 +149,16 @@ def build_result_contract(
     plan: Any = checked.plan
     leaves = []
     for ordinal, port in enumerate(plan.exports):
-        evidence = port.field.evidence
-        if evidence.resolved_type.kind in (
-            ProjectResolvedTypeKind.UNKNOWN,
-            ProjectResolvedTypeKind.SHAPE,
+        kind = port.field.evidence.resolved_type.kind
+        if kind in _SCALAR_KINDS:
+            leaves.append(_scalar_leaf(ordinal, port, scalar_meaning))
+        elif (
+            kind is ProjectResolvedTypeKind.NESTED_RELATION
+            and type(checked) is ProjectSQLPlanVerification
         ):
+            leaves.append(_nested_leaf(plan, ordinal, port, scalar_meaning))
+        else:
             raise ResultError("SCALAR_UNAVAILABLE")
-        declared = (
-            evidence.field_def.type_expr if evidence.field_def is not None else None
-        )
-        leaves.append(
-            ResultField(
-                ordinal,
-                port.identity.name,
-                port,
-                ScalarShape(declared, evidence.resolved_type),
-                port.field.effective_nullability,
-                evidence.provenance,
-                _output_entry(scalar_meaning, port),
-            )
-        )
     contract = PiettoResultContract(
         checked,
         checked.selected_owner,
@@ -163,7 +191,6 @@ def verify_result_contract(contract, checked) -> None:
         raise ResultError("FIELD")
     from pietto._project.project_scalar_meaning import (
         verify_scalar_meaning,
-        _output_entry,
         ScalarMeaningError,
     )
 
@@ -178,23 +205,161 @@ def verify_result_contract(contract, checked) -> None:
     for ordinal, (leaf, port) in enumerate(
         zip(contract.shape.fields, ports, strict=True)
     ):
-        evidence = port.field.evidence
-        declared = (
-            evidence.field_def.type_expr if evidence.field_def is not None else None
-        )
-        if (
-            type(leaf) is not ResultField
-            or type(leaf.ordinal) is not int
-            or leaf.ordinal != ordinal
-            or leaf.label != port.identity.name
-            or leaf.port is not port
-            or type(leaf.shape) is not ScalarShape
-            or leaf.shape.declared is not declared
-            or leaf.shape.canonical is not evidence.resolved_type
-            or evidence.resolved_type.kind
-            in (ProjectResolvedTypeKind.UNKNOWN, ProjectResolvedTypeKind.SHAPE)
-            or leaf.nullability is not port.field.effective_nullability
-            or leaf.provenance is not evidence.provenance
-            or leaf.meaning is not _output_entry(contract.scalar_meaning, port)
-        ):
+        if not _same_leaf(leaf, ordinal, port, contract.scalar_meaning):
             raise ResultError("FIELD")
+        if type(leaf.shape) is NestedShape:
+            _verify_nested(checked, leaf, port, contract.scalar_meaning)
+
+
+def _scalar_leaf(ordinal, port, scalar_meaning):
+    from pietto._project.project_scalar_meaning import _output_entry
+
+    evidence = port.field.evidence
+    declared = evidence.field_def.type_expr if evidence.field_def is not None else None
+    return ResultField(
+        ordinal,
+        port.identity.name,
+        port,
+        ScalarShape(declared, evidence.resolved_type),
+        port.field.effective_nullability,
+        evidence.provenance,
+        _output_entry(scalar_meaning, port),
+    )
+
+
+def _same_leaf(leaf, ordinal, port, scalar_meaning) -> bool:
+    """One leaf's own facts against its port: a scalar leaf, or a container."""
+    from pietto._project.project_scalar_meaning import _output_entry
+
+    evidence = port.field.evidence
+    if (
+        type(leaf) is not ResultField
+        or type(leaf.ordinal) is not int
+        or leaf.ordinal != ordinal
+        or leaf.label != port.identity.name
+        or leaf.port is not port
+        or leaf.nullability is not port.field.effective_nullability
+        or leaf.provenance is not evidence.provenance
+    ):
+        return False
+    if type(leaf.shape) is NestedShape:
+        return (
+            evidence.resolved_type.kind is ProjectResolvedTypeKind.NESTED_RELATION
+            and leaf.meaning is None
+        )
+    declared = evidence.field_def.type_expr if evidence.field_def is not None else None
+    return (
+        type(leaf.shape) is ScalarShape
+        and leaf.shape.declared is declared
+        and leaf.shape.canonical is evidence.resolved_type
+        and evidence.resolved_type.kind in _SCALAR_KINDS
+        and leaf.meaning is _output_entry(scalar_meaning, port)
+    )
+
+
+def _element(plan, port):
+    """The one Collect read a nested export carries, its producer's entry and
+    exports; the S04 descriptor must name exactly those children. A rebuilt
+    producer row (DISTINCT, QUALIFY) has other field evidence than the
+    descriptor, so the children are the Collect read's own."""
+    from pietto._project.project_joined_row_filter import ProjectJoinedRowMultiplicity
+    from pietto._project.project_sql_plan_nested import collect_of
+
+    try:
+        collect = collect_of(plan, port.ref)
+    except ValueError as exc:
+        raise ResultError("NESTED_ELEMENT") from exc
+    definitions = tuple(
+        d for d in plan.bindings.definitions if d.ref is collect.producer
+    )
+    if len(definitions) != 1:
+        raise ResultError("NESTED_ELEMENT")
+    entry, children = definitions[0].entry, definitions[0].exports
+    nested = port.field.evidence.resolved_type.nested
+    owner = entry.owner
+    if (
+        len(collect.children) != len(children)
+        or any(a is not b.ref for a, b in zip(collect.children, children, strict=True))
+        or len(nested.element_fields) != len(children)
+        or any(
+            child.identity != item.identity
+            or child.field.effective_nullability is not item.effective_nullability
+            or child.field.output is not entry.active_output
+            for child, item in zip(children, nested.element_fields, strict=True)
+        )
+        or type(owner.let_position) is not int
+        or owner.table_function is not None
+        or owner.unnest_position is not None
+        or entry.active_properties.multiplicity is not ProjectJoinedRowMultiplicity.BAG
+    ):
+        raise ResultError("NESTED_ELEMENT")
+    # Every collected let orders its rows (D71.03); a missing order is a broken
+    # invariant, never a new refusal.
+    if entry.active_properties.ordering is None:
+        raise ResultError("NESTED_ORDER")
+    return collect, entry, children
+
+
+def _nested_leaf(plan, ordinal, port, scalar_meaning):
+    from pietto._project.project_scalar_meaning import ScalarMeaningError
+
+    collect, entry, children = _element(plan, port)
+    fields = []
+    for position, child in enumerate(children):
+        kind = child.field.evidence.resolved_type.kind
+        if kind is ProjectResolvedTypeKind.NESTED_RELATION:
+            raise ResultError("NESTED_DEPTH")
+        if kind not in _SCALAR_KINDS:
+            raise ResultError("SCALAR_UNAVAILABLE")
+        try:
+            fields.append(_scalar_leaf(position, child, scalar_meaning))
+        except ScalarMeaningError as exc:
+            # Never a child Timestamp or UUID without its meaning.
+            raise ResultError("MEANING_UNAVAILABLE") from exc
+    shape = NestedShape(
+        collect,
+        entry.owner,
+        entry.active_output,
+        entry.active_properties.multiplicity,
+        entry.active_properties.ordering,
+        tuple(fields),
+    )
+    evidence = port.field.evidence
+    return ResultField(
+        ordinal,
+        port.identity.name,
+        port,
+        shape,
+        port.field.effective_nullability,
+        evidence.provenance,
+    )
+
+
+def _verify_nested(checked, leaf, port, scalar_meaning) -> None:
+    # Compiled roots admit no nested shape before S09.
+    if type(checked) is not ProjectSQLPlanVerification:
+        raise ResultError("FIELD")
+    shape = leaf.shape
+    try:
+        collect, entry, children = _element(checked.plan, port)
+        same = (
+            shape.collect is collect
+            and shape.owner is entry.owner
+            and shape.output is entry.active_output
+            and shape.multiplicity is entry.active_properties.multiplicity
+            and shape.ordering is entry.active_properties.ordering
+            and type(shape.fields) is tuple
+            and len(shape.fields) == len(children)
+            and all(
+                _same_leaf(field, position, child, scalar_meaning)
+                and type(field.shape) is ScalarShape
+                for position, (field, child) in enumerate(
+                    zip(shape.fields, children, strict=True)
+                )
+            )
+        )
+    except ValueError as exc:
+        # ResultError and ScalarMeaningError: a child is judged as its container.
+        raise ResultError("FIELD") from exc
+    if not same:
+        raise ResultError("FIELD")

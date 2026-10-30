@@ -12,7 +12,7 @@ from weakref import ref
 from pietto._project import project_arrow_result as arrow
 from pietto._project import project_result_ingress as ingress
 from pietto._project import project_result_reader as reader
-from pietto._project.project_result_contract import ResultError
+from pietto._project.project_result_contract import ResultError, scalar_fields
 from pietto._project.project_result_contract_portable import export_result_contract
 
 __all__: tuple[str, ...] = ()
@@ -71,7 +71,7 @@ def contract_digest(contract):
     verify_result_contract(contract, contract.authority)
     root = contract.authority.completed.root
     fields = []
-    for leaf in contract.shape.fields:
+    for leaf in scalar_fields(contract):
         law = None if leaf.meaning is None else leaf.meaning.law
         fields.append(
             [
