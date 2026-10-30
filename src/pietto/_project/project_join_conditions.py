@@ -35,6 +35,7 @@ from pietto._project.existence_values import (
     ProjectAnyField,
     ProjectAnyValue,
     analyze_any_values,
+    existence_uses_for_owner,
     validate_any_values,
 )
 from pietto._project.project_relationship_predicates import (
@@ -43,6 +44,8 @@ from pietto._project.project_relationship_predicates import (
     bind_project_relationship_predicates,
 )
 from pietto._project.row_expression_type_facts import (
+    is_nested_relation_field,
+    nested_value_diagnostic,
     project_row_field_to_semantic_value_type,
     scalar_field_reference_leaves,
 )
@@ -587,7 +590,14 @@ class ProjectJoinCondition:
         }
         value_types.update(dict.fromkeys(env.unknown_call_rows, _UNKNOWN_VALUE_TYPE))
         for reference in references:
-            if reference.target is None:
+            if len(reference.candidates) == 1 and is_nested_relation_field(
+                reference.candidates[0].input_field.evidence
+            ):
+                # A collected relation has no value to compare (PIE-S2805).
+                diagnostics.append(
+                    _nested_reference_diagnostic(self, reference.expression)
+                )
+            elif reference.target is None:
                 diagnostics.append(_reference_diagnostic(reference))
                 if reference.state is ProjectJoinReferenceState.UNAVAILABLE:
                     unavailable_diagnostics.append(diagnostics[-1])
@@ -701,6 +711,27 @@ class ProjectJoinCondition:
                 if ready and _null_rejection_reason(conjunct, reference) is not None
             ),
         )
+
+
+def _nested_reference_diagnostic(
+    condition: ProjectJoinCondition, leaf: NameExpr | DottedNameExpr
+) -> Diagnostic:
+    """PIE-S2805 for one read of a nested field in a JOIN condition. The SEMI
+    or ANTI JOIN that an ANY before a later JOIN becomes is an ANY test, and
+    its row is named as written."""
+
+    for use in existence_uses_for_owner(
+        condition.root.uses.semantic_result, condition.ledger.owner
+    ):
+        if use.clause is condition.use.clause:
+            ref = None
+            if (
+                type(leaf) is DottedNameExpr
+                and leaf.parts[0] == use.clause.target_binding_name
+            ):
+                ref = ".".join((use.expression.binding_name, *leaf.parts[1:]))
+            return nested_value_diagnostic(leaf, "an ANY test", ref=ref)
+    return nested_value_diagnostic(leaf, "JOIN ON")
 
 
 def _equality_fields(

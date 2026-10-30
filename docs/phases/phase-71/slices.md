@@ -3,6 +3,7 @@
 Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#future-roadmap-v6) Future Roadmap v6 中 Phase 71 一行：NestedRelation、Collect、Unnest、flatten、outer/inner grain、nested Arrow），只在 EXPLICIT_MODULES 项目与 PostgreSQL 上提供。
 本路线已由只含文档的路线发布提交 `6e9d7be6` 发布，其自然 exact-head CI `40250919248` attempt 1 的 19 个 job 全部成功：路线锁定，Phase71 开始。
 批次 B1（S01、S02、S03）已发布：S01 `be385507`、S02 `fc5e685c`、S03 `8e0a77d8` 一起 FF push，批次头的自然 exact-head CI `40770576938` 全部 19 个 job 成功；[S01](slice-01.md) 与 [S02](slice-02.md) 记录绑定下一版合成候选 `9511f13563d0`。之后的批次照此规则：只有 FF push 且批次头自然 CI 全部成功才 `COMPLETED / PUBLISHED`，此前都是 candidate。
+`0.1.6` 已从发行提交 `bdb3f567` 发行（tag `v0.1.6`），只含 Phase71 的 B1。当前批次 B2（S04、S05、S06、S07）建立在该发行提交之上，不属于 `0.1.6`，各片记录见下表的链接；B2 只在四片提交一起 FF push、批次头的自然 exact-head CI 全部 job 成功后才 `COMPLETED / PUBLISHED`，此前都是 candidate。
 下表是覆盖与依赖基准；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。三层验收 A01–A12、语义契约与支持域见 [brief](brief.md)，外部参考见[外部参考记录](planning-notes.md)，所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
 
 ## 授权与依赖顺序
@@ -41,7 +42,7 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 | [S01](slice-01.md) | 绑定实际基线（下一版合成后的候选）、活动 writer、worktree 与授权；消化最新决定（含下一版对诊断码与条数的修正、D-11/D-12 的恢复结果与项目模式 FROM 别名缺陷的修复）；在该基线上确认新诊断码段（开局时 `PIE-S28xx` 未被使用）；建立独立的嵌套反例与实际消费者闭包（遍历、序列化、验证、安装、IPC 读者） | A01, A11, A12 | — | 准备 |
 | [S02](slice-02.md) | 实测 PostgreSQL carrier、精度、实际内存与大小边界及保存可行性，锁定可证明的准入域（D71.07 的起点假设逐条证实或替换），输出“前提—证据来源—核实时点—适用范围/有效期”表；只有常量输入可行时回到所有者做范围决定 | A06, A08, A09, A10 | S01 | 实验（实验部分已授权先于 S01） |
 | S03 | 最小现代源语法：`name = collect let_name`（`collect` 为上下文词；预计要改 grammar，并按规定重新生成 parser、跑复现检查）与 `let o = unnest(binding.field)` 作 JOIN 输入（只改语义准入）；同名用户 `def` 的区分规则；嵌套类型与 occurrence/nullability 契约；未知 variant 先失败关闭；单文件、LEGACY_FLAT、PACKAGE_ROOT 的确定诊断（说明怎样建 `schema_version = 2` 项目）；D71.01/D71.02 批准的公开诊断变化与逐字消息；`explain` 嵌套类型显示为 UX 候选 | A01 | S01 | 必做 |
-| S04 | Collect 对已完成关系的绑定：closed/captured、显式 capture 与参数、空集与 bag、限定准入（一次使用、Top-K、未分组 SELECT）；被 collect 读的 let 未写 `order by` 的确定诊断（D71.03） | A01, A02, A03 | S03 | 必做 |
+| [S04](slice-04.md) | Collect 对已完成关系的绑定：closed/captured、显式 capture 与参数、空集与 bag、限定准入（一次使用、Top-K、未分组 SELECT）；被 collect 读的 let 未写 `order by` 的确定诊断（D71.03） | A01, A02, A03 | S03 | 必做 |
 | S05 | CROSS/INNER/LEFT Unnest 的绑定、presence、输出字段/nullability/grain 与拒绝（JOIN 必须写种类，参数必须是可见 binding 的嵌套字段） | A01, A04 | S03, S04 | 必做 |
 | S06 | IR/ProjectSQLPlan 中的 Collect/Unnest 表达、source closure、需求与独立 correspondence | A02, A03, A04, A06 | S04, S05 | 必做 |
 | S07 | 递归 ResultContract、可移植闭合 schema、层级意义与完整 digest 规则 | A07, A08 | S02, S06 | 必做 |

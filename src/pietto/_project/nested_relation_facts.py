@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pietto import ast_nodes as ast
 from pietto._project.model import (
-    ProjectRelationRowSchemaStatus,
-    ProjectResolvedTypeKind,
-    ProjectRowField,
-    ProjectRowFieldNullability,
-    ProjectRowSchema,
-)
-from pietto._project.module_attribution import (
     ProjectDeclarationOccurrenceIdentity,
     ProjectModuleRowFieldIdentity,
     ProjectModuleRowFieldKind,
+    ProjectNestedRelationType,
 )
 from pietto._project.module_catalog import (
     ProjectDeclarationOccurrence,
@@ -28,19 +22,18 @@ from pietto._project.module_relation_resolution import (
     ProjectResolvedModuleRelationSymbol,
 )
 from pietto._project.module_semantic_fact_preservation import (
+    ProjectModuleCollectReadFact,
     ProjectModuleRelationSemanticFacts,
     ProjectModuleSelectFact,
     ProjectModuleSemanticFactEnvironment,
     ProjectModuleSemanticFactSet,
+    _occurrence_identity as _identity,
 )
 from pietto._syntax_admission import unnest_lets
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
 
-_ADMITTED_CHILD_LEAF_NAMES = frozenset(
-    {"Bool", "Date", "Decimal", "Float", "Int", "Text", "Timestamp", "UUID"}
-)
 # D71.04: CROSS, INNER and LEFT Unnest; every JOIN but CROSS has an `on`.
 _UNNEST_JOIN_KINDS = frozenset(
     {ast.AuthoredJoinKind.CROSS, ast.AuthoredJoinKind.INNER, ast.AuthoredJoinKind.LEFT}
@@ -54,6 +47,8 @@ class ProjectNestedRelationFactStatus(StrEnum):
 
 class ProjectNestedRelationFactReason(StrEnum):
     TARGET_NOT_LOCAL_LET = "target_not_local_let"
+    # The target is unknown or not available; for a Collect, also a read its
+    # read fact does not type, whose PIE-S2803 or PIE-S2804 says why.
     TARGET_UNAVAILABLE = "target_unavailable"
     OUTPUT_UNAVAILABLE = "output_unavailable"
     JOIN_UNAVAILABLE = "join_unavailable"
@@ -78,62 +73,14 @@ def _require_state(
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectNestedRelationElementField:
-    position: int
-    identity: ProjectModuleRowFieldIdentity
-    field: ProjectRowField
-    effective_nullability: ProjectRowFieldNullability
-
-    def __post_init__(self) -> None:
-        if type(self.position) is not int or self.position < 0:
-            raise ValueError("Nested relation field position must be non-negative.")
-        if type(self.identity) is not ProjectModuleRowFieldIdentity:
-            raise TypeError("Nested relation field requires an exact identity.")
-        if type(self.field) is not ProjectRowField:
-            raise TypeError("Nested relation field requires exact field evidence.")
-        if type(self.effective_nullability) is not ProjectRowFieldNullability:
-            raise TypeError("Nested relation field requires exact nullability.")
-        if (
-            self.identity.field_position != self.position
-            or self.identity.name != self.field.name
-            or self.effective_nullability is not self.field.nullability
-        ):
-            raise ValueError("Nested relation field must retain its exact child field.")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectNestedRelationType:
-    element_relation: ProjectDeclarationOccurrenceIdentity
-    element_fields: tuple[ProjectNestedRelationElementField, ...]
-    container_nullability: ProjectRowFieldNullability
-    collection_depth: int = 1
-
-    def __post_init__(self) -> None:
-        if type(self.element_relation) is not ProjectDeclarationOccurrenceIdentity:
-            raise TypeError("Nested relation type requires an exact relation identity.")
-        if type(self.element_fields) is not tuple or any(
-            type(item) is not ProjectNestedRelationElementField
-            for item in self.element_fields
-        ):
-            raise TypeError("Nested relation type requires exact ordered child fields.")
-        if any(
-            item.position != position
-            or item.identity.owner != self.element_relation
-            or item.identity.kind is not ProjectModuleRowFieldKind.RELATION_OUTPUT
-            for position, item in enumerate(self.element_fields)
-        ):
-            raise ValueError("Nested relation fields must retain dense source order.")
-        # D71.04: a Collect of zero rows is `[]`, never None.
-        if self.container_nullability is not ProjectRowFieldNullability.NON_NULL:
-            raise ValueError("A collected relation value is never None.")
-        if type(self.collection_depth) is not int or self.collection_depth != 1:
-            raise ValueError("S03 supports exactly one collection layer.")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectCollectOccurrenceFact:
+    """One Collect occurrence as its owner's Collect read fact types it."""
+
     owner: ProjectDeclarationOccurrenceIdentity
     selection: ProjectModuleSelectFact
+    collect_read: ProjectModuleCollectReadFact = field(
+        repr=False, compare=False, hash=False
+    )
     authored_collect: ast.CollectRelationExpr
     resolution: ProjectResolvedExpressionBlockRead
     output: ProjectModuleRowFieldIdentity | None
@@ -159,6 +106,11 @@ class ProjectCollectOccurrenceFact:
             or self.resolution.read.owner is not self.selection.owner
         ):
             raise ValueError("Collect fact requires its exact scoped read resolution.")
+        if (
+            type(self.collect_read) is not ProjectModuleCollectReadFact
+            or self.collect_read.read is not self.resolution
+        ):
+            raise ValueError("Collect fact is a view of its exact Collect read.")
         output_name = self.selection.output_name
         if (self.output is None) != (output_name is None) or (
             self.output is not None
@@ -193,6 +145,7 @@ class ProjectCollectOccurrenceFact:
             self.output is None
             or target is None
             or self.nested_type is None
+            or self.nested_type is not self.collect_read.nested_type
             or not _is_local_let(target, self.owner)
             or self.nested_type.element_relation != target
         ):
@@ -356,11 +309,6 @@ def _derive_nested_facts(
     semantic environments, which relation resolution reports in, and each
     module's in source order."""
 
-    semantic_by_owner = {
-        id(fact.owner): fact
-        for environment in semantic.environments
-        for fact in environment.relation_facts
-    }
     collects: list[ProjectCollectOccurrenceFact] = []
     bodies: list[
         tuple[
@@ -381,9 +329,7 @@ def _derive_nested_facts(
             # A table-function occurrence's body is its containing relation's.
             if semantic_fact.owner.table_function is not None:
                 continue
-            own = _collect_facts(
-                environment.resolution_environment, semantic_fact, semantic_by_owner
-            )
+            own = _collect_facts(semantic_fact)
             collects.extend(own)
             found.extend(
                 (index, _unsupported(fact.authored_collect.span, "Collect"))
@@ -431,32 +377,27 @@ def _derive_nested_facts(
 
 
 def _collect_facts(
-    resolution_environment: ProjectModuleRelationResolutionEnvironment,
     semantic_fact: ProjectModuleRelationSemanticFacts,
-    semantic_by_owner: dict[int, ProjectModuleRelationSemanticFacts],
 ) -> tuple[ProjectCollectOccurrenceFact, ...]:
+    """A view of each Collect read fact of one owner, in source order; the
+    read facts alone resolve and type them (D-S04-4)."""
+
     selections = tuple(
         selection
         for selection in semantic_fact.select_facts
         if type(selection.item.expression) is ast.CollectRelationExpr
     )
-    if not selections:
-        return ()
-    owner = semantic_fact.owner
-    owner_identity = _identity(owner)
-    resolutions = {
-        id(item.read.expression): item
-        for item in resolution_environment.expression_reads
-        if item.read.owner is owner
-    }
+    reads = semantic_fact.collect_reads
+    if len(reads) != len(selections) or any(
+        read.expression is not selection.item.expression
+        for read, selection in zip(reads, selections, strict=True)
+    ):
+        raise ValueError("Every Collect occurrence requires its one read fact.")
+    owner_identity = _identity(semantic_fact.owner)
     output_names = [selection.output_name for selection in semantic_fact.select_facts]
     found: list[ProjectCollectOccurrenceFact] = []
-    for selection in selections:
-        expression = selection.item.expression
-        assert type(expression) is ast.CollectRelationExpr
-        resolution = resolutions.get(id(expression))
-        if resolution is None:
-            raise ValueError("Collect fact requires one scoped read resolution.")
+    for selection, read in zip(selections, reads, strict=True):
+        expression = read.expression
         output = (
             None
             if selection.output_name is None
@@ -467,50 +408,28 @@ def _collect_facts(
                 name=selection.output_name,
             )
         )
-        symbol = resolution.target_symbol
+        symbol = read.read.target_symbol
         target = None if symbol is None else _identity(symbol.target_occurrence)
-        target_fact = (
-            None
-            if symbol is None
-            else semantic_by_owner.get(id(symbol.target_occurrence))
-        )
-        schema = None if target_fact is None else _concrete_schema(target_fact)
         nested = None
         if target is None:
             reason = ProjectNestedRelationFactReason.TARGET_UNAVAILABLE
         elif not _is_local_let(target, owner_identity):
             reason = ProjectNestedRelationFactReason.TARGET_NOT_LOCAL_LET
-        elif schema is None or not _supported_child_fields(schema):
+        elif read.nested_type is None:
             reason = ProjectNestedRelationFactReason.TARGET_UNAVAILABLE
         elif output is None or output_names.count(output.name) != 1:
             # A colliding output name keeps every occurrence; none wins.
             reason = ProjectNestedRelationFactReason.OUTPUT_UNAVAILABLE
         else:
             reason = ProjectNestedRelationFactReason.SCALAR_BOUNDARY
-            nested = ProjectNestedRelationType(
-                element_relation=target,
-                element_fields=tuple(
-                    ProjectNestedRelationElementField(
-                        position=position,
-                        identity=ProjectModuleRowFieldIdentity(
-                            owner=target,
-                            kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
-                            field_position=position,
-                            name=field.name,
-                        ),
-                        field=field,
-                        effective_nullability=field.nullability,
-                    )
-                    for position, field in enumerate(schema.fields.values())
-                ),
-                container_nullability=ProjectRowFieldNullability.NON_NULL,
-            )
+            nested = read.nested_type
         found.append(
             ProjectCollectOccurrenceFact(
                 owner=owner_identity,
                 selection=selection,
+                collect_read=read,
                 authored_collect=expression,
-                resolution=resolution,
+                resolution=read.read,
                 output=output,
                 target=target,
                 nested_type=nested,
@@ -587,6 +506,7 @@ def _same_collect(
 ) -> bool:
     return (
         supplied.selection is expected.selection
+        and supplied.collect_read is expected.collect_read
         and supplied.authored_collect is expected.authored_collect
         and supplied.resolution is expected.resolution
         and supplied == expected
@@ -657,18 +577,6 @@ def _validate_unnest_sources(
             )
 
 
-def _identity(
-    owner: ProjectDeclarationOccurrence,
-) -> ProjectDeclarationOccurrenceIdentity:
-    return ProjectDeclarationOccurrenceIdentity(
-        identity=owner.identity,
-        module_position=owner.module_position,
-        declaration_position=owner.declaration_position,
-        let_position=owner.let_position,
-        table_function=owner.table_function is not None,
-    )
-
-
 def _is_local_let(
     target: ProjectDeclarationOccurrenceIdentity,
     owner: ProjectDeclarationOccurrenceIdentity,
@@ -680,28 +588,6 @@ def _is_local_let(
         and not target.table_function
         and target.module_position == owner.module_position
         and target.declaration_position == owner.declaration_position
-    )
-
-
-def _concrete_schema(
-    fact: ProjectModuleRelationSemanticFacts,
-) -> ProjectRowSchema | None:
-    state = fact.state
-    if (
-        state.status is not ProjectRelationRowSchemaStatus.CONCRETE
-        or state.schema is None
-        or state.schema.is_unknown
-    ):
-        return None
-    return state.schema
-
-
-def _supported_child_fields(schema: ProjectRowSchema) -> bool:
-    return all(
-        field.nullability is not ProjectRowFieldNullability.UNKNOWN
-        and field.resolved_type.kind is ProjectResolvedTypeKind.BUILTIN
-        and field.resolved_type.name in _ADMITTED_CHILD_LEAF_NAMES
-        for field in schema.fields.values()
     )
 
 
@@ -790,13 +676,27 @@ def is_unnest_join(
     """Whether ``join``, a JOIN of ``owner``'s relation as its row reads it,
     joins one of that relation's Unnest lets (D71.02)."""
 
+    return bool(unnest_join_lets(facts, owner, join))
+
+
+def unnest_join_lets(
+    facts: ProjectNestedRelationFactSet,
+    owner: ProjectDeclarationOccurrence,
+    join: ast.JoinClause,
+) -> tuple[ast.QueryLetDeclaration, ...]:
+    """The Unnest lets of ``owner``'s relation that ``join`` joins."""
+
     identity = _identity(owner)
     position = (join.span.path, join.span.line, join.span.column)
-    return any(
-        (candidate.span.path, candidate.span.line, candidate.span.column) == position
+    return tuple(
+        fact.query_let
         for fact in facts.unnest_inputs
         if fact.owner == identity
-        for candidate in fact.join_candidates
+        and any(
+            (candidate.span.path, candidate.span.line, candidate.span.column)
+            == position
+            for candidate in fact.join_candidates
+        )
     )
 
 

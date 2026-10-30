@@ -6,7 +6,10 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from pietto._project.model import ProjectResolvedTypeKind
+from pietto._project.model import (
+    ProjectResolvedTypeKind,
+    SCALAR_RESOLVED_TYPE_KINDS,
+)
 from pietto._project.model import ProjectRowField, ProjectResolvedType
 from pietto._project.module_attribution import ProjectModuleRowFieldIdentity
 from pietto._project.project_current_join_inputs import ProjectCurrentInputAuthority
@@ -66,7 +69,7 @@ class ProjectRowEquivalenceInput:
 def same_canonical_type(left: ProjectResolvedType, right: ProjectResolvedType) -> bool:
     """Existing canonical scalar identity, keeping nominal terminals distinct."""
     if (
-        left.kind is ProjectResolvedTypeKind.UNKNOWN
+        left.kind not in SCALAR_RESOLVED_TYPE_KINDS
         or right.kind is not left.kind
         or left.name != right.name
     ):
@@ -176,7 +179,7 @@ class ProjectRowEquivalenceField:
         )
         if parent_mismatch:
             reason = ProjectRowEquivalenceReason.TYPE_EVIDENCE_MISMATCH
-        elif resolved.kind is ProjectResolvedTypeKind.UNKNOWN:
+        elif resolved.kind not in SCALAR_RESOLVED_TYPE_KINDS:
             reason = ProjectRowEquivalenceReason.UNKNOWN_TYPE
         elif definition is not None and (
             resolution is None

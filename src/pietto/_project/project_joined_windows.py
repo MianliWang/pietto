@@ -10,6 +10,7 @@ from pietto._window_identity import WindowFunctionIdentity
 from pietto._project import project_joined_aggregation as aggregation
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
+    with_nested_references,
 )
 from pietto._project.project_joined_aggregation import (
     ProjectConcreteJoinedAggregation,
@@ -72,6 +73,11 @@ from pietto.semantic.window_semantics import (
     resolve_named_window_namespace_for_query_block,
 )
 from pietto._project.project_scalar_references import scalar_field_reference_leaves
+from pietto._project.row_expression_type_facts import (
+    is_nested_relation_field,
+    nested_reference_diagnostic,
+    without_nested_window_refusal,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -1046,6 +1052,7 @@ def _analyze_site(
 
     value_types: dict[Expression, ValueType] = {}
     resolutions: tuple[ProjectJoinedWindowInputResolution, ...] = ()
+    nested: list[Diagnostic] = []
 
     def prepare_inputs(effective: WindowExpr) -> None:
         nonlocal resolutions
@@ -1058,8 +1065,21 @@ def _analyze_site(
             for reference in _input_reference_expressions(effective)
         )
         for resolution in resolutions:
-            if resolution.target is not None:
-                value_types[resolution.expression] = resolution.target.value_type
+            target = resolution.target
+            if target is None:
+                continue
+            value_types[resolution.expression] = target.value_type
+            if target.joined_field is not None and is_nested_relation_field(
+                target.joined_field.scalar_field.evidence
+            ):
+                # A collected relation has no value to order or partition by.
+                nested.append(
+                    nested_reference_diagnostic(
+                        resolution.expression,
+                        _definition(site.input_aggregation),
+                        root=expression,
+                    )
+                )
 
     semantic = analyze_window_computation(
         expression=expression,
@@ -1079,6 +1099,32 @@ def _analyze_site(
         ),
     )
     _report_ambiguous_reads(diagnostics, resolutions)
+    if nested:
+        # A nested field read is its own error; what the kernel makes of its
+        # unknown value is not reported beside it, and what it refuses before
+        # reading it stays, each in its source place.
+        own: tuple[Diagnostic, ...] = ()
+        failure = WindowComputationUnsupported(
+            expression=expression,
+            identity=expression.identity,
+            reason="window input reads a nested relation field",
+        )
+        if type(semantic) is WindowComputationUnsupported:
+            own = without_nested_window_refusal(
+                diagnostics,
+                semantic.expression,
+                semantic.reason,
+                (item.location for item in nested),
+            )
+            failure = semantic if own else failure
+        return ProjectNonConcreteWindowComputation(
+            site=site,
+            input_namespace=namespace,
+            reason=ProjectWindowComputationNonConcreteReason.SEMANTIC_NON_CONCRETE,
+            resolutions=resolutions,
+            semantic_failure=failure,
+            diagnostics=with_nested_references(own, tuple(nested)),
+        )
     if type(semantic) is WindowComputationUnsupported:
         return ProjectNonConcreteWindowComputation(
             site=site,

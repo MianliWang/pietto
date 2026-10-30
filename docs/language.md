@@ -830,9 +830,10 @@ supported yet and reports PIE-S2333 at the table or query: the field itself
 (selected, also through a `let` name, or used as an ORDER BY key) and an `in`
 or `not in` test of it among other shape values, in `where` too. Without JOIN
 inputs a SELECT item that tests the field directly, as `b = home is None` and
-`b = home == work` do, and any SELECT item of a `select distinct` relation
-that reads it also report PIE-S2333, while `b = h is None` for `let h = home`
-is typed. GROUP BY may name
+`b = home == work` do, also reports PIE-S2333, while `b = h is None` for
+`let h = home` is typed; in a `select distinct` relation or one with a
+Collect read, any SELECT item that reads the field and a `let` bound to it,
+even if unread, report PIE-S2333 too. GROUP BY may name
 the field, but selecting it from the groups reports PIE-S2333 as well. An
 aggregate of it reports PIE-S2315 at the call, and a window partitioned or
 ordered by it reports PIE-S2103 (`window partition field type must be
@@ -1703,6 +1704,7 @@ query customers_with_orders:
         from orders
         select:
             id
+        order by id
     from orders
     select:
         customer_id
@@ -1729,16 +1731,53 @@ beside any JOIN input whose rows are not available yet. A relation, import or
 relation let that is also named `o` makes the JOIN `Ambiguous JOIN input: o`
 (PIE-S2604), as for an alias let.
 
+`collect r` reads a relation let `r` of the same table or query, closed or
+with `capture` lines, as the bag of its rows: a row that repeats in `r`
+repeats in the value. `r` must end in `order by` (PIE-S2804), and the value
+keeps that order; rows that tie on every key have no promised order, so end
+it with a unique field such as a key. A let with `capture` lines that
+`collect` reads may also end in LIMIT, as for `scalar` and `in`, and is read
+once: `collect` counts as its one read beside `exists`, `scalar`, `in` and a
+JOIN (PIE-S2370). A Collect read is a SELECT item of a table or query without
+GROUP BY or aggregates; in a grouped SELECT or in a relation let it is
+PIE-S2803. To collect per group, group in another table or query, read it with
+`from`, and collect a let that captures it. A Collect of a source, table
+or query, imported or not, instead of a relation let of the same body is
+PIE-S2803 too (a name that is no relation there, such as an alias, value or
+window `let`, is PIE-S2301 `Unknown relation`), as is one of a let whose
+columns are not known before completion (one that reads a VALUES body, a set
+operation, an authored JOIN or a table function, or a let that reads one; a
+read of a let that fails, through its own errors or a relation it reads,
+reports only that failure), and one of a let with a
+field that is not `Bool`, `Date`, `Decimal`, `Float`, `Int`, `Text`,
+`Timestamp` or `UUID` of known nullability (a type alias counts as the type
+it names) or that is itself collected: there is one collection layer. A field
+computed with a binary arithmetic or comparison operator (`id + 1`, `id == 1`,
+`1 <= id <= 5`), with `and` or `or`, or with `not`, `-` or `+` over one of
+those has no known nullability yet. Completion does not yet order the value by
+a key of `r` that is one name alone naming a SELECT output other than a
+window's (`order by oid` over `oid = id`): order by the input value
+(`order by id`) instead, or the table or query reports PIE-S2333. As in a
+`select distinct` relation, a SELECT item that reads a field typed by a shape,
+and a `let` bound to one, make a table or query with a Collect read report
+PIE-S2333; its `where` may still test such a field.
+
+A Collect value is never None: no rows of `r` is the empty value `[]`, and a
+row of `r` whose field is None keeps it, so `[]`, a value with one row whose
+field is None (`[{v: None}]`) and an outer JOIN's missing row are all
+different things. The value has no comparison, ordering, grouping or scalar
+value: a reader of the relation may read it with `from` or a JOIN, test it
+with `exists` and read its scalar columns, but any read of the nested field
+itself (in WHERE, JOIN ON, a row `let`, GROUP BY, `having`, a window,
+`qualify`, `order by`, a SELECT expression, `any(...)`, `scalar` or `in`),
+selecting it again in another relation, `select distinct` with a Collect item,
+and a set operation over it are PIE-S2805.
+
 These values are typed but not yet lowered: each Collect read and each Unnest
-let is PIE-S2802, so such a project does not yet check or emit SQL. A let with
-`capture` lines that `collect` reads may end in ORDER BY and LIMIT, as for
-`scalar` and `in`. A Collect of a FROM-based relation let whose fields are all
-`Bool`, `Date`, `Decimal`, `Float`, `Int`, `Text`, `Timestamp` or `UUID` of
-known nullability is one collection layer that is never None; a VALUES or
-set-operation let is not collected yet. An Unnest reads the one Collect output
-of its binding. Single files, LEGACY_FLAT projects and package modules refuse
-both spellings with PIE-S2801, which says how to make a `schema_version = 2`
-project.
+let is PIE-S2802, so such a project does not yet check or emit SQL. An Unnest
+reads the one Collect output of its binding. Single files, LEGACY_FLAT
+projects and package modules refuse both spellings with PIE-S2801, which says
+how to make a `schema_version = 2` project.
 
 ### Query header parameters in explicit-module projects
 

@@ -218,13 +218,9 @@ class ProjectSetColumn:
         state = resolved_set_nullability(self.kind, states)
         object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "nullability", state)
-        resolved = inputs[0].selected.field.resolved_type
+        # The column keeps its inputs' exact type; no reader rebuilds one.
         object.__setattr__(
-            self,
-            "resolved_type",
-            ProjectResolvedType(
-                name=resolved.name, kind=resolved.kind, symbol=resolved.symbol
-            ),
+            self, "resolved_type", inputs[0].selected.field.resolved_type
         )
 
     @property

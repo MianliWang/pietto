@@ -29,6 +29,7 @@ from pietto._project.model import (
     ProjectSymbol,
     ProjectSymbolKind,
     ProjectSymbolNamespace,
+    SCALAR_RESOLVED_TYPE_KINDS,
 )
 from pietto._project.row_expression_type_facts import (
     build_project_row_expression_value_types,
@@ -73,7 +74,6 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
-
 
 if TYPE_CHECKING:
     from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
@@ -291,7 +291,7 @@ class ProjectAggregateSelectedResult:
                 self.field.resolved_type.kind,
                 ProjectResolvedTypeKind,
             )
-            or self.field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+            or self.field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
         ):
             raise ValueError("Aggregate selected result requires a concrete type")
         if (
@@ -380,7 +380,7 @@ class ProjectGroupedSelectedResult:
                 self.field.resolved_type.kind,
                 ProjectResolvedTypeKind,
             )
-            or self.field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+            or self.field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
         ):
             raise ValueError("Grouped selected result requires a concrete type")
         if not isinstance(
@@ -938,7 +938,7 @@ def _build_project_group_key_schema_attempt(
         field_identity, input_field = resolved
         if (
             input_field.name != field_identity
-            or input_field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+            or input_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
         ):
             failure_reasons.append(
                 ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
@@ -1029,7 +1029,7 @@ def _build_project_group_key_schema_attempt(
             )
             continue
         field_identity, input_field = resolved
-        if input_field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN:
+        if input_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS:
             failure_reasons.append(
                 ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
             )
@@ -1581,7 +1581,7 @@ def _aggregate_grouped_selected_occurrences(
 
         if (
             not isinstance(field.resolved_type, ProjectResolvedType)
-            or field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+            or field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
             or not isinstance(field.nullability, ProjectRowFieldNullability)
             or field.nullability is ProjectRowFieldNullability.UNKNOWN
             or fact is None
@@ -2163,7 +2163,7 @@ def _group_key_field_is_concrete_ready(field: ProjectRowField) -> bool:
         field.result_role is ProjectRowResultRole.GROUP_KEY
         and isinstance(field.resolved_type, ProjectResolvedType)
         and isinstance(field.resolved_type.kind, ProjectResolvedTypeKind)
-        and field.resolved_type.kind is not ProjectResolvedTypeKind.UNKNOWN
+        and field.resolved_type.kind in SCALAR_RESOLVED_TYPE_KINDS
         and isinstance(field.nullability, ProjectRowFieldNullability)
         and isinstance(provenance, ProjectRowFieldProvenance)
         and provenance.kind is ProjectRowFieldProvenanceKind.DIRECT_PROJECTION

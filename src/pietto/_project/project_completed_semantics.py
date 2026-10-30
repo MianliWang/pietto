@@ -693,8 +693,9 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
     ):
         return (
             *carrier.helper_diagnostics,
-            *_ordinary_row_diagnostics(carrier),
-            *_diagnostics_from_carrier(carrier.window_outputs),
+            *_ordinary_row_diagnostics(
+                carrier, _diagnostics_from_carrier(carrier.window_outputs)
+            ),
             *_diagnostics_from_carrier(carrier.aggregate_grouped_clause_readiness),
         )
     if type(carrier) is (
@@ -1227,16 +1228,52 @@ def _and_list(names: tuple[str, ...]) -> str:
 
 def _ordinary_row_diagnostics(
     facts: module_semantic_fact_preservation.ProjectModuleRelationSemanticFacts,
+    windows: tuple[Diagnostic, ...] = (),
 ) -> tuple[Diagnostic, ...]:
-    return (
-        *(() if facts.let_scope_facts is None else facts.let_scope_facts.diagnostics),
-        *(item.diagnostic for item in facts.scalar_reads if item.diagnostic),
-        *(() if facts.where_fact is None else facts.where_fact.diagnostics),
-        *(
-            diagnostic
-            for selected in facts.select_expressions
-            for diagnostic in selected.diagnostics
+    """Each carrier's diagnostics, its window computations' included, each with
+    the PIE-S2805 of the nested field reads it types; those of QUALIFY, else
+    ORDER BY, follow only when no earlier error stops the relation, as in its
+    replay."""
+
+    nested = facts.nested_references
+    merge = module_semantic_fact_preservation.with_nested_references
+    earlier = (
+        *merge(
+            () if facts.let_scope_facts is None else facts.let_scope_facts.diagnostics,
+            nested.lets,
         ),
+        *_read_diagnostics(facts),
+        *merge(
+            () if facts.where_fact is None else facts.where_fact.diagnostics,
+            nested.where,
+        ),
+        *merge(
+            tuple(
+                diagnostic
+                for selected in facts.select_expressions
+                for diagnostic in selected.diagnostics
+            ),
+            # Only a body with JOIN inputs has `distinct`, and no `projection`.
+            (*nested.projection, *nested.distinct),
+        ),
+        *merge(windows, nested.windows),
+    )
+    if any(
+        diagnostic.severity is Severity.ERROR
+        for diagnostic in (*facts.helper_diagnostics, *earlier)
+    ):
+        return earlier
+    return (*earlier, *(nested.qualify or nested.order))
+
+
+def _read_diagnostics(
+    facts: module_semantic_fact_preservation.ProjectModuleRelationSemanticFacts,
+) -> tuple[Diagnostic, ...]:
+    """The owner's own scalar and Collect read refusals."""
+
+    return (
+        *(item.diagnostic for item in facts.scalar_reads if item.diagnostic),
+        *(item.diagnostic for item in facts.collect_reads if item.diagnostic),
     )
 
 
@@ -1337,14 +1374,7 @@ def _final_diagnostics(
     resolution_reported = any(
         diagnostic.severity is Severity.ERROR for diagnostic in retained
     )
-    # A relation that selects a Collect read reports that read's own
-    # PIE-S2802, not a completion fallback beside it.
     nested = semantic_result.nested_relation_facts
-    collect_owners = (
-        frozenset()
-        if nested is None
-        else frozenset(id(fact.selection.owner) for fact in nested.collect_facts)
-    )
     semantic_facts = semantic_result.module_semantic_facts
     owner_conditions = () if conditions is None else conditions.entries
 
@@ -1534,19 +1564,30 @@ def _final_diagnostics(
         )
         for diagnostic in condition.unavailable_diagnostics
     }
-    # A scalar read of a relation that fails says only that its columns are
-    # not known; that relation reports its own failure.
+    # A scalar or Collect read of a relation that fails says only that its
+    # columns are not known; that relation reports its own failure.
     unavailable_ids.update(
         id(item.diagnostic)
         for entry in effective_outputs.entries
         for facts in (
             () if semantic_facts is None else semantic_facts.find_owner(entry.owner)
         )
-        for item in facts.scalar_reads
+        for item in (*facts.scalar_reads, *facts.collect_reads)
         if item.diagnostic is not None
-        and item.diagnostic.code == "PIE-S2348"
+        and item.diagnostic.code in {"PIE-S2348", "PIE-S2803"}
+        and item.diagnostic.message.endswith(" are not known before completion.")
         and item.read.target_symbol is not None
         and id(item.read.target_symbol.target_occurrence) in terminals
+    )
+    # A Collect read that is not typed has its own error: relation resolution
+    # reports its target or place, or its read facts PIE-S2803 or PIE-S2804.
+    refused_collect_owners = frozenset(
+        id(facts.owner)
+        for environment in (
+            () if semantic_facts is None else semantic_facts.environments
+        )
+        for facts in environment.relation_facts
+        if any(item.nested_type is None for item in facts.collect_reads)
     )
     for entry in effective_outputs.entries:
         if type(entry) is ProjectExistingEffectiveOutput:
@@ -1567,21 +1608,30 @@ def _final_diagnostics(
         }:
             raise TypeError("Final diagnostics require exact effective entries.")
         # A JOIN reader or a reader of a set completes its row without its
-        # facts, so the diagnostics of its scalar reads are retained here.
+        # facts, so the diagnostics of its scalar reads are retained here, as
+        # are a JOIN body's Collect reads under SELECT DISTINCT, in source
+        # order with the body's own diagnostics. A body without
+        # JOIN inputs reports each nested field read with the carrier that
+        # types it, in its module facts or its replay.
         owner_facts = (
             () if semantic_facts is None else semantic_facts.find_owner(entry.owner)
         )
-        reads = (
-            item.diagnostic
+        distinct = tuple(
+            diagnostic
             for facts in owner_facts
-            for item in facts.scalar_reads
-            if item.diagnostic is not None
+            for diagnostic in facts.nested_references.distinct
         )
         errors = tuple(
             diagnostic
             for diagnostic in (
-                *(() if completed else _entry_error_diagnostics(entry)),
-                *reads,
+                *module_semantic_fact_preservation.merge_in_source_order(
+                    () if completed else _entry_error_diagnostics(entry), distinct
+                ),
+                *(
+                    diagnostic
+                    for facts in owner_facts
+                    for diagnostic in _read_diagnostics(facts)
+                ),
                 *project_final_outputs.joined_let_unreached_diagnostics(
                     entry,
                     owner_facts[0].scalar_read_types if len(owner_facts) == 1 else None,
@@ -1621,7 +1671,7 @@ def _final_diagnostics(
             and not named_input_error
             and not (unresolved and resolution_reported)
             and not follows(entry)
-            and id(entry.owner) not in collect_owners
+            and id(entry.owner) not in refused_collect_owners
         ):
             fallback = _fallback_diagnostic(entry)
             # A fallback without a cause adds nothing beside an error that an
@@ -1657,14 +1707,16 @@ def _final_diagnostics(
         else conditions.predicates
     )
     selected_keys = _selected_unknown_group_keys(terminals.values(), retained)
-    return tuple(
-        diagnostic
-        for diagnostic in retained
-        if not (
-            diagnostic.code == "PIE-S2604"
-            and predicates.follows_failed_import(diagnostic)
-        )
-        and id(diagnostic) not in selected_keys
+    return _one_report_per_nested_read(
+        [
+            diagnostic
+            for diagnostic in retained
+            if not (
+                diagnostic.code == "PIE-S2604"
+                and predicates.follows_failed_import(diagnostic)
+            )
+            and id(diagnostic) not in selected_keys
+        ]
     )
 
 
@@ -1732,8 +1784,11 @@ def _blocked_inputs(
 ) -> list[ProjectDeclarationOccurrence | bool]:
     """For each binding that a JOIN condition reads and that has no input to
     read, its relation, or whether an error in ``reported`` reports its name
-    that does not resolve."""
+    that does not resolve, or the Unnest let that it joins (D71.02)."""
 
+    from pietto._project.nested_relation_facts import unnest_join_lets
+
+    nested = condition.root.uses.semantic_result.nested_relation_facts
     return [
         any(
             diagnostic in reported
@@ -1743,10 +1798,46 @@ def _blocked_inputs(
                 *issue.suppressing_diagnostics,
             )
         )
+        or any(
+            diagnostic.location is not None and _within(diagnostic.location, let.span)
+            for let in (
+                ()
+                if nested is None or type(binding.site) is not JoinClause
+                else unnest_join_lets(
+                    nested, condition.ledger.owner, cast(JoinClause, binding.site)
+                )
+            )
+            for diagnostic in reported
+        )
         if binding.target is None
         else binding.target.target_occurrence
         for binding in condition.environment.blocked_bindings
     ]
+
+
+def _one_report_per_nested_read(
+    diagnostics: list[Diagnostic],
+) -> tuple[Diagnostic, ...]:
+    """Each read of a nested field reports PIE-S2805 once, however many of the
+    carriers that analyze its expression report it."""
+
+    seen: set[tuple[object, ...]] = set()
+    result: list[Diagnostic] = []
+    for diagnostic in diagnostics:
+        if diagnostic.code == "PIE-S2805" and diagnostic.location is not None:
+            location = diagnostic.location
+            key = (
+                location.path,
+                location.line,
+                location.column,
+                location.end_line,
+                location.end_column,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+        result.append(diagnostic)
+    return tuple(result)
 
 
 def _build_phase62_verification(

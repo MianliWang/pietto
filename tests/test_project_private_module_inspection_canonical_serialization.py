@@ -1100,6 +1100,20 @@ def test_inspection_indexes_are_derived_and_return_complete_buckets(
         facts.find_declaration("Row")  # pyright: ignore[reportArgumentType]
 
 
+def test_an_inspected_type_resolution_never_names_a_nested_relation(
+    tmp_path: Path,
+) -> None:
+    # A declared type is written in source and none spells a collected
+    # relation, so the frozen `resolved_type_kind` vocabulary keeps its five
+    # kinds (S04, D-S04-6).
+    semantic = _semantic_project(tmp_path, _facade_sources())
+    resolution = _record(semantic, "base.pietto").type_resolutions[0]
+    nested = inspection_module.ProjectResolvedTypeKind.NESTED_RELATION
+    for kind in ("direct_kind", "canonical_kind"):
+        with pytest.raises(ValueError, match="never names a nested type"):
+            replace(resolution, **{kind: nested})
+
+
 def test_canonical_bytes_declare_the_private_format_and_end_with_one_newline(
     tmp_path: Path,
 ) -> None:

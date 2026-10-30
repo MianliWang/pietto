@@ -1,5 +1,35 @@
 # Pietto release notes
 
+## Unreleased changes following 0.1.6
+
+These notes cover changes after the published 0.1.6 release. They do not
+assign a new version or replace the published 0.1.6 release notes.
+
+### Checking and diagnostics
+
+- **Collect reads in explicit-module projects.** A relation with a
+  `name = collect r` SELECT item now completes like any other: the Collect
+  output is a nested relation that is never None, and its relation stays
+  readable with `from`, a JOIN, `exists` and its scalar columns. Each Collect
+  read is still `PIE-S2802`, so such a project does not yet check or emit SQL.
+  New errors say why a read is not admitted: `PIE-S2803` for a Collect in a
+  grouped SELECT or a relation let, of a source, table or query instead of a
+  relation let of the same body, of a let whose columns are not known before
+  completion, or of a let with a field that is not one of the eight collected
+  leaf types, has no known nullability yet (one computed with a binary
+  arithmetic or comparison operator, such as `id + 1`, with `and` or `or`, or
+  with `not`, `-` or `+` over one of those) or is itself collected;
+  `PIE-S2804` for a let without `order by`; and `PIE-S2805` for any read of a
+  nested field (comparison, ordering, grouping, a scalar, `in` or ANY read,
+  selecting it again, `select distinct` or a set operation). As in a
+  `select distinct` relation, a SELECT item that reads a shape-typed field, or
+  a `let` bound to one, makes a relation with a Collect read report
+  `PIE-S2333`.
+  A let with `capture` lines now counts `collect` as its one read, so a second
+  read is `PIE-S2370`, whose read-once message now reads ``... can be read
+  only once, by exists, scalar, in, collect or a join in the body of q.`` in
+  every project, including those that use no `collect`.
+
 ## Corrections and MySQL parity public alpha release notes — 0.1.6
 
 **Status:** These notes cover the `0.1.6` public-alpha candidate. A release is

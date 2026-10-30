@@ -35,15 +35,17 @@ from pietto._project.model import (
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaState,
     ProjectRelationRowSchemaStatus,
-    ProjectResolvedTypeKind,
     ProjectRowField,
+    ProjectRowFieldNullability,
     ProjectRowFieldProvenance,
     ProjectRowFieldProvenanceKind,
     ProjectRowResultRole,
     ProjectRowSchema,
     ProjectSymbol,
+    SCALAR_RESOLVED_TYPE_KINDS,
     _project_direct_relation_row_schema,
     _project_relation_row_schema_state_from_result,
+    project_collect_output_field,
 )
 from pietto._project.module_attribution import (
     ProjectModuleRowFieldIdentity,
@@ -54,6 +56,7 @@ from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_resolution import ProjectTypeSourceResolutionSet
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
+    ProjectModuleCollectReadFact,
     ProjectModuleOrderReferenceFact,
     ProjectModuleClauseDependencyFact,
     ProjectModuleFactOccurrenceRole,
@@ -66,6 +69,8 @@ from pietto._project.module_semantic_fact_preservation import (
     _project_symbol_for_resolution,
     _window_output_facts,
     _window_project_targets,
+    nested_reference_facts,
+    with_nested_references,
 )
 from pietto._project.project_completion import (
     ProjectCompletion,
@@ -222,9 +227,14 @@ from pietto._project.row_expression_schema import (
     _project_resolved_type,
 )
 from pietto._project.row_expression_type_facts import (
+    is_nested_relation_field,
+    nested_distinct_diagnostic,
+    nested_reference_diagnostic,
+    nested_set_operand_diagnostic,
     scalar_field_reference_leaves,
     project_row_field_to_semantic_value_type,
     project_row_schema_to_semantic_row_schema,
+    without_nested_window_refusal,
 )
 from pietto.ast_nodes import (
     AnyExpr,
@@ -432,7 +442,19 @@ class ProjectDistinctUnsupported:
                 raise TypeError(
                     "SELECT DISTINCT diagnostics require selected field evidence."
                 )
-            span = selected.item.expression.span
+            expression = selected.item.expression
+            if is_nested_relation_field(selected.field):
+                # A collected relation has no equality (PIE-S2805), and its
+                # type has no public name.
+                diagnostics.append(
+                    nested_distinct_diagnostic(expression)
+                    if type(expression) is CollectRelationExpr
+                    else nested_reference_diagnostic(
+                        expression, _derived_definition(selected.owner)
+                    )
+                )
+                continue
+            span = expression.span
             diagnostics.append(
                 Diagnostic(
                     code="PIE-S2339",
@@ -1120,6 +1142,7 @@ type ProjectCompletedOutputSource = (
     | ProjectNoJoinScalarExpression
     | ProjectNoJoinGroupedOutput
     | ProjectModuleWindowOutputFact
+    | ProjectModuleCollectReadFact
 )
 
 
@@ -1190,6 +1213,7 @@ class ProjectCompletedOutputField:
             ProjectNoJoinScalarExpression,
             ProjectNoJoinGroupedOutput,
             ProjectModuleWindowOutputFact,
+            ProjectModuleCollectReadFact,
         }:
             raise TypeError(
                 "Completed field source must be one closed exact authority."
@@ -2918,6 +2942,16 @@ def _validate_completed_field_source(output: ProjectCompletedOutputField) -> Non
             and source.field is output.field
             and source.readiness.definition is output.owner.definition
         )
+    elif type(source) is ProjectModuleCollectReadFact:
+        # The one Collect read of this SELECT item types its nested output.
+        valid = (
+            source.read.read.owner is output.owner
+            and source.expression is output.item.expression
+            and source.resolved_type is not None
+            and output.field.resolved_type == source.resolved_type
+            and output.field.nullability is ProjectRowFieldNullability.NON_NULL
+            and output.result_role is ProjectRowResultRole.ORDINARY_ROW_VALUE
+        )
     else:
         assert type(source) is ProjectModuleWindowOutputFact
         valid = (
@@ -2984,6 +3018,77 @@ def _validate_relation_order_source(output: ProjectRelationOrderItem) -> None:
         )
     if not valid:
         raise ValueError("Relation order source must retain exact owner evidence.")
+
+
+def _collect_read(
+    completion: ProjectCompletion,
+    owner: ProjectDeclarationOccurrence,
+    expression: CollectRelationExpr,
+) -> ProjectModuleCollectReadFact:
+    """The one Collect read fact of one SELECT item."""
+
+    matches = tuple(
+        item
+        for item in _semantic_facts(completion, owner).collect_reads
+        if item.expression is expression
+    )
+    if len(matches) != 1:
+        raise ValueError("A Collect SELECT item requires its one read fact.")
+    return matches[0]
+
+
+def collect_read_ordering(
+    read: ProjectModuleCollectReadFact,
+) -> ProjectRelationOrderingResult:
+    """The collected let's ORDER BY as its completion resolves it (D-S04-4
+    R4); a Collect output completes only over a ProjectRelationOrdering.
+
+    A key that reads a nested field reports its PIE-S2805. A key named alone
+    that names a SELECT output other than a window's, which the language
+    admits, is no unknown field: completion orders only over the keys it
+    resolves, so the owner falls back to PIE-S2333 like any relation that
+    cannot complete.
+    """
+
+    target = read.target
+    if (
+        target is None
+        or target.input_state is None
+        or target.input_state.schema is None
+        or target.let_scope_facts is None
+    ):
+        return None
+    definition = _derived_definition(target.owner)
+    nested = target.nested_references.order
+    ordering = _no_join_relation_ordering(
+        owner=target.owner,
+        input_schema=target.input_state.schema,
+        let_scope=target.let_scope_facts,
+        mode=_mode(definition),
+        clause_dependencies=target.clause_dependencies,
+        window_outputs=target.window_outputs,
+        nested=nested,
+    )
+    if type(ordering) is ProjectRelationOrdering and nested:
+        return ProjectNonConcreteRelationOrdering(
+            owner=target.owner,
+            clause=ordering.clause,
+            reason=ProjectRelationOrderingNonConcreteReason.EXPRESSION_NON_CONCRETE,
+            blocker=ordering,
+            diagnostics=nested,
+        )
+    blocker = getattr(ordering, "blocker", None)
+    if (
+        type(ordering) is ProjectNonConcreteRelationOrdering
+        and type(blocker) is ProjectNoJoinScalarExpression
+        and _no_join_fallback_is_absent(blocker)
+        and any(
+            _projection_output_name(item) == cast(NameExpr, blocker.expression).name
+            for item in definition.select_items
+        )
+    ):
+        return replace(ordering, blocker=blocker.expression, diagnostics=nested)
+    return ordering
 
 
 def _semantic_facts(
@@ -3195,6 +3300,12 @@ def _completed_field_source_is_rooted(
     source: ProjectCompletedOutputSource,
     root: ProjectFinalOutputRoot,
 ) -> bool:
+    if type(source) is ProjectModuleCollectReadFact:
+        if isinstance(root, ProjectConcreteJoinedQualify):
+            owner = root.window_stage.input_aggregation.input_filter.entry.owner
+        else:
+            owner = root.owner
+        return source.read.read.owner is owner
     if type(root) is ProjectConcreteJoinedQualify:
         stage = root.window_stage
         aggregation = stage.input_aggregation
@@ -3848,6 +3959,23 @@ def _joined_final_fields(
                 type_symbols=type_symbols,
                 provenance_kind=ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION,
                 location=_source_location(item.expression),
+            )
+        elif type(item.expression) is CollectRelationExpr:
+            source = _collect_read(completion, owner, item.expression)
+            resolved = source.resolved_type
+            ordering = None if resolved is None else collect_read_ordering(source)
+            if (
+                aggregation.mode is not ProjectJoinedAggregationMode.ABSENT
+                or resolved is None
+                or type(ordering) is not ProjectRelationOrdering
+            ):
+                # The read reports its own refusal; later items still report
+                # theirs.
+                if blocker is None:
+                    blocker = source if ordering is None else ordering
+                continue
+            row_field = project_collect_output_field(
+                name, resolved, _source_location(item.expression)
             )
         elif aggregation.mode is ProjectJoinedAggregationMode.ABSENT:
             analysis = analyze_project_joined_namespace_expression(
@@ -4687,7 +4815,14 @@ def _hidden_no_join_window(
     scope: WindowInputScope,
     expression: WindowExpr,
     input_context: ProjectNoJoinWindowInput,
+    nested_leaves: frozenset[SourceLocation | None] = frozenset(),
 ) -> ProjectNoJoinHiddenWindowComputation:
+    """One hidden QUALIFY window; one that reads a nested field (located in
+    ``nested_leaves``) is refused, and that read's PIE-S2805 is its error:
+    what the kernel makes of the unknown value is not reported beside it,
+    and what it refuses before reading it stays, as for a SELECT window
+    (`_window_output_facts`)."""
+
     if expression.use_kind is not WindowUseKind.INLINE:
         return ProjectNoJoinHiddenWindowComputation(
             scope=scope,
@@ -4760,7 +4895,29 @@ def _hidden_no_join_window(
             else None
         ),
     )
-    if type(analysis) is WindowComputationAnalysis:
+    if any(
+        _source_location(leaf) in nested_leaves
+        for value in (
+            expression.call,
+            *expression.spec.partition_by,
+            *(item.expression for item in expression.spec.order_by),
+        )
+        for leaf in scalar_field_reference_leaves(value)
+    ):
+        diagnostics[:] = (
+            without_nested_window_refusal(
+                diagnostics, analysis.expression, analysis.reason, nested_leaves
+            )
+            if type(analysis) is WindowComputationUnsupported
+            else ()
+        )
+        if not diagnostics:
+            analysis = WindowComputationUnsupported(
+                expression=expression,
+                identity=expression.identity,
+                reason="window input reads a nested relation field",
+            )
+    elif type(analysis) is WindowComputationAnalysis:
         # A RANGE offset is checked as in a single file (PIE-S2104).
         refused = _window_literal_range_diagnostics(
             expression,
@@ -4795,7 +4952,11 @@ def _no_join_qualify(
     scope: WindowInputScope,
     selected_windows: tuple[ProjectModuleWindowOutputFact, ...],
     input_context: ProjectNoJoinWindowInput,
+    nested: tuple[Diagnostic, ...] = (),
 ) -> ProjectNoJoinQualify:
+    """The QUALIFY of a replayed body; each read of a nested field reports
+    its PIE-S2805 (``nested``) in place of a reference refusal."""
+
     definition = _derived_definition(owner)
     clause = definition.qualify_clause
     if clause is None:
@@ -4810,6 +4971,7 @@ def _no_join_qualify(
     references: list[ProjectNoJoinQualifyReferenceResolution] = []
     hidden: list[ProjectNoJoinHiddenWindowComputation] = []
     diagnostics: list[Diagnostic] = []
+    nested_leaves = frozenset(item.location for item in nested)
     for operand in _qualify_operands(clause.expression):
         if type(operand) is WindowExpr:
             attempt = _hidden_no_join_window(
@@ -4818,6 +4980,7 @@ def _no_join_qualify(
                 scope=scope,
                 expression=operand,
                 input_context=input_context,
+                nested_leaves=nested_leaves,
             )
             hidden.append(attempt)
             diagnostics.extend(attempt.diagnostics)
@@ -4868,7 +5031,7 @@ def _no_join_qualify(
         hidden_blocked=bool(hidden_failures),
         reference_blocked=bool(reference_failures),
         value_types=value_types,
-        diagnostics=tuple(diagnostics),
+        diagnostics=with_nested_references(tuple(diagnostics), nested),
     )
     return ProjectNoJoinQualify(
         owner=owner,
@@ -4923,6 +5086,19 @@ def _no_join_final_fields(
                 provenance_kind=ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION,
                 location=_source_location(item.expression),
             )
+        elif type(item.expression) is CollectRelationExpr:
+            source = _collect_read(completion, owner, item.expression)
+            row_field = base_schema.fields.get(name)
+            if (
+                mode is not ProjectJoinedAggregationMode.ABSENT
+                or source.resolved_type is None
+                or row_field is None
+                or row_field.resolved_type != source.resolved_type
+            ):
+                return None, source, ()
+            ordering = collect_read_ordering(source)
+            if type(ordering) is not ProjectRelationOrdering:
+                return None, source if ordering is None else ordering, ()
         elif mode is ProjectJoinedAggregationMode.ABSENT:
             analysis = (pretyped_expressions or {}).get(item.expression)
             if analysis is None:
@@ -4951,8 +5127,10 @@ def _no_join_final_fields(
                 select_fact=select_fact,
                 field=row_field,
             )
-        if row_field is None or row_field.resolved_type.kind is (
-            ProjectResolvedTypeKind.UNKNOWN
+        # Only a Collect read outputs a value that is not a scalar.
+        if row_field is None or (
+            row_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
+            and type(source) is not ProjectModuleCollectReadFact
         ):
             return None, source, ()
         completed.append(
@@ -5069,7 +5247,12 @@ def _no_join_relation_ordering(
     mode: ProjectJoinedAggregationMode,
     clause_dependencies: tuple[ProjectModuleClauseDependencyFact, ...],
     window_outputs: tuple[ProjectModuleWindowOutputFact, ...],
+    nested: tuple[Diagnostic, ...] = (),
 ) -> ProjectRelationOrderingResult:
+    """The ORDER BY of a body without JOIN inputs; each read of a nested field
+    of a replayed body reports its PIE-S2805 (``nested``) in place of a key
+    refusal."""
+
     definition = _derived_definition(owner)
     clause = definition.order_by_clause
     if clause is None:
@@ -5137,7 +5320,7 @@ def _no_join_relation_ordering(
                         ProjectRelationOrderingNonConcreteReason.GROUPED_ORDER_UNSUPPORTED
                     ),
                     blocker=facts,
-                    diagnostics=(diagnostic,),
+                    diagnostics=with_nested_references((diagnostic,), nested),
                 )
             fact = facts[0]
             target = fact.target_occurrences[0]
@@ -5222,6 +5405,13 @@ def _no_join_relation_ordering(
                             analysis,
                             diagnostics=(
                                 _order_output_name_diagnostic(expression, joined=False),
+                            ),
+                        )
+                    if nested:
+                        analysis = replace(
+                            analysis,
+                            diagnostics=with_nested_references(
+                                analysis.diagnostics, nested
                             ),
                         )
                     return ProjectNonConcreteRelationOrdering(
@@ -5408,6 +5598,14 @@ def _validate_distinct_projection(
     """Bind type and Decimal provenance to the exact selected source value."""
     for selected in fields:
         source, row_field = selected.source, selected.field
+        if type(source) is ProjectModuleCollectReadFact:
+            # A Collect output is typed by its read alone (D-S04-4).
+            if (
+                row_field.resolved_type != source.resolved_type
+                or row_field.nullability is not ProjectRowFieldNullability.NON_NULL
+            ):
+                raise ValueError("A Collect output keeps its read's nested type.")
+            continue
         if isinstance(root, ProjectConcreteNoJoinReplay) and isinstance(
             source, (ProjectNoJoinScalarExpression, ProjectNoJoinGroupedOutput)
         ):
@@ -5896,6 +6094,26 @@ def _complete_set_output(
             tuple(blockers),
             tuple(diagnostics),
         )
+    # A set operation compares rows, and a nested field has no equality.
+    for use in uses:
+        ordinal = use.resolution.reference.operand_ordinal
+        nested = tuple(
+            item.selected.field
+            for item in use.fields
+            if is_nested_relation_field(item.selected.field)
+        )
+        if nested:
+            blockers.append(use)
+            operand = body.operands[ordinal]
+            diagnostics.append(
+                nested_set_operand_diagnostic(
+                    operand, operand.relation_name, nested[0].name
+                )
+            )
+    if blockers:
+        return failed(
+            ProjectSetFailureReason.TYPE_MISMATCH, tuple(blockers), tuple(diagnostics)
+        )
     widths = tuple(len(use.fields) for use in uses)
     if len(set(widths)) != 1:
         return failed(
@@ -6067,6 +6285,17 @@ def _complete_joined_output(
     )
 
 
+# The no-JOIN replay stages that type a body's clauses, in replay order.
+(
+    _LETS_STAGE,
+    _WHERE_STAGE,
+    _PROJECTION_STAGE,
+    _WINDOWS_STAGE,
+    _QUALIFY_STAGE,
+    _ORDER_STAGE,
+) = range(6)
+
+
 def _complete_no_join_output(
     *,
     completion: ProjectCompletion,
@@ -6089,18 +6318,6 @@ def _complete_no_join_output(
         )
     ):
         raise ValueError("No-JOIN replay requires one exact retained dependency.")
-    names, name_diagnostics = _output_names(definition)
-    if names is None:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=(
-                ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE
-            ),
-            blocker=definition.select_items,
-            diagnostics=name_diagnostics,
-            upstream_entry=upstream_entry,
-        )
     input_schema = _entry_schema(upstream_entry)
     upstream_definition = resolution.target_symbol.target_occurrence.definition
     if type(upstream_definition) not in {
@@ -6143,6 +6360,46 @@ def _complete_no_join_output(
             upstream_definition,
         ),
     )
+    # A read of a nested field of the replayed input has no scalar value: the
+    # stage that types its clause stops with its PIE-S2805 beside its own
+    # diagnostics, as it stops for them. A stage that stops with neither
+    # reports the later stages' instead, since a relation with a nested
+    # field read reports no PIE-S2333 of its own.
+    nested = nested_reference_facts(definition, input_schema, let_scope)
+    stages = (
+        nested.lets,
+        nested.where,
+        nested.projection,
+        nested.windows,
+        nested.qualify,
+        nested.order,
+    )
+
+    def stop(
+        stage: int,
+        reason: ProjectEffectiveOutputCompletionTerminalReason,
+        blocker: object,
+        own: tuple[Diagnostic, ...] = (),
+    ) -> ProjectEffectiveOutputCompletionTerminal:
+        diagnostics = with_nested_references(own, stages[stage])
+        return _no_join_terminal(
+            semantic_facts=semantic,
+            base_entry=base_entry,
+            reason=reason,
+            blocker=blocker,
+            diagnostics=diagnostics
+            or tuple(item for later in stages[stage + 1 :] for item in later),
+            upstream_entry=upstream_entry,
+        )
+
+    names, name_diagnostics = _output_names(definition)
+    if names is None:
+        return stop(
+            _PROJECTION_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
+            definition.select_items,
+            name_diagnostics,
+        )
     let_any_values: list[ProjectAnyValue] = []
     earlier_lets: list[ProjectAnyLetValue] = []
     for binding in let_scope.bindings:
@@ -6188,13 +6445,11 @@ def _complete_no_join_output(
                     for diagnostic in let_scope.diagnostics
                     if id(diagnostic) not in owned
                 )
-            return _no_join_terminal(
-                semantic_facts=semantic,
-                base_entry=base_entry,
-                reason=ProjectEffectiveOutputCompletionTerminalReason.LET_NON_CONCRETE,
-                blocker=checked,
-                diagnostics=retained,
-                upstream_entry=upstream_entry,
+            return stop(
+                _LETS_STAGE,
+                ProjectEffectiveOutputCompletionTerminalReason.LET_NON_CONCRETE,
+                checked,
+                retained,
             )
         if checked:
             let_scope = replace(
@@ -6219,16 +6474,15 @@ def _complete_no_join_output(
                     authority=let_scope,
                 )
             )
-    if let_scope.status not in {
+    if nested.lets or let_scope.status not in {
         ProjectLetScopeFactsStatus.ABSENT,
         ProjectLetScopeFactsStatus.CONCRETE,
     }:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.LET_NON_CONCRETE,
-            blocker=let_scope,
-            upstream_entry=upstream_entry,
+        return stop(
+            _LETS_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.LET_NON_CONCRETE,
+            let_scope,
+            let_scope.diagnostics,
         )
     where = _no_join_where(
         completion=completion,
@@ -6240,26 +6494,22 @@ def _complete_no_join_output(
         captures=semantic.captured_value_types,
         predicate_expressions=predicate_expressions,
     )
-    if type(where) is ProjectNoJoinScalarExpression:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.WHERE_NON_CONCRETE,
-            blocker=where,
-            diagnostics=where.diagnostics,
-            upstream_entry=upstream_entry,
+    if nested.where or type(where) is ProjectNoJoinScalarExpression:
+        return stop(
+            _WHERE_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.WHERE_NON_CONCRETE,
+            where,
+            where.diagnostics,
         )
     if type(where) is not ProjectConcreteNoJoinWhere:
         raise AssertionError("No-JOIN WHERE lost its exact result variant.")
     no_group = no_group_satisfying_diagnostic(definition)
     if no_group is not None:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.AGGREGATION_NON_CONCRETE,
-            blocker=definition.satisfying_clause,
-            diagnostics=(no_group,),
-            upstream_entry=upstream_entry,
+        return stop(
+            _PROJECTION_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.AGGREGATION_NON_CONCRETE,
+            definition.satisfying_clause,
+            (no_group,),
         )
 
     upstream_symbol = _project_symbol_for_resolution(resolution)
@@ -6294,13 +6544,11 @@ def _complete_no_join_output(
                 predicate_expressions=predicate_expressions,
             )
             if analysis.status is not ProjectNoJoinScalarStatus.CONCRETE:
-                return _no_join_terminal(
-                    semantic_facts=semantic,
-                    base_entry=base_entry,
-                    reason=ProjectEffectiveOutputCompletionTerminalReason.AGGREGATION_NON_CONCRETE,
-                    blocker=analysis,
-                    diagnostics=analysis.diagnostics,
-                    upstream_entry=upstream_entry,
+                return stop(
+                    _PROJECTION_STAGE,
+                    ProjectEffectiveOutputCompletionTerminalReason.AGGREGATION_NON_CONCRETE,
+                    analysis,
+                    analysis.diagnostics,
                 )
             pretyped_arguments[argument] = analysis
     if mode is ProjectJoinedAggregationMode.ABSENT:
@@ -6325,13 +6573,11 @@ def _complete_no_join_output(
                 predicate_expressions=predicate_expressions,
             )
             if analysis.status is not ProjectNoJoinScalarStatus.CONCRETE:
-                return _no_join_terminal(
-                    semantic_facts=semantic,
-                    base_entry=base_entry,
-                    reason=ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
-                    blocker=analysis,
-                    diagnostics=analysis.diagnostics,
-                    upstream_entry=upstream_entry,
+                return stop(
+                    _PROJECTION_STAGE,
+                    ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
+                    analysis,
+                    analysis.diagnostics,
                 )
             pretyped_expressions[item.expression] = analysis
         schema_result = _project_direct_relation_row_schema(
@@ -6352,6 +6598,7 @@ def _complete_no_join_output(
             read_types=semantic.scalar_read_types,
             captured_value_types=semantic.captured_value_types,
             pretyped_expressions=pretyped_expressions,
+            collect_types=semantic.collect_read_types,
         )
         base_state = _project_relation_row_schema_state_from_result(
             schema_result,
@@ -6361,16 +6608,15 @@ def _complete_no_join_output(
                 else ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
             ),
         )
-        if base_state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
-            return _no_join_terminal(
-                semantic_facts=semantic,
-                base_entry=base_entry,
-                reason=(
-                    ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE
-                ),
-                blocker=base_state,
-                diagnostics=schema_result.diagnostics,
-                upstream_entry=upstream_entry,
+        if (
+            nested.projection
+            or base_state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+        ):
+            return stop(
+                _PROJECTION_STAGE,
+                ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
+                base_state,
+                schema_result.diagnostics,
             )
         aggregate_result_facts = ()
     else:
@@ -6389,7 +6635,8 @@ def _complete_no_join_output(
         )
         base_state = aggregate_readiness.finalization.state
         if (
-            base_state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+            nested.projection
+            or base_state.status is not ProjectRelationRowSchemaStatus.CONCRETE
             or (
                 definition.satisfying_clause is not None
                 and aggregate_readiness.status
@@ -6402,14 +6649,10 @@ def _complete_no_join_output(
                 and type(limit) is not ProjectNonConcreteRelationLimit
             )
         ):
-            return _no_join_terminal(
-                semantic_facts=semantic,
-                base_entry=base_entry,
-                reason=(
-                    ProjectEffectiveOutputCompletionTerminalReason.AGGREGATION_NON_CONCRETE
-                ),
-                blocker=aggregate_readiness,
-                upstream_entry=upstream_entry,
+            return stop(
+                _PROJECTION_STAGE,
+                ProjectEffectiveOutputCompletionTerminalReason.AGGREGATION_NON_CONCRETE,
+                aggregate_readiness,
             )
         aggregate_result_facts = tuple(
             fact
@@ -6431,21 +6674,17 @@ def _complete_no_join_output(
         item for item in definition.select_items if type(item.expression) is WindowExpr
     )
     if mode is ProjectJoinedAggregationMode.GLOBAL and selected_window_items:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.WINDOW_NON_CONCRETE,
-            blocker=selected_window_items,
-            upstream_entry=upstream_entry,
+        return stop(
+            _WINDOWS_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.WINDOW_NON_CONCRETE,
+            selected_window_items,
         )
     named = semantic.named_window_namespace
     if type(named) is NamedWindowResolutionFailure:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.WINDOW_NON_CONCRETE,
-            blocker=named,
-            upstream_entry=upstream_entry,
+        return stop(
+            _WINDOWS_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.WINDOW_NON_CONCRETE,
+            named,
         )
     window_state, window_outputs = _window_output_facts(
         owner=owner,
@@ -6459,21 +6698,23 @@ def _complete_no_join_output(
             named if type(named) is ResolvedNamedWindowNamespace else None
         ),
     )
-    if window_state.status is not ProjectRelationRowSchemaStatus.CONCRETE or any(
-        output.status is not ProjectModuleCandidateBucketStatus.CONCRETE
-        for output in window_outputs
+    if (
+        nested.windows
+        or window_state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+        or any(
+            output.status is not ProjectModuleCandidateBucketStatus.CONCRETE
+            for output in window_outputs
+        )
     ):
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.WINDOW_NON_CONCRETE,
-            blocker=window_outputs,
-            diagnostics=tuple(
+        return stop(
+            _WINDOWS_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.WINDOW_NON_CONCRETE,
+            window_outputs,
+            tuple(
                 diagnostic
                 for output in window_outputs
                 for diagnostic in output.diagnostics
             ),
-            upstream_entry=upstream_entry,
         )
     window_scope = _no_join_window_scope(
         definition=definition,
@@ -6508,18 +6749,17 @@ def _complete_no_join_output(
                 definition, window_scope, input_schema, let_scope, base_schema
             ),
         ),
+        nested=nested.qualify,
     )
-    if not qualify.concrete:
+    if nested.qualify or not qualify.concrete:
         predicate = qualify.predicate
         if predicate is None:
             raise AssertionError("Authored replay QUALIFY lost its predicate result.")
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.QUALIFY_NON_CONCRETE,
-            blocker=qualify,
-            diagnostics=predicate.diagnostics,
-            upstream_entry=upstream_entry,
+        return stop(
+            _QUALIFY_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.QUALIFY_NON_CONCRETE,
+            qualify,
+            predicate.diagnostics,
         )
     fields, blocker, diagnostics = _no_join_final_fields(
         completion=completion,
@@ -6534,15 +6774,11 @@ def _complete_no_join_output(
         pretyped_expressions=pretyped_expressions,
     )
     if fields is None:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=(
-                ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE
-            ),
-            blocker=blocker,
-            diagnostics=diagnostics,
-            upstream_entry=upstream_entry,
+        return stop(
+            _PROJECTION_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE,
+            blocker,
+            diagnostics,
         )
     ordering = _no_join_relation_ordering(
         owner=owner,
@@ -6551,34 +6787,37 @@ def _complete_no_join_output(
         mode=mode,
         clause_dependencies=clause_dependencies,
         window_outputs=window_outputs,
+        nested=nested.order,
     )
     if type(limit) is ProjectNonConcreteRelationLimit:
         # A LIMIT error is reported whatever ORDER BY is, with the ORDER BY
-        # errors a check reports of any relation without JOIN inputs.
+        # errors a check reports of any relation without JOIN inputs, each
+        # read of a nested field included.
         return _no_join_terminal(
             semantic_facts=semantic,
             base_entry=base_entry,
             reason=ProjectEffectiveOutputCompletionTerminalReason.LIMIT_NON_CONCRETE,
             blocker=limit,
             diagnostics=(
-                *(
+                *with_nested_references(
                     ordering.diagnostics
                     if type(ordering) is ProjectNonConcreteRelationOrdering
                     and ordering.reason in CHECKED_ORDER_REASONS
-                    else ()
+                    else (),
+                    nested.order,
                 ),
                 *limit.diagnostics,
             ),
             upstream_entry=upstream_entry,
         )
-    if type(ordering) is ProjectNonConcreteRelationOrdering:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
-            blocker=ordering,
-            diagnostics=ordering.diagnostics,
-            upstream_entry=upstream_entry,
+    if nested.order or type(ordering) is ProjectNonConcreteRelationOrdering:
+        return stop(
+            _ORDER_STAGE,
+            ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
+            ordering,
+            ordering.diagnostics
+            if type(ordering) is ProjectNonConcreteRelationOrdering
+            else (),
         )
     replay_root = ProjectNoJoinReplayRoot(
         owner=owner,
@@ -6656,8 +6895,8 @@ def _promoted_scalar_producer(
     non-concrete fact needs the richer completed route rather than the historical
     source-root projection. The promotion reuses the existing replay builder and is
     adopted for exactly two admitted bodies: an ordinary scalar body, whose every
-    selected output value is an ordinary scalar expression and which introduces no
-    later stage at all, and a grouped or global aggregate body whose readiness is
+    selected output value is an ordinary scalar expression or a Collect read and
+    which introduces no later stage at all, and a grouped or global aggregate body whose readiness is
     concrete and whose every selected output is that stage's own grouped result.
     A window or QUALIFY stage, selected or hidden, and a relation ORDER or LIMIT
     barrier still keep their established base route, its diagnostics and its
@@ -6724,7 +6963,11 @@ def _promoted_scalar_producer(
             or not _joined_consumer(completion, base_entry.owner)
         ):
             return None
-        admitted = {ProjectNoJoinScalarExpression, ProjectModuleWindowOutputFact}
+        admitted = {
+            ProjectNoJoinScalarExpression,
+            ProjectModuleWindowOutputFact,
+            ProjectModuleCollectReadFact,
+        }
         if not replay.fields or any(
             type(item.source) not in admitted for item in replay.fields
         ):
@@ -6735,7 +6978,10 @@ def _promoted_scalar_producer(
     if root.mode is ProjectJoinedAggregationMode.ABSENT:
         if root.aggregate_readiness is not None:
             return None
-        expected: type = ProjectNoJoinScalarExpression
+        # A Collect read is an ordinary selected value of such a body.
+        expected: frozenset[type] = frozenset(
+            {ProjectNoJoinScalarExpression, ProjectModuleCollectReadFact}
+        )
     else:
         # A grouped or global result is admitted only with its own successful and
         # complete readiness, only where no result barrier rides along, and only
@@ -6752,9 +6998,9 @@ def _promoted_scalar_producer(
             or not _joined_consumer(completion, base_entry.owner)
         ):
             return None
-        expected = ProjectNoJoinGroupedOutput
+        expected = frozenset({ProjectNoJoinGroupedOutput})
     if not replay.fields or any(
-        type(item.source) is not expected for item in replay.fields
+        type(item.source) not in expected for item in replay.fields
     ):
         return None
     return replay
@@ -7605,6 +7851,8 @@ def build_project_effective_output_completion(
                 # An invalid LIMIT has no IR operator; the replay's LIMIT stage
                 # owns its PIE-S2307.
                 and type(_relation_limit(owner)) is not ProjectNonConcreteRelationLimit
+                # A Collect output is completed from its read fact (D-S04-4).
+                and not base_entry.fragment.semantic_facts.collect_reads
             ):
                 promoted = (
                     _promoted_scalar_producer(

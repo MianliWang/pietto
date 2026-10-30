@@ -13,14 +13,24 @@ from pietto._project.model import (
     ProjectRowSchema,
 )
 from pietto.ast_nodes import (
+    AnyExpr,
     CapturedFieldExpr,
+    CollectRelationExpr,
     DottedNameExpr,
     Expression,
     NameExpr,
+    Node,
+    QueryDef,
     RelationScalarExpr,
+    TableDef,
+    WindowExpr,
     inlined_arguments,
 )
-from pietto.errors import Diagnostic, Severity
+from pietto.errors import (
+    Diagnostic,
+    Severity,
+    SourceLocation,
+)
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.model import (
@@ -53,6 +63,231 @@ _UNKNOWN_PROJECT_FIELD_VALUE_TYPE = ValueType(
     nullability=EffectiveNullability.UNKNOWN,
     kind=ValueTypeKind.UNKNOWN,
 )
+
+
+# The closed places a nested relation field may be read in (PIE-S2805).
+NESTED_IN_SCALAR_READ = "a scalar read"
+NESTED_IN_IN_READ = "an in read"
+
+
+def is_nested_relation_field(field: ProjectRowField | None) -> bool:
+    """Whether ``field`` holds a collected relation, which no scalar reads."""
+
+    return (
+        field is not None
+        and field.resolved_type.kind is ProjectResolvedTypeKind.NESTED_RELATION
+    )
+
+
+def nested_reference_positions(
+    definition: TableDef | QueryDef,
+) -> dict[int, str]:
+    """The PIE-S2805 place of each expression node of one body, by identity.
+
+    A window call, its window and a named window are ``a window`` and an ANY
+    test is ``an ANY test`` wherever they are written.
+    """
+
+    positions: dict[int, str] = {}
+
+    def mark(expression: Expression, label: str) -> None:
+        pending = [(expression, label)]
+        while pending:
+            node, place = pending.pop()
+            if type(node) is WindowExpr:
+                place = "a window"
+            elif type(node) is AnyExpr:
+                place = "an ANY test"
+            positions.setdefault(id(node), place)
+            if type(node) is WindowExpr:
+                children: tuple[Expression, ...] = (
+                    *node.call.arguments,
+                    *node.spec.partition_by,
+                    *(item.expression for item in node.spec.order_by),
+                )
+            elif type(node) is AnyExpr:
+                children = (node.predicate,)
+            else:
+                children = child_expressions(node)
+            pending.extend((child, place) for child in children)
+
+    if definition.let_clause is not None:
+        for binding in definition.let_clause.bindings:
+            mark(binding.expression, "a row let")
+    for join in definition.join_clauses:
+        if join.on_clause is not None:
+            mark(join.on_clause.expression, "JOIN ON")
+    if definition.where_clause is not None:
+        mark(definition.where_clause.expression, "WHERE")
+    for item in definition.select_items:
+        mark(item.expression, "a SELECT expression")
+    if definition.group_by_clause is not None:
+        for key in definition.group_by_clause.items:
+            mark(key.key, "GROUP BY")
+    if definition.satisfying_clause is not None:
+        mark(definition.satisfying_clause.expression, "HAVING")
+    for window in definition.named_windows:
+        if window.spec is not None:
+            for value in window.spec.partition_by:
+                mark(value, "a window")
+            for order in window.spec.order_by:
+                mark(order.expression, "a window")
+    if definition.qualify_clause is not None:
+        mark(definition.qualify_clause.expression, "QUALIFY")
+    if definition.order_by_clause is not None:
+        for order in definition.order_by_clause.items:
+            mark(order.expression, "ORDER BY")
+    return positions
+
+
+def nested_reference_text(leaf: Expression) -> str:
+    """A nested field reference as written."""
+
+    if type(leaf) is NameExpr:
+        return leaf.name
+    if type(leaf) is DottedNameExpr:
+        return ".".join(leaf.parts)
+    if type(leaf) is CapturedFieldExpr:
+        return f"{leaf.capture}.{leaf.field}"
+    if type(leaf) is RelationScalarExpr:
+        return f"{leaf.relation_name}.{leaf.column_name}"
+    raise TypeError("A nested field reference is a name or a read.")
+
+
+def nested_reference_diagnostic(
+    leaf: Expression,
+    definition: TableDef | QueryDef,
+    *,
+    root: Expression | None = None,
+) -> Diagnostic:
+    """PIE-S2805 for one read of a nested field in ``definition``'s body.
+
+    A SELECT item that is the field itself would pass it through, which only
+    the relation collecting it does yet; any other read, such as the argument
+    a `def` call inlines as the item, has no value to read.
+    """
+
+    if not inlined_arguments(leaf) and any(
+        item.expression is leaf for item in definition.select_items
+    ):
+        return _error(
+            "PIE-S2805",
+            f"Nested relation field {nested_reference_text(leaf)} cannot be "
+            "selected here yet: only the table or query that collects it "
+            "outputs it.",
+            leaf,
+            "Select only the scalar fields you need here.",
+        )
+    positions = nested_reference_positions(definition)
+    position = positions.get(id(leaf)) or (
+        None if root is None else positions.get(id(root))
+    )
+    return nested_value_diagnostic(leaf, position or "a SELECT expression")
+
+
+def nested_value_diagnostic(
+    leaf: Expression, position: str, *, ref: str | None = None
+) -> Diagnostic:
+    """PIE-S2805: a collected relation has no scalar value at ``position``."""
+
+    return _error(
+        "PIE-S2805",
+        f"Nested relation field {ref or nested_reference_text(leaf)} cannot be "
+        f"read in {position}: a collected relation has no comparison, ordering, "
+        "grouping or scalar value.",
+        leaf,
+        "Filter, order or group the collected rows inside the let that is collected.",
+    )
+
+
+def nested_distinct_diagnostic(expression: CollectRelationExpr) -> Diagnostic:
+    """PIE-S2805: SELECT DISTINCT compares rows, and a Collect value has no
+    equality."""
+
+    name = expression.relation_name
+    return _error(
+        "PIE-S2805",
+        f"Collect relation read {name} cannot be part of SELECT DISTINCT: a "
+        "collected relation has no equality.",
+        expression,
+        "Make the rows distinct in another table or query, read it with `from` "
+        "here, and collect without DISTINCT.",
+    )
+
+
+def nested_set_operand_diagnostic(
+    operand: Node, operand_name: str, field_name: str
+) -> Diagnostic:
+    """PIE-S2805: a set operation compares rows, and a nested field has no
+    equality."""
+
+    return _error(
+        "PIE-S2805",
+        f"Set operand {operand_name} outputs nested relation field {field_name}: "
+        "a set operation over a collected relation is not available.",
+        operand,
+        "Leave the nested field out of the set operands.",
+    )
+
+
+def without_nested_window_refusal(
+    diagnostics: Iterable[Diagnostic],
+    window: WindowExpr,
+    reason: str,
+    nested: Iterable[SourceLocation | None],
+) -> tuple[Diagnostic, ...]:
+    """A refused window computation's diagnostics without the refusal the
+    kernel derives from a nested field read (located in ``nested``), whose
+    value it does not know. As at an unknown name, the kernel stops at the
+    step that reads the field, and the read's PIE-S2805 is that step's error;
+    what the kernel reported before reaching that step stays."""
+
+    kept = tuple(diagnostics)
+    arguments = window.call.arguments
+    # The values read by each step `analyze_window_computation` refuses for a
+    # value of no concrete type, by that refusal's reason.
+    step = {
+        "window partition field type must be concrete": window.spec.partition_by,
+        "window order field type must be concrete": tuple(
+            item.expression for item in window.spec.order_by
+        ),
+        "navigation value type must be concrete": arguments[:1],
+        "navigation default type must be concrete": arguments[2:3],
+        "frame-value input type must be concrete": arguments[:1],
+    }.get(reason, ())
+    leaves = set(nested)
+    if (
+        kept
+        and kept[-1].location == node_location(window.call)
+        and any(
+            node_location(leaf) in leaves
+            for value in step
+            for leaf in scalar_field_reference_leaves(value)
+        )
+    ):
+        return kept[:-1]
+    return kept
+
+
+def node_location(node: Node) -> SourceLocation:
+    span = node.span
+    return SourceLocation(
+        path=span.path,
+        line=span.line,
+        column=span.column,
+        end_line=span.end_line,
+        end_column=span.end_column,
+    )
+
+
+def _error(code: str, message: str, node: Node, suggestion: str) -> Diagnostic:
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=node_location(node),
+        suggestion=suggestion,
+    )
 
 
 def scalar_field_reference_leaves(
@@ -269,6 +504,10 @@ def merge_shape_typed_diagnostics(
 def _semantic_resolved_type(
     resolved_type: ProjectResolvedType, *, shapes: bool = False
 ) -> ResolvedType:
+    if resolved_type.kind is ProjectResolvedTypeKind.NESTED_RELATION:
+        # A collected relation has no scalar value: the kernel never types it,
+        # and the reference authorities refuse each read of it (PIE-S2805).
+        return _UNKNOWN_PROJECT_FIELD_VALUE_TYPE.resolved_type
     if (
         resolved_type.kind is ProjectResolvedTypeKind.BUILTIN
         and resolved_type.name in _PROJECT_BUILTIN_TYPE_NAMES

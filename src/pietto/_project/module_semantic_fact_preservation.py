@@ -13,7 +13,7 @@ from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._project.project_table_function import table_function_diagnostics
 from pietto._project.project_values import ProjectValuesRelation, values_diagnostics
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, is_dataclass
 from dataclasses import fields as dataclass_fields
 from dataclasses import replace
@@ -46,9 +46,15 @@ from pietto._project.let_scope_facts import (
 )
 from pietto._project.model import (
     ProjectAggregateResultFact,
+    ProjectDeclarationOccurrenceIdentity,
+    ProjectModuleRowFieldIdentity,
+    ProjectModuleRowFieldKind,
+    ProjectNestedRelationElementField,
+    ProjectNestedRelationType,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaState,
     ProjectRelationRowSchemaStatus,
+    ProjectResolvedType,
     ProjectResolvedTypeKind,
     ProjectRowField,
     ProjectRowFieldNullability,
@@ -56,8 +62,10 @@ from pietto._project.model import (
     ProjectRowSchema,
     ProjectSymbol,
     ProjectSymbolNamespace,
+    SCALAR_RESOLVED_TYPE_KINDS,
     _project_direct_relation_row_schema,
     _project_relation_row_schema_state_from_result,
+    nested_relation_type,
 )
 from pietto._project.module_carrier import (
     ProjectLogicalModule,
@@ -87,11 +95,20 @@ from pietto._project.row_expression_schema import (
     adapt_project_row_expression_schema,
 )
 from pietto._project.row_expression_type_facts import (
+    NESTED_IN_IN_READ,
+    NESTED_IN_SCALAR_READ,
     build_project_row_expression_value_types,
+    is_nested_relation_field,
+    nested_distinct_diagnostic,
+    nested_reference_diagnostic,
+    nested_value_diagnostic,
+    node_location,
     project_row_field_to_semantic_value_type,
     project_row_schema_to_semantic_row_schema,
+    scalar_field_reference_leaves,
     scalar_read_types_within,
     add_shape_typed_diagnostics,
+    without_nested_window_refusal,
 )
 from pietto._project.row_dependency_graph import (
     ProjectRowDependencyNode,
@@ -142,6 +159,7 @@ from pietto.ast_nodes import (
     UnaryExpr,
     WhereClause,
     WindowExpr,
+    WindowSpec,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -960,6 +978,9 @@ _LET_READING_WINDOW_REASON = "window reads a let binding of a non-concrete scope
 # A window computation whose result no project row column carries
 # (`_window_fact_matches_source`): the relation's PIE-S2333 reports it.
 _UNMATCHED_WINDOW_RESULT_REASON = "window result has no project row column"
+# A window reading a nested field: the body's nested reference facts own its
+# PIE-S2805 (`nested_reference_facts`).
+_NESTED_FIELD_WINDOW_REASON = "window input reads a nested relation field"
 
 
 def _unsupported_window_has_external_diagnostic_owner(reason: str) -> bool:
@@ -969,6 +990,7 @@ def _unsupported_window_has_external_diagnostic_owner(reason: str) -> bool:
             "grouped context does not admit ",
             _LET_READING_WINDOW_REASON,
             _UNMATCHED_WINDOW_RESULT_REASON,
+            _NESTED_FIELD_WINDOW_REASON,
         )
     )
 
@@ -1396,10 +1418,12 @@ class ProjectModuleScalarReadFact:
         else:
             if self.diagnostic is not None and (
                 schema is None
-                or len(fields) == 1
-                or self.diagnostic.code != "PIE-S2105"
+                or (len(fields) == 1) != (self.diagnostic.code == "PIE-S2805")
+                or self.diagnostic.code not in {"PIE-S2105", "PIE-S2805"}
             ):
-                raise ValueError("A membership read reports only its known width.")
+                raise ValueError(
+                    "A membership read reports only its known width or a nested column."
+                )
             expected = next(iter(fields.values())) if len(fields) == 1 else None
         if (self.value_type is not None) and (
             self.column is None
@@ -1418,6 +1442,197 @@ class ProjectModuleScalarReadFact:
         return cast(
             RelationScalarExpr | RelationMembershipExpr, self.read.read.expression
         )
+
+
+# The child leaf types a Collect read admits (D71.01); a type alias of one is
+# typed as it before here.
+_COLLECTED_LEAF_NAMES = frozenset(
+    {"Bool", "Date", "Decimal", "Float", "Int", "Text", "Timestamp", "UUID"}
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectModuleCollectReadFact:
+    """One ``collect r`` read of its owner, the one authority of its value.
+
+    A Collect read is relation-valued (D71.01, D71.04): its value is the bag of
+    rows of ``r``, a relation let of the same declaration, in ``r``'s ORDER BY
+    and within its LIMIT; it is ``[]`` for no rows and never None; it collects
+    one layer. ``nested_type`` types it when ``r``'s columns are known
+    before completion, each of an admitted leaf type, and ``r`` has an ORDER
+    BY; ``diagnostic`` (PIE-S2803, PIE-S2804) then names why not, unless
+    relation resolution reports the read itself (an unknown, ambiguous or
+    cyclic target, a target that is no relation let of the declaration, or a
+    Collect outside the SELECT of an ungrouped table or query). ``closed`` is
+    whether ``r`` has no capture lines; ``order_by_clause`` and
+    ``limit_clause`` are ``r``'s own, as written.
+    """
+
+    read: ProjectResolvedExpressionBlockRead
+    target: ProjectModuleRelationSemanticFacts | None = field(
+        repr=False, compare=False, hash=False
+    )
+    closed: bool = False
+    nested_type: ProjectNestedRelationType | None = None
+    order_by_clause: ast.OrderByClause | None = None
+    limit_clause: ast.LimitClause | None = None
+    diagnostic: Diagnostic | None = None
+
+    def __post_init__(self) -> None:
+        read = self.read
+        if (
+            type(read) is not ProjectResolvedExpressionBlockRead
+            or type(read.read.expression) is not CollectRelationExpr
+        ):
+            raise TypeError("Collect read facts require one exact Collect read.")
+        symbol = read.target_symbol
+        target = self.target
+        if target is not None and (
+            type(target) is not ProjectModuleRelationSemanticFacts
+            or symbol is None
+            or target.owner is not symbol.target_occurrence
+        ):
+            raise ValueError("Collect read facts must keep the collected relation.")
+        let = None if target is None else target.owner.authored_block
+        definition = None if target is None else target.owner.definition
+        body = definition if type(definition) in {TableDef, QueryDef} else None
+        if (
+            self.closed is not (type(let) is LetRelationDef and not let.captures)
+            or self.order_by_clause
+            is not (
+                None if body is None else cast(_DerivedRelation, body).order_by_clause
+            )
+            or self.limit_clause
+            is not (None if body is None else cast(_DerivedRelation, body).limit_clause)
+        ):
+            raise ValueError("Collect read facts must retain their let's clauses.")
+        if self.diagnostic is not None and (
+            type(self.diagnostic) is not Diagnostic
+            or self.diagnostic.code not in {"PIE-S2803", "PIE-S2804"}
+            or self.nested_type is not None
+        ):
+            raise ValueError("A typed Collect read has no diagnostic.")
+        nested = self.nested_type
+        if nested is None:
+            if (
+                self.diagnostic is None
+                and target is not None
+                and _is_local_let(target.owner, read.read.owner)
+            ):
+                raise ValueError("An untyped Collect read names why.")
+            return
+        schema = None if target is None else _concrete_relation_schema(target)
+        if (
+            type(nested) is not ProjectNestedRelationType
+            or target is None
+            or schema is None
+            or not _is_local_let(target.owner, read.read.owner)
+            or nested.element_relation != _occurrence_identity(target.owner)
+            or len(nested.element_fields) != len(schema.fields)
+            or any(
+                item.field is not field
+                for item, field in zip(
+                    nested.element_fields, schema.fields.values(), strict=True
+                )
+            )
+        ):
+            raise ValueError("A Collect read is typed only by its relation let.")
+
+    @property
+    def expression(self) -> CollectRelationExpr:
+        return cast(CollectRelationExpr, self.read.read.expression)
+
+    @property
+    def resolved_type(self) -> ProjectResolvedType | None:
+        """The type of its output field, when it is typed."""
+
+        return (
+            None if self.nested_type is None else nested_relation_type(self.nested_type)
+        )
+
+    @property
+    def multiplicity(self) -> str:
+        """Rows that repeat in ``r`` repeat in the value: a bag."""
+
+        return "bag"
+
+    @property
+    def empty_value(self) -> tuple[()]:
+        """The value for no rows of ``r``: ``[]``, never None."""
+
+        return ()
+
+    @property
+    def container_nullability(self) -> ProjectRowFieldNullability:
+        """A direct Collect value is never None (D71.04)."""
+
+        return ProjectRowFieldNullability.NON_NULL
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectNestedReferenceFacts:
+    """PIE-S2805 for each read of a nested relation field in one body, with
+    the clause whose carrier types the read, each in source order: a check
+    reports each beside that carrier's own diagnostics.
+
+    ``projection`` holds the SELECT values, GROUP BY and HAVING, with each
+    Collect read under SELECT DISTINCT; ``windows`` the window computations
+    and the named windows. A body with JOIN inputs types its reads in its
+    completed namespace, so only ``distinct`` holds its Collect reads under
+    SELECT DISTINCT.
+    """
+
+    lets: tuple[Diagnostic, ...] = ()
+    where: tuple[Diagnostic, ...] = ()
+    projection: tuple[Diagnostic, ...] = ()
+    windows: tuple[Diagnostic, ...] = ()
+    qualify: tuple[Diagnostic, ...] = ()
+    order: tuple[Diagnostic, ...] = ()
+    distinct: tuple[Diagnostic, ...] = ()
+
+    def __post_init__(self) -> None:
+        for item in dataclass_fields(self):
+            values = getattr(self, item.name)
+            _require_tuple(values, Diagnostic, "Nested references")
+            if any(value.code != "PIE-S2805" for value in values):
+                raise ValueError("Nested reference facts report only PIE-S2805.")
+
+
+def with_nested_references(
+    diagnostics: tuple[Diagnostic, ...], nested: tuple[Diagnostic, ...]
+) -> tuple[Diagnostic, ...]:
+    """One carrier's diagnostics with the PIE-S2805 of its own reads, each in
+    its source place among them; the carrier's own order is kept. A nested
+    field read is its own error: what the carrier makes of that same field
+    reference, whose value it does not know, is not reported beside it."""
+
+    leaves = {item.location for item in nested}
+    return merge_in_source_order(
+        tuple(item for item in diagnostics if item.location not in leaves), nested
+    )
+
+
+def merge_in_source_order(
+    diagnostics: tuple[Diagnostic, ...], later: tuple[Diagnostic, ...]
+) -> tuple[Diagnostic, ...]:
+    """``diagnostics`` in their own order, each of ``later`` (in source order)
+    placed before the first one written after it."""
+
+    pending = list(later)
+    merged: list[Diagnostic] = []
+    for diagnostic in diagnostics:
+        location = diagnostic.location
+        while pending and location is not None:
+            earlier = pending[0].location
+            assert earlier is not None
+            if earlier.path != location.path or (earlier.line, earlier.column) >= (
+                location.line,
+                location.column,
+            ):
+                break
+            merged.append(pending.pop(0))
+        merged.append(diagnostic)
+    return (*merged, *pending)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1450,9 +1665,25 @@ class ProjectModuleRelationSemanticFacts:
         tuple[ProjectModuleExpressionReferenceFact, ...], ...
     ] = ()
     scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = ()
+    collect_reads: tuple[ProjectModuleCollectReadFact, ...] = ()
+    nested_references: ProjectNestedReferenceFacts = field(
+        default_factory=ProjectNestedReferenceFacts
+    )
+    """PIE-S2805 for each read of a nested field in this body, by clause."""
 
     captured_value_types: _CaptureEnvironment = _NO_CAPTURES
     """The capture environment of a let with capture lines, else empty."""
+
+    @property
+    def collect_read_types(self) -> Mapping[Expression, ProjectResolvedType]:
+        """The type of each typed Collect read of this owner, by its read."""
+        return MappingProxyType(
+            {
+                item.expression: resolved
+                for item in self.collect_reads
+                if (resolved := item.resolved_type) is not None
+            }
+        )
 
     @property
     def scalar_read_types(self) -> Mapping[Expression, ValueType]:
@@ -1472,6 +1703,13 @@ class ProjectModuleRelationSemanticFacts:
         _require_tuple(self.scalar_reads, ProjectModuleScalarReadFact, "Scalar reads")
         if any(item.read.read.owner is not self.owner for item in self.scalar_reads):
             raise ValueError("Scalar read facts must belong to their owner.")
+        _require_tuple(
+            self.collect_reads, ProjectModuleCollectReadFact, "Collect reads"
+        )
+        if any(item.read.read.owner is not self.owner for item in self.collect_reads):
+            raise ValueError("Collect read facts must belong to their owner.")
+        if type(self.nested_references) is not ProjectNestedReferenceFacts:
+            raise TypeError("Relation semantic facts require exact nested references.")
         let = self.owner.authored_block
         if type(self.captured_value_types) is not MappingProxyType or (
             self.captured_value_types
@@ -2215,7 +2453,7 @@ def _grouped_window_dependency_target(
         and _projection_output_name(item) == source.name
         and output_names.count(source.name) == 1
         and (field := base_schema.fields.get(source.name)) is not None
-        and field.resolved_type.kind is not ProjectResolvedTypeKind.UNKNOWN
+        and field.resolved_type.kind in SCALAR_RESOLVED_TYPE_KINDS
         and field.result_role
         in {
             ProjectRowResultRole.GROUP_KEY,
@@ -2271,7 +2509,7 @@ def _grouped_window_dependency_target(
             and (output_name := _projection_output_name(item)) is not None
             and output_names.count(output_name) == 1
             and (field := base_schema.fields.get(output_name)) is not None
-            and field.resolved_type.kind is not ProjectResolvedTypeKind.UNKNOWN
+            and field.resolved_type.kind in SCALAR_RESOLVED_TYPE_KINDS
             and field.result_role is ProjectRowResultRole.GROUP_KEY
         )
         if group_candidates:
@@ -2901,8 +3139,9 @@ def _build_project_module_semantic_fact_set(
                     # every read block of this owner is built first.
                     if any(
                         _owner_is_pending(pending, target)
-                        for target in _scalar_read_targets(
-                            owner, resolution_environment
+                        for target in (
+                            *_scalar_read_targets(owner, resolution_environment),
+                            *_collect_read_targets(owner, resolution_environment),
                         )
                     ):
                         continue
@@ -2918,6 +3157,9 @@ def _build_project_module_semantic_fact_set(
                         upstream=upstream,
                         capabilities=capabilities,
                         scalar_reads=_scalar_read_facts(
+                            owner, resolution_environment, completed
+                        ),
+                        collect_reads=_collect_read_facts(
                             owner, resolution_environment, completed
                         ),
                         captures=cast(_CaptureEnvironment, captures),
@@ -2947,6 +3189,9 @@ def _build_project_module_semantic_fact_set(
                     upstream=None,
                     capabilities=capabilities,
                     scalar_reads=_scalar_read_facts(
+                        base_row_fact.owner, resolution_environment, completed
+                    ),
+                    collect_reads=_collect_read_facts(
                         base_row_fact.owner, resolution_environment, completed
                     ),
                     captures=_unknown_captures(base_row_fact.owner)
@@ -3136,6 +3381,10 @@ def _capture_environment(
             types[read] = _UNKNOWN_CAPTURED_VALUE
         elif field is None:
             types[read] = captured_field_diagnostic(read.capture, read.field, read.span)
+        elif is_nested_relation_field(field):
+            types[read] = nested_reference_diagnostic(
+                read, cast(_DerivedRelation, owner.definition)
+            )
         else:
             types[read] = project_row_field_to_semantic_value_type(
                 field,
@@ -3262,6 +3511,12 @@ def _scalar_read_facts(
                     column, ProjectRowFieldNullability.NULLABLE
                 )
                 value_type = typed if typed.kind is ValueTypeKind.KNOWN else None
+                if is_nested_relation_field(column):
+                    diagnostic = nested_value_diagnostic(
+                        expression,
+                        NESTED_IN_IN_READ,
+                        ref=f"{expression.relation_name}.{column.name}",
+                    )
             elif fields is not None:
                 diagnostic = _scalar_read_diagnostic(
                     expression,
@@ -3281,6 +3536,8 @@ def _scalar_read_facts(
                     f"Unknown field: {expression.relation_name}."
                     f"{expression.column_name}",
                 )
+            elif is_nested_relation_field(column):
+                diagnostic = nested_value_diagnostic(expression, NESTED_IN_SCALAR_READ)
             else:
                 typed = project_row_field_to_semantic_value_type(
                     column, ProjectRowFieldNullability.NULLABLE
@@ -3308,6 +3565,260 @@ def _scalar_read_facts(
             )
         )
     return tuple(result)
+
+
+def _collect_reads_of(
+    owner: ProjectDeclarationOccurrence,
+    environment: ProjectModuleRelationResolutionEnvironment,
+) -> tuple[ProjectResolvedExpressionBlockRead, ...]:
+    return tuple(
+        item
+        for item in environment.expression_reads
+        if item.read.owner is owner
+        and type(item.read.expression) is CollectRelationExpr
+    )
+
+
+def _collect_read_targets(
+    owner: ProjectDeclarationOccurrence,
+    environment: ProjectModuleRelationResolutionEnvironment,
+) -> tuple[ProjectDeclarationOccurrence, ...]:
+    return tuple(
+        item.target_symbol.target_occurrence
+        for item in _collect_reads_of(owner, environment)
+        if item.target_symbol is not None
+    )
+
+
+def _collect_read_facts(
+    owner: ProjectDeclarationOccurrence,
+    environment: ProjectModuleRelationResolutionEnvironment,
+    completed: list[ProjectModuleRelationSemanticFacts],
+) -> tuple[ProjectModuleCollectReadFact, ...]:
+    """Type each Collect read of one owner by its relation let's own facts.
+
+    In order, a read is refused when that let's columns are not known before
+    completion (PIE-S2803), when one of its fields is not of an admitted leaf
+    type (PIE-S2803), and when the let has no ORDER BY (PIE-S2804, D71.03).
+    A read relation resolution reports itself is untyped and says nothing.
+    """
+
+    result: list[ProjectModuleCollectReadFact] = []
+    for item in _collect_reads_of(owner, environment):
+        expression = cast(CollectRelationExpr, item.read.expression)
+        symbol = item.target_symbol
+        target = (
+            None
+            if symbol is None
+            else _find_exact_owner(completed, symbol.target_occurrence)
+        )
+        let = None if target is None else target.owner.authored_block
+        body = (
+            cast(_DerivedRelation, target.owner.definition)
+            if target is not None
+            and type(target.owner.definition) in {TableDef, QueryDef}
+            else None
+        )
+        nested = diagnostic = None
+        if target is not None and _is_local_let(target.owner, owner):
+            schema = _concrete_relation_schema(target)
+            name = expression.relation_name
+            layer = (
+                None
+                if schema is not None or body is None
+                else _selected_nested_field(target, body)
+            )
+            refused = (
+                _refused_collected_field(schema, name)
+                if schema is not None
+                else None
+                if layer is None
+                else _collection_layer_refusal(name, layer)
+            )
+            if refused is not None:
+                diagnostic = _collect_diagnostic(expression, "PIE-S2803", refused)
+            elif schema is None:
+                diagnostic = _collect_diagnostic(
+                    expression,
+                    "PIE-S2803",
+                    f"Collect relation read {name} is not yet available: the "
+                    f"columns of {name} are not known before completion.",
+                )
+            elif body is None or body.order_by_clause is None:
+                diagnostic = _collect_diagnostic(
+                    expression,
+                    "PIE-S2804",
+                    f"Relation let {name} read by `collect` has no ORDER BY: add "
+                    f"`order by` to {name} and end it with a unique field, such "
+                    "as a key, because rows that tie on every key have no "
+                    "promised order.",
+                    f"Add `order by` to let {name}, ending with a unique field.",
+                )
+            else:
+                relation = _occurrence_identity(target.owner)
+                nested = ProjectNestedRelationType(
+                    element_relation=relation,
+                    element_fields=tuple(
+                        ProjectNestedRelationElementField(
+                            position=position,
+                            identity=ProjectModuleRowFieldIdentity(
+                                owner=relation,
+                                kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+                                field_position=position,
+                                name=child.name,
+                            ),
+                            field=child,
+                            effective_nullability=child.nullability,
+                        )
+                        for position, child in enumerate(schema.fields.values())
+                    ),
+                )
+        result.append(
+            ProjectModuleCollectReadFact(
+                read=item,
+                target=target,
+                closed=type(let) is LetRelationDef and not let.captures,
+                nested_type=nested,
+                order_by_clause=None if body is None else body.order_by_clause,
+                limit_clause=None if body is None else body.limit_clause,
+                diagnostic=diagnostic,
+            )
+        )
+    return tuple(result)
+
+
+def _collection_layer_refusal(name: str, field_name: str) -> str:
+    return (
+        f"Collect relation read {name} is not available: field {field_name} of "
+        f"{name} is itself a collected relation, and only one collection layer "
+        "is supported."
+    )
+
+
+def _selected_nested_field(
+    target: ProjectModuleRelationSemanticFacts, definition: _DerivedRelation
+) -> str | None:
+    """The output name of the first SELECT item of let ``target`` that selects
+    a nested field of its input as it is (PIE-S2805), which leaves the let's
+    columns unknown; a body with JOIN inputs leaves them unknown by itself."""
+
+    schema = None if target.input_state is None else target.input_state.schema
+    let_scope = target.let_scope_facts
+    if (
+        definition.join_clauses
+        or definition.from_clause is None
+        or schema is None
+        or schema.is_unknown
+        or let_scope is None
+    ):
+        return None
+    for item in definition.select_items:
+        for leaf, _, input_field, _, _, status in _expression_reference_candidates(
+            expression=item.expression,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
+            input_schema=schema,
+            input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
+            let_scope=let_scope,
+            let_candidates=let_scope.bindings,
+            selected_items=(),
+        ):
+            if (
+                leaf is item.expression
+                and not inlined_arguments(leaf)
+                and status is ProjectModuleCandidateBucketStatus.CONCRETE
+                and is_nested_relation_field(input_field)
+            ):
+                return _projection_output_name(item)
+    return None
+
+
+def _refused_collected_field(schema: ProjectRowSchema, name: str) -> str | None:
+    """Why the first field of collected let ``name`` that no Collect value may
+    hold refuses the read."""
+
+    for child in schema.fields.values():
+        if child.resolved_type.kind is ProjectResolvedTypeKind.NESTED_RELATION:
+            return _collection_layer_refusal(name, child.name)
+        if (
+            child.nullability is ProjectRowFieldNullability.UNKNOWN
+            or child.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+        ):
+            return (
+                f"Collect relation read {name} is not available: the type or "
+                f"nullability of field {child.name} of {name} is not known."
+            )
+        if (
+            child.resolved_type.kind is not ProjectResolvedTypeKind.BUILTIN
+            or child.resolved_type.name not in _COLLECTED_LEAF_NAMES
+        ):
+            return (
+                f"Collect relation read {name} is not available: field "
+                f"{child.name} of {name} has type {child.resolved_type.name}; a "
+                "collected field must be Bool, Date, Decimal, Float, Int, Text, "
+                "Timestamp or UUID."
+            )
+    return None
+
+
+def _collect_diagnostic(
+    expression: CollectRelationExpr,
+    code: str,
+    message: str,
+    suggestion: str | None = None,
+) -> Diagnostic:
+    span = expression.span
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+        suggestion=suggestion,
+    )
+
+
+def _occurrence_identity(
+    occurrence: ProjectDeclarationOccurrence,
+) -> ProjectDeclarationOccurrenceIdentity:
+    return ProjectDeclarationOccurrenceIdentity(
+        identity=occurrence.identity,
+        module_position=occurrence.module_position,
+        declaration_position=occurrence.declaration_position,
+        let_position=occurrence.let_position,
+        table_function=occurrence.table_function is not None,
+    )
+
+
+def _is_local_let(
+    target: ProjectDeclarationOccurrence, owner: ProjectDeclarationOccurrence
+) -> bool:
+    """Whether ``target`` is a relation let of ``owner``'s declaration."""
+
+    return (
+        target.let_position is not None
+        and target.table_function is None
+        and target.module_position == owner.module_position
+        and target.declaration_position == owner.declaration_position
+    )
+
+
+def _concrete_relation_schema(
+    facts: ProjectModuleRelationSemanticFacts,
+) -> ProjectRowSchema | None:
+    state = facts.state
+    if (
+        state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+        or state.schema is None
+        or state.schema.is_unknown
+    ):
+        return None
+    return state.schema
 
 
 def _read_block_schema(
@@ -3352,6 +3863,7 @@ def _build_derived_relation_facts(
     upstream: ProjectModuleRelationSemanticFacts | None,
     capabilities: ProjectModuleCapabilityFactInventory,
     scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = (),
+    collect_reads: tuple[ProjectModuleCollectReadFact, ...] = (),
     captures: _CaptureEnvironment = _NO_CAPTURES,
 ) -> tuple[
     ProjectModuleRelationSemanticFacts,
@@ -3395,6 +3907,7 @@ def _build_derived_relation_facts(
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
                 scalar_reads=scalar_reads,
+                collect_reads=collect_reads,
                 captures=captures,
             ),
             state,
@@ -3425,6 +3938,7 @@ def _build_derived_relation_facts(
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
                 scalar_reads=scalar_reads,
+                collect_reads=collect_reads,
                 captures=captures,
             ),
             state,
@@ -3452,6 +3966,7 @@ def _build_derived_relation_facts(
                 group_key_occurrences=group_key_occurrences,
                 capabilities=capabilities,
                 scalar_reads=scalar_reads,
+                collect_reads=collect_reads,
                 captures=captures,
             ),
             state,
@@ -3502,6 +4017,20 @@ def _build_derived_relation_facts(
             is not None
         )
     else:
+        from pietto._project.project_final_outputs import (
+            ProjectNonConcreteRelationOrdering,
+            ProjectRelationOrdering,
+            collect_read_ordering,
+        )
+
+        # A Collect output field is known only when completion orders its
+        # let (D-S04-4 R4); otherwise the row is unknown, as for a window
+        # whose ORDER BY does not complete, and the owner reports why.
+        orderings = {
+            item.expression: collect_read_ordering(item)
+            for item in collect_reads
+            if item.resolved_type is not None
+        }
         schema_result = _project_direct_relation_row_schema(
             definition,
             source_schema=input_schema,
@@ -3512,8 +4041,22 @@ def _build_derived_relation_facts(
             let_scope_facts=let_scope,
             read_types=read_types,
             captured_value_types=captures,
+            collect_types={
+                item.expression: resolved
+                for item in collect_reads
+                if (resolved := item.resolved_type) is not None
+                and type(orderings[item.expression]) is ProjectRelationOrdering
+            },
         )
-        helper_diagnostics = schema_result.diagnostics
+        helper_diagnostics = (
+            *(
+                diagnostic
+                for ordering in orderings.values()
+                if type(ordering) is ProjectNonConcreteRelationOrdering
+                for diagnostic in ordering.diagnostics
+            ),
+            *schema_result.diagnostics,
+        )
         base_state = _project_relation_row_schema_state_from_result(
             schema_result,
             concrete_reason=(
@@ -3629,6 +4172,10 @@ def _build_derived_relation_facts(
                 owner, input_schema, let_scope, read_types, captures
             ),
             scalar_reads=scalar_reads,
+            collect_reads=collect_reads,
+            nested_references=nested_reference_facts(
+                definition, input_schema, let_scope
+            ),
             captured_value_types=captures,
         ),
         base_state,
@@ -3646,6 +4193,7 @@ def _nonconcrete_relation_facts(
     group_key_occurrences: tuple[GroupByItem, ...],
     capabilities: ProjectModuleCapabilityFactInventory,
     scalar_reads: tuple[ProjectModuleScalarReadFact, ...] = (),
+    collect_reads: tuple[ProjectModuleCollectReadFact, ...] = (),
     captures: _CaptureEnvironment = _NO_CAPTURES,
 ) -> ProjectModuleRelationSemanticFacts:
     definition = cast(_DerivedRelation, owner.definition)
@@ -3712,6 +4260,8 @@ def _nonconcrete_relation_facts(
             *_no_group_satisfying_diagnostics(definition),
         ),
         scalar_reads=scalar_reads,
+        collect_reads=collect_reads,
+        nested_references=nested_reference_facts(definition, None, let_scope),
         captured_value_types=captures,
     )
 
@@ -4073,6 +4623,225 @@ def _select_facts(
             )
         )
     return tuple(facts), tuple(contexts)
+
+
+def nested_reference_facts(
+    definition: _DerivedRelation,
+    input_schema: ProjectRowSchema | None,
+    let_scope: ProjectRelationLetScopeFacts,
+) -> ProjectNestedReferenceFacts:
+    """PIE-S2805 for each read of a nested relation field in one body, by the
+    reference facts of a body without JOIN inputs, each with its clause.
+
+    A collected relation has no scalar value: a field reference that resolves
+    to a nested input field (an input field wins over a let, as everywhere),
+    an ORDER BY or QUALIFY key naming the body's own Collect output, and each
+    Collect read under SELECT DISTINCT, whatever its output name, report it
+    once. A body with JOIN inputs reads its fields through its completed
+    namespace, which reports its own
+    (`analyze_project_joined_namespace_expression`).
+    """
+
+    collected = tuple(
+        item
+        for item in definition.select_items
+        if type(item.expression) is CollectRelationExpr
+    )
+    distinct = (
+        ()
+        if definition.distinct_clause is None
+        else tuple(
+            nested_distinct_diagnostic(cast(CollectRelationExpr, item.expression))
+            for item in collected
+        )
+    )
+    if definition.join_clauses:
+        return ProjectNestedReferenceFacts(distinct=distinct)
+    known = input_schema is not None and not input_schema.is_unknown
+    qualifier = (
+        definition.from_clause.binding_name or definition.from_clause.source_name
+    )
+    seen: set[int] = set()
+
+    def reads(*roots: Expression) -> list[Diagnostic]:
+        found: list[Diagnostic] = []
+        if not known:
+            return found
+        for root in roots:
+            for leaf, _, input_field, _, _, status in _expression_reference_candidates(
+                expression=root,
+                relation_qualifier=qualifier,
+                input_schema=cast(ProjectRowSchema, input_schema),
+                input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
+                let_scope=let_scope,
+                let_candidates=let_scope.bindings,
+                selected_items=(),
+            ):
+                if (
+                    status is ProjectModuleCandidateBucketStatus.CONCRETE
+                    and is_nested_relation_field(input_field)
+                    and id(leaf) not in seen
+                ):
+                    seen.add(id(leaf))
+                    found.append(
+                        nested_reference_diagnostic(leaf, definition, root=root)
+                    )
+        return found
+
+    # Outside a grouped query a whole ORDER BY key, and a QUALIFY name, may
+    # name a SELECT output; an input field of that name is read instead.
+    outputs = {
+        name
+        for item in collected
+        if (name := _projection_output_name(item)) is not None
+    }
+
+    def output_keys(*keys: Expression) -> list[Diagnostic]:
+        found: list[Diagnostic] = []
+        for key in keys:
+            if (
+                type(key) is NameExpr
+                and key.name in outputs
+                and id(key) not in seen
+                and (
+                    not known
+                    or key.name not in cast(ProjectRowSchema, input_schema).fields
+                )
+                and not any(binding.name == key.name for binding in let_scope.bindings)
+            ):
+                seen.add(id(key))
+                found.append(nested_reference_diagnostic(key, definition))
+        return found
+
+    order_keys = (
+        ()
+        if definition.order_by_clause is None
+        else tuple(item.expression for item in definition.order_by_clause.items)
+    )
+    qualify = definition.qualify_clause
+    return ProjectNestedReferenceFacts(
+        lets=_in_source_order(
+            reads(
+                *(
+                    ()
+                    if definition.let_clause is None
+                    else (
+                        binding.expression for binding in definition.let_clause.bindings
+                    )
+                )
+            )
+        ),
+        where=_in_source_order(
+            reads(
+                *(
+                    ()
+                    if definition.where_clause is None
+                    else (definition.where_clause.expression,)
+                )
+            )
+        ),
+        projection=_in_source_order(
+            (
+                *reads(
+                    *(
+                        item.expression
+                        for item in definition.select_items
+                        if type(item.expression)
+                        not in {CollectRelationExpr, WindowExpr}
+                    ),
+                    *(
+                        ()
+                        if definition.group_by_clause is None
+                        else (item.key for item in definition.group_by_clause.items)
+                    ),
+                    *(
+                        ()
+                        if definition.satisfying_clause is None
+                        else (definition.satisfying_clause.expression,)
+                    ),
+                ),
+                *distinct,
+            )
+        ),
+        windows=_in_source_order(
+            reads(
+                *(
+                    item.expression
+                    for item in definition.select_items
+                    if type(item.expression) is WindowExpr
+                ),
+                *(
+                    value
+                    for window in definition.named_windows
+                    if window.spec is not None
+                    for value in _window_spec_values(window.spec)
+                ),
+            )
+        ),
+        qualify=_in_source_order(
+            ()
+            if qualify is None
+            else (
+                *reads(qualify.expression),
+                *output_keys(*scalar_field_reference_leaves(qualify.expression)),
+            )
+        ),
+        order=_in_source_order((*reads(*order_keys), *output_keys(*order_keys))),
+    )
+
+
+def _window_spec_values(spec: WindowSpec) -> tuple[Expression, ...]:
+    return (*spec.partition_by, *(item.expression for item in spec.order_by))
+
+
+def _nested_field_reads(
+    definition: _DerivedRelation,
+    expression: WindowExpr,
+    named_windows: Mapping[str, list[NamedWindowDeclaration]],
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts,
+) -> frozenset[SourceLocation]:
+    """Where a field reference of window computation ``expression``, or of a
+    named window it uses or that window's bases, resolves to a nested input
+    field, as `nested_reference_facts` decides it."""
+
+    roots = (
+        expression,
+        *(
+            value
+            for declaration in _used_named_windows(named_windows, expression)
+            if declaration.spec is not None
+            for value in _window_spec_values(declaration.spec)
+        ),
+    )
+    return frozenset(
+        node_location(leaf)
+        for root in roots
+        for leaf, _, input_field, _, _, status in _expression_reference_candidates(
+            expression=root,
+            relation_qualifier=definition.from_clause.binding_name
+            or definition.from_clause.source_name,
+            input_schema=input_schema,
+            input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
+            let_scope=let_scope,
+            let_candidates=let_scope.bindings,
+            selected_items=(),
+        )
+        if status is ProjectModuleCandidateBucketStatus.CONCRETE
+        and is_nested_relation_field(input_field)
+    )
+
+
+def _in_source_order(found: Iterable[Diagnostic]) -> tuple[Diagnostic, ...]:
+    return tuple(
+        sorted(
+            found,
+            key=lambda item: (
+                cast(SourceLocation, item.location).line,
+                cast(SourceLocation, item.location).column,
+            ),
+        )
+    )
 
 
 def _where_fact(
@@ -4550,7 +5319,7 @@ def _clause_dependency_facts(
                 group_status = ProjectModuleCandidateBucketStatus.ABSENT
             elif (
                 candidate.name != local_name
-                or candidate.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+                or candidate.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
             ):
                 group_status = ProjectModuleCandidateBucketStatus.UNKNOWN
             else:
@@ -4970,7 +5739,34 @@ def _window_output_facts(
                 named_window_namespace=named_window_namespace,
             ),
         )
-        if quiet:
+        nested = _nested_field_reads(
+            definition, expression, named_windows, input_schema, let_scope
+        )
+        if nested:
+            # A nested field read, in the computation or a named window it
+            # uses, is its own error, which the body's nested reference facts
+            # report (PIE-S2805); what the kernel makes of its unknown value
+            # is not reported beside it, and what it refuses before reading
+            # it stays the computation's own refusal.
+            diagnostics[:] = (
+                without_nested_window_refusal(
+                    diagnostics, analysis.expression, analysis.reason, nested
+                )
+                if isinstance(analysis, WindowExpressionUnsupported)
+                else ()
+            )
+            if not diagnostics:
+                analysis = WindowExpressionUnsupported(
+                    occurrence=(
+                        analysis.semantic_fact.occurrence
+                        if isinstance(analysis, WindowExpressionAnalysis)
+                        else analysis.occurrence
+                    ),
+                    expression=expression,
+                    identity=expression.identity,
+                    reason=_NESTED_FIELD_WINDOW_REASON,
+                )
+        elif quiet:
             analysis = _quiet_let_reading_window(analysis, diagnostics)
         elif type(analysis) is WindowExpressionAnalysis:
             # A RANGE offset is checked as in a single file (PIE-S2104).
@@ -5103,6 +5899,28 @@ def _named_windows_by_name(
     return by_name
 
 
+def _used_named_windows(
+    named_windows: Mapping[str, list[NamedWindowDeclaration]],
+    expression: WindowExpr,
+) -> tuple[NamedWindowDeclaration, ...]:
+    """The declarations of the window a computation names and of that
+    window's bases: a named use reads each of them."""
+
+    used: list[NamedWindowDeclaration] = []
+    names = [] if expression.base is None else [expression.base.name]
+    followed: set[str] = set()
+    while names:
+        name = names.pop()
+        if name in followed:
+            continue
+        followed.add(name)
+        for declaration in named_windows.get(name, ()):
+            used.append(declaration)
+            if declaration.base is not None:
+                names.append(declaration.base.name)
+    return tuple(used)
+
+
 def _window_let_facts(
     let_scope: ProjectRelationLetScopeFacts,
     named_windows: Mapping[str, list[NamedWindowDeclaration]],
@@ -5128,19 +5946,11 @@ def _window_let_facts(
         return None, None, False
     names = {binding.name for binding in let_scope.bindings}
     reads_binding = False
-    pending: list[object] = [expression.call.arguments, expression.spec]
-    # A named use reads the window it names and that window's bases.
-    window_names = [] if expression.base is None else [expression.base.name]
-    followed: set[str] = set()
-    while window_names:
-        window_name = window_names.pop()
-        if window_name in followed:
-            continue
-        followed.add(window_name)
-        for declaration in named_windows.get(window_name, ()):
-            pending.append(declaration.spec)
-            if declaration.base is not None:
-                window_names.append(declaration.base.name)
+    pending: list[object] = [
+        expression.call.arguments,
+        expression.spec,
+        *(item.spec for item in _used_named_windows(named_windows, expression)),
+    ]
     while pending:
         node = pending.pop()
         if type(node) is NameExpr:

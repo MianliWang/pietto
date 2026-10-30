@@ -15,6 +15,7 @@ import heapq
 from typing import cast
 
 from pietto._project.model import (
+    ProjectNominalDeclarationIdentity,
     ProjectSymbolKind,
     ProjectSymbolNamespace,
     _classify_project_definition,
@@ -65,29 +66,6 @@ _DEFINITION_TYPES = (
     ConstraintDef,
     DeriveDef,
 )
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectNominalDeclarationIdentity:
-    """The exact private four-component identity of one local declaration."""
-
-    module_path: str
-    namespace: ProjectSymbolNamespace
-    declaration_kind: ProjectSymbolKind
-    declared_name: str
-
-    def __post_init__(self) -> None:
-        """Reject values outside the exact nominal identity domains."""
-
-        ProjectModuleIdentity(path=self.module_path)
-        if type(self.namespace) is not ProjectSymbolNamespace:
-            raise TypeError("Nominal declaration identity requires a namespace.")
-        if type(self.declaration_kind) is not ProjectSymbolKind:
-            raise TypeError("Nominal declaration identity requires a declaration kind.")
-        if type(self.declared_name) is not str or not self.declared_name:
-            raise ValueError(
-                "Nominal declaration identity requires a non-empty declared name."
-            )
 
 
 _SELECT_FIELDS = (

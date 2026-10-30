@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, TypeVar
 from pietto._project.module_carrier import (
     ProjectCompilationMode,
     ProjectLogicalModule,
+    ProjectModuleIdentity,
 )
 from pietto._project.path_trust import ProjectPinnedRoot
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
@@ -619,6 +620,100 @@ class ProjectSymbol:
     definition: Definition | ValuesRelationDef | TableFunctionRelationDef
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectNominalDeclarationIdentity:
+    """The exact private four-component identity of one local declaration."""
+
+    module_path: str
+    namespace: ProjectSymbolNamespace
+    declaration_kind: ProjectSymbolKind
+    declared_name: str
+
+    def __post_init__(self) -> None:
+        """Reject values outside the exact nominal identity domains."""
+
+        ProjectModuleIdentity(path=self.module_path)
+        if type(self.namespace) is not ProjectSymbolNamespace:
+            raise TypeError("Nominal declaration identity requires a namespace.")
+        if type(self.declaration_kind) is not ProjectSymbolKind:
+            raise TypeError("Nominal declaration identity requires a declaration kind.")
+        if type(self.declared_name) is not str or not self.declared_name:
+            raise ValueError(
+                "Nominal declaration identity requires a non-empty declared name."
+            )
+
+
+class ProjectModuleRowFieldKind(StrEnum):
+    """Distinct schema, source-row, and relation-output field identities."""
+
+    SHAPE_FIELD = "shape_field"
+    SOURCE_FIELD = "source_field"
+    RELATION_OUTPUT = "relation_output"
+
+
+def _validate_position(value: int, label: str) -> None:
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{label} position must be a non-negative integer.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectDeclarationOccurrenceIdentity:
+    """Semantic locator for one selected declaration occurrence."""
+
+    identity: ProjectNominalDeclarationIdentity
+    module_position: int
+    declaration_position: int
+    let_position: int | None = None
+    # True for the table-function input of the body at these positions.
+    table_function: bool = False
+
+    def __post_init__(self) -> None:
+        if type(self.identity) is not ProjectNominalDeclarationIdentity:
+            raise TypeError("Declaration occurrence identity requires a nominal ID.")
+        _validate_position(self.module_position, "module")
+        _validate_position(self.declaration_position, "declaration")
+        if self.let_position is not None:
+            _validate_position(self.let_position, "let")
+        if type(self.table_function) is not bool:
+            raise TypeError("Declaration occurrence table-function flag is a bool.")
+
+    @property
+    def block_local(self) -> bool:
+        """A relation let or table-function input, never a declaration."""
+
+        return self.let_position is not None or self.table_function
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectModuleRowFieldIdentity:
+    """One occurrence-safe shape, source, or relation row field identity."""
+
+    owner: ProjectDeclarationOccurrenceIdentity
+    kind: ProjectModuleRowFieldKind
+    field_position: int
+    name: str
+
+    def __post_init__(self) -> None:
+        if type(self.owner) is not ProjectDeclarationOccurrenceIdentity:
+            raise TypeError("Row field identity requires an owner occurrence.")
+        if type(self.kind) is not ProjectModuleRowFieldKind:
+            raise TypeError("Row field identity requires an exact kind.")
+        _validate_position(self.field_position, "row field")
+        if type(self.name) is not str or not self.name:
+            raise ValueError("Row field identity requires a name.")
+        owner_kind = self.owner.identity.declaration_kind
+        expected = {
+            ProjectModuleRowFieldKind.SHAPE_FIELD: {ProjectSymbolKind.SHAPE},
+            ProjectModuleRowFieldKind.SOURCE_FIELD: {ProjectSymbolKind.SOURCE},
+            ProjectModuleRowFieldKind.RELATION_OUTPUT: {
+                ProjectSymbolKind.TABLE,
+                ProjectSymbolKind.QUERY,
+            },
+        }[self.kind]
+        if owner_kind not in expected:
+            raise ValueError("Row field kind does not match its owner declaration.")
+
+
 class ProjectResolvedTypeKind(StrEnum):
     """Project-private type resolution fact kind."""
 
@@ -627,15 +722,62 @@ class ProjectResolvedTypeKind(StrEnum):
     ENUM = "enum"
     SHAPE = "shape"
     UNKNOWN = "unknown"
+    # The value of a Collect read: a collected relation, never a scalar.
+    NESTED_RELATION = "nested_relation"
+
+
+# The kinds of a scalar value. A reader that types, compares, orders or groups
+# a value admits only these, so a nested relation (or any later kind) fails
+# closed there (D-S04-3).
+SCALAR_RESOLVED_TYPE_KINDS = frozenset(
+    {
+        ProjectResolvedTypeKind.BUILTIN,
+        ProjectResolvedTypeKind.TYPE_ALIAS,
+        ProjectResolvedTypeKind.ENUM,
+        ProjectResolvedTypeKind.SHAPE,
+    }
+)
+
+
+# The name of every nested relation type: an internal placeholder, never a
+# spelling any public output shows.
+NESTED_RELATION_TYPE_NAME = "<nested relation>"
 
 
 @dataclass(frozen=True, slots=True)
 class ProjectResolvedType:
-    """One project-private resolved type name fact."""
+    """One project-private resolved type name fact.
+
+    A NESTED_RELATION type carries its exact ``nested`` descriptor; no other
+    kind has one.
+    """
 
     name: str
     kind: ProjectResolvedTypeKind
     symbol: ProjectSymbol | None = None
+    nested: ProjectNestedRelationType | None = field(default=None, kw_only=True)
+
+    def __post_init__(self) -> None:
+        if (self.kind is ProjectResolvedTypeKind.NESTED_RELATION) != (
+            self.nested is not None
+        ):
+            raise ValueError("Only a nested relation type has a nested descriptor.")
+        if self.nested is not None and (
+            type(self.nested) is not ProjectNestedRelationType
+            or self.name != NESTED_RELATION_TYPE_NAME
+            or self.symbol is not None
+        ):
+            raise TypeError("A nested relation type requires its exact descriptor.")
+
+
+def nested_relation_type(nested: ProjectNestedRelationType) -> ProjectResolvedType:
+    """The resolved type of a Collect read's value (D-S04-1)."""
+
+    return ProjectResolvedType(
+        name=NESTED_RELATION_TYPE_NAME,
+        kind=ProjectResolvedTypeKind.NESTED_RELATION,
+        nested=nested,
+    )
 
 
 class ProjectRowFieldNullability(StrEnum):
@@ -686,6 +828,89 @@ class ProjectRowField:
     field_def: FieldDef | None = None
     provenance: ProjectRowFieldProvenance | None = None
     result_role: ProjectRowResultRole = ProjectRowResultRole.ORDINARY_ROW_VALUE
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectNestedRelationElementField:
+    """One child field of a collected relation, in its let's output order.
+
+    The child's identity and nullability are its type; its field evidence is
+    the let's own field fact, compared by identity where it matters.
+    """
+
+    position: int
+    identity: ProjectModuleRowFieldIdentity
+    field: ProjectRowField = field(compare=False)
+    effective_nullability: ProjectRowFieldNullability
+
+    def __post_init__(self) -> None:
+        if type(self.position) is not int or self.position < 0:
+            raise ValueError("Nested relation field position must be non-negative.")
+        if type(self.identity) is not ProjectModuleRowFieldIdentity:
+            raise TypeError("Nested relation field requires an exact identity.")
+        if type(self.field) is not ProjectRowField:
+            raise TypeError("Nested relation field requires exact field evidence.")
+        if type(self.effective_nullability) is not ProjectRowFieldNullability:
+            raise TypeError("Nested relation field requires exact nullability.")
+        if (
+            self.identity.field_position != self.position
+            or self.identity.name != self.field.name
+            or self.effective_nullability is not self.field.nullability
+        ):
+            raise ValueError("Nested relation field must retain its exact child field.")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectNestedRelationType:
+    """The element relation and ordered child fields of a collected relation.
+
+    Two types are equal when they collect the same let occurrence: equal
+    child fields of another let are another type. Whether the collected value
+    may be None is its field's nullability: a direct Collect is never None
+    (D71.04).
+    """
+
+    element_relation: ProjectDeclarationOccurrenceIdentity
+    element_fields: tuple[ProjectNestedRelationElementField, ...]
+    collection_depth: int = 1
+
+    def __post_init__(self) -> None:
+        if type(self.element_relation) is not ProjectDeclarationOccurrenceIdentity:
+            raise TypeError("Nested relation type requires an exact relation identity.")
+        if type(self.element_fields) is not tuple or any(
+            type(item) is not ProjectNestedRelationElementField
+            for item in self.element_fields
+        ):
+            raise TypeError("Nested relation type requires exact ordered child fields.")
+        if any(
+            item.position != position
+            or item.identity.owner != self.element_relation
+            or item.identity.kind is not ProjectModuleRowFieldKind.RELATION_OUTPUT
+            for position, item in enumerate(self.element_fields)
+        ):
+            raise ValueError("Nested relation fields must retain dense source order.")
+        if type(self.collection_depth) is not int or self.collection_depth != 1:
+            raise ValueError("Exactly one collection layer is supported.")
+
+
+def project_collect_output_field(
+    name: str, resolved_type: ProjectResolvedType, location: SourceLocation
+) -> ProjectRowField:
+    """The output field of one typed Collect read: a nested relation that is
+    never None (D71.04)."""
+
+    if resolved_type.kind is not ProjectResolvedTypeKind.NESTED_RELATION:
+        raise ValueError("A Collect output holds a nested relation.")
+    return ProjectRowField(
+        name=name,
+        resolved_type=resolved_type,
+        nullability=ProjectRowFieldNullability.NON_NULL,
+        field_def=None,
+        provenance=ProjectRowFieldProvenance(
+            kind=ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION,
+            location=location,
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -1511,11 +1736,11 @@ def build_empty_project_semantic_result(
         )
 
     if parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
-        from pietto._project.module_bindings import (
-            _build_project_module_binding_environment_set,
-        )
         from pietto._project.module_attribution import (
             _build_project_module_attribution_fact_set,
+        )
+        from pietto._project.module_bindings import (
+            _build_project_module_binding_environment_set,
         )
         from pietto._project.module_catalog import _build_project_module_catalog_set
         from pietto._project.module_exports import (
@@ -1525,23 +1750,23 @@ def build_empty_project_semantic_result(
             _build_project_module_diagnostic_set,
             _build_project_module_graph,
         )
+        from pietto._project.module_inspection import (
+            _build_project_module_inspection_fact_set,
+        )
+        from pietto._project.module_package_neutral_identity import (
+            _build_project_module_package_neutral_identity_fact_set,
+        )
         from pietto._project.module_relation_resolution import (
             _build_project_module_relation_resolution_set,
         )
         from pietto._project.module_resolution import (
             _build_project_type_source_resolution_set,
         )
-        from pietto._project.module_inspection import (
-            _build_project_module_inspection_fact_set,
+        from pietto._project.module_semantic_fact_preservation import (
+            _build_project_module_semantic_fact_set,
         )
         from pietto._project.nested_relation_facts import (
             build_project_nested_relation_facts,
-        )
-        from pietto._project.module_package_neutral_identity import (
-            _build_project_module_package_neutral_identity_fact_set,
-        )
-        from pietto._project.module_semantic_fact_preservation import (
-            _build_project_module_semantic_fact_set,
         )
 
         module_catalogs = _build_project_module_catalog_set(parse_result.modules)
@@ -2823,12 +3048,18 @@ def _project_direct_relation_row_schema(
     report_untyped_let_reads: bool = False,
     pretyped_expressions: Mapping[Expression, ProjectNoJoinScalarExpression]
     | None = None,
+    collect_types: Mapping[Expression, ProjectResolvedType] | None = None,
 ) -> _ProjectRelationRowSchemaResult:
     """Project direct fields and supported computed aliases from one input.
 
     A read of a let it cannot type is PIE-S2102 only with
     ``report_untyped_let_reads``: a legacy flat project checks no let body, so
-    that report is its only refusal of such a read.
+    that report is its only refusal of such a read. A Collect read's output
+    takes its type from ``collect_types``, its read's own facts; one it does
+    not type leaves the row unknown (its read reports why). So does a nested
+    field selected from the input: only the relation collecting it outputs it,
+    so its selection reports PIE-S2805 here, where an unknown field selected
+    reports PIE-S2102, and its nested reference facts report that read once.
     """
 
     from pietto._project.let_scope_facts import (
@@ -2843,6 +3074,7 @@ def _project_direct_relation_row_schema(
     )
     from pietto._project.row_expression_type_facts import (
         build_project_row_expression_value_types,
+        nested_reference_diagnostic,
         project_row_schema_to_semantic_row_schema,
         reports_unfit_def_argument,
     )
@@ -2855,14 +3087,6 @@ def _project_direct_relation_row_schema(
         return _ProjectRelationRowSchemaResult(
             schema=ProjectRowSchema(is_unknown=True),
             state_reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
-        )
-
-    if any(
-        type(item.expression) is CollectRelationExpr for item in definition.select_items
-    ):
-        return _ProjectRelationRowSchemaResult(
-            schema=None,
-            state_reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
         )
 
     if let_scope_facts is None:
@@ -2886,7 +3110,8 @@ def _project_direct_relation_row_schema(
         expressions=(
             item.expression
             for item in definition.select_items
-            if item.alias is not None and type(item.expression) is not WindowExpr
+            if item.alias is not None
+            and type(item.expression) not in {WindowExpr, CollectRelationExpr}
         ),
         input_schema=source_schema,
         relation_qualifier=(
@@ -3006,6 +3231,24 @@ def _project_direct_relation_row_schema(
 
     for item in definition.select_items:
         if type(item.expression) is WindowExpr:
+            continue
+        if type(item.expression) is CollectRelationExpr:
+            collected = (collect_types or {}).get(item.expression)
+            if item.alias is None or collected is None or item.alias in fields:
+                is_unknown = True
+                unknown_reason = unknown_reason or (
+                    ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME
+                    if item.alias in fields
+                    else ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
+                )
+                continue
+            fields[item.alias] = project_collect_output_field(
+                item.alias,
+                collected,
+                _project_expression_location(
+                    item.expression, fallback_path=fallback_path
+                ),
+            )
             continue
         projection = _project_direct_field_projection(
             item,
@@ -3135,6 +3378,13 @@ def _project_direct_relation_row_schema(
                 diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
             is_unknown = True
             unknown_reason = ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
+            continue
+        if source_field.resolved_type.kind is ProjectResolvedTypeKind.NESTED_RELATION:
+            diagnostics.append(nested_reference_diagnostic(item.expression, definition))
+            is_unknown = True
+            unknown_reason = unknown_reason or (
+                ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
+            )
             continue
         if passes_unfit_argument(item):
             return deferred
@@ -3327,7 +3577,7 @@ def _project_field_location(
 
 
 def _project_expression_location(
-    expression: NameExpr | DottedNameExpr,
+    expression: Expression,
     *,
     fallback_path: str,
 ) -> SourceLocation:

@@ -33,6 +33,7 @@ from pietto._project.model import (
     ProjectSymbol,
 )
 from pietto._project.row_expression_type_facts import (
+    is_nested_relation_field,
     project_row_schema_to_semantic_row_schema,
 )
 from pietto import ast_nodes as ast
@@ -420,13 +421,19 @@ def _single_file_grouping_diagnostics(
     projection or a GROUP BY key and an aggregate's argument count
     (PIE-S2309), but no error of a projection without an aggregate, which
     the project types itself. A relation over a row of unknown type, or that
-    reads a `let` name, a relation, a captured field, a query parameter or
-    `any(...)` in those positions, which a project checks otherwise, gets
-    none."""
+    reads a `let` name, a nested relation field, a relation, a captured
+    field, a query parameter or `any(...)` in those positions, which a
+    project checks otherwise, gets none."""
 
     if input_schema.is_unknown:
         return ()
     lets = {} if let_scope_facts is None else dict(let_scope_facts.binding_expressions)
+    # A read of a nested relation field reports its own PIE-S2805.
+    nested = {
+        name
+        for name, row_field in input_schema.fields.items()
+        if is_nested_relation_field(row_field)
+    }
     roots: list[Expression] = [item.expression for item in definition.select_items]
     if definition.group_by_clause is not None:
         roots.extend(item.key for item in definition.group_by_clause.items)
@@ -436,15 +443,20 @@ def _single_file_grouping_diagnostics(
         roots.append(definition.satisfying_clause.expression)
     while roots:
         node = roots.pop()
-        if (type(node) is NameExpr and node.name in lets) or type(node) in {
-            ast.AnyExpr,
-            ast.CapturedFieldExpr,
-            ast.CollectRelationExpr,
-            ast.RelationExistsExpr,
-            ast.RelationMembershipExpr,
-            ast.RelationScalarExpr,
-            ast.ParameterRefExpr,
-        }:
+        if (
+            (type(node) is NameExpr and (node.name in lets or node.name in nested))
+            or (type(node) is DottedNameExpr and node.parts[-1] in nested)
+            or type(node)
+            in {
+                ast.AnyExpr,
+                ast.CapturedFieldExpr,
+                ast.CollectRelationExpr,
+                ast.RelationExistsExpr,
+                ast.RelationMembershipExpr,
+                ast.RelationScalarExpr,
+                ast.ParameterRefExpr,
+            }
+        ):
             return ()
         roots.extend(child_expressions(node))
     schema = project_row_schema_to_semantic_row_schema(input_schema)

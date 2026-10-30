@@ -110,7 +110,7 @@ DIAGNOSTICS = {
             (
                 "PIE-S2370",
                 "Let a with capture lines can be read only once, by exists, scalar, "
-                "in or a join in the body of q.",
+                "in, collect or a join in the body of q.",
                 12,
                 5,
             ),
@@ -647,8 +647,8 @@ CAPTURE = (
     "    from lhs\n    where exists m\n    select:\n        a = lhs.id\n"
 )
 READ_ONLY_BY_EXISTS = (
-    "Let m with capture lines can be read only once, by exists, scalar, in or a "
-    "join in the body of q."
+    "Let m with capture lines can be read only once, by exists, scalar, in, "
+    "collect or a join in the body of q."
 )
 BODY_SHAPE = (
     "Let m with capture lines may use only FROM, WHERE and an ungrouped SELECT."
@@ -1414,17 +1414,29 @@ CORRELATED_READS = {
         _ordered("exists m"),
         [("PIE-S2370", ORDERED_BODY_SHAPE, 7, 5)],
     ),
-    # D71.01: a `collect` read takes the ORDER BY and LIMIT too and is never
-    # refused here (S04 admits its use; PIE-S2802 refuses it until then),
-    # while every other read keeps its rules.
+    # D71.01: a `collect` read takes the ORDER BY and LIMIT too, as the
+    # let's one read (S04), while every other read keeps its rules.
     "ordered_read_by_collect": (
         _ordered("exists m").replace("    where exists m\n", "")
         + "        rows_of_m = collect m\n",
         [("PIE-S2802", COLLECT_GATE, 19, 21)],
     ),
+    # A Collect is the let's one read too (S04): a second read is refused
+    # before semantic analysis, which then reports no PIE-S2802.
     "ordered_read_by_exists_and_collect": (
         _ordered("exists m") + "        rows_of_m = collect m\n",
-        [("PIE-S2802", COLLECT_GATE, 20, 21)],
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 20, 21)],
+    ),
+    "ordered_collected_twice": (
+        _ordered("exists m").replace("    where exists m\n", "")
+        + "        x = collect m\n        y = collect m\n",
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 20, 13)],
+    ),
+    # Source order decides: a Collect written first makes `exists` the second.
+    "ordered_collect_then_exists": (
+        _ordered("exists m").replace("    where exists m\n", "")
+        + "        x = collect m\n        e = exists m\n",
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 20, 13)],
     ),
     "ordered_read_by_collect_in_another_let": (
         _ordered("exists m").replace(
@@ -1432,7 +1444,7 @@ CORRELATED_READS = {
             "    let other:\n        from rhs\n        select:\n            id\n"
             "            rows_of_m = collect m\n    from lhs\n    where exists other\n",
         ),
-        [("PIE-S2802", COLLECT_GATE, 20, 25)],
+        [("PIE-S2370", READ_ONLY_BY_EXISTS, 20, 25)],
     ),
     "ordered_captured_key_read_by_collect": (
         _ordered(

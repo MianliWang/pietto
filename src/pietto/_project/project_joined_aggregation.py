@@ -107,6 +107,11 @@ from pietto.semantic.expressions import (
     resolved_comparison_value_type,
 )
 from pietto.semantic.model import RowSchema, TypeKind, ValueType, ValueTypeKind
+from pietto._project.row_expression_type_facts import (
+    is_nested_relation_field,
+    nested_reference_diagnostic,
+    scalar_field_reference_leaves,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -206,6 +211,35 @@ def _direct_read_diagnostic(
     if len(resolutions) == 1 and type(resolution) is ProjectScalarReferenceResolution:
         return joined_read_diagnostic(input_filter.namespace, resolution)
     return semantic_group_by._unknown_field_diagnostic(expression)
+
+
+def _nested_field_reads(
+    input_filter: ProjectConcreteJoinedRowFilter, expression: Expression
+) -> tuple[Diagnostic, ...]:
+    """PIE-S2805 for each field read of ``expression`` that resolves to a
+    nested relation field, in source order."""
+
+    namespace = input_filter.namespace
+    found: list[Diagnostic] = []
+    for leaf in scalar_field_reference_leaves(expression):
+        resolution = resolve_project_joined_namespace_reference(
+            namespace,
+            ProjectScalarReferenceOccurrence(
+                environment=namespace.binding_environment.scalar_environment,
+                expression=leaf,
+            ),
+        )
+        if (
+            type(resolution) is ProjectScalarReferenceResolution
+            and resolution.target is not None
+            and is_nested_relation_field(resolution.target.evidence)
+        ):
+            found.append(
+                nested_reference_diagnostic(
+                    leaf, _definition(input_filter), root=expression
+                )
+            )
+    return tuple(found)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -631,6 +665,19 @@ def _build_group_keys(
                             input_filter, item.key, resolutions
                         ),
                     ),
+                )
+            )
+            continue
+        if is_nested_relation_field(field_semantics.scalar_field.evidence):
+            # A collected relation has no equality to group by.
+            built.append(
+                ProjectJoinedGroupKeyIssue(
+                    input_filter=input_filter,
+                    source_ordinal=source_ordinal,
+                    item=item,
+                    kind=ProjectJoinedGroupKeyIssueKind.REFERENCE_NON_CONCRETE,
+                    resolutions=resolutions,
+                    diagnostics=(nested_reference_diagnostic(item.key, definition),),
                 )
             )
             continue
@@ -1083,18 +1130,20 @@ def _unfit_argument_alone(
 ) -> bool:
     """Whether ``argument`` is unknown here only because a ``def`` argument in
     it, at any depth, does not fit its parameter (PIE-S2395), as in a single
-    file, in a form the aggregate accepts for some argument type: its
-    PIE-S2395 is then its one error. A form it accepts for no type, or one
-    that reads a `let:` name other than as the whole argument, is also
-    PIE-S2315, which no argument type would avoid."""
+    file, or because it reads a nested relation field (PIE-S2805), in a form
+    the aggregate accepts for some argument type: that is then its one error.
+    A form it accepts for no type, or one that reads a `let:` name other than
+    as the whole argument, is also PIE-S2315, which no argument type would
+    avoid."""
 
+    codes = {
+        diagnostic.code
+        for diagnostic in analysis.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    }
     return (
-        {
-            diagnostic.code
-            for diagnostic in analysis.diagnostics
-            if diagnostic.severity is Severity.ERROR
-        }
-        == {"PIE-S2395"}
+        bool(codes)
+        and codes <= {"PIE-S2395", "PIE-S2805"}
         and (
             all(
                 type(resolution) is not ProjectJoinedLetReferenceResolution
@@ -1234,8 +1283,12 @@ class ProjectJoinedSelectedOutputIssueKind(StrEnum):
     # A `let:` name selecting no group key: no unknown field (PIE-S2102), so
     # the relation fails closed with PIE-S2333.
     LET_READ_PROJECTION = "let_read_projection"
-    # A Collect read is no scalar output; its own PIE-S2802 reports it.
+    # A Collect read is available only in an ungrouped SELECT: its own
+    # PIE-S2803 reports it here.
     COLLECT_READ_PROJECTION = "collect_read_projection"
+    # A read of a nested relation field has no group key or scalar value: one
+    # PIE-S2805 per read.
+    NESTED_FIELD_PROJECTION = "nested_field_projection"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1256,7 +1309,7 @@ class ProjectJoinedSelectedOutputIssue:
         definition = _definition(self.input_filter)
         if type(self.kind) is not ProjectJoinedSelectedOutputIssueKind or (
             # Only a `let:` read leaves its PIE-S2333 to the relation, and
-            # a Collect read its own PIE-S2802.
+            # a Collect read its own PIE-S2803.
             (not self.diagnostics)
             != (
                 self.kind
@@ -1393,6 +1446,18 @@ def _build_stage_outputs(
                     item=item,
                     kind=ProjectJoinedSelectedOutputIssueKind.COLLECT_READ_PROJECTION,
                     diagnostics=(),
+                )
+            )
+            continue
+        nested = _nested_field_reads(input_filter, item.expression)
+        if nested:
+            issues.append(
+                ProjectJoinedSelectedOutputIssue(
+                    input_filter=input_filter,
+                    selected_output_ordinal=ordinal,
+                    item=item,
+                    kind=ProjectJoinedSelectedOutputIssueKind.NESTED_FIELD_PROJECTION,
+                    diagnostics=nested,
                 )
             )
             continue
@@ -4433,7 +4498,7 @@ class CompiledAggregateEvidence:
 
 def compiled_field_dependencies(ir, region, arguments):
     """Resolved field-use ancestry, stopping at each original JOIN introduction."""
-    from pietto._project.project_compiled_schema import Address, MAX_RECORDS
+    from pietto._project.project_compiled_schema import MAX_RECORDS, Address
 
     records, refs = ir.completed.root.records, ir.references
     joins = {join.record.address for join in region.joins}

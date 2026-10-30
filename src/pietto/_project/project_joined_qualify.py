@@ -10,6 +10,7 @@ from typing import cast
 
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
+    with_nested_references,
 )
 from pietto._project.project_joined_row_filter import (
     ProjectJoinedRowFilterSet,
@@ -54,6 +55,10 @@ from pietto.semantic.aggregates import (
 )
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
+from pietto._project.row_expression_type_facts import (
+    is_nested_relation_field,
+    nested_reference_diagnostic,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -875,6 +880,22 @@ def build_project_joined_qualify(
     references, hidden_attempts, operand_diagnostics = _analyze_operands(
         window_stage,
         clause,
+    )
+    # A collected relation has no value to test (PIE-S2805), each in its
+    # source place.
+    operand_diagnostics = with_nested_references(
+        operand_diagnostics,
+        tuple(
+            nested_reference_diagnostic(
+                resolution.expression, _definition(window_stage)
+            )
+            for resolution in references
+            if type(resolution.target) is ProjectJoinedWindowInputBinding
+            and resolution.target.joined_field is not None
+            and is_nested_relation_field(
+                resolution.target.joined_field.scalar_field.evidence
+            )
+        ),
     )
     hidden_failures = tuple(
         attempt

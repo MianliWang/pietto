@@ -11,6 +11,9 @@ from types import MappingProxyType
 from typing import TypeVar, cast
 
 from pietto._project.model import (
+    ProjectDeclarationOccurrenceIdentity,
+    ProjectModuleRowFieldIdentity,
+    ProjectModuleRowFieldKind,
     ProjectParseCheckResult,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
@@ -145,47 +148,11 @@ class ProjectModuleDependencyKind(StrEnum):
     ROW_FIELD_REFERENCE = "row_field_reference"
 
 
-class ProjectModuleRowFieldKind(StrEnum):
-    """Distinct schema, source-row, and relation-output field identities."""
-
-    SHAPE_FIELD = "shape_field"
-    SOURCE_FIELD = "source_field"
-    RELATION_OUTPUT = "relation_output"
-
-
 class ProjectModuleProjectionKind(StrEnum):
     """The only row projection kinds concrete before Slice 11."""
 
     DIRECT = "direct"
     RENAMED = "renamed"
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectDeclarationOccurrenceIdentity:
-    """Semantic locator for one selected declaration occurrence."""
-
-    identity: ProjectNominalDeclarationIdentity
-    module_position: int
-    declaration_position: int
-    let_position: int | None = None
-    # True for the table-function input of the body at these positions.
-    table_function: bool = False
-
-    def __post_init__(self) -> None:
-        if type(self.identity) is not ProjectNominalDeclarationIdentity:
-            raise TypeError("Declaration occurrence identity requires a nominal ID.")
-        _validate_position(self.module_position, "module")
-        _validate_position(self.declaration_position, "declaration")
-        if self.let_position is not None:
-            _validate_position(self.let_position, "let")
-        if type(self.table_function) is not bool:
-            raise TypeError("Declaration occurrence table-function flag is a bool.")
-
-    @property
-    def block_local(self) -> bool:
-        """A relation let or table-function input, never a declaration."""
-
-        return self.let_position is not None or self.table_function
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -248,36 +215,6 @@ class ProjectModuleReferenceOccurrenceIdentity:
         if type(self.role) is not ProjectModuleReferenceRole:
             raise TypeError("Reference occurrence requires an exact role.")
         _validate_position(self.member_position, "reference member")
-
-
-@dataclass(frozen=True, slots=True, kw_only=True)
-class ProjectModuleRowFieldIdentity:
-    """One occurrence-safe shape, source, or relation row field identity."""
-
-    owner: ProjectDeclarationOccurrenceIdentity
-    kind: ProjectModuleRowFieldKind
-    field_position: int
-    name: str
-
-    def __post_init__(self) -> None:
-        if type(self.owner) is not ProjectDeclarationOccurrenceIdentity:
-            raise TypeError("Row field identity requires an owner occurrence.")
-        if type(self.kind) is not ProjectModuleRowFieldKind:
-            raise TypeError("Row field identity requires an exact kind.")
-        _validate_position(self.field_position, "row field")
-        if type(self.name) is not str or not self.name:
-            raise ValueError("Row field identity requires a name.")
-        owner_kind = self.owner.identity.declaration_kind
-        expected = {
-            ProjectModuleRowFieldKind.SHAPE_FIELD: {ProjectSymbolKind.SHAPE},
-            ProjectModuleRowFieldKind.SOURCE_FIELD: {ProjectSymbolKind.SOURCE},
-            ProjectModuleRowFieldKind.RELATION_OUTPUT: {
-                ProjectSymbolKind.TABLE,
-                ProjectSymbolKind.QUERY,
-            },
-        }[self.kind]
-        if owner_kind not in expected:
-            raise ValueError("Row field kind does not match its owner declaration.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

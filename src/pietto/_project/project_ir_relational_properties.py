@@ -10,7 +10,11 @@ from heapq import heappop, heappush
 from types import MappingProxyType
 from typing import Any, cast
 
-from pietto._project.model import ProjectRowField, ProjectRowFieldNullability
+from pietto._project.model import (
+    ProjectResolvedTypeKind,
+    ProjectRowField,
+    ProjectRowFieldNullability,
+)
 from pietto._project.project_grain import (
     ProjectGrainBasisState,
     ProjectGrainDependencyFact,
@@ -382,8 +386,13 @@ def _field_occurrences(output: ProjectIRRelationalRowOutput):
 
 
 def _singleton_classes(output, fields):
+    # A nested relation has no equality, so it is in no value class and no key
+    # or FD names it (D-S04-3, AC-10).
     return tuple(
-        ProjectIROutputValueClass(output=output, members=(item,)) for item in fields
+        ProjectIROutputValueClass(output=output, members=(item,))
+        for item in fields
+        if item.evidence.resolved_type.kind
+        is not ProjectResolvedTypeKind.NESTED_RELATION
     )
 
 
@@ -409,9 +418,9 @@ def _preserving_classes(
         else:
             images[old] = None
     classes.extend(
-        ProjectIROutputValueClass(output=output, members=(item,))
-        for item in fields
-        if item.field_position not in used
+        _singleton_classes(
+            output, tuple(item for item in fields if item.field_position not in used)
+        )
     )
     classes.sort(key=lambda item: min(member.field_position for member in item.members))
     return tuple(classes), images
@@ -483,9 +492,10 @@ def _projection_classes_from_sources(
         else:
             images[old] = None
     classes.extend(
-        ProjectIROutputValueClass(output=output, members=(item,))
-        for item in fields
-        if item.field_position not in assigned
+        _singleton_classes(
+            output,
+            tuple(item for item in fields if item.field_position not in assigned),
+        )
     )
     classes.sort(key=lambda item: min(member.field_position for member in item.members))
     return tuple(classes), images

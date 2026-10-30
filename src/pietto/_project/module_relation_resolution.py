@@ -629,7 +629,11 @@ class ProjectModuleRelationResolutionIssue:
             if (
                 self.diagnostic.severity is not Severity.ERROR
                 or self.diagnostic.location != self.location
-                or self.diagnostic.suggestion is not None
+                # Only a Collect read refusal says how to write it instead.
+                or (
+                    self.diagnostic.suggestion is not None
+                    and self.diagnostic.code != "PIE-S2803"
+                )
                 or self.suppressing_diagnostics
             ):
                 raise ValueError("Emitted relation diagnostic must be exact.")
@@ -1899,6 +1903,13 @@ def _resolve_expression_reads(
                     symbol = None
                 else:
                     graph.setdefault(owner, []).append(target)
+            # A read that closes a cycle reports only the cycle (PIE-S2302).
+            if (
+                type(read.expression) is CollectRelationExpr
+                and symbol is not None
+                and not _is_relation_let_of(symbol.target_occurrence, owner)
+            ):
+                _append_collect_target_issue(draft, read)
             draft.expression_reads.append(
                 ProjectResolvedExpressionBlockRead(read=read, target_symbol=symbol)
             )
@@ -1942,10 +1953,14 @@ def _refused_read_positions(
     for read in reads:
         position = read.position
         if type(read.expression) is CollectRelationExpr:
-            # The grammar writes Collect only as a whole SELECT item (D71.01);
-            # its own facts report its availability.
+            # The grammar writes Collect only as a whole SELECT item (D71.01),
+            # available only in the SELECT of an ungrouped table or query.
             if position is not ProjectExpressionBlockPosition.SELECT:
                 raise ValueError("A Collect relation read is a SELECT item.")
+            if owner.let_position is not None:
+                refused[id(read.expression)] = "a relation let"
+            elif grouped:
+                refused[id(read.expression)] = "the SELECT of a grouped query"
             continue
         if type(read.expression) is AnyExpr and position in {
             ProjectExpressionBlockPosition.JOIN_ON,
@@ -1964,6 +1979,75 @@ def _refused_read_positions(
             continue
         refused[id(read.expression)] = _REFUSED_POSITION_LABELS[position]
     return refused
+
+
+def _is_relation_let_of(
+    target: ProjectDeclarationOccurrence, owner: ProjectDeclarationOccurrence
+) -> bool:
+    """Whether ``target`` is a relation let declared in ``owner``'s body."""
+
+    return (
+        target.let_position is not None
+        and target.table_function is None
+        and target.identity.module_path == owner.identity.module_path
+        and target.module_position == owner.module_position
+        and target.declaration_position == owner.declaration_position
+    )
+
+
+def _append_collect_target_issue(
+    draft: _RelationResolutionDraft, read: ProjectExpressionBlockRead
+) -> None:
+    """PIE-S2803 for a Collect read whose target is no relation let of its
+    owner's declaration; the read keeps its target."""
+
+    name = read.relation_name
+    owner = read.owner.identity.declared_name
+    _append_collect_issue(
+        draft,
+        read,
+        f"Collect relation read {name} is not a relation let of {owner}: "
+        "collect reads a relation let declared in the same table or query.",
+        f"Declare a relation let in {owner} that reads {name} with `from` and "
+        "ends in `order by`, and collect that let.",
+    )
+
+
+def _append_collect_issue(
+    draft: _RelationResolutionDraft,
+    read: ProjectExpressionBlockRead,
+    message: str,
+    suggestion: str,
+) -> None:
+    # Where a Collect read stands and what it reads (PIE-S2803) share the
+    # closed read-position status: the private vocabulary keeps its members,
+    # and the diagnostic says which refusal it is.
+    location = _location(read.expression.span, fallback_path=draft.module.path)
+    draft.issues.append(
+        ProjectModuleRelationResolutionIssue(
+            status=ProjectModuleRelationResolutionIssueStatus.RELATION_EXPRESSION_READ_POSITION,
+            owning_module_path=draft.module.path,
+            local_name=read.relation_name,
+            location=location,
+            diagnostic=Diagnostic(
+                code="PIE-S2803",
+                severity=Severity.ERROR,
+                message=message,
+                location=location,
+                suggestion=suggestion,
+            ),
+            occurrences=(read.owner,),
+        )
+    )
+
+
+# Where a Collect read stands outside the SELECT of an ungrouped table or
+# query, and how to write it there.
+_COLLECT_POSITION_SUGGESTIONS: Mapping[str, str] = {
+    "the SELECT of a grouped query": "Group the rows in another table or query, "
+    "read it with `from` here, and collect a let that captures it.",
+    "a relation let": "Collect in the SELECT of the table or query itself.",
+}
 
 
 def _reads_under_windows(items: tuple[SelectItem, ...]) -> frozenset[int]:
@@ -1997,6 +2081,15 @@ def _append_expression_position_issue(
     read: ProjectExpressionBlockRead,
     where: str,
 ) -> None:
+    if type(read.expression) is CollectRelationExpr:
+        _append_collect_issue(
+            draft,
+            read,
+            "Collect relation read is available only as a SELECT item of an "
+            f"ungrouped table or query, not in {where}.",
+            _COLLECT_POSITION_SUGGESTIONS[where],
+        )
+        return
     code, label = _READ_POSITION_DIAGNOSTICS[type(read.expression)]
     location = _location(read.expression.span, fallback_path=draft.module.path)
     message = (
@@ -3244,7 +3337,7 @@ def _validate_issue_evidence(issue: ProjectModuleRelationResolutionIssue) -> Non
             and issue.module_cycle is None
             and not issue.relation_cycle
             and not issue.type_source_issues
-            and code in {"PIE-S2348", "PIE-S2349", "PIE-S2350"}
+            and code in {"PIE-S2348", "PIE-S2349", "PIE-S2350", "PIE-S2803"}
         )
     elif status is ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED:
         valid = (

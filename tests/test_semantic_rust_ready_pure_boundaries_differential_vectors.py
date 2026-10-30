@@ -325,7 +325,6 @@ def test_declared_enumeration_vocabularies_equal_the_live_enumerations() -> None
         "row_field_kind": attribution_module.ProjectModuleRowFieldKind,
         "projection_kind": attribution_module.ProjectModuleProjectionKind,
         "type_reference_role": resolution_module.ProjectModuleTypeReferenceRole,
-        "resolved_type_kind": inspection_module.ProjectResolvedTypeKind,
         "candidate_bucket_status": (
             preservation_module.ProjectModuleCandidateBucketStatus
         ),
@@ -345,6 +344,11 @@ def test_declared_enumeration_vocabularies_equal_the_live_enumerations() -> None
         "lineage_field_kind": (
             attribution_module.ProjectModuleRowFieldKind,
             ("source_field", "relation_output"),
+        ),
+        # A declared type is written in source; none spells a nested relation.
+        "resolved_type_kind": (
+            inspection_module.ProjectResolvedTypeKind,
+            ("builtin", "type", "enum", "shape", "unknown"),
         ),
     }
     assert not set(live) & set(narrowed)

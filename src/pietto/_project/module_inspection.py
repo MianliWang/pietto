@@ -714,6 +714,13 @@ class ProjectInspectionTypeResolution:
             raise TypeError("Inspection type resolution requires a direct kind.")
         if type(self.canonical_kind) is not ProjectResolvedTypeKind:
             raise TypeError("Inspection type resolution requires a canonical kind.")
+        # A declared type is written in source, and no source spells a
+        # collected relation: the inspection vocabulary keeps its five kinds.
+        if ProjectResolvedTypeKind.NESTED_RELATION in {
+            self.direct_kind,
+            self.canonical_kind,
+        }:
+            raise ValueError("Inspection type resolution never names a nested type.")
         _require_text(self.canonical_name, "Inspection canonical type name")
         if self.canonical_target is not None and (
             type(self.canonical_target) is not ProjectNominalDeclarationIdentity

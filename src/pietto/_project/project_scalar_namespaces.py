@@ -19,6 +19,7 @@ from pietto._project.existence_values import (
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
+    with_nested_references,
 )
 from pietto._project.project_scalar_bindings import (
     ProjectJoinedScalarBindingEnvironment,
@@ -27,7 +28,9 @@ from pietto._project.project_scalar_bindings import (
 )
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.row_expression_type_facts import (
+    is_nested_relation_field,
     merge_shape_typed_diagnostics,
+    nested_reference_diagnostic,
     project_row_field_to_semantic_value_type,
     scalar_read_types_within,
 )
@@ -780,6 +783,20 @@ def analyze_project_joined_namespace_expression(
         record.diagnostics if record is not None else ()
     )
     diagnostics.extend(item for value in any_values for item in value.diagnostics)
+    # A field read that resolves to a nested relation field has no scalar
+    # value (PIE-S2805); it is never an unknown field.
+    owner_definition = namespace.binding_environment.ledger.owner.definition
+    nested = tuple(
+        nested_reference_diagnostic(
+            resolution.reference.expression,
+            cast(TableDef | QueryDef, owner_definition),
+            root=expression,
+        )
+        for resolution in resolutions
+        if type(resolution) is ProjectScalarReferenceResolution
+        and resolution.target is not None
+        and is_nested_relation_field(resolution.target.evidence)
+    )
     shaped = _shape_value_types(resolutions)
     seed_types = {**value_types, **shaped}
 
@@ -814,7 +831,7 @@ def analyze_project_joined_namespace_expression(
         infer(seed_types, found)
         merge_shape_typed_diagnostics(diagnostics, start, found)
     value_types[expression] = root_value_type
-    retained_diagnostics = tuple(diagnostics)
+    retained_diagnostics = with_nested_references(tuple(diagnostics), nested)
     if blockers:
         return ProjectNonConcreteJoinedNamespaceExpression(
             namespace=namespace,
@@ -1206,6 +1223,7 @@ def build_project_joined_let_namespaces(
             if type(leaf) is NameExpr and leaf.name in suppressed_names
         )
         blocked_dependencies.extend(blocked)
+        nested: list[Diagnostic] = []
         value_types: dict[Expression, ValueType] = (
             dict(field_types) if unadmitted else {}
         )
@@ -1232,6 +1250,16 @@ def build_project_joined_let_namespaces(
                 else:
                     value_types[leaf] = resolution.target.value_type
                     field_types[leaf] = resolution.target.value_type
+                    if is_nested_relation_field(resolution.target.evidence):
+                        nested.append(
+                            nested_reference_diagnostic(
+                                leaf,
+                                cast(
+                                    TableDef | QueryDef,
+                                    binding_environment.ledger.owner.definition,
+                                ),
+                            )
+                        )
         blocking_resolutions.extend(local_blockers)
 
         any_values = _joined_any_values(
@@ -1299,6 +1327,9 @@ def build_project_joined_let_namespaces(
             )
         if root_type is not None:
             value_types[occurrence.expression] = root_type
+        local_diagnostics = list(
+            with_nested_references(tuple(local_diagnostics), tuple(nested))
+        )
         diagnostics.extend(local_diagnostics)
         has_error = any(
             diagnostic.severity is Severity.ERROR for diagnostic in local_diagnostics

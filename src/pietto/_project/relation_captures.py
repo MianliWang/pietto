@@ -235,7 +235,7 @@ def takes_order_and_limit(block: BlockRelationDef, let: LetRelationDef) -> bool:
     ``exists`` read does not. Every later layer realizes and verifies those
     bodies inside whatever read renders the let; MySQL emission refuses them
     inside a ``scalar`` or ``in`` read (D70.05). A ``collect`` read in any
-    block of the declaration takes them too (D71.01); S04 admits its use.
+    block of the declaration takes them too (D71.01).
     """
 
     body = block.body
@@ -418,11 +418,13 @@ def _block_diagnostics(block: BlockRelationDef) -> list[Diagnostic]:
         reads, key=lambda item: (item[0].span.line, item[0].span.column)
     ):
         let = names.get(_read_name(node))
-        # S04 admits how a let is collected (D71.01): a `collect` read is
-        # never refused here.
-        if let is None or type(node) is CollectRelationExpr:
+        if let is None:
             continue
-        if type(node) in (*_READS, JoinClause) and in_body and let.name not in admitted:
+        if (
+            type(node) in (*_READS, CollectRelationExpr, JoinClause)
+            and in_body
+            and let.name not in admitted
+        ):
             admitted.add(let.name)
             if type(node) is JoinClause:
                 found.extend(_lateral_diagnostics(block, let, node, outer))
@@ -431,7 +433,7 @@ def _block_diagnostics(block: BlockRelationDef) -> list[Diagnostic]:
             _diagnostic(
                 "unsupported",
                 f"Let {let.name} with capture lines can be read only once, by "
-                f"exists, scalar, in or a join in the body of {block.name}.",
+                f"exists, scalar, in, collect or a join in the body of {block.name}.",
                 node.span,
             )
         )
