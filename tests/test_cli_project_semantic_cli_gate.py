@@ -172,8 +172,8 @@ def test_project_json_mode_reports_semantic_diagnostics_after_slice8(
     assert document["result"] == {
         "check": {
             "files_total": 1,
-            "files_ok": 1,
-            "files_with_errors": 0,
+            "files_ok": 0,
+            "files_with_errors": 1,
         }
     }
     serialized = json.dumps(document)

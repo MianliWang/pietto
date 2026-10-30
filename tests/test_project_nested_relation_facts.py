@@ -189,15 +189,17 @@ def test_joined_collect_owner_fails_closed_with_its_own_diagnostics(
     assert ("PIE-S2105" in {code for code, _, _ in checked}) == ("bad =" in tail)
 
 
-def test_collect_owner_reader_keeps_the_existing_completion_cascade(
+def test_a_collect_owner_reader_follows_the_owner_error(
     tmp_path: Path,
 ) -> None:
+    # The reader of a relation that fails reports nothing of its own, as the
+    # reader of any relation whose failure is reported.
     semantic = _semantic(
         tmp_path,
         SOURCE + "query reader:\n    from parent\n    select:\n        nested\n",
     )
 
-    assert _checked(semantic) == [("PIE-S2802", 13, 18), ("PIE-S2333", 14, 1)]
+    assert _checked(semantic) == [("PIE-S2802", 13, 18)]
 
 
 @pytest.mark.parametrize(
@@ -432,7 +434,9 @@ def test_an_unnest_join_reports_what_a_join_of_an_alias_let_reports(
     )
     writes_on = not join.startswith("cross") and " on " not in join
     assert (hint in unnest) is writes_on
-    assert (fallback in alias) is (join in {"inner join child", "left join child"})
+    # The control's input `parent` fails with its own PIE-S2802, so its
+    # relation reports no fallback beside it.
+    assert fallback not in alias
     assert [item for item in unnest if item != hint] == [
         alias[0],
         gate,
@@ -440,6 +444,45 @@ def test_an_unnest_join_reports_what_a_join_of_an_alias_let_reports(
     ]
     cross_on = ("PIE-S2336", 17, 5, "CROSS JOIN cannot have ON or VIA.")
     assert (cross_on in unnest) is (join == "cross join child on True")
+
+
+@pytest.mark.parametrize(
+    ("body", "let_line"),
+    [
+        # A table-function FROM.
+        (
+            "query q:\n    from generate_series(1, 3, 1) as n\n"
+            "    let child = unnest(n.nested)\n    cross join child\n"
+            "    select:\n        v = n.value\n",
+            16,
+        ),
+        # A relation let beside the Unnest let.
+        (
+            "query q:\n    let extra:\n        from rows\n        select:\n"
+            "            id\n    from parent\n    let child = unnest(parent.nested)\n"
+            "    cross join child\n    where parent.id in extra\n"
+            "    select:\n        id = parent.id\n",
+            20,
+        ),
+        # An Unnest let inside a relation let.
+        (
+            "query q:\n    let sub:\n        from parent\n"
+            "        let child = unnest(parent.nested)\n        cross join child\n"
+            "        select:\n            id = parent.id\n    from sub\n"
+            "    select:\n        id\n",
+            17,
+        ),
+    ],
+)
+def test_an_unnest_join_of_a_block_body_is_no_unknown_relation(
+    tmp_path: Path, body: str, let_line: int
+) -> None:
+    # D71.02 holds in every relation body: the JOIN is the Unnest let's one
+    # input in its place, never a named relation the module lacks.
+    checked = _checked(_semantic(tmp_path, SOURCE + body))
+
+    assert "PIE-S2301" not in {code for code, _, _ in checked}
+    assert ("PIE-S2802", let_line, 5 if let_line != 17 else 9) in checked
 
 
 def test_unnest_join_diagnostics_take_the_completion_place_of_any_join(

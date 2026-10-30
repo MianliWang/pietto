@@ -259,6 +259,12 @@ not SQL generation; project SQL emission is a separate explicit command. The
 older legacy-flat mode (`schema_version = 1`) checks no JOIN and no `any(...)`
 (`PIE-S2334`); see
 [project and package](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/project-package.md#schema-compatibility).
+`pietto explain --project` reads only a `schema_version = 4` package-root
+project, which has no `[sources]`; for a schema 2 project use `check --project`
+and `emit-sql --project`.
+[Explaining a package-root project](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#explaining-a-package-root-project)
+shows a layout in which `check --project` and `explain --project` read the
+same files.
 
 ## Project SQL emission
 
@@ -344,6 +350,11 @@ also needs the statement premise
 (`identifier_case_declaration_missing`). `Timestamp` and `UUID` fields need
 the contract-qualified carriers described in
 [Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.5/docs/language.md#timestamp-and-uuid-source-meaning).
+[Project SQL emission](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#project-sql-emission)
+lists the premises with their PostgreSQL and MySQL values and when each is needed,
+gives a MySQL contract, and lists the forms that `check --project` accepts but
+project emission refuses, such as `count` of a `Text` field, a comparison of a
+`Float` field, and `/`.
 
 Emit the artifact as JSON on stdout (`--format json` and
 `--literal-policy preserve` are the defaults; the contract path is relative to
@@ -355,7 +366,7 @@ pietto emit-sql --project demo-emit --module main.pietto --kind table \
 ```
 
 Show the readable presentation on stdout and atomically write the same JSON
-artifact to a file:
+artifact to a file (`--output` writes the JSON artifact in either `--format`):
 
 ```bash
 pietto emit-sql --project demo-emit --module main.pietto --kind table \
@@ -369,7 +380,7 @@ output errors); failures carry no candidate SQL. A `--literal-policy bind-safe`
 artifact must be consumed together with its `fixed_values` and
 `parameter_uses`; its SQL alone is not a complete statement. The complete
 contract is the
-[Slice13 specification](https://github.com/MianliWang/pietto/blob/v0.1.1/docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
+[Slice13 specification](https://github.com/MianliWang/pietto/blob/main/docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
 
 ## Optional extras and Python execution
 

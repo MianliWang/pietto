@@ -934,6 +934,86 @@ def test_schema_v2_semantic_result_retains_catalogs_and_facades_with_unchanged_f
     }
 
 
+@pytest.mark.parametrize("hops", [3, 5])
+def test_reexport_chains_of_any_length_resolve_to_the_one_original_identity(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    hops: int,
+) -> None:
+    # m0 declares Row; each later module imports the one before it under a new
+    # alias and re-exports that alias; z reads the last alias.
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    _write(root, "m0.pietto", "shape Row:\n    id: Int\nexport (\n    shape Row)\n")
+    for hop in range(1, hops):
+        previous = "Row" if hop == 1 else f"R{hop - 1}"
+        _write(
+            root,
+            f"m{hop}.pietto",
+            f'from "m{hop - 1}.pietto" import (\n    shape {previous} as R{hop})\n'
+            f"export (\n    shape R{hop})\n",
+        )
+    last = hops - 1
+    _write(
+        root,
+        "z.pietto",
+        f'from "m{last}.pietto" import (\n    shape R{last})\n'
+        f'source rows: R{last} = postgres.table("rows")\n'
+        "query q:\n    from rows\n    select:\n        id\n",
+    )
+    parse_result, semantic = _project_semantic_result(root)
+
+    assert parse_result.ok
+    assert semantic.diagnostics == ()
+    assert semantic.module_exports is not None and semantic.module_bindings is not None
+    original = semantic.module_exports.surfaces[0].entries[0].target_identity
+    # Every hop's facade entry and binding keep the one original identity, and
+    # each hop's facade agrees with the bindings it was resolved from.
+    assert [
+        (surface.module.path, entry.exposed_name, entry.target_identity == original)
+        for surface in semantic.module_exports.surfaces
+        for entry in surface.entries
+    ] == [
+        ("m0.pietto", "Row", True),
+        *((f"m{hop}.pietto", f"R{hop}", True) for hop in range(1, hops)),
+    ]
+    assert [
+        (binding.identity.local_binding_name, binding.target_identity == original)
+        for environment in semantic.module_bindings.environments
+        for binding in environment.bindings
+    ] == [
+        *((f"R{hop}", True) for hop in range(1, hops)),
+        (f"R{last}", True),
+    ]
+    assert cli.main(["check", "--project", str(root)]) == 0
+    assert capsys.readouterr().out == (
+        f"Project check OK: .\nFiles checked: {hops + 1}\n"
+    )
+
+
+def test_reexport_diamond_of_one_identity_remains_an_ambiguous_import_binding(
+    tmp_path: Path,
+) -> None:
+    root = _configured_project(tmp_path / "project", schema_version=2)
+    _write(root, "a.pietto", "shape Row:\n    id: Int\nexport (\n    shape Row)\n")
+    for name in ("b", "c"):
+        _write(
+            root,
+            f"{name}.pietto",
+            'from "a.pietto" import (\n    shape Row)\nexport (\n    shape Row)\n',
+        )
+    _write(
+        root,
+        "d.pietto",
+        'from "b.pietto" import (\n    shape Row)\n'
+        'from "c.pietto" import (\n    shape Row)\n',
+    )
+    _, semantic = _project_semantic_result(root)
+
+    assert [(item.code, item.message) for item in semantic.diagnostics] == [
+        ("PIE-S2706", "Import binding name is ambiguous: Row"),
+    ]
+
+
 def test_schema_v2_parse_and_read_failures_and_manual_constructor_keep_exports_absent(
     tmp_path: Path,
 ) -> None:

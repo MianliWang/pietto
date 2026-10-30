@@ -96,11 +96,12 @@ def test_project_json_v2_reports_parser_diagnostics_and_error_counter(
     assert str(tmp_path) not in json.dumps(document)
 
 
-def test_project_json_v2_keeps_read_parse_counters_for_semantic_errors(
+def test_project_json_v2_counts_semantic_errors_by_primary_location(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
+    _write(root, "good.pietto", "shape Good:\n    id: Int\n")
     _write(
         root,
         "semantic_error.pietto",
@@ -113,17 +114,22 @@ def test_project_json_v2_keeps_read_parse_counters_for_semantic_errors(
     assert document["ok"] is False
     assert document["inputs"] == [
         {
+            "path": "good.pietto",
+            "kind": "source",
+            "status": "parsed",
+        },
+        {
             "path": "semantic_error.pietto",
             "kind": "source",
             "status": "parsed",
-        }
+        },
     ]
     assert document["cli_errors"] == []
     assert document["result"] == {
         "check": {
-            "files_total": 1,
+            "files_total": 2,
             "files_ok": 1,
-            "files_with_errors": 0,
+            "files_with_errors": 1,
         }
     }
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])

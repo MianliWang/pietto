@@ -16,6 +16,7 @@ from pietto._project.aggregate_grouped_clause_facts import (
     ProjectRelationClauseDependencyFact,
     ProjectRelationClauseDependencyKind,
     build_project_aggregate_grouped_clause_readiness,
+    with_single_file_grouping_diagnostics,
 )
 from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsStatus,
@@ -226,8 +227,13 @@ from pietto._project.row_expression_type_facts import (
     project_row_schema_to_semantic_row_schema,
 )
 from pietto.ast_nodes import (
+    AnyExpr,
     CallExpr,
     CapturedFieldExpr,
+    CollectRelationExpr,
+    RelationExistsExpr,
+    RelationMembershipExpr,
+    RelationScalarExpr,
     DistinctClause,
     SetRelationDef,
     TableFunctionRelationDef,
@@ -260,6 +266,8 @@ from pietto.semantic.aggregates import (
     invalid_context_diagnostic,
 )
 from pietto.semantic.expressions import (
+    _is_bare_constant,
+    _order_key_diagnostic,
     _window_literal_range_diagnostics,
     infer_row_expression,
     let_value,
@@ -1351,6 +1359,10 @@ class ProjectRelationOrderingNonConcreteReason(StrEnum):
     # An operator or function refuses a field of a shape, as in a single file
     # (`home + 1`); also reported where no other ORDER result is checked.
     SHAPE_OPERAND = "shape_operand"
+    # A key that reads a name the relation does not have, or that is a bare
+    # constant, as in a single file; also reported where no other ORDER
+    # result is checked.
+    KEY_UNRESOLVED = "key_unresolved"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1381,6 +1393,16 @@ class ProjectNonConcreteRelationOrdering:
 
 type ProjectRelationOrderingResult = (
     ProjectRelationOrdering | ProjectNonConcreteRelationOrdering | None
+)
+
+# The ORDER BY results a check reports of every relation without JOIN inputs,
+# also where it checks no other ORDER BY result.
+CHECKED_ORDER_REASONS = frozenset(
+    {
+        ProjectRelationOrderingNonConcreteReason.OUTPUT_NAME_AMBIGUOUS,
+        ProjectRelationOrderingNonConcreteReason.SHAPE_OPERAND,
+        ProjectRelationOrderingNonConcreteReason.KEY_UNRESOLVED,
+    }
 )
 
 
@@ -4288,17 +4310,25 @@ def _no_join_order_output_ambiguity(
     )
 
 
-def _joined_order_output_name_diagnostic(expression: NameExpr) -> Diagnostic:
-    """PIE-S2102 for a JOIN relation key that names a SELECT output alone."""
+def _order_output_name_diagnostic(
+    expression: NameExpr, *, joined: bool = True
+) -> Diagnostic:
+    """PIE-S2102 for a key that names a SELECT output alone in a relation
+    whose completion does not order by one yet: one with JOIN inputs, or one
+    without that a project completes, such as one with `any(...)` or
+    QUALIFY."""
 
     span = expression.span
+    relation = (
+        "a project relation with JOIN inputs" if joined else "this project relation"
+    )
     return Diagnostic(
         code="PIE-S2102",
         severity=Severity.ERROR,
         message=(
-            f"Unknown field: {expression.name}; a project relation with JOIN "
-            "inputs cannot order by a SELECT output yet (restate its expression, "
-            "or bind it with `let` and order by that name)"
+            f"Unknown field: {expression.name}; {relation} cannot order by a "
+            "SELECT output yet (restate its expression, or bind it with `let` "
+            "and order by that name)"
         ),
         location=SourceLocation(
             path=span.path,
@@ -4418,9 +4448,7 @@ def _joined_relation_ordering(
                     ):
                         analysis = replace(
                             analysis,
-                            diagnostics=(
-                                _joined_order_output_name_diagnostic(expression),
-                            ),
+                            diagnostics=(_order_output_name_diagnostic(expression),),
                         )
                     return ProjectNonConcreteRelationOrdering(
                         owner=owner,
@@ -4950,6 +4978,89 @@ def _no_join_fallback_is_absent(
     )
 
 
+def _no_join_order_key_diagnostics(
+    definition: _DerivedRelation,
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts,
+    key: Expression,
+) -> tuple[Diagnostic, ...]:
+    """What a single file reports of one ungrouped ORDER BY key before it
+    types it: each field or function the key reads that the relation does not
+    have (PIE-S2102, PIE-S2103), also through a field of a shape, else a key
+    written as a bare constant (PIE-S2380). A key that is one name alone may
+    name a SELECT output; a name inside a longer key reads the input row or a
+    `let:` name, as in a single file. A read of a relation or `any(...)` is
+    left to the key's typing."""
+
+    if contains_semantic_aggregate(key):
+        return ()
+    pending = [key]
+    while pending:
+        node = pending.pop()
+        if type(node) in {
+            AnyExpr,
+            CapturedFieldExpr,
+            CollectRelationExpr,
+            RelationExistsExpr,
+            RelationMembershipExpr,
+            RelationScalarExpr,
+        }:
+            return ()
+        pending.extend(child_expressions(node))
+    if type(key) is NameExpr and (
+        key.name in input_schema.fields
+        or key.name in {item.name for item in let_scope.bindings}
+        or key.name
+        in {_projection_output_name(item) for item in definition.select_items}
+    ):
+        return ()
+    found: list[Diagnostic] = []
+    infer_row_expression(
+        key,
+        project_row_schema_to_semantic_row_schema(input_schema, shapes=True),
+        {},
+        found,
+        report_unknown_name=True,
+        field_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
+        bare_value_types=let_scope.binding_value_types,
+        bare_value_expressions=checked_let_values(
+            let_scope, let_scope.binding_expressions
+        ),
+    )
+    let_names = {item.name for item in let_scope.bindings}
+    unknown = tuple(
+        diagnostic
+        for diagnostic in found
+        if diagnostic.severity is Severity.ERROR
+        and (
+            diagnostic.code == "PIE-S2103"
+            # Over an input row of unknown type every name may be one of its
+            # fields; a `let:` name with an error of its own reports it there.
+            or (
+                diagnostic.code == "PIE-S2102"
+                and not input_schema.is_unknown
+                and diagnostic.message.removeprefix("Unknown field: ") not in let_names
+            )
+        )
+    )
+    if unknown:
+        return unknown
+    # Project SQL orders by a constant that a `let` name binds as a value
+    # column; a constant written as the key itself has no such port.
+    if not _is_bare_constant(
+        key, project_row_schema_to_semantic_row_schema(input_schema), {}
+    ):
+        return ()
+    return (
+        _order_key_diagnostic(
+            key,
+            "Constant ORDER BY key: a target reads a bare constant key as a "
+            "column position or rejects it",
+        ),
+    )
+
+
 def _no_join_relation_ordering(
     *,
     owner: ProjectDeclarationOccurrence,
@@ -4973,21 +5084,31 @@ def _no_join_relation_ordering(
     ordered: list[ProjectRelationOrderItem] = []
     let_values = checked_let_values(let_scope, let_scope.binding_expressions)
     if mode is not ProjectJoinedAggregationMode.GROUPED:
-        shaped = tuple(
-            diagnostic
-            for item in clause.items
-            if not contains_semantic_aggregate(item.expression)
-            for diagnostic in _no_join_shape_diagnostics(
+        # Each key's unknown names and its shape operand errors, key by key,
+        # as a single file reports them.
+        unresolved: list[Diagnostic] = []
+        found: list[Diagnostic] = []
+        for item in clause.items:
+            key_unresolved = _no_join_order_key_diagnostics(
                 definition, input_schema, let_scope, item.expression
             )
-        )
-        if shaped:
+            unresolved.extend(key_unresolved)
+            found.extend(key_unresolved)
+            if not contains_semantic_aggregate(item.expression):
+                found.extend(
+                    _no_join_shape_diagnostics(
+                        definition, input_schema, let_scope, item.expression
+                    )
+                )
+        if found:
             return ProjectNonConcreteRelationOrdering(
                 owner=owner,
                 clause=clause,
-                reason=ProjectRelationOrderingNonConcreteReason.SHAPE_OPERAND,
+                reason=ProjectRelationOrderingNonConcreteReason.KEY_UNRESOLVED
+                if unresolved
+                else ProjectRelationOrderingNonConcreteReason.SHAPE_OPERAND,
                 blocker=clause,
-                diagnostics=shaped,
+                diagnostics=tuple(dict.fromkeys(found)),
             )
     for ordinal, item in enumerate(clause.items):
         expression = item.expression
@@ -5087,6 +5208,22 @@ def _no_join_relation_ordering(
                     else ()
                 )
                 if len(selected) != 1:
+                    # As with JOIN inputs, a completed relation's SQL has no
+                    # ordering by a SELECT output other than a window result.
+                    if (
+                        type(expression) is NameExpr
+                        and _no_join_fallback_is_absent(analysis)
+                        and any(
+                            _projection_output_name(selected_item) == expression.name
+                            for selected_item in definition.select_items
+                        )
+                    ):
+                        analysis = replace(
+                            analysis,
+                            diagnostics=(
+                                _order_output_name_diagnostic(expression, joined=False),
+                            ),
+                        )
                     return ProjectNonConcreteRelationOrdering(
                         owner=owner,
                         clause=clause,
@@ -5721,14 +5858,16 @@ def _complete_set_output(
             ),
         ):
             blockers.extend(entries or (resolution,))
-            diagnostics.append(
-                set_diagnostic(
-                    scope,
-                    "PIE-S2342",
-                    f"Set operand {ordinal + 1} has no concrete completed output.",
-                    ordinal,
+            # An operand relation that fails reports its own failure.
+            if len(entries) != 1:
+                diagnostics.append(
+                    set_diagnostic(
+                        scope,
+                        "PIE-S2342",
+                        f"Set operand {ordinal + 1} has no concrete completed output.",
+                        ordinal,
+                    )
                 )
-            )
             continue
         entry = entries[0]
         dependencies = tuple(
@@ -6235,14 +6374,18 @@ def _complete_no_join_output(
             )
         aggregate_result_facts = ()
     else:
-        aggregate_readiness = build_project_aggregate_grouped_clause_readiness(
-            pretyped_arguments=pretyped_arguments,
-            definition=definition,
-            input_schema=input_schema,
-            upstream_symbol=upstream_symbol,
-            fallback_path=owner.identity.module_path,
-            let_scope_facts=let_scope,
-            let_computed_keys=True,
+        aggregate_readiness = with_single_file_grouping_diagnostics(
+            build_project_aggregate_grouped_clause_readiness(
+                pretyped_arguments=pretyped_arguments,
+                definition=definition,
+                input_schema=input_schema,
+                upstream_symbol=upstream_symbol,
+                fallback_path=owner.identity.module_path,
+                let_scope_facts=let_scope,
+                let_computed_keys=True,
+            ),
+            input_schema,
+            let_scope,
         )
         base_state = aggregate_readiness.finalization.state
         if (
@@ -6409,6 +6552,25 @@ def _complete_no_join_output(
         clause_dependencies=clause_dependencies,
         window_outputs=window_outputs,
     )
+    if type(limit) is ProjectNonConcreteRelationLimit:
+        # A LIMIT error is reported whatever ORDER BY is, with the ORDER BY
+        # errors a check reports of any relation without JOIN inputs.
+        return _no_join_terminal(
+            semantic_facts=semantic,
+            base_entry=base_entry,
+            reason=ProjectEffectiveOutputCompletionTerminalReason.LIMIT_NON_CONCRETE,
+            blocker=limit,
+            diagnostics=(
+                *(
+                    ordering.diagnostics
+                    if type(ordering) is ProjectNonConcreteRelationOrdering
+                    and ordering.reason in CHECKED_ORDER_REASONS
+                    else ()
+                ),
+                *limit.diagnostics,
+            ),
+            upstream_entry=upstream_entry,
+        )
     if type(ordering) is ProjectNonConcreteRelationOrdering:
         return _no_join_terminal(
             semantic_facts=semantic,
@@ -6416,15 +6578,6 @@ def _complete_no_join_output(
             reason=ProjectEffectiveOutputCompletionTerminalReason.ORDER_NON_CONCRETE,
             blocker=ordering,
             diagnostics=ordering.diagnostics,
-            upstream_entry=upstream_entry,
-        )
-    if type(limit) is ProjectNonConcreteRelationLimit:
-        return _no_join_terminal(
-            semantic_facts=semantic,
-            base_entry=base_entry,
-            reason=ProjectEffectiveOutputCompletionTerminalReason.LIMIT_NON_CONCRETE,
-            blocker=limit,
-            diagnostics=limit.diagnostics,
             upstream_entry=upstream_entry,
         )
     replay_root = ProjectNoJoinReplayRoot(

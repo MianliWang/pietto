@@ -133,6 +133,7 @@ def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_o
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.LET_RELATION_NESTING_LIMIT,
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_EXPRESSION_READ,
         relation_resolution.ProjectModuleRelationResolutionIssueStatus.RELATION_EXPRESSION_READ_POSITION,
+        relation_resolution.ProjectModuleRelationResolutionIssueStatus.UNKNOWN_JOIN_INPUT,
     )
     expected_fields = {
         relation_resolution.ProjectResolvedModuleRelationSymbol: (
@@ -826,7 +827,13 @@ def test_wrong_kind_import_root_suppresses_derived_unknown_relation(
             "b.pietto": _library_source(export_relation="query reported"),
         },
     )
-    assert tuple(item.code for item in semantic.diagnostics) == ("PIE-S2707",)
+    assert tuple((item.code, item.message) for item in semantic.diagnostics) == (
+        (
+            "PIE-S2705",
+            'Imported declaration has another kind: table reported from "b.pietto" '
+            "is a query; write query reported",
+        ),
+    )
     assert all(item.code != "PIE-S2301" for item in semantic.diagnostics)
     assert _environment(semantic, "a.pietto").find_relation_name("Local") == ()
 
@@ -852,7 +859,7 @@ def test_repeated_consumers_of_one_failed_import_do_not_duplicate_root(
             "b.pietto": _library_source(export_relation="query reported"),
         },
     )
-    assert tuple(item.code for item in semantic.diagnostics) == ("PIE-S2707",)
+    assert tuple(item.code for item in semantic.diagnostics) == ("PIE-S2705",)
     environment = _environment(semantic, "a.pietto")
     assert (
         len(tuple(issue for issue in environment.issues if issue.local_name == "Local"))
@@ -1384,19 +1391,26 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                 ),
             },
         )
-        assert tuple(item.code for item in equal_root_semantic.diagnostics) == (
-            "PIE-S2707",
-            "PIE-S2707",
+        # Each wrong-kind item is its own root, at its own imported name.
+        wrong_kind = (
+            'Imported declaration has another kind: shape Shared from "b.pietto" '
+            "is a source; write source Shared"
+        )
+        assert tuple(
+            (item.code, item.message, item.location.line, item.location.column)
+            for item in equal_root_semantic.diagnostics
+        ) == (
+            ("PIE-S2705", wrong_kind, 2, 11),
+            ("PIE-S2705", wrong_kind, 3, 11),
         )
         assert equal_root_semantic.module_diagnostic_facts is not None
         root_facts = tuple(
             fact
             for fact in equal_root_semantic.module_diagnostic_facts.facts
-            if fact.diagnostic.code == "PIE-S2707"
+            if fact.diagnostic.code == "PIE-S2705"
         )
         assert len(root_facts) == 2
         first_root, second_root = (fact.diagnostic for fact in root_facts)
-        assert first_root == second_root
         assert first_root is not second_root
         roots_by_local_name = {
             fact.binding_issues[0].request.identity.local_binding_name: fact.diagnostic
@@ -1674,7 +1688,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                 ),
                 "b.pietto": _library_source(),
             },
-            ("PIE-S2707", "PIE-S2002"),
+            ("PIE-S2705", "PIE-S2002"),
             (("PIE-S2002",),),
             (("unknown_type_reference",),),
         ),

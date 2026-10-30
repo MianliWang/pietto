@@ -338,10 +338,10 @@ def test_where_visibility_blockers_remain_complete_and_fail_closed(
     assert len(analysis.blocking_resolutions) == 1
     assert analysis.blocking_resolutions[0].status is status
     # A read of no field is an unknown field, typed around as in a single
-    # file; an ambiguous read keeps only its lookup facts.
+    # file; an ambiguous read keeps its lookup facts and reports itself.
     ambiguous = status is ProjectModuleCandidateBucketStatus.AMBIGUOUS
     assert (analysis.kernel_value_type is None) is ambiguous
-    assert _error_codes(result) == (() if ambiguous else ("PIE-S2102",))
+    assert _error_codes(result) == (("PIE-S2335",) if ambiguous else ("PIE-S2102",))
     assert result.post_filter is result.preservation is None
     assert result.fields == ()
 

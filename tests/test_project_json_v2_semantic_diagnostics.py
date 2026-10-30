@@ -88,8 +88,8 @@ def test_project_json_v2_reports_semantic_diagnostics(
     assert document["result"] == {
         "check": {
             "files_total": 1,
-            "files_ok": 1,
-            "files_with_errors": 0,
+            "files_ok": 0,
+            "files_with_errors": 1,
         }
     }
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])
@@ -590,7 +590,9 @@ def test_a_legacy_flat_check_refuses_what_an_explicit_module_check_refuses(
     `let:` name, the let inline limit, ROWS and GROUPS window literal ranges,
     a constant ORDER BY key, a window over an alias of an enum, a `min` or
     `max` of a `let:` name without GROUP BY, and connector table names that
-    are not one string `<table>` or `<schema>.<table>`); a connector argument
+    are not one string `<table>` or `<schema>.<table>`), except an ORDER BY
+    key written as a constant in a relation without JOIN inputs, which an
+    explicit-module check refuses (PIE-S2380); a connector argument
     of another type or count, a let/output conflict, a
     window value of no concrete type, a default of another type and a RANGE
     offset that is not a nonnegative Int literal are refused in both modes."""
@@ -607,10 +609,20 @@ def test_a_legacy_flat_check_refuses_what_an_explicit_module_check_refuses(
         assert _located(_read_json_document(capsys)) == (
             [*_LEGACY_FLAT_JOIN_REFUSALS.get(source, ()), *expected]
             if schema_version == 1
-            else expected
+            else [*_EXPLICIT_MODULE_REFUSALS.get(source, ()), *expected]
         )
 
 
+_EXPLICIT_MODULE_REFUSALS = {
+    _LEGACY_FLAT_SINGLE_FILE_SQL_LIMITS: [
+        (
+            "PIE-S2380",
+            ("main.pietto", 49, 9, 49, 11),
+            "Constant ORDER BY key: a target reads a bare constant key as a "
+            "column position or rejects it",
+        )
+    ],
+}
 _LEGACY_FLAT_ORDER_BY_OUTPUTS = _FLAT_HEAD + (
     "query bare:\n    from src\n    select:\n        id\n        x = n + 1\n"
     "    order by:\n        x desc\n        id\n"

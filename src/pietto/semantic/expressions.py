@@ -4001,6 +4001,27 @@ def _call_value_type(
             )
         )
         return _UNKNOWN_VALUE_TYPE
+    if is_unknown_function_call(expression):
+        # The callee is resolved first, so an unknown one is the error
+        # (PIE-S2103). A bare name it is given is typed but reports nothing:
+        # it may name a row, as for a relationship the module does not
+        # declare. Each other argument keeps its own errors.
+        diagnostics.append(_unknown_function_diagnostic(expression, function_name))
+        for argument in expression.arguments:
+            _infer(
+                argument,
+                row_schema,
+                value_types,
+                [] if type(argument) is NameExpr else diagnostics,
+                report_unknown_name=report_unknown_name,
+                field_qualifier=field_qualifier,
+                bare_value_types=bare_value_types,
+                bare_value_expressions=bare_value_expressions,
+                suppressed_unknown_names=suppressed_unknown_names,
+                type_expansions=type_expansions,
+                relation_columns=relation_columns,
+            )
+        return _UNKNOWN_VALUE_TYPE
     diagnostic_count = len(diagnostics)
     argument_types, erroneous = _call_argument_types(
         expression,

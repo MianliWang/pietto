@@ -452,6 +452,23 @@ class ProjectModuleBindingIssue:
         if not valid:
             raise ValueError("Module binding issue evidence must prove its status.")
 
+    def asks_for(self, namespace: ProjectSymbolNamespace) -> bool:
+        """Whether this failed import asks for a name of `namespace`: by its
+        kind, or by a name that its target declares or exports only in that
+        namespace, with another kind (`shape customers` of a source alone,
+        `source Customer` of a shape alone). A target that also has the name
+        in the requested namespace, of any kind, private or not, does not
+        count."""
+
+        identity = self.request.identity
+        if identity.namespace is namespace:
+            return True
+        found = {
+            *(entry.namespace for entry in self.target_entries),
+            *(item.identity.namespace for item in self.target_occurrences),
+        }
+        return identity.namespace not in found and namespace in found
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectModuleBindingEnvironment:
@@ -753,26 +770,41 @@ def _build_project_module_binding_environment_set(
     modules: tuple[ProjectLogicalModule, ...],
     catalogs: ProjectModuleCatalogSet,
 ) -> ProjectModuleBindingEnvironmentSet:
-    """Resolve named imports through one direct-facade candidate backfill."""
+    """Resolve named imports against direct facades backfilled to a fixpoint.
+
+    Each pass rebuilds every facade from the imported candidates of the pass
+    before it, so a re-export of a re-export resolves one hop further each
+    pass. A candidate only ever adds a facade entry (a name that has one is
+    never a local declaration of its module), and an entry only ever adds a
+    binding, so the candidates grow until a pass adds none: at most one pass
+    per import request. The result then agrees with the facades it was
+    resolved against, which the project model rebuilds from its candidates.
+    """
 
     _validate_builder_inputs(selected_input_index, modules, catalogs)
-    local_facades = _build_project_module_export_surface_set(catalogs)
-    initial_environments = _resolve_binding_environments(
+    environments = _resolve_binding_environments(
         selected_input_index=selected_input_index,
         modules=modules,
         catalogs=catalogs,
-        facades=local_facades,
+        facades=_build_project_module_export_surface_set(catalogs),
     )
-    backfilled_facades = _build_project_module_export_surface_set(
-        catalogs,
-        imported_binding_candidates=initial_environments.imported_export_candidates,
-    )
-    return _resolve_binding_environments(
-        selected_input_index=selected_input_index,
-        modules=modules,
-        catalogs=catalogs,
-        facades=backfilled_facades,
-    )
+    while True:
+        backfilled = _resolve_binding_environments(
+            selected_input_index=selected_input_index,
+            modules=modules,
+            catalogs=catalogs,
+            facades=_build_project_module_export_surface_set(
+                catalogs,
+                imported_binding_candidates=environments.imported_export_candidates,
+            ),
+        )
+        before = environments.imported_export_candidates
+        after = backfilled.imported_export_candidates
+        if after == before:
+            return backfilled
+        if not set(before) < set(after):
+            raise ValueError("Imported export candidates must grow to a fixpoint.")
+        environments = backfilled
 
 
 def _resolve_binding_environments(

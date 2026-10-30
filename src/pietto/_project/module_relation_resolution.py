@@ -78,8 +78,11 @@ from pietto._project.row_expression_type_facts import (
     project_row_schema_to_semantic_row_schema,
     reports_unfit_def_argument,
 )
+from pietto._syntax_admission import unnest_lets
 from pietto.ast_nodes import (
     AnyExpr,
+    AuthoredJoinKind,
+    BlockRelationDef,
     CollectRelationExpr,
     DottedNameExpr,
     FromClause,
@@ -90,6 +93,7 @@ from pietto.ast_nodes import (
     RelationExistsExpr,
     RelationMembershipExpr,
     RelationScalarExpr,
+    SelectBody,
     SelectItem,
     ShapeDef,
     SourceDef,
@@ -150,6 +154,15 @@ class ProjectModuleRelationResolutionIssueStatus(StrEnum):
     LET_RELATION_NESTING_LIMIT = "let_relation_nesting_limit"
     UNKNOWN_RELATION_EXPRESSION_READ = "unknown_relation_expression_read"
     RELATION_EXPRESSION_READ_POSITION = "relation_expression_read_position"
+    UNKNOWN_JOIN_INPUT = "unknown_join_input"
+
+
+_UNKNOWN_READ_ISSUE_STATUSES = frozenset(
+    {
+        ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_REFERENCE,
+        ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_EXPRESSION_READ,
+    }
+)
 
 
 class ProjectExpressionBlockPosition(StrEnum):
@@ -842,7 +855,10 @@ class ProjectModuleRelationResolutionEnvironment:
 
         An issue whose evidence holds a let (an occurrence, a member of its
         relation cycle or the owner of its reference) belongs to that let's
-        declaration only; every other issue stays visible to the whole module.
+        declaration only, an unknown JOIN input to its relation only, and an
+        unknown FROM or expression read to the declaration that reads it, with
+        its lets: another declaration's read of the name reports its own
+        error. Every other issue stays visible to the whole module.
         """
 
         if type(owner) is not ProjectDeclarationOccurrence:
@@ -851,6 +867,20 @@ class ProjectModuleRelationResolutionEnvironment:
             issue
             for issue in self.issues
             if issue.local_name == local_name
+            and (
+                issue.status
+                is not ProjectModuleRelationResolutionIssueStatus.UNKNOWN_JOIN_INPUT
+                or issue.occurrences[0] is owner
+            )
+            and (
+                issue.status not in _UNKNOWN_READ_ISSUE_STATUSES
+                or (
+                    issue.occurrences[0]
+                    if issue.reference is None
+                    else issue.reference.owner
+                ).declaration_position
+                == owner.declaration_position
+            )
             and all(
                 item.let_position is None
                 or item.declaration_position == owner.declaration_position
@@ -1145,6 +1175,7 @@ def _collect_module_diagnostic_blockers(
         if (
             kind not in _RELATION_KINDS
             and issue.status not in _COLLISION_ISSUE_STATUSES
+            and not _imports_relation_as_other_kind(draft, issue)
         ):
             continue
         binding_buckets.setdefault(
@@ -1231,6 +1262,25 @@ def _collect_module_diagnostic_blockers(
             )
         )
         draft.blocked_names.add(local_name)
+
+
+def _imports_relation_as_other_kind(
+    draft: _RelationResolutionDraft, issue: ProjectModuleBindingIssue
+) -> bool:
+    """Whether a failed import asks for a name that its target declares or
+    exports only as a relation, with another kind (`shape customers` of a
+    source alone), and the module declares no relation of that name: its
+    relation reads of the name follow the import's own error, as when the
+    import asks for a relation. A target that also has the name in the
+    requested namespace, of any kind, does not count: the module never
+    imported the relation."""
+
+    name = issue.request.identity.local_binding_name
+    return issue.asks_for(ProjectSymbolNamespace.RELATION) and not any(
+        item.identity.declared_name == name
+        and item.identity.declaration_kind in _RELATION_KINDS
+        for item in draft.catalog.occurrences
+    )
 
 
 def _collect_local_symbols(draft: _RelationResolutionDraft) -> None:
@@ -1682,7 +1732,84 @@ def _collect_and_resolve_references(draft: _RelationResolutionDraft) -> None:
                 target_symbol=symbol,
             )
         )
+    _resolve_join_inputs(draft, symbols_by_name, lets_by_scope)
     _resolve_expression_reads(draft, symbols_by_name, lets_by_scope)
+
+
+def _resolve_join_inputs(
+    draft: _RelationResolutionDraft,
+    symbols_by_name: Mapping[str, ProjectResolvedModuleRelationSymbol],
+    lets_by_scope: Mapping[tuple[int, str], ProjectResolvedModuleRelationSymbol],
+) -> None:
+    """Report a named JOIN input that names no relation as a single file
+    does, PIE-S2301 at the JOIN, with the same scoped lookup a FROM name uses.
+    An Unnest let's JOIN, a SEMI or ANTI JOIN that a lowered `any(...)`
+    writes (its read reports its own name) and a name whose error is already
+    reported are not."""
+
+    # The JOINs of Unnest lets as written: name normalization has dropped the
+    # lets from the bodies resolved here.
+    parsed = draft.module.parsed_input
+    authored = (
+        None
+        if parsed is None
+        else parsed.script
+        if parsed.authored_script is None
+        else parsed.authored_script
+    )
+    # A body with relation lets or a table-function FROM is written as a
+    # block, whose own body and relation-let bodies are each one body.
+    bodies = [
+        body
+        for definition in (() if authored is None else authored.definitions)
+        for body in (
+            (definition.body, *(let.body for let in definition.let_relations))
+            if type(definition) is BlockRelationDef
+            else (definition,)
+        )
+        if type(body) in {TableDef, QueryDef, SelectBody}
+    ]
+    unnested = {
+        (join.span.path, join.span.line, join.span.column)
+        for body in bodies
+        for _, joins in unnest_lets(cast(TableDef | QueryDef | SelectBody, body))
+        for join in joins
+    }
+    for occurrence in draft.catalog.relation_owners:
+        definition = occurrence.definition
+        if type(definition) not in {TableDef, QueryDef}:
+            continue
+        body = cast(TableDef | QueryDef, definition)
+        for join in body.join_clauses:
+            name = join.target_relation_name
+            if (
+                not join.uses_named_input
+                or (join.span.path, join.span.line, join.span.column) in unnested
+                or join.kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
+                or (occurrence.declaration_position, name) in draft.blocked_let_scopes
+                or name in draft.blocked_names
+                or name in draft.ambiguous_names
+                or _resolve_scoped_name(
+                    draft, occurrence, name, symbols_by_name, lets_by_scope
+                )
+                is not None
+            ):
+                continue
+            location = _location(join.span, fallback_path=draft.module.path)
+            draft.issues.append(
+                ProjectModuleRelationResolutionIssue(
+                    status=ProjectModuleRelationResolutionIssueStatus.UNKNOWN_JOIN_INPUT,
+                    owning_module_path=draft.module.path,
+                    local_name=name,
+                    location=location,
+                    diagnostic=_diagnostic(
+                        code="PIE-S2301",
+                        message=f"Unknown relation: {name}",
+                        location=location,
+                    ),
+                    occurrences=(occurrence,),
+                )
+            )
 
 
 def _resolve_expression_reads(
@@ -3089,10 +3216,10 @@ def _validate_issue_evidence(issue: ProjectModuleRelationResolutionIssue) -> Non
             and not issue.type_source_issues
             and code == _LET_ISSUE_CODES[status]
         )
-    elif (
-        status
-        is ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_EXPRESSION_READ
-    ):
+    elif status in {
+        ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_EXPRESSION_READ,
+        ProjectModuleRelationResolutionIssueStatus.UNKNOWN_JOIN_INPUT,
+    }:
         valid = (
             issue.local_name is not None
             and len(issue.occurrences) == 1

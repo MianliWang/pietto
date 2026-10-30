@@ -1519,7 +1519,7 @@ def test_registered_mutations_and_source_negatives_have_exact_distinct_outcomes(
         ),
         "float_set": (
             "semantic",
-            ["PIE-S2344", "PIE-S2344", "PIE-S2334"],
+            ["PIE-S2344", "PIE-S2344"],
             ["semantic_result_unsuccessful", "active_output_unavailable"],
         ),
         "set_group": (
@@ -1544,7 +1544,7 @@ def test_registered_mutations_and_source_negatives_have_exact_distinct_outcomes(
         ),
         "global_window": (
             "semantic",
-            ["PIE-S2333"],
+            ["PIE-S2312"],
             ["semantic_result_unsuccessful", "active_output_unavailable"],
         ),
     }

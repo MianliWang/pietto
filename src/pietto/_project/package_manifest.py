@@ -6,9 +6,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import math
 import re
-import tomllib
 from typing import cast
 
+from pietto._project.toml_text import TomlTextError, load_toml_text
 from pietto._project.model import (
     ProjectDiscoveryError,
     ProjectDiscoveryErrorKind,
@@ -584,9 +584,9 @@ def _normalize_package_manifest_at_path(
             ),
         )
     try:
-        document = tomllib.loads(manifest_text)
+        document = load_toml_text(manifest_text)
         errors = _validate_document(manifest_path, manifest_text, document)
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return construct_result(
             None,
             (
@@ -1533,7 +1533,7 @@ def _has_exact_root_table(
         return False
     probe_keys = _allocate_aot_probe_keys(document, key, len(matches))
     try:
-        first_probe = tomllib.loads(
+        first_probe = load_toml_text(
             _insert_aot_probes(
                 manifest_text,
                 matches,
@@ -1541,14 +1541,14 @@ def _has_exact_root_table(
                 frozenset(range(len(matches))),
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     real_positions = _table_probe_positions(first_probe.get(key), probe_keys)
     if real_positions is None or not real_positions:
         return False
 
     try:
-        probed = tomllib.loads(
+        probed = load_toml_text(
             _insert_aot_probes(
                 manifest_text,
                 matches,
@@ -1556,7 +1556,7 @@ def _has_exact_root_table(
                 real_positions,
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     if not _remove_table_probes(probed.get(key), probe_keys, real_positions):
         return False
@@ -1579,7 +1579,7 @@ def _has_exact_array_of_tables(
     probe_keys = _allocate_aot_probe_keys(document, key, len(matches))
 
     try:
-        first_probe = tomllib.loads(
+        first_probe = load_toml_text(
             _insert_aot_probes(
                 manifest_text,
                 matches,
@@ -1587,7 +1587,7 @@ def _has_exact_array_of_tables(
                 frozenset(range(len(matches))),
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     real_positions = _aot_probe_positions(
         _toml_child(first_probe, parent_key, key),
@@ -1597,7 +1597,7 @@ def _has_exact_array_of_tables(
         return False
 
     try:
-        probed = tomllib.loads(
+        probed = load_toml_text(
             _insert_aot_probes(
                 manifest_text,
                 matches,
@@ -1605,7 +1605,7 @@ def _has_exact_array_of_tables(
                 real_positions,
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     if not _remove_aot_probes(
         _toml_child(probed, parent_key, key),
@@ -1665,7 +1665,7 @@ def _has_exact_nested_mapping_path(
         len(matches),
     )
     try:
-        first_probe = tomllib.loads(
+        first_probe = load_toml_text(
             _insert_aot_probes(
                 manifest_text,
                 matches,
@@ -1673,14 +1673,14 @@ def _has_exact_nested_mapping_path(
                 frozenset(range(len(matches))),
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     mappings = _toml_path_mappings(first_probe, path, arrays=arrays)
     real_positions = _mapping_entries_probe_positions(mappings, probe_keys)
     if real_positions is None or len(real_positions) != len(mappings):
         return False
     try:
-        probed = tomllib.loads(
+        probed = load_toml_text(
             _insert_aot_probes(
                 manifest_text,
                 matches,
@@ -1688,7 +1688,7 @@ def _has_exact_nested_mapping_path(
                 real_positions,
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     if not _remove_mapping_entry_probes(
         _toml_path_mappings(probed, path, arrays=arrays),

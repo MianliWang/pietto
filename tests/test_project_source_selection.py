@@ -84,7 +84,10 @@ def test_schema_v3_package_config_returns_before_candidate_discovery(
     assert [(error.kind, error.message) for error in result.errors] == [
         (
             ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
-            "Schema-v3 package activation does not use project source selection.",
+            "check --project reads schema_version 1 or 2 projects and"
+            " emit-sql --project schema_version 2 ones; this schema_version"
+            " 3 package-root project is read by explain --project once converted"
+            " to schema_version 4.",
         )
     ]
 
@@ -128,7 +131,9 @@ def test_schema_v4_capability_environment_returns_before_candidate_discovery(
     assert [(error.kind, error.message) for error in result.errors] == [
         (
             ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
-            "Schema-v4 capability environment does not use project source selection.",
+            "check --project reads schema_version 1 or 2 projects and"
+            " emit-sql --project schema_version 2 ones; this schema_version"
+            " 4 package-root project is read by explain --project.",
         )
     ]
 
@@ -144,9 +149,58 @@ def test_empty_final_source_set_is_project_glob_error(tmp_path: Path) -> None:
     result = select_project_sources(root, load_project_config(root))
 
     assert result.inputs == ()
-    assert [(error.kind, error.path) for error in result.errors] == [
-        (ProjectDiscoveryErrorKind.PROJECT_GLOB, None)
+    assert [(error.kind, error.message, error.path) for error in result.errors] == [
+        (
+            ProjectDiscoveryErrorKind.PROJECT_GLOB,
+            'Project source selection matched no .pietto files: include ["models/**/'
+            '*.pietto"], exclude ["models/**/*.pietto"].',
+            "pietto.toml",
+        )
     ]
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0,
+    reason="needs a user that permissions apply to",
+)
+@pytest.mark.parametrize(
+    ("include", "exclude", "expected_errors"),
+    [
+        (("models/*.pietto",), (), []),
+        (("**/*.pietto",), ("pgdata/**",), []),
+        (("models/*.pietto", "pgdata/**/*.pietto"), ("pgdata/**",), []),
+        (("models/*.pietto", "pgdata/.x/*.pietto"), ("pgdata/**",), ["pgdata"]),
+        (("**/*.pietto",), (), ["pgdata"]),
+    ],
+)
+def test_unreadable_directory_fails_only_when_it_can_hold_a_selected_file(
+    tmp_path: Path,
+    include: tuple[str, ...],
+    exclude: tuple[str, ...],
+    expected_errors: list[str],
+) -> None:
+    root = _project_root(tmp_path, include=include, exclude=exclude)
+    _write(root, "models/main.pietto")
+    pgdata = root / "pgdata"
+    pgdata.mkdir()
+    pgdata.chmod(0)
+    try:
+        result = select_project_sources(root, load_project_config(root))
+    finally:
+        pgdata.chmod(0o755)
+
+    assert [(error.kind, error.message, error.path) for error in result.errors] == [
+        (
+            ProjectDiscoveryErrorKind.PROJECT_GLOB,
+            "Project source directory is not accessible.",
+            path,
+        )
+        for path in expected_errors
+    ]
+    if not expected_errors:
+        assert result.inputs == (
+            ProjectInput(path="models/main.pietto", status="selected"),
+        )
 
 
 def test_hidden_paths_require_hidden_pattern_segments(tmp_path: Path) -> None:

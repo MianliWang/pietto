@@ -431,14 +431,29 @@ def test_unused_descriptions_bind_but_do_not_require_target_applicability(tmp_pa
     assert rejected.status == "INPUT_REJECTED"
 
 
-@pytest.mark.parametrize("type_expr", ("Decimal", "Decimal(9, 12)", "Decimal(66, 2)"))
-def test_decimal_requires_success_of_existing_shared_rule(tmp_path, type_expr):
+@pytest.mark.parametrize(
+    "type_expr,diagnostic",
+    (
+        ("Decimal", None),
+        ("Decimal(9, 12)", "Decimal scale must be an integer from 0 to precision"),
+        ("Decimal(66, 2)", "Decimal precision must be an integer from 1 to 65"),
+    ),
+)
+def test_decimal_requires_success_of_existing_shared_rule(
+    tmp_path, type_expr, diagnostic
+):
     item = probe.fixture("postgres")
     source = item["source"].replace("Decimal(9, 2)", type_expr)
     _, result = probe.build_case(tmp_path, source, item["contract"])
-    assert result.status == "BLOCKED" and any(
-        b.code == "PIE-B1004" for b in result.blockers
-    )
+    assert result.status == "BLOCKED"
+    if diagnostic is None:
+        assert any(b.code == "PIE-B1004" for b in result.blockers)
+        return
+    # Invalid arguments fail the shared rule where the check reads the type.
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [("PIE-S2004", 5, 12, diagnostic)]
 
 
 def test_decimal_alias_uses_exact_existing_terminal(tmp_path):

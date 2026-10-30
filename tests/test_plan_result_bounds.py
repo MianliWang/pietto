@@ -48,7 +48,7 @@ def test_unknown_result_ready_definition_fails_closed():
         owner=SimpleNamespace(definition=UnknownDefinition(span=span))
     )
     with pytest.raises(ValueError, match="Unknown result definition"):
-        result.ready(entry, {})
+        result.unready_site(entry, {})
 
 
 def test_unknown_result_build_definition_fails_closed(tmp_path: Path, monkeypatch):
@@ -89,7 +89,7 @@ def test_unknown_result_ready_order_expression_fails_closed(
 
     plan, entry = _ordered_limited_result(tmp_path)
     indexed = result.order_index(plan.scope.completed)
-    assert result.ready(entry, indexed)
+    assert result.unready_site(entry, indexed) is None
     ordering = result.ordering(entry, indexed)
     assert ordering is not None
     item = ordering.items[0]
@@ -97,7 +97,7 @@ def test_unknown_result_ready_order_expression_fails_closed(
         patch.setattr(type(item), "__setattr__", object.__setattr__)
         patch.setattr(item, "expression", UnknownExpression(span=item.expression.span))
         with pytest.raises(ValueError, match="Unknown result order expression"):
-            result.ready(entry, indexed)
+            result.unready_site(entry, indexed)
 
 
 def test_unknown_result_limit_expression_fails_closed(tmp_path: Path, monkeypatch):

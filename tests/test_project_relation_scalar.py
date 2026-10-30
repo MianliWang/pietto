@@ -104,12 +104,6 @@ REFUSED = {
         "    select:\n        id\n        w = v\n",
         [
             _position("a row let", 12, 13),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                6,
-                1,
-            ),
         ],
     ),
     "join_on": (
@@ -140,12 +134,6 @@ REFUSED = {
         "        id\n        s = scalar t.rid\n",
         [
             _position("the SELECT of a grouped query", 16, 13),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                6,
-                1,
-            ),
         ],
     ),
     "aggregate_select": (
@@ -153,12 +141,6 @@ REFUSED = {
         "        s = scalar t.rid\n",
         [
             _position("the SELECT of a grouped query", 14, 13),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                6,
-                1,
-            ),
         ],
     ),
     "satisfying": (
@@ -166,12 +148,6 @@ REFUSED = {
         "        id\n        n = count()\n    having:\n        n > scalar t.rid\n",
         [
             _position("SATISFYING", 18, 13),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                6,
-                1,
-            ),
         ],
     ),
     "window": (

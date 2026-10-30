@@ -404,14 +404,23 @@ def resolved_representation_problem(
     return None if valid else ("PIE-B1002", "physical_storage_or_domain_mismatch")
 
 
+# The one reviewed value of each statement premise, per target family.
+PREMISE_VALUES = {
+    "client_encoding": {"postgres": "UTF8", "mysql": "utf8mb4"},
+    "identifier_case": {
+        "postgres": "quoted_exact",
+        "mysql": "lower_case_table_names=0",
+    },
+    "operator_environment": {"postgres": "builtin_only", "mysql": "builtin_only"},
+    "parameter_protocol": {"postgres": "postgres_extended", "mysql": "mysql_prepared"},
+}
+
+
 def operator_premise_problems(premises, family, parameterized):
     result: list[tuple[str, str]] = []
-    keys = {"operator_environment": "builtin_only"}
-    if parameterized:
-        keys["parameter_protocol"] = (
-            "postgres_extended" if family == "postgres" else "mysql_prepared"
-        )
-    for key, expected in keys.items():
+    keys = ("operator_environment", "parameter_protocol")[: 2 if parameterized else 1]
+    for key in keys:
+        expected = PREMISE_VALUES[key].get(family)
         found = [p for p in premises if p.scope == "statement" and p.key == key]
         if not found:
             result.append(("PIE-B1004", key + "_declaration_missing"))
@@ -423,7 +432,7 @@ def operator_premise_problems(premises, family, parameterized):
 def naming_premise_problems(premises, family):
     result: list[tuple[str, str]] = []
     names = [p for p in premises if p.key == "identifier_case"]
-    expected = "quoted_exact" if family == "postgres" else "lower_case_table_names=0"
+    expected = PREMISE_VALUES["identifier_case"].get(family)
     if not names:
         result.append(("PIE-B1004", "identifier_case_declaration_missing"))
     elif any(json.loads(p.value) != expected for p in names):
@@ -441,7 +450,7 @@ def source_premise_problems(premises, family):
     if not clients:
         result.append(("PIE-B1004", "client_encoding_declaration_missing"))
     elif any(
-        json.loads(p.value) != ("UTF8" if family == "postgres" else "utf8mb4")
+        json.loads(p.value) != PREMISE_VALUES["client_encoding"].get(family)
         for p in clients
     ):
         result.append(("PIE-B1005", "client_encoding_mismatch"))
@@ -679,7 +688,26 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
         if tuple(f.ordinal for f in bound.fields) != tuple(range(len(original))) or any(
             f.field is not p.field for f, p in zip(bound.fields, original)
         ):
-            add("PIE-B1001", "complete_ordered_source_schema_required", source.ref)
+            # Related: each shape field the contract leaves out or maps out of
+            # its shape order.
+            mapped = tuple(f.field for f in bound.fields)
+            result.append(
+                Blocker(
+                    "PIE-B1001",
+                    "complete_ordered_source_schema_required",
+                    source.ref,
+                    source.declaration.span,
+                    tuple(
+                        port.field.evidence.field_def.span
+                        for position, port in enumerate(original)
+                        if (
+                            position >= len(mapped)
+                            or mapped[position] is not port.field
+                        )
+                        and port.field.evidence.field_def is not None
+                    ),
+                )
+            )
         if not all(
             identifier_valid(n, request.family, relation=True)
             for n in (bound.namespace, bound.name)
@@ -1380,11 +1408,13 @@ def _join_input(
                     if item.field is link.canonical.field
                 )
                 if len(fields) != 1 or link.terminal is not link.canonical:
+                    # A field the contract leaves out is at its source, where
+                    # the incomplete mapping is reported.
                     return None, (
                         "PIE-B1001",
                         "join_input_source_field_not_bound",
                         port_ref,
-                        None,
+                        None if fields else source.declaration.span,
                     )
                 realization = rows.field_realization(fields[0])
                 if realization is None:
@@ -1981,7 +2011,7 @@ def realize_rows(request):
                 block_exports = tuple(resolved)
             if kind == "aggregate":
                 assert stage is not None
-                built, aggregate_stage, problem = grouping.build_stage(
+                built, aggregate_stage, refused = grouping.build_stage(
                     request,
                     stage,
                     block_exports,
@@ -1993,8 +2023,9 @@ def realize_rows(request):
                     symbol=SQLSymbol,
                 )
                 if built is None:
-                    assert problem is not None
-                    add(*problem)
+                    assert refused
+                    for problem in refused:
+                        add(*problem)
                     return None
                 assert aggregate_stage is not None
                 columns.extend(built)

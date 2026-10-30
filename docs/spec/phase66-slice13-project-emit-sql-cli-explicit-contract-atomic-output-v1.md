@@ -28,7 +28,7 @@ and `--emission-contract` are always explicit.
 | Exclusivity | A positional path together with `--project` is a `usage` error. Project-only options without `--project` are legacy `unrecognized arguments` (stderr, exit 2); they never activate project discovery. |
 | Strict options | The project parser has no abbreviations; every singleton option (`--project`, `--module`, `--kind`, `--name`, `--dialect`, `--emission-contract`, `--literal-policy`, `--format`, `--output`) rejects repetition as `usage` instead of last-wins; unknown options, missing values and invalid choices are `usage` errors. Nothing is opened or written before argv is accepted. |
 | Help | `--help` is ordinary argparse help on stdout with exit 0; it opens no project or contract. The legacy `emit-sql --help` gains only an epilog line naming the project form. |
-| Usage-error channel | `usage` errors are the `pietto.sql-emission.v1` `INPUT_REJECTED` document on stdout with empty stderr and exit 2. Only an argv carrying exactly one `--format text`/`--format=text` renders the usage banner and `pietto emit-sql: error: …` on stderr instead. |
+| Usage-error channel | `usage` errors are the `pietto.sql-emission.v1` `INPUT_REJECTED` document on stdout with empty stderr and exit 2. Only an argv carrying exactly one `--format text`/`--format=text` renders the usage banner and `pietto emit-sql: error: …` on stderr instead. Known limitation: an unrecognized argument holding a byte that is not valid UTF-8 has no text in that document, so it prints `pietto: error: terminal output could not be encoded` on stderr and no document, exit 2. |
 
 ## Explicit project and contract input
 
@@ -39,7 +39,12 @@ one-to-one to the approved kinds `project_root`, `config_read`, `config_parse`,
 `source_read` with their logical paths; a project that is not in the
 `EXPLICIT_MODULES` mode is `config_schema` at `pietto.toml`. Every such failure
 is `INPUT_REJECTED` with exit 2 and carries every project diagnostic already
-known.
+known. A selected source, or a source directory, whose name is not valid UTF-8
+has no text in the UTF-8 document: where a path in the document would name it
+(in place of SQL, for a diagnostic or blocker located in that file, which is
+then left out, or beside another input error about it, whose path is then
+null) it is `project_path`. A message that names it shows it escaped, as
+`project_path` does (`\udcff`), and keeps its status.
 
 `--emission-contract FILE` is a normalized project-relative path: not absolute,
 nonempty, no `.` or `..` components, no doubled or trailing separators. The

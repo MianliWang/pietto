@@ -22,7 +22,11 @@ from pietto.semantic.existence_generators import (
     AnyValueInfo,
     written_read,
 )
-from pietto.semantic.expressions import _UNKNOWN_VALUE_TYPE, infer_row_expression
+from pietto.semantic.expressions import (
+    _UNKNOWN_VALUE_TYPE,
+    infer_row_expression,
+    is_unknown_function_call,
+)
 from pietto.semantic.joins import JoinStructure, _field_value_type, join_rows
 from pietto.semantic.let_bindings import (
     _invalid_let_dependency_diagnostic,
@@ -275,6 +279,14 @@ def check_any_values(
             nonlocal failed
             if id(node) in failed_call_ids:
                 failed = True
+            if type(node) is ast.CallExpr and is_unknown_function_call(node):
+                # Typing reports the unknown callee (PIE-S2103) first; a bare
+                # name it is given may name a row, as for a relationship the
+                # module does not declare, and is no field read.
+                for argument in node.arguments:
+                    if type(argument) is not ast.NameExpr:
+                        read_tree(argument, environment, let_stack)
+                return
             if isinstance(node, ast.AnyExpr):
                 nested.append(node)
                 child = by_identity.get(id(node))

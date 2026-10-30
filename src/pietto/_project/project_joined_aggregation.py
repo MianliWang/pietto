@@ -61,6 +61,7 @@ from pietto._project.project_scalar_namespaces import (
     ProjectJoinedScalarNamespace,
     ProjectNonConcreteJoinedNamespaceExpression,
     analyze_project_joined_namespace_expression,
+    joined_read_diagnostic,
     resolve_project_joined_namespace_reference,
 )
 from pietto._project.project_scalar_references import (
@@ -191,6 +192,20 @@ def _direct_field_resolution(
             return tuple(resolutions), None, True
         namespace = target.namespace
         current = cast(NameExpr | DottedNameExpr, target_expression)
+
+
+def _direct_read_diagnostic(
+    input_filter: ProjectConcreteJoinedRowFilter,
+    expression: NameExpr | DottedNameExpr,
+    resolutions: tuple[ProjectJoinedNamespaceReferenceResolution, ...],
+) -> Diagnostic:
+    """The error of a field read that resolves to no one field: its own
+    lookup's when it reads no `let:` value, else an unknown field."""
+
+    resolution = resolutions[0]
+    if len(resolutions) == 1 and type(resolution) is ProjectScalarReferenceResolution:
+        return joined_read_diagnostic(input_filter.namespace, resolution)
+    return semantic_group_by._unknown_field_diagnostic(expression)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -610,7 +625,11 @@ def _build_group_keys(
                     ),
                     resolutions=resolutions,
                     diagnostics=(
-                        semantic_group_by._unknown_field_diagnostic(item.key),
+                        semantic_group_by._unknown_field_diagnostic(item.key)
+                        if computed
+                        else _direct_read_diagnostic(
+                            input_filter, item.key, resolutions
+                        ),
                     ),
                 )
             )
@@ -843,7 +862,7 @@ def _reference_blocker_diagnostics(
 ) -> tuple[Diagnostic, ...]:
     if analysis.blocking_resolutions:
         return tuple(
-            semantic_group_by._unknown_field_diagnostic(resolution.reference.expression)
+            joined_read_diagnostic(analysis.namespace, resolution)
             for resolution in analysis.blocking_resolutions
         )
     return analysis.diagnostics
@@ -1411,7 +1430,7 @@ def _build_stage_outputs(
             continue
         diagnostic: Diagnostic | None
         if type(item.expression) in {NameExpr, DottedNameExpr}:
-            _, field_semantics, reads_let = _direct_field_resolution(
+            resolutions, field_semantics, reads_let = _direct_field_resolution(
                 input_filter,
                 cast(NameExpr | DottedNameExpr, item.expression),
                 expand_let=False,
@@ -1423,8 +1442,10 @@ def _build_stage_outputs(
                 issue_kind = (
                     ProjectJoinedSelectedOutputIssueKind.UNKNOWN_GROUP_KEY_PROJECTION
                 )
-                diagnostic = semantic_group_by._unknown_field_diagnostic(
-                    cast(NameExpr | DottedNameExpr, item.expression)
+                diagnostic = _direct_read_diagnostic(
+                    input_filter,
+                    cast(NameExpr | DottedNameExpr, item.expression),
+                    resolutions,
                 )
             else:
                 issue_kind = (

@@ -258,7 +258,7 @@ class ProjectIRProvidedIntrinsicGrain:
             }
         ):
             raise ValueError("Provided grain requires one exact output state.")
-        identities = tuple(factor.identity for factor in self.factors)
+        identities = {factor.identity for factor in self.factors}
         if any(item not in identities for item in self.active):
             raise ValueError("Active grain factors require the exact local universe.")
         if self.state is ProjectGrainBasisState.GLOBAL and self.active:

@@ -65,7 +65,11 @@ _MODULE_SIDECAR_FIELDS = (
     "module_package_identity_facts",
     "module_inspection_facts",
 )
-_P08_MESSAGE = "Schema-v3 package activation does not use project source selection."
+_P08_MESSAGE = (
+    "check --project reads schema_version 1 or 2 projects and emit-sql --project"
+    " schema_version 2 ones; this schema_version 3 package-root project is read"
+    " by explain --project once converted to schema_version 4."
+)
 
 
 def test_schema_version_and_table_activation_are_closed_and_exact(
@@ -492,7 +496,7 @@ def test_schema_v3_routes_are_p08_exact_and_do_not_enter_forbidden_product_bound
             ProjectDiscoveryError(
                 ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
                 _P08_MESSAGE,
-                None,
+                "pietto.toml",
             ),
         )
         for result in (selection, parsed):
@@ -528,7 +532,8 @@ def test_schema_v3_routes_are_p08_exact_and_do_not_enter_forbidden_product_bound
         text = capsys.readouterr()
         assert (
             text.out == ""
-            and text.err == f"project error: config_schema: {_P08_MESSAGE}\n"
+            and text.err
+            == f"project error: config_schema: {_P08_MESSAGE} (path: pietto.toml)\n"
         )
         assert cli._run_project_check(root, output_format="json") == 2
         encoded = capsys.readouterr()
@@ -546,7 +551,7 @@ def test_schema_v3_routes_are_p08_exact_and_do_not_enter_forbidden_product_bound
                 {
                     "kind": "config_schema",
                     "message": _P08_MESSAGE,
-                    "path": None,
+                    "path": "pietto.toml",
                 }
             ],
             "result": {

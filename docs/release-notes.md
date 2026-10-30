@@ -410,6 +410,575 @@ emission is unchanged.
   reports `OperationalError` and a data exception (class `22`) `DataError`.
   `code` and `sqlstate` are unchanged.
 
+### Project mode
+
+These entries correct `check --project`, `emit-sql --project` and
+`explain --project` after a review of 0.1.5 project mode. An entry that also
+changes single files says so.
+
+#### Project diagnostics match single files
+
+- Some explicit-module project programs that 0.1.5 refused with a diagnostic
+  that hid the problem now report the problem itself, with the single-file
+  code, message and position. They are still refused, and no SQL output
+  changes:
+  - A read after the JOINs of a field that more than one input has, such as
+    `id` over `orders` and `customer`, in a SELECT item, an expression,
+    a `let` value, WHERE, ORDER BY, a window's PARTITION BY or ORDER BY or a
+    GROUP BY key, is PIE-S2335
+    `Ambiguous field: id; write orders.id or customer.id` at the read. 0.1.5
+    reported the bare PIE-S2333
+    `Project relation semantic completion is unavailable: <relation>` at the
+    relation, or PIE-S2102 `Unknown field: id` for a GROUP BY key, its
+    SELECT item or a window.
+  - A JOIN whose input names no relation, such as
+    `inner join nosuch on nosuch.id == items.id`, is PIE-S2301
+    `Unknown relation: nosuch` at the JOIN. 0.1.5 reported
+    `JOIN pre-match input or relationship authority is unavailable.` and
+    `JOIN ON reference is unavailable.` (PIE-S2335) instead.
+  - A JOIN `on` read reports
+    `JOIN ON reference is ambiguous: <f>; write <alternatives>`,
+    `JOIN ON reference is unknown: <text>` or
+    `JOIN ON reference is forward: <text>` at the read. 0.1.5 reported the
+    same code without the read (`JOIN ON reference is unknown.`), after a
+    PIE-S2334 `JOIN-local ON is available only when an EXPLICIT_MODULES
+    project (schema version 2) completes it.`
+  - A read in `any(...)` of a field its row does not have, such as
+    `o.nosuch`, is PIE-S2102
+    `Unknown or unavailable field in ANY predicate: o.nosuch`. 0.1.5
+    reported PIE-S2334 `ANY predicate reference is unavailable.`, which
+    remains for a bare name that only the generator row has: a project reads
+    a generator field only qualified.
+  - In a relation without JOIN inputs, an aggregate, grouping, grouped ORDER
+    BY or `having` error is reported at its call or item with its
+    single-file code and message: PIE-S2318
+    (`Grouped projection is not a GROUP BY key: <f>`), PIE-S2319, PIE-S2320
+    (`Grouped output without an aggregate is not supported yet`), PIE-S2312,
+    PIE-S2311, PIE-S2314, PIE-S2315, PIE-S2104 for `string_agg` arguments,
+    PIE-S2321, PIE-S2323 to PIE-S2327, and in `having` PIE-S2308 for an
+    aggregate call (`Aggregate count() is not allowed in having clause; ...`),
+    PIE-S2105 for operands and PIE-S2202 for a predicate that is no Bool.
+    So are an unknown field (PIE-S2102) in an aggregate call, such as
+    `sum(nosuch)`, or in a GROUP BY key, an aggregate's argument count
+    (PIE-S2309, `Aggregate function sum expects 1 arguments, got 2`) and
+    an invalid LIMIT (PIE-S2307), also beside another grouping error. An
+    unknown GROUP BY key that is also selected is reported once, at the
+    key, as in a single file. An
+    aggregate argument of a field declared with a type alias names the
+    alias (`got Whatever`), as in a single file.
+    0.1.5 reported the bare PIE-S2333 at the relation. A grouped ORDER BY
+    key that names a selected window result is not refused by this check. A relation over a row of unknown type, or one
+    that reads a `let` name, a relation, a captured field, a query parameter
+    or `any(...)` in those positions, still reports the bare PIE-S2333, and
+    so does an aggregate of a shape-typed field. A relation that reports an
+    error of its own, such as an unknown field in a grouped SELECT item, no
+    longer adds a bare PIE-S2333 beside it.
+    This replaces the bare PIE-S2333 that two entries under Checking and
+    diagnostics above still name for a relation without JOIN inputs: a
+    `string_agg` argument of only `None` values is now PIE-S2104
+    (`Invalid arguments for aggregate string_agg: expected two Text arguments`),
+    and a qualified input field such as `users.count`, also through a `let`
+    alias, in HAVING is PIE-S2327
+    (`Unsupported having expression form: qualified name`) and in a grouped
+    ORDER BY PIE-S2321
+    (`Unsupported grouped ORDER BY item; expected a supported select output name`),
+    as in a single file.
+  - In a relation without JOIN inputs that a project completes itself, such
+    as one with `any(...)` or QUALIFY, an ORDER BY key that names a SELECT
+    output is
+    ``Unknown field: <name>; this project relation cannot order by a SELECT output yet (restate its expression, or bind it with `let` and order by that name)``,
+    as with JOIN inputs. 0.1.5 reported `Unknown field: <name>` alone. An
+    invalid LIMIT is PIE-S2307 whatever the ORDER BY key is, where 0.1.5
+    reported that ORDER BY error instead.
+- In a single file, a relation with JOIN inputs that mixes an aggregate with
+  another projection and has ORDER BY reports PIE-S2312, with the PIE-S2380
+  of a key that reads an input field outside an aggregate, as without the
+  ORDER BY. 0.1.5 reported PIE-S2334
+  ``ORDER BY is not available after an ungrouped aggregate over JOIN rows: the result has one row; remove `order by`.``,
+  which is now reported only when every projection is an aggregate.
+- A call's function is resolved before its arguments, in single files and
+  projects. In WHERE, a row `let` and an `any(...)`, as already in a JOIN
+  `on`, a call of an unknown function is PIE-S2103 `Unknown function: R`,
+  also for a relationship that the module does not declare, and a bare name
+  the call is given is no longer read as a field. 0.1.5 reported PIE-S2102
+  `Unknown field: <row>` for each row argument instead, with no PIE-S2103;
+  inside `any(...)` it reported
+  `Unknown or unavailable field in ANY predicate: <row>` in a single file
+  and PIE-S2334 `ANY predicate reference is unavailable.` in a project. An
+  unknown function is now reported beside an argument's own error, for
+  example both `foo` and `bar` in `foo(bar(x))`. In a project, a
+  relationship of another module adds
+  `; R is a relationship of a.pietto, which a module cannot import: declare it in this module`.
+- An explicit-module project reports fewer diagnostics after an error it
+  already reports. A relation stopped by an input whose failure is reported
+  gets no PIE-S2333, and its JOIN no PIE-S2335
+  `JOIN pre-match input or relationship authority is unavailable.` or
+  `JOIN ON reference is unavailable.`. Such inputs are:
+  - an import that does not resolve, is private or is ambiguous (PIE-S2701,
+    PIE-S2705, PIE-S2706);
+  - a source whose shape or field type does not resolve (PIE-S2303,
+    PIE-S2002), also where another module reports it: an unknown type at a
+    field of the shape it imports, or the export its import's target
+    refuses (PIE-S2704); the cross-module cases under Known limitations
+    below still add the bare PIE-S2333;
+  - a name reported as unknown;
+  - a relation or table-function body that fails with its own error;
+  - an earlier JOIN of the same relation that fails;
+  - a relation that a FROM, a JOIN, a set operand or an `any(...)`,
+    `exists`, `scalar` or `in` read names and that fails, also one that
+    only follows another failure.
+
+  Such a read or operand also drops its own follow-on: PIE-S2334
+  `ANY input relation is unavailable.` (and the PIE-S2202
+  `ANY predicate requires a known Bool expression.` or PIE-S2335
+  `JOIN ON expression type is unavailable.` of an expression around such an
+  `any(...)`), PIE-S2348
+  `... the columns of <r> are not known before completion.`, PIE-S2342
+  `Set operand N has no concrete completed output.` and, in a JOIN's `on`,
+  a relationship call's PIE-S2604
+  `Unavailable row argument for relationship R parameter p` (a call in an
+  `any(...)` over such an input keeps it, as a single file does for an
+  unknown ANY relation).
+  A read refused in its position (PIE-S2348, PIE-S2349, PIE-S2350) or one
+  that closes a relation cycle (PIE-S2302) likewise stops its relation
+  without a PIE-S2333 beside it.
+  A relationship declaration's own errors now come before the calls that
+  cannot use it, as in a single file, and a parameter shape that a failed
+  import leaves unresolved reports only the import's error: the
+  relationship's calls add no PIE-S2604
+  `Relationship predicate R has no unambiguous checked declaration`. A
+  relation that reports an error of its own from an earlier stage, such as
+  an unknown field in a SELECT item, adds no PIE-S2333 without a cause
+  beside it. A source
+  without a shape, in a module that reports no other error, now says what it
+  needs:
+  ``Project relation semantic completion is unavailable: items (source items has no shape, which a project needs to type its rows: write `source items: <shape> = ...`)``.
+  A relation stopped by an input whose failure is reported reports its own
+  checks, also those that do not depend on the input, such as PIE-S2307 for
+  an invalid LIMIT, once that failure is fixed. An
+  explicit-module project also never reports the temporary texts
+  `... is available only when an EXPLICIT_MODULES project (schema version 2) completes ...`
+  of a JOIN kind, a JOIN-local `on` or a set operation; such an operation
+  reports what stops it, such as PIE-S2341. 0.1.5 reported these follow-on
+  diagnostics beside the root error. Each read of an unknown relation name
+  is its own PIE-S2301, a set operand too: another relation's read of the
+  same name does not stand in for it. 0.1.5 reported only PIE-S2334 at such
+  a set operation.
+
+#### Module diagnostics
+
+- A failed import is no longer masked. In an explicit-module project, the
+  module import and export errors (PIE-S2701, PIE-S2705, PIE-S2706,
+  PIE-S2707) are reported even when a query has a query-local naming error,
+  a `def` error (PIE-S2397), a query header error (such as PIE-S2001
+  `Duplicate parameter name in query p: cutoff` or PIE-S2354) or a query
+  parameter in a position that does not take one (PIE-S2355). They come
+  first, ahead of the errors that stop the check before semantic analysis,
+  for every module, in `check --project` and in `emit-sql --project`, once
+  every module parses and its syntax is admitted. 0.1.5 dropped the module
+  errors of every module.
+  A `let` whose value is a relation that the module imports but cannot bind,
+  as in `let c = customers` with `customers` not exported by its target, now
+  reads that name as `inner join customers` would, and the import's own
+  error reports it; 0.1.5 reported only PIE-S2604
+  (`A row-value let must follow FROM and every JOIN and precede WHERE`) at
+  the `let`. The PIE-S2301 `Unknown relation: <name>` of the `let` entry
+  under Checking and diagnostics above is only for a name the module never
+  imports.
+- An import that names the wrong kind, such as `shape customers` for an
+  exported `source customers`, is PIE-S2705 at the imported name:
+  `Imported declaration has another kind: shape customers from "a.pietto" is a source; write source customers`.
+  0.1.5 reported PIE-S2707
+  `Inconsistent explicit-module target facade: "a.pietto"` at the target
+  path, once per import statement. A relation read of such a name, as in
+  `let c = customers`, follows that error as for a failed `source` import,
+  and the other modules' errors are still reported; when the target also
+  has the name as the requested kind or another kind of its namespace, such
+  as a shape for `type customers`, privately or not, the module never
+  imported the relation, and such a read is its own PIE-S2301. Likewise, a
+  type use of a name that the import asks for with a relation kind, as in
+  `source Customer` or `query Customer` for a shape, follows that error,
+  unless the module declares a type of that name: no PIE-S2002 or PIE-S2303
+  repeats its advice (a source in another module whose field type is an
+  alias of such a name still adds the bare PIE-S2333; see Known
+  limitations). When the target declares the requested
+  kind but exports only another kind of that name, it is PIE-S2705
+  `Imported declaration is private or not exported: ...`. An unknown export
+  of a name that the module declares only with another kind names that
+  kind: `Unknown export binding: type Customer; Customer is a shape`, and an
+  export of a name that the module imports only with another kind names the
+  imported kind:
+  `Invalid imported export candidate: type Customer; Customer is a shape`.
+  A wrong-kind import through a re-export points at the re-exporting
+  module's import of the name, as a direct one points at the declaration.
+- An import of a name that its target module only imports itself, with the
+  same kind, no longer says the name is unknown. When the target does not
+  export it, it is PIE-S2705
+  `Imported declaration is private or not exported: shape Row from "b.pietto"`;
+  when the target re-exports it but its own import of it fails, it is
+  PIE-S2705
+  `Imported declaration is unavailable: shape Row from "b.pietto", whose own import of Row fails`.
+  Both point at the target's import of the name. 0.1.5 reported
+  `Unknown imported declaration: shape Row from "b.pietto"`, with no
+  related location.
+- A re-export of a re-export now resolves through any number of modules, to
+  the one original declaration. 0.1.5 rejected the third hop and beyond with
+  PIE-S2705 `Unknown imported declaration`, plus a PIE-S2333 for each
+  reader. Each further hop resolves the project's imports once more, so a
+  chain of hundreds of re-exports takes tens of seconds to check.
+- PIE-S2701 names up to three selected paths that an unresolved import
+  target may have meant:
+  `Unresolved module import target: "a.pietto"; did you mean "models/a.pietto"? An import path is the project-root-relative path of a selected source, with / separators`.
+  0.1.5 reported `Unresolved module import target: "a.pietto"` alone.
+  The target and the paths are quoted as Pietto strings, so a non-ASCII
+  character stays as written; 0.1.5 echoed the target with `\u` escapes. A
+  control character, which a file name rarely holds, is still shown as a
+  `\u00XX` escape, which a Pietto string does not accept. A path that is not
+  valid UTF-8, which no Pietto string spells, is never suggested.
+  The language reference now states that an import target is the
+  project-root-relative path of a selected source, with `/` separators.
+- An unknown name that other selected modules export now says where and how
+  to import it, for PIE-S2002 `Unknown type`, PIE-S2303
+  `Unknown source shape`, PIE-S2604 `Unknown relationship parameter shape`
+  and PIE-S2301 `Unknown relation`, for example
+  `Unknown relationship parameter shape: Order; Order is a shape exported by types.pietto: import it with from "types.pietto" import (shape Order)`.
+  Every exporter is listed in path order, at most three in full, and none is
+  chosen. An exporter is an export that resolves: an export that is itself
+  refused (PIE-S2704), a duplicate export request included, or a re-export
+  whose own import fails, is not named, nor is a module whose path is not
+  valid UTF-8, which no import can spell. A module that already declares or
+  imports the name, in either namespace, such as a `source Customer` or an
+  `import (source X as Customer)` beside a use of the shape `Customer`, gets
+  no hint, since that import would collide with the declaration or binding
+  (PIE-S2706).
+  PIE-S2103 for a `def` that only other modules declare adds
+  `; twice is a def of a.pietto, which a module cannot import: declare it in this module`.
+  0.1.5 reported each of these messages without the hint.
+
+#### Stricter checks
+
+- `check --project` in an explicit-module (`schema_version = 2`) project now
+  runs in each module the declaration checks a single file runs, with the
+  same codes, messages and positions, reading each type name as the module
+  declares or imports it. 0.1.5 printed `Project check OK` (exit 0) for
+  these projects, and `emit-sql --project` emitted a VERIFIED artifact for
+  their tables and queries. Now `check --project` reports these errors
+  (exit 1), and `emit-sql --project` is BLOCKED with them. They follow each
+  module's enum and shape declaration diagnostics, module by module, each
+  module's in source order. While any import cycle (PIE-S2703) exists, these
+  checks wait in every module, as the other completion checks do, and are
+  reported once every cycle is fixed. The newly refused forms are:
+  - Decimal type arguments out of range or misspelled, in shape fields, type
+    aliases and constraint or derive signatures (PIE-S2004), such as
+    `amount: Decimal(1, 2)`, `type M = Decimal(5, 9)`, `Decimal(66, 0)` or
+    `Decimal(precision = 9, scale = 2)`. For such a field
+    `emit-sql --project` reported the emission blocker PIE-B1004; it now
+    reports PIE-S2004 at the field's type, and a project `select distinct`
+    over such a field reports PIE-S2004 before PIE-S2339. A plain `Decimal`
+    or `Decimal()` still passes `check --project`, and emission still blocks
+    it with PIE-B1004;
+  - a repeated constraint or derive name (PIE-S2001
+    `Duplicate symbol name in callable namespace: N`) or parameter name
+    (PIE-S2001 `Duplicate parameter name in ...`);
+  - an unknown type in a constraint or derive signature (PIE-S2002); a name
+    already blocked by an import collision, a duplicate type declaration, or
+    a failed import of a type or of a name its target has only as a type,
+    reports only that error, as at a shape field;
+  - a constraint whose declared type is not Bool (PIE-S2401);
+  - a constraint, derive or field `derive` body whose type does not match
+    its declaration (PIE-S2402);
+  - errors inside constraint and derive bodies, shape `check(...)`,
+    `index ... when` predicates and field `derive` bodies, such as an unknown
+    name (PIE-S2102), invalid operands (PIE-S2105), a check that is not Bool
+    (PIE-S2202), an aggregate (PIE-S2308) or a `def` argument that does not
+    fit its parameter (PIE-S2395);
+  - a derived-field cycle (PIE-S2504).
+- A bare name in `any(...)` that both the outer row and the generator row
+  have, such as `price` in `where any(o.price == price for o in orders)`
+  over `items`, is PIE-S2102 `Ambiguous field in ANY predicate: price` in
+  WHERE, SELECT and `let` of an explicit-module project, as in a single
+  file. 0.1.5 accepted it at `check --project`, and `emit-sql --project`
+  read the outer row's `price`.
+- In an explicit-module relation without JOIN inputs or GROUP BY, an ORDER BY
+  key that reads a field the relation does not have, also through a field of
+  a shape (`home.nosuch`), is PIE-S2102 `Unknown field: <name>`, a call of an
+  unknown function is PIE-S2103 `Unknown function: <name>` (with the
+  `def of <module>` hint for a `def` of another module), and a key written
+  as a bare constant (`"x"`, `-1`) is PIE-S2380, as in a single file. A
+  SELECT output is a key only as the whole key, so `-total` with an output
+  `total` that is no input field is PIE-S2102. 0.1.5 accepted all of these at
+  `check --project`, and `emit-sql --project` blocked them with PIE-B1003. A
+  constant that a `let` name binds is still ordered by as a value, and such
+  keys are still not typed: `order by lower(status)` passes
+  `check --project`.
+- Import and export statements outside a `schema_version = 2` project are no
+  longer silently ignored (new PIE-S2708). 0.1.5 ignored them in single
+  files and in `schema_version = 1` projects, so an unresolved import, or an
+  export of an undeclared name, passed `check`, and single-file `emit-sql`
+  emitted SQL.
+  - A single-file command now warns at each import and export statement in
+    every check mode:
+    `Module import is resolved only by check --project ROOT, in a schema_version = 2 project`,
+    with `Module export` for an export. An editor can still check one module
+    file alone.
+  - `check --project` of a `schema_version = 1` project refuses each such
+    statement with a PIE-S2708 error:
+    `Module import is read only in a schema_version = 2 project: set schema_version = 2 in pietto.toml`.
+    A schema-1 project with import or export statements that 0.1.5 accepted
+    now fails `check --project`.
+
+#### Project CLI and JSON
+
+- `result.check.files_with_errors` of `check --project --format json` now
+  counts every input that is the primary location of an error diagnostic,
+  parse or semantic, and `files_ok` is `files_total - files_with_errors`.
+  0.1.5 counted parse status only, so a file with only a semantic error
+  counted as ok. The keys are unchanged. `result` and `inputs[].kind`
+  (`"source"`) are now documented in project CLI JSON v2.
+- Explicit-module (schema 2) project JSON v2 diagnostics from the module
+  graph, import binding and module resolution now carry the related
+  locations those owners compute, each with a `null` message: for example,
+  PIE-S2705 points at the private declaration and PIE-S2706 at the colliding
+  local declaration. 0.1.5 always wrote `[]`. Legacy-flat (schema 1)
+  diagnostics keep `[]`.
+- Wrong project schema, still of kind `config_schema`:
+  - `check --project` and `emit-sql --project` on a schema 3 or 4
+    package-root project now say
+    `check --project reads schema_version 1 or 2 projects and emit-sql --project schema_version 2 ones; this schema_version N package-root project is read by explain --project`
+    (schema 3 adds ` once converted to schema_version 4`), with the path
+    `pietto.toml`. 0.1.5 said
+    `Schema-vN ... does not use project source selection.` with a null path.
+  - `emit-sql --project` on schema 1 now says it needs `schema_version = 2`
+    and to declare cross-file names with import and export. 0.1.5 said
+    `Project emit-sql requires the explicit-module project mode.`
+- Source patterns and selection:
+  - Each pattern fault has its own message: `must use / as the path separator`,
+    `must be relative to the project root`,
+    `must be a normalized project-relative pattern`, or
+    `uses unsupported glob syntax; patterns use only *, ? and a whole ** path part`.
+    Unsupported glob syntax is now `project_glob`; it was `project_path`.
+  - `matched no .pietto files` now carries the path `pietto.toml` and the
+    include and exclude lists.
+  - A `pietto.toml` that starts with a UTF-8 BOM now gets
+    `pietto.toml starts with a UTF-8 byte-order mark; save it as UTF-8 without BOM.`
+    0.1.5 gave a TOML `Invalid statement` error. Such a file is still
+    refused.
+  - A decimal integer longer than 4300 digits in `pietto.toml` is now
+    `config_parse`
+    (`Project configuration TOML is invalid: Exceeds the limit (4300 digits) for integer string conversion: value has N digits.`),
+    and in a package manifest `Package manifest TOML is invalid.` 0.1.5
+    printed a Python traceback in `check --project` and `explain --project`,
+    and `emit-sql --project` reported `project_root`
+    `Project root could not be pinned.`
+  - Selection no longer lists a directory that no include pattern can
+    reach, or that an exclude covers completely (`dir/**`), so an unreadable
+    directory there, such as a database data directory, no longer fails the
+    project. One that could hold a selected file still fails with
+    `project_glob`.
+- CLI usage:
+  - `--project ''` and `--project=` are now a usage error,
+    `argument --project: Project root must be a non-empty path.`, in
+    `check`, `explain` and `emit-sql`. 0.1.5 used the working directory.
+  - In text mode, giving a project directory as the file adds
+    `hint: for a project use pietto <command> --project <dir>` when that
+    command's `--project` reads the project's schema version (`check` 1 or
+    2, `emit-sql` 2, `explain` 4); the `emit-sql` hint also names the
+    arguments it needs (`--module FILE --kind KIND --name NAME --dialect DIALECT --emission-contract FILE`).
+    JSON v1 output is unchanged.
+- Project Explain package diagnostics:
+  - A stale dependency pin now reads
+    `In dependency package ns/name@ver: Package content digest does not match the sha256 pinned by [[dependencies]] in <declaring package>.`
+    0.1.5 blamed `the declared root sha256`.
+  - Every error and diagnostic from a dependency package names that
+    package.
+  - A root-manifest schema error's location kind is now `project_relative`;
+    it was `package_relative`.
+
+#### Project SQL emission
+
+- Selector errors: `Selected owner is absent or ambiguous.` is now kept only
+  for more than one match. With no match, the error lists the project
+  modules, with a `/`-separator hint, or the declarations of that kind in
+  the module. The `--module` help shows `models/queries.pietto`. Contract
+  source selectors list the modules with sources, or the module's sources.
+- Contract errors keep their kinds:
+  - `Invalid emission contract structure.` now names the missing key, which
+    the path points at, and the expected keys. An unexpected key is counted,
+    not echoed.
+  - A field-name mismatch says `Field ordinal N must be named <field>`.
+  - A contract source selector with an empty `module` or `name`, or a `kind`
+    other than `source`, names that key (`sources/0/selector/module`) and
+    says what it must be, as `Source selector module must be a non-empty string; modules with sources: <modules>.`
+  - `Invalid UTF-8 JSON emission input.` is split into a BOM, non-UTF-8,
+    `Invalid JSON emission input: <reason> (line L, column C)`, a duplicate
+    key, a non-finite number (`NaN`, `Infinity`, or one that overflows, such
+    as `1e400`), nesting depth, an integer of more than 4300 digits
+    (`Invalid JSON emission input: Exceeds the limit (4300 digits) for integer string conversion: value has N digits.`),
+    and a string with an unpaired surrogate escape such as `"\ud800"`
+    (`Emission contract strings must not hold a lone surrogate escape (\uD800-\uDFFF).`).
+- A selected source whose file name is not valid UTF-8, which `check
+  --project` reads, now makes `emit-sql --project` INPUT_REJECTED
+  `project_path`
+  `Project source path must be valid UTF-8 to emit SQL: "\udcff.pietto"; rename it.`
+  (exit `2`) where a path in the document would name it: in place of SQL,
+  whose request lists every selected source; in place of the diagnostics
+  and blockers located in that file, which the document leaves out; and
+  beside another input error about it or about such a source directory,
+  such as `source_read` or `project_glob`, whose `path` is then null. An
+  emission document is UTF-8, where such a name has no text. A message that
+  names it, such as a PIE-S2103 hint for a `def` it declares or the
+  `--module` listing of an `emission_selector` error, shows it escaped as
+  in `project_path` (`m\udcff/a.pietto`) and is kept with its status
+  and exit code. A PIE-S2701 suggestion or an import hint never names it,
+  since no import can spell it. A project that is refused for another reason (a schema 1
+  project, a parse or semantic error in another file, or the selected
+  owner's blocker, selector, contract or `--dialect`) reports that as
+  before. In place of SQL, in a diagnostic located in such a file and
+  beside an input error about it, 0.1.5 printed
+  `pietto: error: terminal output could not be encoded` and no document,
+  also with `--format json`. So did an `--emission-contract` path that is
+  not valid UTF-8 and cannot be opened; its `emission_contract_read` error
+  now has `path` null.
+- Blocker places and reasons, with codes unchanged except where stated:
+  - Plan-stage refusals (`order`, `group`, `join`, `window`, ...) are
+    located at their ORDER BY item or clause, not the whole declaration.
+  - `count`, `count_distinct`, `min` and `max` over Decimal or Float are now
+    PIE-B1003 `<fn>_argument_outside_reviewed_int_domain`; they were
+    PIE-B1004 `decimal_aggregate_range_proof_missing` or
+    `float_aggregate_finite_result_proof_missing`. Only `sum` and `avg` keep
+    those proofs.
+  - Every refused aggregate is reported at its own item; 0.1.5 reported only
+    the first.
+  - A refused group key is located at its GROUP BY item; 0.1.5 had location
+    null.
+  - `complete_ordered_source_schema_required` is located at the source
+    declaration, with related locations at the shape fields the contract
+    leaves out or maps out of order. A JOIN that reads such a left-out field
+    reports `join_input_source_field_not_bound` at the same source; 0.1.5
+    had location null.
+- Text failure output now follows a premise, release, `order` or Int-range
+  blocker with a `hint:` line naming the reviewed value or remedy, for
+  example
+  `add {"key":"client_encoding","scope":"statement","value":"UTF8"} to "environment"`
+  or `the reviewed mysql value is {..."lower_case_table_names=0"}`, and
+  prints `related:` locations. The Int-range hint names no storage type,
+  since the field's own storage bounds the result. JSON detail tokens are unchanged, and
+  `pietto.execution` refusal text matches the CLI.
+
+#### Performance
+
+- A project whose relations read earlier relations along several paths, for
+  example `from` the previous relation and `any(...)` over the one before
+  it, no longer takes minutes to report an error in an early relation: each
+  relation's error report now visits every shared upstream result once.
+- An import cycle (PIE-S2703) is reported several times sooner, for example
+  a 40-module cycle in about 4 s instead of about 20 s, and an 80-module
+  cycle in about 15 s instead of about two minutes: the private module
+  inspection now derives each record kind's key sets once instead of once
+  per checked scope. Its private cycle records still grow with the cube of
+  the cycle length, so very long cycles stay slow.
+- These two changes leave results, diagnostics and output unchanged.
+
+#### Documentation
+
+- The [project guide](project-package.md) starts from a minimal
+  `schema_version = 2` `pietto.toml` and describes schema 1 as the
+  legacy-flat mode, with no JOIN, no `any(...)` and no SQL emission. It
+  documents the `[sources]` pattern rules, the per-file resource limits
+  (1 MiB of UTF-8, PIE-P1006, and 200,000 tokens, PIE-P1007; the number of
+  files, their total size and `pietto.toml` are not limited), and which
+  schema each command reads: `check --project` 1 and 2,
+  `emit-sql --project` 2, and `explain --project` only 4. A schema 3
+  project converts by setting 4 and adding an empty
+  `[capability_environment]`.
+- Its new section on explaining a package-root project gives a copyable
+  schema-4 layout with a schema-2 configuration beside it, a package
+  manifest, a standard-library script that computes the package digest, and
+  a target example. `explain --project` reports package and capability
+  portability, not module semantics, and stops before dependencies when the
+  root package fails to load.
+- Its project SQL emission section documents the reviewed target releases
+  (PostgreSQL 18.6 and MySQL 8.4.12), the field representation of each
+  logical type per dialect, each premise's values per dialect and when it is
+  needed, a MySQL contract example, that `--output` always writes the JSON
+  artifact, and the forms that `check --project` accepts and
+  `emit-sql --project` refuses.
+- The [configuration contract](spec/pietto-config-v1.md) is rewritten as the
+  implemented contract: `schema_version` 1 to 4 with the keys each allows,
+  no `[project]` table, an optional `exclude`, the `[package]` and
+  `[capability_environment]` tables, and the error kinds.
+  [Project CLI JSON v2](spec/project-cli-json-v2.md) marks
+  `explain --project` as the separate Project Explain JSON v1 command that
+  needs schema 4 and lists the `emission_contract_read`,
+  `emission_contract_schema` and `emission_selector` error kinds.
+- The README links the new sections, and its Slice13 contract link points at
+  the current specification on `main` instead of v0.1.1. The
+  [roadmap](roadmap.md) records `explain` for schema 2 projects and wider
+  project SQL emission (a PostgreSQL/MySQL parity batch) as follow-ups.
+
+#### Known limitations
+
+These project-mode limits remain. None of them produces wrong SQL.
+
+- **Layered JOIN DAGs are slow to check.** When each relation JOINs the
+  relation before it and the one before that, `check --project` and
+  `emit-sql --project` take about 2 to 3 times as long for every two more
+  layers: a few seconds at 16 layers, and tens of seconds at 20 to 22. This
+  release is faster than 0.1.5 on such projects, but the grain that a
+  project keeps for each JOIN still copies the factors of every path to its
+  inputs; sharing them is deferred (see the [roadmap](roadmap.md)). Only the
+  time is affected, and single-file checks are not.
+- **A bare PIE-S2333 can hide later errors.** Some relations that a single
+  file accepts, or refuses with another code, are still the bare PIE-S2333
+  `Project relation semantic completion is unavailable: <r>` in a project,
+  for example one whose SELECT output is an always-null number such as
+  `o0 = None - 3.0`. The relations that read it report nothing of their own,
+  such as an invalid LIMIT, until it is fixed. The
+  [diagnostics reference](spec/diagnostics.md#semantic-diagnostics) lists
+  these cases.
+- **A cross-module shape error can add a bare PIE-S2333.** A source whose
+  shape, imported from another module, fails for an error inside its
+  declaration other than an unknown type, such as a duplicate field
+  (PIE-S2501), still adds the bare PIE-S2333 at the source beside that
+  error, where a shape in the source's own module reports only the error.
+  So does a source whose field type is an alias, declared in another
+  module, of a name that module imports with a relation kind (PIE-S2705).
+- **A source without a shape is quiet beside another error.** In a module
+  that reports another error, a source without a shape gets no PIE-S2333,
+  and so no `(source items has no shape, ...)` advice, until that error is
+  fixed.
+- **An exported duplicate declaration.** A module that declares a source or
+  shape twice and exports it reports PIE-S2704
+  `Ambiguous local export declaration: source s` at the export; a single
+  file, or the module without that export, reports PIE-S2001 at the second
+  declaration.
+- **A non-UTF-8 unrecognized argument to `emit-sql --project`.** With JSON
+  output, an unrecognized argument that holds a byte that is not valid
+  UTF-8 prints `pietto: error: terminal output could not be encoded` on
+  stderr and no `INPUT_REJECTED` usage document (exit `2`), as 0.1.5 did;
+  `--format text` prints the usage error.
+- **A mixed aggregate JOIN with ORDER BY.** A relation with JOIN inputs that
+  mixes an aggregate with another projection and has ORDER BY reports only
+  PIE-S2312 in a project; a single file also reports the PIE-S2380 of an
+  ORDER BY key that reads an input field outside an aggregate.
+- **A relation-name qualifier through a `let` alias is accepted.** After
+  `let c = customers` and `from c`, a read such as `customers.price` is
+  accepted by `check --project`, and `emit-sql --project` reads the field of
+  `c`, while a single file refuses it with PIE-S2102
+  `Unknown field: customers.price`. Refusing it in a project would refuse
+  programs that check today, so it waits for a decision.
+- **A repeated unknown SELECT item.** A SELECT item of an unknown name
+  written twice, such as `nosuch`, reports PIE-S2102 at both items in a
+  project; a single file reports it at the first, with the PIE-S2305 that
+  both report.
+- **An import after the target's own import fails.** When the target module
+  re-exports a name whose own import of it fails, or imports a name and
+  exports it with another kind, an import of the name from that module
+  still adds PIE-S2705 (`Imported declaration is unavailable: ...` or
+  `Imported declaration is private or not exported: ...`) beside the
+  target's error, which it follows. An import of the very kind and name
+  whose export the target refuses (PIE-S2704) adds nothing.
+
 ## Modern-syntax public alpha release notes — 0.1.5
 
 **Status:** These notes cover the `0.1.5` public alpha, published from

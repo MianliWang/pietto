@@ -48,6 +48,7 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import Diagnostic, Severity
+from pietto.semantic import joins as semantic_joins
 from pietto.semantic import let_bindings as semantic_lets
 from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
@@ -57,7 +58,11 @@ from pietto._project.project_relationship_predicates import (
     ProjectRelationshipPredicateExpression,
     select_project_predicate_expression,
 )
-from pietto.semantic.expressions import LetValues, infer_row_expression
+from pietto.semantic.expressions import (
+    LetValues,
+    _unknown_field_diagnostic,
+    infer_row_expression,
+)
 from pietto.semantic.model import RowSchema, ValueType, ValueTypeKind
 
 __all__: tuple[str, ...] = ()
@@ -392,6 +397,33 @@ def resolve_project_joined_namespace_reference(
     return fields
 
 
+def joined_read_diagnostic(
+    namespace: ProjectJoinedScalarNamespace,
+    resolution: ProjectScalarReferenceResolution,
+) -> Diagnostic:
+    """A joined read that resolves to no one field, as a single file reports
+    it: PIE-S2335 with each candidate's ``binding.field`` in input order when
+    it is ambiguous, else PIE-S2102 Unknown field."""
+
+    expression = resolution.reference.expression
+    if resolution.status is not ProjectModuleCandidateBucketStatus.AMBIGUOUS:
+        return _unknown_field_diagnostic(expression)
+    names = [
+        f"{binding.binding.name}.{candidate.evidence.name}"
+        for candidate in resolution.candidates
+        for binding in namespace.bindings
+        if any(candidate is item for item in binding.fields)
+    ]
+    if len(names) != len(resolution.candidates):
+        raise ValueError("Ambiguous joined read requires exact visible candidates.")
+    return semantic_joins._diagnostic(
+        expression.span,
+        "PIE-S2335",
+        f"Ambiguous field: {semantic_joins._text(expression)}; "
+        f"write {semantic_joins._or_names(names)}",
+    )
+
+
 def _require_expression_resolution_coverage(
     namespace: ProjectJoinedScalarNamespace,
     expression: Expression,
@@ -615,7 +647,7 @@ class ProjectNonConcreteJoinedNamespaceExpression:
             is ProjectScalarTypeNonConcreteReason.REFERENCE_RESOLUTION_NON_CONCRETE
         ):
             # Reads that resolve to no field are typed around and reported by
-            # the kernel; an ambiguous read retains only its lookup facts.
+            # the kernel; an ambiguous read reports each blocking read.
             absent = all(
                 resolution.status is ProjectModuleCandidateBucketStatus.ABSENT
                 for resolution in expected
@@ -638,6 +670,10 @@ class ProjectNonConcreteJoinedNamespaceExpression:
                         self.kernel_value_type is not None
                         or self.value_types
                         or self.diagnostics
+                        != tuple(
+                            joined_read_diagnostic(self.namespace, resolution)
+                            for resolution in expected
+                        )
                     )
                 )
             ):
@@ -727,6 +763,9 @@ def analyze_project_joined_namespace_expression(
                 ProjectScalarTypeNonConcreteReason.REFERENCE_RESOLUTION_NON_CONCRETE
             ),
             blocking_resolutions=blockers,
+            diagnostics=tuple(
+                joined_read_diagnostic(namespace, resolution) for resolution in blockers
+            ),
         )
 
     value_types = scalar_read_types_within(normalized, read_types)
@@ -1248,6 +1287,16 @@ def build_project_joined_let_namespaces(
                 found: list[Diagnostic] = []
                 infer(seed_types, found)
                 merge_shape_typed_diagnostics(local_diagnostics, start, found)
+        elif any(
+            resolution.status is ProjectModuleCandidateBucketStatus.AMBIGUOUS
+            for resolution in local_blockers
+        ):
+            # A read of more than one joined field is reported at the read, as
+            # in a single file, with any other read that resolves to none.
+            local_diagnostics.extend(
+                joined_read_diagnostic(namespace, resolution)
+                for resolution in local_blockers
+            )
         if root_type is not None:
             value_types[occurrence.expression] = root_type
         diagnostics.extend(local_diagnostics)

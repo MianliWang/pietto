@@ -41,6 +41,7 @@ from pietto.ast_nodes import (
     WindowUseKind,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic import joins as semantic_joins
 from pietto.semantic.expressions import _window_literal_range_diagnostics
 from pietto.semantic.model import ValueType
 from pietto.semantic.window_analysis import (
@@ -951,6 +952,42 @@ def _dependencies(
     return tuple(dependencies)
 
 
+def _report_ambiguous_reads(
+    diagnostics: list[Diagnostic],
+    resolutions: tuple[ProjectJoinedWindowInputResolution, ...],
+) -> None:
+    """Report a window input read of more than one joined field as a single
+    file does, PIE-S2335 with each candidate in input order, in place of the
+    unknown field that typing it without a field reports."""
+
+    for resolution in resolutions:
+        candidates = resolution.candidates
+        if len(candidates) < 2 or any(
+            candidate.qualifier is None
+            or candidate.kind is not ProjectJoinedWindowInputBindingKind.JOINED_FIELD
+            for candidate in candidates
+        ):
+            continue
+        expression = resolution.expression
+        span = expression.span
+        for position, diagnostic in enumerate(diagnostics):
+            location = diagnostic.location
+            if (
+                diagnostic.code == "PIE-S2102"
+                and location is not None
+                and (location.path, location.line, location.column)
+                == (span.path, span.line, span.column)
+            ):
+                diagnostics[position] = semantic_joins._diagnostic(
+                    span,
+                    "PIE-S2335",
+                    f"Ambiguous field: {semantic_joins._text(expression)}; write "
+                    + semantic_joins._or_names(
+                        [f"{item.qualifier}.{item.name}" for item in candidates]
+                    ),
+                )
+
+
 def _analyze_site(
     site: ProjectWindowComputationSite,
     namespace: ProjectJoinedWindowInputNamespace,
@@ -1041,6 +1078,7 @@ def _analyze_site(
             }
         ),
     )
+    _report_ambiguous_reads(diagnostics, resolutions)
     if type(semantic) is WindowComputationUnsupported:
         return ProjectNonConcreteWindowComputation(
             site=site,

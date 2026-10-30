@@ -148,8 +148,8 @@ def test_project_json_v2_appends_semantic_diagnostics_without_shape_change() -> 
     assert document["result"] == {
         "check": {
             "files_total": 1,
-            "files_ok": 1,
-            "files_with_errors": 0,
+            "files_ok": 0,
+            "files_with_errors": 1,
         }
     }
     assert document["diagnostics"] == [

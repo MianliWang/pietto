@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 import posixpath
@@ -338,23 +338,46 @@ def _load_dependency_package(
     tuple[ProjectDiscoveryError, ...],
     tuple[Diagnostic, ...],
 ]:
+    occurrence = location.occurrence
     content_result = _load_package_content(
         location.pinned_root,
         location.canonical_path,
         location.directory_state,
         lambda manifest_bytes: _validate_dependency_manifest(
-            location.occurrence,
+            occurrence,
             manifest_bytes,
         ),
+        "Package content digest does not match the sha256 pinned by"
+        " [[dependencies]] in"
+        f" {_coordinate_text(_package_coordinate(occurrence.declaring_package))}.",
+    )
+    # A package-relative location names no package, so each error and
+    # diagnostic of a dependency names it.
+    prefix = f"In dependency package {_coordinate_text(occurrence.coordinate)}: "
+    diagnostics = tuple(
+        replace(diagnostic, message=prefix + diagnostic.message)
+        for diagnostic in content_result.diagnostics
     )
     if not content_result.ok:
-        return None, content_result.errors, content_result.diagnostics
+        return (
+            None,
+            tuple(
+                replace(error, message=prefix + error.message)
+                for error in content_result.errors
+            ),
+            diagnostics,
+        )
     content = content_result.content
     assert type(content) is _LoadedPackageContent
     loaded = object.__new__(LoadedDependencyPackage)
     object.__setattr__(loaded, "location", location)
     object.__setattr__(loaded, "content", content)
-    return loaded, (), content_result.diagnostics
+    return loaded, (), diagnostics
+
+
+def _coordinate_text(coordinate: PackageCoordinate) -> str:
+    identity = coordinate.identity
+    return f"{identity.namespace}/{identity.name}@{coordinate.exact_version}"
 
 
 def _validate_dependency_manifest(

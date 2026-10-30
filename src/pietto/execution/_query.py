@@ -221,14 +221,14 @@ def compile_query(
         except Exception as caught:
             refusal = request_failure(caught, preparing=True)
         else:
-            return _compiled(outcome, template)
+            return _compiled(outcome, template, dialect)
     raise RequestRejected(refusal)
 
 
-def _compiled(outcome, template):
+def _compiled(outcome, template, dialect):
     emission = serialize_project_sql_emission(outcome)
     if template is None:
-        text = _render_failure(json.loads(emission)).rstrip("\n")
+        text = _render_failure(json.loads(emission), dialect).rstrip("\n")
         raise CompileRejected(outcome.status, emission, text)
     return _query(template, "live", emission)
 

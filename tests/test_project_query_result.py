@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import fields, replace
 import json
 from pathlib import Path
+from time import perf_counter
 from typing import cast
 
 import pytest
@@ -32,11 +33,13 @@ from pietto._project.project_completion import (
 )
 from pietto._project.project_final_outputs import (
     ProjectCompletedEffectiveOutput,
+    ProjectEffectiveOutputCompletionTerminal,
     ProjectConcreteNoJoinReplay,
     ProjectNoJoinScalarExpression,
     ProjectNonConcreteRelationLimit,
     ProjectNonConcreteRelationOrdering,
 )
+from pietto.errors import Diagnostic, Severity
 
 
 from _pietto_project_completed_semantics import (
@@ -781,7 +784,7 @@ def test_final_diagnostics_report_a_restated_join_condition_error_once(
             "missing.id == d.id",
             ("unknown", "resolved"),
             False,
-            ("PIE-S2335", "JOIN ON reference is unknown."),
+            ("PIE-S2335", "JOIN ON reference is unknown: missing.id"),
             id="unknown_reference_after_failed_prefix",
         ),
         pytest.param(
@@ -793,7 +796,7 @@ def test_final_diagnostics_report_a_restated_join_condition_error_once(
         ),
     ),
 )
-def test_failed_join_prefix_keeps_later_on_gate_and_all_condition_errors(
+def test_failed_join_prefix_reports_condition_errors_without_follow_ons(
     tmp_path: Path,
     second_on: str,
     reference_states: tuple[str, ...],
@@ -887,7 +890,9 @@ def test_failed_join_prefix_keeps_later_on_gate_and_all_condition_errors(
     first_gate, second_gate = original_gates
     assert len(terminal.diagnostics) == 1
     assert terminal.diagnostics[0] is second_gate
-    assert all(diagnostic != first_gate for diagnostic in result.diagnostics)
+    assert all(
+        diagnostic not in {first_gate, second_gate} for diagnostic in result.diagnostics
+    )
     assert [
         (d.code, d.message, d.location.line, d.location.column)
         for d in first.diagnostics
@@ -904,7 +909,10 @@ def test_failed_join_prefix_keeps_later_on_gate_and_all_condition_errors(
         ),
         (*second_error, 23, 20),
     ]
-    expected = (second_gate, *first.diagnostics, *second.diagnostics)
+    # The later JOIN's input is unavailable only because the earlier one
+    # fails, which is reported; no temporary admission text is published.
+    assert second.unavailable_diagnostics == second.diagnostics[:1]
+    expected = (*first.diagnostics, *second.diagnostics[1:])
     assert len(result.diagnostics) == len(expected)
     assert all(
         actual is retained
@@ -916,25 +924,25 @@ def test_failed_join_prefix_keeps_later_on_gate_and_all_condition_errors(
     )
 
 
-def test_missing_terminal_errors_receive_one_ordered_public_fallback_each(
+def test_a_failure_that_follows_a_reported_one_gets_no_public_fallback(
     tmp_path: Path,
 ) -> None:
     built = _build(tmp_path / "fallback", FALLBACK_FAILURE_SOURCE)
     result = built.completed
     assert not result.ok
     # `bad`, whose FROM does not resolve, reports only that, as in a single
-    # file; before, a PIE-S2333 at `bad` followed.
-    assert tuple(diagnostic.code for diagnostic in result.diagnostics) == (
-        "PIE-S2301",
-        "PIE-S2333",
-    )
-    assert tuple(diagnostic.message for diagnostic in result.diagnostics[1:]) == (
-        "Project relation semantic completion is unavailable: downstream",
-    )
-    assert tuple(
-        (diagnostic.location.path, diagnostic.location.line, diagnostic.location.column)
-        for diagnostic in result.diagnostics[1:]
-    ) == (("main.pietto", 5, 1),)
+    # file, and so does `downstream`, which reads `bad`; before, a PIE-S2333
+    # at each followed.
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.path,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in result.diagnostics
+    ] == [("PIE-S2301", "Unknown relation: missing", "main.pietto", 2, 5)]
     rendered = " ".join(diagnostic.message for diagnostic in result.diagnostics)
     for private in (
         "HISTORICAL_NON_CONCRETE",
@@ -965,8 +973,19 @@ def test_missing_terminal_errors_receive_one_ordered_public_fallback_each(
             "query q:\n    from nowhere\n    select:\n        id\n",
             [("PIE-S2301", "Unknown relation: nowhere", 4, 5)],
         ),
+        (
+            # Each read of an unknown name reports it, a set operand too,
+            # whichever relation reads it first.
+            'source known: Row = postgres.table("k")\n'
+            "query q6:\n    union all known, nowhere\n"
+            "query q1:\n    from nowhere\n    select:\n        id\n",
+            [
+                ("PIE-S2301", "Unknown relation: nowhere", 7, 5),
+                ("PIE-S2301", "Unknown relation: nowhere", 5, 22),
+            ],
+        ),
     ),
-    ids=("duplicate", "exported_duplicate", "unknown_from"),
+    ids=("duplicate", "exported_duplicate", "unknown_from", "unknown_set_operand"),
 )
 def test_a_relation_whose_name_or_from_does_not_resolve_reports_only_why(
     tmp_path: Path,
@@ -1135,26 +1154,18 @@ def test_current_joins_keep_completed_input_and_downstream_output_identities(
     assert dependency.consumer is nested.owner
 
 
-def test_non_concrete_source_relation_receives_public_fallback_without_traceback(
+def test_non_concrete_source_relation_reports_its_shape_without_traceback(
     tmp_path: Path,
 ) -> None:
     built = _build(tmp_path / "source-failure", SOURCE_FAILURE_SOURCE)
     result = built.completed
     assert not result.ok
-    fallbacks = tuple(
-        diagnostic
+    # The source whose shape does not resolve reports only that, as in a
+    # single file; before, a PIE-S2333 at the source followed.
+    assert [
+        (diagnostic.code, diagnostic.message, diagnostic.location.line)
         for diagnostic in result.diagnostics
-        if diagnostic.code == "PIE-S2333"
-    )
-    assert len(fallbacks) == 1
-    assert fallbacks[0].message == (
-        "Project relation semantic completion is unavailable: rows"
-    )
-    assert (
-        fallbacks[0].location.path,
-        fallbacks[0].location.line,
-        fallbacks[0].location.column,
-    ) == ("main.pietto", 1, 1)
+    ] == [("PIE-S2303", "Unknown source shape: MissingShape", 1)]
 
 
 def test_nested_window_error_is_retained_by_identity_instead_of_fallback(
@@ -1272,12 +1283,22 @@ def test_superseded_base_diagnostic_is_not_a_current_terminal_error(
         diagnostic is superseded
         for diagnostic in diagnostic_matrix.completed.diagnostics
     )
+    # The ambiguous ORDER BY read is the current terminal error, as in a
+    # single file; before, it was a PIE-S2333 at `order_bad`.
+    order_bad = blocker.blocker.diagnostics
+    assert [(d.code, d.message) for d in order_bad] == [
+        ("PIE-S2335", "Ambiguous field: id; write accounts.id or event.id")
+    ]
     assert (
         sum(
-            diagnostic.code == "PIE-S2333" and diagnostic.message.endswith("order_bad")
+            diagnostic is order_bad[0]
             for diagnostic in diagnostic_matrix.completed.diagnostics
         )
         == 1
+    )
+    assert not any(
+        diagnostic.code == "PIE-S2333" and diagnostic.message.endswith("order_bad")
+        for diagnostic in diagnostic_matrix.completed.diagnostics
     )
 
 
@@ -1370,23 +1391,19 @@ def test_explicit_project_cli_renders_completed_failure_in_text_and_json(
     assert cli.main(["check", "--project", str(root)]) == 1
     text = capsys.readouterr()
     assert text.out == ""
-    assert text.err == (
-        "main.pietto:2:5 PIE-S2301 error: Unknown relation: missing\n"
-        "main.pietto:5:1 PIE-S2333 error: Project relation semantic completion "
-        "is unavailable: downstream\n"
-    )
+    assert text.err == "main.pietto:2:5 PIE-S2301 error: Unknown relation: missing\n"
 
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
     document = _read_json(capsys)
     assert tuple(document) == PROJECT_JSON_KEYS
     assert document["ok"] is False
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])
-    assert tuple(item["code"] for item in diagnostics) == ("PIE-S2301", "PIE-S2333")
+    assert tuple(item["code"] for item in diagnostics) == ("PIE-S2301",)
     assert document["result"] == {
         "check": {
             "files_total": 1,
-            "files_ok": 1,
-            "files_with_errors": 0,
+            "files_ok": 0,
+            "files_with_errors": 1,
         }
     }
 
@@ -2437,8 +2454,6 @@ def test_project_refuses_satisfying_without_group_by_in_every_no_join_body(
         "    select:\n"
         "        a\n",
     )
-    unavailable = "Project relation semantic completion is unavailable: {}"
-
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
     document = _read_json(capsys)
     assert document["ok"] is False
@@ -2446,12 +2461,12 @@ def test_project_refuses_satisfying_without_group_by_in_every_no_join_body(
         ("PIE-S2323", "error", _NO_GROUP, 14, 5),
         ("PIE-S2308", "error", _COUNT_IN_SATISFYING, 24, 9),
         ("PIE-S2323", "error", _NO_GROUP, 36, 5),
+        # A reader of a relation that fails (let_body of w1, downstream of
+        # ordered) follows its error and reports nothing of its own.
         ("PIE-S2323", "error", _NO_GROUP, 43, 9),
-        ("PIE-S2333", "error", unavailable.format("let_body"), 38, 1),
         ("PIE-S2323", "error", _NO_GROUP, 56, 5),
         ("PIE-S2323", "error", _NO_GROUP, 62, 5),
         ("PIE-S2323", "error", _NO_GROUP, 68, 5),
-        ("PIE-S2333", "error", unavailable.format("downstream"), 73, 1),
     ]
 
 
@@ -2513,12 +2528,11 @@ def test_satisfying_without_group_by_beside_parameters_and_table_functions(
         "        a\n",
     )
     (root / "contract.json").write_text("{}", encoding="utf-8")
-    unavailable = "Project relation semantic completion is unavailable: param_let"
+    # param_let and series_let follow the error of their let.
     expected = [
         ("PIE-S2323", "error", _NO_GROUP, 9, 5),
         ("PIE-S2308", "error", _COUNT_IN_SATISFYING, 16, 9),
         ("PIE-S2323", "error", _NO_GROUP, 23, 9),
-        ("PIE-S2333", "error", unavailable, 17, 1),
         ("PIE-S2323", "error", _NO_GROUP, 32, 5),
         ("PIE-S2308", "error", _COUNT_IN_SATISFYING, 39, 9),
         ("PIE-S2323", "error", _NO_GROUP, 45, 9),
@@ -2730,22 +2744,13 @@ query q:
     ]
     terminal = _terminal_entry(built, "q")
     assert terminal.current_region is None
-    # The failed ON's own gate retires; the later JOIN keeps the failed-prefix
-    # contract: its ON gate, its unavailable pre-match input and its blocked
-    # read of the prior rows.
+    # The failed ON reports its own errors, as in a single file; the later
+    # JOIN, whose prior rows it blocks, reports nothing more: neither a
+    # temporary admission text nor its unavailable pre-match input and read.
     assert [
         (item.code, item.message, item.location.line, item.location.column)
-        for item in result.diagnostics
+        for item in second.diagnostics
     ] == [
-        (
-            "PIE-S2334",
-            "JOIN-local ON is available only when an EXPLICIT_MODULES project "
-            "(schema version 2) completes it.",
-            11,
-            23,
-        ),
-        ("PIE-S2604", unavailable, 9, 36),
-        ("PIE-S2103", "Unknown function: Missing", 9, 48),
         (
             "PIE-S2335",
             "JOIN pre-match input or relationship authority is unavailable.",
@@ -2754,13 +2759,11 @@ query q:
         ),
         ("PIE-S2335", "JOIN ON reference is unavailable.", 11, 26),
     ]
+    assert second.unavailable_diagnostics == second.diagnostics
+    assert len(result.diagnostics) == len(first.diagnostics)
     assert all(
         actual is retained
-        for actual, retained in zip(
-            result.diagnostics[1:],
-            (*first.diagnostics, *second.diagnostics),
-            strict=True,
-        )
+        for actual, retained in zip(result.diagnostics, first.diagnostics, strict=True)
     )
 
 
@@ -2787,13 +2790,14 @@ query q:
         (item.code, item.message, item.location.line, item.location.column)
         for item in diagnostics
     ] == [
+        # The declaration's own error first, as in a single file.
+        ("PIE-S2604", "Unknown relationship parameter field: row.missing", 5, 5),
         ("PIE-S2604", refused, 9, 18),
         ("PIE-S2604", refused, 9, 44),
         ("PIE-S2103", "Unknown function: Missing", 9, 29),
         ("PIE-S2103", "Unknown function: Missing", 9, 61),
-        ("PIE-S2604", "Unknown relationship parameter field: row.missing", 5, 5),
     ]
-    assert diagnostics[0] is not diagnostics[1]
+    assert diagnostics[1] is not diagnostics[2]
 
 
 def test_failed_relationship_aggregate_argument_reports_call_then_scanned_child(
@@ -2859,13 +2863,14 @@ query q:
         (item.code, item.message, item.location.line, item.location.column)
         for item in result.diagnostics
     ] == [
+        # The declaration's own error first, as in a single file.
+        ("PIE-S2604", "Unknown relationship parameter field: row.missing", 5, 5),
         (
             "PIE-S2604",
             "Relationship predicate Broken has no unambiguous checked declaration",
             9,
             27,
         ),
-        ("PIE-S2604", "Unknown relationship parameter field: row.missing", 5, 5),
     ]
     (condition,) = result.roots.join_conditions.entries
     assert not condition.ready and condition.references == ()
@@ -2875,9 +2880,9 @@ query q:
         and condition.value_type.kind.value == "unknown"
     )
     assert len(condition.diagnostics) == 1
-    assert condition.diagnostics[0] is result.diagnostics[0]
+    assert condition.diagnostics[0] is result.diagnostics[1]
     assert any(
-        item is result.diagnostics[1]
+        item is result.diagnostics[0]
         for item in result.roots.join_conditions.diagnostics
     )
     assert _terminal_entry(built, "q").current_region is None
@@ -2941,19 +2946,19 @@ query q:
     )
     result = built.completed
     assert not result.ok
-    # The ambiguous `id` keeps the completion fallback; the rejected call's
-    # error stays on its record and is not published.
+    # The ambiguous `id` reports itself, as in a single file, instead of the
+    # completion fallback; the rejected call's error stays on its record and
+    # is not published.
+    ambiguous = (
+        "PIE-S2335",
+        "Ambiguous field: id; write rows.id or other.id",
+        10,
+        33,
+    )
     assert [
         (item.code, item.message, item.location.line, item.location.column)
         for item in result.diagnostics
-    ] == [
-        (
-            "PIE-S2333",
-            "Project relation semantic completion is unavailable: q",
-            6,
-            1,
-        )
-    ]
+    ] == [ambiguous]
     (analysis,) = (
         aggregate.input_filter.expression_analysis
         for tail in result.effective_outputs.current_tails
@@ -2965,7 +2970,10 @@ query q:
     )
     assert analysis.reason.value == "reference_resolution_non_concrete"
     assert analysis.kernel_value_type is None and not analysis.value_types
-    assert analysis.diagnostics == ()
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in analysis.diagnostics
+    ] == [ambiguous]
     (blocker,) = analysis.blocking_resolutions
     assert blocker.status.value == "ambiguous" and blocker.target is None
     assert len(blocker.candidates) == 2
@@ -3162,7 +3170,7 @@ def test_failed_any_on_with_an_unknown_reference_holds_each_error_once(
     ] == [
         ("PIE-S2604", unavailable, 16, 48),
         ("PIE-S2103", "Unknown function: Missing", 16, 63),
-        ("PIE-S2335", "JOIN ON reference is unknown.", 16, 120),
+        ("PIE-S2335", "JOIN ON reference is unknown: nowhere.id", 16, 120),
     ]
     (value,) = condition.environment.existence_values
     assert condition.diagnostics[0] is value.diagnostics[1]
@@ -3216,7 +3224,7 @@ def test_failed_any_joined_let_with_a_blocked_read_holds_each_error_once(
 _UNAVAILABLE_OWNER = (
     "Unavailable row argument for relationship ActiveOwner parameter owner"
 )
-_UNAVAILABLE_ANY = "ANY predicate reference is unavailable."
+_UNKNOWN_ANY = "Unknown or unavailable field in ANY predicate: c.nope"
 
 
 @pytest.mark.parametrize(
@@ -3232,12 +3240,12 @@ _UNAVAILABLE_ANY = "ANY predicate reference is unavailable."
         ),
         pytest.param(
             "any(c.nope > 0 for c in owners)",
-            [("PIE-S2334", _UNAVAILABLE_ANY, 15, 17)],
+            [("PIE-S2102", _UNKNOWN_ANY, 15, 17)],
             id="any_error",
         ),
         pytest.param(
             "any(ActiveOwner(items, c) and c.nope > 0 for c in owners)",
-            [("PIE-S2334", _UNAVAILABLE_ANY, 15, 43)],
+            [("PIE-S2102", _UNKNOWN_ANY, 15, 43)],
             id="successful_call_any_error",
         ),
     ),
@@ -3261,3 +3269,434 @@ def test_no_join_let_terminal_adds_scanned_errors_only_for_rejected_calls(
         (item.code, item.message, item.location.line, item.location.column)
         for item in result.diagnostics
     ] == expected
+
+
+def _file_diagnostics(source: str) -> list[tuple[str, str, int, int]]:
+    from pietto.parser_api import parse_source
+    from pietto.semantic import analyze
+
+    parsed = parse_source(source, path="main.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    return [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in analyze(parsed.ast).diagnostics
+    ]
+
+
+def _project_diagnostics(
+    tmp_path: Path, source: str
+) -> list[tuple[str, str, int, int]]:
+    return [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in _build(tmp_path, source).completed.diagnostics
+    ]
+
+
+_AMBIGUOUS_JOIN_HEAD = """shape Order:
+    id: Int
+    customer_id: Int
+shape Customer:
+    id: Int
+source orders: Order = postgres.table("orders")
+source customers: Customer = postgres.table("customers")
+query q:
+    from orders
+    let customer = customers
+"""
+_JOINED_CUSTOMER = "    inner join customer on orders.customer_id == customer.id\n"
+_AMBIGUOUS_ID = (
+    "PIE-S2335",
+    "Ambiguous field: id; write orders.id or customer.id",
+)
+
+
+@pytest.mark.parametrize(
+    ("tail", "expected"),
+    (
+        pytest.param(
+            _JOINED_CUSTOMER + "    select:\n        id\n",
+            [(*_AMBIGUOUS_ID, 13, 9)],
+            id="select",
+        ),
+        pytest.param(
+            _JOINED_CUSTOMER + "    select:\n        x = id + 1\n",
+            [(*_AMBIGUOUS_ID, 13, 13)],
+            id="expression",
+        ),
+        pytest.param(
+            _JOINED_CUSTOMER + "    where id > 1\n    select:\n        n = orders.id\n",
+            [(*_AMBIGUOUS_ID, 12, 11)],
+            id="where",
+        ),
+        pytest.param(
+            _JOINED_CUSTOMER
+            + "    select:\n        n = orders.id\n    order by:\n        id\n",
+            [(*_AMBIGUOUS_ID, 15, 9)],
+            id="order",
+        ),
+        pytest.param(
+            _JOINED_CUSTOMER
+            + "    group by:\n        id\n    select:\n        id\n        n = count()\n",
+            [(*_AMBIGUOUS_ID, 13, 9), (*_AMBIGUOUS_ID, 15, 9)],
+            id="group",
+        ),
+        pytest.param(
+            "    inner join customer on id == customer.id\n"
+            "    select:\n        n = orders.id\n",
+            [
+                (
+                    "PIE-S2335",
+                    "JOIN ON reference is ambiguous: id; write orders.id or "
+                    "customer.id",
+                    11,
+                    28,
+                )
+            ],
+            id="on_ambiguous",
+        ),
+        pytest.param(
+            "    inner join customer on orders.customer_id == missing.id\n"
+            "    select:\n        n = orders.id\n",
+            [("PIE-S2335", "JOIN ON reference is unknown: missing.id", 11, 50)],
+            id="on_unknown",
+        ),
+        pytest.param(
+            _JOINED_CUSTOMER
+            + "    let x = id + 1\n    select:\n        n = orders.id\n",
+            [(*_AMBIGUOUS_ID, 12, 13)],
+            id="let",
+        ),
+        pytest.param(
+            _JOINED_CUSTOMER + "    select:\n        n = orders.id\n"
+            "        r = row_number() window(partition by id order by orders.id)\n",
+            [(*_AMBIGUOUS_ID, 14, 46)],
+            id="window_partition",
+        ),
+        pytest.param(
+            _JOINED_CUSTOMER + "    select:\n        n = orders.id\n"
+            "        r = row_number() window(order by id)\n",
+            [(*_AMBIGUOUS_ID, 14, 42)],
+            id="window_order",
+        ),
+        pytest.param(
+            "    inner join nosuch on nosuch.id == orders.id\n"
+            "    select:\n        n = orders.id\n",
+            [("PIE-S2301", "Unknown relation: nosuch", 11, 5)],
+            id="unknown_join_input",
+        ),
+    ),
+)
+def test_a_joined_read_without_one_field_reports_its_single_file_diagnostic(
+    tmp_path: Path, tail: str, expected: list[tuple[str, str, int, int]]
+) -> None:
+    # Each read names itself and its alternatives, at the read, as in a
+    # single file; before, a bare PIE-S2333 at the query, a PIE-S2102
+    # `Unknown field` for a GROUP BY key, or an ON message without the read
+    # and with a temporary admission text.
+    source = _AMBIGUOUS_JOIN_HEAD + tail
+    assert _project_diagnostics(tmp_path, source) == expected
+    assert _file_diagnostics(source) == expected
+
+
+_ORDER_HEAD = """shape Row:
+    id: Int
+    cat: Text
+    price: Int
+shape Ord:
+    oid: Int
+    item_id: Int
+source items: Row = postgres.table("items")
+source orders: Ord = postgres.table("orders")
+query q:
+    from items
+"""
+
+
+@pytest.mark.parametrize(
+    ("tail", "project", "single_file"),
+    (
+        pytest.param(
+            "    select:\n        id\n    order by:\n        nosuch\n",
+            [("PIE-S2102", "Unknown field: nosuch", 15, 9)],
+            None,
+            id="unknown_key",
+        ),
+        pytest.param(
+            '    select:\n        id\n    order by:\n        "lit"\n',
+            [
+                (
+                    "PIE-S2380",
+                    "Constant ORDER BY key: a target reads a bare constant key as "
+                    "a column position or rejects it",
+                    15,
+                    9,
+                )
+            ],
+            None,
+            id="constant_key",
+        ),
+        pytest.param(
+            "    let one = 1\n    select:\n        id\n    order by:\n        one\n",
+            [],
+            [
+                (
+                    "PIE-S2380",
+                    "Constant ORDER BY key: a target reads a bare constant key as "
+                    "a column position or rejects it",
+                    16,
+                    9,
+                )
+            ],
+            id="let_constant_key",
+        ),
+        pytest.param(
+            "    select:\n        id\n        p2 = price * 2\n"
+            "    order by:\n        p2\n    limit -1\n",
+            [
+                (
+                    "PIE-S2307",
+                    "Limit must be a static integer from 0 to 9223372036854775807",
+                    17,
+                    11,
+                )
+            ],
+            None,
+            id="limit_before_output_key",
+        ),
+        pytest.param(
+            "    where any(o.item_id == items.id for o in orders)\n"
+            "    select:\n        id\n        p2 = price * 2\n"
+            "    order by:\n        p2\n",
+            [
+                (
+                    "PIE-S2102",
+                    "Unknown field: p2; this project relation cannot order by a "
+                    "SELECT output yet (restate its expression, or bind it with "
+                    "`let` and order by that name)",
+                    17,
+                    9,
+                )
+            ],
+            [],
+            id="completed_output_key",
+        ),
+        pytest.param(
+            "    select:\n        id\n        p2 = price * 2\n"
+            "    order by:\n        p2\n",
+            [],
+            None,
+            id="output_key_control",
+        ),
+        pytest.param(
+            "    select:\n        id\n    order by:\n        nosuchfn(id)\n",
+            [("PIE-S2103", "Unknown function: nosuchfn", 15, 9)],
+            None,
+            id="unknown_function_key",
+        ),
+        pytest.param(
+            "    select:\n        id\n        p2 = price * 2\n"
+            "    order by:\n        -p2\n",
+            [("PIE-S2102", "Unknown field: p2", 16, 10)],
+            None,
+            id="output_inside_key",
+        ),
+    ),
+)
+def test_an_ungrouped_order_key_without_join_inputs_is_resolved_before_typing(
+    tmp_path: Path,
+    tail: str,
+    project: list[tuple[str, str, int, int]],
+    single_file: list[tuple[str, str, int, int]] | None,
+) -> None:
+    # A key's names and a key written as a constant are checked as in a
+    # single file, and a LIMIT error is reported whatever the key is; project
+    # SQL orders by a constant that a `let` name binds as a value. A SELECT
+    # output key that a completed relation cannot order by names the remedy
+    # instead of only `Unknown field`. Keys are not typed yet.
+    source = _ORDER_HEAD + tail
+    assert _project_diagnostics(tmp_path, source) == project
+    assert _file_diagnostics(source) == (
+        project if single_file is None else single_file
+    )
+
+
+def test_an_unknown_order_key_beside_a_shape_operand_reports_both(
+    tmp_path: Path,
+) -> None:
+    # An unknown name in one key no longer hides another key's shape operand
+    # error; both are reported, key by key, as in a single file.
+    source = (
+        "shape Addr:\n    city: Text\nshape Row:\n    id: Int\n    home: Addr\n"
+        'source items: Row = postgres.table("items")\n'
+        "query q:\n    from items\n    select:\n        id\n"
+        "    order by:\n        home + 1\n        nosuch\n"
+    )
+    expected = [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator +: expected numeric operands",
+            12,
+            9,
+        ),
+        ("PIE-S2102", "Unknown field: nosuch", 13, 9),
+    ]
+    assert _project_diagnostics(tmp_path, source) == expected
+    assert _file_diagnostics(source) == expected
+
+
+_FAILED_PRODUCER = """shape Row:
+    id: Int
+source items: Row = postgres.table("items")
+table b:
+    from items
+    select:
+        bid = id
+        bad = nosuch
+"""
+
+
+@pytest.mark.parametrize(
+    "reader",
+    (
+        pytest.param(
+            "query q:\n    from items\n    let o = b\n"
+            "    left join o on items.id == o.bid\n    select:\n        id = items.id\n",
+            id="join",
+        ),
+        pytest.param("query q:\n    from b\n    select:\n        bid\n", id="from"),
+        pytest.param(
+            "query q:\n    from items\n    let o = b\n"
+            "    left join o on items.id == o.bid\n    select:\n        id = items.id\n"
+            "query r:\n    from q\n    select:\n        id\n",
+            id="reader_of_join_reader",
+        ),
+        # A single file reports these otherwise.
+        pytest.param(
+            "query q:\n    union all:\n        from b\n        from b\n",
+            id="set_operands",
+        ),
+        pytest.param(
+            "query q:\n    from items\n    where any(o.bid == items.id for o in b)\n"
+            "    select:\n        id\n",
+            id="any",
+        ),
+        pytest.param(
+            "query q:\n    from items\n    select:\n        id\n"
+            "        top = scalar b.bid\n",
+            id="scalar",
+        ),
+    ),
+)
+def test_a_reader_of_a_failed_producer_reports_only_the_producer_error(
+    tmp_path: Path, reader: str, request: pytest.FixtureRequest
+) -> None:
+    # Neither a temporary admission text, nor the JOIN's unavailable input,
+    # nor a set operand's or a read's own unavailable input, nor a fallback
+    # at the reader, or at its reader, follows the producer's own error.
+    source = _FAILED_PRODUCER + reader
+    expected = [("PIE-S2102", "Unknown field: nosuch", 8, 15)]
+    assert _project_diagnostics(tmp_path, source) == expected
+    if request.node.callspec.id not in {"set_operands", "any", "scalar"}:
+        assert _file_diagnostics(source) == expected
+
+
+def test_readers_follow_a_producer_that_reports_only_its_fallback(
+    tmp_path: Path,
+) -> None:
+    # A producer that fails with its own PIE-S2333 is a reported failure too:
+    # neither its JOIN reader nor that reader's reader adds a fallback.
+    source = (
+        "shape Row:\n    id: Int\n"
+        'source items: Row = postgres.table("items")\n'
+        "query b:\n    from items\n    select:\n        bid = id\n"
+        "        bad = None + None\n"
+        "query q:\n    from items\n    let o = b\n"
+        "    inner join o on items.id == o.bid\n    select:\n        id = items.id\n"
+        "query r:\n    from q\n    select:\n        id\n"
+    )
+    assert _project_diagnostics(tmp_path, source) == [
+        ("PIE-S2333", "Project relation semantic completion is unavailable: b", 4, 1)
+    ]
+
+
+def test_a_long_chain_of_failed_relations_reports_its_root_error(
+    tmp_path: Path,
+) -> None:
+    # Each relation reads the one declared after it, and the last one has an
+    # unknown field: whether a relation follows a reported failure is decided
+    # without recursion, so the chain is longer than the recursion limit
+    # allows (before: PIE-S2006 in place of the error).
+    depth = 520
+    source = (
+        "shape Row:\n    id: Int\n"
+        'source items: Row = postgres.table("items")\n'
+        + "".join(
+            f"table t{index}:\n    from t{index - 1}\n    select:\n        id\n"
+            for index in range(depth - 1, 0, -1)
+        )
+        + "table t0:\n    from items\n    select:\n        id\n        v = nosuch\n"
+    )
+    diagnostics = _project_diagnostics(tmp_path, source)
+    assert [(code, message) for code, message, _, _ in diagnostics] == [
+        ("PIE-S2102", "Unknown field: nosuch")
+    ]
+
+
+def _layered_any_chain(depth: int) -> str:
+    """Each layer reads the one below and any(...) over the one below that;
+    the first layer has an unknown field."""
+
+    return (
+        "shape Item:\n    id: Int\n    price: Int\n\n"
+        'source items: Item = postgres.table("items")\n\n'
+        "query q0:\n    from items\n    select:\n        id\n        price\n"
+    ) + "".join(
+        f"\nquery q{i}:\n    from q{i - 1}\n"
+        f"    where any(z.id == q{i - 1}.id for z in q{max(i - 2, 0)})"
+        f" and {'missing' if i == 1 else 'price'} > 0\n"
+        "    select:\n        id\n        price\n"
+        for i in range(1, depth + 1)
+    )
+
+
+def test_error_projection_walks_each_shared_carrier_once_in_bounded_time(
+    tmp_path: Path, diagnostic_matrix: _Built
+) -> None:
+    # A terminal reaches the carriers of its upstream terminals along every
+    # read path, exponentially many in a layered chain, so 24 layers once
+    # took minutes. The error projection now walks each carrier once and
+    # still keeps the first occurrence, by identity, of every path's errors.
+    for built in (_build(tmp_path / "small", _layered_any_chain(6)), diagnostic_matrix):
+        terminals = tuple(
+            entry
+            for entry in built.completed.effective_outputs.entries
+            if type(entry)
+            in {
+                ProjectEffectiveOutputTerminal,
+                ProjectEffectiveOutputCompletionTerminal,
+            }
+        )
+        assert terminals
+        for entry in terminals:
+            every_path: list[Diagnostic] = []
+            for diagnostic in completed_semantics._diagnostics_from_carrier(entry):
+                if diagnostic.severity is Severity.ERROR and not any(
+                    diagnostic is kept for kept in every_path
+                ):
+                    every_path.append(diagnostic)
+            projected = completed_semantics._entry_error_diagnostics(entry)
+            assert len(projected) == len(every_path)
+            assert all(
+                left is right for left, right in zip(projected, every_path, strict=True)
+            )
+
+    started = perf_counter()
+    deep = _build(tmp_path / "deep", _layered_any_chain(24))
+    elapsed = perf_counter() - started
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in deep.completed.diagnostics
+        if item.location is not None
+    ] == [("PIE-S2102", "Unknown field: missing", 15, 46)]
+    assert len(deep.completed.diagnostics) == 1
+    assert elapsed < 30

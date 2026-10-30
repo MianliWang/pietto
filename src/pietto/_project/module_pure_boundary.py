@@ -3397,6 +3397,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("relation", "let_relation_nesting_limit", "present"),
                     ("relation", "unknown_relation_expression_read", "present"),
                     ("relation", "relation_expression_read_position", "present"),
+                    ("relation", "unknown_join_input", "present"),
                 ),
             ),
         ),
@@ -3975,6 +3976,16 @@ def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
             )
         )
     )
+
+
+# Both key sets are pure functions of one kind over the immutable schema, so
+# they are derived once per kind here, not once per validated scope.
+_SUBSET_KEYS: Mapping[str, tuple[tuple[str, tuple[str, ...]], ...]] = MappingProxyType(
+    {kind: _subset_keys(kind) for kind in PURE_RECORD_SCHEMA}
+)
+_COLLECTED_KEYS: Mapping[str, tuple[tuple[str, str], ...]] = MappingProxyType(
+    {kind: _collected_keys(kind) for kind in PURE_RECORD_SCHEMA}
+)
 
 
 def _grouped(collected: list[tuple[int, str]]) -> tuple[tuple[str, ...], ...]:
@@ -4833,13 +4844,13 @@ def _validate_structure(
                 bucket, []
             ).append((index, count))
         for frame in stack:
-            for entry in _subset_keys(frame.kind):
+            for entry in _SUBSET_KEYS.get(frame.kind, ()):
                 if entry[0] != record.kind:
                     continue
                 frame.grouped_tuples.setdefault(entry, []).append(
                     tuple(_exact_token(_value_of(record, key)) for key in entry[1])
                 )
-            for collected_kind, collected_key in _collected_keys(frame.kind):
+            for collected_kind, collected_key in _COLLECTED_KEYS.get(frame.kind, ()):
                 if collected_kind != record.kind:
                     continue
                 frame.collected.setdefault((collected_kind, collected_key), []).append(

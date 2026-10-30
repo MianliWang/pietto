@@ -780,7 +780,7 @@ def test_direct_explicit_reexport_entry_is_importable_without_identity_rewrite(
     assert binding.identity.local_binding_name == "Local"
 
 
-def test_single_backfill_does_not_recurse_or_build_facade_fixed_point(
+def test_backfill_resolves_reexport_chains_to_a_fixpoint_without_graph_state(
     tmp_path: Path,
 ) -> None:
     _, semantic = _semantic_project(
@@ -803,12 +803,17 @@ def test_single_backfill_does_not_recurse_or_build_facade_fixed_point(
             ),
         },
     )
+    # A re-export of a re-export resolves: every hop binds the one original
+    # declaration, and no hop limit applies.
+    original = _environment(semantic, "b-one.pietto").bindings[0].target_identity
+    assert original.module_path == "a-origin.pietto"
     assert len(_environment(semantic, "c-two.pietto").bindings) == 1
     consumer = _environment(semantic, "d-consumer.pietto")
-    assert consumer.bindings == ()
-    assert consumer.issues[0].status is (
-        module_bindings.ProjectModuleBindingIssueStatus.UNKNOWN_EXPORTED_NAME
+    assert consumer.issues == ()
+    assert tuple(binding.target_identity for binding in consumer.bindings) == (
+        original,
     )
+    assert semantic.diagnostics == ()
     assert not hasattr(_required_bindings(semantic), "graph")
     assert not hasattr(_required_bindings(semantic), "cycles")
 

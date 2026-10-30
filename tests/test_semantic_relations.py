@@ -168,7 +168,7 @@ def test_relation_resolution_continues_after_unknown_target() -> None:
     )
 
 
-def test_missing_call_arguments_report_fields_without_call_cascades() -> None:
+def test_unknown_calls_are_reported_before_their_bare_name_arguments() -> None:
     result = analyze(
         _parse(
             SOURCE + "table projected:\n"
@@ -180,10 +180,12 @@ def test_missing_call_arguments_report_fields_without_call_cascades() -> None:
         )
     )
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
-        "PIE-S2102",
-        "PIE-S2102",
-        "PIE-S2102",
+    assert [
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    ] == [
+        ("PIE-S2103", "Unknown function: unknown_predicate"),
+        ("PIE-S2102", "Unknown field: missing_field"),
+        ("PIE-S2103", "Unknown function: unknown_call"),
     ]
 
 

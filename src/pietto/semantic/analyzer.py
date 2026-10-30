@@ -6,7 +6,7 @@ from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._syntax_admission import unadmitted_syntax_diagnostics
 
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence, Set as AbstractSet
 from dataclasses import fields, is_dataclass, replace
 from heapq import heappop, heappush, merge
 from typing import TYPE_CHECKING, cast
@@ -43,6 +43,7 @@ from pietto.ast_nodes import (
     Nullability,
     QueryDef,
     RelationshipMatchClause,
+    ImportStatement,
     Script,
     ShapeDef,
     SourceDef,
@@ -174,7 +175,49 @@ def analyze(
     """Build the incremental semantic model and ordered diagnostics."""
 
     with null_numbers():
-        return _analyze_script(script, mode_override=mode_override, single_file=True)
+        result = _analyze_script(script, mode_override=mode_override, single_file=True)
+    statements = module_statement_diagnostics(script, legacy_flat=False)
+    if not statements:
+        return result
+    return replace(
+        result,
+        diagnostics=tuple(merge(result.diagnostics, statements, key=_diagnostic_order)),
+    )
+
+
+def module_statement_diagnostics(
+    script: Script, *, legacy_flat: bool
+) -> tuple[Diagnostic, ...]:
+    """PIE-S2708 at each import and export statement of a script read outside
+    an EXPLICIT_MODULES project, which alone resolves them: a WARNING in a
+    single file, which an editor may check alone, and an ERROR in a
+    LEGACY_FLAT project, which never reads them."""
+
+    diagnostics = []
+    for statement in script.module_statements:
+        statement_kind = "import" if type(statement) is ImportStatement else "export"
+        span = statement.span
+        diagnostics.append(
+            Diagnostic(
+                code="PIE-S2708",
+                severity=Severity.ERROR if legacy_flat else Severity.WARNING,
+                message=(
+                    f"Module {statement_kind} is read only in a schema_version = 2 "
+                    "project: set schema_version = 2 in pietto.toml"
+                    if legacy_flat
+                    else f"Module {statement_kind} is resolved only by "
+                    "check --project ROOT, in a schema_version = 2 project"
+                ),
+                location=SourceLocation(
+                    path=span.path,
+                    line=span.line,
+                    column=span.column,
+                    end_line=span.end_line,
+                    end_column=span.end_column,
+                ),
+            )
+        )
+    return tuple(diagnostics)
 
 
 def analyze_project_namespace(script: Script) -> SemanticResult:
@@ -846,6 +889,119 @@ def _analyze(
             )
         ),
     )
+
+
+def check_module_declarations(
+    modules: Sequence[tuple[Script, Mapping[str, Definition], AbstractSet[str]]],
+) -> tuple[Diagnostic, ...]:
+    """Check the declarations of each explicit module as a single file does,
+    with the checks that module resolution leaves out: the callable namespace,
+    Decimal type arguments (PIE-S2004), constraint and derive signatures and
+    bodies, and shape `check`, `index ... when` and field `derive` bodies.
+
+    Each module is its script, its type namespace (its own and imported
+    declarations by local name) and the type names whose resolution failed
+    with an error reported elsewhere, which are unknown here without one.
+    PIE-S2002 is reported only for a constraint or derive signature type,
+    which module resolution does not resolve. An alias expands in the module
+    that declares it, and an enum or shape keeps its declared name, so
+    imported names compare as their declarations. A module's diagnostics are
+    in single-file order, after those of the modules before it."""
+
+    type_resolutions: dict[TypeExpr, ResolvedType] = {}
+    for script, type_symbols, _ in modules:
+        for type_expr in _iter_type_expressions(script):
+            type_resolutions[type_expr] = _resolve_type(type_expr, type_symbols)
+    type_expansions = {
+        type_expr: _expanded_type(direct, type_resolutions)
+        for type_expr, direct in type_resolutions.items()
+    }
+    type_nullability = {
+        type_expr: _effective_nullability(type_expr) for type_expr in type_resolutions
+    }
+    reported: list[Diagnostic] = []
+    for script, _, blocked in modules:
+        diagnostics: list[Diagnostic] = []
+        callable_symbols: dict[str, Definition] = {}
+        signature_types: set[TypeExpr] = set()
+        for definition in script.definitions:
+            if not isinstance(definition, (ConstraintDef, DeriveDef)):
+                continue
+            signature_types.update(item.type for item in definition.parameters)
+            signature_types.add(definition.return_type)
+            if definition.name in callable_symbols:
+                diagnostics.append(_duplicate_diagnostic(definition, "callable"))
+            else:
+                callable_symbols[definition.name] = definition
+        for type_expr in _iter_type_expressions(script):
+            if (
+                type_expr in signature_types
+                and type_resolutions[type_expr].kind is TypeKind.UNKNOWN
+                and type_expr.name not in blocked
+            ):
+                diagnostics.append(_unknown_type_diagnostic(type_expr))
+            decimal_diagnostic = _decimal_precision_scale_fact(type_expr)[1]
+            if decimal_diagnostic is not None:
+                diagnostics.append(decimal_diagnostic)
+        diagnostics.extend(check_callable_signatures(script, type_expansions))
+        diagnostics.extend(check_field_derive_cycles(script))
+        value_types, predicate_diagnostics = type_shape_predicates(
+            script,
+            type_resolutions=type_resolutions,
+            type_expansions=type_expansions,
+            type_nullability=type_nullability,
+        )
+        diagnostics.extend(predicate_diagnostics)
+        for typed, typing_diagnostics in (
+            type_shape_field_derives(
+                script,
+                type_expansions=type_expansions,
+                type_nullability=type_nullability,
+            ),
+            type_callable_bodies(
+                script,
+                type_expansions=type_expansions,
+                type_nullability=type_nullability,
+            ),
+        ):
+            value_types.update(typed)
+            diagnostics.extend(typing_diagnostics)
+        diagnostics.extend(
+            check_callable_bodies(
+                script,
+                type_expansions=type_expansions,
+                expression_value_types=value_types,
+            )
+        )
+        diagnostics.extend(
+            check_field_derives(
+                script,
+                type_expansions=type_expansions,
+                expression_value_types=value_types,
+            )
+        )
+        reported.extend(sorted(diagnostics, key=_diagnostic_order))
+    return tuple(reported)
+
+
+def _expanded_type(
+    direct: ResolvedType, type_resolutions: Mapping[TypeExpr, ResolvedType]
+) -> ResolvedType:
+    """Expand an alias through the base of each alias it names; a cycle is
+    unknown, as in `expand_type_aliases`, and an enum or shape has its
+    declared name."""
+
+    aliases: set[TypeDef] = set()
+    while direct.kind is TypeKind.TYPE_ALIAS:
+        alias = direct.definition
+        assert isinstance(alias, TypeDef)
+        if alias in aliases:
+            return ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN)
+        aliases.add(alias)
+        direct = type_resolutions[alias.base]
+    if isinstance(direct.definition, (EnumDef, ShapeDef)):
+        return replace(direct, name=direct.definition.name)
+    return direct
 
 
 def _without_relations_only_projects_type(
@@ -1792,7 +1948,7 @@ def _window_spec_cast_targets(spec: WindowSpec) -> Iterator[TypeExpr]:
 
 def _resolve_type(
     type_expr: TypeExpr,
-    type_symbols: dict[str, Definition],
+    type_symbols: Mapping[str, Definition],
 ) -> ResolvedType:
     """Resolve one type name without alias expansion."""
 

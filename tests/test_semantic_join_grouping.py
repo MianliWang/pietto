@@ -655,7 +655,13 @@ def test_unknown_ambiguous_and_computed_group_keys_fail_closed(
         if type(item) is aggregation.ProjectJoinedGroupKeyIssue
     )
     assert issue.kind is kind
-    assert _error_codes(result)[0] == "PIE-S2102"
+    if name == "ambiguous_group_key":
+        # A key that two inputs have names both, as in a single file.
+        assert [
+            (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+        ] == [("PIE-S2335", "Ambiguous field: id; write accounts.id or event.id")]
+    else:
+        assert _error_codes(result)[0] == "PIE-S2102"
     if name == "computed_alias_group_key":
         # S05j admits a key naming its computed LET; an alias of one stays refused.
         assert [
@@ -1218,7 +1224,8 @@ _UNAVAILABLE = "Project relation semantic completion is unavailable: "
 def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
     tmp_path: Path,
 ) -> None:
-    """Current JOIN refusals name their own repeating inputs; upstream readers stay bare."""
+    """Current JOIN refusals name their own repeating inputs; a reader of a
+    refused relation follows its error and reports nothing of its own."""
 
     def query(name: str) -> str:
         start = PROJECT_SOURCE.index(f"query {name}:")
@@ -1263,7 +1270,6 @@ def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
             at("ambiguous_chasm"),
             1,
         ),
-        ("PIE-S2333", f"{_UNAVAILABLE}reader", at("reader"), 1),
         ("PIE-S2333", f"{_UNAVAILABLE}qualified_risk{event}", at("qualified_risk"), 1),
         ("PIE-S2333", f"{_UNAVAILABLE}on_risk{event}", at("on_risk"), 1),
     ]

@@ -391,4 +391,5 @@ def test_pure_grouping_without_an_aggregate_is_still_unavailable(tmp_path, targe
         tmp_path, header + body, item["contract"], item["policy"]
     )
     assert outcome.status == "BLOCKED"
-    assert [item.code for item in outcome.diagnostics] == ["PIE-S2333"]
+    # The single-file grouping error, at the GROUP BY.
+    assert [item.code for item in outcome.diagnostics] == ["PIE-S2320"]

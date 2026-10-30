@@ -21,6 +21,9 @@ import _pietto_sql_emission as probe
 from pietto import cli
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
+from pietto._project.module_relation_resolution import (
+    ProjectModuleRelationResolutionIssueStatus,
+)
 from pietto.semantic.model import ValueType
 
 TARGETS = ("postgres", "mysql")
@@ -47,7 +50,6 @@ def _check(tmp_path: Path, body: str, *, config: str = probe.CONFIG):
 
 
 LET = "    let a:\n        from lhs\n        select:\n            id\n"
-JOIN_ON = "JOIN pre-match input or relationship authority is unavailable."
 DIAGNOSTICS = {
     # A relation whose FROM does not resolve reports only why, as in a single
     # file; before, a PIE-S2333 at the relation followed.
@@ -85,20 +87,14 @@ DIAGNOSTICS = {
         "query r:\n    from a\n    select:\n        id\n",
         [("PIE-S2301", "Unknown relation: a", 15, 5)],
     ),
-    # Another declaration's let issue never stands in for this read's own.
+    # Another declaration's let issue never stands in for this read's own;
+    # the set that reads it reports no temporary admission text.
     "other_declarations_let_issue": (
         "query q:\n" + LET + "    from lhs\n    select:\n        id\n"
         "query r:\n    union all:\n        from a\n        from lhs\n",
         [
             ("PIE-S2359", "Let relation a is never read.", 7, 5),
             ("PIE-S2301", "Unknown relation: a", 16, 9),
-            (
-                "PIE-S2334",
-                "Set operations are available only when an "
-                "EXPLICIT_MODULES project (schema version 2) completes them.",
-                15,
-                5,
-            ),
         ],
     ),
     "capture": (
@@ -306,13 +302,6 @@ READ_ERRORS = {
         + "    from a\n    select:\n        id\n",
         [
             ("PIE-S2302", "Relation cycle detected: a -> b -> q -> a", 15, 5),
-            (
-                "PIE-S2334",
-                "Set operations are available only when an "
-                "EXPLICIT_MODULES project (schema version 2) completes them.",
-                8,
-                9,
-            ),
         ],
     ),
     # a reads b and c, both read a: the message follows one of the cycles.
@@ -324,13 +313,6 @@ READ_ERRORS = {
         + "    from a\n    select:\n        id\n",
         [
             ("PIE-S2302", "Relation cycle detected: a -> b -> a", 12, 9),
-            (
-                "PIE-S2334",
-                "Set operations are available only when an "
-                "EXPLICIT_MODULES project (schema version 2) completes them.",
-                8,
-                9,
-            ),
         ],
     ),
     "nested_17": (
@@ -384,32 +366,16 @@ def _readers(name: str) -> str:
     )
 
 
-def _join_tail(name: str) -> list[tuple[str, str, int, int]]:
-    return [
-        ("PIE-S2335", JOIN_ON, 12, 5),
-        ("PIE-S2335", "JOIN ON reference is unavailable.", 12, 30 + len(name)),
-    ]
+def _unknown_join_input(name: str) -> list[tuple[str, str, int, int]]:
+    """What t reports when `name` is unknown in t: the JOIN's input, at the
+    JOIN, as in a single file, and none of the JOIN's unavailable reads."""
+    return [("PIE-S2301", f"Unknown relation: {name}", 12, 5)]
 
 
 def _unknown_to_readers(name: str) -> list[tuple[str, str, int, int]]:
-    """What `_readers(name)` reports when `name` is unknown in s and t."""
-    return [
-        ("PIE-S2301", f"Unknown relation: {name}", 9, 9),
-        (
-            "PIE-S2334",
-            "Set operations are available only when an "
-            "EXPLICIT_MODULES project (schema version 2) completes them.",
-            7,
-            5,
-        ),
-        (
-            "PIE-S2334",
-            "JOIN-local ON is available only when an EXPLICIT_MODULES "
-            "project (schema version 2) completes it.",
-            12,
-            17 + len(name),
-        ),
-    ]
+    """What `_readers(name)` reports when `name` is unknown in s, besides
+    `_unknown_join_input(name)`: no temporary admission text of the set."""
+    return [("PIE-S2301", f"Unknown relation: {name}", 9, 9)]
 
 
 # `query q` after the readers has an error about the name they read; each
@@ -419,9 +385,9 @@ ELSEWHERE = {
         "a",
         "query q:\n" + _let("a", "lhs") + "    from lhs\n    select:\n        id\n",
         [
+            *_unknown_join_input("a"),
             ("PIE-S2359", "Let relation a is never read.", 16, 5),
             *_unknown_to_readers("a"),
-            *_join_tail("a"),
         ],
     ),
     "cycle": (
@@ -431,24 +397,19 @@ ELSEWHERE = {
         + _let("b", "a")
         + "    from a\n    select:\n        id\n",
         [
+            *_unknown_join_input("a"),
             ("PIE-S2302", "Relation cycle detected: a -> b -> a", 21, 9),
             *_unknown_to_readers("a"),
-            *_join_tail("a"),
         ],
     ),
     "unknown_read_in_a_let": (
         "zz",
         "query q:\n" + _let("a", "zz") + "    from a\n    select:\n        id\n",
         [
+            *_unknown_join_input("zz"),
+            # q, which reads the failed let, adds no fallback.
             ("PIE-S2301", "Unknown relation: zz", 17, 9),
             *_unknown_to_readers("zz"),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                15,
-                1,
-            ),
-            *_join_tail("zz"),
         ],
     ),
 }
@@ -466,7 +427,10 @@ def test_a_let_error_stays_in_its_own_declaration(tmp_path: Path, case: str) -> 
     owners = {o.definition.name: o for o in catalog.occurrences}
     assert environment.find_scoped_issues(owners["q"], name)
     assert environment.find_scoped_issues(owners["s"], name) == ()
-    assert environment.find_scoped_issues(owners["t"], name) == ()
+    # t's only issue of the name is its own unknown JOIN input.
+    assert [
+        issue.status for issue in environment.find_scoped_issues(owners["t"], name)
+    ] == [ProjectModuleRelationResolutionIssueStatus.UNKNOWN_JOIN_INPUT]
 
 
 def _imported(tmp_path: Path, imports: str, let: str):
@@ -1052,7 +1016,8 @@ CAPTURE_DIAGNOSTICS = {
         "table e:\n    from lhs\n    select:\n        id\n        key = nosuch\n"
         + CAPTURE.replace("lhs", "e"),
         [
-            # The relation facts restate it; it is reported once.
+            # The relation facts restate it; it is reported once, and `q`,
+            # which reads `e`, adds no fallback.
             ("PIE-S2102", "Unknown field: nosuch", 10, 15),
             (
                 "PIE-S2369",
@@ -1060,12 +1025,6 @@ CAPTURE_DIAGNOSTICS = {
                 "not known before completion.",
                 15,
                 26,
-            ),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                11,
-                1,
             ),
         ],
     ),
@@ -1323,14 +1282,14 @@ CORRELATED_READS = {
         CAPTURE.replace("    where exists m\n", "").split("    select:\n        a")[0]
         + GROUPED
         + "        v = scalar m.id\n",
+        # The read's own error stops q: no fallback beside it.
         [
             (
                 "PIE-S2348",
                 SCALAR_POSITION.format("the SELECT of a grouped query"),
                 19,
                 13,
-            ),
-            UNAVAILABLE,
+            )
         ],
     ),
     "row_let_scalar": (
@@ -1877,14 +1836,6 @@ LATERAL_DIAGNOSTICS = {
                 15,
                 15,
             ),
-            (
-                "PIE-S2334",
-                "CROSS JOIN is available only when an EXPLICIT_MODULES "
-                "project (schema version 2) completes it.",
-                18,
-                5,
-            ),
-            ("PIE-S2335", JOIN_ON, 18, 5),
         ],
     ),
     "top_k_captured_order": (
@@ -1906,7 +1857,7 @@ LATERAL_DIAGNOSTICS = {
     ),
     "top_k_unknown_order": (
         _top_k("cross", order="        order by:\n            nope desc\n"),
-        [UNAVAILABLE],
+        [("PIE-S2102", "Unknown field: nope", 14, 13), UNAVAILABLE],
     ),
     "top_k_right": (_top_k("right"), [("PIE-S2372", JOIN_KIND, 18, 5)]),
     # Joined twice, the let keeps its LATERAL body rule; the second JOIN is
@@ -2428,7 +2379,32 @@ query result(low: Int):
         (
             "    source lhs,\n",
             "    let r = rhs\n",
-            [("PIE-S2301", "Unknown relation: rhs", "main.pietto", 7, 13)],
+            [
+                (
+                    "PIE-S2301",
+                    "Unknown relation: rhs; rhs is a source exported by base.pietto: "
+                    'import it with from "base.pietto" import (source rhs)',
+                    "main.pietto",
+                    7,
+                    13,
+                )
+            ],
+        ),
+        (
+            # The failed import, not the let, is the error, and the JOIN reads
+            # the import's name as a direct `inner join rhz` would: the JOIN
+            # stopped by that reported failure adds no follow-on error.
+            "    source lhs,\n    source rhz,\n",
+            "    let r = rhz\n",
+            [
+                (
+                    "PIE-S2705",
+                    'Unknown imported declaration: source rhz from "base.pietto"',
+                    "main.pietto",
+                    4,
+                    12,
+                ),
+            ],
         ),
         (
             "    source lhs,\n    source rhs,\n",
@@ -2450,7 +2426,7 @@ query result(low: Int):
         ),
         ("    source lhs,\n    source rhs,\n", "    let r = rhs\n", []),
     ),
-    ids=("not_imported", "unknown", "later", "imported"),
+    ids=("not_imported", "failed_import", "unknown", "later", "imported"),
 )
 def test_a_let_that_a_join_reads_names_a_module_relation(
     tmp_path: Path, imports: str, lets: str, expected: list
@@ -2484,6 +2460,118 @@ def test_a_let_that_a_join_reads_names_a_module_relation(
             for d in json.loads(out.getvalue())["diagnostics"]
         ],
     ) == (1 if expected else 0, expected)
+
+
+def test_a_naming_error_never_masks_the_module_errors_of_any_module(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pietto.toml").write_text(probe.CONFIG)
+    (tmp_path / "base.pietto").write_text(
+        HEAD + "export (\n    shape Row,\n    source lhs,\n    source rhs)\n"
+    )
+    (tmp_path / "main.pietto").write_text(
+        'from "base.pietto" import (\n    source lhs)\n'
+        "query q:\n    from lhs\n    let r = rhz\n"
+        "    inner join r on lhs.id == r.id\n    select:\n        id = lhs.id\n"
+    )
+    (tmp_path / "other.pietto").write_text(
+        'from "missing.pietto" import (\n    source lhs)\n'
+    )
+    parsed = check_project_parse_only(tmp_path)
+    # The module errors, which semantic analysis would report first, come
+    # ahead of the query-local naming error that stops the check before it.
+    assert [
+        (item.code, item.message, item.location.path, item.location.line)
+        for item in parsed.diagnostics
+    ] == [
+        (
+            "PIE-S2701",
+            'Unresolved module import target: "missing.pietto"',
+            "other.pietto",
+            1,
+        ),
+        ("PIE-S2301", "Unknown relation: rhz", "main.pietto", 5),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "query p(cutoff: Int, cutoff: Int):\n    from lhs\n"
+            "    select:\n        id\n",
+            ("PIE-S2001", "Duplicate parameter name in query p: cutoff", 1),
+        ),
+        (
+            "query p(key: Int):\n    from lhs\n    select:\n        key\n",
+            (
+                "PIE-S2354",
+                "Query parameter name is also a field, let, relation, output"
+                " or window name.",
+                4,
+            ),
+        ),
+        (
+            "query p(cutoff: Int):\n    from lhs\n"
+            "    select:\n        id\n    limit cutoff\n",
+            (
+                "PIE-S2355",
+                "Query parameters are not available in this position.",
+                5,
+            ),
+        ),
+        (
+            # A def that is not inlined keeps its declaration, which is no
+            # module declaration.
+            "def g(x: Int) -> Int:\n    return 1\n",
+            (
+                "PIE-S2397",
+                "Def g parameter x is not used in its body; every parameter"
+                " must be used",
+                1,
+            ),
+        ),
+    ],
+)
+def test_a_def_header_or_parameter_error_never_masks_the_module_errors(
+    tmp_path: Path, query: str, expected: tuple[str, str, int]
+) -> None:
+    (tmp_path / "pietto.toml").write_text(probe.CONFIG)
+    (tmp_path / "base.pietto").write_text(HEAD)
+    (tmp_path / "main.pietto").write_text(HEAD + query)
+    (tmp_path / "other.pietto").write_text(
+        'from "base.pietto" import (\n    source lhs)\n'
+        'from "missing.pietto" import (\n    source rhs)\n'
+    )
+    parsed = check_project_parse_only(tmp_path)
+    code, message, line = expected
+    # Semantic analysis, which reports every module's import errors first,
+    # never runs after these errors, so the parse check reports them, with
+    # their facts, ahead of the error of an unrelated module that stops it.
+    assert [
+        (item.code, item.message, item.location.path, item.location.line)
+        for item in parsed.diagnostics
+    ] == [
+        (
+            "PIE-S2701",
+            'Unresolved module import target: "missing.pietto"',
+            "other.pietto",
+            3,
+        ),
+        (
+            "PIE-S2705",
+            "Imported declaration is private or not exported:"
+            ' source lhs from "base.pietto"',
+            "other.pietto",
+            2,
+        ),
+        (code, message, "main.pietto", len(HEAD.splitlines()) + line),
+    ]
+    assert parsed.module_diagnostic_facts is not None
+    assert (
+        tuple(fact.diagnostic for fact in parsed.module_diagnostic_facts.facts)
+        == parsed.diagnostics[:2]
+    )
 
 
 def _check_file(
@@ -2601,9 +2689,12 @@ def test_a_from_alias_source_name_stays_refused_when_an_any_shadows_the_alias(
         "    where any(lhs.id == c.key for c in rhs)\n"
         "    select:\n        id\n"
     )
-    code, diagnostics = _check(tmp_path, body)
-    assert code == 1
-    assert [item[0] for item in diagnostics] == ["PIE-S2334"]
+    expected = (
+        1,
+        [("PIE-S2102", "Unknown or unavailable field in ANY predicate: lhs.id", 9, 15)],
+    )
+    assert _check(tmp_path, body) == expected
+    assert _check_file(tmp_path / "file", body) == expected
 
 
 def test_a_from_alias_source_name_outside_an_any_still_reads_the_from_input(
@@ -2618,35 +2709,27 @@ def test_a_from_alias_source_name_outside_an_any_still_reads_the_from_input(
 
 
 # Inside `any(...)` and in a query with a JOIN a project refuses the relation's
-# own name, as 0.1.5 did and with its diagnostics; a self JOIN would otherwise
-# pick the FROM occurrence of `lhs` over the JOINed one.
+# own name, as 0.1.5 did; a self JOIN would otherwise pick the FROM occurrence
+# of `lhs` over the JOINed one. Inside `any(...)` and in JOIN ON it reports
+# what a single file reports.
 _FROM_ALIAS_JOIN = _FROM_ALIAS + "    let o = rhs\n"
-_ANY_UNAVAILABLE = "ANY predicate reference is unavailable."
+_ANY_UNKNOWN = "Unknown or unavailable field in ANY predicate: lhs.id"
 FROM_ALIAS_REFUSED = {
     "any": (
         _FROM_ALIAS + "    where any(x.key == lhs.id for x in rhs)\n"
         "    select:\n        id\n",
-        [("PIE-S2334", _ANY_UNAVAILABLE, 9, 24)],
+        [("PIE-S2102", _ANY_UNKNOWN, 9, 24)],
     ),
     "nested_any": (
         _FROM_ALIAS
         + "    where any(any(y.id == x.id and y.key == lhs.id for y in rhs) "
         "for x in rhs)\n    select:\n        id\n",
-        [("PIE-S2334", _ANY_UNAVAILABLE, 9, 45)],
+        [("PIE-S2102", _ANY_UNKNOWN, 9, 45)],
     ),
     "join_on": (
         _FROM_ALIAS_JOIN + "    left join o on o.key == lhs.id\n"
         "    select:\n        id = r.id\n",
-        [
-            (
-                "PIE-S2334",
-                "JOIN-local ON is available only when an EXPLICIT_MODULES "
-                "project (schema version 2) completes it.",
-                10,
-                17,
-            ),
-            ("PIE-S2335", "JOIN ON reference is unknown.", 10, 29),
-        ],
+        [("PIE-S2335", "JOIN ON reference is unknown: lhs.id", 10, 29)],
     ),
     "join_where": (
         _FROM_ALIAS_JOIN + "    inner join o on o.key == r.id\n"
@@ -2672,7 +2755,10 @@ def test_a_from_alias_source_name_stays_refused_in_any_and_join_scopes(
 ) -> None:
     body, expected = FROM_ALIAS_REFUSED[case]
     assert _check(tmp_path / "project", body) == (1, expected)
-    assert _check_file(tmp_path / "file", body)[0] == 1
+    file = _check_file(tmp_path / "file", body)
+    assert file[0] == 1
+    if case in {"any", "nested_any", "join_on"}:
+        assert file == (1, expected)
 
 
 def test_a_from_alias_source_name_keeps_an_unknown_field_diagnostic(

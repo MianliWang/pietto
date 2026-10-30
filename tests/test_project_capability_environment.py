@@ -1033,8 +1033,11 @@ def test_schema_v4_source_selection_message_is_distinct_and_early(
     selected = select_project_sources(root, loaded)
 
     assert selected.inputs == selected.modules == ()
-    assert selected.errors[0].message == (
-        "Schema-v4 capability environment does not use project source selection."
+    assert (selected.errors[0].message, selected.errors[0].path) == (
+        "check --project reads schema_version 1 or 2 projects and emit-sql --project"
+        " schema_version 2 ones; this schema_version 4 package-root project is read"
+        " by explain --project.",
+        "pietto.toml",
     )
 
 

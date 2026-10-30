@@ -464,9 +464,11 @@ def resolved_argument_problem(function: str, direct_reference: bool, realization
         return None
     if function == "sum" and realization.tag == "Int":
         return "PIE-B1004", "sum_int_aggregate_range_proof_missing"
-    if realization.tag == "Decimal":
+    # Only a sum or an average has a range or finite-result proof to supply;
+    # any other function outside the reviewed Int domain is refused below.
+    if function in {"sum", "avg"} and realization.tag == "Decimal":
         return "PIE-B1004", "decimal_aggregate_range_proof_missing"
-    if realization.tag == "Float":
+    if function in {"sum", "avg"} and realization.tag == "Float":
         return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
     if function in COUNTING_FUNCTIONS and realization.tag in {"Timestamp", "UUID"}:
         return grouping_problem(realization)
@@ -657,7 +659,8 @@ def build_stage(
     reference_type,
     symbol,
 ):
-    """Realize one aggregation: its ordered determinants and its occurrences.
+    """Realize one aggregation: its ordered determinants and its occurrences,
+    or every problem refusing it: a determinant's first, or each occurrence's.
 
     Every determinant binds the actual pre-aggregate input it already has a port
     for, and every occurrence keeps its own distinct result column even when two
@@ -674,30 +677,45 @@ def build_stage(
             return (
                 None,
                 None,
-                ("PIE-B1001", "group_key_outside_pre_aggregate_input", key.ref, None),
+                (
+                    (
+                        "PIE-B1001",
+                        "group_key_outside_pre_aggregate_input",
+                        key.ref,
+                        None,
+                    ),
+                ),
             )
         if export.source is not key.ref:
             return (
                 None,
                 None,
-                ("PIE-B1001", "group_key_result_port_drift", key.ref, None),
+                (("PIE-B1001", "group_key_result_port_drift", key.ref, None),),
             )
         retained = key_logical(key.source)
         if retained is None:
             return (
                 None,
                 None,
-                ("PIE-B1004", "group_key_logical_type_evidence_missing", key.ref, None),
+                (
+                    (
+                        "PIE-B1004",
+                        "group_key_logical_type_evidence_missing",
+                        key.ref,
+                        None,
+                    ),
+                ),
             )
         if (read.realization.tag, read.realization.nullable) != retained:
             return (
                 None,
                 None,
-                ("PIE-B1002", "group_key_logical_type_or_null_drift", key.ref, None),
+                (("PIE-B1002", "group_key_logical_type_or_null_drift", key.ref, None),),
             )
         problem = grouping_problem(read.realization)
         if problem is not None:
-            return None, None, (*problem, key.ref, None)
+            item = getattr(key.source, "item", None)
+            return None, None, ((*problem, key.ref, getattr(item, "span", None)),)
         label = f"c{index}"
         column = AggregateKeyColumn(
             index,
@@ -720,19 +738,20 @@ def build_stage(
         )
         columns.append(column)
         key_columns.append(column)
-    for offset, value in enumerate(values):
+
+    def value_column(offset, value):
+        """One occurrence's column, or the first problem refusing it."""
         index = len(keys) + offset
         export = exports[index]
         if export.source is not value.ref:
             return (
-                None,
                 None,
                 ("PIE-B1001", "aggregate_result_port_drift", value.ref, None),
             )
         function = function_name(value.source)
         location = value.source.item.span
         if function is None or function not in SPELLING:
-            return None, None, (*unsupported_function(function), value.ref, location)
+            return None, (*unsupported_function(function), value.ref, location)
         arguments = aggregation.arguments(value.source)
         ordered = value.source.item.expression.aggregate_order_by
         if (
@@ -742,7 +761,6 @@ def build_stage(
             or (function != "string_agg" and (len(arguments) > 1 or ordered))
         ):
             return (
-                None,
                 None,
                 (
                     "PIE-B1003",
@@ -758,7 +776,6 @@ def build_stage(
             if family != "postgres":
                 return (
                     None,
-                    None,
                     (*unsupported_function(function), value.ref, location),
                 )
             realized = []
@@ -772,10 +789,10 @@ def build_stage(
                 )
                 if current is None:
                     assert problem is not None
-                    return None, None, (*problem, value.ref, location)
+                    return None, (*problem, value.ref, location)
                 problem = string_agg_argument_problem(current)
                 if problem is not None:
-                    return None, None, (*problem, value.ref, location)
+                    return None, (*problem, value.ref, location)
                 realized.append(current)
             argument, delimiter = realized
             orders = []
@@ -789,10 +806,10 @@ def build_stage(
                 )
                 if current is None:
                     assert problem is not None
-                    return None, None, (*problem, value.ref, location)
+                    return None, (*problem, value.ref, location)
                 problem = grouping_problem(rows.realization_of(current, family))
                 if problem is not None:
-                    return None, None, (*problem, value.ref, location)
+                    return None, (*problem, value.ref, location)
                 orders.append(
                     AggregateOrderItem(
                         current, "asc" if item.direction is None else item.direction
@@ -809,13 +826,12 @@ def build_stage(
             )
             if argument is None:
                 assert problem is not None
-                return None, None, (*problem, value.ref, location)
+                return None, (*problem, value.ref, location)
             problem = argument_problem(function, argument)
             if problem is not None:
-                return None, None, (*problem, value.ref, location)
+                return None, (*problem, value.ref, location)
         elif function != "count":
             return (
-                None,
                 None,
                 (
                     "PIE-B1003",
@@ -828,7 +844,6 @@ def build_stage(
         if retained is None:
             return (
                 None,
-                None,
                 (
                     "PIE-B1004",
                     "aggregate_result_logical_type_evidence_missing",
@@ -839,7 +854,7 @@ def build_stage(
         realization, problem = result_realization(family, function, argument, retained)
         if realization is None:
             assert problem is not None
-            return None, None, (*problem, value.ref, location)
+            return None, (*problem, value.ref, location)
         label = f"c{index}"
         column = AggregateValueColumn(
             index,
@@ -883,13 +898,24 @@ def build_stage(
             delimiter,
             order_by,
         )
+        return column, None
+
+    problems = []
+    for offset, value in enumerate(values):
+        column, problem = value_column(offset, value)
+        if column is None:
+            problems.append(problem)
+            continue
         columns.append(column)
         value_columns.append(column)
+    if problems:
+        # Each occurrence is refused at its own place, in select order.
+        return None, None, tuple(problems)
     if len(columns) != len(exports):
         return (
             None,
             None,
-            ("PIE-B1001", "aggregate_result_denominator", stage.ref, None),
+            (("PIE-B1001", "aggregate_result_denominator", stage.ref, None),),
         )
     return (
         tuple(columns),

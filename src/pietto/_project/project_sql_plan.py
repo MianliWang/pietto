@@ -175,6 +175,7 @@ from pietto.ast_nodes import (
     QualifyClause,
     DistinctClause,
     OrderByClause,
+    OrderItem,
     LimitClause,
 )
 from pietto.errors import Diagnostic
@@ -333,6 +334,7 @@ type ProjectSQLBlockedStage = (
     | SelectItem
     | DistinctClause
     | OrderByClause
+    | OrderItem
     | LimitClause
     | ProjectIRLogicalOperatorOccurrence
     | ProjectIRQueryBlockOperatorOccurrence
@@ -526,10 +528,10 @@ def _blockers(
                                 windows.qualify_target(qualify, reference, aggregate)
                 except (ValueError, TypeError, AttributeError, KeyError, IndexError):
                     add(K.WINDOW, owner, entry)
-            if not isinstance(entry, ProjectIRQueryBlockTerminal) and not results.ready(
-                entry, orderings
-            ):
-                add(K.ORDER, owner, entry, definition.order_by_clause)
+            if not isinstance(entry, ProjectIRQueryBlockTerminal):
+                unready = results.unready_site(entry, orderings)
+                if unready is not None:
+                    add(K.ORDER, owner, entry, unready)
             # Capture operator-only stages (e.g. GLOBAL aggregation or inline window).
             for operator in _operators(entry):
                 if aggregate is not None and operator.kind in {

@@ -465,6 +465,56 @@ def test_package_parse_failure_is_diagnostic_and_missing_root_is_resource(
     assert resource.envelope.diagnostics[0].code == "project_root"
 
 
+def test_package_locations_keep_their_path_kind_and_name_a_dependency(
+    tmp_path: Path,
+) -> None:
+    # A root manifest schema error names the manifest by its project path.
+    invalid = _write_project(
+        tmp_path,
+        _manifest(1).replace(b"schema_version = 1\n", b""),
+        targets=False,
+        name="invalid",
+    )
+    diagnostics = _build_project_explain_runtime(invalid).envelope.diagnostics
+    assert [
+        (d.code, d.location.path.kind, d.location.path.value)
+        for d in diagnostics
+        if d.location is not None and d.location.path is not None
+    ] == [
+        (
+            "config_schema",
+            ProjectExplainLogicalPathKind.PROJECT_RELATIVE,
+            "package/pietto-package.toml",
+        )
+    ]
+    # A dependency's own failure names that package.
+    root = tmp_path / "dependency-project"
+    dependency_digest = _write_package(
+        root / "dependency",
+        _manifest(1, namespace="example", name="dependency"),
+        b"shape Broken:\n\n    id Int\n",
+    )
+    root_digest = _write_package(
+        root / "root",
+        _manifest(
+            1,
+            dependencies=(
+                ("example", "dependency", "1.0.0", dependency_digest, "../dependency"),
+            ),
+        ),
+    )
+    (root / "pietto.toml").write_text(
+        _project_config("root", root_digest, targets=False), encoding="utf-8"
+    )
+    result = _build_project_explain_runtime(root)
+    assert [(d.code, d.message) for d in result.envelope.diagnostics] == [
+        (
+            "PIE-P1000",
+            "In dependency package example/dependency@1.0.0: Missing ':' before 'Int'.",
+        )
+    ]
+
+
 _SCHEMA3_CONVERSION = (
     " This schema version 3 package-root project converts in one step: set "
     "schema_version to 4 and add an empty [capability_environment] table."

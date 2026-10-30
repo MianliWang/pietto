@@ -349,7 +349,7 @@ def test_a_source_read_only_through_membership_is_a_statement_source(
             + IDS
             + "query result:\n    from lhs\n    where None in u\n"
             "    select:\n        a = lhs.id\n",
-            [("PIE-B1003", "expression_evidence_unavailable", 14, 1)],
+            [("PIE-B1003", "expression_evidence_unavailable", 16, 5)],
         ),
     ),
     ids=("set_width", "type_pair", "set_null"),

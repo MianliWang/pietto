@@ -151,8 +151,8 @@ def test_project_json_v2_cycle_output_shape_and_private_facts_are_locked(
     assert document["result"] == {
         "check": {
             "files_total": 1,
-            "files_ok": 1,
-            "files_with_errors": 0,
+            "files_ok": 0,
+            "files_with_errors": 1,
         }
     }
     assert [(item["code"], item["message"]) for item in diagnostics] == [

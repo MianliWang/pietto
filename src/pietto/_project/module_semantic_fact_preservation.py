@@ -27,6 +27,7 @@ from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadinessStatus,
     _effective_field_let_expression,
     build_project_aggregate_grouped_clause_readiness,
+    with_single_file_grouping_diagnostics,
 )
 from pietto._project.aggregate_grouped_persistence import (
     _is_project_aggregate_grouped_definition,
@@ -3479,13 +3480,17 @@ def _build_derived_relation_facts(
     aggregate_result_facts: tuple[ProjectAggregateResultFact, ...] = ()
     helper_diagnostics: tuple[Diagnostic, ...] = ()
     if _is_project_aggregate_grouped_definition(definition):
-        readiness = build_project_aggregate_grouped_clause_readiness(
-            definition=definition,
-            input_schema=input_schema,
-            upstream_symbol=upstream_symbol,
-            fallback_path=owner.identity.module_path,
-            let_scope_facts=let_scope,
-            let_computed_keys=True,
+        readiness = with_single_file_grouping_diagnostics(
+            build_project_aggregate_grouped_clause_readiness(
+                definition=definition,
+                input_schema=input_schema,
+                upstream_symbol=upstream_symbol,
+                fallback_path=owner.identity.module_path,
+                let_scope_facts=let_scope,
+                let_computed_keys=True,
+            ),
+            input_schema,
+            let_scope,
         )
         base_state = _relation_state_from_aggregate_grouped_clause_readiness(readiness)
         aggregate_result_facts = tuple(

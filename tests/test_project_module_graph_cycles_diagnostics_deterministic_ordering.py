@@ -1025,7 +1025,7 @@ def test_pie_s2706_collision_mapping_is_one_per_local_name_bucket(
     assert len(facts[1].binding_issues) == 2
 
 
-def test_pie_s2707_facade_and_unsupported_adapter_mappings_are_exact(
+def test_private_kind_facade_and_unsupported_adapter_mappings_are_exact(
     tmp_path: Path,
 ) -> None:
     _, semantic = _semantic_project(
@@ -1044,13 +1044,16 @@ def test_pie_s2707_facade_and_unsupported_adapter_mappings_are_exact(
             ),
         },
     )
+    # b.pietto declares the requested shape without exporting it; the query
+    # of that name it exports is another kind.
     assert _diagnostic_pairs(semantic) == (
         (
-            "PIE-S2707",
-            'Inconsistent explicit-module target facade: "b.pietto"',
+            "PIE-S2705",
+            'Imported declaration is private or not exported: shape Shared from "b.pietto"',
         ),
         ("PIE-S2301", "Unknown relation: missing"),
     )
+    assert semantic.diagnostics[0].location.line == 2
     graph = _required_graph(semantic)
     assert semantic.module_bindings is not None
     request = semantic.module_bindings.environments[0].requests[0]
@@ -1064,6 +1067,260 @@ def test_pie_s2707_facade_and_unsupported_adapter_mappings_are_exact(
         "PIE-S2707",
         'Unsupported explicit-module reference: "b.pietto"',
     )
+
+
+def test_wrong_kind_import_and_export_name_the_declared_kind_at_each_item(
+    tmp_path: Path,
+) -> None:
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "a.pietto": (
+                "shape Customer:\n"
+                "    id: Int\n"
+                'source customers: Customer = postgres.table("customers")\n'
+                "query active:\n"
+                "    from customers\n"
+                "    select:\n"
+                "        id\n"
+                "export (\n"
+                "    shape Customer,\n"
+                "    source customers,\n"
+                "    type Customer,\n"
+                "    table active)\n"
+            ),
+            "b.pietto": (
+                'from "a.pietto" import (\n'
+                "    type Customer,\n"
+                "    table customers,\n"
+                "    query active)\n"
+            ),
+            "c.pietto": (
+                'from "a.pietto" import (\n'
+                "    shape Customer,\n"
+                "    source customers)\n"
+                "export (\n"
+                "    type Customer,\n"
+                "    table customers)\n"
+            ),
+        },
+    )
+    # Each wrong item is its own error at its name; a name the target only
+    # declares (active, not exported) gives no export to write instead. A
+    # name imported with another kind is named with its imported kind.
+    assert [
+        (item.code, item.message, item.location.path, item.location.line)
+        for item in semantic.diagnostics
+    ] == [
+        (
+            "PIE-S2704",
+            "Unknown export binding: type Customer; Customer is a shape",
+            "a.pietto",
+            11,
+        ),
+        (
+            "PIE-S2704",
+            "Unknown export binding: table active; active is a query",
+            "a.pietto",
+            12,
+        ),
+        (
+            "PIE-S2704",
+            "Invalid imported export candidate: type Customer; Customer is a shape",
+            "c.pietto",
+            5,
+        ),
+        (
+            "PIE-S2704",
+            "Invalid imported export candidate: table customers; customers is a source",
+            "c.pietto",
+            6,
+        ),
+        (
+            "PIE-S2705",
+            'Imported declaration has another kind: table customers from "a.pietto" '
+            "is a source; write source customers",
+            "b.pietto",
+            3,
+        ),
+        (
+            "PIE-S2705",
+            'Imported declaration is private or not exported: query active from "a.pietto"',
+            "b.pietto",
+            4,
+        ),
+    ]
+
+
+def test_unresolved_target_names_the_selected_paths_it_may_have_meant(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["models/*.pietto"]\n',
+        encoding="utf-8",
+    )
+    sources = {
+        "models/a.pietto": "shape A:\n    id: Int\nexport (\n    shape A)\n",
+        "models/b.pietto": 'from "a.pietto" import (\n    shape A)\n',
+        "models/c.pietto": 'from "./models/A.pietto" import (\n    shape A)\n',
+        "models/d.pietto": 'from "models\\\\a" import (\n    shape A)\n',
+        "models/e.pietto": 'from "nowhere.pietto" import (\n    shape A)\n',
+    }
+    for relative, source in sources.items():
+        (root / relative).parent.mkdir(parents=True, exist_ok=True)
+        (root / relative).write_text(source, encoding="utf-8")
+    parse_result = project_check.check_project_parse_only(root)
+    assert parse_result.ok
+    semantic = build_empty_project_semantic_result(parse_result)
+    hint = (
+        '; did you mean "models/a.pietto"? An import path is the '
+        "project-root-relative path of a selected source, with / separators"
+    )
+    assert _diagnostic_pairs(semantic) == (
+        ("PIE-S2701", f'Unresolved module import target: "a.pietto"{hint}'),
+        ("PIE-S2701", f'Unresolved module import target: "./models/A.pietto"{hint}'),
+        ("PIE-S2701", f'Unresolved module import target: "models\\\\a"{hint}'),
+        ("PIE-S2701", 'Unresolved module import target: "nowhere.pietto"'),
+    )
+
+
+def test_an_import_the_target_only_imports_points_at_that_import(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _configured_project(
+        tmp_path,
+        {
+            "a.pietto": "shape Row:\n    id: Int\nshape Hidden:\n    id: Int\n"
+            'source rows: Row = postgres.table("rows")\n'
+            "export (\n    shape Row,\n    source rows)\n",
+            # b imports Row and rows; it exports only rows, and re-exports a
+            # private shape.
+            "b.pietto": 'from "a.pietto" import (shape Row, source rows, shape Hidden)\n'
+            "export (\n    source rows,\n    shape Hidden)\n",
+            "c.pietto": 'from "b.pietto" import (\n'
+            "    shape Row,\n    shape rows,\n    shape Hidden)\n",
+        },
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+
+    def at(line: int, column: int) -> list[dict[str, object]]:
+        return [
+            {
+                "message": None,
+                "location": {
+                    "path": "b.pietto",
+                    "line": line,
+                    "column": column,
+                    "end_line": line,
+                    "end_column": column + {31: 3, 43: 4, 55: 6}[column],
+                },
+            }
+        ]
+
+    # Each points at b's import of the name, not "Unknown imported
+    # declaration": b imports Row but does not export it, re-exports rows,
+    # whose kind c gets wrong, and re-exports Hidden, whose import fails.
+    assert [
+        (
+            item["code"],
+            item["message"],
+            item["location"]["path"],
+            item["related_locations"],
+        )
+        for item in diagnostics
+    ] == [
+        (
+            "PIE-S2705",
+            'Imported declaration is private or not exported: shape Hidden from "a.pietto"',
+            "b.pietto",
+            [
+                {
+                    "message": None,
+                    "location": {
+                        "path": "a.pietto",
+                        "line": 3,
+                        "column": 1,
+                        "end_line": 4,
+                        "end_column": 12,
+                    },
+                }
+            ],
+        ),
+        (
+            "PIE-S2705",
+            'Imported declaration is private or not exported: shape Row from "b.pietto"',
+            "c.pietto",
+            at(1, 31),
+        ),
+        (
+            "PIE-S2705",
+            'Imported declaration has another kind: shape rows from "b.pietto" is a'
+            " source; write source rows",
+            "c.pietto",
+            at(1, 43),
+        ),
+        (
+            "PIE-S2705",
+            'Imported declaration is unavailable: shape Hidden from "b.pietto",'
+            " whose own import of Hidden fails",
+            "c.pietto",
+            at(1, 55),
+        ),
+    ]
+
+
+def test_suggested_import_paths_keep_non_ascii_characters_to_copy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Pietto strings have no \\u escape: a suggested path written as one
+    # would not parse.
+    root = tmp_path / "project"
+    (root / "模型").mkdir(parents=True)
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["模型/*.pietto"]\n',
+        encoding="utf-8",
+    )
+    (root / "模型/a.pietto").write_text(
+        "shape A:\n    id: Int\nexport (\n    shape A)\n", encoding="utf-8"
+    )
+    (root / "模型/b.pietto").write_text(
+        'from "a.pietto" import (\n    shape A)\n', encoding="utf-8"
+    )
+    (root / "模型/c.pietto").write_text("shape C:\n    a: A\n", encoding="utf-8")
+    (root / "模型/d.pietto").write_text(
+        'from "模型/A.pietto" import (\n    shape A)\n', encoding="utf-8"
+    )
+    assert cli.main(["check", "--project", str(root)]) == 1
+    # The target is echoed as written, as the suggestion is.
+    assert capsys.readouterr().err.splitlines() == [
+        '模型/b.pietto:1:6 PIE-S2701 error: Unresolved module import target: "a.pietto";'
+        ' did you mean "模型/a.pietto"? An import path is the project-root-relative'
+        " path of a selected source, with / separators",
+        "模型/d.pietto:1:6 PIE-S2701 error: Unresolved module import target:"
+        ' "模型/A.pietto"; did you mean "模型/a.pietto"? An import path is the'
+        " project-root-relative path of a selected source, with / separators",
+        "模型/c.pietto:2:8 PIE-S2002 error: Unknown type: A; A is a shape exported by"
+        ' 模型/a.pietto: import it with from "模型/a.pietto" import (shape A)',
+    ]
+    (root / "模型/d.pietto").unlink()
+    for module in ("b", "c"):
+        source = (root / f"模型/{module}.pietto").read_text(encoding="utf-8")
+        (root / f"模型/{module}.pietto").write_text(
+            'from "模型/a.pietto" import (shape A)\n'
+            + source.removeprefix('from "a.pietto" import (\n    shape A)\n'),
+            encoding="utf-8",
+        )
+    assert cli.main(["check", "--project", str(root)]) == 0
+    capsys.readouterr()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["数据/*.pietto"]\n',
+        encoding="utf-8",
+    )
+    assert cli.main(["check", "--project", str(root)]) == 2
+    assert 'include ["数据/*.pietto"], exclude []' in capsys.readouterr().err
 
 
 def test_unresolved_target_and_import_export_cascades_are_suppressed(
@@ -1185,8 +1442,56 @@ def test_diagnostic_order_text_cli_and_project_json_v2_are_exact(
         "PIE-S2705",
         "PIE-S2706",
     ]
-    assert all(item["related_locations"] == [] for item in diagnostics)
+    assert [item["related_locations"] for item in diagnostics] == [
+        [],
+        [],
+        [
+            {
+                "message": None,
+                "location": {
+                    "path": "b.pietto",
+                    "line": 1,
+                    "column": 1,
+                    "end_line": 2,
+                    "end_column": 12,
+                },
+            }
+        ],
+        [
+            {
+                "message": None,
+                "location": {
+                    "path": "a.pietto",
+                    "line": 1,
+                    "column": 1,
+                    "end_line": 2,
+                    "end_column": 12,
+                },
+            }
+        ],
+    ]
     assert "module_graph" not in json.dumps(document)
+    # A query-local naming error in another module stops the check before
+    # semantics; the module diagnostics keep their related locations.
+    (root / "c.pietto").write_text(
+        "shape C:\n    id: Int\n"
+        'source cs: C = postgres.table("cs")\n'
+        "query q:\n    from cs\n    let x = nosuch\n    inner join x on True\n"
+        "    select:\n        id = cs.id\n",
+        encoding="utf-8",
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    stopped = cast(
+        list[dict[str, object]], json.loads(capsys.readouterr().out)["diagnostics"]
+    )
+    assert [(item["code"], item["message"]) for item in stopped] == [
+        *((item["code"], item["message"]) for item in diagnostics),
+        ("PIE-S2301", "Unknown relation: nosuch"),
+    ]
+    assert [item["related_locations"] for item in stopped] == [
+        *(item["related_locations"] for item in diagnostics),
+        [],
+    ]
 
 
 def test_schema_v1_graph_privacy_boundary(

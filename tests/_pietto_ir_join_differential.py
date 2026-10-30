@@ -931,7 +931,7 @@ _TERMINAL_FIELDS = {
     ProjectJoinUseIssue: "kind state site causes",
     ProjectRelationBindingOccurrence: "identity owner site name relation_name state target output relation_issues",
     ProjectRelationshipPredicateExpression: "owner context authored expression calls argument_bindings diagnostics failed_calls any_expressions any_bindings parent",
-    ProjectJoinCondition: "root ledger use inputs environment mode scope expression conjuncts references mandatory_equalities match_inputs key_matches value_type value_types state ready diagnostics null_rejections",
+    ProjectJoinCondition: "root ledger use inputs environment mode scope expression conjuncts references mandatory_equalities match_inputs key_matches value_type value_types state ready diagnostics unavailable_diagnostics null_rejections",
     ProjectNonConcreteJoinedNamespaceExpression: "namespace expression resolutions reason blocking_resolutions kernel_value_type value_types diagnostics existence_values predicate_expression value_type",
     ProjectConcreteJoinedQualify: "window_set window_stage kind qualify_clause references hidden_computations predicate_value_type value_types diagnostics retention_effects preservation post_qualify",
     ProjectNonConcreteJoinedQualify: "window_set window_stage reason qualify_clause references hidden_attempts kernel_value_type value_types diagnostics preservation post_qualify",
@@ -1149,6 +1149,11 @@ def _terminal_graph(root, completed):
             assert predicate.authored is value.use.clause.on_clause.expression
             assert predicate.expression is value.expression
             assert value.mode == "M3" and not value.ready
+            # Its unavailable-input diagnostics are some of its diagnostics.
+            assert all(
+                any(item is diagnostic for diagnostic in value.diagnostics)
+                for item in value.unavailable_diagnostics
+            )
             assert value.environment.root is value.root
             assert value.environment.ledger is value.ledger
             assert (

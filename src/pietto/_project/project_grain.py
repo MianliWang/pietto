@@ -438,13 +438,21 @@ class ProjectCompiledGrainDependencyRule:
             raise ValueError("Compiled grain masks must be non-trivial and disjoint.")
 
 
-def _factor_mask(
+def _factor_positions(
     universe: ProjectGrainFactorUniverse,
-    identities: tuple[ProjectGrainFactorIdentity, ...],
-) -> int:
-    positions = {
+) -> dict[ProjectGrainFactorIdentity, int]:
+    return {
         factor.identity: position for position, factor in enumerate(universe.factors)
     }
+
+
+def _factor_mask(
+    positions: Mapping[ProjectGrainFactorIdentity, int],
+    identities: tuple[ProjectGrainFactorIdentity, ...],
+) -> int:
+    """The mask of ``identities`` in a universe's ``positions``, which a
+    caller builds once per universe: hashing a factor identity is costly."""
+
     try:
         return sum(1 << positions[identity] for identity in identities)
     except KeyError as error:
@@ -472,18 +480,15 @@ class ProjectGrainDependencyIndex:
             type(fact) is not ProjectGrainDependencyFact for fact in self.facts
         ):
             raise TypeError("Grain index requires exact dependency facts.")
-        expected_positions = {
-            factor.identity: position
-            for position, factor in enumerate(self.universe.factors)
-        }
+        expected_positions = _factor_positions(self.universe)
         if dict(self.positions) != expected_positions:
             raise ValueError("Grain positions must match exact factor order.")
         object.__setattr__(self, "positions", MappingProxyType(expected_positions))
         expected_rules = tuple(
             ProjectCompiledGrainDependencyRule(
                 fact=fact,
-                lhs_mask=_factor_mask(self.universe, fact.determinants),
-                rhs_mask=_factor_mask(self.universe, fact.dependents),
+                lhs_mask=_factor_mask(expected_positions, fact.determinants),
+                rhs_mask=_factor_mask(expected_positions, fact.dependents),
             )
             for fact in self.facts
         )
@@ -494,12 +499,9 @@ class ProjectGrainDependencyIndex:
             for supplied, expected in zip(self.rules, expected_rules, strict=True)
         ):
             raise ValueError("Compiled grain rules must retain normative order.")
-        incident_lists: list[list[int]] = [list() for _factor in self.universe.factors]
-        for rule_position, rule in enumerate(expected_rules):
-            for factor_position in range(len(self.universe.factors)):
-                if rule.lhs_mask & (1 << factor_position):
-                    incident_lists[factor_position].append(rule_position)
-        if self.incidents != tuple(tuple(values) for values in incident_lists):
+        if self.incidents != _rule_incidents(
+            expected_rules, len(self.universe.factors)
+        ):
             raise ValueError("Grain incidents must retain exact rule order.")
 
 
@@ -511,29 +513,38 @@ def _compile_grain_dependency_index(
 
     if type(universe) is not ProjectGrainFactorUniverse or type(facts) is not tuple:
         raise TypeError("Grain dependency compilation requires exact typed inputs.")
+    positions = _factor_positions(universe)
     rules = tuple(
         ProjectCompiledGrainDependencyRule(
             fact=fact,
-            lhs_mask=_factor_mask(universe, fact.determinants),
-            rhs_mask=_factor_mask(universe, fact.dependents),
+            lhs_mask=_factor_mask(positions, fact.determinants),
+            rhs_mask=_factor_mask(positions, fact.dependents),
         )
         for fact in facts
     )
-    incidents: list[list[int]] = [list() for _factor in universe.factors]
-    for rule_position, rule in enumerate(rules):
-        for factor_position in range(len(universe.factors)):
-            if rule.lhs_mask & (1 << factor_position):
-                incidents[factor_position].append(rule_position)
     return ProjectGrainDependencyIndex(
         universe=universe,
         facts=facts,
-        positions={
-            factor.identity: position
-            for position, factor in enumerate(universe.factors)
-        },
+        positions=positions,
         rules=rules,
-        incidents=tuple(tuple(values) for values in incidents),
+        incidents=_rule_incidents(rules, len(universe.factors)),
     )
+
+
+def _rule_incidents(
+    rules: tuple[ProjectCompiledGrainDependencyRule, ...], size: int
+) -> tuple[tuple[int, ...], ...]:
+    """The rules, in order, whose left side reads each factor position: each
+    rule visits only the set bits of its mask."""
+
+    incidents: list[list[int]] = [list() for _position in range(size)]
+    for rule_position, rule in enumerate(rules):
+        mask = rule.lhs_mask
+        while mask:
+            low = mask & -mask
+            incidents[low.bit_length() - 1].append(rule_position)
+            mask ^= low
+    return tuple(tuple(values) for values in incidents)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -549,7 +560,7 @@ class ProjectGrainFactorSet:
             type(self.factors) is not tuple
         ):
             raise TypeError("Grain factor set requires exact typed inputs.")
-        mask = _factor_mask(self.universe, self.factors)
+        mask = _factor_mask(_factor_positions(self.universe), self.factors)
         expected = tuple(
             factor.identity
             for position, factor in enumerate(self.universe.factors)

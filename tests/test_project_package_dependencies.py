@@ -158,6 +158,32 @@ def test_nominal_identity_is_host_relocation_independent(tmp_path: Path) -> None
     assert roots[0].located_root.canonical_path != roots[1].located_root.canonical_path
 
 
+def test_a_stale_dependency_pin_names_the_dependency_and_its_declaring_package(
+    tmp_path: Path,
+) -> None:
+    project = tmp_path / "project"
+    dep_digest = _write_package(project, "deps/a", name="a")
+    root_digest = _write_package(
+        project,
+        "root",
+        dependencies=(("example", "a", "1.0.0", dep_digest, "../deps/a"),),
+    )
+    # Editing only the dependency leaves the root pin correct.
+    (project / "deps/a/main.pietto").write_bytes(_SOURCE + b"# edited\n")
+
+    result = _build_package_load_plan(_load_root(project, "root", root_digest))
+
+    assert result.plan is None
+    assert [(e.kind, e.message, e.path) for e in result.errors] == [
+        (
+            ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
+            "In dependency package example/a@1.0.0: Package content digest does not"
+            " match the sha256 pinned by [[dependencies]] in example/root@1.0.0.",
+            "pietto-package.toml",
+        )
+    ]
+
+
 def test_zero_one_multiple_and_multihop_packages_emit_declaration_order_postorder(
     tmp_path: Path,
 ) -> None:

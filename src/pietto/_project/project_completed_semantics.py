@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+import contextvars
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from pietto._project.model import CompiledProjectInput
@@ -17,11 +19,14 @@ if TYPE_CHECKING:
 from pietto._project.query_parameters import query_parameter_semantic_diagnostics
 from pietto._project.project_set_operations import ProjectSetFailure
 from pietto._project.module_relation_resolution import (
+    ProjectModuleRelationResolutionIssueStatus,
     ProjectResolvedSetOperand,
 )
 
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
+
+from pietto._flat_relational_admission import syntax_diagnostics
 
 from pietto._project import (
     aggregate_grouped_clause_facts,
@@ -44,7 +49,9 @@ from pietto._project import (
 from pietto._project.model import (
     ProjectRelationRowSchemaReason,
     ProjectSemanticResult,
+    ProjectSymbolNamespace,
 )
+from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.project_completion import (
     ProjectCompletion,
@@ -93,7 +100,10 @@ from pietto._project.project_phase62_verification import (
 from pietto.ast_nodes import (
     EnumDef,
     JoinClause,
+    NameExpr,
     QueryDef,
+    SetRelationDef,
+    ShapeDef,
     SourceDef,
     TableDef,
     TableFunctionRelationDef,
@@ -102,10 +112,15 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.analyzer import (
     _duplicate_enum_member_diagnostics,
+    _within,
+    check_module_declarations,
     name_uncallable_calls,
 )
 from pietto.semantic.expressions import type_source_connector_arguments
 from pietto.semantic.source_connectors import check_source_connectors
+from pietto._project.project_relationship_predicates import (
+    ProjectRelationshipPredicateCatalog,
+)
 from pietto._project.project_single_match import (
     ProjectSingleMatchRequest,
     ProjectSingleMatchSet,
@@ -308,15 +323,26 @@ def _named_calls(
     semantic_result: ProjectSemanticResult,
     diagnostics: tuple[Diagnostic, ...],
 ) -> tuple[Diagnostic, ...]:
-    """Name a call of a module's own constraint or derive as a single file does."""
+    """Name a call of a module's own constraint or derive as a single file
+    does, and say where another module declares an unknown name."""
 
-    return name_uncallable_calls(
-        diagnostics,
-        *(
-            module.parsed_input.script
-            for module in semantic_result.modules
-            if module.parsed_input is not None
-        ),
+    from pietto._project.module_exports import ProjectModuleExportSurfaceSet
+    from pietto._project.module_graph import import_hints
+
+    parsed = tuple(
+        module.parsed_input
+        for module in semantic_result.modules
+        if module.parsed_input is not None
+    )
+
+    def exports() -> ProjectModuleExportSurfaceSet:
+        assert semantic_result.module_exports is not None
+        return semantic_result.module_exports
+
+    return import_hints(
+        name_uncallable_calls(diagnostics, *(item.script for item in parsed)),
+        parsed,
+        exports,
     )
 
 
@@ -586,11 +612,26 @@ def _entry_error_diagnostics(
 ) -> tuple[Diagnostic, ...]:
     retained: list[Diagnostic] = []
     retained_ids: set[int] = set()
-    for diagnostic in _diagnostics_from_carrier(entry):
+    token = _VISITED_CARRIERS.set({})
+    try:
+        walked = _diagnostics_from_carrier(entry)
+    finally:
+        _VISITED_CARRIERS.reset(token)
+    for diagnostic in walked:
         if diagnostic.severity is Severity.ERROR and id(diagnostic) not in retained_ids:
             retained.append(diagnostic)
             retained_ids.add(id(diagnostic))
     return tuple(retained)
+
+
+# Carriers already walked by the current identity-deduplicating projection,
+# kept alive so that no identity is reused. The authority graph shares upstream
+# entries, so a layered chain reaches one carrier along exponentially many
+# paths; a repeat visit only repeats diagnostics that its first, already
+# finished visit returned.
+_VISITED_CARRIERS: contextvars.ContextVar[dict[int, object] | None] = (
+    contextvars.ContextVar("_VISITED_CARRIERS", default=None)
+)
 
 
 def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
@@ -598,6 +639,11 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
 
     if carrier is None:
         return ()
+    visited = _VISITED_CARRIERS.get()
+    if visited is not None:
+        if id(carrier) in visited:
+            return ()
+        visited[id(carrier)] = carrier
     if isinstance(carrier, ProjectSetFailure):
         return (
             *carrier.diagnostics,
@@ -782,8 +828,11 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
         type(carrier)
         is aggregate_grouped_clause_facts.ProjectAggregateGroupedClauseReadiness
     ):
-        return ()
+        return carrier.diagnostics
     return ()
+
+
+_BARE_FALLBACK = "Project relation semantic completion is unavailable: "
 
 
 def _fallback_diagnostic(entry: ProjectEffectiveOutputCompletionEntry) -> Diagnostic:
@@ -802,13 +851,19 @@ def _fallback_diagnostic(entry: ProjectEffectiveOutputCompletionEntry) -> Diagno
     }:
         raise TypeError("Project completion diagnostic requires a relation definition.")
     span = definition.span
+    name = entry.owner.identity.declared_name
+    # A source without a shape stops only itself; say what it needs.
+    cause = (
+        f" (source {name} has no shape, which a project needs to type its rows:"
+        f" write `source {name}: <shape> = ...`)"
+        if type(definition) is SourceDef
+        and cast(SourceDef, definition).shape_name is None
+        else _fanout_cause(entry)
+    )
     return Diagnostic(
         code="PIE-S2333",
         severity=Severity.ERROR,
-        message=(
-            "Project relation semantic completion is unavailable: "
-            f"{entry.owner.identity.declared_name}" + _fanout_cause(entry)
-        ),
+        message=f"{_BARE_FALLBACK}{name}{cause}",
         location=SourceLocation(
             path=span.path,
             line=span.line,
@@ -1199,6 +1254,36 @@ def _enum_member_diagnostics(
     return tuple(diagnostics)
 
 
+def _declaration_diagnostics(
+    semantic_result: ProjectSemanticResult,
+) -> tuple[Diagnostic, ...]:
+    """Check each module's declarations as single-file checks do, each type
+    name in its module's namespace, imported types included."""
+
+    resolutions = semantic_result.module_type_source_resolutions
+    if resolutions is None:
+        raise ValueError("Declaration checks require resolved module types.")
+    modules = []
+    for module in semantic_result.modules:
+        assert module.parsed_input is not None
+        environments = resolutions.find_module_path(module.path)
+        if len(environments) != 1:
+            raise ValueError("Declaration checks require one exact module scope.")
+        environment = environments[0]
+        modules.append(
+            (
+                module.parsed_input.script,
+                {
+                    symbol.local_name: symbol.target_occurrence.definition
+                    for symbol in environment.symbols
+                    if symbol.namespace is ProjectSymbolNamespace.TYPE
+                },
+                environment.blocked_type_names,
+            )
+        )
+    return check_module_declarations(modules)
+
+
 def _final_diagnostics(
     semantic_result: ProjectSemanticResult,
     effective_outputs: ProjectEffectiveOutputCompletion,
@@ -1209,27 +1294,42 @@ def _final_diagnostics(
 ) -> tuple[Diagnostic, ...]:
     retired_ids = {id(diagnostic) for diagnostic in retired}
     # A check reports no other ORDER result of an existing entry.
-    reported_reasons = {
-        project_final_outputs.ProjectRelationOrderingNonConcreteReason.OUTPUT_NAME_AMBIGUOUS,
-        project_final_outputs.ProjectRelationOrderingNonConcreteReason.SHAPE_OPERAND,
-    }
     ambiguous_orders = {
         id(facts.entry): facts.ordering.diagnostics
         for facts in orders
         if type(facts.ordering)
         is project_final_outputs.ProjectNonConcreteRelationOrdering
-        and facts.ordering.reason in reported_reasons
+        and facts.ordering.reason in project_final_outputs.CHECKED_ORDER_REASONS
     }
-    conditions = effective_outputs.operative_conditions
+    terminals = {
+        id(entry.owner): entry
+        for entry in effective_outputs.entries
+        if type(entry)
+        in {ProjectEffectiveOutputTerminal, ProjectEffectiveOutputCompletionTerminal}
+    }
+    # An EXPLICIT_MODULES project never publishes the LEGACY_FLAT admission
+    # text of a JOIN or set operation that does not complete: what stops it
+    # is reported instead.
+    admissions = {
+        diagnostic
+        for entry in terminals.values()
+        for diagnostic in _legacy_admission_diagnostics(entry.owner.definition)
+    }
     retained = [
         diagnostic
         for diagnostic in semantic_result.diagnostics
-        if id(diagnostic) not in retired_ids
+        if id(diagnostic) not in retired_ids and diagnostic not in admissions
     ]
-    # Enum and shape declarations are checked before the relations using
-    # them, each kind per module in selected-module order.
+    # Enum, shape and other declarations are checked before the relations
+    # using them, each kind per module in selected-module order.
     retained.extend(_enum_member_diagnostics(semantic_result))
     retained.extend(shapes)
+    retained.extend(_declaration_diagnostics(semantic_result))
+    conditions = effective_outputs.operative_conditions
+    # A relationship declaration's own errors precede the calls that cannot
+    # use it, as in a single file.
+    if conditions is not None:
+        retained.extend(conditions.predicates.diagnostics)
     retained_ids = {id(diagnostic) for diagnostic in retained}
     # Module resolution reports a relation whose own name or FROM does not
     # resolve (a duplicate, unknown or ambiguous name); it gets no fallback
@@ -1246,6 +1346,208 @@ def _final_diagnostics(
         else frozenset(id(fact.selection.owner) for fact in nested.collect_facts)
     )
     semantic_facts = semantic_result.module_semantic_facts
+    owner_conditions = () if conditions is None else conditions.entries
+
+    reported_values = {
+        diagnostic for diagnostic in retained if diagnostic.severity is Severity.ERROR
+    }
+    # Each relation's expression reads (`any(...)`, `exists`, `scalar`, `in`)
+    # with the issues of a read whose name does not resolve: the name's own,
+    # or a relation cycle of the reader, which a read that closes it reports.
+    resolutions = semantic_result.module_relation_resolutions
+    type_sources = semantic_result.module_type_source_resolutions
+    expression_reads: dict[int, list[ProjectDeclarationOccurrence | bool]] = {}
+    for environment in () if resolutions is None else resolutions.environments:
+        for item in environment.expression_reads:
+            owner = item.read.owner
+            issues = (
+                *environment.find_scoped_issues(owner, item.read.relation_name),
+                *(
+                    issue
+                    for issue in environment.issues
+                    if any(member is owner for member in issue.relation_cycle)
+                ),
+            )
+            expression_reads.setdefault(id(owner), []).append(
+                item.target_symbol.target_occurrence
+                if item.target_symbol is not None
+                else any(
+                    diagnostic in reported_values
+                    for issue in issues
+                    for diagnostic in (
+                        *(() if issue.diagnostic is None else (issue.diagnostic,)),
+                        *issue.suppressing_diagnostics,
+                    )
+                )
+            )
+
+    def shape_failure_reported(owner: ProjectDeclarationOccurrence) -> bool:
+        """Whether an error reports why a source's shape does not resolve or
+        has a field that does not: one in the source's own module (at the
+        source or at the import that fails), or a root elsewhere, such as an
+        export that the import's target module refuses or a field of the
+        shape in another module."""
+
+        source = cast(SourceDef, owner.definition)
+        if any(item.location.path == source.span.path for item in reported_values):
+            return True
+        path = owner.identity.module_path
+        roots: list[Diagnostic] = [
+            root
+            for environment in (
+                () if resolutions is None else resolutions.find_module_path(path)
+            )
+            for issue in environment.issues
+            if issue.status
+            is ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED
+            and any(item is owner for item in issue.occurrences)
+            for root in issue.suppressing_diagnostics
+        ]
+        # A type name blocked by an import's own error, also one whose
+        # target refuses the export: the shape name, or a field type of the
+        # shape the source names.
+        names: list[tuple[str, str | None]] = [(path, source.shape_name)]
+        for environment in (
+            () if type_sources is None else type_sources.find_module_path(path)
+        ):
+            for resolved in environment.find_source(source):
+                shape = resolved.target_symbol.target_occurrence
+                names.extend(
+                    (shape.identity.module_path, field.type_expr.name)
+                    for field in cast(ShapeDef, shape.definition).fields
+                )
+        for module_path, name in names:
+            for environment in (
+                ()
+                if type_sources is None
+                else type_sources.find_module_path(module_path)
+            ):
+                if name in environment.blocked_type_names:
+                    roots.extend(
+                        root
+                        for issue in environment.issues
+                        if issue.local_name == name
+                        for root in issue.suppressing_diagnostics
+                    )
+        return any(root in reported_values for root in roots)
+
+    def stops(
+        entry: ProjectEffectiveOutputCompletionEntry,
+    ) -> list[ProjectDeclarationOccurrence | bool]:
+        """What stops this relation outside it: an input relation, or whether
+        an error already reports a name that does not resolve."""
+
+        found: list[ProjectDeclarationOccurrence | bool] = []
+        facts = () if semantic_facts is None else semantic_facts.find_owner(entry.owner)
+        if len(facts) == 1:
+            reason = facts[0].base_row_fact.state.reason
+            resolution = facts[0].resolution
+            if (
+                reason is ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
+                and type(entry.owner.definition) is SourceDef
+            ):
+                found.append(shape_failure_reported(entry.owner))
+            elif resolution is not None:
+                # The FROM relation stops this one when it fails, also one
+                # whose row is known before a later clause of it fails.
+                found.append(resolution.target_symbol.target_occurrence)
+        for condition in owner_conditions:
+            if condition.ledger.owner is entry.owner:
+                found.extend(_blocked_inputs(condition, reported_values))
+        found.extend(expression_reads.get(id(entry.owner), ()))
+        # A set operation's operands that fail.
+        blocker = getattr(entry, "blocker", None)
+        if type(blocker) is ProjectSetFailure:
+            found.extend(
+                item.owner
+                for item in blocker.blockers
+                if isinstance(
+                    item,
+                    (
+                        ProjectEffectiveOutputTerminal,
+                        ProjectEffectiveOutputCompletionTerminal,
+                    ),
+                )
+            )
+        return found
+
+    decided: dict[int, bool] = {}
+    deciding: set[int] = set()
+
+    def follows(entry: ProjectEffectiveOutputCompletionEntry) -> bool:
+        """Whether a reported failure outside this relation stops it: a name
+        whose error is reported, or a relation that fails, which reports its
+        own error, its fallback or a failure it follows. Of a cycle of
+        failed relations, the one that closes the cycle reports its
+        fallback, which the others follow. The upstream relations are
+        decided depth first with an explicit stack, however long the chain
+        of failed relations is."""
+
+        if id(entry.owner) in decided:
+            return decided[id(entry.owner)]
+        # Each relation being decided, its causes not yet read, and whether
+        # one already stops it.
+        stack = [(entry, iter(stops(entry)), False)]
+        deciding.add(id(entry.owner))
+        while stack:
+            current, causes, stopped = stack[-1]
+            upstream = None
+            if not stopped:
+                for cause in causes:
+                    if type(cause) is bool:
+                        stopped = cause
+                    elif id(cause) in terminals and id(cause) not in deciding:
+                        stopped = True
+                        if id(cause) not in decided:
+                            upstream = terminals[id(cause)]
+                    if stopped:
+                        break
+            if upstream is not None:
+                stack[-1] = (current, causes, True)
+                deciding.add(id(upstream.owner))
+                stack.append((upstream, iter(stops(upstream)), False))
+                continue
+            stack.pop()
+            decided[id(current.owner)] = stopped
+            deciding.discard(id(current.owner))
+        return decided[id(entry.owner)]
+
+    # The diagnostics of a JOIN condition that only say its input is
+    # unavailable, when what stops that input is reported: a failed input or
+    # an earlier JOIN of the relation that fails.
+    unavailable_ids = {
+        id(diagnostic)
+        for condition in owner_conditions
+        if id(condition.ledger.owner) in terminals
+        and (
+            any(
+                cause if type(cause) is bool else id(cause) in terminals
+                for cause in _blocked_inputs(condition, reported_values)
+            )
+            or any(
+                not prior.ready
+                for prior in owner_conditions
+                if prior.ledger is condition.ledger
+                and prior.use.identity.join_position
+                < condition.use.identity.join_position
+            )
+        )
+        for diagnostic in condition.unavailable_diagnostics
+    }
+    # A scalar read of a relation that fails says only that its columns are
+    # not known; that relation reports its own failure.
+    unavailable_ids.update(
+        id(item.diagnostic)
+        for entry in effective_outputs.entries
+        for facts in (
+            () if semantic_facts is None else semantic_facts.find_owner(entry.owner)
+        )
+        for item in facts.scalar_reads
+        if item.diagnostic is not None
+        and item.diagnostic.code == "PIE-S2348"
+        and item.read.target_symbol is not None
+        and id(item.read.target_symbol.target_occurrence) in terminals
+    )
     for entry in effective_outputs.entries:
         if type(entry) is ProjectExistingEffectiveOutput:
             for diagnostic in (
@@ -1286,6 +1588,8 @@ def _final_diagnostics(
                 ),
             )
             if id(diagnostic) not in retired_ids
+            and id(diagnostic) not in unavailable_ids
+            and diagnostic not in admissions
         )
         # A JOIN without `on` names what it needs; a JOIN with `on` or a CROSS
         # JOIN retains its own condition diagnostics.
@@ -1306,6 +1610,7 @@ def _final_diagnostics(
             and any(
                 diagnostic.severity is Severity.ERROR
                 and id(diagnostic) not in retired_ids
+                and id(diagnostic) not in unavailable_ids
                 for diagnostic in condition.diagnostics
             )
             for condition in conditions.entries
@@ -1315,9 +1620,22 @@ def _final_diagnostics(
             and not completed
             and not named_input_error
             and not (unresolved and resolution_reported)
+            and not follows(entry)
             and id(entry.owner) not in collect_owners
         ):
-            errors = (_fallback_diagnostic(entry),)
+            fallback = _fallback_diagnostic(entry)
+            # A fallback without a cause adds nothing beside an error that an
+            # earlier stage already reports inside the relation.
+            span = entry.owner.definition.span
+            if (
+                fallback.message != _BARE_FALLBACK + entry.owner.identity.declared_name
+                or not any(
+                    diagnostic.location is not None
+                    and _within(diagnostic.location, span)
+                    for diagnostic in reported_values
+                )
+            ):
+                errors = (fallback,)
         for diagnostic in errors:
             if id(diagnostic) in retained_ids:
                 continue
@@ -1325,8 +1643,110 @@ def _final_diagnostics(
             retained_ids.add(id(diagnostic))
     # The JOIN condition diagnostics follow the relations' own.
     if conditions is not None:
-        retained.extend(conditions.diagnostics)
-    return tuple(retained)
+        retained.extend(
+            diagnostic
+            for diagnostic in conditions.diagnostics
+            if id(diagnostic) not in unavailable_ids
+            and id(diagnostic) not in retained_ids
+        )
+    # A call of a relationship that a failed import alone stops follows that
+    # reported error.
+    predicates = (
+        ProjectRelationshipPredicateCatalog(semantic_result=semantic_result)
+        if conditions is None
+        else conditions.predicates
+    )
+    selected_keys = _selected_unknown_group_keys(terminals.values(), retained)
+    return tuple(
+        diagnostic
+        for diagnostic in retained
+        if not (
+            diagnostic.code == "PIE-S2604"
+            and predicates.follows_failed_import(diagnostic)
+        )
+        and id(diagnostic) not in selected_keys
+    )
+
+
+def _selected_unknown_group_keys(
+    entries: Iterable[ProjectEffectiveOutputCompletionEntry],
+    diagnostics: list[Diagnostic],
+) -> set[int]:
+    """The PIE-S2102 errors at a select item that names a GROUP BY key whose
+    own PIE-S2102 is reported: a single file reports that key once, at the
+    key."""
+
+    unknown = [
+        diagnostic
+        for diagnostic in diagnostics
+        if diagnostic.code == "PIE-S2102" and diagnostic.location is not None
+    ]
+    found: set[int] = set()
+    for entry in entries:
+        definition = entry.owner.definition
+        if not isinstance(definition, (TableDef, QueryDef)):
+            continue
+        group_by = definition.group_by_clause
+        if group_by is None:
+            continue
+        keys = {
+            item.key.name: item.key.span
+            for item in group_by.items
+            if type(item.key) is NameExpr
+        }
+        for item in definition.select_items:
+            name = item.expression
+            if type(name) is not NameExpr or name.name not in keys:
+                continue
+            message = f"Unknown field: {name.name}"
+            located = [
+                diagnostic for diagnostic in unknown if diagnostic.message == message
+            ]
+            if any(
+                _within(cast(SourceLocation, diagnostic.location), keys[name.name])
+                for diagnostic in located
+            ):
+                found.update(
+                    id(diagnostic)
+                    for diagnostic in located
+                    if _within(cast(SourceLocation, diagnostic.location), name.span)
+                )
+    return found
+
+
+def _legacy_admission_diagnostics(definition: object) -> tuple[Diagnostic, ...]:
+    """The temporary LEGACY_FLAT admission diagnostics a relation's semantic
+    facts hold until its JOIN or set operation completes."""
+
+    if type(definition) in {TableDef, QueryDef}:
+        return syntax_diagnostics(
+            cast(TableDef | QueryDef, definition), allow_distinct=True
+        )
+    if type(definition) is SetRelationDef:
+        return syntax_diagnostics(cast(SetRelationDef, definition))
+    return ()
+
+
+def _blocked_inputs(
+    condition: ProjectJoinCondition, reported: set[Diagnostic]
+) -> list[ProjectDeclarationOccurrence | bool]:
+    """For each binding that a JOIN condition reads and that has no input to
+    read, its relation, or whether an error in ``reported`` reports its name
+    that does not resolve."""
+
+    return [
+        any(
+            diagnostic in reported
+            for issue in binding.relation_issues
+            for diagnostic in (
+                *(() if issue.diagnostic is None else (issue.diagnostic,)),
+                *issue.suppressing_diagnostics,
+            )
+        )
+        if binding.target is None
+        else binding.target.target_occurrence
+        for binding in condition.environment.blocked_bindings
+    ]
 
 
 def _build_phase62_verification(

@@ -125,6 +125,17 @@ or the `pietto.sql-emission.v2` document of a VERIFIED query with header
 parameters ([below](#emit-sql-result)). Its exit codes follow the same classes
 as below.
 
+Project `explain` is not a JSON v2 command either. It reads only a
+`schema_version = 4` package-root project and writes the Project Explain
+Artifact v1 (`pietto.project-explain.v1`) defined by the
+[Phase 58 Slice 8 JSON contract](phase58-slice8-project-explain-json-v1.md)
+and the [Phase 58 Slice 14 CLI contract](phase58-slice14-project-explain-cli-text-json-v1.md).
+For another schema version, that artifact reports `config_schema` at
+`pietto.toml`. `check --project` reads schema versions 1 and 2, and
+`emit-sql --project` reads schema version 2; see
+[Schema compatibility](../project-package.md#schema-compatibility) and
+[Explaining a package-root project](../project-package.md#explaining-a-package-root-project).
+
 The source-only `migrate PATH` command is separate from project invocation
 and from JSON v1/v2. It emits a complete migrated source or a refusal with no
 partial source; it does not introduce a project mode, command tag, output
@@ -223,7 +234,7 @@ or finalize that argument-recognition algorithm.
 
 ## Common JSON v2 Fields
 
-Both project commands use:
+`check --project`, the only JSON v2 command, uses:
 
 - `schema_version`;
 - `command`;
@@ -232,7 +243,8 @@ Both project commands use:
 - `project`;
 - `inputs`;
 - `diagnostics`;
-- `cli_errors`.
+- `cli_errors`;
+- `result` (see [Check Result](#check-result)).
 
 All documented top-level keys are present in every result for that command.
 Object member order and insignificant whitespace are not protocol guarantees.
@@ -259,8 +271,9 @@ The logical root `"."` means paths in the result are relative to the selected
 project root. It avoids leaking a canonical absolute path and keeps results
 reproducible across machines.
 
-For a root failure, the original invocation spelling belongs in the relevant
-CLI error `path`, while `project.root` remains `null`.
+For a root failure, `project.root` and the `project_root` CLI error's `path`
+are both `null`: the message names the failure, and the invocation spelling,
+which may be a host path, is not echoed.
 
 ## Check Result
 
@@ -279,13 +292,32 @@ The planned project check shape is:
   "inputs": [
     {
       "path": "models/users.pietto",
+      "kind": "source",
       "status": "parsed"
     }
   ],
   "diagnostics": [],
-  "cli_errors": []
+  "cli_errors": [],
+  "result": {
+    "check": {
+      "files_total": 1,
+      "files_ok": 1,
+      "files_with_errors": 0
+    }
+  }
 }
 ```
+
+`result.check` counts the selected inputs:
+
+| Field | Type | Rules |
+|---|---|---|
+| `files_total` | integer | Number of `inputs` |
+| `files_with_errors` | integer | Inputs whose `status` is `"error"` or whose path is the primary `location.path` of at least one `"error"` diagnostic, parse or semantic. Related locations and diagnostics without a path count no input. |
+| `files_ok` | integer | `files_total - files_with_errors` |
+
+A file can be `parsed` and still count in `files_with_errors`: a semantic
+error located in it counts it. When no file set exists, all three are `0`.
 
 `check` performs project parsing and semantic analysis only as a public
 contract. For `EXPLICIT_MODULES`, the implementation may privately construct
@@ -374,6 +406,7 @@ Every selected project source has:
 ```json
 {
   "path": "models/users.pietto",
+  "kind": "source",
   "status": "parsed"
 }
 ```
@@ -381,6 +414,7 @@ Every selected project source has:
 | Field | Type | Rules |
 |---|---|---|
 | `path` | string | Normalized project-relative source identity |
+| `kind` | string | Always `"source"`: a selected `.pietto` source |
 | `status` | string | `"parsed"` or `"error"` |
 
 `parsed` means the file was read and its frontend parse completed without a
@@ -404,26 +438,26 @@ JSON v2 preserves the v1 diagnostic fields and adds one required array:
 
 ```json
 {
-  "code": "PIE-S2001",
+  "code": "PIE-S2705",
   "severity": "error",
-  "message": "Duplicate symbol",
+  "message": "Imported declaration is private or not exported: shape Private from \"models/b.pietto\"",
   "location": {
-    "path": "models/b.pietto",
-    "line": 1,
-    "column": 1,
-    "end_line": null,
-    "end_column": null
+    "path": "models/a.pietto",
+    "line": 2,
+    "column": 11,
+    "end_line": 2,
+    "end_column": 18
   },
   "suggestion": null,
   "related_locations": [
     {
-      "message": "First declared here.",
+      "message": null,
       "location": {
-        "path": "models/a.pietto",
+        "path": "models/b.pietto",
         "line": 1,
         "column": 1,
-        "end_line": null,
-        "end_column": null
+        "end_line": 2,
+        "end_column": 12
       }
     }
   ]
@@ -443,6 +477,13 @@ object has:
 
 - `message`: string or null;
 - `location`: a complete non-null location object.
+
+An explicit-module (schema 2) check fills it for the module graph, import
+binding and module resolution diagnostics that have another side, such as the
+declarations an import binding collides with or the target of a re-export, in
+their computed order and with a `null` message. Other diagnostics, including
+every legacy-flat (schema 1) diagnostic such as a cross-file PIE-S2001
+duplicate, keep an empty array.
 
 Project source and configuration paths are normalized project-relative paths.
 Root-level failures without source coordinates remain CLI errors rather than
@@ -477,15 +518,18 @@ The planned v2 project kinds are:
 | `usage` | Recognized project JSON command has invalid or missing arguments |
 | `unsupported_dialect` | Supplied or configured SQL dialect is unsupported |
 | `project_root` | Explicit root is missing, invalid, inaccessible, or not a directory |
-| `config_read` | `pietto.toml` cannot be read or decoded |
-| `config_parse` | TOML syntax is invalid |
+| `config_read` | `pietto.toml` cannot be read |
+| `config_parse` | TOML syntax is invalid, the bytes of `pietto.toml` are not UTF-8, or it starts with a UTF-8 byte-order mark |
 | `config_schema` | Parsed configuration violates the strict schema |
-| `project_path` | A configured or selected path violates project path policy |
+| `project_path` | A configured or selected path violates project path policy; in project `emit-sql`, also a selected source or source directory whose name is not valid UTF-8 where a path in the document would name it (its SQL request, a diagnostic or blocker located in that file, which the document then leaves out, or another input error about it, whose `path` is then null); a message that names it shows it escaped (`\udcff`) and is kept |
 | `project_glob` | A pattern is invalid or source selection fails |
 | `project_resource` | A project discovery, loading, or presentation budget is exceeded, including TOML in `pietto.toml` or a package manifest nested too deeply to load |
 | `source_read` | A selected source cannot be read or decoded |
 | `output_path` | Project output path fails safety validation |
 | `output_write` | Atomic project output write or replacement fails, or the output file is read-only or belongs to another user |
+| `emission_contract_read` | Project `emit-sql` only: the `--emission-contract` file cannot be read safely, because its path is not a normalized project-relative path, or it escapes the root, is a symbolic link, is not a regular file, is absent, exceeds 1 MiB, or changes while it is read; `path` is null for a path that is not valid UTF-8 |
+| `emission_contract_schema` | Project `emit-sql` only: the contract is not valid UTF-8 JSON of the contract schema, or its target family differs from `--dialect` |
+| `emission_selector` | Project `emit-sql` only: no declaration or more than one matches `--module`, `--kind` and `--name`; a selector inside the contract has an empty `module` or `name` or a `kind` other than `source` (the path names that key), matches no source or several, or repeats another source description's; a source's field has an ordinal that is not a unique integer from 0 to its last field, or a name other than its shape field's at that ordinal; or a premise's `scope` names no expression site of its source |
 
 The design retains `output_path` and `output_write` rather than introducing a
 less precise `project_output` umbrella kind.
@@ -678,5 +722,6 @@ and trust boundaries are summarized in `docs/project-package.md`.
 ## Related Documents
 
 - [CLI JSON schema version 1](cli-json-v1.md)
-- [Pietto project configuration schema version 1](pietto-config-v1.md)
+- [Pietto project configuration v1](pietto-config-v1.md)
 - [Current projects and packages](../project-package.md)
+- [Project Explain JSON v1](phase58-slice8-project-explain-json-v1.md)

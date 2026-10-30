@@ -397,6 +397,10 @@ class ProjectModuleTypeSourceResolutionEnvironment:
     source_shape_references: tuple[ProjectModuleSourceShapeReference, ...] = ()
     source_shape_resolutions: tuple[ProjectResolvedModuleSourceShapeReference, ...] = ()
     issues: tuple[ProjectTypeSourceResolutionIssue, ...] = ()
+    # Each type name left unresolved by an error of its own (a duplicate
+    # declaration, or a failed or cyclic import in the type namespace or
+    # colliding with a declaration): no type use of it reports an unknown type.
+    blocked_type_names: frozenset[str] = frozenset()
     _type_symbols_by_name: Mapping[str, tuple[ProjectResolvedNominalSymbol, ...]] = (
         field(init=False, repr=False, compare=False, hash=False)
     )
@@ -466,6 +470,10 @@ class ProjectModuleTypeSourceResolutionEnvironment:
             raise ValueError("Source resolutions require retained references.")
         if any(issue.owning_module_path != self.module.path for issue in self.issues):
             raise ValueError("Environment issues must be module-local.")
+        if type(self.blocked_type_names) is not frozenset or any(
+            type(name) is not str or not name for name in self.blocked_type_names
+        ):
+            raise TypeError("Environment blocked type names must be names.")
 
         type_symbols: dict[str, list[ProjectResolvedNominalSymbol]] = {}
         source_symbols: dict[str, list[ProjectResolvedNominalSymbol]] = {}
@@ -777,6 +785,9 @@ def _build_project_type_source_resolution_set(
             source_shape_references=tuple(draft.source_references),
             source_shape_resolutions=source_resolutions,
             issues=ordered_issues,
+            blocked_type_names=frozenset(
+                draft.blocked_type_names | draft.ambiguous_type_names
+            ),
         )
         environments.append(environment)
         all_issues.extend(ordered_issues)
@@ -834,22 +845,28 @@ def _collect_module_diagnostic_blockers(
     buckets: dict[
         tuple[ProjectSymbolNamespace, str], list[ProjectModuleBindingIssue]
     ] = {}
+    # A collision on such an import is reported in place of the import's own
+    # error, so it joins the import's type bucket as its root.
+    type_requests = {
+        issue.request
+        for issue in binding_issues
+        if _imports_type_as_other_kind(draft, issue)
+    }
     for issue in binding_issues:
         if issue.status is ProjectModuleBindingIssueStatus.DUPLICATE_SOURCE_REQUEST:
             continue
         kind = issue.request.identity.declaration_kind
-        if kind in _TYPE_KINDS:
-            namespace = ProjectSymbolNamespace.TYPE
-        elif kind is ProjectSymbolKind.SOURCE or (
+        local_name = issue.request.identity.local_binding_name
+        namespaces = []
+        if kind in _TYPE_KINDS or issue.request in type_requests:
+            namespaces.append(ProjectSymbolNamespace.TYPE)
+        if kind is ProjectSymbolKind.SOURCE or (
             issue.status in _COLLISION_ISSUE_STATUSES
             and issue.request.identity.namespace is ProjectSymbolNamespace.RELATION
         ):
-            namespace = ProjectSymbolNamespace.RELATION
-        else:
-            continue
-        buckets.setdefault(
-            (namespace, issue.request.identity.local_binding_name), []
-        ).append(issue)
+            namespaces.append(ProjectSymbolNamespace.RELATION)
+        for namespace in namespaces:
+            buckets.setdefault((namespace, local_name), []).append(issue)
 
     for (namespace, local_name), issues in buckets.items():
         issue_tuple = tuple(issues)
@@ -951,6 +968,27 @@ def _collect_module_diagnostic_blockers(
             draft.blocked_type_names.add(local_name)
         else:
             draft.blocked_source_names.add(local_name)
+
+
+def _imports_type_as_other_kind(
+    draft: _ModuleResolutionDraft, issue: ProjectModuleBindingIssue
+) -> bool:
+    """Whether a failed import asks, with a relation kind, for a name that
+    its target declares or exports only as a type (`source Customer` of a
+    shape alone), and the module declares no type of that name: its type
+    uses of the name follow the import's own error, as when the import asks
+    for a type."""
+
+    name = issue.request.identity.local_binding_name
+    return (
+        issue.request.identity.namespace is ProjectSymbolNamespace.RELATION
+        and issue.asks_for(ProjectSymbolNamespace.TYPE)
+        and not any(
+            item.identity.declared_name == name
+            and item.identity.declaration_kind in _TYPE_KINDS
+            for item in draft.catalog.occurrences
+        )
+    )
 
 
 def _collect_local_symbols(draft: _ModuleResolutionDraft) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
@@ -36,6 +37,7 @@ from pietto._project.row_expression_type_facts import (
     scalar_field_reference_leaves,
 )
 from pietto.errors import Diagnostic
+from pietto.semantic.analyzer import _within
 from pietto.semantic.model import (
     EffectiveNullability,
     RelationshipCallInfo,
@@ -58,6 +60,10 @@ class ProjectRelationshipPredicateCatalog:
     semantic_result: ProjectSemanticResult = field(repr=False)
     templates: Mapping[str, tuple[RelationshipTemplateInfo, ...]] = field(init=False)
     diagnostics: tuple[Diagnostic, ...] = field(init=False)
+    # (module path, name) of each relationship that a failed import, a
+    # duplicate or an import cycle alone stops: its calls only follow that
+    # reported error.
+    followed: frozenset[tuple[str, str]] = field(init=False)
 
     def __post_init__(self) -> None:
         root = self.semantic_result
@@ -67,6 +73,7 @@ class ProjectRelationshipPredicateCatalog:
             raise ValueError("Project predicates require resolved module authority.")
         checked: dict[str, tuple[RelationshipTemplateInfo, ...]] = {}
         diagnostics: list[Diagnostic] = []
+        followed: set[tuple[str, str]] = set()
         for module in root.modules:
             if module.parsed_input is None:
                 continue
@@ -134,9 +141,47 @@ class ProjectRelationshipPredicateCatalog:
                 type_nullability=nullability,
             )
             checked[module.path] = templates
-            diagnostics.extend(errors)
+            # A parameter shape name that a failed import, a duplicate or an
+            # import cycle leaves unresolved has an error of its own.
+            blocked = environment.blocked_type_names
+            kept = [
+                error
+                for error in errors
+                if error.message.removeprefix("Unknown relationship parameter shape: ")
+                not in blocked
+            ]
+            diagnostics.extend(kept)
+            kept_ids = {id(error) for error in kept}
+            dropped = [error for error in errors if id(error) not in kept_ids]
+            names = Counter(item.name for item in script.relationship_templates)
+            checked_ids = {id(item.declaration) for item in templates}
+
+            def located(error: Diagnostic, span: ast.Span) -> bool:
+                return error.location is not None and _within(error.location, span)
+
+            followed.update(
+                (module.path, template.name)
+                for template in script.relationship_templates
+                if names[template.name] == 1
+                and id(template) not in checked_ids
+                and any(located(error, template.span) for error in dropped)
+                and not any(located(error, template.span) for error in kept)
+            )
         object.__setattr__(self, "templates", MappingProxyType(checked))
         object.__setattr__(self, "diagnostics", tuple(diagnostics))
+        object.__setattr__(self, "followed", frozenset(followed))
+
+    def follows_failed_import(self, diagnostic: Diagnostic) -> bool:
+        """Whether ``diagnostic`` only says that a call cannot use a
+        relationship which a failed import alone stops."""
+
+        location = diagnostic.location
+        return location is not None and any(
+            location.path == path
+            and diagnostic.message
+            == f"Relationship predicate {name} has no unambiguous checked declaration"
+            for path, name in self.followed
+        )
 
 
 def declared_source_shape(
@@ -788,6 +833,15 @@ def normalize_project_query_names(
     normalized: list[ProjectParsedInput] = []
     unchanged = True
     for source in parsed.parsed_inputs:
+        # A relation name this module imports without binding it, also with
+        # another kind (`shape customers` of a source), is no unknown
+        # relation: the module diagnostic of its import reports it.
+        failed_imports = {
+            issue.request.identity.local_binding_name
+            for environment in imports.find_module_path(source.path)
+            for issue in environment.issues
+            if issue.asks_for(ProjectSymbolNamespace.RELATION)
+        }
         any_trace = AnyValueTrace(source.script, uses=source.existence_values)
         generated_joins = {id(use.clause) for use in source.existence_generators}
         # A lowered WHERE ANY still binds its row name over its hidden ON.
@@ -807,6 +861,9 @@ def normalize_project_query_names(
                 str, tuple[tuple[str, ProjectDeclarationOccurrence], ...]
             ] = {}
             alias_sites: dict[str, ast.QueryLetDeclaration] = {}
+            # A let of a relation name this module failed to import: what
+            # reads the let reads that name, as if it were written there.
+            failed_aliases: dict[str, str] = {}
             visible: list[ProjectDeclarationOccurrence] = []
             scalar_names = {parameter.name for parameter in parameters}
             window_names: set[str] = set()
@@ -906,6 +963,9 @@ def normalize_project_query_names(
                     elif targets:
                         aliases[node.name] = targets
                         alias_sites[node.name] = node
+                    elif name in failed_imports and name is not None and not is_scalar:
+                        failed_aliases[node.name] = name
+                        alias_sites[node.name] = node
                     elif not is_scalar and (
                         unknown := unknown_let_input(
                             node,
@@ -977,6 +1037,12 @@ def normalize_project_query_names(
                                 node, source_name=name, binding_name=node.source_name
                             )
                         visible.append(target)
+                    elif node.source_name in failed_aliases:
+                        from_clause = replace(
+                            node,
+                            source_name=failed_aliases[node.source_name],
+                            binding_name=node.source_name,
+                        )
                     assert isinstance(from_clause, ast.FromClause)
                     input_names.add(from_clause.binding_name or from_clause.source_name)
                     if definition.join_clauses:
@@ -1005,7 +1071,16 @@ def normalize_project_query_names(
                         ):
                             visible.append(target)
                     else:
-                        joins.append(node)
+                        joins.append(
+                            replace(
+                                node,
+                                target_relation_name=failed_aliases[
+                                    node.target_relation_name
+                                ],
+                            )
+                            if node.target_relation_name in failed_aliases
+                            else node
+                        )
                     if id(node) not in generated_joins:
                         input_names.update(
                             (node.target_binding_name, joins[-1].target_relation_name)
@@ -1084,6 +1159,16 @@ def normalize_project_query_names(
                         )
                     if len(targets) == 1 and after.relation_name != targets[0][0]:
                         result = replace(after, relation_name=targets[0][0])
+                    elif (
+                        not targets
+                        and after.relation_name in failed_aliases
+                        and alias is not None
+                        and (alias.span.line, alias.span.column)
+                        < (after.span.line, after.span.column)
+                    ):
+                        result = replace(
+                            after, relation_name=failed_aliases[after.relation_name]
+                        )
                     return _scalar_contracts(before, result)
                 if (
                     type(after) is ast.DottedNameExpr

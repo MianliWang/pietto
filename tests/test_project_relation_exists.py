@@ -25,13 +25,8 @@ source lhs: Row = postgres.table("lhs")
 source rhs: Row = postgres.table("rhs")
 """
 WINDOW = "        n = row_number() window(\n            order by\n"
-COMPLETION = (
-    "PIE-S2333",
-    "Project relation semantic completion is unavailable: q",
-    6,
-    1,
-)
-# body, (line, column) of the read, refused place, the clause's own diagnostics
+# body, (line, column) of the read, refused place, the clause's own diagnostics;
+# the refused read stops its relation, which reports no PIE-S2333 beside it
 REFUSED = {
     "join_on": (
         "query q:\n    from lhs\n    let r = rhs\n"
@@ -53,20 +48,20 @@ REFUSED = {
         "    select:\n        id\n        e = exists rhs\n",
         (12, 13),
         "the SELECT of a grouped query",
-        [COMPLETION],
+        [],
     ),
     "aggregate_select": (
         "query q:\n    from lhs\n    select:\n        n = count()\n        e = exists rhs\n",
         (10, 13),
         "the SELECT of a grouped query",
-        [COMPLETION],
+        [],
     ),
     "satisfying": (
         "query q:\n    from lhs\n    group by:\n        id\n    select:\n        id\n"
         "        n = count()\n    having:\n        n > 0 and exists rhs\n",
         (14, 19),
         "SATISFYING",
-        [COMPLETION],
+        [],
     ),
     "window_order": (
         "query q:\n    from lhs\n    select:\n        id\n"

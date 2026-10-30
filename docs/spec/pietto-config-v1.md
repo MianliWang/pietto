@@ -1,81 +1,114 @@
-# Pietto Project Configuration Schema Version 1
+# Pietto Project Configuration v1
 
 ## Status
 
-This document defines the version 1 `pietto.toml` contract for explicit
-project checking. Project configuration never changes single-file command
-meaning; single-file CLI JSON remains version 1 while project check uses the
-separate version 2 envelope.
-
-## Purpose
-
-A future `pietto.toml` may describe:
-
-- project metadata;
-- source-file selection;
-- a default SQL dialect for an explicit future project invocation;
-- future non-runtime developer-tool settings after their schemas are approved.
-
-Configuration is declarative data. It must not execute code, grant database or
-network access, load plugins, or silently change current single-file commands.
+This document is the implemented contract of the `pietto.toml` project
+configuration file. It replaces the Phase 8 design candidate that earlier
+versions of this page described: the implementation accepts `schema_version`
+1 to 4, has no `[project]` table, and treats `[sources].exclude` as optional.
+Project configuration never changes single-file command meaning; single-file
+CLI JSON remains version 1, while project check uses the separate
+[version 2 envelope](project-cli-json-v2.md).
 
 ## Filename And Placement
 
-The planned filename is exactly:
+The file is exactly `pietto.toml` at the root that a project command names
+with `--project ROOT`. Pietto does not search parent directories, and a
+directory given as a single-file path is not a project. There is no
+configless project mode and no `--config` option.
 
-```text
-pietto.toml
-```
-
-A project uses it only at an explicitly selected root. The explicit-root and
-no-upward-search behavior is summarized in `docs/project-package.md`. Project
-invocation uses explicit `--project ROOT` as documented in
-`docs/spec/project-cli-json-v2.md`.
-
-This document does not create a real `pietto.toml` file or authorize discovery
-by walking parent directories.
+The file must be a regular file, not a symbolic link, and UTF-8 TOML without
+a byte-order mark. It is
+read through the pinned project root, like the project sources (see
+[Trusted source identity](../project-package.md#trusted-source-identity)).
 
 ## Schema Version
 
-Every configuration file must contain this top-level field:
+`schema_version` is a required top-level integer: `1`, `2`, `3` or `4`. A
+string, a float, a Boolean, a missing value or another integer is
+`config_schema`. The integer is the complete schema identifier: there is no
+minor version, feature negotiation or silent migration, and changing the
+number alone does not convert a project.
 
-```toml
-schema_version = 1
-```
+| `schema_version` | Mode | Top-level keys | Read by |
+|---|---|---|---|
+| `1` | legacy-flat | `schema_version`, `[sources]` | `check --project` |
+| `2` | explicit modules | `schema_version`, `[sources]` | `check --project`, `emit-sql --project` |
+| `3` | package root | `schema_version`, `[package]` | no command; set `4` and add an empty `[capability_environment]` to explain it |
+| `4` | package root with a capability environment | `schema_version`, `[package]`, `[capability_environment]` | `explain --project` |
 
-The rules are:
-
-- `schema_version` is required;
-- its value is an integer, not a string or floating-point number;
-- the only accepted value in this contract is `1`;
-- a missing or unsupported version must be rejected;
-- future incompatible changes require a separately planned schema version;
-- no implementation may silently migrate or reinterpret an older file;
-- defaults and meanings must not drift within one schema version.
-
-The integer is the complete schema identifier. There is no implicit minor
-version or feature negotiation.
+[Projects and packages](../project-package.md#schema-compatibility) describes
+what each mode checks.
 
 ## Strict Key Policy
 
-Future parsing must reject:
+Parsing rejects, as `config_schema` at `pietto.toml`:
 
-- unknown top-level keys;
-- unknown tables;
-- unknown keys inside a known table;
-- duplicate keys or tables as prohibited by TOML;
+- an unknown top-level key, or one that the selected schema version does not
+  use, such as `[sources]` in schema 3 or 4, `[package]` in schema 1 or 2, or
+  `[project]` in any version;
+- an unknown key inside a known table;
 - a known key with the wrong TOML type.
 
-Unknown keys must not be ignored or retained for best-effort behavior.
-Configuration typos should fail deterministically so local development and CI
-use the same project definition.
+Duplicate keys or tables are TOML errors (`config_parse`). Unknown keys are
+never ignored or retained. A suggestion may accompany an error, but it never
+turns an invalid key into an accepted one.
 
-Suggestions such as "did you mean" may accompany an error, but they must not
-turn an invalid key into an accepted key.
+The SQL dialect is not configuration: `emit-sql --project` requires an
+explicit `--dialect`.
+
+## Sources Table
+
+Schema 1 and 2 require a `[sources]` table with only these keys:
+
+| Key | Type | Rule |
+|---|---|---|
+| `include` | array of strings | Required and non-empty; the source-selection patterns |
+| `exclude` | array of strings | Optional, default `[]`; a path that any of these patterns matches is not selected |
+
+```toml
+schema_version = 2
+
+[sources]
+include = ["models/**/*.pietto"]
+exclude = ["models/scratch/*.pietto"]
+```
+
+[Project invocation and configuration](../project-package.md#project-invocation-and-configuration)
+specifies the pattern syntax, the `.pietto`-only and hidden-file rules,
+exclusion precedence, symbolic links, duplicate files and ordering.
+
+## Package Table
+
+Schema 3 and 4 require an exact `[package]` root table with exactly these
+non-empty string keys:
+
+| Key | Rule |
+|---|---|
+| `path` | `"."` or a normalized project-relative directory that holds `pietto-package.toml` |
+| `namespace` | Must equal the manifest's `namespace` |
+| `name` | Must equal the manifest's `name` |
+| `version` | A strict SemVer 2.0.0 release that must equal the manifest's `version` |
+| `sha256` | 64 lowercase hexadecimal characters: the whole-package content digest |
+
+[Explaining a package-root project](../project-package.md#explaining-a-package-root-project)
+gives a complete example, the manifest keys, and a script that computes the
+digest.
+
+## Capability Environment Table
+
+Schema 4 also requires an exact `[capability_environment]` root table, which
+may be empty. Its optional arrays are `[[capability_environment.profiles]]`,
+each with optional `[[capability_environment.profiles.facts]]`, and
+`[[capability_environment.targets]]`, each with optional
+`[[capability_environment.targets.overlays]]`. There is no implicit or default
+profile or target. The
+[capability environment contract](phase58-slice11-project-capability-environment-authority-v1.md)
+defines every key.
 
 ## Non-Executable Contract
 
-`pietto.toml` must never provide:
+`pietto.toml` never provides:
 
 - command, build, lifecycle, pre-check, or post-emit hooks;
 - shell commands or subprocess arguments;
@@ -88,253 +121,46 @@ turn an invalid key into an accepted key.
 - runtime, connector, SQL, or database execution.
 
 String values are literal configuration data. Text such as `$HOME`,
-`${TOKEN}`, `%USERPROFILE%`, or `$(command)` must not be expanded or executed.
+`${TOKEN}`, `%USERPROFILE%`, or `$(command)` is never expanded or executed.
 
 ## Secrets And Database Boundary
 
-The initial configuration contract must not accept:
+The configuration accepts no credentials, passwords, API keys, access tokens,
+database or connector URLs, secret references, network destinations, database
+roles, transaction settings or execution permissions. Project configuration is
+not an indirect entry point for SQL execution, database connections or
+network access.
 
-- credentials or passwords;
-- API keys or access tokens;
-- database or connector URLs;
-- secret names, secret references, or secret-provider settings;
-- environment-secret expansion;
-- network destinations;
-- database roles, transaction settings, or execution permissions.
+## Resource Limits
 
-SQL execution, database connections, connector execution, schema
-introspection, credentials, and network access require a separate threat model
-before specification or implementation. Project configuration must not become
-an indirect entry point for those capabilities.
-
-## Candidate Version 1 Shape
-
-The conservative candidate shape is:
-
-```toml
-schema_version = 1
-
-[project]
-name = "example"
-default_dialect = "postgres"
-
-[sources]
-include = ["examples/**/*.pietto"]
-exclude = []
-```
-
-This is a contract example, not a repository fixture and not an implemented
-input.
-
-The candidate accepted top-level keys are:
-
-- `schema_version`;
-- `project`;
-- `sources`.
-
-`tooling` is a reserved future namespace, not an open extension point in this
-version. A `[tooling]` table must remain invalid until a later schema revision
-defines concrete non-runtime keys. This preserves the strict unknown-key
-policy.
-
-## Project Table
-
-The candidate `[project]` table contains exactly:
-
-| Key | Type | Candidate rule |
-|---|---|---|
-| `name` | string | Required non-empty project display name |
-| `default_dialect` | string | Optional project-mode default; if present, only `"postgres"` is planned for the initial implementation |
-
-`project.name` is metadata. It does not create a module namespace, package
-identity, output filename, database name, or runtime identity.
-
-If `project.default_dialect` is absent, configuration supplies no dialect
-default. A future project command must use an explicit CLI value or another
-separately specified rule. The current `emit-sql` command continues to require
-`--dialect postgres`.
-
-`mysql` is not an implemented or accepted dialect value. SQLGlot evaluation,
-MySQL feasibility, and multi-dialect support remain possible Phase 9 and
-Phase 10 work.
-
-## Sources Table
-
-The candidate `[sources]` table contains exactly:
-
-| Key | Type | Candidate rule |
-|---|---|---|
-| `include` | array of strings | Required source-selection patterns |
-| `exclude` | array of strings | Required exclusion patterns; use `[]` for none |
-
-Requiring both arrays avoids version-dependent implicit source selection. A
-future implementation must reject non-string elements and duplicate TOML
-definitions.
-
-The path contract is:
-
-- entries are relative to the explicit project root;
-- configuration uses normalized POSIX-style `/` separators on every platform;
-- absolute paths, Windows drive paths, and UNC paths are not allowed;
-- parent-directory traversal using `..` is not allowed;
-- lexical normalization must not permit escape from the project root;
-- physically resolved symbolic links must not escape the project root;
-- one physical file must not be compiled repeatedly through aliases;
-- the final file set must have deterministic project-relative ordering;
-- project file-count and aggregate-byte limits must be enforced before
-  unbounded compilation work.
-
-The planned wildcard subset, exclusion precedence, hidden-file behavior,
-cross-platform sorting, symlink handling, and duplicate-identity rules are
-summarized in `docs/project-package.md`. No glob library or
-expansion behavior is implemented by this contract.
-
-## Future Precedence
-
-The intended precedence is:
-
-```text
-explicit CLI value
-    > accepted configuration value
-    > separately specified built-in behavior
-```
-
-This applies only where a future project command defines both a CLI argument
-and a corresponding configuration field.
-
-Configuration must not alter current single-file command interpretation:
-
-- the positional argument to `pietto check` remains one source file;
-- the positional argument to `pietto emit-sql` remains one source file;
-- a directory must not be silently treated as a project;
-- the current required `--dialect postgres` behavior must not change because a
-  nearby configuration file exists.
-
-The accepted future project selector is `--project ROOT`, mutually exclusive
-with the existing positional single-file path. For project `emit-sql`, an
-explicit CLI dialect takes precedence over `project.default_dialect`. The
-complete unimplemented interface is documented in
-`docs/spec/project-cli-json-v2.md`.
-
-## Resource Budgets
-
-Schema version 1 must not expose resource-budget overrides.
-
-The current 1 MiB UTF-8 source and 200,000 raw non-EOF token limits are safety
-containment, not user preferences. Allowing projects to raise them could
-weaken deterministic failure behavior.
-
-The accepted project-level file-count, aggregate-byte, token, graph-work,
-diagnostic, artifact, and output-size direction is summarized in
-`docs/project-package.md`. Any future configurable limits
-require:
-
-- fixed non-configurable hard ceilings;
-- trust-boundary and denial-of-service review;
-- deterministic precedence and validation;
-- compatibility planning for CLI and machine-readable errors.
+The configuration has no resource-budget setting. The limits are fixed and per
+file: each selected source holds at most 1 MiB (1,048,576 bytes) of UTF-8
+(`PIE-P1006`) and 200,000 tokens (`PIE-P1007`). There is no limit on the
+number of selected files, their total size, or the size of `pietto.toml`.
+TOML nested too deeply to load is `project_resource`.
 
 ## Output And Artifacts
 
-The initial configuration contract has no output table and no output-path
-field. Reading project configuration must not cause an implicit file write.
+The configuration has no output table and no output-path field, and reading it
+never writes a file. Project `emit-sql` writes a file only for an explicit
+`--output FILE` (see the
+[Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md)).
 
-The accepted first project CLI design permits only one explicitly requested
-combined SQL output file. It requires deterministic artifact ordering,
-configuration/source alias protection, symbolic-link and hard-link safety,
-atomic replacement, and no write after any project compiler error. Artifact
-directory layout remains deferred. See `docs/spec/project-cli-json-v2.md`.
+## Errors
 
-## JSON Compatibility
+Configuration failures are project CLI errors. A `config_*` or
+`project_resource` error, and a selection that matches no `.pietto` file, has
+the `path` `"pietto.toml"`; an invalid pattern or `[package].path` error has
+the offending pattern or path:
 
-CLI JSON schema version 1 remains the single-file contract documented in
-`docs/spec/cli-json-v1.md`. `pietto.toml` must not add fields to it, change the
-meaning of `path`, add a config error kind, or alter existing command behavior.
+| Kind | Cause |
+|---|---|
+| `config_read` | The file is absent, not a regular file, a symbolic link, unreadable, or changed while it was read |
+| `config_parse` | The bytes are not UTF-8, start with a UTF-8 byte-order mark, or are not valid TOML that Python's `tomllib` loads, such as a decimal integer longer than 4300 digits |
+| `config_schema` | The document breaks the schema rules above |
+| `project_path` | A `[sources]` pattern or `[package].path` is not a normalized project-relative path with `/` separators |
+| `project_glob` | A `[sources]` pattern uses unsupported glob syntax, or source selection fails, for example because it matches no `.pietto` file |
+| `project_resource` | The TOML is nested too deeply to load |
 
-Future project configuration and multi-file compilation use the separately
-planned JSON schema version 2 design, which explicitly represents:
-
-- the project root and configuration path;
-- the ordered input-file set;
-- configuration and source-read errors;
-- per-file diagnostic locations;
-- artifacts with source-file and source-definition identity;
-- deterministic diagnostic and artifact ordering;
-- project output status and partial-failure rules.
-
-The project result and error shapes are documented in
-`docs/spec/project-cli-json-v2.md`. They remain unimplemented and do not alter
-JSON v1.
-
-## Security Model
-
-The configuration design must address:
-
-- `..`, absolute-path, drive, UNC, and encoding-based path traversal;
-- symbolic-link, hard-link, and duplicate-file escapes;
-- glob explosion and unexpectedly broad source sets;
-- large-project CPU and memory exhaustion;
-- accidental secrets committed to project configuration;
-- hidden execution through hooks, plugins, includes, or interpolation;
-- nondeterministic file ordering;
-- case and path differences across Linux, macOS, Windows, and WSL;
-- time-of-check/time-of-use races during discovery and file reads;
-- unsafe output paths overlapping inputs or configuration.
-
-Strict schemas, literal strings, bounded project-relative paths, deterministic
-ordering, and fixed resource ceilings are required safety properties, not
-optional convenience behavior.
-
-## Non-Goals
-
-Phase 8 Slice 2 adds no:
-
-- `pietto.toml` file or example fixture;
-- configuration parser, loader, model, or public API;
-- TOML parsing code or dependency;
-- project-root discovery or parent-directory search;
-- path walking or glob expansion;
-- project mode or multi-file compilation;
-- module, import, or include syntax;
-- CLI command, flag, or behavior change;
-- JSON v2 implementation or JSON v1 change;
-- SQLGlot integration, MySQL support, or SQL feature expansion;
-- SQL execution, database connection, connector execution, or schema
-  introspection;
-- runtime server, Web UI, watch mode, or LSP/editor integration;
-- executable configuration, plugins, secrets, or credential handling;
-- configurable resource-budget override;
-- `compile_to_ir()` or `compile_to_sql()`;
-- grammar, generated parser, dependency, or lockfile change.
-
-## Implementation Prerequisites
-
-Before any configuration implementation is approved, Pietto must complete:
-
-- root and path semantics, including project boundaries and file identity;
-- exact include/exclude glob semantics and deterministic ordering;
-- multi-file ownership and failure semantics summarized in
-  `docs/project-package.md`;
-- future CLI invocation and configuration precedence as documented in
-  `docs/spec/project-cli-json-v2.md`;
-- the machine-readable config-error and project-result design documented in
-  `docs/spec/project-cli-json-v2.md`;
-- the project resource model and hard ceilings summarized in
-  `docs/project-package.md`;
-- a focused configuration threat-model review.
-
-A future implementation plan must include tests for:
-
-- required and unsupported schema versions;
-- unknown top-level and nested keys;
-- wrong TOML value types and duplicate definitions;
-- literal treatment of environment and command-like text;
-- forbidden secret, hook, plugin, network, and runtime fields;
-- absolute paths, parent traversal, drive paths, and UNC paths;
-- symbolic-link and duplicate-file escapes;
-- glob explosion and project budget failures;
-- deterministic cross-platform source ordering;
-- unchanged single-file CLI and JSON v1 behavior.
-
-No configuration code should be written until these prerequisites are
-decision-complete.
+The [project CLI error object](project-cli-json-v2.md#cli-error-object)
+defines the JSON shape.

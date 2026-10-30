@@ -915,7 +915,29 @@ def _localized_input_factors(
     carried_join_output = isinstance(grain.output, ProjectIRJoinRowOutput) or (
         type(grain.output) is CompiledIRRowOutput and grain.output.node.kind == "join"
     )
+    # Index each final factor once by its value, its base and every source
+    # occurrence it retains, so a grain of F factors costs O(F * depth) rather
+    # than O(F^2 * depth); the exact predicate below still decides each indexed
+    # candidate, in final-grain order.
+    wanted = {id(factor) for factor in grain.active}
+    by_value: dict[object, list[int]] = {}
+    by_source: dict[int, list[int]] = {}
+    for position, retained in enumerate(final_grain.active):
+        by_value.setdefault(retained, []).append(position)
+        if _is_join_factor(retained):
+            by_value.setdefault(retained.base, []).append(position)
+            source = retained.source_factor
+            while source is not None:
+                if id(source) in wanted:
+                    by_source.setdefault(id(source), []).append(position)
+                source = source.source_factor if _is_join_factor(source) else None
     for factor in grain.active:
+        indexed = tuple(
+            final_grain.active[position]
+            for position in sorted(
+                {*by_value.get(factor, ()), *by_source.get(id(factor), ())}
+            )
+        )
 
         def retains_source(
             retained: ProjectJoinGrainFactorIdentity | CompiledGrainFactorIdentity,
@@ -929,7 +951,7 @@ def _localized_input_factors(
 
         matches = tuple(
             retained
-            for retained in final_grain.active
+            for retained in indexed
             if (
                 (_is_join_factor(factor) and retained == factor)
                 or (

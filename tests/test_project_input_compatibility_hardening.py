@@ -66,7 +66,7 @@ def test_project_text_semantic_errors_keep_diagnostic_compatibility(
     assert str(root) not in captured.err
 
 
-def test_project_json_semantic_errors_keep_shape_and_read_parse_counters(
+def test_project_json_semantic_errors_keep_shape_and_count_the_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -96,8 +96,8 @@ def test_project_json_semantic_errors_keep_shape_and_read_parse_counters(
     assert document["result"] == {
         "check": {
             "files_total": 1,
-            "files_ok": 1,
-            "files_with_errors": 0,
+            "files_ok": 0,
+            "files_with_errors": 1,
         }
     }
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])

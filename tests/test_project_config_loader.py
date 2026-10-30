@@ -207,6 +207,26 @@ def test_invalid_toml_reports_config_parse(
     assert _error_kinds(result) == (ProjectDiscoveryErrorKind.CONFIG_PARSE,)
 
 
+def test_an_integer_too_long_for_tomllib_reports_config_parse(
+    tmp_path: Path,
+) -> None:
+    # tomllib refuses a decimal integer over 4300 digits with the plain
+    # ValueError of int(), not TOMLDecodeError; it used to escape the loader.
+    root = _project_root(tmp_path, "schema_version = 2\nx = " + "9" * 5000 + "\n")
+
+    result = load_project_config(root)
+
+    assert not result.ok and result.config is None
+    assert result.errors == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.CONFIG_PARSE,
+            "Project configuration TOML is invalid: Exceeds the limit (4300 digits)"
+            " for integer string conversion: value has 5000 digits.",
+            "pietto.toml",
+        ),
+    )
+
+
 @pytest.mark.parametrize("probe", [False, True], ids=["parse", "header_probe"])
 def test_toml_nested_too_deeply_reports_project_resource(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, probe: bool
@@ -260,35 +280,48 @@ def test_invalid_root_reports_project_root(tmp_path: Path) -> None:
     assert _error_kinds(result) == (ProjectDiscoveryErrorKind.PROJECT_ROOT,)
 
 
+_PATH = ProjectDiscoveryErrorKind.PROJECT_PATH
+_GLOB = ProjectDiscoveryErrorKind.PROJECT_GLOB
+_SEPARATOR = "Project source pattern must use / as the path separator."
+_RELATIVE = "Project source pattern must be relative to the project root."
+_NORMALIZED = "Project source pattern must be a normalized project-relative pattern."
+_SYNTAX = (
+    "Project source pattern uses unsupported glob syntax; patterns use only *, ?"
+    " and a whole ** path part."
+)
+
+
 @pytest.mark.parametrize(
-    "pattern",
+    ("pattern", "kind", "message"),
     [
-        "",
-        "/abs.pietto",
-        "C:/models/a.pietto",
-        "//server/share/a.pietto",
-        "models\\a.pietto",
-        "models//a.pietto",
-        "./models/a.pietto",
-        "models/../a.pietto",
-        "models/",
-        "~/.pietto",
-        "$MODELS/*.pietto",
-        "models/$(name).pietto",
-        "models/`name`.pietto",
-        "models/**.pietto",
-        "models/a**/b.pietto",
-        "models/[a-z].pietto",
-        "models/{a,b}.pietto",
-        "!models/*.pietto",
-        "models/@(a).pietto",
-        "models/!(a).pietto",
-        "models/with\\u0000nul.pietto",
+        ("", _PATH, _NORMALIZED),
+        ("/abs.pietto", _PATH, _RELATIVE),
+        ("C:/models/a.pietto", _PATH, _RELATIVE),
+        ("//server/share/a.pietto", _PATH, _RELATIVE),
+        ("models\\a.pietto", _PATH, _SEPARATOR),
+        ("models//a.pietto", _PATH, _NORMALIZED),
+        ("./models/a.pietto", _PATH, _NORMALIZED),
+        ("models/../a.pietto", _PATH, _RELATIVE),
+        ("models/", _PATH, _NORMALIZED),
+        ("~/.pietto", _PATH, _RELATIVE),
+        ("$MODELS/*.pietto", _GLOB, _SYNTAX),
+        ("models/$(name).pietto", _GLOB, _SYNTAX),
+        ("models/`name`.pietto", _GLOB, _SYNTAX),
+        ("models/**.pietto", _GLOB, _SYNTAX),
+        ("models/a**/b.pietto", _GLOB, _SYNTAX),
+        ("models/[a-z].pietto", _GLOB, _SYNTAX),
+        ("models/{a,b}.pietto", _GLOB, _SYNTAX),
+        ("!models/*.pietto", _GLOB, _SYNTAX),
+        ("models/@(a).pietto", _GLOB, _SYNTAX),
+        ("models/!(a).pietto", _GLOB, _SYNTAX),
+        ("models/with\\u0000nul.pietto", _PATH, _SEPARATOR),
     ],
 )
-def test_invalid_patterns_report_project_path(
+def test_invalid_patterns_report_their_own_fault(
     tmp_path: Path,
     pattern: str,
+    kind: ProjectDiscoveryErrorKind,
+    message: str,
 ) -> None:
     root = _project_root(
         tmp_path,
@@ -304,7 +337,27 @@ def test_invalid_patterns_report_project_path(
 
     assert not result.ok
     assert result.config is None
-    assert _error_kinds(result) == (ProjectDiscoveryErrorKind.PROJECT_PATH,)
+    assert [(error.kind, error.message) for error in result.errors] == [(kind, message)]
+
+
+def test_utf8_bom_config_reports_a_readable_parse_error(tmp_path: Path) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_bytes(
+        b'\xef\xbb\xbfschema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+
+    result = load_project_config(root)
+
+    assert result.config is None
+    assert [(error.kind, error.message, error.path) for error in result.errors] == [
+        (
+            ProjectDiscoveryErrorKind.CONFIG_PARSE,
+            "pietto.toml starts with a UTF-8 byte-order mark; save it as UTF-8"
+            " without BOM.",
+            "pietto.toml",
+        )
+    ]
 
 
 def test_multiple_invalid_patterns_are_reported_in_order(tmp_path: Path) -> None:
@@ -325,7 +378,7 @@ def test_multiple_invalid_patterns_are_reported_in_order(tmp_path: Path) -> None
     assert result.config is None
     assert _error_kinds(result) == (
         ProjectDiscoveryErrorKind.PROJECT_PATH,
-        ProjectDiscoveryErrorKind.PROJECT_PATH,
+        ProjectDiscoveryErrorKind.PROJECT_GLOB,
     )
     assert [error.path for error in result.errors] == [
         "/abs.pietto",

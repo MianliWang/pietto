@@ -364,14 +364,15 @@ def test_predicate_only_right_is_absent_from_every_later_tail_scope(
     elif tail == "where":
         source = source.replace(existence, existence[:-1] + " and r.id > 0\n")
     completed = _completed(tmp_path, source + replacement)
-    unavailable = "Project relation semantic completion is unavailable: result"
+    # A GROUP BY key and an aggregate argument read r.id as every later
+    # clause does, as in a single file.
     expected = {
         "let": [("PIE-S2102", "Unknown field: r.id", 12, 17)],
         "where": [
             ("PIE-S2102", "Unknown field: r.id", 12, 50 if kind == "anti" else 46)
         ],
-        "group": [("PIE-S2333", unavailable, 9, 1)],
-        "aggregate": [("PIE-S2333", unavailable, 9, 1)],
+        "group": [("PIE-S2102", "Unknown field: r.id", 14, 9)],
+        "aggregate": [("PIE-S2102", "Unknown field: r.id", 14, 21)],
         "having": [("PIE-S2323", "`having` requires GROUP BY", 15, 5)],
         "window": [("PIE-S2102", "Unknown field: r.id", 14, 43)],
         "qualify": [
@@ -536,8 +537,8 @@ query dependent:
         (d.code, d.message, d.location.line, d.location.column)
         for d in completed.diagnostics
     ] == [
+        # The read that closes the cycle reports it; a, b and dependent follow.
         ("PIE-S2302", "Relation cycle detected: a -> b -> a", 18, column),
-        ("PIE-S2334", "ANY input relation is unavailable.", 18, column),
     ]
     assert not completed.effective_outputs.current_regions
     blocked = tuple(
@@ -697,13 +698,8 @@ def test_consumed_right_producer_failure_still_blocks_even_constant_condition(
         (d.code, d.message, d.location.line, d.location.column)
         for d in completed.diagnostics
     ] == [
+        # The ANY over the failed producer follows its error.
         ("PIE-S2102", "Unknown field: missing", 12, 15),
-        (
-            "PIE-S2334",
-            "ANY input relation is unavailable.",
-            16,
-            15 if kind == "anti" else 11,
-        ),
     ]
     assert not completed.effective_outputs.current_regions
     assert not completed.effective_outputs.allocation_events
@@ -1521,30 +1517,20 @@ _NESTED = "any(any(True for nested_row in {inner}) for {outer} in rows)"
 _ALIAS = "    let candidates = rows\n    from rows\n"
 _UNKNOWN = "Unknown relation: {}"
 _UNAVAILABLE = "Unknown or unavailable ANY relation: {}"
-_NO_INPUT = "ANY input relation is unavailable."
 # A WHERE before a later JOIN: its ANY is lowered to a hidden SEMI/ANTI input.
 _JOIN_AFTER_WHERE = "\n    let next = rows\n    cross join next\n    select rows.id"
-_INCOMPLETE = "{} is available only when an EXPLICIT_MODULES project (schema version 2) completes it."
-_NO_PREMATCH = "JOIN pre-match input or relationship authority is unavailable."
 
 
 def _lowered_unknown(
-    name: str, kind: str, line: int, outer: tuple[int, int], inner: tuple[int, int]
+    name: str, line: int, inner: tuple[int, int]
 ) -> list[tuple[str, str, int, int, int, int]]:
     """A project's refusal of an unknown nested ANY relation in a lowered WHERE
-    ANY (outer and inner are the two ANYs' column spans on `line`)."""
+    ANY (inner is the nested ANY's column span on `line`), as in any other
+    WHERE: neither the nested ANY's unavailable input, nor the hidden SEMI/ANTI
+    input, nor the later JOIN that its failure blocks adds a diagnostic."""
 
-    hidden = (line, outer[0], line, outer[1])
     read = (line, inner[0], line, inner[1])
-    join = (line + 2, 5, line + 2, 20)
-    return [
-        ("PIE-S2301", _UNKNOWN.format(name), *read),
-        ("PIE-S2334", _INCOMPLETE.format(kind), *hidden),
-        ("PIE-S2334", _INCOMPLETE.format("JOIN-local ON"), *read),
-        ("PIE-S2334", _INCOMPLETE.format("CROSS JOIN"), *join),
-        ("PIE-S2334", _NO_INPUT, *read),
-        ("PIE-S2335", _NO_PREMATCH, *join),
-    ]
+    return [("PIE-S2301", _UNKNOWN.format(name), *read)]
 
 
 @pytest.mark.parametrize(
@@ -1556,7 +1542,6 @@ def _lowered_unknown(
             + _NESTED.format(inner="candidates", outer="candidates"),
             [
                 ("PIE-S2301", _UNKNOWN.format("candidates"), 7, 24, 7, 62),
-                ("PIE-S2334", _NO_INPUT, 7, 24, 7, 62),
             ],
             [("PIE-S2301", _UNAVAILABLE.format("candidates"), 7, 51, 7, 61)],
             id="let_alias",
@@ -1568,7 +1553,6 @@ def _lowered_unknown(
             + "\n    select rows.id",
             [
                 ("PIE-S2301", _UNKNOWN.format("candidates"), 7, 15, 7, 53),
-                ("PIE-S2334", _NO_INPUT, 7, 15, 7, 53),
             ],
             [("PIE-S2301", _UNAVAILABLE.format("candidates"), 7, 42, 7, 52)],
             id="where_let_alias",
@@ -1578,7 +1562,6 @@ def _lowered_unknown(
             + _NESTED.format(inner="rows", outer="rows"),
             [
                 ("PIE-S2301", _UNKNOWN.format("rows"), 6, 24, 6, 56),
-                ("PIE-S2334", _NO_INPUT, 6, 24, 6, 56),
             ],
             [("PIE-S2301", _UNAVAILABLE.format("rows"), 6, 51, 6, 55)],
             id="module_relation",
@@ -1604,7 +1587,7 @@ def _lowered_unknown(
             + "    where "
             + _NESTED.format(inner="candidates", outer="candidates")
             + _JOIN_AFTER_WHERE,
-            _lowered_unknown("candidates", "SEMI JOIN", 7, (11, 77), (15, 53)),
+            _lowered_unknown("candidates", 7, (15, 53)),
             [("PIE-S2301", _UNAVAILABLE.format("candidates"), 7, 42, 7, 52)],
             id="prefix_let_alias",
         ),
@@ -1612,7 +1595,7 @@ def _lowered_unknown(
             "    from rows\n    where "
             + _NESTED.format(inner="rows", outer="rows")
             + _JOIN_AFTER_WHERE,
-            _lowered_unknown("rows", "SEMI JOIN", 6, (11, 65), (15, 47)),
+            _lowered_unknown("rows", 6, (15, 47)),
             [("PIE-S2301", _UNAVAILABLE.format("rows"), 6, 42, 6, 46)],
             id="prefix_module_relation",
         ),
@@ -1620,7 +1603,7 @@ def _lowered_unknown(
             "    from rows\n    where not "
             + _NESTED.format(inner="rows", outer="rows")
             + _JOIN_AFTER_WHERE,
-            _lowered_unknown("rows", "ANTI JOIN", 6, (11, 69), (19, 51)),
+            _lowered_unknown("rows", 6, (19, 51)),
             [("PIE-S2301", _UNAVAILABLE.format("rows"), 6, 46, 6, 50)],
             id="prefix_not_module_relation",
         ),
@@ -1791,15 +1774,6 @@ query result:
     from rows
 """
 _JOINED = "    let other = rows\n    inner join other on rows.id == other.id\n"
-_ON_GATE = (
-    "PIE-S2334",
-    "JOIN-local ON is available only when an EXPLICIT_MODULES project "
-    "(schema version 2) completes it.",
-    9,
-    22,
-    9,
-    63,
-)
 
 
 def _spans(diagnostics: Sequence[Diagnostic]) -> list[tuple[str | int | None, ...]]:
@@ -1857,8 +1831,9 @@ def _spans(diagnostics: Sequence[Diagnostic]) -> list[tuple[str | int | None, ..
             "    inner join other on any(count() > 0 for candidate in rows)\n"
             "    select:\n        id = rows.id\n",
             (9, 29, 9, 40),
-            # The rejected ON keeps this project's canonical ON gate.
-            (_ON_GATE,),
+            # The rejected ON reports its own error alone, without a
+            # temporary admission text.
+            (),
             id="on",
         ),
         pytest.param(
@@ -1907,3 +1882,85 @@ def test_project_any_predicate_refuses_an_aggregate_as_a_single_file_does(
     completed = _completed(tmp_path, source)
     assert _spans(completed.diagnostics) == [*project_gates, *expected]
     assert completed.ok is (span is None)
+
+
+_ANY_READ_SOURCE = """shape Row:
+    id: Int
+    price: Int
+shape Ord:
+    id: Int
+    price: Int
+    qty: Int
+source items: Row = postgres.table("items")
+source orders: Ord = postgres.table("orders")
+query q:
+    from items
+"""
+
+
+@pytest.mark.parametrize(
+    ("tail", "project", "single_file"),
+    (
+        pytest.param(
+            "    where any(o.price == price for o in orders)\n    select:\n        id\n",
+            [("PIE-S2102", "Ambiguous field in ANY predicate: price", 12, 26)],
+            None,
+            id="ambiguous_where",
+        ),
+        pytest.param(
+            "    select:\n        id\n"
+            "        f = any(o.price == price for o in orders)\n",
+            [("PIE-S2102", "Ambiguous field in ANY predicate: price", 14, 28)],
+            None,
+            id="ambiguous_select",
+        ),
+        pytest.param(
+            "    let f = any(o.price == price for o in orders)\n"
+            "    select:\n        id\n        f\n",
+            [("PIE-S2102", "Ambiguous field in ANY predicate: price", 12, 28)],
+            None,
+            id="ambiguous_let",
+        ),
+        pytest.param(
+            "    where any(o.nosuch == items.id for o in orders)\n"
+            "    select:\n        id\n",
+            [
+                (
+                    "PIE-S2102",
+                    "Unknown or unavailable field in ANY predicate: o.nosuch",
+                    12,
+                    15,
+                )
+            ],
+            None,
+            id="unknown_field",
+        ),
+        pytest.param(
+            "    where any(qty == 1 for o in orders)\n    select:\n        id\n",
+            [("PIE-S2334", "ANY predicate reference is unavailable.", 12, 15)],
+            [],
+            id="generator_only_bare_name",
+        ),
+    ),
+)
+def test_a_project_any_read_resolves_bare_names_as_a_single_file_does(
+    tmp_path: Path,
+    tail: str,
+    project: list[tuple[str, str, int, int]],
+    single_file: list[tuple[str, str, int, int]] | None,
+) -> None:
+    # A bare name that both the outer row and the generator row have is
+    # ambiguous, and no row wins; before, a project read it from the outer
+    # row and emitted that SQL. A project reads a generator field only
+    # qualified, so a bare one stays refused.
+    source = _ANY_READ_SOURCE + tail
+    parsed = parse_source(source, path="main.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in analyze(parsed.ast).diagnostics
+    ] == (project if single_file is None else single_file)
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in _completed(tmp_path, source).diagnostics
+    ] == project

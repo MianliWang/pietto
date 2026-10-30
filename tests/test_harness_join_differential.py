@@ -803,10 +803,21 @@ def test_negative_states_and_pure_rejections_are_typed_and_stable(
         assert [(item["binding"][1], item["name"]) for item in candidates] == expected
         assert len({item["position"] for item in candidates}) == len(candidates)
         assert len({item["introduction"] for item in candidates}) == len(candidates)
-        assert terminal["diagnostics"] == blocker["diagnostics"] == []
+        # The ambiguous read reports itself with its alternatives, as in a
+        # single file, instead of the relation's fallback.
+        names = [f"{binding}.{field}" for binding, field in expected]
+        alternatives = ", ".join(names[:-1]) + " or " + names[-1]
+        assert terminal["diagnostics"] == blocker["diagnostics"]
+        assert [item[:3] for item in blocker["diagnostics"]] == [
+            [
+                "PIE-S2335",
+                "error",
+                f"Ambiguous field: {expected[0][1]}; write {alternatives}",
+            ]
+        ]
         assert [
             diagnostics[index][0] for index in owners[name]["owner_diagnostic_sites"]
-        ] == ["PIE-S2333"]
+        ] == ["PIE-S2335"]
 
     conditions = cast(list[dict[str, Any]], primary["conditions"])
     missing = [
@@ -866,12 +877,9 @@ def test_negative_states_and_pure_rejections_are_typed_and_stable(
         # The rows of an unknown relationship call are no ON references: the
         # call alone is reported (PIE-S2103), at the call.
         ("bad_relationship_join", [], ["PIE-S2103"], ["PIE-S2103"]),
-        (
-            "bad_role_join",
-            ["unknown", "resolved"],
-            ["PIE-S2335"],
-            ["PIE-S2334", "PIE-S2335"],
-        ),
+        # An unknown ON read is reported alone, without a temporary admission
+        # text.
+        ("bad_role_join", ["unknown", "resolved"], ["PIE-S2335"], ["PIE-S2335"]),
     ):
         own = [item for item in conditions if item["owner"] == ["main.pietto", name]]
         assert len(own) == 1

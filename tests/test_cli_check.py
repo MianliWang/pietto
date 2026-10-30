@@ -67,6 +67,68 @@ def test_directory_input_reported_as_permission_error_is_a_directory(
     assert captured.err == f"{directory}: error: Is a directory (errno 13)\n"
 
 
+@pytest.mark.parametrize(
+    ("command", "schema", "other", "arguments"),
+    [
+        (["check"], 2, 4, ""),
+        (
+            ["emit-sql", "--dialect", "postgres"],
+            2,
+            1,
+            " --module FILE --kind KIND --name NAME --dialect DIALECT"
+            " --emission-contract FILE",
+        ),
+        (["explain"], 4, 2, ""),
+    ],
+)
+def test_a_project_directory_given_as_the_file_hints_at_project_mode(
+    command: list[str],
+    schema: int,
+    other: int,
+    arguments: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    directory = tmp_path / "project"
+    directory.mkdir()
+
+    assert cli.main([command[0], str(directory), *command[1:]]) == 2
+    without_config = capsys.readouterr()
+
+    (directory / "pietto.toml").write_text(f"schema_version = {schema}\n")
+    assert cli.main([command[0], str(directory), *command[1:]]) == 2
+    with_config = capsys.readouterr()
+
+    assert without_config.out == with_config.out == ""
+    assert with_config.err == (
+        f"{without_config.err}hint: for a project use pietto {command[0]} --project"
+        f" {directory}{arguments}\n"
+    )
+    # A schema version that this command's --project does not read gets no
+    # hint, which would lead to its refusal.
+    (directory / "pietto.toml").write_text(f"schema_version = {other}\n")
+    assert cli.main([command[0], str(directory), *command[1:]]) == 2
+    assert capsys.readouterr().err == without_config.err
+    assert without_config.err.startswith(f"{directory}: error: Is a directory")
+    # A configuration nested too deeply for tomllib is one that does not say
+    # its version, which --project reports; it never raises.
+    (directory / "pietto.toml").write_text(
+        f"schema_version = {other}\na = {'[' * 2000}{']' * 2000}\n"
+    )
+    assert cli.main([command[0], str(directory), *command[1:]]) == 2
+    assert capsys.readouterr().err == with_config.err
+    # So is one with an integer too long for tomllib's int().
+    (directory / "pietto.toml").write_text(
+        f"schema_version = {other}\na = {'9' * 5000}\n"
+    )
+    assert cli.main([command[0], str(directory), *command[1:]]) == 2
+    assert capsys.readouterr().err == with_config.err
+    # JSON keeps the v1 error unchanged.
+    assert cli.main(["check", str(directory), "--format", "json"]) == 2
+    document = json.loads(capsys.readouterr().out)
+    assert [error["kind"] for error in document["cli_errors"]] == ["file_read"]
+
+
 def test_check_parser_error_returns_diagnostic_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

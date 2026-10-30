@@ -37,6 +37,7 @@ from pietto.ir import build_ir
 from pietto import cli
 from pietto._project.check import check_project_parse_only
 from pietto._project.project_query_block_ir import build_project_query_block_ir
+from pietto._project import project_completed_semantics as completed_semantics
 from pietto._project.project_completed_semantics import (
     with_project_single_match_requests,
 )
@@ -190,9 +191,19 @@ def test_unsupported_domains_never_publish_proofs(
         ),
     )
     assert not result.ok
-    assert all(
-        d.code == "PIE-S2339" and d.severity is Severity.ERROR
-        for d in result.diagnostics
+    diagnostics = result.diagnostics
+    if type_name.startswith("Decimal("):
+        # The invalid type arguments are reported first, at the field's type,
+        # as in a single file.
+        first = diagnostics[0]
+        assert (first.code, first.location.line, first.location.column) == (
+            "PIE-S2004",
+            3,
+            12,
+        )
+        diagnostics = diagnostics[1:]
+    assert diagnostics and all(
+        d.code == "PIE-S2339" and d.severity is Severity.ERROR for d in diagnostics
     )
     terminal = result.effective_outputs.entries[-1]
     assert isinstance(terminal, ProjectEffectiveOutputCompletionTerminal)
@@ -739,6 +750,13 @@ def test_distinct_join_keeps_its_actual_input_diagnostics(
             else condition.use.target_binding
         )
         assert missing.target is None
+    # A temporary admission text is never published, and a JOIN whose input
+    # fails with a reported error, a JOIN target that names nothing included
+    # (PIE-S2301 at the JOIN), does not also say that it is unavailable.
+    follow_ons = (
+        *completed_semantics._legacy_admission_diagnostics(failed.owner.definition),
+        *condition.unavailable_diagnostics,
+    )
     specific = tuple(
         dict.fromkeys(
             diagnostic
@@ -747,7 +765,7 @@ def test_distinct_join_keeps_its_actual_input_diagnostics(
                 *upstream_errors,
                 *condition_errors,
             )
-            if diagnostic.severity is Severity.ERROR
+            if diagnostic.severity is Severity.ERROR and diagnostic not in follow_ons
         )
     )
     errors = tuple(
@@ -759,6 +777,11 @@ def test_distinct_join_keeps_its_actual_input_diagnostics(
     assert all(
         any(actual is diagnostic for actual in errors) for diagnostic in specific
     )
+    assert not any(diagnostic in follow_ons for diagnostic in errors)
+    if failure == "missing_rhs":
+        assert ("PIE-S2301", "Unknown relation: missing") in {
+            (diagnostic.code, diagnostic.message) for diagnostic in errors
+        }
     assert all(diagnostic.code != "PIE-S2333" for diagnostic in errors)
     assert all(
         "no relationship" not in diagnostic.message
@@ -894,7 +917,8 @@ def test_package_root_keeps_pre_selection_boundary(tmp_path: Path) -> None:
     parsed = check_project_parse_only(tmp_path)
     assert not parsed.ok and not parsed.parsed_inputs
     assert any(
-        "does not use project source selection" in e.message for e in parsed.errors
+        "package-root project is read by explain --project" in e.message
+        for e in parsed.errors
     )
 
 

@@ -874,3 +874,64 @@ def test_current_properties_reject_foreign_roots_and_field_grafts(
         joined_semantics.build_project_joined_row_semantics(
             namespaces=local.namespaces, attribution=other.attribution
         )
+
+
+def test_a_layered_join_dag_matches_grain_factors_without_a_quadratic_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Each layer joins the layer below with the one below that. Each JOIN
+    # once matched every input factor against every result factor; it now
+    # indexes the result factors once by value, base and retained source, so
+    # the factor tests it makes grow with the grain's factors and their
+    # source chains, not with their square. The grain itself still grows
+    # exponentially with the layers, a known limitation deferred in the
+    # roadmap, so this pins only the matching, not linear analysis.
+    from pietto._project import project_ir_joins
+
+    depth = 12
+    source = (
+        "shape Item:\n    id: Int\n    price: Int\n\n"
+        'source items: Item = postgres.table("items")\n\n'
+        "table q0:\n    from items\n    select:\n        id\n        price\n"
+    ) + "".join(
+        f"\ntable q{i}:\n    from q{i - 1}\n    let z = q{max(i - 2, 0)}\n"
+        f"    inner join z on z.id == q{i - 1}.id\n    select:\n"
+        f"        id = q{i - 1}.id\n        price = q{i - 1}.price\n"
+        for i in range(1, depth + 1)
+    )
+    root = tmp_path / "dag"
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (root / "main.pietto").write_text(source)
+    tests = 0
+    is_join_factor = project_ir_joins._is_join_factor
+
+    def counted(factor: object) -> bool:
+        nonlocal tests
+        tests += 1
+        return is_join_factor(factor)
+
+    monkeypatch.setattr(project_ir_joins, "_is_join_factor", counted)
+    parsed = project_check.check_project_parse_only(root)
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(parsed)
+    )
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok and completed.diagnostics == ()
+    results = {
+        region.ledger.owner.definition.name: result
+        for region, result in zip(
+            completed.effective_outputs.current_regions,
+            completed.effective_outputs.current_readiness,
+            strict=True,
+        )
+    }
+    sizes = []
+    for layer in range(1, depth + 1):
+        result = results[f"q{layer}"]
+        assert type(result) is joined_semantics.ProjectConcreteJoinedRowSemantics
+        sizes.append(len(result.property_bridge.grain.active))
+    # Matching every factor against every factor made 2,630,440 tests here.
+    assert tests <= 4 * depth * sum(sizes)

@@ -1351,6 +1351,32 @@ def test_document_validation_visits_each_record_exactly_once(
         assert len(calls) == len(vector.document.records)
 
 
+def test_document_validation_derives_scope_keys_once_per_kind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scope key sets are derived from the immutable schema once per kind.
+
+    Rederiving them for every validated scope made the n^3 private readiness
+    records of an n-module import cycle cost minutes before PIE-S2703."""
+
+    for kind in pure_boundary.PURE_RECORD_SCHEMA:
+        assert pure_boundary._SUBSET_KEYS[kind] == pure_boundary._subset_keys(kind)
+        assert pure_boundary._COLLECTED_KEYS[kind] == (
+            pure_boundary._collected_keys(kind)
+        )
+
+    def _rederived(kind: str) -> tuple[()]:
+        raise AssertionError(f"Scope keys rederived for {kind}.")
+
+    monkeypatch.setattr(pure_boundary, "_subset_keys", _rederived)
+    monkeypatch.setattr(pure_boundary, "_collected_keys", _rederived)
+    for vector in vectors.differential_vectors():
+        if vector.expected_status is not pure_boundary.ProjectPureStatus.OK:
+            continue
+        outcome = pure_boundary.evaluate_pure_document(vector.document)
+        assert outcome.status is pure_boundary.ProjectPureStatus.OK
+
+
 def test_repeated_identity_buckets_remain_bounded_and_linear() -> None:
     """Construction and evaluation grow linearly in the number of records."""
 

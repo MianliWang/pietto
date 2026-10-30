@@ -310,8 +310,12 @@ def _load_package_content(
         [bytes],
         tuple[ValidatedRootPackage | None, tuple[ProjectDiscoveryError, ...]],
     ],
+    digest_mismatch: str = (
+        "Package content digest does not match the declared root sha256."
+    ),
 ) -> _PackageContentLoadResult:
-    """Trusted-load one package island for an exact expected manifest authority."""
+    """Trusted-load one package island for an exact expected manifest authority;
+    `digest_mismatch` names the pin its content digest is checked against."""
 
     def construct_result(
         content: _LoadedPackageContent | None,
@@ -401,7 +405,7 @@ def _load_package_content(
             (
                 _error(
                     ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
-                    "Package content digest does not match the declared root sha256.",
+                    digest_mismatch,
                     _PACKAGE_MANIFEST_FILENAME,
                 ),
             ),

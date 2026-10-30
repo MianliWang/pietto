@@ -42,7 +42,6 @@ from pietto.ast_nodes import (
     Node,
     QueryDef,
     ShapeDef,
-    SourceDef,
     Script,
     TableDef,
 )
@@ -832,17 +831,9 @@ query result:
     completed = build_project_completed_semantic_result(semantic)
     assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
     assert not completed.ok
-    (unknown_source,) = tuple(
-        item
-        for item in script.definitions
-        if isinstance(item, SourceDef) and item.name == "unknowns"
-    )
-    unavailable_source = _diagnostic_at(
-        unknown_source,
-        "PIE-S2333",
-        "Project relation semantic completion is unavailable: unknowns",
-    )
-    assert completed.diagnostics == (unknown_type, unavailable_source, *expected)
+    # The source whose shape has an unknown type reports only that, as in a
+    # single file; before, a PIE-S2333 at the source followed.
+    assert completed.diagnostics == (unknown_type, *expected)
     single = parse_source(source, path="main.pietto")
     assert single.ast is not None and single.diagnostics == ()
     assert analyze(single.ast).diagnostics == (unknown_type, *expected)
@@ -1074,8 +1065,8 @@ def test_invalid_predicate_definitions_and_calls_retain_only_their_actual_errors
             "PIE-S2604",
             "Relationship predicate customer_region has no unambiguous checked declaration",
         )
-        assert project == (failed_call, primary)
-        assert single == (primary, failed_call)
+        # The declaration's error first, in a project as in a single file.
+        assert project == single == (primary, failed_call)
     else:
         assert project == single == (primary,)
 
@@ -1248,7 +1239,7 @@ def test_bounded_predicate_checks_the_final_comparison_and_every_match_occurrenc
                 "PIE-S2604",
                 "Relationship predicate customer_region has no unambiguous checked declaration",
             )
-            assert completed.diagnostics == (failed_call, primary)
-            assert single == (primary, failed_call)
+            # The declaration's error first, in a project as in a single file.
+            assert completed.diagnostics == single == (primary, failed_call)
         else:
             assert completed.diagnostics == single == (primary,)

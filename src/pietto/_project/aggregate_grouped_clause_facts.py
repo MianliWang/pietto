@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import InitVar, dataclass, field as dataclass_field
+from dataclasses import InitVar, dataclass, field as dataclass_field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -57,17 +57,26 @@ from pietto.ast_nodes import (
     UnaryExpr,
     WindowExpr,
 )
-from pietto.errors import Diagnostic
+from pietto.errors import Diagnostic, Severity
+from pietto.semantic import relation_schemas
+from pietto.semantic.analyzer import _within
+from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic.aggregates import (
     aggregate_argument_can_use_let_scope,
+    child_expressions,
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
     semantic_aggregate_call_name,
 )
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
-from pietto.semantic.model import RowSchema, ValueType, SatisfyingResultPredicateInfo
-from pietto.semantic.relation_limits import MAX_RELATION_LIMIT
+from pietto.semantic.model import (
+    CheckMode,
+    RowSchema,
+    SatisfyingResultPredicateInfo,
+    ValueType,
+)
+from pietto.semantic.relation_limits import MAX_RELATION_LIMIT, check_relation_limits
 from pietto.semantic.satisfying import check_satisfying_clauses
 
 if TYPE_CHECKING:
@@ -211,6 +220,9 @@ class ProjectAggregateGroupedClauseReadiness:
     reason: ProjectAggregateGroupedClauseReadinessReason
     dependency_facts: tuple[ProjectRelationClauseDependencyFact, ...]
     limit_present: bool
+    # The errors a single file reports of the relation's aggregates, grouping
+    # and grouped ORDER BY over the same input row, when it is not ready.
+    diagnostics: tuple[Diagnostic, ...] = ()
     occurrence_facts: tuple[ProjectRelationClauseDependencyFact, ...] | None = (
         dataclass_field(default=None, init=False)
     )
@@ -376,6 +388,247 @@ class _Evidence:
     outputs: Mapping[str, _OutputTarget]
     missing: bool
     conflicting: bool
+
+
+def with_single_file_grouping_diagnostics(
+    readiness: ProjectAggregateGroupedClauseReadiness,
+    input_schema: ProjectRowSchema,
+    let_scope_facts: ProjectRelationLetScopeFacts | None,
+) -> ProjectAggregateGroupedClauseReadiness:
+    """``readiness``, carrying the errors a single file reports of its relation
+    when it is not ready."""
+
+    if readiness.status is ProjectAggregateGroupedClauseReadinessStatus.CONCRETE:
+        return readiness
+    diagnostics = _single_file_grouping_diagnostics(
+        readiness.definition, input_schema, let_scope_facts
+    )
+    return replace(readiness, diagnostics=diagnostics) if diagnostics else readiness
+
+
+def _single_file_grouping_diagnostics(
+    definition: _DerivedRelation,
+    input_schema: ProjectRowSchema,
+    let_scope_facts: ProjectRelationLetScopeFacts | None,
+) -> tuple[Diagnostic, ...]:
+    """The errors a single file reports of a relation's aggregate calls and
+    projection (PIE-S2311, PIE-S2312, PIE-S2314, PIE-S2315, PIE-S2104 and
+    others), its grouping (PIE-S2318, PIE-S2319), its grouped ORDER BY
+    (PIE-S2321), its `having` (PIE-S2323 to PIE-S2327) and its LIMIT
+    (PIE-S2307), checked over the relation's input row as a single file
+    checks them: also an unknown field (PIE-S2102) of an aggregate
+    projection or a GROUP BY key and an aggregate's argument count
+    (PIE-S2309), but no error of a projection without an aggregate, which
+    the project types itself. A relation over a row of unknown type, or that
+    reads a `let` name, a relation, a captured field, a query parameter or
+    `any(...)` in those positions, which a project checks otherwise, gets
+    none."""
+
+    if input_schema.is_unknown:
+        return ()
+    lets = {} if let_scope_facts is None else dict(let_scope_facts.binding_expressions)
+    roots: list[Expression] = [item.expression for item in definition.select_items]
+    if definition.group_by_clause is not None:
+        roots.extend(item.key for item in definition.group_by_clause.items)
+    if definition.order_by_clause is not None:
+        roots.extend(item.expression for item in definition.order_by_clause.items)
+    if definition.satisfying_clause is not None:
+        roots.append(definition.satisfying_clause.expression)
+    while roots:
+        node = roots.pop()
+        if (type(node) is NameExpr and node.name in lets) or type(node) in {
+            ast.AnyExpr,
+            ast.CapturedFieldExpr,
+            ast.CollectRelationExpr,
+            ast.RelationExistsExpr,
+            ast.RelationMembershipExpr,
+            ast.RelationScalarExpr,
+            ast.ParameterRefExpr,
+        }:
+            return ()
+        roots.extend(child_expressions(node))
+    schema = project_row_schema_to_semantic_row_schema(input_schema)
+    types: dict[Expression, ValueType] = (
+        {} if let_scope_facts is None else dict(let_scope_facts.expression_value_types)
+    )
+    typed: list[Diagnostic] = []
+    qualifier = (
+        definition.from_clause.binding_name or definition.from_clause.source_name
+    )
+    for item in definition.select_items:
+        found: list[Diagnostic] = []
+        infer_row_expression(
+            item.expression,
+            schema,
+            types,
+            found,
+            report_unknown_name=True,
+            field_qualifier=qualifier,
+            bare_value_types=None
+            if let_scope_facts is None
+            else let_scope_facts.value_types,
+            bare_value_expressions=lets,
+        )
+        # Only an aggregate projection's own typing is the relation's
+        # grouping error; any other read is checked where it is projected.
+        if contains_semantic_aggregate(item.expression):
+            typed.extend(found)
+    output_schema, projected = relation_schemas._project_schema(
+        definition,
+        schema,
+        mode=CheckMode.STRICT,
+        expression_value_types=types,
+        relation_let_expressions={definition: lets},
+        type_expansions={},
+        reported_errors=frozenset(typed),
+    )
+    having: list[Diagnostic] = []
+    if definition.satisfying_clause is not None:
+        _, having = semantic_satisfying.check_satisfying_clauses(
+            Script(span=definition.span, header=None, definitions=(definition,)),
+            from_resolutions={},
+            source_row_schemas={},
+            relation_row_schemas={definition: output_schema},
+            relation_let_expressions={definition: lets},
+            relation_let_value_types={}
+            if let_scope_facts is None
+            else {definition: let_scope_facts.value_types},
+            joined_inputs={definition: schema},
+        )
+    # The project's window stage, which this check does not run, types a
+    # selected window result; a single file orders by one under GROUP BY.
+    window_outputs = {
+        item.alias
+        for item in definition.select_items
+        if type(item.expression) is ast.WindowExpr
+    }
+    window_keys = {
+        _span_key(item.expression)
+        for item in (
+            ()
+            if definition.order_by_clause is None
+            else definition.order_by_clause.items
+        )
+        if type(item.expression) is NameExpr and item.expression.name in window_outputs
+    }
+    # The projections without an aggregate, whose other errors the project
+    # reports where it types them.
+    plain = tuple(
+        item.span
+        for item in definition.select_items
+        if not contains_semantic_aggregate(item.expression)
+    )
+    limits = check_relation_limits(
+        Script(span=definition.span, header=None, definitions=(definition,))
+    )
+
+    # An unknown field in an aggregate projection is reported after the
+    # relation's grouping errors, as a single file does; it reports no other
+    # error of the projection's own typing that is no grouping error.
+    def kept(diagnostic: Diagnostic) -> bool:
+        return (
+            diagnostic.severity is Severity.ERROR
+            and (
+                diagnostic.code in _GROUPING_CODES
+                or diagnostic in limits
+                or (diagnostic in having and diagnostic.code in _HAVING_CODES)
+                or (
+                    diagnostic in projected
+                    and not (
+                        diagnostic.location is not None
+                        and any(_within(diagnostic.location, span) for span in plain)
+                    )
+                )
+            )
+            and not (
+                diagnostic.code == "PIE-S2321"
+                and diagnostic.location is not None
+                and (
+                    diagnostic.location.path,
+                    diagnostic.location.line,
+                    diagnostic.location.column,
+                )
+                in window_keys
+            )
+        )
+
+    retained = (
+        *(item for item in (*typed, *projected) if kept(item)),
+        *(item for item in typed if item.code == "PIE-S2102"),
+        *(item for item in (*having, *limits) if kept(item)),
+    )
+    # A single file names the type an aggregate's field argument is declared
+    # with, a type alias included, where the project row holds the type that
+    # the alias expands to.
+    declared: dict[tuple[str | None, int, int], tuple[str, str]] = {}
+    nodes: list[Expression] = [item.expression for item in definition.select_items]
+    while nodes:
+        node = nodes.pop()
+        nodes.extend(child_expressions(node))
+        if type(node) is not CallExpr or len(node.arguments) != 1:
+            continue
+        argument = node.arguments[0]
+        name = (
+            argument.name
+            if type(argument) is NameExpr
+            else argument.parts[-1]
+            if type(argument) is ast.DottedNameExpr and len(argument.parts) == 2
+            else None
+        )
+        field = None if name is None else input_schema.fields.get(name)
+        if field is not None and field.field_def is not None:
+            written = field.field_def.type_expr.name
+            if written != field.resolved_type.name:
+                declared[_span_key(node)] = (field.resolved_type.name, written)
+    return tuple(_declared_type_name(item, declared) for item in retained)
+
+
+def _declared_type_name(
+    diagnostic: Diagnostic,
+    declared: Mapping[tuple[str | None, int, int], tuple[str, str]],
+) -> Diagnostic:
+    location = diagnostic.location
+    if diagnostic.code != "PIE-S2314" or location is None:
+        return diagnostic
+    pair = declared.get((location.path, location.line, location.column))
+    if pair is None or not diagnostic.message.endswith(f"got {pair[0]}"):
+        return diagnostic
+    return replace(
+        diagnostic,
+        message=diagnostic.message.removesuffix(f"got {pair[0]}") + f"got {pair[1]}",
+    )
+
+
+def _span_key(node: Expression) -> tuple[str | None, int, int]:
+    return (node.span.path, node.span.line, node.span.column)
+
+
+# The single-file codes of an aggregate call or projection, a grouping (a
+# grouped output without an aggregate included), a grouped ORDER BY and a
+# `having` predicate.
+_GROUPING_CODES = frozenset(
+    {
+        "PIE-S2104",
+        "PIE-S2310",
+        "PIE-S2311",
+        "PIE-S2312",
+        "PIE-S2313",
+        "PIE-S2314",
+        "PIE-S2315",
+        "PIE-S2318",
+        "PIE-S2319",
+        "PIE-S2320",
+        "PIE-S2321",
+        "PIE-S2323",
+        "PIE-S2324",
+        "PIE-S2325",
+        "PIE-S2326",
+        "PIE-S2327",
+    }
+)
+# What a single file also reports of a `having` predicate: an aggregate call
+# in it, an operand error and a predicate that is no Bool.
+_HAVING_CODES = frozenset({"PIE-S2105", "PIE-S2202", "PIE-S2308"})
 
 
 def build_project_aggregate_grouped_clause_readiness(

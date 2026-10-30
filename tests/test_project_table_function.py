@@ -159,11 +159,13 @@ def test_the_static_row_count_is_exact_up_to_the_bound(
     assert entry.root.row_count == rows
 
 
+# A body's own error is reported alone: the query that reads it follows it.
+# A body that the query cannot read yet is the query's own PIE-S2333.
 FOLLOW_ON = ("PIE-S2333", "Project relation semantic completion is unavailable: q")
 DIAGNOSTICS = {
     "other_function": (
         _series("1, 3, 1").replace("generate_series", "generate_seriez"),
-        [("PIE-S2373", NOT_ADMITTED, 5, 10, 5, 25), (*FOLLOW_ON, 4, 1, 7, 10)],
+        [("PIE-S2373", NOT_ADMITTED, 5, 10, 5, 25)],
     ),
     "too_few_arguments": (
         _series("1, 3"),
@@ -176,7 +178,6 @@ DIAGNOSTICS = {
                 5,
                 31,
             ),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     "no_arguments": (
@@ -190,7 +191,6 @@ DIAGNOSTICS = {
                 5,
                 27,
             ),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     # NULL, a Float overload, a name or parameter: each argument at its span.
@@ -200,7 +200,6 @@ DIAGNOSTICS = {
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 26, 5, 30),
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 32, 5, 35),
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 37, 5, 38),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     "expressions": (
@@ -209,14 +208,12 @@ DIAGNOSTICS = {
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 26, 5, 31),
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 33, 5, 37),
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 39, 5, 42),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     "int64_overflow": (
         _series("9223372036854775808, 1, 1"),
         [
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 26, 5, 45),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     # The step and the bound are derived only from three valid arguments.
@@ -224,7 +221,6 @@ DIAGNOSTICS = {
         _series("None, 3, 0"),
         [
             ("PIE-S2375", NOT_A_FIXED_INTEGER, 5, 26, 5, 30),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     # As for a VALUES upstream, aggregating directly over the input waits.
@@ -242,7 +238,6 @@ DIAGNOSTICS = {
         _series("1, 3, 0"),
         [
             ("PIE-S2376", "generate_series step cannot be zero.", 5, 32, 5, 33),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     "above_the_bound": (
@@ -256,7 +251,6 @@ DIAGNOSTICS = {
                 5,
                 40,
             ),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     "descending_above_the_bound": (
@@ -270,7 +264,6 @@ DIAGNOSTICS = {
                 5,
                 42,
             ),
-            (*FOLLOW_ON, 4, 1, 7, 10),
         ],
     ),
     # Every body is analyzed on its own, in source order.
@@ -279,16 +272,7 @@ DIAGNOSTICS = {
         + "query r:\n    from generate_seriez(1) as m\n    select:\n        m\n",
         [
             ("PIE-S2376", "generate_series step cannot be zero.", 5, 32, 5, 33),
-            (*FOLLOW_ON, 4, 1, 7, 10),
             ("PIE-S2373", NOT_ADMITTED, 9, 10, 9, 25),
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: r",
-                8,
-                1,
-                11,
-                10,
-            ),
         ],
     ),
     # A let named like a body's function binding shares its scope, as with a
@@ -394,7 +378,8 @@ def test_only_the_occurrence_flag_separates_a_function_input_from_its_reader(
                 [
                     {
                         "kind": "emission_selector",
-                        "message": "Selected owner is absent or ambiguous.",
+                        "message": "main.pietto declares no query named by --name;"
+                        " its queries: q.",
                         "path": None,
                     }
                 ],
@@ -456,7 +441,7 @@ def test_admission_consumes_explicit_effects_evidence(
         monkeypatch.setitem(functions.CATALOG, "generate_series", unknown)
         assert _check(tmp_path / "series", _series("1, 3, 1")) == (
             1,
-            [("PIE-S2373", NOT_ADMITTED, 5, 10, 5, 25), (*FOLLOW_ON, 4, 1, 7, 10)],
+            [("PIE-S2373", NOT_ADMITTED, 5, 10, 5, 25)],
         )
         scalar = "query q:\n    from lhs\n    select:\n        k = sign(id)\n"
         assert _check(tmp_path / "scalar", scalar) == (0, [])

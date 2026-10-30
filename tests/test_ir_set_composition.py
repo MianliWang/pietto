@@ -513,7 +513,9 @@ def test_except_right_is_membership_dependency_not_value_lineage(
     assert len(entry.dependencies) == 2
 
 
-def test_failed_set_keeps_exact_owner_held_availability_cause(tmp_path: Path) -> None:
+def test_failed_set_reports_its_cause_without_its_availability_text(
+    tmp_path: Path,
+) -> None:
     completed = _completed(tmp_path, _source(quantifier="", replay=False))
     terminal = next(
         e
@@ -525,4 +527,8 @@ def test_failed_set_keeps_exact_owner_held_availability_cause(tmp_path: Path) ->
     assert isinstance(base, ProjectEffectiveOutputTerminal)
     original = base.fragment.semantic_facts.helper_diagnostics
     assert original and all(d.code == "PIE-S2334" for d in original)
-    assert all(any(actual is d for actual in completed.diagnostics) for d in original)
+    # An EXPLICIT_MODULES project publishes the set's own error, never the
+    # temporary text that asks for an EXPLICIT_MODULES project.
+    assert not any(actual == d for actual in completed.diagnostics for d in original)
+    assert [d.code for d in terminal.diagnostics] == ["PIE-S2341"]
+    assert any(actual is terminal.diagnostics[0] for actual in completed.diagnostics)

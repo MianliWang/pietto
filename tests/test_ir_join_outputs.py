@@ -103,7 +103,7 @@ def test_current_join_retains_verified_combined_ir(tmp_path: Path) -> None:
         replace(entry, join_prefix=None, join_properties=())
 
 
-def test_retirement_preserves_unrelated_same_code_errors(tmp_path: Path) -> None:
+def test_retirement_preserves_unrelated_errors(tmp_path: Path) -> None:
     source = _source("lhs.id == r.id")
     unsupported = _prefix_existence_source("1", "semi").split("query result:", 1)[1]
     completed = _completed(tmp_path, source + "query unsupported:" + unsupported)
@@ -127,10 +127,11 @@ def test_retirement_preserves_unrelated_same_code_errors(tmp_path: Path) -> None
         for condition in completed.roots.join_conditions.entries
         if condition.ledger.owner is entries["unsupported"].owner
     )
-    # Its typed ON error replaces only its own ON gate; its same-code kind
-    # gate, the later JOIN's ON gate and the conditions' errors stay the
-    # published objects.
-    published = (errors[0], errors[2], *hidden.diagnostics, *later.diagnostics)
+    # Its typed ON error is the published object; no temporary admission gate
+    # is published, and the later JOIN, whose input the failed one blocks,
+    # only says that it is unavailable.
+    assert later.unavailable_diagnostics == later.diagnostics
+    published = hidden.diagnostics
     assert len(completed.diagnostics) == len(published)
     assert all(a is b for a, b in zip(completed.diagnostics, published, strict=True))
     retired = tuple(

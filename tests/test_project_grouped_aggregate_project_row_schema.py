@@ -1156,3 +1156,330 @@ def test_project_check_requires_the_string_agg_internal_order_as_a_file_does(
             )
         )
     assert found == [(1 if expected else 0, expected)] * 2
+
+
+_BAD_LIMIT = "Limit must be a static integer from 0 to 9223372036854775807"
+_GROUPING_HEAD = """shape Item:
+    id: Int
+    label: Text
+    qty: Int
+source items: Item = postgres.table("items")
+query q:
+    from items
+"""
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    group by label\n    select:\n        label\n        qty\n",
+            [("PIE-S2318", "Grouped projection is not a GROUP BY key: qty", 11, 9)],
+        ),
+        (
+            "    select:\n        id\n        n = count()\n",
+            [
+                (
+                    "PIE-S2312",
+                    "Aggregate projections cannot be mixed with non-aggregate "
+                    "projections without GROUP BY",
+                    10,
+                    13,
+                )
+            ],
+        ),
+        (
+            "    group by label\n    select:\n        label\n        n = count()\n"
+            "    order by qty\n",
+            [
+                (
+                    "PIE-S2321",
+                    "Unsupported grouped ORDER BY item; expected a supported select "
+                    "output name",
+                    12,
+                    14,
+                )
+            ],
+        ),
+        (
+            "    select m = sum(label)\n",
+            [
+                (
+                    "PIE-S2314",
+                    "Aggregate function sum expects Int, Float, or Decimal field "
+                    "argument, got Text",
+                    8,
+                    16,
+                )
+            ],
+        ),
+        (
+            "    select m = max(qty + 1)\n",
+            [
+                (
+                    "PIE-S2315",
+                    "Aggregate function max requires a direct field argument; "
+                    "expression arguments are not supported yet",
+                    8,
+                    16,
+                )
+            ],
+        ),
+        (
+            "    select m = max(count())\n",
+            [("PIE-S2311", "Nested aggregate count() is not supported", 8, 20)],
+        ),
+        (
+            "    group by qty\n    select:\n        qty\n        h = qty + 1\n",
+            [
+                (
+                    "PIE-S2319",
+                    "Grouped scalar projection expressions are not supported yet",
+                    11,
+                    13,
+                )
+            ],
+        ),
+        (
+            "    group by label\n    select:\n        label\n        n = count()\n"
+            "    having qty > 1\n",
+            [
+                (
+                    "PIE-S2325",
+                    "Having reference must use select output name, not input "
+                    "field: qty",
+                    12,
+                    12,
+                )
+            ],
+        ),
+        (
+            '    select s = string_agg(qty, ",", order by qty)\n',
+            [
+                (
+                    "PIE-S2104",
+                    "Invalid arguments for aggregate string_agg: expected two Text "
+                    "arguments",
+                    8,
+                    16,
+                )
+            ],
+        ),
+        (
+            "    group by label\n    select:\n        label\n",
+            [
+                (
+                    "PIE-S2320",
+                    "Grouped output without an aggregate is not supported yet",
+                    8,
+                    5,
+                )
+            ],
+        ),
+        (
+            "    group by label\n    select:\n        label\n        n = count()\n"
+            "    having count(qty) > 1\n",
+            [
+                (
+                    "PIE-S2308",
+                    "Aggregate count() is not allowed in having clause; use it only "
+                    "as a direct aliased select projection",
+                    12,
+                    12,
+                )
+            ],
+        ),
+        (
+            "    group by label\n    select:\n        label\n        n = count()\n"
+            "    having n\n",
+            [("PIE-S2202", "Expected Bool expression in having clause", 12, 12)],
+        ),
+        (
+            "    group by label\n    select:\n        label\n        n = count()\n"
+            '    having n > "x"\n',
+            [
+                (
+                    "PIE-S2105",
+                    "Invalid operands for operator >: expected comparable operands",
+                    12,
+                    12,
+                )
+            ],
+        ),
+        (
+            # A selected window result is a grouped ORDER BY key; only the
+            # other error is reported.
+            "    group by label\n    select:\n        label\n        qty\n"
+            "        n = count()\n        w = rank() window(order by n)\n"
+            "    order by w\n",
+            [("PIE-S2318", "Grouped projection is not a GROUP BY key: qty", 11, 9)],
+        ),
+        (
+            "    group by label\n    select:\n        label\n        t = sum(nosuch)\n",
+            [("PIE-S2102", "Unknown field: nosuch", 11, 17)],
+        ),
+        (
+            "    select t = max(items.nosuch)\n",
+            [("PIE-S2102", "Unknown field: items.nosuch", 8, 20)],
+        ),
+        (
+            "    group by nosuch\n    select n = count()\n",
+            [("PIE-S2102", "Unknown field: nosuch", 8, 14)],
+        ),
+        (
+            "    select t = sum(id, None)\n",
+            [
+                (
+                    "PIE-S2309",
+                    "Aggregate function sum expects 1 arguments, got 2",
+                    8,
+                    16,
+                )
+            ],
+        ),
+        (
+            # Only the unknown field; its operand errors are not reported.
+            "    select t = avg(nosuch - label)\n",
+            [("PIE-S2102", "Unknown field: nosuch", 8, 20)],
+        ),
+        (
+            "    select t = sum(qty) + nosuch\n",
+            [
+                (
+                    "PIE-S2310",
+                    "Aggregate projection must be a direct aggregate call; "
+                    "composition around sum() is not supported yet",
+                    8,
+                    16,
+                ),
+                ("PIE-S2102", "Unknown field: nosuch", 8, 27),
+            ],
+        ),
+        (
+            "    group by label\n    select:\n        label\n        n = count()\n"
+            "    limit -1\n",
+            [("PIE-S2307", _BAD_LIMIT, 12, 11)],
+        ),
+        (
+            "    select n = count()\n    limit 9223372036854775808\n",
+            [("PIE-S2307", _BAD_LIMIT, 9, 11)],
+        ),
+        (
+            "    group by label\n    select:\n        label\n        qty\n"
+            "        n = count()\n    limit -1\n",
+            [
+                ("PIE-S2318", "Grouped projection is not a GROUP BY key: qty", 11, 9),
+                ("PIE-S2307", _BAD_LIMIT, 13, 11),
+            ],
+        ),
+        (
+            # The relation reports its own error, not a PIE-S2333 beside it.
+            "    group by label\n    select:\n        label\n        x = nosuch\n"
+            "        n = count()\n",
+            [("PIE-S2102", "Unknown field: nosuch", 11, 13)],
+        ),
+        (
+            # A misspelled GROUP BY key that is also selected is reported
+            # once, at the key.
+            "    group by labl\n    select:\n        labl\n        n = count()\n",
+            [("PIE-S2102", "Unknown field: labl", 8, 14)],
+        ),
+    ],
+    ids=[
+        "non_key",
+        "mixed",
+        "grouped_order",
+        "argument_type",
+        "argument_expression",
+        "nested",
+        "grouped_expression",
+        "having_input_field",
+        "string_agg_types",
+        "no_aggregate",
+        "having_aggregate",
+        "having_not_bool",
+        "having_operands",
+        "window_order_key",
+        "aggregate_unknown_field",
+        "aggregate_qualified_unknown_field",
+        "unknown_group_key",
+        "aggregate_arity",
+        "aggregate_unknown_operand",
+        "aggregate_composition_unknown",
+        "grouped_limit",
+        "aggregate_limit_range",
+        "grouped_error_and_limit",
+        "grouped_select_unknown",
+        "selected_unknown_group_key",
+    ],
+)
+def test_project_check_reports_grouping_errors_without_joins_as_a_file_does(
+    tmp_path, capsys, body, expected
+):
+    # A relation without JOIN inputs reports each aggregate and grouping error
+    # at its call or item, as a single file does and as one with JOIN inputs
+    # does; before, a bare PIE-S2333 at the query.
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(_GROUPING_HEAD + body)
+    found = []
+    for argv in (
+        ["check", "--project", str(tmp_path), "--format", "json"],
+        ["check", str(tmp_path / "main.pietto"), "--format", "json"],
+    ):
+        code = cli.main(argv)
+        found.append(
+            (
+                code,
+                [
+                    (
+                        d["code"],
+                        d["message"],
+                        d["location"]["line"],
+                        d["location"]["column"],
+                    )
+                    for d in json.loads(capsys.readouterr().out)["diagnostics"]
+                ],
+            )
+        )
+    assert found == [(1, expected)] * 2
+
+
+def test_project_check_names_an_aggregate_field_argument_by_its_declared_type(
+    tmp_path, capsys
+):
+    # A single file names the alias a field is declared with; the project
+    # row holds the type it expands to, and the message keeps the alias.
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(
+        "type Whatever = Any\ntype Blob = Bytes\nshape Order:\n"
+        "    anything: Whatever\n    raw: Blob\n    plain: Json\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "table counted:\n    from orders\n    select:\n"
+        "        n = count(anything)\n        u = count_distinct(raw)\n"
+        "        m = max(plain)\n"
+    )
+    found = []
+    for argv in (
+        ["check", "--project", str(tmp_path), "--format", "json"],
+        ["check", str(tmp_path / "main.pietto"), "--format", "json"],
+    ):
+        assert cli.main(argv) == 1
+        found.append(
+            [
+                (d["code"], d["message"].rpartition(", got ")[2])
+                for d in json.loads(capsys.readouterr().out)["diagnostics"]
+            ]
+        )
+    assert (
+        found
+        == [[("PIE-S2314", "Whatever"), ("PIE-S2314", "Blob"), ("PIE-S2314", "Json")]]
+        * 2
+    )

@@ -316,6 +316,239 @@ def test_explicit_project_requires_configured_explicit_modules(
     assert kinds(run(argv(tmp_path / "missing", target))[1]) == [("project_root", None)]
 
 
+@pytest.mark.parametrize(
+    ("query", "error"),
+    [
+        (
+            "query q:\n    from result\n    let r = nowhere\n"
+            "    inner join r on True\n    select:\n        x = 1\n",
+            ("PIE-S2301", "Unknown relation: nowhere"),
+        ),
+        (
+            "query q(n: Int):\n    from result\n    select:\n        x = 1\n"
+            "    limit n\n",
+            ("PIE-S2355", "Query parameters are not available in this position."),
+        ),
+    ],
+)
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_naming_error_never_masks_a_module_error_in_emission(
+    tmp_path: Path, target: str, query: str, error: tuple[str, str]
+) -> None:
+    root, _ = project(tmp_path, target)
+    (root / "other.pietto").write_text(
+        'from "missing.pietto" import (\n    shape Row)\n' + query,
+        encoding="utf-8",
+    )
+    code, out, err = run(argv(root, target))
+    document = failure(out)
+    assert (code, err, document["status"]) == (1, "", "BLOCKED")
+    assert [
+        (item["code"], item["message"], item["location"]["path"])
+        for item in document["diagnostics"]
+    ] == [
+        (
+            "PIE-S2701",
+            'Unresolved module import target: "missing.pietto"',
+            "other.pietto",
+        ),
+        (*error, "other.pietto"),
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_selected_file_name_that_is_not_utf8_rejects_emission(
+    tmp_path: Path, target: str
+) -> None:
+    root, _ = project(tmp_path, target)
+    try:
+        Path(os.fsdecode(os.fsencode(root) + b"/\xff.pietto")).write_bytes(b"")
+    except (OSError, UnicodeError):
+        pytest.skip("this file system refuses a file name that is not UTF-8")
+    # Check reads the file, but an emission document, which is UTF-8 and names
+    # every selected source, cannot: a document says so, never a traceback.
+    assert cli.main(["check", "--project", str(root)]) == 0
+    code, out, err = run(argv(root, target))
+    document = failure(out)
+    rejected = [
+        {
+            "kind": "project_path",
+            "message": "Project source path must be valid UTF-8 to emit SQL:"
+            ' "\\udcff.pietto"; rename it.',
+            "path": None,
+        }
+    ]
+    assert (code, err, document["status"], document["cli_errors"]) == (
+        2,
+        "",
+        "INPUT_REJECTED",
+        rejected,
+    )
+    # A diagnostic located in that file cannot be carried either: the error
+    # names the file in its place.
+    unnamed = Path(os.fsdecode(os.fsencode(root) + b"/\xff.pietto"))
+    unnamed.write_text("query bad:\n    from\n")
+    code, out, err = run(argv(root, target))
+    document = failure(out)
+    assert (code, document["cli_errors"], document["diagnostics"]) == (
+        2,
+        rejected,
+        [],
+    )
+    # An input error about that file keeps its kind and message, path null.
+    unnamed.write_bytes(b"\xff")
+    assert kinds(run(argv(root, target))[1]) == [
+        ("source_read", None),
+        ("project_path", None),
+    ]
+    # A project refused for another reason reports it as before: a refusal
+    # of the selected owner (its blocker, its selector, its contract or the
+    # target family), a parse or semantic error located elsewhere with exit 1
+    # and its diagnostics, or its own input error.
+    unnamed.write_bytes(b"")
+    main = root / "main.pietto"
+
+    def changed(position: int, value: str, kind: str = "table") -> list[str]:
+        arguments = argv(root, target, kind)
+        arguments[position] = value
+        return arguments
+
+    main.write_text(
+        main.read_text() + "\nquery counted:\n    from rows\n    select:\n"
+        "        n = count(ratio)\n"
+    )
+    code, out, err = run(changed(8, "counted", "query"))
+    document = failure(out)
+    assert (code, document["status"], document["cli_errors"]) == (1, "BLOCKED", [])
+    assert [item["subject"]["detail"] for item in document["blockers"]] == [
+        "count_argument_outside_reviewed_int_domain"
+    ]
+    assert kinds(run(changed(8, "nosuch"))[1]) == [("emission_selector", None)]
+    (root / "empty.json").write_text("{}")
+    assert [kind for kind, _ in kinds(run(changed(12, "empty.json"))[1])] == [
+        "emission_contract_schema"
+    ]
+    other = "mysql" if target == "postgres" else "postgres"
+    assert kinds(run(changed(10, other))[1]) == [
+        ("emission_contract_schema", "target/family")
+    ]
+    # A selector listing names the file escaped, as project_path does.
+    assert failure(run(changed(4, "nosuch.pietto"))[1])["cli_errors"] == [
+        {
+            "kind": "emission_selector",
+            "message": "No project module matches --module; project modules:"
+            " main.pietto, \\udcff.pietto.",
+            "path": None,
+        }
+    ]
+    main.write_text(main.read_text().partition("\nquery counted:")[0])
+    main.write_text(
+        main.read_text() + "\nquery bad:\n    from nosuch\n    select:\n        id\n"
+    )
+    code, out, err = run(argv(root, target))
+    document = failure(out)
+    assert (code, document["status"], document["cli_errors"]) == (1, "BLOCKED", [])
+    assert [item["code"] for item in document["diagnostics"]] == ["PIE-S2301"]
+    (root / "pietto.toml").write_text(
+        'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    assert kinds(run(argv(root, target))[1]) == [("config_schema", "pietto.toml")]
+
+
+def test_a_diagnostic_naming_a_path_that_is_not_utf8_shows_it_escaped(
+    tmp_path: Path,
+) -> None:
+    root, _ = project(tmp_path, "postgres")
+    try:
+        directory = Path(os.fsdecode(os.fsencode(root) + b"/m\xff"))
+        directory.mkdir()
+    except (OSError, UnicodeError):
+        pytest.skip("this file system refuses a file name that is not UTF-8")
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["**/*.pietto"]\n'
+    )
+    (directory / "a.pietto").write_text(
+        "shape A:\n    id: Int\n"
+        'source items: A = postgres.table("items")\n'
+        "def twice(x: Int) -> Int:\n    return x * 2\n"
+        "export (\n    shape A,\n    source items)\n"
+    )
+
+    def diagnostics(source: str) -> list[tuple[str, str, str]]:
+        (root / "b.pietto").write_text(source)
+        code, out, err = run(argv(root, "postgres"))
+        document = failure(out)
+        assert (code, err, document["status"], document["cli_errors"]) == (
+            1,
+            "",
+            "BLOCKED",
+            [],
+        )
+        return [
+            (item["code"], item["message"], item["location"]["path"])
+            for item in document["diagnostics"]
+        ]
+
+    # No Pietto string spells that path, so neither b.pietto's PIE-S2701 nor
+    # an import hint suggests it. A def hint names it, escaped as
+    # project_path names it, and the error located in b.pietto is kept.
+    assert diagnostics('from "a.pietto" import (\n    shape A)\n') == [
+        ("PIE-S2701", 'Unresolved module import target: "a.pietto"', "b.pietto")
+    ]
+    assert diagnostics(
+        "shape B:\n    id: Int\n"
+        'source bs: B = postgres.table("b")\n'
+        "query q:\n    from items\n    select:\n        id\n"
+        "query p:\n    from bs\n    select:\n        doubled = twice(id)\n"
+    ) == [
+        ("PIE-S2301", "Unknown relation: items", "b.pietto"),
+        (
+            "PIE-S2103",
+            "Unknown function: twice; twice is a def of m\\udcff/a.pietto, which"
+            " a module cannot import: declare it in this module",
+            "b.pietto",
+        ),
+    ]
+    # A source directory that is not valid UTF-8 and cannot be read is named
+    # beside its own error, whose path is then null.
+    (root / "b.pietto").unlink()
+    (directory / "a.pietto").unlink()
+    directory.chmod(0)
+    try:
+        if os.access(directory, os.R_OK):
+            pytest.skip("this process reads a directory without permission")
+        assert kinds(run(argv(root, "postgres"))[1]) == [
+            ("project_glob", None),
+            ("project_path", None),
+        ]
+        assert failure(run(argv(root, "postgres"))[1])["cli_errors"][1]["message"] == (
+            'Project source path must be valid UTF-8 to emit SQL: "m\\udcff";'
+            " rename it."
+        )
+    finally:
+        directory.chmod(0o700)
+
+
+def test_an_unopened_contract_path_that_is_not_utf8_is_named_by_null(
+    tmp_path: Path,
+) -> None:
+    root, _ = project(tmp_path, "postgres")
+    # The document is UTF-8 text, where that path has none.
+    contract = os.fsdecode(b"c\xff.json")
+    for text in ("json", "text"):
+        code, out, err = run(
+            argv(root, "postgres", emission_contract=contract, format=text)
+        )
+        assert code == 2
+    assert kinds(run(argv(root, "postgres", emission_contract=contract))[1]) == [
+        ("emission_contract_read", None)
+    ]
+    assert err == (
+        "pietto.sql-emission.v1 INPUT_REJECTED\nerror emission_contract_read:"
+        " Emission contract file could not be opened inside the project root.\n"
+    )
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_owner_selection_is_exact_and_never_first_match(
     tmp_path: Path, target: str
@@ -888,6 +1121,13 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
             'query other:\n    from rows\n    where id == "x"\n    select:\n        id\n',
             "PIE-S2105",
         ),
+        # A declaration error blocks emission as it fails a check.
+        (
+            "sibling_declaration",
+            "table result:\n    from rows\n    select:\n        id\n"
+            "constraint other(x: Int) -> Int:\n    return x > 0\n",
+            "PIE-S2401",
+        ),
         # A sibling's header beside a table-function let stays unadmitted.
         (
             "unadmitted_sibling_header_beside_table_function",
@@ -908,7 +1148,7 @@ def test_compiler_outcomes_keep_complete_diagnostics_without_candidate_sql(
             d["code"].startswith(prefix) and d["severity"] == "error"
             for d in document["diagnostics"]
         )
-        if prefix in ("PIE-S2105", "PIE-S2346"):
+        if prefix in ("PIE-S2105", "PIE-S2346", "PIE-S2401"):
             assert len(document["diagnostics"]) == 1
         assert probe.decode_public(out)["blockers"] == []
         code, out, err = run(argv(root, target, format="text"))
@@ -1769,3 +2009,390 @@ def test_readme_example_is_copyable_verified_and_shared_with_the_package_smoke(
         b"pietto.sql-emission.v1 VERIFIED\n"
     )
     assert (tmp_path / "active_items.sql-emission.json").read_bytes() == out
+
+
+# --- precise refusal reasons, places and remedies --------------------------------
+
+REASONS_SOURCE = """shape Item:
+    id: Int
+    label: Text
+    qty: Int
+    price: Float
+    amount: Decimal(10, 2)
+    item_key = unique(id)
+
+source items: Item = postgres.table("fixture.items")
+
+query aggregates:
+    from items
+    group by qty
+    select:
+        qty
+        a = count(label)
+        b = count_distinct(price)
+        c = max(amount)
+        d = min(price)
+
+query float_group:
+    from items
+    group by price
+    select:
+        price
+        n = count()
+
+query renamed:
+    from items
+    select:
+        item = label
+    order by item
+
+query arithmetic:
+    from items
+    select:
+        d = qty + 1
+
+query plain:
+    from items
+    select:
+        id
+"""
+
+
+def _reasons_contract(**changes: Any) -> dict[str, Any]:
+    int_range = {"kind": "int_range", "min": "0", "max": "100"}
+    representations = {
+        "id": {"storage": {"kind": "pg_int8"}, "domain": int_range},
+        "label": {
+            "storage": {"kind": "pg_text"},
+            "domain": {
+                "kind": "text",
+                "max_characters": 64,
+                "encoding": "UTF8",
+                "collation": "C",
+                "padding": "NO PAD",
+            },
+        },
+        "qty": {"storage": {"kind": "pg_int8"}, "domain": int_range},
+        "price": {
+            "storage": {"kind": "pg_float8"},
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        },
+        "amount": {
+            "storage": {"kind": "pg_numeric", "precision": 10, "scale": 2},
+            "domain": {"kind": "decimal", "precision": 10, "scale": 2},
+        },
+    }
+    contract: dict[str, Any] = {
+        "format": "pietto.emission-contract.v1",
+        "target": {"family": "postgres", "release": "18.6"},
+        "sources": [
+            {
+                "selector": {
+                    "module": "main.pietto",
+                    "kind": "source",
+                    "name": "items",
+                },
+                "relation": {"namespace": "fixture", "name": "items"},
+                "scan": "relation_rows",
+                "fields": [
+                    {
+                        "ordinal": ordinal,
+                        "name": name,
+                        "column": name,
+                        "representation": {**value, "nullable": False},
+                    }
+                    for ordinal, (name, value) in enumerate(representations.items())
+                ],
+                "premises": [
+                    {"key": "row_domain_matches", "scope": "source", "value": True},
+                    {"key": "read_only_object", "scope": "source", "value": True},
+                ],
+            }
+        ],
+        "environment": [
+            {"key": "client_encoding", "scope": "statement", "value": "UTF8"},
+            {
+                "key": "operator_environment",
+                "scope": "statement",
+                "value": "builtin_only",
+            },
+            {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"},
+        ],
+    }
+    contract.update(changes)
+    return contract
+
+
+def _reasons_project(tmp_path: Path, contract: dict[str, Any]) -> Path:
+    root = tmp_path / "reasons"
+    root.mkdir(exist_ok=True)
+    (root / "pietto.toml").write_text(probe.CONFIG)
+    (root / "main.pietto").write_text(REASONS_SOURCE, encoding="utf-8")
+    (root / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return root
+
+
+def _reasons(tmp_path: Path, name: str, contract: dict[str, Any]) -> tuple[int, str]:
+    arguments = argv(_reasons_project(tmp_path, contract), "postgres", kind="query")
+    arguments[8] = name
+    code, out, err = run([*arguments, "--format", "text"])
+    assert out == b""
+    return code, err
+
+
+def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None:
+    contract = _reasons_contract()
+    # Every refused aggregate at its own item, in select order, with the
+    # reviewed-domain reason; only sum and avg have a proof to supply.
+    assert _reasons(tmp_path, "aggregates", contract) == (
+        1,
+        "pietto.sql-emission.v1 BLOCKED\n"
+        "blocker PIE-B1003 UNSUPPORTED_RULE:"
+        " count_argument_outside_reviewed_int_domain (main.pietto:16:9)\n"
+        "blocker PIE-B1003 UNSUPPORTED_RULE:"
+        " count_distinct_argument_outside_reviewed_int_domain (main.pietto:17:9)\n"
+        "blocker PIE-B1003 UNSUPPORTED_RULE:"
+        " max_argument_outside_reviewed_int_domain (main.pietto:18:9)\n"
+        "blocker PIE-B1003 UNSUPPORTED_RULE:"
+        " min_argument_outside_reviewed_int_domain (main.pietto:19:9)\n",
+    )
+    # A refused group key is at its GROUP BY item.
+    assert _reasons(tmp_path, "float_group", contract) == (
+        1,
+        "pietto.sql-emission.v1 BLOCKED\n"
+        "blocker PIE-B1003 UNSUPPORTED_RULE:"
+        " group_key_type_outside_reviewed_comparison_domain (main.pietto:23:14)\n",
+    )
+    # A plan-stage refusal is at its clause, not the whole declaration.
+    assert _reasons(tmp_path, "renamed", contract) == (
+        1,
+        "pietto.sql-emission.v1 BLOCKED\n"
+        "blocker PIE-B1003 UNSUPPORTED_RULE: order (main.pietto:32:5)\n"
+        "  hint: without GROUP BY, a key must be an input field, a restated"
+        " selected expression or a selected let name, of a type that orders\n",
+    )
+    assert _reasons(tmp_path, "arithmetic", contract) == (
+        1,
+        "pietto.sql-emission.v1 BLOCKED\n"
+        "blocker PIE-B1002 REPRESENTATION: arithmetic_outside_physical_range"
+        " (main.pietto:37:9)\n"
+        "  hint: an Int field ranges over its whole storage type; its declared"
+        " int_range does not narrow that, so the result must fit the storage"
+        " type\n",
+    )
+    # The field's storage, not the family's widest, bounds the result: the
+    # hint names none.
+    assert emission_cli._blocker_hint(
+        "arithmetic_outside_physical_range", "mysql"
+    ) == emission_cli._blocker_hint("arithmetic_outside_physical_range", "postgres")
+    # Premise and target refusals name the reviewed value to write.
+    assert _reasons(
+        tmp_path,
+        "plain",
+        _reasons_contract(
+            target={"family": "postgres", "release": "17.0"}, environment=[]
+        ),
+    ) == (
+        1,
+        "pietto.sql-emission.v1 BLOCKED\n"
+        "blocker PIE-B1003 UNSUPPORTED_RULE: target_release_not_reviewed\n"
+        '  hint: the reviewed postgres release is "18.6"\n'
+        "blocker PIE-B1004 MISSING_EVIDENCE: client_encoding_declaration_missing\n"
+        '  hint: add {"key":"client_encoding","scope":"statement","value":"UTF8"}'
+        ' to "environment"\n',
+    )
+    # A source mapping that leaves a field out is at the source declaration,
+    # related to the missing shape field.
+    dropped = _reasons_contract()
+    del dropped["sources"][0]["fields"][4]
+    code, err = _reasons(tmp_path, "plain", dropped)
+    assert (code, err) == (
+        1,
+        "pietto.sql-emission.v1 BLOCKED\n"
+        "blocker PIE-B1001 SOURCE_REALIZATION:"
+        " complete_ordered_source_schema_required (main.pietto:9:1)\n"
+        "  related: main.pietto:6:5\n"
+        '  hint: map every field of the source\'s shape once in "fields", in shape'
+        " order; related lists the fields left out or out of order\n",
+    )
+    arguments = argv(tmp_path / "reasons", "postgres", kind="query")
+    arguments[8] = "plain"
+    blocker = failure(run(arguments)[1])["blockers"][0]
+    assert (blocker["location"], blocker["related"]) == (
+        {
+            "path": "main.pietto",
+            "line": 9,
+            "column": 1,
+            "end_line": 9,
+            "end_column": 53,
+        },
+        [
+            {
+                "path": "main.pietto",
+                "line": 6,
+                "column": 5,
+                "end_line": 6,
+                "end_column": 27,
+            }
+        ],
+    )
+    # A JOIN that reads the left-out field is refused at the same source.
+    (tmp_path / "reasons" / "main.pietto").write_text(
+        REASONS_SOURCE + "\nquery joined:\n    from items\n    let other = items\n"
+        "    inner join other on items.id == other.id\n    select:\n"
+        "        a = items.id\n",
+        encoding="utf-8",
+    )
+    arguments[8] = "joined"
+    assert [
+        (blocker["subject"]["detail"], blocker["location"]["line"])
+        for blocker in failure(run(arguments)[1])["blockers"]
+    ] == [
+        ("join_input_source_field_not_bound", 9),
+        ("complete_ordered_source_schema_required", 9),
+    ]
+
+
+def test_selection_and_contract_errors_name_their_fault(tmp_path: Path) -> None:
+    root = _reasons_project(tmp_path, _reasons_contract())
+
+    def message(*replacements: tuple[int, str], contract: str = "contract.json") -> str:
+        arguments = argv(root, "postgres", kind="query", emission_contract=contract)
+        arguments[8] = "plain"
+        for position, value in replacements:
+            arguments[position] = value
+        code, out, err = run(arguments)
+        document = failure(out)
+        assert (code, err, len(document["cli_errors"])) == (2, "", 1)
+        error = document["cli_errors"][0]
+        return f"{error['kind']} {error['path']}: {error['message']}"
+
+    assert message((4, "models\\main.pietto")) == (
+        "emission_selector None: No project module matches --module; project"
+        " modules: main.pietto. --module uses / as the separator."
+    )
+    assert message((6, "table")) == (
+        "emission_selector None: main.pietto declares no table named by --name;"
+        " its tables: none."
+    )
+    assert message((8, "absent")) == (
+        "emission_selector None: main.pietto declares no query named by --name;"
+        " its queries: aggregates, arithmetic, float_group, plain, renamed."
+    )
+
+    def contract_message(data: bytes) -> str:
+        (root / "variant.json").write_bytes(data)
+        return message(contract="variant.json")
+
+    contract = _reasons_contract()
+    assert contract_message(b"\xef\xbb\xbf" + json.dumps(contract).encode()) == (
+        "emission_contract_schema None: Emission contract starts with a UTF-8"
+        " byte-order mark; save it as UTF-8 without BOM."
+    )
+    # The reason is the json module's; this one reads the same on 3.12 and 3.13.
+    assert contract_message(b'{"format": 1') == (
+        "emission_contract_schema None: Invalid JSON emission input: Expecting"
+        " ',' delimiter (line 1, column 13)."
+    )
+    # Valid UTF-8 JSON whose number overflows, or whose integer is longer
+    # than Python reads, names that fault.
+    assert contract_message(b'{"format": 1e400}') == (
+        "emission_contract_schema None: Emission contract numbers must be finite."
+    )
+    assert contract_message(b'{"format": ' + b"1" * 5000 + b"}") == (
+        "emission_contract_schema None: Invalid JSON emission input: Exceeds the"
+        " limit (4300 digits) for integer string conversion: value has 5000"
+        " digits."
+    )
+    # Valid UTF-8 whose escape stands for an unpaired surrogate.
+    assert contract_message(b'{"format": "\\ud800"}') == (
+        "emission_contract_schema None: Emission contract strings must not hold"
+        " a lone surrogate escape (\\uD800-\\uDFFF)."
+    )
+    assert contract_message(b'{"format": "\xff"}') == (
+        "emission_contract_schema None: Emission contract must be valid UTF-8."
+    )
+    assert contract_message(json.dumps({**contract, "note": 1}).encode()) == (
+        "emission_contract_schema None: Invalid emission contract object: 1"
+        " unexpected key; expected exactly the keys: format, target, sources,"
+        " environment."
+    )
+    source = contract["sources"][0]
+    missing = {
+        **contract,
+        "sources": [{k: v for k, v in source.items() if k != "scan"}],
+    }
+    assert contract_message(json.dumps(missing).encode()) == (
+        "emission_contract_schema sources/0/scan: Invalid emission contract"
+        " object: missing key scan; expected exactly the keys: selector, relation,"
+        " scan, fields, premises."
+    )
+    renamed = json.loads(json.dumps(contract))
+    renamed["sources"][0]["fields"][0]["name"] = "ident"
+    assert contract_message(json.dumps(renamed).encode()) == (
+        "emission_selector sources/0/fields/0/name: Field ordinal 0 must be named id."
+    )
+    elsewhere = json.loads(json.dumps(contract))
+    elsewhere["sources"][0]["selector"]["name"] = "ghost"
+    assert contract_message(json.dumps(elsewhere).encode()) == (
+        "emission_selector sources/0/selector: main.pietto declares no source of"
+        " the selector's name; its sources: items."
+    )
+    # An empty selector key or another kind names that key and what it takes.
+    for key, value, expected in (
+        (
+            "module",
+            "",
+            "Source selector module must be a non-empty string; modules with"
+            " sources: main.pietto.",
+        ),
+        ("name", "", "Source selector name must be a non-empty string."),
+        ("kind", "table", 'Source selector kind must be "source".'),
+    ):
+        broken = json.loads(json.dumps(contract))
+        broken["sources"][0]["selector"][key] = value
+        assert contract_message(json.dumps(broken).encode()) == (
+            f"emission_selector sources/0/selector/{key}: {expected}"
+        )
+
+
+def test_wrong_schema_and_empty_root_name_the_next_step(tmp_path: Path) -> None:
+    root = _reasons_project(tmp_path, _reasons_contract())
+    (root / "pietto.toml").write_text(
+        'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    code, out, err = run(argv(root, "postgres", kind="query"))
+    assert (code, err) == (2, "") and failure(out)["cli_errors"] == [
+        {
+            "kind": "config_schema",
+            "message": "emit-sql --project needs schema_version = 2 (explicit"
+            " modules); this project uses schema_version 1. Set schema_version = 2"
+            " and declare the names a file uses from another file with import and"
+            " export.",
+            "path": "pietto.toml",
+        }
+    ]
+    # An integer too long for tomllib is a configuration error, not a root
+    # that could not be pinned.
+    (root / "pietto.toml").write_text(f"schema_version = 2\nx = {'9' * 5000}\n")
+    code, out, err = run(argv(root, "postgres", kind="query"))
+    assert (code, err) == (2, "") and failure(out)["cli_errors"] == [
+        {
+            "kind": "config_parse",
+            "message": "Project configuration TOML is invalid: Exceeds the limit"
+            " (4300 digits) for integer string conversion: value has 5000 digits.",
+            "path": "pietto.toml",
+        }
+    ]
+    for project_argument in ("--project=", "--project"):
+        arguments = argv("", "postgres", kind="query")
+        if project_argument == "--project=":
+            arguments[1:3] = ["--project="]
+        code, out, err = run(arguments)
+        assert (code, err) == (2, "") and failure(out)["cli_errors"] == [
+            {
+                "kind": "usage",
+                "message": "argument --project: Project root must be a non-empty path.",
+                "path": None,
+            }
+        ]

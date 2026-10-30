@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import FrozenInstanceError, fields, is_dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +55,24 @@ MODULE_SUFFIX = (
     "export (\n"
     "    shape Row,\n"
     "    query selected)\n"
+)
+# Only an EXPLICIT_MODULES project reads module statements: a single file
+# warns at each one (PIE-S2708).
+MODULE_WARNINGS = (
+    (
+        "PIE-S2708",
+        Severity.WARNING,
+        "Module import is resolved only by check --project ROOT, in a "
+        "schema_version = 2 project",
+        (8, 1, 10, 24),
+    ),
+    (
+        "PIE-S2708",
+        Severity.WARNING,
+        "Module export is resolved only by check --project ROOT, in a "
+        "schema_version = 2 project",
+        (12, 1, 14, 20),
+    ),
 )
 NEGATIVE_DIAGNOSTICS = {
     "invalid-import-0.pietto": (("PIE-P1000", 1, 18, None, None),),
@@ -134,10 +152,29 @@ def _write_project(root: Path, *, schema_version: int) -> Path:
     return root
 
 
+def _warnings(diagnostics: Any) -> tuple[Any, ...]:
+    return tuple(
+        (
+            item.code,
+            item.severity,
+            item.message,
+            (
+                item.location.line,
+                item.location.column,
+                item.location.end_line,
+                item.location.end_column,
+            ),
+        )
+        for item in diagnostics
+    )
+
+
 def _pipeline(source: str) -> tuple[Script, Any, Any]:
     script = _parsed(source, path="pipeline.pietto")
     semantic = analyze(script)
-    assert semantic.diagnostics == ()
+    assert _warnings(semantic.diagnostics) == (
+        MODULE_WARNINGS if script.module_statements else ()
+    )
     ir = build_ir(script, semantic.model)
     assert ir.diagnostics == ()
     assert ir.ir is not None
@@ -555,15 +592,16 @@ def test_existing_parser_ast_corpus_representatives_remain_accepted_and_unchange
         assert first.module_statements == ()
 
 
-def test_import_export_top_level_statements_do_not_change_semantic_catalog_or_diagnostics() -> (
+def test_import_export_top_level_statements_warn_without_changing_the_semantic_catalog() -> (
     None
 ):
     baseline = _parsed(BASE_PROGRAM)
     with_modules = _parsed(BASE_PROGRAM + MODULE_SUFFIX)
     baseline_result = analyze(baseline)
     module_result = analyze(with_modules)
-    assert baseline_result == module_result
-    assert module_result.diagnostics == ()
+    assert baseline_result.diagnostics == ()
+    assert _warnings(module_result.diagnostics) == MODULE_WARNINGS
+    assert replace(module_result, diagnostics=()) == baseline_result
     assert tuple(module_result.model.type_symbols) == ("Row",)
     assert tuple(module_result.model.relation_symbols) == ("rows", "selected")
     assert "ImportedRow" not in module_result.model.type_symbols
@@ -587,6 +625,10 @@ def test_import_export_top_level_statements_do_not_change_public_cli_json_or_met
     path.write_text(BASE_PROGRAM + MODULE_SUFFIX, encoding="utf-8")
     assert cli.main(["check", str(path), "--format", "json"]) == 0
     document = json.loads(capsys.readouterr().out)
+    assert [
+        (item["code"], item["severity"], item["location"]["line"])
+        for item in document["diagnostics"]
+    ] == [("PIE-S2708", "warning", 8), ("PIE-S2708", "warning", 12)]
     assert tuple(document) == (
         "schema_version",
         "command",
@@ -638,6 +680,22 @@ def test_schema_v1_preserves_module_ast_without_import_binding_or_catalog_effect
     assert "ImportedRow" not in semantic.model.catalog.type_symbols
     assert semantic.module_graph is None
     assert semantic.module_diagnostic_facts is None
+
+
+def test_schema_v1_project_check_refuses_each_module_statement(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _write_project(tmp_path / "legacy", schema_version=1)
+    assert cli.main(["check", "--project", str(root)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        "main.pietto:8:1 PIE-S2708 error: Module import is read only in a "
+        "schema_version = 2 project: set schema_version = 2 in pietto.toml\n"
+        "main.pietto:12:1 PIE-S2708 error: Module export is read only in a "
+        "schema_version = 2 project: set schema_version = 2 in pietto.toml\n"
+    )
 
 
 def test_schema_v2_retains_module_ast_and_stops_before_legacy_flat_catalog(

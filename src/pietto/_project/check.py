@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import replace
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pietto.parser_api as parser_api
 from pietto.ast_nodes import FunctionDef, Script, Span
@@ -46,6 +47,7 @@ from pietto._project.trusted_source import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.analyzer import (
     analyze_project_namespace,
+    module_statement_diagnostics,
     name_uncallable_calls,
     recursion_limit_diagnostic,
 )
@@ -55,6 +57,9 @@ from pietto.semantic.inline_functions import (
     inline_functions,
 )
 from pietto.semantic.modern_inputs import normalize_query_names
+
+if TYPE_CHECKING:
+    from pietto._project.module_graph import ProjectModuleDiagnosticSet
 
 _PROJECT_ROOT_PATH = "."
 _PROJECT_CONFIG_PATH = "pietto.toml"
@@ -69,6 +74,29 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
     result = _check_project_parse_only(root)
     if result.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
         return result
+    from pietto._project.module_bindings import (
+        _build_project_module_binding_environment_set,
+    )
+    from pietto._project.module_catalog import _build_project_module_catalog_set
+    from pietto._project.module_exports import (
+        ProjectModuleExportSurfaceSet,
+        _build_project_module_export_surface_set,
+    )
+    from pietto._project.module_graph import import_hints
+
+    def exports() -> ProjectModuleExportSurfaceSet:
+        assert result.selected_input_index is not None
+        catalogs = _build_project_module_catalog_set(result.modules)
+        bindings = _build_project_module_binding_environment_set(
+            result.selected_input_index, result.modules, catalogs
+        )
+        return _build_project_module_export_surface_set(
+            catalogs, imported_binding_candidates=bindings.imported_export_candidates
+        )
+
+    hinted = import_hints(result.diagnostics, result.parsed_inputs, exports)
+    if hinted is not result.diagnostics:
+        result = replace(result, diagnostics=hinted)
     # As the project JSON v2 contract states, an explicit-module check reports
     # a diagnostic equal to an earlier one once, at its first position. A check
     # reads some text more than once, such as a comparison chain's inner
@@ -107,6 +135,7 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
     diagnostics: list[Diagnostic] = []
     raw_capture_diagnostics: list[Diagnostic] = []
     raw_parameter_positions: list[Diagnostic] = []
+    unadmitted_paths: set[str] = set()
     trusted_source_snapshots: list[ProjectTrustedSourceSnapshot] = []
     for entry in selected_input_index.entries:
         (
@@ -124,6 +153,7 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
             ),
             capture_diagnostics_out=raw_capture_diagnostics,
             parameter_positions_out=raw_parameter_positions,
+            unadmitted_paths_out=unadmitted_paths,
         )
         inputs.append(parsed_input)
         if parsed_semantic_input is not None:
@@ -166,7 +196,9 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
         )
 
         # These occurrences need canonical aliases/LET dependencies. All other
-        # header and parse errors keep the original early-return boundary.
+        # header errors stop the check here, after the module errors once
+        # every module parsed and passed syntax admission; parse and
+        # admission errors stop it before them.
         deferred_ids = {
             id(item) for item in (*raw_capture_diagnostics, *raw_parameter_positions)
         }
@@ -177,7 +209,13 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
             ),
         )
         if not naming_input.ok:
-            return result
+            if (
+                result.errors
+                or unadmitted_paths
+                or any(item.status != _PARSED_STATUS for item in result.inputs)
+            ):
+                return result
+            return _with_module_diagnostics(result, result, result.diagnostics)
         normalized = normalize_project_query_names(naming_input)
         positions = {item.path: position for position, item in enumerate(result.inputs)}
         if normalized.ok:
@@ -206,18 +244,19 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
                     # Reuse each original occurrence once; equal values may
                     # have multiple distinct diagnostics, never one winner.
                     admission.append(prior.popleft() if prior else diagnostic)
-            return replace(
-                normalized,
-                diagnostics=tuple(
-                    sorted(
-                        (*normalized.diagnostics, *admission),
-                        key=lambda item: positions[item.location.path or ""],
-                    )
-                ),
+            admitted = tuple(
+                sorted(
+                    (*normalized.diagnostics, *admission),
+                    key=lambda item: positions[item.location.path or ""],
+                )
             )
-        return replace(
+            if not _has_errors(admitted):
+                return replace(normalized, diagnostics=admitted)
+            return _with_module_diagnostics(normalized, naming_input, admitted)
+        return _with_module_diagnostics(
             normalized,
-            diagnostics=tuple(
+            naming_input,
+            tuple(
                 sorted(
                     (
                         *normalized.diagnostics,
@@ -238,6 +277,86 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
     ):
         return _resolve_legacy_flat_query_names(result)
     return result
+
+
+def _with_module_diagnostics(
+    result: ProjectParseCheckResult,
+    authored: ProjectParseCheckResult,
+    diagnostics: tuple[Diagnostic, ...],
+) -> ProjectParseCheckResult:
+    """`result`, a parse check of an explicit-module project whose every
+    module parsed and passed syntax admission but which stops before
+    semantic analysis on a `def`, header, parameter, capture or naming error,
+    with `diagnostics` after the module import and export errors of the
+    `authored` modules and their related locations. Semantic analysis reports
+    those errors first, so no such error in any module masks one. A module
+    whose `def` calls are not inlined still holds its `def` declarations,
+    which no module imports or exports, so they are left out, as inlining
+    leaves them out of the modules semantic analysis reads. Without module
+    errors, a result with these diagnostics is kept as it is."""
+
+    parsed_inputs = tuple(
+        replace(
+            parsed,
+            script=replace(
+                parsed.script,
+                definitions=tuple(
+                    item
+                    for item in parsed.script.definitions
+                    if type(item) is not FunctionDef
+                ),
+            ),
+        )
+        if any(type(item) is FunctionDef for item in parsed.script.definitions)
+        else parsed
+        for parsed in authored.parsed_inputs
+    )
+    if any(new is not old for new, old in zip(parsed_inputs, authored.parsed_inputs)):
+        authored = replace(
+            authored,
+            parsed_inputs=parsed_inputs,
+            modules=_build_project_logical_modules(
+                authored.compilation_mode, authored.inputs, parsed_inputs
+            ),
+        )
+    module_diagnostics = _module_diagnostics(authored)
+    if not module_diagnostics.diagnostics and diagnostics is result.diagnostics:
+        return result
+    return replace(
+        result,
+        module_diagnostic_facts=module_diagnostics,
+        diagnostics=(*module_diagnostics.diagnostics, *diagnostics),
+    )
+
+
+def _module_diagnostics(result: ProjectParseCheckResult) -> ProjectModuleDiagnosticSet:
+    """The module import and export errors of a parsed explicit-module
+    project, in their semantic-check order, and their facts."""
+
+    from pietto._project.module_bindings import (
+        _build_project_module_binding_environment_set,
+    )
+    from pietto._project.module_catalog import _build_project_module_catalog_set
+    from pietto._project.module_exports import (
+        _build_project_module_export_surface_set,
+    )
+    from pietto._project.module_graph import (
+        _build_project_module_diagnostic_set,
+        _build_project_module_graph,
+    )
+
+    assert result.selected_input_index is not None
+    catalogs = _build_project_module_catalog_set(result.modules)
+    bindings = _build_project_module_binding_environment_set(
+        result.selected_input_index, result.modules, catalogs
+    )
+    exports = _build_project_module_export_surface_set(
+        catalogs, imported_binding_candidates=bindings.imported_export_candidates
+    )
+    graph = _build_project_module_graph(
+        result.selected_input_index, result.modules, bindings
+    )
+    return _build_project_module_diagnostic_set(graph, exports, bindings)
 
 
 def _resolve_legacy_flat_query_names(
@@ -330,7 +449,9 @@ def check_legacy_flat_semantics(
     (PIE-S2334), so the script is analyzed without its any(...), which then
     holds back no check of the rest, and no diagnostic inside a JOIN or an
     any(...) is kept. A project is not held to the single-file expression
-    bound, so analysis that reaches it (PIE-S2006) adds nothing.
+    bound, so analysis that reaches it (PIE-S2006) adds nothing. Only an
+    EXPLICIT_MODULES project reads import and export statements, so each is
+    an error (PIE-S2708), after the model's diagnostics.
     """
 
     model = semantic_result.model
@@ -339,6 +460,7 @@ def check_legacy_flat_semantics(
     namespace = _shared_namespace(
         tuple(parsed.authored_script or parsed.script for parsed in model.inputs)
     )
+    statements = module_statement_diagnostics(namespace, legacy_flat=True)
     refused = tuple(node.span for node in legacy_flat_refused(namespace))
     analyzed = tuple(
         diagnostic
@@ -346,10 +468,13 @@ def check_legacy_flat_semantics(
         if not any(_inside(diagnostic.location, span) for span in refused)
     )
     if any(diagnostic.code == "PIE-S2006" for diagnostic in analyzed):
-        return semantic_result.diagnostics, semantic_result.ok
+        if not statements:
+            return semantic_result.diagnostics, semantic_result.ok
+        analyzed = ()
     reported = set(semantic_result.diagnostics)
     diagnostics = (
         *semantic_result.diagnostics,
+        *statements,
         *(diagnostic for diagnostic in analyzed if diagnostic not in reported),
     )
     return diagnostics, not _has_errors(diagnostics)
@@ -374,6 +499,7 @@ def _parse_selected_input(
     explicit_modules: bool = False,
     capture_diagnostics_out: list[Diagnostic] | None = None,
     parameter_positions_out: list[Diagnostic] | None = None,
+    unadmitted_paths_out: set[str] | None = None,
 ) -> tuple[
     ProjectInput,
     ProjectParsedInput | None,
@@ -504,8 +630,12 @@ def _parse_selected_input(
                 ),
             ),
         )
+        if (gate or existence_diagnostics) and unadmitted_paths_out is not None:
+            unadmitted_paths_out.add(selected_input.identity.path)
     except RecursionError:
         admission = (recursion_limit_diagnostic(parse_result.ast),)
+        if unadmitted_paths_out is not None:
+            unadmitted_paths_out.add(selected_input.identity.path)
     rebased_admission = tuple(
         _with_project_relative_path(item, selected_input.identity.path)
         for item in admission

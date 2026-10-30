@@ -26,7 +26,11 @@ from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.expressions import LetValues, infer_row_expression
+from pietto.semantic.expressions import (
+    LetValues,
+    infer_row_expression,
+    is_unknown_function_call,
+)
 from pietto.semantic.let_bindings import let_expansion_diagnostics
 from pietto.semantic.existence_generators import AnyUseInfo, AnyValueInfo
 from pietto.semantic.model import (
@@ -360,6 +364,29 @@ class ProjectAnyReference:
         return self.candidates[0] if len(self.candidates) == 1 else None
 
 
+def _row_argument_ids(
+    failures: Sequence[RelationshipCallFailure],
+    direct_nodes: tuple[ast.Expression, ...],
+) -> frozenset[int]:
+    """The bare-name arguments of a failed relationship call, or of an unknown
+    function, which typing reports first (PIE-S2103): each may name a row, as
+    for a relationship the module does not declare, and is no field read."""
+
+    return frozenset(
+        id(argument)
+        for call in (
+            *(failure.expression for failure in failures),
+            *(
+                node
+                for node in direct_nodes
+                if type(node) is ast.CallExpr and is_unknown_function_call(node)
+            ),
+        )
+        for argument in call.arguments
+        if isinstance(argument, ast.NameExpr)
+    )
+
+
 def _direct_predicate_nodes(predicate: ast.Expression) -> tuple[ast.Expression, ...]:
     from pietto.semantic.aggregates import child_expressions
 
@@ -416,12 +443,7 @@ class ProjectAnyValue:
             for diagnostic in failure.diagnostics
         ):
             raise ValueError("Typed ANY must retain relationship call diagnostics.")
-        ignored_ids = {
-            id(argument)
-            for failure in failures
-            for argument in failure.expression.arguments
-            if isinstance(argument, ast.NameExpr)
-        }
+        ignored_ids = _row_argument_ids(failures, direct_nodes)
         leaves = tuple(
             leaf
             for leaf in scalar_field_reference_leaves(self.predicate)
@@ -597,10 +619,18 @@ def analyze_any_values(
         enclosing: tuple[ProjectAnyField, ...],
         shadows: frozenset[str],
         parent: ast.AnyExpr | None = None,
+        unknown_rows: frozenset[str] = frozenset(),
     ) -> ProjectAnyValue:
         binding = by_node[id(node)]
         incoming = _input(root, binding, available)
         schema = incoming.schema
+        # Generator rows of unknown type in scope: their own `any(...)` is
+        # refused, and a read that may name one of their fields is not.
+        unknown_rows = (
+            unknown_rows | {binding.name}
+            if schema is None or schema.is_unknown
+            else unknown_rows - {binding.name}
+        )
         fields = (
             ()
             if schema is None or schema.is_unknown
@@ -636,17 +666,20 @@ def analyze_any_values(
             for failure in failed_relationship_calls
             if any(failure.expression is item for item in direct_nodes)
         )
-        ignored_row_arguments = frozenset(
-            id(argument)
-            for failure in local_failures
-            for argument in failure.expression.arguments
-            if isinstance(argument, ast.NameExpr)
-        )
+        ignored_row_arguments = _row_argument_ids(local_failures, direct_nodes)
         references: list[ProjectAnyReference] = []
         nested: list[ProjectAnyValue] = []
         types: dict[ast.Expression, ValueType] = {}
         diagnostics: list[Diagnostic] = []
-        if schema is None or schema.is_unknown:
+        # An input whose name does not resolve reports that itself, and an
+        # earlier relation that fails reports its own failure.
+        if (schema is None or schema.is_unknown) and not (
+            binding.target is None
+            or (
+                incoming.entry is None
+                and any(entry.owner is binding.target for entry in available)
+            )
+        ):
             diagnostics.append(_diagnostic(node, "ANY input relation is unavailable."))
         if contains_semantic_aggregate(node.predicate):
             diagnostics.append(
@@ -660,7 +693,7 @@ def analyze_any_values(
         while pending:
             leaf = pending.pop()
             if type(leaf) is ast.AnyExpr:
-                value = analyze(leaf, visible, hidden, node)
+                value = analyze(leaf, visible, hidden, node, unknown_rows)
                 nested.append(value)
                 types.update(value.value_types)
                 diagnostics.extend(value.diagnostics)
@@ -669,19 +702,32 @@ def analyze_any_values(
                 if id(leaf) in ignored_row_arguments:
                     continue
                 candidates: tuple[ProjectAnyField | ProjectAnyLetValue, ...]
+                generator_only = False
                 if type(leaf) is ast.NameExpr:
                     values = tuple(
                         value
                         for value in let_values
                         if value.binding.name == leaf.name and leaf.name not in hidden
                     )
-                    candidates = values or tuple(
-                        field
-                        for field in visible
-                        if not isinstance(field.binding, ProjectAnyRowBinding)
-                        and field.evidence.name == leaf.name
-                        and leaf.name not in hidden
+                    named = (
+                        ()
+                        if values or leaf.name in hidden
+                        else tuple(
+                            field
+                            for field in visible
+                            if field.evidence.name == leaf.name
+                        )
                     )
+                    outer = tuple(
+                        field
+                        for field in named
+                        if not isinstance(field.binding, ProjectAnyRowBinding)
+                    )
+                    # As in a single file, a bare name that a generator row
+                    # also has is ambiguous; a project reads a generator
+                    # field only qualified.
+                    candidates = values or (named if len(named) > 1 else outer)
+                    generator_only = bool(named) and not outer
                 else:
                     assert isinstance(leaf, ast.DottedNameExpr)
                     parts = leaf.parts
@@ -713,12 +759,42 @@ def analyze_any_values(
                             )
                         )
                     else:
-                        diagnostics.append(
-                            _diagnostic(
-                                leaf,
-                                f"ANY predicate reference is {'ambiguous' if candidates else 'unavailable'}.",
-                            )
+                        # The generator row a read may name: any for a bare
+                        # name, else the one its qualifier names.
+                        head = None if isinstance(leaf, ast.NameExpr) else leaf.parts[0]
+                        may_read_unknown = bool(unknown_rows) and (
+                            head is None or head in unknown_rows
                         )
+                        if candidates or not (generator_only or may_read_unknown):
+                            spelling = (
+                                leaf.name
+                                if isinstance(leaf, ast.NameExpr)
+                                else ".".join(leaf.parts)
+                            )
+                            diagnostics.append(
+                                _diagnostic(
+                                    leaf,
+                                    (
+                                        "Ambiguous"
+                                        if candidates
+                                        else "Unknown or unavailable"
+                                    )
+                                    + f" field in ANY predicate: {spelling}",
+                                    code="PIE-S2102",
+                                )
+                            )
+                        elif generator_only or not (
+                            binding.name in unknown_rows
+                            and head in {None, binding.name}
+                        ):
+                            # A read that may name a field of this generator's
+                            # row of unknown type is not reported: its
+                            # `any(...)` is.
+                            diagnostics.append(
+                                _diagnostic(
+                                    leaf, "ANY predicate reference is unavailable."
+                                )
+                            )
                 else:
                     types[leaf] = reference.target.value_type
                 continue
@@ -803,7 +879,17 @@ def analyze_any_values(
             )
             if problem is not None:
                 diagnostics.append(problem)
-            elif inferred.kind is ValueTypeKind.UNKNOWN and not diagnostics:
+            elif (
+                inferred.kind is ValueTypeKind.UNKNOWN
+                and not diagnostics
+                # An input with no row to read, also a nested `any(...)`'s,
+                # reports why, or follows a failure that is reported.
+                and schema is not None
+                and not schema.is_unknown
+                and all(
+                    value.value_type.kind is ValueTypeKind.KNOWN for value in nested
+                )
+            ):
                 diagnostics.append(
                     _diagnostic(
                         node.predicate,
@@ -811,8 +897,11 @@ def analyze_any_values(
                         code="PIE-S2202",
                     )
                 )
-            if inferred.kind is ValueTypeKind.KNOWN and not any(
-                item.severity is Severity.ERROR for item in diagnostics
+            if (
+                inferred.kind is ValueTypeKind.KNOWN
+                and schema is not None
+                and not schema.is_unknown
+                and not any(item.severity is Severity.ERROR for item in diagnostics)
             ):
                 value_type = _BOOL
         types[node] = value_type

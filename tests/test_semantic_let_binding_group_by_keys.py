@@ -426,10 +426,11 @@ UNAVAILABLE = (
             UNAVAILABLE,
         ),
         (
+            # A let name is no field of its input, as in a single file.
             "",
             "    group by:\n        orders.bucket\n    select:\n"
             "        total = count()\n",
-            UNAVAILABLE,
+            ("PIE-S2102", "Unknown field: orders.bucket"),
         ),
         (
             "",

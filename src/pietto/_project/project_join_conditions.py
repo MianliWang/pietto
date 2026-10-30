@@ -58,6 +58,7 @@ from pietto.ast_nodes import (
     Span,
 )
 from pietto.errors import Diagnostic, Severity
+from pietto.semantic import joins as semantic_joins
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
 from pietto.semantic.expressions import (
     _UNKNOWN_VALUE_TYPE,
@@ -446,6 +447,30 @@ class ProjectJoinConditionReference:
         )
 
 
+def _reference_diagnostic(reference: ProjectJoinConditionReference) -> Diagnostic:
+    """An ON read without one target, named as a single file names it."""
+
+    state = reference.state
+    if state is ProjectJoinReferenceState.UNAVAILABLE:
+        return _diagnostic(
+            reference.expression.span, "JOIN ON reference is unavailable."
+        )
+    message = (
+        f"JOIN ON reference is {state.value}: "
+        f"{semantic_joins._text(reference.expression)}"
+    )
+    names = [
+        f"{item.binding.name}.{item.input_field.evidence.name}"
+        for item in reference.candidates
+    ]
+    if (
+        state is ProjectJoinReferenceState.AMBIGUOUS
+        and len(set(names)) == len(names) > 1
+    ):
+        message += f"; write {semantic_joins._or_names(names)}"
+    return _diagnostic(reference.expression.span, message)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
 class ProjectJoinCondition:
     root: ProjectJoinConditionSet = field(repr=False)
@@ -469,6 +494,8 @@ class ProjectJoinCondition:
     state: ProjectJoinConditionState = field(init=False)
     ready: bool = field(init=False)
     diagnostics: tuple[Diagnostic, ...] = field(init=False)
+    # The diagnostics that only say a blocked input binding is unavailable.
+    unavailable_diagnostics: tuple[Diagnostic, ...] = field(init=False, repr=False)
     null_rejections: tuple[ProjectJoinNullRejection, ...] = field(init=False)
 
     def __post_init__(self) -> None:
@@ -514,19 +541,45 @@ class ProjectJoinCondition:
         # A JOIN with `on` and a CROSS JOIN read the FROM input; a JOIN without
         # `on` has no source input, since no relationship joins by itself.
         unavailable = bool(env.blocked_bindings) or len(env.source_candidates) != 1
+        # A relationship call's row argument that names an input with no
+        # relation to read only says that input is unavailable.
+        blocked_names = {binding.name for binding in env.blocked_bindings}
+        unavailable_diagnostics: list[Diagnostic] = [
+            diagnostic
+            for failure in (
+                ()
+                if env.predicate_expression is None
+                else env.predicate_expression.failed_calls
+            )
+            for argument in failure.expression.arguments
+            if type(argument) is NameExpr and argument.name in blocked_names
+            for diagnostic in failure.diagnostics
+            if diagnostic.message.startswith("Unavailable row argument for ")
+            and diagnostic.location is not None
+            and (diagnostic.location.line, diagnostic.location.column)
+            == (argument.span.line, argument.span.column)
+        ]
         # A JOIN without `on` that is INNER or LEFT keeps its own projection.
         if unavailable and (
             expression is not None
             or clause.kind not in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
         ):
-            message = (
-                "JOIN source binding is unknown."
-                if not env.source_candidates
+            if (
+                not env.source_candidates
                 and self.use.target_binding.output is not None
                 and not project_join_blocking_bindings(self.ledger, self.use)
-                else "JOIN pre-match input or relationship authority is unavailable."
-            )
-            diagnostics.append(_diagnostic(clause.span, message))
+            ):
+                diagnostics.append(
+                    _diagnostic(clause.span, "JOIN source binding is unknown.")
+                )
+            else:
+                unavailable_diagnostics.append(
+                    _diagnostic(
+                        clause.span,
+                        "JOIN pre-match input or relationship authority is unavailable.",
+                    )
+                )
+                diagnostics.append(unavailable_diagnostics[-1])
         value_types: dict[Expression, ValueType] = {
             expression: value_type
             for value in env.existence_values
@@ -535,12 +588,9 @@ class ProjectJoinCondition:
         value_types.update(dict.fromkeys(env.unknown_call_rows, _UNKNOWN_VALUE_TYPE))
         for reference in references:
             if reference.target is None:
-                diagnostics.append(
-                    _diagnostic(
-                        reference.expression.span,
-                        f"JOIN ON reference is {reference.state.value}.",
-                    )
-                )
+                diagnostics.append(_reference_diagnostic(reference))
+                if reference.state is ProjectJoinReferenceState.UNAVAILABLE:
+                    unavailable_diagnostics.append(diagnostics[-1])
             else:
                 value_types[reference.expression] = reference.target.value_type
         value_type = None
@@ -571,11 +621,21 @@ class ProjectJoinCondition:
                 if predicate_diagnostic is not None:
                     diagnostics.append(predicate_diagnostic)
                 if value_type.kind is ValueTypeKind.UNKNOWN and not diagnostics:
-                    diagnostics.append(
-                        _diagnostic(
-                            expression.span, "JOIN ON expression type is unavailable."
+                    # An `any(...)` whose input has no row says why, or
+                    # follows a failure that is reported.
+                    if any(
+                        value.value_type.kind is not ValueTypeKind.KNOWN
+                        and not value.diagnostics
+                        for value in env.existence_values
+                    ):
+                        unavailable = True
+                    else:
+                        diagnostics.append(
+                            _diagnostic(
+                                expression.span,
+                                "JOIN ON expression type is unavailable.",
+                            )
                         )
-                    )
         state = (
             ProjectJoinConditionState.INVALID
             if any(d.severity is Severity.ERROR for d in diagnostics)
@@ -595,6 +655,9 @@ class ProjectJoinCondition:
         object.__setattr__(self, "state", state)
         object.__setattr__(self, "ready", ready)
         object.__setattr__(self, "diagnostics", tuple(diagnostics))
+        object.__setattr__(
+            self, "unavailable_diagnostics", tuple(unavailable_diagnostics)
+        )
         object.__setattr__(
             self,
             "mandatory_equalities",

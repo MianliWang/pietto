@@ -1625,11 +1625,22 @@ def test_unknown_ambiguous_and_blocked_references_have_raw_attribution_but_no_pr
     equal_root_diagnostic_facts = tuple(
         fact
         for fact in equal_root_semantic.module_diagnostic_facts.facts
-        if fact.diagnostic.code == "PIE-S2707"
+        if fact.diagnostic.code == "PIE-S2705"
     )
     assert len(equal_root_diagnostic_facts) == 2
     equal_roots = tuple(fact.diagnostic for fact in equal_root_diagnostic_facts)
-    assert equal_roots[0] == equal_roots[1]
+    # Each wrong-kind item is its own root, at its own imported name.
+    assert tuple(
+        (item.message, item.location.line, item.location.column) for item in equal_roots
+    ) == tuple(
+        (
+            'Imported declaration has another kind: shape Shared from "b.pietto" '
+            "is a source; write source Shared",
+            line,
+            11,
+        )
+        for line in (2, 3)
+    )
     assert equal_roots[0] is not equal_roots[1]
     equal_roots_by_local_name = {
         fact.binding_issues[0].request.identity.local_binding_name: fact.diagnostic

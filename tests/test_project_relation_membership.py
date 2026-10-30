@@ -28,12 +28,6 @@ POSITION = (
     "IN relation reference is available only in WHERE and in the SELECT of an "
     "ungrouped query, not in {}."
 )
-COMPLETION = (
-    "PIE-S2333",
-    "Project relation semantic completion is unavailable: result",
-    10,
-    1,
-)
 
 
 @pytest.mark.parametrize(
@@ -58,18 +52,12 @@ COMPLETION = (
         (
             IDS + "query result:\n    from lhs\n    group by:\n        id\n"
             "    select:\n        id\n        f = id in ids\n",
-            [
-                ("PIE-S2350", POSITION.format("the SELECT of a grouped query"), 16, 13),
-                COMPLETION,
-            ],
+            [("PIE-S2350", POSITION.format("the SELECT of a grouped query"), 16, 13)],
         ),
         (
             IDS + "query result:\n    from lhs\n    select:\n        n = count()\n"
             "        f = 1 in ids\n",
-            [
-                ("PIE-S2350", POSITION.format("the SELECT of a grouped query"), 14, 13),
-                COMPLETION,
-            ],
+            [("PIE-S2350", POSITION.format("the SELECT of a grouped query"), 14, 13)],
         ),
         (
             IDS + "query result:\n    from lhs\n    select:\n        a = lhs.id\n"

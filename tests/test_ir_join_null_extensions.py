@@ -784,15 +784,11 @@ def test_invalid_existence_conditions_remain_precisely_unavailable(
     assert [(d.code, d.message) for d in hidden.diagnostics] == [
         ("PIE-S2202", "Expected Bool expression in JOIN ON")
     ]
-    # The typed ON's own error replaces only that ON's gate: the published
-    # objects are the kind gate, the later JOIN's ON gate and the errors of
-    # both conditions.
-    published = (
-        diagnostics[0],
-        diagnostics[2],
-        *hidden.diagnostics,
-        *later.diagnostics,
-    )
+    # The typed ON's own error is published alone: no temporary admission
+    # gate, and the later JOIN, whose input the failed one blocks, only says
+    # that it is unavailable.
+    assert later.unavailable_diagnostics == later.diagnostics
+    published = hidden.diagnostics
     assert len(completed.diagnostics) == len(published)
     assert all(a is b for a, b in zip(completed.diagnostics, published, strict=True))
     assert not completed.effective_outputs.current_regions
@@ -825,10 +821,12 @@ def test_success_retires_only_its_exact_temporary_diagnostics(tmp_path: Path) ->
         for condition in completed.roots.join_conditions.entries
         if condition.ledger.owner is entries["unsupported"].owner
     )
-    # Its typed ON error replaces only its own ON gate; its same-code kind
-    # gate, the later JOIN's ON gate and the conditions' errors stay the
-    # published objects.
-    published = (kind_gate, later_gate, *hidden.diagnostics, *later.diagnostics)
+    # Its typed ON error is published alone: neither its kind gate nor the
+    # later JOIN's ON gate, nor what the later JOIN, whose input the failed
+    # one blocks, says of that input.
+    assert kind_gate.code == later_gate.code == "PIE-S2334"
+    assert later.unavailable_diagnostics == later.diagnostics
+    published = hidden.diagnostics
     assert len(completed.diagnostics) == len(published)
     assert all(a is b for a, b in zip(completed.diagnostics, published, strict=True))
 

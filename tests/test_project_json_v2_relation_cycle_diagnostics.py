@@ -64,8 +64,8 @@ def test_project_json_v2_cycle_diagnostic_envelope_and_counters(
     assert document["result"] == {
         "check": {
             "files_total": 1,
-            "files_ok": 1,
-            "files_with_errors": 0,
+            "files_ok": 0,
+            "files_with_errors": 1,
         }
     }
     assert len(diagnostics) == 1
@@ -119,8 +119,8 @@ def test_project_json_v2_unresolved_relation_and_cycle_diagnostics_order(
     assert document["result"] == {
         "check": {
             "files_total": 3,
-            "files_ok": 3,
-            "files_with_errors": 0,
+            "files_ok": 1,
+            "files_with_errors": 2,
         }
     }
     assert document["cli_errors"] == []

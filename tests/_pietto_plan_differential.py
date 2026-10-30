@@ -1248,7 +1248,7 @@ NEGATIVE_CORPUS = (
         "global_window",
         ORDINARY_PREFIX
         + "query result:\n    from rows\n    select:\n        total = count()\n        w = row_number() window(order by total)\n",
-        "PIE-S2333",
+        "PIE-S2312",
     ),
 )
 

@@ -474,6 +474,28 @@ def test_project_check_rejects_path_and_project_together(
     assert "path and --project are mutually exclusive" in captured.err
 
 
+@pytest.mark.parametrize("command", ["check", "explain"])
+@pytest.mark.parametrize("output_format", ["text", "json"])
+def test_an_empty_project_root_is_a_usage_error_not_the_working_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    command: str,
+    output_format: str,
+) -> None:
+    monkeypatch.chdir(_project_root(tmp_path / "project"))
+
+    for spelling in (["--project", ""], ["--project="]):
+        assert cli.main([command, *spelling, "--format", output_format]) == 2
+
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err.endswith(
+            f"pietto {command}: error: argument --project: Project root must be a"
+            " non-empty path.\n"
+        )
+
+
 def test_project_check_still_requires_single_file_or_project(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

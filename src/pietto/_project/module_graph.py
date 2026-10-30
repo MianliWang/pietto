@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Mapping
-from dataclasses import dataclass, field
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 import json
+import posixpath
 from types import MappingProxyType
 
 from pietto._project.module_bindings import (
+    ProjectModuleBindingEnvironment,
     ProjectModuleBindingEnvironmentSet,
     ProjectModuleBindingIssue,
     ProjectModuleBindingIssueStatus,
@@ -21,16 +23,21 @@ from pietto._project.module_carrier import (
     ProjectModuleIdentity,
 )
 from pietto._project.module_exports import (
+    ProjectImportedExportCandidate,
     ProjectModuleExportIssue,
     ProjectModuleExportIssueStatus,
     ProjectModuleExportRequest,
     ProjectModuleExportSurfaceSet,
 )
+from pietto._project.model import ProjectParsedInput, ProjectSymbolKind
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
-from pietto.ast_nodes import Span
+from pietto.ast_nodes import ImportStatement, ModuleDeclarationKind, Span
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
+
+# An unresolved import target names at most this many selected paths.
+_TARGET_CANDIDATE_LIMIT = 3
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -952,8 +959,10 @@ def _derive_project_module_diagnostic_products(
     module_positions = {
         vertex.identity.path: vertex.position for vertex in graph.vertices
     }
+    module_paths = tuple(vertex.identity.path for vertex in graph.vertices)
     facts: list[ProjectModuleDiagnosticFact] = [
-        _diagnostic_fact_from_graph_issue(issue) for issue in graph.issues
+        _diagnostic_fact_from_graph_issue(issue, module_paths=module_paths)
+        for issue in graph.issues
     ]
     unresolved_requests = {
         request
@@ -1046,6 +1055,7 @@ def _derive_project_module_diagnostic_products(
                     request,
                     request_issues,
                     module_position=surface.module.position,
+                    declared_kinds=_declared_kinds(surface.module, request.local_name),
                 )
             facts.append(fact)
             emitted_export_problem_keys.add(
@@ -1057,6 +1067,9 @@ def _derive_project_module_diagnostic_products(
                 )
             )
 
+    environments_by_path = {
+        environment.module.path: environment for environment in bindings.environments
+    }
     for environment in bindings.environments:
         issues_by_request = {
             request: tuple(
@@ -1087,6 +1100,9 @@ def _derive_project_module_diagnostic_products(
                 _diagnostic_fact_from_binding_issues(
                     request_issues,
                     module_position=environment.module.position,
+                    target_environment=environments_by_path.get(
+                        request.target_module_path
+                    ),
                 )
             )
 
@@ -1425,6 +1441,8 @@ def _shortest_dependency_path(
 
 def _diagnostic_fact_from_graph_issue(
     issue: ProjectModuleGraphIssue,
+    *,
+    module_paths: tuple[str, ...] = (),
 ) -> ProjectModuleDiagnosticFact:
     if type(issue) is not ProjectModuleGraphIssue:
         raise TypeError("Graph diagnostic adaptation requires a graph issue.")
@@ -1434,11 +1452,20 @@ def _diagnostic_fact_from_graph_issue(
             request.source_statement.target_span,
             fallback_path=issue.owning_vertex.identity.path,
         )
+        candidates = _unresolved_target_candidates(request, module_paths)
         diagnostic = _diagnostic(
             code="PIE-S2701",
             message=(
                 "Unresolved module import target: "
-                f"{_quoted_target(request.target_module_path)}"
+                f"{_copyable_path(request.target_module_path)}"
+                + (
+                    "; did you mean "
+                    + " or ".join(_copyable_path(path) for path in candidates)
+                    + "? An import path is the project-root-relative path of a "
+                    "selected source, with / separators"
+                    if candidates
+                    else ""
+                )
             ),
             location=primary,
         )
@@ -1522,7 +1549,7 @@ def _diagnostic_fact_from_graph_issue(
             code="PIE-S2707",
             message=(
                 "Unsupported explicit-module reference: "
-                f"{_quoted_target(request.target_module_path)}"
+                f"{_copyable_path(request.target_module_path)}"
             ),
             location=primary,
         )
@@ -1554,6 +1581,7 @@ def _diagnostic_fact_from_export_issues(
     issues: tuple[ProjectModuleExportIssue, ...],
     *,
     module_position: int,
+    declared_kinds: tuple[ProjectSymbolKind, ...] = (),
 ) -> ProjectModuleDiagnosticFact:
     if not issues or any(issue.request != request for issue in issues):
         raise ValueError("Export diagnostic adaptation requires one request.")
@@ -1577,6 +1605,9 @@ def _diagnostic_fact_from_export_issues(
     elif issue.status is ProjectModuleExportIssueStatus.UNRESOLVED_EXPORT_BINDING:
         code = "PIE-S2704"
         message = f"Unknown export binding: {kind_and_name}"
+        if declared_kinds:
+            # The module declares the name with another kind only.
+            message += f"; {request.local_name} is {_kinds_text(declared_kinds)}"
     elif issue.status is ProjectModuleExportIssueStatus.AMBIGUOUS_LOCAL_DECLARATION:
         code = "PIE-S2704"
         message = f"Ambiguous local export declaration: {kind_and_name}"
@@ -1586,6 +1617,19 @@ def _diagnostic_fact_from_export_issues(
     ):
         code = "PIE-S2704"
         message = f"Invalid imported export candidate: {kind_and_name}"
+        imported_kinds = tuple(
+            item
+            for item in ProjectSymbolKind
+            if any(
+                candidate.declaration_kind is item
+                for candidate in issue.imported_candidates
+            )
+        )
+        if imported_kinds and request.source_item.declaration_kind not in (
+            imported_kinds
+        ):
+            # The module imports the name with another kind only.
+            message += f"; {request.local_name} is {_kinds_text(imported_kinds)}"
     else:
         code = "PIE-S2706"
         message = f"Export binding name is ambiguous: {request.local_name}"
@@ -1694,19 +1738,45 @@ def _diagnostic_fact_from_binding_issues(
     issues: tuple[ProjectModuleBindingIssue, ...],
     *,
     module_position: int,
+    target_environment: ProjectModuleBindingEnvironment | None = None,
 ) -> ProjectModuleDiagnosticFact:
     if not issues or any(issue.request != issues[0].request for issue in issues):
         raise ValueError("Binding diagnostic adaptation requires one request.")
     request = issues[0].request
     issue = issues[0]
     kind = request.source_item.declaration_kind.value
-    target = _quoted_target(request.target_module_path)
+    target = _copyable_path(request.target_module_path)
+    target_spans: tuple[Span, ...] = ()
     if issue.status is ProjectModuleBindingIssueStatus.UNKNOWN_EXPORTED_NAME:
         code = "PIE-S2705"
-        message = (
-            f"Unknown imported declaration: {kind} {request.exported_name} "
-            f"from {target}"
-        )
+        imported = f"{kind} {request.exported_name} from {target}"
+        message = f"Unknown imported declaration: {imported}"
+        # The target module may hold the name only as imports of its own,
+        # which it does not export, or re-exports while they fail.
+        held = _target_imports(request, target_environment)
+        if held and target_environment is not None and len(issue.target_surfaces) == 1:
+            held_set = set(held)
+            failed = any(
+                item.request in held_set
+                and item.status
+                is not ProjectModuleBindingIssueStatus.DUPLICATE_SOURCE_REQUEST
+                for item in target_environment.issues
+            )
+            exported = any(
+                item.namespace is request.identity.namespace
+                and item.declaration_kind is request.identity.declaration_kind
+                and item.local_name == request.exported_name
+                for item in issue.target_surfaces[0].requests
+            )
+            if not exported:
+                target_spans = tuple(_import_binding_span(item) for item in held)
+                message = f"Imported declaration is private or not exported: {imported}"
+            elif failed:
+                target_spans = tuple(_import_binding_span(item) for item in held)
+                message = (
+                    f"Imported declaration is unavailable: {imported}, whose own"
+                    f" import of {request.exported_name} fails"
+                )
         primary_span = request.source_item.exported_name_span
     elif (
         issue.status
@@ -1718,6 +1788,19 @@ def _diagnostic_fact_from_binding_issues(
             f"{kind} {request.exported_name} from {target}"
         )
         primary_span = request.source_item.exported_name_span
+    elif (
+        issue.status is ProjectModuleBindingIssueStatus.INCONSISTENT_TARGET_FACADE
+        and (mismatch := _kind_mismatch(issue)) is not None
+    ):
+        code = "PIE-S2705"
+        message = mismatch
+        primary_span = request.source_item.exported_name_span
+        # A re-exported entry points at the import binding it re-exports.
+        target_spans = tuple(
+            entry.resolved_from.source_span
+            for entry in issue.target_entries
+            if type(entry.resolved_from) is ProjectImportedExportCandidate
+        )
     elif issue.status is ProjectModuleBindingIssueStatus.INCONSISTENT_TARGET_FACADE:
         code = "PIE-S2707"
         message = f"Inconsistent explicit-module target facade: {target}"
@@ -1732,20 +1815,24 @@ def _diagnostic_fact_from_binding_issues(
         primary_span,
         fallback_path=request.identity.owning_module_path,
     )
-    related_spans = tuple(
-        occurrence.definition.span
-        for source_issue in issues
-        for occurrence in (
-            *source_issue.target_occurrences,
-            *source_issue.local_occurrences,
+    related_spans = (
+        tuple(
+            occurrence.definition.span
+            for source_issue in issues
+            for occurrence in (
+                *source_issue.target_occurrences,
+                *source_issue.local_occurrences,
+            )
         )
-    ) + tuple(
-        _import_binding_span(item)
-        for source_issue in issues
-        for item in (
-            *source_issue.competing_requests,
-            *source_issue.prior_requests,
+        + tuple(
+            _import_binding_span(item)
+            for source_issue in issues
+            for item in (
+                *source_issue.competing_requests,
+                *source_issue.prior_requests,
+            )
         )
+        + target_spans
     )
     return ProjectModuleDiagnosticFact(
         origin=ProjectModuleDiagnosticOrigin.BINDING,
@@ -1811,6 +1898,26 @@ def _dependency_edge_key(edge: ProjectModuleDependencyEdge) -> tuple[int, int]:
     return (edge.origin.position, edge.target.position)
 
 
+def _target_imports(
+    request: ProjectModuleImportRequest,
+    environment: ProjectModuleBindingEnvironment | None,
+) -> tuple[ProjectModuleImportRequest, ...]:
+    """The target module's own import bindings of the requested name and
+    kind, in source order; a module that imports from itself has none but
+    the request."""
+
+    if environment is None:
+        return ()
+    return tuple(
+        item
+        for item in environment.requests
+        if item != request
+        and item.identity.local_binding_name == request.exported_name
+        and item.identity.namespace is request.identity.namespace
+        and item.identity.declaration_kind is request.identity.declaration_kind
+    )
+
+
 def _import_binding_span(request: ProjectModuleImportRequest) -> Span:
     return (
         request.source_item.local_name_span
@@ -1854,8 +1961,119 @@ def _related_locations(
     return _ordered_locations(tuple(item for item in locations if item != primary))
 
 
-def _quoted_target(target: str) -> str:
-    return json.dumps(target, ensure_ascii=True)
+def _copyable_path(path: str) -> str:
+    """An import target, as written or as a selected path to copy, quoted as
+    a Pietto string: a non-ASCII character stays as it is. Only a control
+    character is shown as a JSON \\u00XX escape, which a Pietto string does
+    not accept."""
+
+    return json.dumps(path, ensure_ascii=False)
+
+
+def _kind_mismatch(issue: ProjectModuleBindingIssue) -> str | None:
+    """The PIE-S2705 message of an import whose one target module has the name
+    only with another kind, or has the requested kind but does not export it;
+    None when the facade itself is inconsistent."""
+
+    request = issue.request
+    if len(issue.target_surfaces) != 1:
+        return None
+    imported = (
+        f"{request.source_item.declaration_kind.value} {request.exported_name} "
+        f"from {_copyable_path(request.target_module_path)}"
+    )
+    if any(
+        occurrence.identity.namespace is request.identity.namespace
+        and occurrence.identity.declaration_kind is request.identity.declaration_kind
+        for occurrence in issue.target_occurrences
+    ):
+        return f"Imported declaration is private or not exported: {imported}"
+    exported = {entry.declaration_kind for entry in issue.target_entries}
+    declared = {
+        occurrence.identity.declaration_kind for occurrence in issue.target_occurrences
+    }
+    kinds = tuple(item for item in ProjectSymbolKind if item in exported | declared)
+    if not kinds:
+        return None
+    message = (
+        f"Imported declaration has another kind: {imported} is {_kinds_text(kinds)}"
+    )
+    if len(kinds) == 1 and kinds[0] in exported:
+        message += f"; write {kinds[0].value} {request.exported_name}"
+    return message
+
+
+def _kinds_text(kinds: tuple[ProjectSymbolKind, ...]) -> str:
+    """`a source`, or `a shape and a query`, in declaration-kind order."""
+
+    words = tuple(
+        f"{'an' if item.value[0] in 'aeiou' else 'a'} {item.value}" for item in kinds
+    )
+    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} and {words[-1]}"
+
+
+def _declared_kinds(
+    module: ProjectLogicalModule, name: str
+) -> tuple[ProjectSymbolKind, ...]:
+    """The kinds of a module's own declarations of a name, as its catalog
+    classifies them, in declaration-kind order."""
+
+    from pietto._project.model import _classify_project_definition
+    from pietto._project.module_catalog import _block_view_of
+    from pietto.ast_nodes import BlockRelationDef
+
+    assert module.parsed_input is not None
+    kinds = {
+        _classify_project_definition(
+            _block_view_of(definition)
+            if type(definition) is BlockRelationDef
+            else definition
+        )[1]
+        for definition in module.parsed_input.script.definitions
+        if definition.name == name
+    }
+    return tuple(item for item in ProjectSymbolKind if item in kinds)
+
+
+def _unresolved_target_candidates(
+    request: ProjectModuleImportRequest, module_paths: tuple[str, ...]
+) -> tuple[str, ...]:
+    """The selected module paths an unresolved import target may have meant:
+    the target written relative to the importing module, with `\\`, `./`, a
+    leading `/`, `..` or another letter case, without `.pietto`, or as a
+    path's last parts. Sorted and bounded; no candidate is chosen. A path
+    that is not valid UTF-8 is none, since no Pietto string spells it."""
+
+    written = request.target_module_path.replace("\\", "/").strip("/")
+    if not written:
+        return ()
+    importer = posixpath.dirname(request.identity.owning_module_path)
+    forms = {
+        posixpath.normpath(form)
+        for base in (written, posixpath.join(importer, written))
+        for form in (base, f"{base}.pietto")
+    }
+    folded = {form.casefold() for form in forms}
+    tail = "/" + posixpath.normpath(written)
+    return tuple(
+        sorted(
+            path
+            for path in module_paths
+            if (path.casefold() in folded or path.endswith(tail)) and _spellable(path)
+        )
+    )[:_TARGET_CANDIDATE_LIMIT]
+
+
+def _spellable(path: str) -> bool:
+    """Whether a Pietto string can spell a selected path: one that is not
+    valid UTF-8, such as a file name byte read as \\udcff, has no text in a
+    UTF-8 source."""
+
+    try:
+        path.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _diagnostic(*, code: str, message: str, location: SourceLocation) -> Diagnostic:
@@ -1876,3 +2094,155 @@ def _require_tuple_items(
         type(item) is not expected_type for item in values
     ):
         raise TypeError(f"{label} must be a tuple.")
+
+
+# How each unknown-name diagnostic starts, before the name, and the kinds of
+# declaration a module may import to give that name.
+_IMPORT_HINT_KINDS: Mapping[tuple[str, str], tuple[ModuleDeclarationKind, ...]] = (
+    MappingProxyType(
+        {
+            ("PIE-S2604", "Unknown relationship parameter shape: "): (
+                ModuleDeclarationKind.SHAPE,
+            ),
+            ("PIE-S2303", "Unknown source shape: "): (ModuleDeclarationKind.SHAPE,),
+            ("PIE-S2002", "Unknown type: "): (
+                ModuleDeclarationKind.TYPE,
+                ModuleDeclarationKind.ENUM,
+                ModuleDeclarationKind.SHAPE,
+            ),
+            ("PIE-S2301", "Unknown relation: "): (
+                ModuleDeclarationKind.SOURCE,
+                ModuleDeclarationKind.TABLE,
+                ModuleDeclarationKind.QUERY,
+            ),
+            ("PIE-S2103", "Unknown function: "): (),
+        }
+    )
+)
+# An import hint names at most this many exporting modules.
+_IMPORT_HINT_LIMIT = 3
+
+
+def import_hints(
+    diagnostics: tuple[Diagnostic, ...],
+    modules: tuple[ProjectParsedInput, ...],
+    exports: Callable[[], ProjectModuleExportSurfaceSet],
+) -> tuple[Diagnostic, ...]:
+    """Say where another selected module exports an unknown type, shape or
+    relation of a module, and how to import it, or that an unknown function
+    is a def of another module, which a module cannot import. Every exporter
+    is listed in path order, up to a bound; none is chosen. An exporter is a
+    resolved entry of a module's export surface, which ``exports`` builds
+    once a diagnostic asks: an export that is refused (PIE-S2704, a
+    duplicate request included), a re-export whose own import fails, or one
+    of a module whose path is not valid UTF-8, which no import can spell, is
+    none. A module that already declares or imports the name, of either
+    namespace, gets no import hint, since that import would collide with the
+    declaration or binding (PIE-S2706). A message that already has a hint, and every code, span and
+    order, are kept. With no hint the same tuple is returned, since readers
+    may compare diagnostics by identity."""
+
+    surfaces: ProjectModuleExportSurfaceSet | None = None
+    hinted = list(diagnostics)
+    for position, diagnostic in enumerate(diagnostics):
+        kinds = next(
+            (
+                value
+                for (code, prefix), value in _IMPORT_HINT_KINDS.items()
+                if diagnostic.code == code and diagnostic.message.startswith(prefix)
+            ),
+            None,
+        )
+        if kinds is None or ";" in diagnostic.message:
+            continue
+        name = diagnostic.message.partition(": ")[2]
+        others = tuple(
+            module
+            for module in sorted(modules, key=lambda item: item.path)
+            if module.path != diagnostic.location.path
+        )
+        if not kinds:
+            files = tuple(
+                module.path
+                for module in others
+                if any(item.name == name for item in module.scalar_callables)
+            )
+            if files:
+                hinted[position] = replace(
+                    diagnostic,
+                    message=f"{diagnostic.message}; {name} is a def of "
+                    f"{_listed(files)}, which a module cannot import: "
+                    "declare it in this module",
+                )
+            continue
+        if any(
+            name
+            in {
+                *(getattr(item, "name", None) for item in module.script.definitions),
+                *(
+                    item.local_name or item.exported_name
+                    for statement in module.script.module_statements
+                    if isinstance(statement, ImportStatement)
+                    for item in statement.items
+                ),
+            }
+            for module in modules
+            if module.path == diagnostic.location.path
+        ):
+            continue
+        if surfaces is None:
+            surfaces = exports()
+        exporters = tuple(
+            (module.path, ModuleDeclarationKind(entry.declaration_kind.value))
+            for module in others
+            if _spellable(module.path)
+            for surface in surfaces.find_module_path(module.path)
+            for entry in surface.entries
+            if entry.exposed_name == name
+            and entry.declaration_kind.value in {kind.value for kind in kinds}
+            and not any(
+                issue.request.local_name == name
+                and issue.request.declaration_kind is entry.declaration_kind
+                for issue in surface.issues
+            )
+        )
+        exporters = tuple(dict.fromkeys(exporters))
+        if not exporters:
+            continue
+        shown = exporters[:_IMPORT_HINT_LIMIT]
+        exported_kinds = {kind for _, kind in exporters}
+        if len(exported_kinds) == 1:
+            (kind,) = exported_kinds
+            head = (
+                f"{name} is {_kinds_text((ProjectSymbolKind(kind.value),))} "
+                f"exported by {_listed(tuple(path for path, _ in exporters))}"
+            )
+        else:
+            head = f"{name} is exported by " + _listed(
+                tuple(
+                    f"{path} ({_kinds_text((ProjectSymbolKind(kind.value),))})"
+                    for path, kind in exporters
+                )
+            )
+        imports = " or ".join(
+            f"from {_copyable_path(path)} import ({kind.value} {name})"
+            for path, kind in shown
+        )
+        hinted[position] = replace(
+            diagnostic,
+            message=f"{diagnostic.message}; {head}: import it with {imports}",
+        )
+    if all(new is old for new, old in zip(hinted, diagnostics, strict=True)):
+        return diagnostics
+    return tuple(hinted)
+
+
+def _listed(items: tuple[str, ...]) -> str:
+    """`a`, `a and b`, or the first of many and how many more."""
+
+    if len(items) > _IMPORT_HINT_LIMIT:
+        shown = items[:_IMPORT_HINT_LIMIT]
+        return f"{', '.join(shown)} and {len(items) - len(shown)} more"
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"

@@ -142,6 +142,22 @@ query（historical row state `UNRESOLVED_RELATION_BLOCKED`）在 module resoluti
 ERROR（例如 `PIE-S2001`、`PIE-S2301` 或 `PIE-S2704`）时不生成 fallback，与单文件一致；
 读取它的下游 relation 仍按上述规则得到自己的 `PIE-S2333`。
 
+Phase71 amendment：被一个失败已报告的输入阻断的 relation 不生成 fallback，也不生成只说明
+该输入不可用的 JOIN 诊断（`JOIN pre-match input or relationship authority is
+unavailable.`、`JOIN ON reference is unavailable.`）。这样的输入是：名称因已保留的 ERROR
+（例如 `PIE-S2301`、`PIE-S2701`、`PIE-S2705` 或 `PIE-S2706`）未能解析的输入；shape 未能
+解析、且其 module 已保留 ERROR 的 source；失败的 relation（它报告自己的 ERROR、自己的
+fallback 或它所跟随的失败）；或同一 relation 中更早失败的 JOIN。FROM、JOIN、set 操作数
+以及 `any(...)`、`exists`、`scalar`、`in` 读取所指向的 relation 都算输入，包括在完成阶段之后
+才失败的 relation；这类读取或操作数自己的 “不可用” 诊断（`ANY input relation is
+unavailable.`、`PIE-S2348 ... are not known before completion.`、`PIE-S2342`、关系调用的
+`Unavailable row argument`）同样不发布。上一段的下游 relation 因此不再得到自己的
+`PIE-S2333`；依赖环上最先到达的 relation 仍得到 fallback。是否跟随由显式栈决定，失败链
+的长度不受递归深度限制。
+EXPLICIT_MODULES 也从不发布 LEGACY_FLAT 的临时 admission 诊断（`... is available only
+when an EXPLICIT_MODULES project (schema version 2) completes ...`）。该 relation 自身的
+检查在该错误修复后出现。
+
 Post-Phase70 amendment：若该 relation 自身的 joined aggregate 因某个 JOIN 可能重复其
 输入行（fan-out）而被拒绝，message 在 relation name 后追加一个原因从句。它按源码顺序点名
 位于每个被拒 aggregate 已确定行的边界上的 JOIN（aggregate 不读任何 JOIN 侧时写作

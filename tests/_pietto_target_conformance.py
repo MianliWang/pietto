@@ -601,11 +601,12 @@ def verify_emission_generation(value, target, expected):
                     "sources/1/selector",
                 ),
                 "ordinal_bool": (
-                    "Invalid emission contract structure.",
+                    "Field ordinal must be a unique integer from 0 to 4.",
                     "sources/0/fields/0/ordinal",
                 ),
                 "stale_selector": (
-                    "Source selector is absent or ambiguous.",
+                    "main.pietto declares no source of the selector's name;"
+                    " its sources: rows.",
                     "sources/0/selector",
                 ),
             }[record["variant"]]

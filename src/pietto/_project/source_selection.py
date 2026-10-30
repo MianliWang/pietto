@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Sequence
+import json
 import os
 from pathlib import Path
 import stat
@@ -69,15 +70,20 @@ def select_project_sources(
     try:
         _verify_pinned_root(pinned_root)
         if config_result.config.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
-            message = (
-                "Schema-v3 package activation does not use project source selection."
-                if config_result.config.schema_version == 3
-                else "Schema-v4 capability environment does not use project source selection."
-            )
             return _project_level_error(
                 config_result,
                 ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
-                message,
+                "check --project reads schema_version 1 or 2 projects and"
+                " emit-sql --project schema_version 2 ones; this schema_version"
+                f" {config_result.config.schema_version} package-root project is"
+                " read by explain --project"
+                + (
+                    ""
+                    if config_result.config.schema_version == 4
+                    else " once converted to schema_version 4"
+                )
+                + ".",
+                PROJECT_CONFIG_FILENAME,
             )
         inputs, entries, errors = _select_from_config(
             pinned_root,
@@ -134,7 +140,12 @@ def _select_from_config(
         raise ValueError("Project source selection forbids package-root mode.")
     if config.sources is None:
         raise ValueError("Project source selection requires source configuration.")
-    discovered, traversal_errors = _discover_candidate_paths(pinned_root)
+    discovered, traversal_errors = _discover_candidate_paths(
+        pinned_root,
+        _SelectionReach(
+            config.sources.include_patterns, config.sources.exclude_patterns
+        ),
+    )
     selected_paths = {
         relative_path: path
         for relative_path, path in discovered.items()
@@ -164,8 +175,11 @@ def _select_from_config(
         errors.append(
             ProjectDiscoveryError(
                 ProjectDiscoveryErrorKind.PROJECT_GLOB,
-                "Project source selection matched no .pietto files.",
-                None,
+                "Project source selection matched no .pietto files: include"
+                f" {json.dumps(list(config.sources.include_patterns), ensure_ascii=False)},"
+                " exclude"
+                f" {json.dumps(list(config.sources.exclude_patterns), ensure_ascii=False)}.",
+                PROJECT_CONFIG_FILENAME,
             )
         )
 
@@ -174,7 +188,11 @@ def _select_from_config(
 
 def _discover_candidate_paths(
     pinned_root: ProjectPinnedRoot,
+    reach: _SelectionReach,
 ) -> tuple[dict[str, Path], tuple[ProjectDiscoveryError, ...]]:
+    """Walk the directories that can hold a selected path; a directory no
+    include pattern reaches, or an exclude pattern covers, is never listed, so
+    it need not be readable."""
     discovered: dict[str, Path] = {}
     errors: list[ProjectDiscoveryError] = []
     root = pinned_root.canonical_path
@@ -186,12 +204,12 @@ def _discover_candidate_paths(
         raise ProjectRootChangedError(
             "Project root identity changed during project loading."
         ) from error
-    stack: list[tuple[Path, tuple[str, ...], ProjectFilesystemState]] = [
-        (root, (), root_state)
-    ]
+    stack: list[
+        tuple[Path, tuple[str, ...], ProjectFilesystemState, _PatternPositions]
+    ] = [(root, (), root_state, reach.start)]
 
     while stack:
-        directory, prefix, inspected_state = stack.pop()
+        directory, prefix, inspected_state, positions = stack.pop()
         try:
             _verify_pinned_root(pinned_root)
             current_state = _lstat_state(directory)
@@ -237,7 +255,9 @@ def _discover_candidate_paths(
             if stat.S_ISLNK(child_state.file_type):
                 continue
             if stat.S_ISDIR(child_state.file_type):
-                stack.append((child, relative_parts, child_state))
+                child_positions = reach.step(positions, child.name)
+                if reach.may_select_below(child_positions):
+                    stack.append((child, relative_parts, child_state, child_positions))
 
     return discovered, tuple(errors)
 
@@ -375,21 +395,95 @@ def _matches_any(patterns: tuple[str, ...], relative_path: str) -> bool:
 
 
 def _matches_path(pattern: str, relative_path: str) -> bool:
+    parts = pattern.split("/")
+    return len(parts) in _path_positions(parts, relative_path.split("/"))
+
+
+def _path_positions(pattern: Sequence[str], parts: Iterable[str]) -> set[int]:
     # `**` takes zero or more path parts that do not start with a dot.
-    return _matches_sequence(
-        pattern.split("/"),
-        relative_path.split("/"),
+    return _sequence_positions(
+        pattern,
+        parts,
         "**",
         lambda part: not part.startswith("."),
         _matches_segment,
     )
 
 
+type _PatternPositions = tuple[frozenset[int], ...]
+
+
+class _SelectionReach:
+    """The include and exclude pattern positions a directory's parts reach,
+    advanced one part at a time as the walk descends.
+
+    An include pattern reaches below a directory when, having read its parts,
+    the pattern still has a part left. An exclude pattern covers it when only
+    `**` parts are left, which take every path below it whose parts do not
+    start with a dot; it covers the directory unless a reaching include
+    pattern has a part left that starts with a dot, the one way to select such
+    a path.
+    """
+
+    def __init__(self, include: tuple[str, ...], exclude: tuple[str, ...]) -> None:
+        self.patterns = tuple(pattern.split("/") for pattern in (*include, *exclude))
+        self.includes = len(include)
+        # Per pattern: the last part starting with a dot, and where its
+        # all-`**` tail begins.
+        self.last_dot = tuple(
+            max(
+                (index for index, part in enumerate(parts) if part.startswith(".")),
+                default=-1,
+            )
+            for parts in self.patterns
+        )
+        self.star_tail = tuple(
+            next(
+                index
+                for index in range(len(parts), -1, -1)
+                if index == 0 or parts[index - 1] != "**"
+            )
+            for parts in self.patterns
+        )
+        self.start: _PatternPositions = tuple(
+            frozenset(_path_positions(parts, ())) for parts in self.patterns
+        )
+
+    def step(self, positions: _PatternPositions, part: str) -> _PatternPositions:
+        return tuple(
+            frozenset(
+                _sequence_positions(
+                    parts,
+                    (part,),
+                    "**",
+                    lambda value: not value.startswith("."),
+                    _matches_segment,
+                    reachable,
+                )
+            )
+            for parts, reachable in zip(self.patterns, positions, strict=True)
+        )
+
+    def may_select_below(self, positions: _PatternPositions) -> bool:
+        left = [
+            (pattern, index)
+            for pattern, reachable in enumerate(positions)
+            for index in reachable
+            if index < len(self.patterns[pattern])
+        ]
+        includes = [(p, index) for p, index in left if p < self.includes]
+        if not includes:
+            return False
+        return any(index <= self.last_dot[p] for p, index in includes) or not any(
+            index >= self.star_tail[p] for p, index in left if p >= self.includes
+        )
+
+
 def _matches_segment(pattern: str, value: str) -> bool:
     if value.startswith(".") and not pattern.startswith("."):
         return False
     # `*` takes zero or more characters and `?` exactly one.
-    return _matches_sequence(
+    return len(pattern) in _sequence_positions(
         pattern,
         value,
         "*",
@@ -398,15 +492,18 @@ def _matches_segment(pattern: str, value: str) -> bool:
     )
 
 
-def _matches_sequence(
+def _sequence_positions(
     pattern: Sequence[str],
     values: Iterable[str],
     star: str,
     star_takes: Callable[[str], bool],
     token_takes: Callable[[str, str], bool],
-) -> bool:
-    """Whether `values` match `pattern`, where each `star` token matches zero or
-    more values it takes and every other token one value it takes.
+    start: Iterable[int] = (0,),
+) -> set[int]:
+    """The pattern positions reachable after reading `values` from the `start`
+    positions, where each `star` token matches zero or more values it takes and
+    every other token one value it takes; `values` match `pattern` when its end
+    is reachable.
 
     One pass over `values` keeps only the reachable pattern positions and stops
     once none is left, so the stack depth stays fixed, a pattern without stars
@@ -428,7 +525,7 @@ def _matches_sequence(
         return reachable
 
     # Each position: the values read so far leave pattern[position:] to match.
-    reachable = with_skipped_stars((0,))
+    reachable = with_skipped_stars(start)
     for value in values:
         stepped: list[int] = []
         for index in reachable:
@@ -440,9 +537,9 @@ def _matches_sequence(
             elif token_takes(pattern[index], value):
                 stepped.append(index + 1)
         if not stepped:
-            return False
+            return set()
         reachable = with_skipped_stars(stepped)
-    return end in reachable
+    return reachable
 
 
 def _relative_path(parts: tuple[str, ...]) -> str:
@@ -479,12 +576,13 @@ def _project_level_error(
     config_result: ProjectConfigLoadResult,
     kind: ProjectDiscoveryErrorKind,
     message: str,
+    path: str | None = None,
 ) -> ProjectDiscoveryResult:
     return ProjectDiscoveryResult(
         root=config_result.root,
         config_path=config_result.config_path,
         inputs=(),
-        errors=(ProjectDiscoveryError(kind, message, None),),
+        errors=(ProjectDiscoveryError(kind, message, path),),
         compilation_mode=(
             config_result.config.compilation_mode
             if config_result.config is not None

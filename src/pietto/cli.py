@@ -37,6 +37,7 @@ from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
 
 if TYPE_CHECKING:
+    from pietto._project.json_v2 import RelatedLocations
     from pietto._project.model import (
         ProjectDiscoveryError,
         ProjectParseCheckResult,
@@ -259,7 +260,7 @@ def _configure_check_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("path", type=Path, nargs="?", help="Pietto source file")
     parser.add_argument(
         "--project",
-        type=Path,
+        type=_project_root_argument,
         help="explicit Pietto project root",
     )
     parser.add_argument(
@@ -301,7 +302,7 @@ def _configure_explain_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("path", type=Path, nargs="?", help="Pietto source file")
     parser.add_argument(
         "--project",
-        type=Path,
+        type=_project_root_argument,
         help="explicit Pietto project root",
     )
     parser.add_argument(
@@ -391,6 +392,55 @@ def _selects_json_format(arguments: Sequence[str]) -> bool:
         and values[-1] == _FORMAT_JSON
         and all(value in (_FORMAT_TEXT, _FORMAT_JSON) for value in values)
     )
+
+
+# The project schema versions each command's --project reads, and the
+# arguments it needs besides the root.
+_PROJECT_HINT_SCHEMAS = {
+    "check": frozenset({1, 2}),
+    "emit-sql": frozenset({2}),
+    "explain": frozenset({4}),
+}
+_PROJECT_HINT_ARGUMENTS = {
+    "emit-sql": " --module FILE --kind KIND --name NAME --dialect DIALECT"
+    " --emission-contract FILE",
+}
+
+
+def _print_project_directory_hint(path: Path, command: str) -> None:
+    """Point a text-mode user who passed a project directory as the file
+    at --project, when that command's --project reads the project's schema
+    version (or the configuration does not say, which --project reports);
+    JSON results keep their v1 error unchanged."""
+
+    from pietto._project.toml_text import TomlTextError, load_toml_text
+
+    config = path / "pietto.toml"
+    try:
+        if not (path.is_dir() and config.is_file()):
+            return
+        version = load_toml_text(config.read_text(encoding="utf-8")).get(
+            "schema_version"
+        )
+    except OSError:
+        return
+    except (UnicodeError, RecursionError, TomlTextError):
+        version = None
+    if type(version) is int and version not in _PROJECT_HINT_SCHEMAS[command]:
+        return
+    _write_stderr(
+        f"hint: for a project use pietto {command} --project"
+        f" {_escape_cli_text(str(path))}{_PROJECT_HINT_ARGUMENTS.get(command, '')}\n"
+    )
+
+
+def _project_root_argument(value: str) -> Path:
+    """An explicit project root; an empty one would silently be the working
+    directory, which project mode never discovers."""
+
+    if not value:
+        raise argparse.ArgumentTypeError("Project root must be a non-empty path.")
+    return Path(value)
 
 
 def _has_project_flag(arguments: Sequence[str]) -> bool:
@@ -571,10 +621,13 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     parse_result = check_project_parse_only(root)
     if output_format == _FORMAT_JSON:
         if parse_result.ok:
-            semantic_diagnostics, semantic_ok = _project_check_semantics(parse_result)
+            semantic_diagnostics, semantic_ok, related = _project_check_semantics(
+                parse_result
+            )
             _print_project_check_json(
                 parse_result,
                 semantic_diagnostics=semantic_diagnostics,
+                related_locations=related,
             )
             if not semantic_ok:
                 return _EXIT_DIAGNOSTIC_ERROR
@@ -597,7 +650,7 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     if _has_errors(parse_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_diagnostics, semantic_ok = _project_check_semantics(parse_result)
+    semantic_diagnostics, semantic_ok, _related = _project_check_semantics(parse_result)
     _render_diagnostics(semantic_diagnostics, fallback_path=Path("."))
     if not semantic_ok:
         return _EXIT_DIAGNOSTIC_ERROR
@@ -608,23 +661,26 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
 
 def _project_check_semantics(
     parse_result: ProjectParseCheckResult,
-) -> tuple[tuple[Diagnostic, ...], bool]:
+) -> tuple[tuple[Diagnostic, ...], bool, RelatedLocations]:
     """Check project semantics; as in a single file, exhausting the recursion
     limit is PIE-S2006.
 
     Every diagnostic that a project check reports after the parse check's own
-    comes from here. As the project JSON v2 contract states, an explicit-module
-    check reports a diagnostic equal to an earlier one once, at its first
-    position; the parse check applies that rule to its own diagnostics."""
+    comes from here, with the related locations its module owner computed. As
+    the project JSON v2 contract states, an explicit-module check reports a
+    diagnostic equal to an earlier one once, at its first position; the parse
+    check applies that rule to its own diagnostics."""
 
     from pietto._project.check import project_recursion_limit_diagnostic
+    from pietto._project.json_v2 import module_related_locations
     from pietto._project.model import build_empty_project_semantic_result
     from pietto._project.module_carrier import ProjectCompilationMode
 
+    related: RelatedLocations = {}
     try:
-        diagnostics, ok = _project_semantic_boundary(
-            build_empty_project_semantic_result(parse_result)
-        )
+        semantic_result = build_empty_project_semantic_result(parse_result)
+        related = module_related_locations(semantic_result)
+        diagnostics, ok = _project_semantic_boundary(semantic_result)
     except RecursionError:
         diagnostics, ok = (project_recursion_limit_diagnostic(parse_result),), False
     if parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
@@ -634,7 +690,7 @@ def _project_check_semantics(
             for diagnostic in dict.fromkeys(diagnostics)
             if diagnostic not in earlier
         )
-    return diagnostics, ok
+    return diagnostics, ok, related
 
 
 def _project_semantic_boundary(
@@ -661,6 +717,7 @@ def _print_project_check_json(
     parse_result: ProjectParseCheckResult,
     *,
     semantic_diagnostics: Sequence[Diagnostic] = (),
+    related_locations: RelatedLocations | None = None,
 ) -> None:
     """Print one complete project JSON v2 check document to stdout."""
 
@@ -672,6 +729,7 @@ def _print_project_check_json(
     document = project_check_result_to_json_dict(
         parse_result,
         semantic_diagnostics=semantic_diagnostics,
+        related_locations=related_locations or {},
     )
     _write_stdout(render_project_json_document(document))
 
@@ -735,6 +793,7 @@ def _run_check(
             )
             return _EXIT_USAGE_ERROR
         _print_cli_error(path, message)
+        _print_project_directory_hint(path, "check")
         return _EXIT_USAGE_ERROR
 
     if output_format == _FORMAT_JSON:
@@ -829,6 +888,7 @@ def _run_explain(
             )
             return _EXIT_USAGE_ERROR
         _print_cli_error(path, _cli_error_message(error, path))
+        _print_project_directory_hint(path, "explain")
         return _EXIT_USAGE_ERROR
 
     diagnostics = parse_result.diagnostics
@@ -1236,6 +1296,7 @@ def _run_emit_sql(
         parse_result = parser_api.parse_file(path)
     except (OSError, UnicodeError) as error:
         _print_cli_error(path, _cli_error_message(error, path))
+        _print_project_directory_hint(path, "emit-sql")
         return _EXIT_USAGE_ERROR
 
     _render_diagnostics(parse_result.diagnostics, fallback_path=path)

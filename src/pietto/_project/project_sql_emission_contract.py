@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import math
 import re
 from typing import Any
 
@@ -56,6 +57,20 @@ def canonical(value: object) -> bytes:
         separators=(",", ":"),
         allow_nan=False,
     ).encode("utf-8")
+
+
+def _nonfinite(_: str) -> float:
+    raise ValueError("nonfinite")
+
+
+def _finite(text: str) -> float:
+    """A JSON number with a fraction or an exponent, which must be finite:
+    `1e400` overflows to infinity, as `Infinity` reads."""
+
+    value = float(text)
+    if not math.isfinite(value):
+        raise ValueError("nonfinite")
+    return value
 
 
 def unique_pairs(items):
@@ -162,9 +177,34 @@ def _error(
     )
 
 
+def bounded_listing(names) -> str:
+    """At most ten sorted names, then how many more there are."""
+    ordered = sorted(set(names))
+    shown = ", ".join(ordered[:10]) or "none"
+    return shown if len(ordered) <= 10 else f"{shown}, and {len(ordered) - 10} more"
+
+
 def _object(value, keys, path, errors):
-    if type(value) is not dict or set(value) != set(keys):
-        _error(errors, path)
+    """The object with exactly `keys`; an error names only expected keys, never
+    a key the contract added."""
+    expected = ", ".join(keys)
+    if type(value) is not dict:
+        _error(errors, path, f"Expected an object with the keys: {expected}.")
+        return None
+    if set(value) != set(keys):
+        missing = [key for key in keys if key not in value]
+        unexpected = len(set(value) - set(keys))
+        problems = [f"missing key {key}" for key in missing]
+        if unexpected:
+            problems.append(f"{unexpected} unexpected key{'s' * (unexpected > 1)}")
+        _error(
+            errors,
+            path
+            if not missing
+            else "/".join((*(() if path is None else (path,)), missing[0])),
+            f"Invalid emission contract object: {', '.join(problems)}; expected"
+            f" exactly the keys: {expected}.",
+        )
         return None
     return value
 
@@ -185,14 +225,41 @@ def _selector(value, path, errors, owners):
     value = _object(value, ("module", "kind", "name"), path, errors)
     if value is None:
         return None
-    if (
-        not _text(value["module"])
-        or not _text(value["name"])
-        or value["kind"] != "source"
+    modules = {module for module, _name in owners}
+    for key, valid, message in (
+        (
+            "module",
+            _text(value["module"]),
+            "Source selector module must be a non-empty string; modules with"
+            f" sources: {bounded_listing(modules)}.",
+        ),
+        ("kind", value["kind"] == "source", 'Source selector kind must be "source".'),
+        (
+            "name",
+            _text(value["name"]),
+            "Source selector name must be a non-empty string.",
+        ),
     ):
-        _error(errors, path, selector=True)
-        return None
+        if not valid:
+            _error(errors, f"{path}/{key}", message, selector=True)
+            return None
     matches = owners.get((value["module"], value["name"]), ())
+    if not matches:
+        if value["module"] not in modules:
+            message = (
+                "Source selector module declares no source; modules with sources:"
+                f" {bounded_listing(modules)}."
+            )
+            if "\\" in value["module"]:
+                message += " Module paths use / as the separator."
+        else:
+            names = (name for module, name in owners if module == value["module"])
+            message = (
+                f"{value['module']} declares no source of the selector's name;"
+                f" its sources: {bounded_listing(names)}."
+            )
+        _error(errors, path, message, selector=True)
+        return None
     if len(matches) != 1:
         _error(errors, path, "Source selector is absent or ambiguous.", selector=True)
         return None
@@ -237,7 +304,7 @@ DOMAIN_KEYS = {
 def _domain(value, path, errors):
     kind = value.get("kind") if type(value) is dict else None
     if type(kind) is not str or kind not in DOMAIN_KEYS:
-        _error(errors, path)
+        _error(errors, path, f"Domain kind must be one of: {', '.join(DOMAIN_KEYS)}.")
         return False
     if _object(value, DOMAIN_KEYS[kind], path, errors) is None:
         return False
@@ -278,7 +345,11 @@ def _representation(value, path, errors):
     storage = value["storage"]
     kind = storage.get("kind") if type(storage) is dict else None
     if type(kind) is not str or kind not in STORAGE_KEYS:
-        _error(errors, path + "/storage")
+        _error(
+            errors,
+            path + "/storage",
+            f"Storage kind must be one of: {', '.join(STORAGE_KEYS)}.",
+        )
     elif _object(storage, STORAGE_KEYS[kind], path + "/storage", errors) is not None:
         if "precision" in storage and not (
             _integer(storage["precision"], 1)
@@ -482,11 +553,24 @@ def prepare_project_sql_emission(
             ),
             diagnostics=diagnostics,
         )
+
+    def rejected(message):
+        return PreparationFailure(
+            errors=(InputError("emission_contract_schema", message),),
+            diagnostics=diagnostics,
+        )
+
+    if data.startswith(b"\xef\xbb\xbf"):
+        return rejected(
+            "Emission contract starts with a UTF-8 byte-order mark; save it as"
+            " UTF-8 without BOM."
+        )
     try:
         document = json.loads(
             data.decode("utf-8"),
             object_pairs_hook=unique_pairs,
-            parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")),
+            parse_float=_finite,
+            parse_constant=_nonfinite,
         )
         pending = [(document, 1)]
         while pending:
@@ -498,14 +582,35 @@ def prepare_project_sql_emission(
             elif type(value) is list:
                 pending.extend((v, depth + 1) for v in value)
         normalized = canonical(document)
-    except (ValueError, UnicodeError, RecursionError):
-        return PreparationFailure(
-            errors=(
-                InputError(
-                    "emission_contract_schema", "Invalid UTF-8 JSON emission input."
-                ),
-            ),
-            diagnostics=diagnostics,
+    except UnicodeDecodeError:
+        return rejected("Emission contract must be valid UTF-8.")
+    except UnicodeEncodeError:
+        # canonical()'s: valid UTF-8 JSON with an unpaired `\uD800` escape.
+        return rejected(
+            "Emission contract strings must not hold a lone surrogate escape"
+            " (\\uD800-\\uDFFF)."
+        )
+    except json.JSONDecodeError as error:
+        return rejected(
+            f"Invalid JSON emission input: {error.msg} (line {error.lineno},"
+            f" column {error.colno})."
+        )
+    except RecursionError:
+        return rejected(f"Emission contract nests deeper than {MAX_DEPTH} levels.")
+    except ValueError as error:
+        # Any other refusal is int()'s, of an integer longer than
+        # sys.get_int_max_str_digits() digits, whose advice to call a Python
+        # function is cut.
+        return rejected(
+            {
+                "duplicate key": "Emission contract repeats a key in one object.",
+                "nonfinite": "Emission contract numbers must be finite.",
+                "nesting limit": f"Emission contract nests deeper than {MAX_DEPTH}"
+                " levels.",
+            }.get(
+                str(error),
+                f"Invalid JSON emission input: {str(error).partition(';')[0]}.",
+            )
         )
     if (
         _object(document, ("format", "target", "sources", "environment"), None, errors)
@@ -596,14 +701,30 @@ def prepare_project_sql_emission(
                 or ordinal in ordinals
                 or (owner is not None and ordinal >= len(original))
             ):
-                _error(errors, fp + "/ordinal", selector=True)
+                _error(
+                    errors,
+                    fp + "/ordinal",
+                    "Field ordinal must be a unique integer"
+                    + (
+                        f" from 0 to {len(original) - 1}."
+                        if owner is not None and original
+                        else " of at least 0."
+                    ),
+                    selector=True,
+                )
             else:
                 ordinals.add(ordinal)
                 if (
                     owner is not None
                     and raw_field["name"] != original[ordinal].evidence.name
                 ):
-                    _error(errors, fp + "/name", selector=True)
+                    _error(
+                        errors,
+                        fp + "/name",
+                        f"Field ordinal {ordinal} must be named"
+                        f" {original[ordinal].evidence.name}.",
+                        selector=True,
+                    )
             if not _text(raw_field["name"]):
                 _error(errors, fp + "/name")
             column = raw_field["column"]
@@ -757,7 +878,13 @@ def prepare_project_sql_emission(
         return PreparationFailure(
             blockers=tuple(conflicts)
             + tuple(
-                Blocker("PIE-B1003", b.kind.value, b.owner, b.owner.definition.span)
+                Blocker(
+                    "PIE-B1003",
+                    b.kind.value,
+                    b.owner,
+                    # The refused clause or item where there is one.
+                    getattr(b.site, "span", None) or b.owner.definition.span,
+                )
                 for b in unavailable.blockers
             ),
             diagnostics=diagnostics,

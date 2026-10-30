@@ -526,7 +526,14 @@ def test_a_def_belongs_to_its_module(
             11,
             "Unknown export binding: table pos",
         ),
-        ("PIE-S2103", "b.pietto", 5, 11, "Unknown function: pos"),
+        (
+            "PIE-S2103",
+            "b.pietto",
+            5,
+            11,
+            "Unknown function: pos; pos is a def of a.pietto, which a module "
+            "cannot import: declare it in this module",
+        ),
     ]
 
 
@@ -970,8 +977,9 @@ def test_a_project_relation_selecting_an_unfit_def_argument_has_no_known_columns
     """A field or `let:` name passed to a def it does not fit is unknown, as
     in a single file: a relation that selects it, also as a relation let or
     from another module, has no known columns for the relations that read
-    it, which report PIE-S2333 as when a computed output has an error, never
-    the field's or the let's type. One that fits keeps the field's type."""
+    it, which follow its error and report nothing of their own, as when a
+    computed output has an error, never the field's or the let's type. One
+    that fits keeps the field's type."""
     source = DEF_HEAD + (
         "query q1:\n    from rows\n    let u = True\n    select:\n"
         "        id\n        f = idi(n)\n        t = idi(text)\n        b = idi(u)\n"
@@ -993,21 +1001,7 @@ def test_a_project_relation_selecting_an_unfit_def_argument_has_no_known_columns
         _mismatch("idi", DEF_LINE + 5, 13, "Int", "Int | None"),
         _mismatch("idi", DEF_LINE + 6, 13, "Int", "Text"),
         _mismatch("idi", DEF_LINE + 7, 13, "Int", "Bool"),
-        (
-            "PIE-S2333",
-            "a.pietto",
-            DEF_LINE + 8,
-            1,
-            "Project relation semantic completion is unavailable: q2",
-        ),
         _mismatch("idt", DEF_LINE + 20, 17, "Text", "Int | None"),
-        (
-            "PIE-S2333",
-            "a.pietto",
-            DEF_LINE + 15,
-            1,
-            "Project relation semantic completion is unavailable: q3",
-        ),
         (
             "PIE-S2104",
             "a.pietto",
@@ -1015,13 +1009,6 @@ def test_a_project_relation_selecting_an_unfit_def_argument_has_no_known_columns
             13,
             "Invalid argument type for function lower at position 1: "
             "expected Text, got Int",
-        ),
-        (
-            "PIE-S2333",
-            "b.pietto",
-            3,
-            1,
-            "Project relation semantic completion is unavailable: q4",
         ),
     ]
 
@@ -1031,9 +1018,9 @@ def test_a_grouped_project_relation_selecting_an_unfit_def_key_has_no_known_colu
 ) -> None:
     """A group key passed to a def it does not fit, a field, a `let:` key or
     an unaliased qualified name, is unknown as without GROUP BY: a relation
-    that reads its relation reports PIE-S2333, as for a key passed to a def
-    of another body, never the key's type (before: PIE-S2104 at `lower`). A
-    key that fits keeps its type."""
+    that reads its relation follows its error, as for a key passed to a def
+    of another body, and is never typed with the key's type (before:
+    PIE-S2104 at `lower`). A key that fits keeps its type."""
     source = DEF_HEAD + (
         "query g1:\n    from rows\n    group by n\n    select:\n        k = idi(n)\n"
         "        c = count()\n"
@@ -1052,16 +1039,6 @@ def test_a_grouped_project_relation_selecting_an_unfit_def_key_has_no_known_colu
         _mismatch("idi", DEF_LINE + 4, 13, "Int", "Int | None"),
         _mismatch("idi", DEF_LINE + 11, 13, "Int", "Int of unknown nullability"),
         _mismatch("idi", DEF_LINE + 17, 9, "Int", "Int | None"),
-        *(
-            (
-                "PIE-S2333",
-                "a.pietto",
-                DEF_LINE + line,
-                1,
-                f"Project relation semantic completion is unavailable: {name}",
-            )
-            for name, line in (("r1", 25), ("r2", 29), ("r3", 33))
-        ),
         (
             "PIE-S2104",
             "a.pietto",
@@ -1247,6 +1224,223 @@ def test_an_identity_def_over_an_unknown_field_reports_what_the_field_does(
     ]
     assert reports[0] == reports[1]
     assert [report[0] for report in reports[0]].count("PIE-S2102") == 1
+
+
+def _file_check(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], source: str
+) -> list[tuple[str, str, int, int, str]]:
+    path = _write(tmp_path / "single", "a.pietto", source)
+    code = cli.main(["check", str(path), "--format", "json"])
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert code == (1 if diagnostics else 0)
+    return [
+        (
+            d["code"],
+            Path(d["location"]["path"]).name,
+            d["location"]["line"],
+            d["location"]["column"],
+            d["message"],
+        )
+        for d in diagnostics
+    ]
+
+
+DECLARATION_ERRORS = {
+    "shapes, callables and types": (
+        "shape S:\n    id: Int\n    t: Text\n    ok = check(nosuch > 0)\n"
+        '    ix = index(id) when id + "a" > 0\n    flag = check(id + 1)\n'
+        "    amt: Decimal(1, 2)\n    d: Int derive nosuch + 1\n"
+        "    e: Text derive id + 1\n    f: Int derive count(id)\n"
+        "    g: Int derive h + 1\n    h: Int derive g + 1\n"
+        'source s: S = postgres.table("s")\n'
+        "type M = Decimal(5, 9)\n"
+        "constraint C(x: Int) -> Int:\n    return nosuch\n"
+        "constraint P(x: Text, x: Text) -> Bool:\n    return x > 0\n"
+        "derive D(x: Int) -> Text:\n    return x + 1\n"
+        "derive N(v: Missing) -> Nada:\n    return v\n"
+        "derive N(v: Int) -> Int:\n    return v\n"
+    ),
+    "def arguments": (
+        "def twice(x: Int) -> Int: return x * 2\n"
+        "constraint C(x: Text) -> Bool:\n    return twice(x) > 0\n"
+        "shape Row:\n    id: Int\n    t: Text\n    ok = check(twice(t) > 0)\n"
+        "    d: Int derive twice(t)\n"
+    ),
+}
+_SCALE = "Decimal scale must be an integer from 0 to precision"
+_TWICE = "Invalid argument for def twice at position 1 (x): expected Int, got Text"
+DECLARATION_DIAGNOSTICS = {
+    "shapes, callables and types": [
+        ("PIE-S2102", "a.pietto", 4, 16, "Unknown field: nosuch"),
+        (
+            "PIE-S2105",
+            "a.pietto",
+            5,
+            25,
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
+        ),
+        ("PIE-S2202", "a.pietto", 6, 18, "Expected Bool expression in shape check"),
+        ("PIE-S2004", "a.pietto", 7, 10, _SCALE),
+        ("PIE-S2102", "a.pietto", 8, 19, "Unknown field: nosuch"),
+        (
+            "PIE-S2402",
+            "a.pietto",
+            9,
+            20,
+            "Field derive body type does not match field type: e",
+        ),
+        (
+            "PIE-S2308",
+            "a.pietto",
+            10,
+            19,
+            "Aggregate count() is not allowed in field derive body; use it only "
+            "as a direct aliased select projection",
+        ),
+        ("PIE-S2504", "a.pietto", 11, 5, "Derived field cycle involving g"),
+        ("PIE-S2004", "a.pietto", 14, 10, _SCALE),
+        ("PIE-S2401", "a.pietto", 15, 25, "Constraint C must return Bool"),
+        ("PIE-S2102", "a.pietto", 16, 12, "Unknown field: nosuch"),
+        (
+            "PIE-S2001",
+            "a.pietto",
+            17,
+            23,
+            "Duplicate parameter name in constraint P: x",
+        ),
+        (
+            "PIE-S2105",
+            "a.pietto",
+            18,
+            12,
+            "Invalid operands for operator >: expected comparable operands",
+        ),
+        (
+            "PIE-S2402",
+            "a.pietto",
+            20,
+            12,
+            "Derive D body type does not match declared return type",
+        ),
+        ("PIE-S2002", "a.pietto", 21, 13, "Unknown type: Missing"),
+        ("PIE-S2002", "a.pietto", 21, 25, "Unknown type: Nada"),
+        (
+            "PIE-S2001",
+            "a.pietto",
+            23,
+            1,
+            "Duplicate symbol name in callable namespace: N",
+        ),
+    ],
+    "def arguments": [
+        ("PIE-S2395", "a.pietto", 3, 12, _TWICE),
+        ("PIE-S2395", "a.pietto", 7, 16, _TWICE),
+        ("PIE-S2395", "a.pietto", 8, 19, _TWICE),
+    ],
+}
+
+
+@pytest.mark.parametrize("name", DECLARATION_ERRORS)
+def test_a_project_checks_its_declarations_as_a_single_file_does(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    """Shape `check`, `index ... when` and field `derive` bodies, constraint
+    and derive signatures and bodies, the callable namespace and Decimal
+    type arguments report what a single file reports."""
+    source = DECLARATION_ERRORS[name]
+    expected = DECLARATION_DIAGNOSTICS[name]
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == expected
+    assert _file_check(tmp_path, capsys, source) == expected
+
+
+def test_a_module_checks_its_declarations_with_the_types_it_imports(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An imported enum, renamed or through an alias of its module, is that
+    enum; an imported Decimal alias is checked as Decimal; a Decimal argument
+    is reported once, in the module that writes it."""
+    models = (
+        "enum Status:\n    active\n    inactive\n"
+        "type Money = Decimal(10, 2)\ntype Stat = Status\n"
+        "type Bad = Decimal(3, 9)\n"
+        "export (\n    enum Status,\n    type Money,\n    type Stat,\n"
+        "    type Bad,\n)\n"
+    )
+    main = (
+        'from "models.pietto" import (\n    enum Status as S,\n    type Money,\n'
+        "    type Stat,\n    type Bad,\n)\n"
+        "derive D(x: Stat) -> S:\n    return x\n"
+        "derive E(x: Money) -> Decimal:\n    return x\n"
+        "derive G(x: Money) -> Int:\n    return x\n"
+        'constraint H(x: S) -> Bool:\n    return x == "active"\n'
+        "constraint K(x: Bad) -> Money:\n    return x > 1\n"
+        "shape Row:\n    id: Int\n    m: Money\n    s: Stat\n"
+        '    ok = check(m > 1 and s == "active")\n'
+        '    bad = check(m + "a" > 1)\n'
+        "    f: S derive s\n    g: Int derive m\n"
+    )
+    assert _def_check(
+        tmp_path, capsys, {"main.pietto": main, "models.pietto": models}
+    ) == [
+        (
+            "PIE-S2402",
+            "main.pietto",
+            12,
+            12,
+            "Derive G body type does not match declared return type",
+        ),
+        ("PIE-S2401", "main.pietto", 15, 25, "Constraint K must return Bool"),
+        (
+            "PIE-S2105",
+            "main.pietto",
+            22,
+            17,
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
+        ),
+        (
+            "PIE-S2402",
+            "main.pietto",
+            24,
+            19,
+            "Field derive body type does not match field type: g",
+        ),
+        ("PIE-S2004", "models.pietto", 6, 12, _SCALE),
+    ]
+
+
+def test_a_signature_type_whose_name_has_an_error_of_its_own_is_not_unknown(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A name that an import collision or a duplicate declaration blocks
+    reports that error alone; an undeclared name is PIE-S2002."""
+    main = (
+        'from "models.pietto" import (\n    enum Status,\n)\n'
+        "shape Status:\n    id: Int\n"
+        "type T = Int\ntype T = Text\n"
+        "constraint C(x: Status, y: T, z: Missing) -> Bool:\n    return True\n"
+    )
+    models = "enum Status:\n    active\nexport (\n    enum Status,\n)\n"
+    assert _def_check(
+        tmp_path, capsys, {"main.pietto": main, "models.pietto": models}
+    ) == [
+        (
+            "PIE-S2706",
+            "main.pietto",
+            2,
+            10,
+            "Import binding collides with a local declaration: Status",
+        ),
+        (
+            "PIE-S2001",
+            "main.pietto",
+            7,
+            1,
+            "Duplicate symbol name in type namespace: T",
+        ),
+        ("PIE-S2002", "main.pietto", 8, 34, "Unknown type: Missing"),
+    ]
 
 
 def _forbid_project_compiler_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:

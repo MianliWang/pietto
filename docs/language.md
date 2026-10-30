@@ -261,7 +261,12 @@ spelling does not widen those project modes. Single-file commands refuse the
 project-only forms with an ERROR: PIE-S2334 for DISTINCT and set operations
 (at the FROM or JOIN for a set-operation input), and PIE-S2345 to PIE-S2352 for
 relation lets, header parameters, VALUES bodies, relation reads, `capture`
-lines and table functions.
+lines and table functions. Only an explicit-module project reads import and
+export statements: a single-file command reports each one as a PIE-S2708
+WARNING (`Module import is resolved only by check --project ROOT, in a
+schema_version = 2 project`), so an editor can check one module file alone,
+and a LEGACY_FLAT project check reports each one as a PIE-S2708 ERROR that
+asks for `schema_version = 2`.
 
 A LEGACY_FLAT project (`schema_version = 1`) checks no JOIN and no `any(...)`
 of the current syntax. Each JOIN, of any kind and whatever its target, is one
@@ -560,9 +565,16 @@ ambiguous ORDER BY key above at
 does not yet order by a SELECT output other than a selected window result:
 without JOIN inputs
 `check --project` accepts such a key and `emit-sql --project` blocks the table
-or query with PIE-B1003 `order`, and with JOIN inputs `check --project` reports
-the key with PIE-S2102 (restate the expression, or bind it with `let`, select
-that name and order by it).
+or query with PIE-B1003 `order`, and with JOIN inputs, or without them in a
+relation that a project completes itself, such as one with `any(...)` or
+QUALIFY, `check --project` reports the key with PIE-S2102 (restate the
+expression, or bind it with `let`, select that name and order by it). Without
+JOIN inputs or GROUP BY, `check --project` reports an ORDER BY key that reads
+an unknown field, also through a field of a shape (`home.nosuch`), or calls an
+unknown function (PIE-S2103), and one written as a bare constant (PIE-S2380),
+as a single file does; a SELECT output is a key only as the whole key, so
+`-total` reads an input field `total`. It does not type the key yet; a
+constant that a `let` name binds is ordered by as a value.
 Selected project SQL admits the
 documented project scalar subset when its physical carrier requirements are
 established.
@@ -989,7 +1001,8 @@ ORDER BY and a grouped SELECT only: after
 FROM occurrence, in every clause but HAVING and the ORDER BY of a grouped
 query, but only in a query without a JOIN, and not inside `any(...)`. A
 project HAVING or grouped ORDER BY reads no qualified input field, with or
-without an alias: it is the bare PIE-S2333, as in 0.1.5. Elsewhere, such as in a JOIN's `on`, after a JOIN or in a self
+without an alias: it reports PIE-S2327 or PIE-S2321 as a single file does
+(0.1.5 reported the bare PIE-S2333). Elsewhere, such as in a JOIN's `on`, after a JOIN or in a self
 JOIN, `customers.id` is refused as in 0.1.5. This does not make an
 intermediate alias in an alias chain an input name, and it does not cross a
 capture boundary. Single-file checks keep the rule above and accept only
@@ -1575,9 +1588,9 @@ let's input (a computed key is refused at emission with PIE-B1003
 `order_expression_requires_established_port`), and the database chooses which
 of several rows that tie on every key fill the last places. An ORDER BY that
 reads a captured field or an aggregate is PIE-S2370 at the let. A key that is
-not a field of the let's input, such as one of the let's own SELECT outputs or
-an unknown name, is not available either; this alpha reports it only as
-PIE-S2333 at the declaration, with no diagnostic at the key. Project SQL
+not a field of the let's input is not available either: an unknown name is
+PIE-S2102 at the key, and for one of the let's own SELECT outputs this alpha
+reports only PIE-S2333 at the declaration, with no diagnostic at the key. Project SQL
 keeps both inside that JOIN's derived relation as one more derived table over
 the let's SELECT, which carries each ORDER BY key as an extra column:
 `LATERAL (SELECT ... FROM (SELECT ... FROM (SELECT ... WHERE ...) AS t<n>) AS
@@ -2153,9 +2166,8 @@ there too, except in a `select distinct` relation or one with QUALIFY, which
 reports PIE-S2333 at the relation, or the binding's own error, instead. In
 `having:` a comparison
 with the null literal is PIE-S2327 (`Unsupported having expression form:
-null literal`) in single-file checks and in an EXPLICIT_MODULES relation with
-JOIN inputs, at the literal, and a bare PIE-S2333 in an EXPLICIT_MODULES
-relation without JOIN inputs; any other `having:` predicate of unknown
+null literal`) in single-file checks and EXPLICIT_MODULES projects alike, at
+the literal; any other `having:` predicate of unknown
 type in a project relation with JOIN inputs makes the relation fail closed
 with PIE-S2333. Single-file `check` types an authored QUALIFY and its selected
 or hidden windows (see [QUALIFY](#qualify)).
@@ -2515,8 +2527,8 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   alone, also as `count(nn(w))` with `w = n + None`. A
   select output that is a field or `let` name passed to a def it does not
   fit, a group key included, has no type, as a computed output with an
-  error has; in a project its relation then has no known columns, so a
-  relation that reads it reports what it reports then, such as PIE-S2333.
+  error has; in a project its relation then fails with that error, and a
+  relation that reads it follows that error and reports nothing of its own.
   An argument with an
   error of its own that leaves its type unknown, such as a comparison with
   the null literal (`text == None`, PIE-S2105) or `k + zz` with an unknown
@@ -2575,8 +2587,7 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   positions are not typed today, so the type and nullability of an argument
   there are checked no more than the same expression written by hand (the
   argument count, relation-read and position rules above still apply): a type
-  or field `ensure`; in a project, a `constraint` or `derive` body and a shape
-  `check`, `index` predicate or field `derive` (a single file checks them);
+  or field `ensure`;
   in a project check, the ungrouped `order by` of a relation without JOIN inputs
   that is not `select distinct` (`emit-sql --project` blocks a mismatched
   argument there with PIE-B1003 without naming it; with JOIN inputs or
@@ -2584,7 +2595,8 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   In a project, a mismatch is reported where the same error written by hand
   would be: where a project reports the errors of a position as PIE-S2333 at
   the relation, such as a grouped `having` or an aggregate argument
-  without JOIN inputs, a select over a VALUES let, the ORDER BY of a
+  without JOIN inputs (whose own aggregate and grouping errors it reports as
+  a single file does), a select over a VALUES let, the ORDER BY of a
   global-aggregate query or the WHERE of a `select distinct` relation or one
   with QUALIFY that has a `let` binding of unknown type, such as `k = None`,
   the mismatch is PIE-S2333 there too, also for a `let` name that an
@@ -3194,9 +3206,10 @@ automatic PIE-I1000 in `explain` or `emit-sql`. Project SQL emission
 
 ## Modules and relationships
 
-Module statements keep explicit declaration kinds, aliases and source order:
+Module statements keep explicit declaration kinds, aliases and source order
+(checked alone, as a single file, each is the PIE-S2708 warning):
 
-```pietto
+```pietto PIE-S2708 PIE-S2708
 from "shared/types.pietto" import (
     type UserId,
     shape User as SharedUser,
@@ -3205,8 +3218,20 @@ from "shared/types.pietto" import (
 export type UserId, shape SharedUser
 ```
 
+An import target is the path of another selected source of the project,
+relative to the project root and written with `/` separators: no `./`, no
+leading `/`, no `..` and no `\`. In a project that selects
+`models/*.pietto`, `models/orders.pietto` imports `models/types.pietto` as
+`from "models/types.pietto" import (...)`, never `from "types.pietto"`. An
+unresolved target is PIE-S2701; when a selected path is what it may have
+meant (relative to the importing file, with another letter case or a
+different separator, or without `.pietto`), the message names it. A source
+that `[sources]` excludes is not selected, so no module can import it.
+
 The admitted kinds remain `type`, `enum`, `shape`, `source`, `table` and `query`.
-Module resolution preserves declaring identity, visibility, every collision,
+An import must name the kind that the target exports: `shape customers` for an
+exported `source customers` is PIE-S2705, which names the exported kind.
+Re-exports chain through any number of modules. Module resolution preserves declaring identity, visibility, every collision,
 dependency evidence, provenance and lineage; it never chooses a first or last
 winner. These statements do not add wildcard imports or a new relationship
 export kind.

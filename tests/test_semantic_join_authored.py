@@ -1100,6 +1100,13 @@ def _joined_query(body: str) -> str:
     return JOIN_PREFIX + "query q:\n" + body
 
 
+_MIXED_AGGREGATE_ORDER = (
+    "    from orders\n    let r = regions\n    cross join r\n"
+    "    select:\n        k = orders.id\n        n = count()\n"
+    "    order by:\n        k\n"
+)
+
+
 @pytest.mark.parametrize(
     ("body", "expected"),
     (
@@ -1166,6 +1173,14 @@ def _joined_query(body: str) -> str:
                 )
             ],
             id="aggregate_order_by",
+        ),
+        # A projection beside the aggregate is the mixed projection (PIE-S2312,
+        # reported by the projection check), not a one-row result whose ORDER BY
+        # the structure refuses.
+        pytest.param(
+            _MIXED_AGGREGATE_ORDER,
+            [],
+            id="mixed_aggregate_order_by",
         ),
         pytest.param(
             "    from tracked\n    let e = events\n    cross join e\n"
@@ -2216,4 +2231,28 @@ def test_refused_join_window_keeps_unrelated_scalar_errors(mode: CheckMode) -> N
     )
     assert located(result.diagnostics) == [
         ("PIE-S2103", "Unknown function: frob", 24, 15)
+    ]
+
+
+def test_a_joined_mixed_aggregate_with_order_by_reports_the_mixed_projection() -> None:
+    # Its ORDER BY is not refused as after a one-row aggregate: the mixed
+    # projection is reported, with the key that reads an input field outside
+    # an aggregate, as without JOIN inputs.
+    parsed = parse_source(_joined_query(_MIXED_AGGREGATE_ORDER), path="main.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    assert located(analyze(parsed.ast).diagnostics) == [
+        (
+            "PIE-S2312",
+            "Aggregate projections cannot be mixed with non-aggregate projections "
+            "without GROUP BY",
+            24,
+            13,
+        ),
+        (
+            "PIE-S2380",
+            "ORDER BY key reads an input field outside an aggregate in a query "
+            "with aggregates and no GROUP BY, which SQL targets reject",
+            26,
+            9,
+        ),
     ]

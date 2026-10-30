@@ -170,6 +170,7 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
             "source_shape_references",
             "source_shape_resolutions",
             "issues",
+            "blocked_type_names",
             "_type_symbols_by_name",
             "_source_symbols_by_name",
             "_type_resolutions_by_expr",
@@ -1306,6 +1307,291 @@ def test_unknown_shape_field_type_emits_exact_pie_s2002(tmp_path: Path) -> None:
     assert diagnostic.location.line == 2
 
 
+def test_unknown_names_say_which_modules_export_them_and_how_to_import_them(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _configured_project(
+        tmp_path,
+        {
+            "a.pietto": (
+                "type Money = Int\n"
+                "enum Status:\n"
+                "    active\n"
+                "    closed\n"
+                "shape Customer:\n"
+                "    id: Int\n"
+                'source customers: Customer = postgres.table("customers")\n'
+                "def twice(x: Int) -> Int:\n"
+                "    return x * 2\n"
+                "export (\n"
+                "    type Money,\n"
+                "    enum Status,\n"
+                "    shape Customer,\n"
+                "    source customers)\n"
+            ),
+            "c.pietto": "shape Customer:\n    id: Int\nexport (\n    shape Customer)\n",
+            "b.pietto": (
+                "shape Row:\n"
+                "    amount: Money\n"
+                "    status: Status\n"
+                'source rows: Customer = postgres.table("rows")\n'
+                "relationship Same(left: Customer, right: Customer): left.id == right.id\n"
+                "shape Local:\n"
+                "    id: Int\n"
+                'source locals: Local = postgres.table("locals")\n'
+                "query q:\n"
+                "    from customers\n"
+                "    select:\n"
+                "        id\n"
+                "query p:\n"
+                "    from locals\n"
+                "    select:\n"
+                "        doubled = twice(id)\n"
+            ),
+        },
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    customer = (
+        "Customer is a shape exported by a.pietto and c.pietto: import it with "
+        'from "a.pietto" import (shape Customer) or from "c.pietto" import '
+        "(shape Customer)"
+    )
+    # Every exporter is named, in path order; none is chosen. A def cannot be
+    # imported, so its call says where it is declared. The source whose shape
+    # does not resolve gets no completion fallback beside that error.
+    assert [
+        (item["code"], item["message"], item["location"]["line"])
+        for item in diagnostics
+    ] == [
+        (
+            "PIE-S2002",
+            "Unknown type: Money; Money is a type exported by a.pietto: import it "
+            'with from "a.pietto" import (type Money)',
+            2,
+        ),
+        (
+            "PIE-S2002",
+            "Unknown type: Status; Status is an enum exported by a.pietto: import "
+            'it with from "a.pietto" import (enum Status)',
+            3,
+        ),
+        ("PIE-S2303", f"Unknown source shape: Customer; {customer}", 4),
+        (
+            "PIE-S2301",
+            "Unknown relation: customers; customers is a source exported by "
+            'a.pietto: import it with from "a.pietto" import (source customers)',
+            10,
+        ),
+        # A relationship declaration's errors precede the relations' own.
+        ("PIE-S2604", f"Unknown relationship parameter shape: Customer; {customer}", 5),
+        ("PIE-S2604", f"Unknown relationship parameter shape: Customer; {customer}", 5),
+        (
+            "PIE-S2103",
+            "Unknown function: twice; twice is a def of a.pietto, which a module "
+            "cannot import: declare it in this module",
+            16,
+        ),
+    ]
+    assert {item["location"]["path"] for item in diagnostics} == {"b.pietto"}
+
+
+def test_an_import_hint_names_only_resolved_exports(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # An export that is refused, or a re-export whose own import fails, is no
+    # export to import from.
+    root = _configured_project(
+        tmp_path,
+        {
+            "a.pietto": "shape Customer:\n    id: Int\nexport type Customer\n",
+            "c.pietto": 'from "a.pietto" import (shape Customer)\nexport shape Customer\n',
+            "b.pietto": "shape Row:\n    id: Int\n    c: Customer\n",
+        },
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert [
+        (item["code"], item["message"], item["location"]["path"])
+        for item in diagnostics
+    ] == [
+        (
+            "PIE-S2704",
+            "Unknown export binding: type Customer; Customer is a shape",
+            "a.pietto",
+        ),
+        (
+            "PIE-S2705",
+            'Imported declaration is private or not exported: shape Customer from "a.pietto"',
+            "c.pietto",
+        ),
+        ("PIE-S2002", "Unknown type: Customer", "b.pietto"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("sources", "expected"),
+    (
+        pytest.param(
+            {
+                # A duplicate export request is refused (PIE-S2704): only the
+                # export that resolves is named.
+                "t.pietto": "shape X:\n    id: Int\nexport shape X\nexport shape X\n",
+                "u.pietto": "shape X:\n    id: Int\nexport shape X\n",
+                "main.pietto": 'source s: X = postgres.table("s")\n',
+            },
+            [
+                ("PIE-S2704", "Duplicate export request: shape X", "t.pietto"),
+                (
+                    "PIE-S2303",
+                    "Unknown source shape: X; X is a shape exported by u.pietto:"
+                    ' import it with from "u.pietto" import (shape X)',
+                    "main.pietto",
+                ),
+            ],
+            id="duplicate_export_request",
+        ),
+        pytest.param(
+            {
+                # The module declares the name as a relation: an import of the
+                # shape would collide with it (PIE-S2706), so none is hinted.
+                "u.pietto": "shape Customer:\n    id: Int\nexport shape Customer\n",
+                "main.pietto": "shape L:\n    id: Int\n"
+                'source Customer: L = postgres.table("c")\n'
+                'source orders: Customer = postgres.table("o")\n',
+            },
+            [("PIE-S2303", "Unknown source shape: Customer", "main.pietto")],
+            id="local_relation_of_the_name",
+        ),
+        pytest.param(
+            {
+                "u.pietto": "shape L:\n    id: Int\n"
+                'source customers: L = postgres.table("c")\nexport source customers\n',
+                "main.pietto": "shape customers:\n    id: Int\n"
+                "query q:\n    from customers\n    select:\n        id\n",
+            },
+            [("PIE-S2301", "Unknown relation: customers", "main.pietto")],
+            id="local_shape_of_the_name",
+        ),
+        pytest.param(
+            {
+                # The module imports a relation under the name: an import of
+                # the shape would collide with that binding (PIE-S2706).
+                "t.pietto": "shape Customer:\n    id: Int\nshape L:\n    id: Int\n"
+                'source X: L = postgres.table("x")\n'
+                "export (\n    shape Customer,\n    source X)\n",
+                "main.pietto": 'from "t.pietto" import (source X as Customer)\n'
+                'source s: Customer = postgres.table("s")\n',
+            },
+            [("PIE-S2303", "Unknown source shape: Customer", "main.pietto")],
+            id="imported_relation_of_the_name",
+        ),
+        pytest.param(
+            {
+                "t.pietto": "shape R:\n    id: Int\nexport shape R\n",
+                "u.pietto": "shape L:\n    id: Int\n"
+                'source Customers: L = postgres.table("c")\n'
+                "export source Customers\n",
+                "main.pietto": 'from "t.pietto" import (shape R as Customers)\n'
+                "query q:\n    from Customers\n    select:\n        id\n",
+            },
+            [("PIE-S2301", "Unknown relation: Customers", "main.pietto")],
+            id="imported_shape_of_the_name",
+        ),
+    ),
+)
+def test_an_import_hint_names_only_an_import_that_binds(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    sources: dict[str, str],
+    expected: list[tuple[str, str, str]],
+) -> None:
+    root = _configured_project(tmp_path, sources)
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert [
+        (item["code"], item["message"], item["location"]["path"])
+        for item in diagnostics
+    ] == expected
+
+
+@pytest.mark.parametrize(
+    ("sources", "expected"),
+    (
+        pytest.param(
+            {
+                "a.pietto": "shape Row:\n    id: Int\n    k: Missing\nexport shape Row\n",
+                "b.pietto": 'from "a.pietto" import (shape Row)\n'
+                'source s: Row = postgres.table("s")\n'
+                "query q:\n    from s\n    select:\n        id\n",
+            },
+            [("PIE-S2002", "Unknown type: Missing", "a.pietto")],
+            id="field_of_the_imported_shape",
+        ),
+        pytest.param(
+            {
+                "a.pietto": "shape Row:\n    id: Int\nexport (\n    shape Row,\n"
+                "    shape Row)\n",
+                "b.pietto": 'from "a.pietto" import (shape Row)\n'
+                'source s: Row = postgres.table("s")\n'
+                "query q:\n    from s\n    select:\n        id\n",
+            },
+            [("PIE-S2704", "Duplicate export request: shape Row", "a.pietto")],
+            id="refused_export_of_the_shape",
+        ),
+        pytest.param(
+            {
+                "t.pietto": "shape X:\n    id: Int\nexport source X\n",
+                "main.pietto": 'from "t.pietto" import (source X)\n'
+                'source us: X = postgres.table("u")\n',
+            },
+            [
+                (
+                    "PIE-S2704",
+                    "Unknown export binding: source X; X is a shape",
+                    "t.pietto",
+                )
+            ],
+            id="refused_relation_export_of_a_shape",
+        ),
+        pytest.param(
+            {
+                "t.pietto": "shape X:\n    id: Int\nexport source X\n",
+                "main.pietto": 'from "t.pietto" import (source X)\n'
+                "shape U:\n    v: X\n"
+                'source su: U = postgres.table("u")\n'
+                "query q:\n    from su\n    select:\n        v\n",
+            },
+            [
+                (
+                    "PIE-S2704",
+                    "Unknown export binding: source X; X is a shape",
+                    "t.pietto",
+                )
+            ],
+            id="refused_export_of_a_field_type",
+        ),
+    ),
+)
+def test_a_source_stopped_by_an_error_of_another_module_adds_no_fallback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    sources: dict[str, str],
+    expected: list[tuple[str, str, str]],
+) -> None:
+    # As in one module: the source and its reader add no PIE-S2333 beside
+    # the error that another module reports for the source's shape.
+    root = _configured_project(tmp_path, sources)
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert [
+        (item["code"], item["message"], item["location"]["path"])
+        for item in diagnostics
+    ] == expected
+
+
 def test_unresolved_import_root_suppresses_derived_type_error(
     tmp_path: Path,
 ) -> None:
@@ -1507,9 +1793,13 @@ def test_export_and_inconsistent_facade_roots_suppress_consumers(
             ),
         },
     )
-    assert [item.code for item in inconsistent.diagnostics] == [
-        "PIE-S2707",
-        "PIE-S2301",
+    assert [(item.code, item.message) for item in inconsistent.diagnostics] == [
+        (
+            "PIE-S2705",
+            'Imported declaration has another kind: shape Shared from "b.pietto" '
+            "is a query; write query Shared",
+        ),
+        ("PIE-S2301", "Unknown relation: missing"),
     ]
 
 
@@ -1654,13 +1944,12 @@ def test_text_json_cli_remains_exact(
     assert cli.main(["check", "--project", str(root)]) == 1
     text_result = capsys.readouterr()
     assert text_result.out == ""
-    codes = ("PIE-S2701", "PIE-S2002", "PIE-S2303", "PIE-S2333")
+    codes = ("PIE-S2701", "PIE-S2002", "PIE-S2303")
     assert [text_result.err.index(code) for code in codes] == sorted(
         text_result.err.index(code) for code in codes
     )
-    assert "Project relation semantic completion is unavailable: rows" in (
-        text_result.err
-    )
+    # The source whose shape does not resolve reports only that.
+    assert "PIE-S2333" not in text_result.err
 
     assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
     document = json.loads(capsys.readouterr().out)
@@ -1680,7 +1969,6 @@ def test_text_json_cli_remains_exact(
         "PIE-S2701",
         "PIE-S2002",
         "PIE-S2303",
-        "PIE-S2333",
     ]
     assert "module_type_source_resolutions" not in json.dumps(document)
 
@@ -2413,8 +2701,9 @@ def test_project_unused_scalar_let_any_still_checks_its_predicate(
     assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
     assert not completed.ok
     assert any(
-        diagnostic.code == "PIE-S2334"
-        and "ANY predicate reference is unavailable" in diagnostic.message
+        diagnostic.code == "PIE-S2102"
+        and diagnostic.message
+        == "Unknown or unavailable field in ANY predicate: buyer.missing"
         for diagnostic in completed.diagnostics
     )
 
@@ -2478,3 +2767,350 @@ def test_project_scalar_any_none_predicate_has_bool_context(tmp_path: Path) -> N
     assert predicate_type.resolved_type.name == "Bool"
     assert predicate_type.nullability is EffectiveNullability.NULLABLE
     assert value.value_type.nullability is EffectiveNullability.NON_NULL
+
+
+_PRIVATE_SOURCES = (
+    "shape S:\n    id: Int\n\n"
+    'source customers: S = postgres.table("customers")\n'
+    'source orders: S = postgres.table("orders")\n'
+)
+_PRIVATE_IMPORTS = (
+    'from "a.pietto" import (\n    source customers,\n    source orders,\n)\n'
+)
+_PRIVATE = 'Imported declaration is private or not exported: source {} from "a.pietto"'
+
+
+@pytest.mark.parametrize(
+    ("sources", "expected"),
+    (
+        pytest.param(
+            {
+                "sources.pietto": (
+                    'from "types.pietto" import (\n    shape Row,\n)\n'
+                    'source rows: Row = postgres.table("rows")\n'
+                    "export source rows\n"
+                ),
+                "queries.pietto": (
+                    'from "sources.pietto" import (\n    source rows,\n)\n'
+                    "query read:\n    from rows\n    select:\n        id\n"
+                ),
+            },
+            [
+                (
+                    "PIE-S2701",
+                    'Unresolved module import target: "types.pietto"',
+                    "sources.pietto",
+                    1,
+                    6,
+                )
+            ],
+            id="unresolved_import_then_readers",
+        ),
+        pytest.param(
+            {
+                "d.pietto": "shape X:\n    id: Int\nexport shape X\n",
+                "b.pietto": 'from "d.pietto" import (\n    shape X,\n)\nexport shape X\n',
+                "c.pietto": 'from "d.pietto" import (\n    shape X,\n)\nexport shape X\n',
+                "a.pietto": (
+                    'from "b.pietto" import (\n    shape X,\n)\n'
+                    'from "c.pietto" import (\n    shape X,\n)\n'
+                    'source s: X = postgres.table("s")\n'
+                ),
+            },
+            [
+                (
+                    "PIE-S2706",
+                    "Import binding name is ambiguous: X",
+                    "a.pietto",
+                    2,
+                    11,
+                )
+            ],
+            id="ambiguous_shape_import",
+        ),
+        pytest.param(
+            {
+                "a.pietto": _PRIVATE_SOURCES,
+                "b.pietto": _PRIVATE_IMPORTS + "query q:\n    from orders\n"
+                "    inner join customers on customers.id == orders.id\n"
+                "    select:\n        orders.id\n",
+            },
+            [
+                ("PIE-S2705", _PRIVATE.format("customers"), "b.pietto", 2, 12),
+                ("PIE-S2705", _PRIVATE.format("orders"), "b.pietto", 3, 12),
+            ],
+            id="private_join_inputs",
+        ),
+        pytest.param(
+            {
+                "a.pietto": _PRIVATE_SOURCES,
+                "b.pietto": _PRIVATE_IMPORTS
+                + "query q:\n    union all customers, orders\n",
+            },
+            [
+                ("PIE-S2705", _PRIVATE.format("customers"), "b.pietto", 2, 12),
+                ("PIE-S2705", _PRIVATE.format("orders"), "b.pietto", 3, 12),
+            ],
+            id="private_set_operands",
+        ),
+        pytest.param(
+            {
+                "a.pietto": _PRIVATE_SOURCES,
+                "b.pietto": 'from "a.pietto" import (\n    source customers,\n)\n'
+                'shape T:\n    id: Int\nsource orders: T = postgres.table("o")\n'
+                "query q_any:\n    from orders\n"
+                "    where any(c.id == orders.id for c in customers)\n"
+                "    select:\n        id\n"
+                "query q_scalar:\n    let mx:\n        from customers\n"
+                "        select:\n            m = max(id)\n    from orders\n"
+                "    select:\n        id\n        top = scalar mx.m\n",
+            },
+            [("PIE-S2705", _PRIVATE.format("customers"), "b.pietto", 2, 12)],
+            id="private_any_and_scalar_inputs",
+        ),
+        pytest.param(
+            {
+                "a.pietto": _PRIVATE_SOURCES + "export (\n    shape S,\n"
+                "    source customers,\n    source orders)\n",
+                "b.pietto": 'from "a.pietto" import (\n    shape S,\n'
+                "    source orders,\n    source customers,\n)\n"
+                'source customers: S = postgres.table("c2")\n'
+                "relationship R(o: S, c: S): o.id == c.id\n"
+                "query q:\n    from orders\n    let c = customers\n"
+                "    inner join c on R(orders, c)\n    select:\n        orders.id\n",
+            },
+            [
+                (
+                    "PIE-S2706",
+                    "Import binding collides with a local declaration: customers",
+                    "b.pietto",
+                    4,
+                    12,
+                )
+            ],
+            id="colliding_relationship_row_argument",
+        ),
+        pytest.param(
+            {
+                "a.pietto": _PRIVATE_SOURCES
+                + "export (\n    shape S,\n    source customers,\n    source orders)\n",
+                "b.pietto": 'from "a.pietto" import (\n    shape customers,\n'
+                "    source orders,\n)\n"
+                "query q:\n    from orders\n    let c = customers\n"
+                "    inner join c on c.id == orders.id\n    select:\n        orders.id\n",
+                "z.pietto": "type Money = Decimal(70, 2)\n",
+            },
+            [
+                (
+                    "PIE-S2705",
+                    "Imported declaration has another kind: shape customers from "
+                    '"a.pietto" is a source; write source customers',
+                    "b.pietto",
+                    2,
+                    11,
+                ),
+                (
+                    "PIE-S2004",
+                    "Decimal precision must be an integer from 1 to 65",
+                    "z.pietto",
+                    1,
+                    14,
+                ),
+            ],
+            id="relation_imported_with_another_kind",
+        ),
+        pytest.param(
+            {
+                "a.pietto": _PRIVATE_SOURCES
+                + "export (\n    source customers,\n    source orders)\n",
+                "b.pietto": 'from "a.pietto" import (\n    shape S,\n'
+                "    source customers,\n    source orders,\n)\n"
+                "relationship R(o: S, c: S): o.id == c.id\n"
+                "query q_join:\n    from orders\n    let c = customers\n"
+                "    inner join c on R(orders, c)\n    select:\n        orders.id\n"
+                "query q_any:\n    from orders\n"
+                "    where any(R(orders, c) for c in customers)\n"
+                "    select:\n        id\n",
+            },
+            [
+                (
+                    "PIE-S2705",
+                    'Imported declaration is private or not exported: shape S from "a.pietto"',
+                    "b.pietto",
+                    2,
+                    11,
+                )
+            ],
+            id="relationship_shape_import_fails",
+        ),
+        pytest.param(
+            {
+                # The target also has the requested kind, privately: the
+                # module never imported the relation, whose read is unknown.
+                # An import of the source would collide with the failing
+                # import's binding (PIE-S2706), so none is hinted.
+                "a.pietto": "shape customers:\n    id: Int\n"
+                'source customers: customers = postgres.table("customers")\n'
+                "export source customers\n",
+                "b.pietto": 'from "a.pietto" import (shape customers)\n'
+                "query q:\n    from customers\n    select:\n        id\n",
+            },
+            [
+                (
+                    "PIE-S2705",
+                    "Imported declaration is private or not exported: shape customers "
+                    'from "a.pietto"',
+                    "b.pietto",
+                    1,
+                    31,
+                ),
+                ("PIE-S2301", "Unknown relation: customers", "b.pietto", 3, 5),
+            ],
+            id="private_kind_import_beside_an_exported_relation",
+        ),
+        pytest.param(
+            {
+                # The target has the name as another type kind and as a
+                # relation: the import asked for a type, not the relation,
+                # and binds the name, so no second import is hinted.
+                "a.pietto": "shape customers:\n    id: Int\n"
+                'source customers: customers = postgres.table("customers")\n'
+                "export (\n    shape customers,\n    source customers)\n",
+                "b.pietto": 'from "a.pietto" import (type customers)\n'
+                "query q:\n    from customers\n    select:\n        id\n",
+            },
+            [
+                (
+                    "PIE-S2705",
+                    "Imported declaration has another kind: type customers from "
+                    '"a.pietto" is a shape and a source',
+                    "b.pietto",
+                    1,
+                    30,
+                ),
+                ("PIE-S2301", "Unknown relation: customers", "b.pietto", 3, 5),
+            ],
+            id="type_import_of_another_type_kind_beside_a_relation",
+        ),
+        pytest.param(
+            {
+                # The target has each name only as a type: every type use of
+                # it follows the import's error, at a shape field, a source
+                # shape and a constraint or derive signature alike.
+                "a.pietto": "enum Status:\n    active\n    closed\n"
+                "type Money = Decimal(10, 2)\n"
+                "export (\n    enum Status,\n    type Money)\n",
+                "b.pietto": 'from "a.pietto" import (source Status, query Money)\n'
+                "constraint Act(s: Status) -> Bool:\n    return s == Status.active\n"
+                "derive Dbl(m: Money) -> Money:\n    return m + m\n"
+                "shape T:\n    id: Int\n    st: Status\n    m: Money\n"
+                'source ts: Status = postgres.table("ts")\n',
+            },
+            [
+                (
+                    "PIE-S2705",
+                    "Imported declaration has another kind: source Status from "
+                    '"a.pietto" is an enum; write enum Status',
+                    "b.pietto",
+                    1,
+                    32,
+                ),
+                (
+                    "PIE-S2705",
+                    "Imported declaration has another kind: query Money from "
+                    '"a.pietto" is a type; write type Money',
+                    "b.pietto",
+                    1,
+                    46,
+                ),
+            ],
+            id="relation_kind_import_of_a_type",
+        ),
+        pytest.param(
+            {
+                # The import fails in the relation namespace only: no type of
+                # that name is imported, and each type use of the name is
+                # unknown, at a shape field and a constraint signature alike,
+                # as in a single file.
+                "a.pietto": _PRIVATE_SOURCES + "export (\n    shape S)\n",
+                "b.pietto": 'from "a.pietto" import (source customers)\n'
+                "constraint Act(c: customers) -> Bool:\n    return c == c\n"
+                "shape T:\n    id: Int\n    c: customers\n",
+            },
+            [
+                (
+                    "PIE-S2705",
+                    _PRIVATE.format("customers"),
+                    "b.pietto",
+                    1,
+                    32,
+                ),
+                ("PIE-S2002", "Unknown type: customers", "b.pietto", 6, 8),
+                ("PIE-S2002", "Unknown type: customers", "b.pietto", 2, 19),
+            ],
+            id="failed_relation_import_beside_an_unknown_type",
+        ),
+        *(
+            pytest.param(
+                {
+                    # The relation-kind import of a shape also collides: the
+                    # collision is reported in place of its own error, and the
+                    # type use of the name follows it.
+                    "a.pietto": "shape Customer:\n    id: Int\nexport (\n"
+                    "    shape Customer)\n",
+                    "b.pietto": imports + "shape T:\n    c: Customer\n" + local,
+                },
+                [("PIE-S2706", message, "b.pietto", 1, column)],
+                id=f"relation_kind_import_of_a_type_that_collides_{case}",
+            )
+            for case, imports, local, message, column in (
+                (
+                    "in_one_statement",
+                    'from "a.pietto" import (source Customer, source Customer)\n',
+                    "",
+                    "Import binding name is ambiguous: Customer",
+                    32,
+                ),
+                (
+                    "across_statements",
+                    'from "a.pietto" import (source Customer)\n'
+                    'from "a.pietto" import (query Customer)\n',
+                    "",
+                    "Import binding name is ambiguous: Customer",
+                    32,
+                ),
+                (
+                    "with_a_local_relation",
+                    'from "a.pietto" import (table Customer)\n',
+                    "query Customer:\n    from ts\n    select:\n        c\n"
+                    'source ts: T = postgres.table("ts")\n',
+                    "Import binding collides with a local declaration: Customer",
+                    31,
+                ),
+            )
+        ),
+    ),
+)
+def test_a_module_error_is_reported_without_follow_on_completion_diagnostics(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    sources: dict[str, str],
+    expected: list[tuple[str, str, str, int, int]],
+) -> None:
+    # A relation that a reported module error stops reports nothing more: no
+    # PIE-S2333 at a source, its reader or a downstream module, no JOIN that
+    # says its input is unavailable and no temporary admission text that asks
+    # for the EXPLICIT_MODULES project this already is.
+    root = _configured_project(tmp_path, sources)
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert [
+        (
+            item["code"],
+            item["message"],
+            item["location"]["path"],
+            item["location"]["line"],
+            item["location"]["column"],
+        )
+        for item in diagnostics
+    ] == expected

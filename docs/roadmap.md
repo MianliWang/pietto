@@ -67,6 +67,31 @@ continues to own phase-level future ownership and release milestones. Published
 phase specs own exact phase/Slice contracts, while [`docs/plan/`](plan/README.md)
 is historical planning evidence rather than current authority.
 
+## Project-mode follow-up
+
+The owner decided in October 2026 to document these project-mode limits first
+and implement them later:
+
+- Explain for explicit-module (`schema_version = 2`) projects.
+  `explain --project` reads only `schema_version = 4` package-root projects and
+  only parses their modules; see
+  [Explaining a package-root project](project-package.md#explaining-a-package-root-project).
+- Wider project SQL emission. The forms that `check --project` accepts but
+  `emit-sql --project` refuses, listed in
+  [Project SQL emission](project-package.md#project-sql-emission), are to be
+  admitted in the PostgreSQL/MySQL parity batch, each with reviewed SQL and a
+  real-database differential.
+
+The lead deferred in October 2026, to a later phase:
+
+- Linear project analysis of layered JOIN DAGs. When each relation JOINs the
+  relation before it and the one before that, a project's check time still
+  grows exponentially with the layers, because the grain kept for each JOIN
+  copies the grain factors of every path to its inputs (single files are not
+  affected, and no SQL or diagnostic is wrong). Sharing those factors is an
+  ARCHITECTURE_DECISION on the semantic identity of grain facts; the release
+  notes list it under the project-mode known limitations.
+
 ## Phase67 当前路线
 
 [Phase67 brief](phases/phase-67/brief.md)与[固定16-Slice route](phases/phase-67/slices.md)保留原A01–A18及N67=16。

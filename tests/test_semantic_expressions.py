@@ -1095,8 +1095,16 @@ def test_only_an_operand_error_explains_an_unknown_cast_operand(
                 )
             ],
         ),
-        # An argument's own error still explains its caller.
-        ("people", "foo(bar(amount))", [("PIE-S2103", "Unknown function: bar", 5, 21)]),
+        # The callee is resolved first: an unknown caller is reported, and
+        # an argument keeps its own error.
+        (
+            "people",
+            "foo(bar(amount))",
+            [
+                ("PIE-S2103", "Unknown function: foo", 5, 17),
+                ("PIE-S2103", "Unknown function: bar", 5, 21),
+            ],
+        ),
         (
             "nowhere",
             "foo(amount)",
@@ -1692,7 +1700,7 @@ def test_alias_group_keys_in_satisfying_are_compared_as_their_expansion() -> Non
     } == {("Bool", EffectiveNullability.UNKNOWN)}
 
 
-def test_unknown_call_argument_suppresses_dependent_call_diagnostic() -> None:
+def test_unknown_call_is_reported_before_its_bare_name_arguments() -> None:
     result = analyze(
         _parse(
             SOURCE + "table projected:\n"
@@ -1706,7 +1714,11 @@ def test_unknown_call_argument_suppresses_dependent_call_diagnostic() -> None:
     assert isinstance(expression, ComparisonExpr)
     assert isinstance(expression.left, CallExpr)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
+    # The callee is resolved first; a bare name it is given, which may name a
+    # row, is no field read.
+    assert [
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    ] == [("PIE-S2103", "Unknown function: unknown_call")]
     assert (
         result.model.expression_value_types[expression.left].kind
         is ValueTypeKind.UNKNOWN

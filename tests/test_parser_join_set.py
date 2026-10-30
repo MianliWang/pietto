@@ -305,7 +305,11 @@ def test_project_forms_follow_current_owner_availability_without_traceback(
     )
     supported = schema == 2 and source in NEW_SOURCES[:5]
     assert result.ok is supported
-    assert any(d.code == "PIE-S2334" for d in result.diagnostics) is not supported
+    codes = [d.code for d in result.diagnostics]
+    # An explicit-module project reports why its set operation fails
+    # (PIE-S2341), never the temporary text that asks for such a project.
+    assert ("PIE-S2334" in codes) is (schema == 1)
+    assert ("PIE-S2341" in codes) is (schema == 2 and not supported)
 
 
 @pytest.mark.parametrize("kind", ("inner", "left", "right", "full", "cross"))
@@ -744,7 +748,7 @@ sha256 = "'''
     parsed = check_project_parse_only(tmp_path)
     assert not parsed.ok and not parsed.parsed_inputs
     assert any(
-        "does not use project source selection" in error.message
+        "package-root project is read by explain --project" in error.message
         for error in parsed.errors
     )
     assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 2

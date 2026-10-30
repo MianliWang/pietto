@@ -573,6 +573,9 @@ class ProjectParseCheckResult:
     pinned_root: ProjectPinnedRoot | None = None
     selected_input_index: ProjectSelectedInputIndex | None = None
     trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = ()
+    # The facts, with their related locations, of the module diagnostics a
+    # check that stops at a query-local naming error reports.
+    module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None
 
     @property
     def ok(self) -> bool:

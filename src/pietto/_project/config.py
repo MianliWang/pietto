@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import re
 import stat
-import tomllib
 from typing import cast
 
 from pietto._project.discovery import PROJECT_CONFIG_FILENAME
@@ -24,6 +23,7 @@ from pietto._project.path_trust import (
     _pin_project_root,
     _verify_pinned_root,
 )
+from pietto._project.toml_text import TomlTextError, load_toml_text
 from pietto._project.model import (
     ProjectCapabilityEnvironmentConfig,
     ProjectCapabilityProfileDeclaration,
@@ -232,8 +232,18 @@ def load_project_config(root: str | Path) -> ProjectConfigLoadResult:
             pinned_root,
         )
 
+    if config_text.startswith("\ufeff"):
+        return _load_error(
+            root_model,
+            config_model,
+            ProjectDiscoveryErrorKind.CONFIG_PARSE,
+            "pietto.toml starts with a UTF-8 byte-order mark; save it as UTF-8"
+            " without BOM.",
+            pinned_root,
+        )
+
     try:
-        parsed = tomllib.loads(config_text)
+        parsed = load_toml_text(config_text)
         return _validate_config(
             root_model,
             config_model,
@@ -241,7 +251,7 @@ def load_project_config(root: str | Path) -> ProjectConfigLoadResult:
             config_text,
             pinned_root,
         )
-    except tomllib.TOMLDecodeError as error:
+    except TomlTextError as error:
         return _load_error(
             root_model,
             config_model,
@@ -530,13 +540,9 @@ def _validate_config(
 
     patterns = tuple(include) + tuple(exclude)
     path_errors = tuple(
-        ProjectDiscoveryError(
-            ProjectDiscoveryErrorKind.PROJECT_PATH,
-            "Project source pattern must be a normalized project-relative pattern.",
-            pattern,
-        )
+        ProjectDiscoveryError(*problem, pattern)
         for pattern in patterns
-        if not _is_valid_project_pattern(pattern)
+        if (problem := _project_pattern_problem(pattern)) is not None
     )
     if path_errors:
         return ProjectConfigLoadResult(
@@ -937,8 +943,8 @@ def _has_exact_root_package_table(
             + config_text[match.end() :]
         )
         try:
-            probed = tomllib.loads(probe_text)
-        except tomllib.TOMLDecodeError:
+            probed = load_toml_text(probe_text)
+        except TomlTextError:
             continue
         probe_value = probed.pop(_PACKAGE_DECLARATION_PROBE_KEY, None)
         if probe_value is None or "package" in probed:
@@ -961,7 +967,7 @@ def _has_exact_root_table(
         return False
     probe_keys = _allocate_probe_keys(document, key, len(matches))
     try:
-        first_probe = tomllib.loads(
+        first_probe = load_toml_text(
             _insert_header_probes(
                 config_text,
                 matches,
@@ -969,7 +975,7 @@ def _has_exact_root_table(
                 frozenset(range(len(matches))),
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     value = first_probe.get(key)
     if type(value) is not dict:
@@ -978,7 +984,7 @@ def _has_exact_root_table(
     if real_positions is None or len(real_positions) != 1:
         return False
     try:
-        probed = tomllib.loads(
+        probed = load_toml_text(
             _insert_header_probes(
                 config_text,
                 matches,
@@ -986,7 +992,7 @@ def _has_exact_root_table(
                 real_positions,
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     probed_value = probed.get(key)
     if not _remove_mapping_probes(probed_value, probe_keys, real_positions):
@@ -1006,7 +1012,7 @@ def _has_exact_aot_path(
         return False
     probe_keys = _allocate_probe_keys(document, "_".join(path), len(matches))
     try:
-        first_probe = tomllib.loads(
+        first_probe = load_toml_text(
             _insert_header_probes(
                 config_text,
                 matches,
@@ -1014,14 +1020,14 @@ def _has_exact_aot_path(
                 frozenset(range(len(matches))),
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     entries = _toml_path_entries(first_probe, path)
     real_positions = _entry_probe_positions(entries, probe_keys)
     if real_positions is None or len(real_positions) != len(entries):
         return False
     try:
-        probed = tomllib.loads(
+        probed = load_toml_text(
             _insert_header_probes(
                 config_text,
                 matches,
@@ -1029,7 +1035,7 @@ def _has_exact_aot_path(
                 real_positions,
             )
         )
-    except tomllib.TOMLDecodeError:
+    except TomlTextError:
         return False
     if not _remove_entry_probes(
         _toml_path_entries(probed, path),
@@ -1280,30 +1286,45 @@ def _validate_root_package_config(
     )
 
 
-def _is_valid_project_pattern(value: str) -> bool:
-    if not value:
-        return False
-    if "\x00" in value or "\\" in value:
-        return False
-    if Path(value).is_absolute() or value.startswith("/"):
-        return False
-    if _is_windows_drive_path(value) or value.startswith("//"):
-        return False
-    if value.endswith("/"):
-        return False
-    if "$" in value or "`" in value:
-        return False
+def _project_pattern_problem(
+    value: str,
+) -> tuple[ProjectDiscoveryErrorKind, str] | None:
+    """The kind and message of one invalid source pattern, None when valid."""
 
     parts = value.split("/")
-    if any(part in {"", ".", ".."} for part in parts):
-        return False
-    if any(part.startswith("~") or part.startswith("!") for part in parts):
-        return False
-
-    for part in parts:
-        if not _is_valid_pattern_segment(part):
-            return False
-    return True
+    if "\\" in value:
+        return (
+            ProjectDiscoveryErrorKind.PROJECT_PATH,
+            "Project source pattern must use / as the path separator.",
+        )
+    if (
+        Path(value).is_absolute()
+        or value.startswith("/")
+        or _is_windows_drive_path(value)
+        or ".." in parts
+        or any(part.startswith("~") for part in parts)
+    ):
+        return (
+            ProjectDiscoveryErrorKind.PROJECT_PATH,
+            "Project source pattern must be relative to the project root.",
+        )
+    if not value or "\x00" in value or any(part in {"", "."} for part in parts):
+        return (
+            ProjectDiscoveryErrorKind.PROJECT_PATH,
+            "Project source pattern must be a normalized project-relative pattern.",
+        )
+    if (
+        "$" in value
+        or "`" in value
+        or any(part.startswith("!") for part in parts)
+        or not all(_is_valid_pattern_segment(part) for part in parts)
+    ):
+        return (
+            ProjectDiscoveryErrorKind.PROJECT_GLOB,
+            "Project source pattern uses unsupported glob syntax; patterns use"
+            " only *, ? and a whole ** path part.",
+        )
+    return None
 
 
 def _is_valid_pattern_segment(segment: str) -> bool:

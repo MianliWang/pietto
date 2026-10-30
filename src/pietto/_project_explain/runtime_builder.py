@@ -467,10 +467,19 @@ def _build_project_explain_runtime(
     assert located_root is not None
     load_result = _load_root_package(located_root)
     if not load_result.ok:
+        # Manifest validation names the root manifest by its project-relative
+        # path; every other root-load path is package-relative.
+        project_manifest = (
+            None
+            if activation.path == "."
+            else f"{activation.path}/{_PACKAGE_MANIFEST_PATH}"
+        )
         load_diagnostics = tuple(
             _project_error_diagnostic(
                 error,
-                ProjectExplainLogicalPathKind.PACKAGE_RELATIVE,
+                ProjectExplainLogicalPathKind.PROJECT_RELATIVE
+                if error.path == project_manifest
+                else ProjectExplainLogicalPathKind.PACKAGE_RELATIVE,
             )
             for error in load_result.errors
         ) + tuple(

@@ -438,7 +438,9 @@ def result_properties(entry, operator):
     return matches[0]
 
 
-def ready(entry, indexed):
+def unready_site(entry, indexed):
+    """The ORDER BY item whose key SQL cannot yet order by, the whole clause
+    when the ordering itself is unavailable, or None when it is ready."""
     definition = entry.owner.definition
     if type(definition) not in _KNOWN_DEFINITIONS:
         raise ValueError("Unknown result definition")
@@ -449,7 +451,7 @@ def ready(entry, indexed):
             or order.inputs is None
             or len(order.inputs) != len(order.items)
         ):
-            return False
+            return definition.order_by_clause
         supported = {
             NameExpr,
             DottedNameExpr,
@@ -487,7 +489,7 @@ def ready(entry, indexed):
                 use.expression is not expression
                 for use, expression in zip(uses, expected, strict=True)
             ):
-                return False
+                return item.item
             nodes = row.scalar_nodes(
                 item.expression, tuple(use.expression for use in uses)
             )
@@ -500,9 +502,9 @@ def ready(entry, indexed):
                 or types[id(node)].kind is not ValueTypeKind.KNOWN
                 for node in nodes
             ):
-                return False
+                return item.item
             if any(use.target is None for use in uses):
-                return False
+                return item.item
         quotient = distinct(entry)
         if quotient is not None and (
             len(quotient.order_proofs) != len(order.items)
@@ -513,8 +515,8 @@ def ready(entry, indexed):
                 for proof, item in zip(quotient.order_proofs, order.items, strict=True)
             )
         ):
-            return False
-    return True
+            return definition.order_by_clause
+    return None
 
 
 def origin_context(plan):

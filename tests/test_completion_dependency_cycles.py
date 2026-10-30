@@ -265,7 +265,10 @@ def test_diamond_and_repeated_target_uses_are_not_cycles(tmp_path: Path) -> None
     assert _names(edge.target for edge in uses) == ("left", "right", "right")
     assert tuple(edge.dependency_ordinal for edge in uses) == (0, 1, 2)
     assert not result.ok
-    assert tuple(d.code for d in result.diagnostics) == ("PIE-S2333",)
+    # Every input has `id`: the read is ambiguous, as in a single file.
+    assert [(d.code, d.message) for d in result.diagnostics] == [
+        ("PIE-S2335", "Ambiguous field: id; write left.id, b0.id or b1.id")
+    ]
 
 
 def test_existing_joined_and_replay_controls_remain_completed(tmp_path: Path) -> None:

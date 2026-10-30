@@ -187,6 +187,23 @@ def test_byte_utf8_and_toml_hard_failures_are_exact() -> None:
         assert len(result.errors) == 1
 
 
+def test_a_manifest_integer_too_long_for_tomllib_is_a_parse_failure() -> None:
+    # tomllib refuses a decimal integer over 4300 digits with the plain
+    # ValueError of int(), not TOMLDecodeError; it used to escape.
+    manifest = b"x = " + b"9" * 5000 + b"\n" + _valid_manifest()
+
+    result = _normalize_package_manifest(_activation("packages/demo"), manifest)
+
+    assert not result.ok and result.manifest is None
+    assert result.errors == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.CONFIG_PARSE,
+            "Package manifest TOML is invalid.",
+            "packages/demo/pietto-package.toml",
+        ),
+    )
+
+
 @pytest.mark.parametrize("probe", (False, True), ids=("parse", "header_probe"))
 def test_a_manifest_nested_too_deeply_is_a_resource_failure(
     monkeypatch: pytest.MonkeyPatch, probe: bool

@@ -590,7 +590,7 @@ def test_package_root_boundary_precedes_condition_analysis(tmp_path: Path) -> No
     parsed = check_project_parse_only(tmp_path)
     assert not parsed.ok and not parsed.parsed_inputs
     assert any(
-        "does not use project source selection" in error.message
+        "package-root project is read by explain --project" in error.message
         for error in parsed.errors
     )
 
@@ -1133,6 +1133,62 @@ def test_an_unknown_call_in_on_reports_the_call_not_its_rows(
     ]
 
 
+_UNKNOWN_TAIL_CALL = """shape Order:
+    id: Int
+    customer_id: Int | None
+shape Customer:
+    id: Int
+    name: Text
+source orders: Order = postgres.table("orders")
+source customers: Customer = postgres.table("customers")
+query q_where:
+    from orders
+    let c = customers
+    inner join c on orders.customer_id == c.id
+    where order_customer(orders, c)
+    select:
+        x = orders.id
+query q_let:
+    from orders
+    let c = customers
+    inner join c on orders.customer_id == c.id
+    let m = order_customer(orders, c)
+    select:
+        x = orders.id
+        m
+query q_any:
+    from orders
+    where any(order_customer(orders, c) for c in customers)
+    select:
+        x = id
+"""
+
+
+def test_an_unknown_call_in_where_let_or_any_reports_the_call_not_its_rows(
+    tmp_path: Path, capsys
+) -> None:
+    """The callee is resolved before its arguments, in WHERE, a `let` and an
+    `any(...)` as in `on`: a call of a relationship the file does not declare
+    is PIE-S2103, and its rows are no unknown fields or ANY references, in a
+    single file and in a project."""
+
+    parsed = parse_source(_UNKNOWN_TAIL_CALL)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    message = "Unknown function: order_customer"
+    expected = [
+        ("PIE-S2103", message, 13, 11),
+        ("PIE-S2103", message, 20, 13),
+        ("PIE-S2103", message, 26, 15),
+    ]
+    assert located(analyze(parsed.ast).diagnostics) == expected
+    assert _project_located(
+        tmp_path / "p", {"main.pietto": _UNKNOWN_TAIL_CALL}, capsys
+    ) == [
+        (code, text, "main.pietto", line, column)
+        for code, text, line, column in expected
+    ]
+
+
 def test_a_relationship_of_another_module_says_it_cannot_be_imported(
     tmp_path: Path, capsys
 ) -> None:
@@ -1160,4 +1216,31 @@ def test_a_relationship_of_another_module_says_it_cannot_be_imported(
             9,
             21,
         )
+    ]
+
+
+def test_a_relationship_of_another_module_is_named_in_where_let_and_any(
+    tmp_path: Path, capsys
+) -> None:
+    head, queries = _UNKNOWN_TAIL_CALL.split("query q_where:\n")
+    models = (
+        head
+        + "relationship order_customer(o: Order, c: Customer): o.customer_id == c.id\n"
+        + "export (\n    shape Order,\n    shape Customer,\n    source orders,\n"
+        + "    source customers)\n"
+    )
+    main = (
+        'from "models.pietto" import (\n    shape Order,\n    shape Customer,\n'
+        "    source orders,\n    source customers)\n" + "query q_where:\n" + queries
+    )
+    message = (
+        "Unknown function: order_customer; order_customer is a relationship of "
+        "models.pietto, which a module cannot import: declare it in this module"
+    )
+    assert _project_located(
+        tmp_path / "p", {"main.pietto": main, "models.pietto": models}, capsys
+    ) == [
+        ("PIE-S2103", message, "main.pietto", 10, 11),
+        ("PIE-S2103", message, "main.pietto", 17, 13),
+        ("PIE-S2103", message, "main.pietto", 23, 15),
     ]

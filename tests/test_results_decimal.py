@@ -220,12 +220,8 @@ def test_upstream_parameters_cannot_be_replaced_by_storage_domain_agreement(
         ("Decimal(38, 38)", (38, 38), False),
         ("Decimal(65, 31)", (65, 31), False),
         ("Decimal(65, 65)", (65, 65), False),
-        ("Decimal(66, 0)", None, False),
-        ("Decimal(0, 0)", None, False),
-        ("Decimal(9, 12)", None, False),
         ("Decimal", None, False),
         ("Decimal()", None, False),
-        ("Decimal(precision = 9, scale = 2)", None, False),
     ),
 )
 def test_shared_fact_and_producer_admission_are_distinct(
@@ -252,6 +248,36 @@ def test_shared_fact_and_producer_admission_are_distinct(
         assert [b.code for b in result.blockers] == [
             "PIE-B1004" if pair is None else "PIE-B1002"
         ] * 2
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "declaration,message",
+    (
+        ("Decimal(66, 0)", "Decimal precision must be an integer from 1 to 65"),
+        ("Decimal(0, 0)", "Decimal precision must be an integer from 1 to 65"),
+        ("Decimal(9, 12)", "Decimal scale must be an integer from 0 to precision"),
+        (
+            "Decimal(precision = 9, scale = 2)",
+            "Decimal precision-scale requires exactly two positional integer "
+            "literal arguments",
+        ),
+    ),
+)
+def test_invalid_decimal_arguments_fail_the_check_before_emission(
+    tmp_path, target, declaration, message
+):
+    """Arguments without a shared fact are refused where the check reads each
+    field's type, as in a single file, so no producer is admitted."""
+    from _pietto_project_join import _completed
+
+    source = probe.decimal_source(target, 38, 0).replace("Decimal(38, 0)", declaration)
+    result = _completed(tmp_path, source)
+    assert not result.ok
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [("PIE-S2004", 2, 13, message), ("PIE-S2004", 3, 15, message)]
 
 
 def test_existing_row_equivalence_uses_exact_high_precision_facts(tmp_path):

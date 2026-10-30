@@ -370,15 +370,19 @@ def _window_diagnostics(definition: DerivedRelation) -> tuple[Diagnostic, ...]:
 
 
 def _grouping_diagnostics(definition: DerivedRelation) -> tuple[Diagnostic, ...]:
-    """Refuse ORDER BY after an ungrouped aggregate over JOIN rows."""
+    """Refuse ORDER BY after an ungrouped aggregate over JOIN rows: when
+    every projection is an aggregate, since a mix is its own error
+    (PIE-S2312)."""
 
+    aggregates = [
+        first_semantic_aggregate_call(item.expression) is not None
+        for item in definition.select_items
+    ]
     if (
         definition.group_by_clause is not None
         or definition.order_by_clause is None
-        or not any(
-            first_semantic_aggregate_call(item.expression) is not None
-            for item in definition.select_items
-        )
+        or not aggregates
+        or not all(aggregates)
     ):
         return ()
     return (
