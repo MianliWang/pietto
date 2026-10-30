@@ -11,10 +11,7 @@ from pietto._project.model import (
     ProjectModuleRowFieldKind,
     ProjectNestedRelationType,
 )
-from pietto._project.module_catalog import (
-    ProjectDeclarationOccurrence,
-    ProjectModuleCatalogSet,
-)
+from pietto._project.module_catalog import ProjectModuleCatalogSet
 from pietto._project.module_relation_resolution import (
     ProjectResolvedExpressionBlockRead,
 )
@@ -29,8 +26,6 @@ from pietto._project.module_semantic_fact_preservation import (
     _occurrence_identity as _identity,
     _require_nested_state as _require_state,
 )
-from pietto._syntax_admission import unnest_lets
-from pietto.errors import Diagnostic, Severity, SourceLocation
 
 __all__: tuple[str, ...] = ()
 
@@ -127,7 +122,6 @@ class ProjectNestedRelationFactSet:
     semantic: ProjectModuleSemanticFactSet
     collect_facts: tuple[ProjectCollectOccurrenceFact, ...]
     unnest_inputs: tuple[ProjectModuleUnnestOccurrenceFact, ...]
-    diagnostics: tuple[Diagnostic, ...]
 
     def __post_init__(self) -> None:
         if (
@@ -154,13 +148,9 @@ class ProjectNestedRelationFactSet:
             for item in self.unnest_inputs
         ):
             raise TypeError("Nested relation facts require exact Unnest facts.")
-        if type(self.diagnostics) is not tuple or any(
-            type(item) is not Diagnostic for item in self.diagnostics
-        ):
-            raise TypeError("Nested relation facts require exact diagnostics.")
         # Every fact is the one the semantic root derives, in authored order;
         # the supplied facts never decide a status, reason, target or type.
-        collects, unnests, diagnostics = _derive_nested_facts(self.semantic)
+        collects, unnests = _derive_nested_facts(self.semantic)
         if len(self.collect_facts) != len(collects) or not all(
             _same_collect(supplied, expected)
             for supplied, expected in zip(self.collect_facts, collects, strict=True)
@@ -176,10 +166,6 @@ class ProjectNestedRelationFactSet:
                 "Nested relation facts must retain every Unnest occurrence in order."
             )
         _validate_unnest_sources(self.collect_facts, self.unnest_inputs)
-        if self.diagnostics != diagnostics:
-            raise ValueError(
-                "Nested relation diagnostics must project every occurrence in order."
-            )
 
 
 def build_project_nested_relation_facts(
@@ -192,13 +178,12 @@ def build_project_nested_relation_facts(
         or type(semantic) is not ProjectModuleSemanticFactSet
     ):
         raise TypeError("Nested facts require exact catalog and semantic roots.")
-    collects, unnests, diagnostics = _derive_nested_facts(semantic)
+    collects, unnests = _derive_nested_facts(semantic)
     return ProjectNestedRelationFactSet(
         catalogs=catalogs,
         semantic=semantic,
         collect_facts=collects,
         unnest_inputs=unnests,
-        diagnostics=diagnostics,
     )
 
 
@@ -207,57 +192,26 @@ def _derive_nested_facts(
 ) -> tuple[
     tuple[ProjectCollectOccurrenceFact, ...],
     tuple[ProjectModuleUnnestOccurrenceFact, ...],
-    tuple[Diagnostic, ...],
 ]:
     """Every authored Collect and Unnest occurrence in module and source
-    order, and their PIE-S2802 diagnostics: modules in the order of the
-    semantic environments, which relation resolution reports in, and each
+    order: modules in the order of the semantic environments and each
     module's in source order. Each Unnest fact is its occurrence's own input
-    fact (D-S05-7)."""
+    fact (D-S05-7). A Collect read or an Unnest checks like any other
+    relation read or JOIN; emission refuses it where no lowering is admitted
+    (D-S06-1)."""
 
     collects: list[ProjectCollectOccurrenceFact] = []
     unnests: list[ProjectModuleUnnestOccurrenceFact] = []
-    found: list[tuple[int, Diagnostic]] = []
-    for index, environment in enumerate(semantic.environments):
-        parsed = environment.module.parsed_input
-        if parsed is None:
+    for environment in semantic.environments:
+        if environment.module.parsed_input is None:
             continue
-        # The bodies as written, before the project normalized their names.
-        script = parsed.authored_script or parsed.script
         for semantic_fact in environment.relation_facts:
             if semantic_fact.unnest_occurrence is not None:
                 unnests.append(semantic_fact.unnest_occurrence)
-                continue
             # A table-function occurrence's body is its containing relation's.
-            if (
-                semantic_fact.owner.table_function is not None
-                or semantic_fact.owner.unnest is not None
-            ):
-                continue
-            own = _collect_facts(semantic_fact)
-            collects.extend(own)
-            found.extend(
-                (index, _unsupported(fact.authored_collect.span, "Collect"))
-                for fact in own
-            )
-            body = _authored_body(script, semantic_fact.owner)
-            if body is not None:
-                found.extend(
-                    (index, _unsupported(item.span, "Unnest"))
-                    for item, _ in unnest_lets(body)
-                )
-    found.sort(
-        key=lambda item: (
-            item[0],
-            item[1].location.line,
-            item[1].location.column,
-        )
-    )
-    return (
-        tuple(collects),
-        tuple(unnests),
-        tuple(diagnostic for _, diagnostic in found),
-    )
+            elif semantic_fact.owner.table_function is None:
+                collects.extend(_collect_facts(semantic_fact))
+    return tuple(collects), tuple(unnests)
 
 
 def _collect_facts(
@@ -401,50 +355,4 @@ def _is_local_let(
         and not target.table_function
         and target.module_position == owner.module_position
         and target.declaration_position == owner.declaration_position
-    )
-
-
-def _authored_body(
-    script: ast.Script, owner: ProjectDeclarationOccurrence
-) -> ast.TableDef | ast.QueryDef | ast.SelectBody | None:
-    """The owner's FROM-based body as written in its module's script."""
-
-    definition = script.definitions[owner.declaration_position]
-    if type(definition) is ast.BlockRelationDef:
-        body = (
-            definition.body
-            if owner.let_position is None
-            else definition.let_relations[owner.let_position].body
-        )
-        return body if type(body) is ast.SelectBody else None
-    if type(definition) is ast.TableDef or type(definition) is ast.QueryDef:
-        return definition
-    return None
-
-
-def _unsupported(span: ast.Span, operation: str) -> Diagnostic:
-    return _error(
-        "PIE-S2802",
-        f"{operation} relation reads are not supported by the current "
-        "scalar-only project boundary.",
-        span,
-        "Nested relation values are typed but cannot yet be lowered or returned.",
-    )
-
-
-def _error(
-    code: str, message: str, span: ast.Span, suggestion: str | None = None
-) -> Diagnostic:
-    return Diagnostic(
-        code=code,
-        severity=Severity.ERROR,
-        message=message,
-        location=SourceLocation(
-            path=span.path,
-            line=span.line,
-            column=span.column,
-            end_line=span.end_line,
-            end_column=span.end_column,
-        ),
-        suggestion=suggestion,
     )

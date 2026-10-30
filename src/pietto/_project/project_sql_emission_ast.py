@@ -488,8 +488,39 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
             raise ValueError("inconsistent retained meaning")
     except (ValueError, TypeError, AttributeError):
         return (Blocker("PIE-B1008", "scalar_meaning_correspondence"),)
+    # D-S06-1: no target admits a lowering of a Collect read or an Unnest
+    # yet. Each is refused at its own read or let, once, in source order,
+    # whatever else the statement reads; every later check, the scalar
+    # meaning admission included, assumes scalar ports and named inputs only.
+    nested = sorted(
+        (
+            *(
+                Blocker(
+                    "PIE-B1003",
+                    "collect_not_admitted_on_target",
+                    value.ref,
+                    value.semantic.item.expression.span,
+                )
+                for value in plan.collects
+            ),
+            *(
+                Blocker(
+                    "PIE-B1003",
+                    "unnest_not_admitted_on_target",
+                    value.ref,
+                    value.semantic.query_let.span,
+                )
+                for value in plan.unnests
+            ),
+        ),
+        key=lambda blocker: (
+            cast(Any, blocker.location).path or "",
+            cast(Any, blocker.location).line,
+            cast(Any, blocker.location).column,
+        ),
+    )
     projection_only = projection_chain_shape(plan)
-    if meaning is not None and meaning.entries and not projection_only:
+    if meaning is not None and meaning.entries and not projection_only and not nested:
         from pietto._project.project_scalar_meaning import operations_admitted
 
         if not operations_admitted(meaning):
@@ -528,6 +559,9 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
                 body.ref,
                 definition.span,
             )
+    # The nested refusals follow the table function ones (D-S06-11).
+    if nested:
+        return (*result, *nested)
     admitted = projection_only
     realization = None
     refused = len(result) > refused_start

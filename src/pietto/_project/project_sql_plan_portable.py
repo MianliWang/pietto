@@ -220,8 +220,11 @@ def _check_context(context, verification, assessment):
         ):
             raise TransportError(RuntimeIssue.INVALID_REQUEST)
     # The closed schema has no header parameter: a parameterized plan stays
-    # outside it whether or not a parameter is read, never approximated.
-    if verification.plan.parameters:
+    # outside it whether or not a parameter is read, never approximated. Nor
+    # has it a nested relation value: a plan with a Collect read or an Unnest
+    # stays outside.
+    plan = verification.plan
+    if plan.parameters or plan.collects or plan.unnests:
         raise TransportError(RuntimeIssue.UNSUPPORTED_VALUE)
 
 
@@ -301,8 +304,6 @@ def _fields(value: Any) -> tuple[str, tuple[tuple[str, Any], ...]]:
                 None if value.assessment is None else value.assessment.assessment,
             ),
         )
-    if type(value) is ast_nodes.CollectRelationExpr:
-        raise TransportError(RuntimeIssue.UNSUPPORTED_VALUE)
     kind = _ADAPTERS.get(type(value))
     if isinstance(value, plans.ProjectSQLPlan) and value.existence_generators:
         kind = "project_sql_plan_with_any"
@@ -380,6 +381,14 @@ def _fields(value: Any) -> tuple[str, tuple[tuple[str, Any], ...]]:
         raise TransportError(RuntimeIssue.UNSUPPORTED_VALUE)
 
     def retained(name):
+        if name == "families" and type(value) is reports.ProjectSQLRequirementSummary:
+            # A Collect plan stays outside the schema (_check_context), so the
+            # Collection family report is always empty here and is not encoded.
+            return tuple(
+                item
+                for item in value.families
+                if item.family is not reports.F.COLLECTION
+            )
         if (
             isinstance(value, project_join_conditions.ProjectJoinCondition)
             and name == "existence_values"

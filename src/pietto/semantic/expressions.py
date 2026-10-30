@@ -2526,7 +2526,7 @@ def _infer(
         value_type = _UNKNOWN_VALUE_TYPE
     elif isinstance(expression, ast.CollectRelationExpr):
         # A collected relation is a nested value, never a scalar one; its
-        # project facts report it (PIE-S2802), so it has no scalar type.
+        # project facts type it, so it has no scalar type.
         value_type = _UNKNOWN_VALUE_TYPE
     elif isinstance(expression, ast.RelationMembershipExpr):
         # The left value is checked here; the read relation is resolved,

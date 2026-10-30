@@ -1698,7 +1698,6 @@ class ProjectSemanticResult:
             *module_diagnostic_facts.diagnostics,
             *module_type_source_resolutions.diagnostics,
             *module_relation_resolutions.diagnostics,
-            *nested.diagnostics,
         )
         if len(self.diagnostics) != len(expected_diagnostics) or any(
             diagnostic is not expected
@@ -1914,13 +1913,10 @@ def build_empty_project_semantic_result(
             module_package_identity_facts=module_package_identity_facts,
             module_inspection_facts=module_inspection_facts,
             nested_relation_facts=nested_relation_facts,
-            # The nested-relation producer follows the relation resolution it
-            # reads: project stage, then producer, then module order.
             diagnostics=(
                 *module_diagnostic_facts.diagnostics,
                 *module_type_source_resolutions.diagnostics,
                 *module_relation_resolutions.diagnostics,
-                *nested_relation_facts.diagnostics,
             ),
         )
 

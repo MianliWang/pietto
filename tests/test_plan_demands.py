@@ -17,6 +17,7 @@ from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_values as valuesplan
 from pietto._project import project_sql_plan_literals as literals
+from pietto._project import project_sql_plan_nested as nested
 from pietto._project import project_sql_plan_requirements as report
 from pietto._project.project_sql_plan_verification import (
     ProjectSQLPlanVerification,
@@ -184,6 +185,7 @@ def test_every_current_variant_and_meaningful_subkind_has_real_coverage(corpus):
         (F.EXPRESSION, row.ProjectSQLExpressionRole),
         (F.STAGE_VALUE, row.ProjectSQLStagePortKind),
         (F.LITERAL, literals.ProjectSQLLiteralTag),
+        (F.COLLECTION, nested.ProjectSQLCollectionDemandKind),
     ):
         assert set(report.SUBKINDS[family]) == set(enumeration)
 

@@ -88,7 +88,7 @@ def build_body(definition, ref, port):
     assert isinstance(entry, ProjectIRCompletedValuesOutput)
     semantic = entry.semantic_entry
     relation = semantic.root
-    # An Unnest's rows have no SQL plan yet (S06): it fails closed here.
+    # An Unnest's rows are its JOIN's (U1): results build it no body.
     if (
         not isinstance(relation, (ProjectValuesRelation, ProjectTableFunctionRelation))
         or not isinstance(

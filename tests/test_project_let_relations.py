@@ -658,10 +658,6 @@ ORDERED_BODY_SHAPE = (
     BODY_SHAPE + " A let read by `collect`, `scalar`, `in` or `not in`, or joined, "
     "may also end in ORDER BY and LIMIT."
 )
-COLLECT_GATE = (
-    "Collect relation reads are not supported by the current scalar-only project "
-    "boundary."
-)
 # The body rule of a let joined LATERAL or read by scalar, IN or NOT IN.
 LATERAL_BODY_SHAPE = (
     "Let m with capture lines may use only FROM, WHERE, an ungrouped SELECT, "
@@ -1419,10 +1415,10 @@ CORRELATED_READS = {
     "ordered_read_by_collect": (
         _ordered("exists m").replace("    where exists m\n", "")
         + "        rows_of_m = collect m\n",
-        [("PIE-S2802", COLLECT_GATE, 19, 21)],
+        [],
     ),
     # A Collect is the let's one read too (S04): a second read is refused
-    # before semantic analysis, which then reports no PIE-S2802.
+    # before semantic analysis.
     "ordered_read_by_exists_and_collect": (
         _ordered("exists m") + "        rows_of_m = collect m\n",
         [("PIE-S2370", READ_ONLY_BY_EXISTS, 20, 21)],

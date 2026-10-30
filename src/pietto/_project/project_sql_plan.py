@@ -30,6 +30,7 @@ from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_values as valuesplan
 from pietto._project import project_sql_plan_literals as literals
+from pietto._project import project_sql_plan_nested as nested
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -73,6 +74,7 @@ from pietto.ir.model import SymbolId, SymbolNamespace
 
 from pietto._project.model import (
     ProjectResolvedType,
+    ProjectResolvedTypeKind,
     ProjectRowFieldNullability,
     ProjectSymbolKind,
 )
@@ -144,6 +146,7 @@ from pietto.ast_nodes import (
     ConditionalExpr,
     IsNullExpr,
     CallExpr,
+    CollectRelationExpr,
     DottedNameExpr,
     FromClause,
     LiteralExpr,
@@ -162,6 +165,7 @@ from pietto.ast_nodes import (
     TableDef,
     TableFunctionFromClause,
     TableFunctionRelationDef,
+    UnnestRelationDef,
     ValuesBody,
     ValuesColumn,
     ValuesRelationDef,
@@ -195,6 +199,7 @@ _KNOWN_DEFINITIONS = frozenset(
         ast.SetRelationDef,
         ast.ValuesRelationDef,
         ast.TableFunctionRelationDef,
+        ast.UnnestRelationDef,
     }
 )
 
@@ -256,7 +261,7 @@ def _closure(
     # Coordinates index already-owned occurrences; every edge checks object identity.
     root = bundle.root
     owners = {_owner_key(o): o for o in root.owners}
-    incoming: dict[tuple[int, int, int, int], list[ProjectCompletionDependency]] = {
+    incoming: dict[_OwnerKey, list[ProjectCompletionDependency]] = {
         k: [] for k in owners
     }
     for dependency in root.dependencies:
@@ -270,9 +275,7 @@ def _closure(
         incoming[consumer].append(dependency)
     # An expression block use reads its whole target block, so the target and
     # every source it reaches belong to the statement, never as an input use.
-    reads: dict[tuple[int, int, int, int], list[ProjectIRExpressionBlockUse]] = {
-        k: [] for k in owners
-    }
+    reads: dict[_OwnerKey, list[ProjectIRExpressionBlockUse]] = {k: [] for k in owners}
     for edge in root.expression_uses:
         consumer = _owner_key(edge.use.consumer)
         target = _owner_key(edge.use.target)
@@ -284,7 +287,7 @@ def _closure(
         reads[consumer].append(edge)
     pending = [_owner_key(selected)]
     entries_by_owner = {_owner_key(e.owner): e for e in root.entries}
-    reached: set[tuple[int, int, int, int]] = set()
+    reached: set[_OwnerKey] = set()
     while pending:
         key = pending.pop()
         if key not in reached:
@@ -441,7 +444,10 @@ def _blockers(
                 (ProjectIRCompletedSetOperationOutput, ProjectIRQueryBlockTerminal),
             ):
                 raise ValueError("SET body requires its exact completed SET IR entry")
-        elif isinstance(definition, (ValuesRelationDef, TableFunctionRelationDef)):
+        elif isinstance(
+            definition,
+            (ValuesRelationDef, TableFunctionRelationDef, UnnestRelationDef),
+        ):
             if not isinstance(
                 entry, (ProjectIRCompletedValuesOutput, ProjectIRQueryBlockTerminal)
             ):
@@ -612,7 +618,7 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
             () if aggregate is not None else authority.selected_references,
             strict=True,
         )
-        if not isinstance(f.item.expression, WindowExpr)
+        if not isinstance(f.item.expression, (WindowExpr, CollectRelationExpr))
     )
     blockers = []
     if (
@@ -623,6 +629,7 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
             if condition.use.owner is entry.owner
             for value in existence_values(condition)
         )
+        - _collect_reads(() if aggregate is not None else authority.selections)
     ) - _site_block_reads(
         site
         for site, _evidence, _references in sites
@@ -825,7 +832,7 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
             () if aggregating else authority.selected_references,
             strict=True,
         )
-        if not isinstance(fact.item.expression, WindowExpr)
+        if not isinstance(fact.item.expression, (WindowExpr, CollectRelationExpr))
     )
     result = []
     if (
@@ -837,6 +844,7 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
             for node in row.scalar_nodes(use.clause.on_clause.expression)
             if isinstance(node, AnyExpr)
         )
+        - _collect_reads(() if aggregating else authority.selections)
     ) - _site_block_reads(
         site
         for site, _evidence, _references in sites
@@ -1074,6 +1082,16 @@ def _normalized_scalar_expression(
     ):
         return evidence.normalized_expression
     return expression
+
+
+def _collect_reads(selections) -> frozenset[int]:
+    """Identities of the Collect reads that are whole ungrouped SELECT items:
+    each is the projection of its own export, never a row value site."""
+    return frozenset(
+        id(fact.item.expression)
+        for fact in selections
+        if type(fact.item.expression) is CollectRelationExpr
+    )
 
 
 def _site_block_reads(sites) -> frozenset[int]:
@@ -1389,6 +1407,8 @@ class ProjectSQLPlanRefKind(StrEnum):
     SYMBOL = "symbol"
     ORIGIN = "origin"
     DEMAND = "demand"
+    COLLECT = "collect"
+    UNNEST = "unnest"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -1488,9 +1508,10 @@ class ProjectSQLCapture:
     """CaptureV1 in the plan: one capture line of ``inner`` reads the current
     row of ``outer`` at the outer's single read of ``inner``.
 
-    ``read`` is that read's expression value, ``block`` its SELECT block and
-    ``ports`` the block's stage ports of the captured input's fields, in the
-    order of ``edge.fields``. It is never an input use, boundary or port.
+    ``read`` is that read: its expression value (a block read), its JOIN input
+    (LATERAL) or its COLLECT. ``block`` is its SELECT block or JOIN and
+    ``ports`` the block's ports of the captured input's fields, in the order
+    of ``edge.fields``. It is never an input use, boundary or port.
     """
 
     ref: ProjectSQLPlanRef
@@ -1678,6 +1699,8 @@ class ProjectSQLOriginRole(StrEnum):
     CAPTURE = "capture"
     SYMBOL = "symbol"
     DEMAND = "demand"
+    COLLECT = "collect"
+    UNNEST = "unnest"
 
 
 class ProjectSQLOriginProvenance(StrEnum):
@@ -1694,6 +1717,7 @@ type ProjectSQLCause = (
     | ValuesRelationDef
     | TableFunctionFromClause
     | TableFunctionRelationDef
+    | UnnestRelationDef
     | DistinctClause
     | OrderByClause
     | LimitClause
@@ -1741,6 +1765,8 @@ type ProjectSQLOriginEvidence = (
     | ProjectNoJoinScalarExpression
     | ValueType
     | ProjectRowField
+    | nested.ProjectSQLCollect
+    | nested.ProjectSQLUnnest
 )
 
 
@@ -1788,6 +1814,7 @@ type ProjectSQLDemand = (
     | joining.ProjectSQLJoinDemand
     | aggregation.ProjectSQLAggregateDemand
     | windows.ProjectSQLWindowDemand
+    | nested.ProjectSQLCollectionDemand
 )
 
 
@@ -1875,6 +1902,8 @@ class ProjectSQLPlan:
     set_columns: tuple[sets.ProjectSQLSetColumn, ...]
     values_bodies: tuple[valuesplan.ProjectSQLValuesBody, ...]
     values_columns: tuple[valuesplan.ProjectSQLValuesColumn, ...]
+    collects: tuple[nested.ProjectSQLCollect, ...]
+    unnests: tuple[nested.ProjectSQLUnnest, ...]
 
     def __init__(self) -> Never:
         raise TypeError("ProjectSQLPlan is closed; use build_project_sql_plan.")
@@ -1912,19 +1941,26 @@ class ProjectSQLPlan:
         )
 
 
-def _owner_key(owner: ProjectDeclarationOccurrence) -> tuple[int, int, int, int]:
+type _OwnerKey = tuple[int, int, int, int, int]
+
+
+def _owner_key(owner: ProjectDeclarationOccurrence) -> _OwnerKey:
     """Coordinates of one relation-body owner; a relation let has its own.
 
-    A table-function input shares its body's positions and is told apart by
-    the last coordinate. An Unnest occurrence shares them too and has no
-    coordinate of its own yet (S06), so it fails closed rather than collide.
+    A table-function input or an Unnest occurrence shares its body's
+    positions and is told apart by the last two coordinates.
     """
 
-    if owner.unnest is not None:
-        raise ValueError("ProjectSQLPlan has no Unnest locator.")
     let_position = -1 if owner.let_position is None else owner.let_position
     function = 0 if owner.table_function is None else 1
-    return owner.module_position, owner.declaration_position, let_position, function
+    unnest = -1 if owner.unnest_position is None else owner.unnest_position
+    return (
+        owner.module_position,
+        owner.declaration_position,
+        let_position,
+        function,
+        unnest,
+    )
 
 
 def _dependency_symbol(
@@ -1961,11 +1997,14 @@ def _binding_label(dependency: ProjectCompletionDependency) -> str:
     )
 
 
+type _OriginKey = tuple[str, int, int, int, bool, int]
+
+
 def _origin_index(
     scope: ProjectSQLPlanScope,
-) -> dict[tuple[str, int, int, int, bool], ProjectModuleOriginPath]:
+) -> dict[_OriginKey, ProjectModuleOriginPath]:
     """Index existing complete origin paths; no path construction or name lookup."""
-    result: dict[tuple[str, int, int, int, bool], ProjectModuleOriginPath] = {}
+    result: dict[_OriginKey, ProjectModuleOriginPath] = {}
     attribution = scope.analysis_bundle.root.base_plan.attribution
     for origin in attribution.origins:
         if origin.import_occurrence is not None:
@@ -1976,6 +2015,7 @@ def _origin_index(
                 occurrence.item_position,
                 -1,
                 False,
+                -1,
             )
         else:
             assert origin.local_occurrence is not None
@@ -1986,6 +2026,9 @@ def _origin_index(
                 occurrence.declaration_position,
                 -1 if occurrence.let_position is None else occurrence.let_position,
                 occurrence.table_function,
+                -1
+                if occurrence.unnest_position is None
+                else occurrence.unnest_position,
             )
         if key in result:
             raise ValueError("Origin occurrence index must not choose a winner.")
@@ -1995,7 +2038,7 @@ def _origin_index(
 
 def _binding_origin(
     symbol: ProjectResolvedModuleRelationSymbol,
-    index: Mapping[tuple[str, int, int, int, bool], ProjectModuleOriginPath],
+    index: Mapping[_OriginKey, ProjectModuleOriginPath],
 ) -> ProjectModuleOriginPath:
     imported = symbol.imported_binding
     target = symbol.target_occurrence
@@ -2006,6 +2049,7 @@ def _binding_origin(
             imported.request.item_position,
             -1,
             False,
+            -1,
         )
         if imported is not None
         else (
@@ -2014,6 +2058,7 @@ def _binding_origin(
             target.declaration_position,
             -1 if target.let_position is None else target.let_position,
             target.table_function is not None,
+            -1 if target.unnest_position is None else target.unnest_position,
         )
     )
     origin = index.get(key)
@@ -2049,17 +2094,17 @@ def _root_inventory(
     dependencies = tuple(
         d for d in root.dependencies if _owner_key(d.consumer) in reached
     )
-    historical: dict[tuple[int, int, int, int], list[ProjectIRCrossRelationEdge]] = {}
+    historical: dict[_OwnerKey, list[ProjectIRCrossRelationEdge]] = {}
     for edge in root.base_plan.cross_relation_edges:
         historical.setdefault(
             _owner_key(edge.consumer.semantic_facts.owner), []
         ).append(edge)
     by_owner = {_owner_key(e.owner): e for e in concrete}
-    per_owner: dict[tuple[int, int, int, int], list[ProjectCompletionDependency]] = {}
+    per_owner: dict[_OwnerKey, list[ProjectCompletionDependency]] = {}
     for dep in dependencies:
         dep.__post_init__()
         per_owner.setdefault(_owner_key(dep.consumer), []).append(dep)
-    images: dict[tuple[tuple[int, int, int, int], int], ProjectSQLInputEdge] = {}
+    images: dict[tuple[_OwnerKey, int], ProjectSQLInputEdge] = {}
     for entry in concrete:
         key = _owner_key(entry.owner)
         deps = per_owner.get(key, ())
@@ -2171,6 +2216,7 @@ def _field_site(
     | SelectItem
     | ValuesColumn
     | TableFunctionRelationDef
+    | UnnestRelationDef
 ):
     definition = entry.owner.definition
     if isinstance(definition, (TableDef, QueryDef)) and len(
@@ -2181,7 +2227,14 @@ def _field_site(
         return definition.body.columns[position]
     if isinstance(
         definition,
-        (SourceDef, TableDef, QueryDef, SetRelationDef, TableFunctionRelationDef),
+        (
+            SourceDef,
+            TableDef,
+            QueryDef,
+            SetRelationDef,
+            TableFunctionRelationDef,
+            UnnestRelationDef,
+        ),
     ):
         return definition
     raise ValueError("Only relation definitions own exported fields.")
@@ -2468,7 +2521,8 @@ def build_project_sql_bindings(
                 | QueryDef
                 | SetRelationDef
                 | ValuesRelationDef
-                | TableFunctionRelationDef,
+                | TableFunctionRelationDef
+                | UnnestRelationDef,
                 entry.owner.definition,
             ),
             entry,
@@ -2589,6 +2643,10 @@ def build_project_sql_bindings(
         if isinstance(definition.entry.owner.definition, SourceDef):
             continue
         for i, port in enumerate(definition.exports):
+            # A nested export's representation is its Collect read's
+            # COLLECT_EXPORT demand; each child field keeps its producer's.
+            if _nested_port(port):
+                continue
             demand_ref = ref(K.DEMAND)
             demand_origin = origin(
                 demand_ref,
@@ -2636,6 +2694,14 @@ def build_project_sql_bindings(
     ).items():
         object.__setattr__(bindings, name, value)
     return bindings
+
+
+def _nested_port(port: ProjectSQLPort) -> bool:
+    """Whether a port carries a nested relation value, not a scalar."""
+    return (
+        port.field.evidence.resolved_type.kind
+        is ProjectResolvedTypeKind.NESTED_RELATION
+    )
 
 
 def _query_parameters(
@@ -2747,6 +2813,63 @@ def build_project_sql_plan(
         return ProjectSQLPlanRef(scope=bindings.scope, kind=kind, position=position)
 
     capture_refs = {id(edge): ref(K.CAPTURE) for edge in capture_edges}
+    # Every Collect read of the statement keeps its plan ref in block-use
+    # order; the record itself is completed at its parent's PROJECTION block.
+    collect_refs = {
+        id(use.expression): ref(K.COLLECT)
+        for use in bindings.expression_block_uses
+        if type(use.expression) is CollectRelationExpr
+    }
+    collects: list[nested.ProjectSQLCollect] = []
+    definitions_by_ref = {d.ref: d for d in bindings.definitions}
+
+    def collect(definition, block, semantic, export, stage_context):
+        expression = semantic.item.expression
+        use = block_uses_by_expression.get(id(expression))
+        if use is None or use.consumer is not definition.ref:
+            raise ValueError("Collect read lacks its exact expression block use.")
+        fact = nested.collect_read(completed, definition.entry.owner, expression)
+        nested_type = export.field.evidence.resolved_type.nested
+        if (
+            fact.read is not use.edge.use.evidence
+            or fact.diagnostic is not None
+            or nested_type is None
+            or nested_type is not fact.nested_type
+        ):
+            raise ValueError("Collect read lacks its typed read fact.")
+        value_ref = collect_refs[id(expression)]
+        local_captures = []
+        for edge in capture_edges:
+            if edge.checkpoint.read is not use.edge:
+                continue
+            found = capture_stage_ports(edge, stage_context.ports)
+            if found is None:
+                raise ValueError("Capture read lacks its outer row ports.")
+            captures.append(
+                ProjectSQLCapture(
+                    ref=capture_refs[id(edge)],
+                    inner=definitions_by_owner[id(edge.capture.inner)].ref,
+                    outer=definitions_by_owner[id(edge.capture.outer)].ref,
+                    read=value_ref,
+                    block=block,
+                    ports=tuple(port.ref for port in found),
+                    edge=edge,
+                )
+            )
+            local_captures.append(capture_refs[id(edge)])
+        return nested.ProjectSQLCollect(
+            ref=value_ref,
+            block=block,
+            export=export.ref,
+            use=use.ref,
+            producer=use.producer,
+            children=tuple(
+                port.ref for port in definitions_by_ref[use.producer].exports
+            ),
+            captures=tuple(local_captures),
+            semantic=semantic,
+            fact=fact,
+        )
 
     def stage_port(block, kind, key, source, evidence, local_symbols):
         port = row.ProjectSQLStagePort(
@@ -3449,7 +3572,13 @@ def build_project_sql_plan(
         authored = entry.owner.definition
         if isinstance(
             authored,
-            (SourceDef, SetRelationDef, ValuesRelationDef, TableFunctionRelationDef),
+            (
+                SourceDef,
+                SetRelationDef,
+                ValuesRelationDef,
+                TableFunctionRelationDef,
+                UnnestRelationDef,
+            ),
         ):
             continue
         assert isinstance(authored, (TableDef, QueryDef))
@@ -3971,6 +4100,15 @@ def build_project_sql_plan(
                                 source=selected_window,
                                 input=input_port.ref,
                                 export=export.ref,
+                            )
+                        )
+                    elif type(semantic.item.expression) is CollectRelationExpr:
+                        # PIE-S2803 admits a Collect read in ungrouped SELECTs only.
+                        if aggregate is not None:
+                            raise ValueError("A Collect read is no grouped value.")
+                        collects.append(
+                            collect(
+                                definition, block_ref, semantic, export, stage_context
                             )
                         )
                     elif aggregate is not None:
@@ -4832,8 +4970,50 @@ def build_project_sql_plan(
         window_arguments=tuple(window_arguments),
         window_policies=tuple(window_policies),
         window_projections=tuple(window_projections),
+        collects=tuple(sorted(collects, key=lambda item: item.ref.position)),
     ).items():
         object.__setattr__(plan, name, value)
+    if len(collects) != len(collect_refs):
+        raise ValueError("Every Collect read needs its one SELECT item.")
+    # The right input of an Unnest JOIN reads the element rows of a nested
+    # field of its left row; that field's Collect read is found by lineage.
+    join_inputs_by_ref = {value.ref: value for value in join_inputs}
+    unnests = []
+    for join in plan.joins:
+        left, right = (join_inputs_by_ref[item] for item in join.inputs)
+        producer = (
+            None if right.producer is None else definitions_by_ref[right.producer]
+        )
+        if producer is None or producer.entry.owner.unnest is None:
+            continue
+        semantic = nested.unnest_occurrence(completed, producer.entry.owner)
+        source = _one(
+            tuple(
+                port
+                for port, (binding, _) in zip(
+                    left.ports, join.source.source.left_fields, strict=True
+                )
+                if binding is not None
+                and binding.identity.binding_position
+                == semantic.source_binding_position
+                and join_ports_by_ref[port].field.evidence.resolved_type.nested
+                is semantic.nested_type
+            ),
+            "Unnest source port",
+        )
+        unnests.append(
+            nested.ProjectSQLUnnest(
+                ref=ref(K.UNNEST),
+                join=join.ref,
+                input=right.ref,
+                definition=producer.ref,
+                source=source,
+                collect=nested.collect_of(plan, source).ref,
+                outputs=join.outputs[len(left.ports) :],
+                semantic=semantic,
+            )
+        )
+    object.__setattr__(plan, "unnests", tuple(unnests))
     result_collections = results.build(plan, ref)
     for name, value in result_collections.items():
         object.__setattr__(plan, name, value)
@@ -4924,6 +5104,74 @@ def build_project_sql_plan(
                     subject=witness.ref,
                     kind=kind,
                     witness=witness,
+                    origin=demand_origin,
+                )
+            )
+    for value in plan.collects:
+        owner = owners_by_definition[block_by_ref[value.block].definition]
+        cause = value.semantic.item
+        antecedents, kinds = nested.origin_parts(value)
+        original = origin(
+            value.ref, R.COLLECT, P.MEMBERSHIP, owner, cause, value, antecedents
+        )
+        export_origin = origin(
+            value.export,
+            R.EXPORT,
+            P.VALUE,
+            owner,
+            cause,
+            export_by_ref[value.export].field,
+            (value.ref,),
+        )
+        limit = nested.collect_limit(plan, value)
+        extra = {
+            nested.ProjectSQLCollectionDemandKind.COLLECT: (original,),
+            nested.ProjectSQLCollectionDemandKind.COLLECT_ORDER: (
+                original,
+                origin_by_subject[nested.collect_order(plan, value).ref],
+                *(() if limit is None else (origin_by_subject[limit.ref],)),
+            ),
+            nested.ProjectSQLCollectionDemandKind.COLLECT_EXPORT: (export_origin,),
+        }
+        for kind, subject, provenance in kinds:
+            demand_ref = ref(K.DEMAND)
+            demand_origin = origin(
+                demand_ref, R.DEMAND, provenance, owner, cause, value, extra[kind]
+            )
+            demands.append(
+                nested.ProjectSQLCollectionDemand(
+                    ref=demand_ref,
+                    subject=subject,
+                    kind=kind,
+                    witness=value,
+                    origin=demand_origin,
+                )
+            )
+    for value in plan.unnests:
+        condition = join_by_ref[value.join].source.condition
+        owner, cause = condition.use.owner, condition.use.clause
+        antecedents, kinds = nested.origin_parts(value)
+        original = origin(
+            value.ref, R.UNNEST, P.MEMBERSHIP, owner, cause, value, antecedents
+        )
+        extra = {
+            nested.ProjectSQLCollectionDemandKind.UNNEST_ROWS: (original,),
+            nested.ProjectSQLCollectionDemandKind.UNNEST_SOURCE: (
+                original,
+                origin_by_subject[value.collect],
+            ),
+        }
+        for kind, subject, provenance in kinds:
+            demand_ref = ref(K.DEMAND)
+            demand_origin = origin(
+                demand_ref, R.DEMAND, provenance, owner, cause, value, extra[kind]
+            )
+            demands.append(
+                nested.ProjectSQLCollectionDemand(
+                    ref=demand_ref,
+                    subject=subject,
+                    kind=kind,
+                    witness=value,
                     origin=demand_origin,
                 )
             )

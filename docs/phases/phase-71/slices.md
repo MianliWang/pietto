@@ -44,7 +44,7 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 | S03 | 最小现代源语法：`name = collect let_name`（`collect` 为上下文词；预计要改 grammar，并按规定重新生成 parser、跑复现检查）与 `let o = unnest(binding.field)` 作 JOIN 输入（只改语义准入）；同名用户 `def` 的区分规则；嵌套类型与 occurrence/nullability 契约；未知 variant 先失败关闭；单文件、LEGACY_FLAT、PACKAGE_ROOT 的确定诊断（说明怎样建 `schema_version = 2` 项目）；D71.01/D71.02 批准的公开诊断变化与逐字消息；`explain` 嵌套类型显示为 UX 候选 | A01 | S01 | 必做 |
 | [S04](slice-04.md) | Collect 对已完成关系的绑定：closed/captured、显式 capture 与参数、空集与 bag、限定准入（一次使用、Top-K、未分组 SELECT）；被 collect 读的 let 未写 `order by` 的确定诊断（D71.03） | A01, A02, A03 | S03 | 必做 |
 | [S05](slice-05.md) | CROSS/INNER/LEFT Unnest 的绑定、presence、输出字段/nullability/grain 与拒绝（JOIN 必须写种类，参数必须是可见 binding 的嵌套字段） | A01, A04 | S03, S04 | 必做 |
-| S06 | IR/ProjectSQLPlan 中的 Collect/Unnest 表达、source closure、需求与独立 correspondence | A02, A03, A04, A06 | S04, S05 | 必做 |
+| [S06](slice-06.md) | IR/ProjectSQLPlan 中的 Collect/Unnest 表达、source closure、需求与独立 correspondence | A02, A03, A04, A06 | S04, S05 | 必做 |
 | S07 | 递归 ResultContract、可移植闭合 schema、层级意义与完整 digest 规则 | A07, A08 | S02, S06 | 必做 |
 | S08 | PostgreSQL 的 Collect source emission：closed/captured、空集、顺序契约与 Top-K、并列子表的独立运输与真实 artifact | A02, A03, A05, A06 | S02, S06, S07 | 必做 |
 | S09 | Collect 的 compiled build/verify/lowering 与 source-free 契约；为 Unnest 保留最小闭合表示，未接通时确定拒绝 | A07, A11 | S06, S07, S08 | 必做 |

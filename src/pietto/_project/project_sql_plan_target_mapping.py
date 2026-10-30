@@ -17,6 +17,7 @@ from pietto._project import project_sql_plan_joins as joins
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_values as valuesplan
+from pietto._project import project_sql_plan_nested as nested
 from pietto._project.model import (
     ProjectResolvedType,
     ProjectResolvedTypeKind,
@@ -93,6 +94,7 @@ class MappingGap(StrEnum):
     RESULT = "original_result_boundary_equivalence_order_limit_or_export"
     SET = "original_set_operation_properties_membership_or_positional_types"
     VALUES = "original_values_rows_declared_column_types_and_static_bounds"
+    COLLECTION = "original_collection_bag_order_presence_and_children"
     TYPE_UNMODELED = "no_exact_type_catalog_schema"
     SCALAR_UNMODELED = "no_exact_scalar_schema_for_original_typed_expression"
     AGGREGATE_UNMODELED = "no_direct_field_signature_mapping_for_original_argument"
@@ -116,6 +118,7 @@ RESIDUALS = MappingProxyType(
         F.RESULT: MappingGap.RESULT,
         F.SET: MappingGap.SET,
         F.VALUES: MappingGap.VALUES,
+        F.COLLECTION: MappingGap.COLLECTION,
     }
 )
 LITERAL_GAPS = (
@@ -201,6 +204,13 @@ SUPPORTED_SUBKINDS = MappingProxyType(
             "values_fixed_rows_within_static_bounds",
             "values_declared_column_type_and_nullability",
         ),
+        "collection": (
+            "collect_completed_bag_per_parent_row",
+            "collect_element_order_from_producer_order",
+            "collect_container_and_child_fields",
+            "unnest_child_rows_and_left_placeholder",
+            "unnest_source_field_and_children",
+        ),
     }
 )
 
@@ -218,6 +228,7 @@ SUPPORTED_VARIANTS = (
     sets.ProjectSQLSetDemand,
     valuesplan.ProjectSQLValuesDemand,
     lit.ProjectSQLLiteralDemand,
+    nested.ProjectSQLCollectionDemand,
 )
 
 

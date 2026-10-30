@@ -19,6 +19,7 @@ from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_values as valuesplan
 from pietto._project import project_sql_plan_literals as literals
+from pietto._project import project_sql_plan_nested as nested
 from pietto._project.project_sql_plan_verification import (
     ProjectSQLPlanVerification,
     verify_project_sql_plan,
@@ -50,6 +51,7 @@ class ProjectSQLDemandFamily(StrEnum):
     SET = "set"
     VALUES = "values"
     LITERAL = "fixed_literal_transport"
+    COLLECTION = "collection"
 
 
 F = ProjectSQLDemandFamily
@@ -68,6 +70,7 @@ DEMAND_FAMILIES = MappingProxyType(
         sets.ProjectSQLSetDemand: F.SET,
         valuesplan.ProjectSQLValuesDemand: F.VALUES,
         literals.ProjectSQLLiteralDemand: F.LITERAL,
+        nested.ProjectSQLCollectionDemand: F.COLLECTION,
     }
 )
 
@@ -82,6 +85,7 @@ type ProjectSQLDemandSubkind = (
     | sets.ProjectSQLSetDemandKind
     | valuesplan.ProjectSQLValuesDemandKind
     | literals.ProjectSQLLiteralTag
+    | nested.ProjectSQLCollectionDemandKind
     | None
 )
 
@@ -172,6 +176,13 @@ SUBKINDS: Mapping[ProjectSQLDemandFamily, tuple[ProjectSQLDemandSubkind, ...]] =
                 literals.ProjectSQLLiteralTag.INT,
                 literals.ProjectSQLLiteralTag.TEXT,
                 literals.ProjectSQLLiteralTag.FLOAT,
+            ),
+            F.COLLECTION: (
+                nested.ProjectSQLCollectionDemandKind.COLLECT,
+                nested.ProjectSQLCollectionDemandKind.COLLECT_ORDER,
+                nested.ProjectSQLCollectionDemandKind.COLLECT_EXPORT,
+                nested.ProjectSQLCollectionDemandKind.UNNEST_ROWS,
+                nested.ProjectSQLCollectionDemandKind.UNNEST_SOURCE,
             ),
         }
     )
@@ -464,6 +475,10 @@ def context_index(plan: sql.ProjectSQLPlan):
     inherit(plan.set_inputs, "operand")
     inherit(plan.set_columns, "body")
     inherit(plan.values_columns, "body")
+    for value in plan.collects:
+        context = contexts[value.block]
+        put(value, context.definition, context.stages)
+    inherit(plan.unnests, "join")
     for site in plan.literal_sites:
         context = contexts[site.position.context_ref]
         put(site, context.definition, context.stages, context.input_uses)
@@ -833,6 +848,7 @@ def _verify_report(report, verification):
                 results.ProjectSQLResultDemand,
                 sets.ProjectSQLSetDemand,
                 valuesplan.ProjectSQLValuesDemand,
+                nested.ProjectSQLCollectionDemand,
             ),
         ):
             kind = demand.kind

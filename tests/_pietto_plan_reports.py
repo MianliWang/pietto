@@ -57,6 +57,27 @@ def _cases():
             + "    union all:\n        from seed\n        from rows\n",
             None,
         ),
+        # A Collect read of a let with its own ORDER BY and LIMIT (S06).
+        "collect": (
+            minimal_source().split("query result:")[0]
+            + "query result:\n    let named:\n        from rows\n"
+            + "        select:\n            id\n            name\n"
+            + "        order by id\n        limit 3\n    from rows\n"
+            + "    select:\n        id\n        named_rows = collect named\n",
+            None,
+        ),
+        # A LEFT Unnest of a parent's Collect output (S06).
+        "unnest": (
+            minimal_source().split("query result:")[0]
+            + "query parent:\n    let named:\n        from rows\n"
+            + "        select:\n            id\n            name\n"
+            + "        order by id\n    from rows\n"
+            + "    select:\n        id\n        named_rows = collect named\n"
+            + "query result:\n    from parent\n"
+            + "    let o = unnest(parent.named_rows)\n    left join o on True\n"
+            + "    select:\n        id = parent.id\n        name = o.name\n",
+            None,
+        ),
     }
 
 

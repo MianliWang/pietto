@@ -67,7 +67,7 @@ from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_values as valuesplan
-from pietto.ast_nodes import SourceDef
+from pietto.ast_nodes import SourceDef, UnnestRelationDef
 from pietto._project.project_query_block_ir import (
     ProjectIRCompletedSetOperationOutput,
     ProjectIRCompletedValuesOutput,
@@ -113,6 +113,7 @@ _KNOWN_DEFINITIONS = frozenset(
         ast.SetRelationDef,
         ast.ValuesRelationDef,
         ast.TableFunctionRelationDef,
+        ast.UnnestRelationDef,
     }
 )
 
@@ -530,9 +531,16 @@ def origin_context(plan):
 
 
 def terminal_index(plan):
-    """Canonical source/result identities map to their actual available ports."""
+    """Canonical source/result identities map to their actual available ports;
+    an Unnest's element ports are their own (U1)."""
     ports = {port.ref: port for port in plan.result_ports}
     terminals = {port.ref: port for port in plan.source_ports}
+    terminals.update(
+        (port.ref, port)
+        for definition in plan.bindings.definitions
+        if isinstance(definition.entry.owner.definition, UnnestRelationDef)
+        for port in definition.exports
+    )
     for image in plan.result_exports:
         if image.canonical.ref in terminals or image.port not in ports:
             raise ValueError("Terminal exports must have one exact value image")
@@ -698,12 +706,14 @@ def build(plan, ref):
     terminals = {}
     binding_uses = {id(use.edge): use for use in plan.input_uses}
     local_stage = {p.ref: p for p in plan.stage_ports}
+    # A Collect read is the projection of its nested export.
     projections = {
         p.export: p
         for p in (
             *plan.projections,
             *plan.aggregate_projections,
             *plan.window_projections,
+            *plan.collects,
         )
     }
     blocks = {
@@ -732,7 +742,8 @@ def build(plan, ref):
         authored = entry.owner.definition
         if type(authored) not in _KNOWN_DEFINITIONS:
             raise ValueError("Unknown result definition")
-        if isinstance(authored, SourceDef):
+        # An Unnest's element rows are its JOIN's, never a VALUES body (U1).
+        if isinstance(authored, (SourceDef, UnnestRelationDef)):
             terminals.update((value.ref, value) for value in definition.exports)
             continue
         if isinstance(entry, ProjectIRCompletedValuesOutput):

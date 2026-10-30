@@ -63,21 +63,6 @@ def test_unknown_ast_node_source_membership_fails_closed():
         maps.membership(_source_map_membership_plan(script))
 
 
-def test_collect_ast_node_is_refused_by_unclosed_direct_readers():
-    from pietto._project import project_sql_plan_portable as portable
-
-    collect = ast.CollectRelationExpr(
-        span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=15),
-        relation_name="children",
-    )
-
-    with pytest.raises(ValueError, match="Collect relation reads are unavailable"):
-        maps.membership(_source_map_membership_plan(collect))
-    with pytest.raises(portable.TransportError) as raised:
-        portable._fields(collect)
-    assert raised.value.issue is portable.RuntimeIssue.UNSUPPORTED_VALUE
-
-
 def _source_map_membership_plan(script):
     authority = SimpleNamespace(
         catalogs=SimpleNamespace(catalogs=()),
@@ -164,6 +149,8 @@ def corpus(tmp_path_factory):
             "hidden_group",
             "hidden_window",
             "values",
+            "collect",
+            "unnest",
         )
     }
     cases["renamed"] = (_chain(), None)
@@ -199,6 +186,24 @@ def test_all_original_roles_have_closed_real_mapping_rules(corpus):
         for product in corpus.values()
         for entry in product[3].entries
     } == set(R) - {R.RELATIONSHIP_MATCH}
+
+
+@pytest.mark.parametrize("policy", tuple(P))
+def test_a_collect_read_maps_to_its_select_item_and_its_read(corpus, policy):
+    _, plan, _, product, _, view = corpus["collect", policy]
+    (value,) = plan.collects
+    item = value.semantic.item
+    assert type(item.expression) is ast.CollectRelationExpr
+    (entry,) = (e for e in product.entries if e.original.subject is value.ref)
+    assert entry.original.role is R.COLLECT
+    assert entry.nature is maps.ProjectSQLSourceNature.SYNTAX_CORRESPONDENCE
+    assert {(a.kind, a.site.occurrence) for a in view.associations(entry.ref)} >= {
+        (K.CAUSE, item),
+        (K.EXPRESSION_BODY, item.expression),
+    }
+    (site,) = (s for s in product.sites if s.occurrence is item.expression)
+    span = item.expression.span
+    assert (site.location.line, site.location.column) == (span.line, span.column)
 
 
 @pytest.mark.parametrize("policy", tuple(P))

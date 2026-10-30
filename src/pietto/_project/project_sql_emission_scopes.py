@@ -13,6 +13,7 @@ from pietto._project.project_sql_plan import (
 from pietto._project.project_sql_plan_results import ProjectSQLResultPort
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
+from pietto.ast_nodes import UnnestRelationDef
 
 __all__: tuple[str, ...] = ()
 
@@ -99,6 +100,13 @@ def verify_emission_layout(layout, verification):
         terminals: dict[ProjectSQLPlanRef, ProjectSQLPort | ProjectSQLResultPort] = {
             port.ref: port for port in plan.source_ports
         }
+        # An Unnest's element ports are their own terminals (U1).
+        terminals.update(
+            (port.ref, port)
+            for definition in plan.bindings.definitions
+            if type(definition.entry.owner.definition) is UnnestRelationDef
+            for port in definition.exports
+        )
         for image in plan.result_exports:
             if image.canonical.ref in terminals or image.port not in results:
                 return False

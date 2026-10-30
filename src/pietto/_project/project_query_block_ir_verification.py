@@ -49,6 +49,7 @@ from pietto._project.aggregate_grouped_schema import (
     ProjectGroupKeyFact,
 )
 from pietto._project.model import (
+    ProjectResolvedTypeKind,
     ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
     ProjectRowResultRole,
@@ -195,6 +196,7 @@ from pietto.ast_nodes import (
     AuthoredJoinKind,
     WindowExpr,
     BlockRelationDef,
+    CollectRelationExpr,
     DottedNameExpr,
     LetRelationDef,
     LiteralExpr,
@@ -207,6 +209,7 @@ from pietto.ast_nodes import (
     Span,
     TableDef,
     TableFunctionRelationDef,
+    UnnestRelationDef,
     UnaryExpr,
 )
 from dataclasses import fields as _dataclass_fields, is_dataclass
@@ -855,7 +858,13 @@ def _verify_ledger(
 
 
 _RELATION_READS = frozenset(
-    {RelationExistsExpr, RelationMembershipExpr, RelationScalarExpr, AnyExpr}
+    {
+        RelationExistsExpr,
+        RelationMembershipExpr,
+        RelationScalarExpr,
+        AnyExpr,
+        CollectRelationExpr,
+    }
 )
 
 
@@ -883,8 +892,12 @@ def _authored_relation_reads(definition: object) -> tuple[object, ...]:
 
 def _read_column(expression: object, output: object) -> int | None:
     """A scalar read's one named output column, a membership read's sole
-    column; an existence read has none."""
-    if type(expression) in {RelationExistsExpr, AnyExpr} or output is None:
+    column; an existence read and a Collect read, which reads whole rows,
+    have none."""
+    if (
+        type(expression) in {RelationExistsExpr, AnyExpr, CollectRelationExpr}
+        or output is None
+    ):
         return None
     fields = cast(Any, output).row_shape.fields
     if type(expression) is RelationMembershipExpr:
@@ -1095,7 +1108,7 @@ def _verify_capture_uses(
     outers = {
         (owner.identity.module_path, owner.declaration_position): owner
         for owner in root.owners
-        if owner.let_position is None
+        if owner.let_position is None and owner.unnest_position is None
     }
     dependencies = {
         (id(edge.consumer), edge.dependency_ordinal): edge for edge in root.dependencies
@@ -1817,6 +1830,16 @@ def _class_signatures(
     )
 
 
+def _nested_positions(properties: ProjectIROutputRelationalProperties) -> set[int]:
+    """A nested relation has no equality, so it is in no value class
+    (D-S04-3)."""
+    return {
+        field.field_position
+        for field in properties.fields
+        if field.evidence.resolved_type.kind is ProjectResolvedTypeKind.NESTED_RELATION
+    }
+
+
 def _property_shape_valid(properties: ProjectIROutputRelationalProperties) -> bool:
     output = properties.output
     fields = properties.fields
@@ -1826,15 +1849,17 @@ def _property_shape_valid(properties: ProjectIROutputRelationalProperties) -> bo
         for position, field in enumerate(fields)
     ):
         return False
+    nested = _nested_positions(properties)
+    classed = tuple(field for field in fields if field.field_position not in nested)
     members = tuple(
         member
         for value_class in properties.value_classes
         for member in value_class.members
     )
     return (
-        len(members) == len(fields)
-        and len({id(member) for member in members}) == len(fields)
-        and all(any(member is field for member in members) for field in fields)
+        len(members) == len(classed)
+        and len({id(member) for member in members}) == len(classed)
+        and all(any(member is field for member in members) for field in classed)
         and tuple(
             min(member.field_position for member in value_class.members)
             for value_class in properties.value_classes
@@ -2743,14 +2768,25 @@ def _expected_class_signatures(
     output: ProjectIROutputRelationalProperties,
 ) -> tuple[tuple[int, ...], ...]:
     if kind is ProjectIRLogicalOperatorKind.GROUP_AGGREGATE:
-        return tuple((position,) for position in range(len(output.fields)))
-    if kind is ProjectIRLogicalOperatorKind.FINAL_PROJECTION:
+        signatures = tuple((position,) for position in range(len(output.fields)))
+    elif kind is ProjectIRLogicalOperatorKind.FINAL_PROJECTION:
         if type(entry) is ProjectIRCompletedQueryBlockOutput:
-            return _query_projection_class_signatures(entry, incoming)
-        if type(entry) is ProjectIRReboundExistingOutput:
-            return _historical_projection_class_signatures(entry, incoming)
-        raise TypeError("Projection verification requires one closed entry.")
-    return _preserved_class_signatures(incoming, len(output.fields))
+            signatures = _query_projection_class_signatures(entry, incoming)
+        elif type(entry) is ProjectIRReboundExistingOutput:
+            signatures = _historical_projection_class_signatures(entry, incoming)
+        else:
+            raise TypeError("Projection verification requires one closed entry.")
+    else:
+        signatures = _preserved_class_signatures(incoming, len(output.fields))
+    nested = _nested_positions(output)
+    return tuple(
+        members
+        for members in (
+            tuple(position for position in signature if position not in nested)
+            for signature in signatures
+        )
+        if members
+    )
 
 
 def _properties_are_imaged(
@@ -4622,6 +4658,7 @@ def _verify_values(
             and result.grain.origin_set is root.grain_origins
             and result.grain.witness is semantic.origin
             and _zero_input_root_valid(semantic, entry)
+            and _unnest_root_valid(root, semantic)
         )
         for position, (actual, expected) in enumerate(
             zip(entry.active_output.row_shape.fields, semantic.fields, strict=True)
@@ -4642,6 +4679,35 @@ def _verify_values(
                 ProjectIRQueryBlockVerificationIssueKind.SEMANTIC_EVIDENCE,
                 entry.active_output.occurrence,
             )
+
+
+def _unnest_root_valid(root, semantic) -> bool:
+    """An Unnest occurrence's rows are its one typed input fact's element
+    fields, in child order (D-S05-7); no other relation has an Unnest root."""
+    from pietto._project.project_unnest import ProjectUnnestRelation
+
+    relation, owner = semantic.root, semantic.owner
+    unnest = type(owner.definition) is UnnestRelationDef
+    if not unnest or type(relation) is not ProjectUnnestRelation:
+        return unnest is (type(relation) is ProjectUnnestRelation)
+    facts = root.completed.completion.plan.semantic_facts.find_owner(owner)
+    fact = relation.fact
+    elements = () if fact.nested_type is None else fact.nested_type.element_fields
+    return (
+        relation.definition is owner.definition
+        and fact.query_let is owner.unnest
+        and len(facts) == 1
+        and facts[0].unnest_occurrence is fact
+        and fact.diagnostic is None
+        and not relation.diagnostics
+        and len(elements) == len(semantic.fields) > 0
+        and all(
+            field.field is element.field and field.identity == identity
+            for field, element, identity in zip(
+                semantic.fields, elements, fact.element_fields, strict=True
+            )
+        )
+    )
 
 
 # The one admitted table function, re-derived here without the semantic owner.

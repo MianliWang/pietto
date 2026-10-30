@@ -55,6 +55,7 @@ _KNOWN_NODES = frozenset(
         ast.RelationExistsExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
+        ast.CollectRelationExpr,
         ast.CapturedFieldExpr,
         ast.CastExpr,
         ast.BinaryExpr,
@@ -127,6 +128,7 @@ _KNOWN_NODES = frozenset(
         ast.CaptureClause,
         ast.TableFunctionFromClause,
         ast.TableFunctionRelationDef,
+        ast.UnnestRelationDef,
         ast.SelectBody,
         ast.Script,
     }
@@ -157,6 +159,8 @@ SYNTAX_ROLES = (
     R.ORDER_ITEM,
     R.ORDER_EXPRESSION,
     R.RESULT_LIMIT,
+    R.COLLECT,
+    R.UNNEST,
 )
 GENERATED_ROLES = (
     R.SELECTED_OWNER,
@@ -450,6 +454,11 @@ def membership(plan):
         for catalog in authority.catalogs.catalogs
         for owner in catalog.relation_owners
     }
+    # An Unnest let is not in its normalized body: its occurrence view stands
+    # for it at the let's own span.
+    unnests = {
+        id(catalog.module): catalog.unnests for catalog in authority.catalogs.catalogs
+    }
     members = {}
     containers = (
         ast.FieldDef,
@@ -486,10 +495,6 @@ def membership(plan):
             value, owner, container = pending.pop()
             if id(value) in synthetic:
                 continue
-            if type(value) is ast.CollectRelationExpr:
-                raise ValueError(
-                    "Collect relation reads are unavailable in source maps."
-                )
             if isinstance(value, ast.Node) and type(value) not in _KNOWN_NODES:
                 raise ValueError("Unknown source AST node")
             declaration = owners.get((id(module), id(value)))
@@ -538,6 +543,11 @@ def membership(plan):
                         )
             pending.extend(
                 (child, owner, container) for child in reversed(_children(value))
+            )
+        for owner in unnests.get(id(module), ()):
+            view = owner.definition
+            members.setdefault((module.position, id(view)), []).append(
+                _Member(module=module, node=view, container=view, declaration=owner)
             )
     return authority.modules, {key: tuple(values) for key, values in members.items()}
 
@@ -839,7 +849,11 @@ def source_tables(plan, members) -> _SourceTables:
             **{
                 _declaration_identity(let): let
                 for catalog in attribution._authority.catalogs.catalogs
-                for let in (*catalog.lets, *catalog.table_functions)
+                for let in (
+                    *catalog.lets,
+                    *catalog.table_functions,
+                    *catalog.unnests,
+                )
             },
         },
         imports=_buckets(attribution.imports, lambda value: value.identity),

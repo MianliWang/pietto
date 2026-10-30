@@ -7,11 +7,19 @@ assign a new version or replace the published 0.1.6 release notes.
 
 ### Checking and diagnostics
 
+- **Phase71 nested-relation spellings are checked.** In an EXPLICIT_MODULES
+  project (`schema_version = 2`), `name = collect let_name` and
+  `let o = unnest(binding.field)` are now typed and checked as the next two
+  entries describe; `PIE-S2802`, which 0.1.6 reported at each of them, is
+  retired. Single files, LEGACY_FLAT projects and package modules still
+  report `PIE-S2801`, which says how to make a `schema_version = 2` project.
 - **Collect reads in explicit-module projects.** A relation with a
   `name = collect r` SELECT item now completes like any other: the Collect
   output is a nested relation that is never None, and its relation stays
-  readable with `from`, a JOIN, `exists` and its scalar columns. Each Collect
-  read is still `PIE-S2802`, so such a project does not yet check or emit SQL.
+  readable with `from`, a JOIN, `exists` and its scalar columns. Such a
+  project checks; `emit-sql --project` reports `PIE-B1003`
+  `collect_not_admitted_on_target` at each Collect read, since no target
+  admits its lowering yet.
   New errors say why a read is not admitted: `PIE-S2803` for a Collect in a
   grouped SELECT or a relation let, of a source, table or query instead of a
   relation let of the same body, of a let whose columns are not known before
@@ -33,8 +41,10 @@ assign a new version or replace the published 0.1.6 release notes.
   followed by one `cross join o`, `inner join o on ...` or `left join o on True`
   now reads the rows of a nested field that a `collect` SELECT item outputs:
   `o` has the collected let's fields, and its JOIN reports what any JOIN
-  reports. Each Unnest let is still `PIE-S2802`, so such a project does not
-  yet check or emit SQL. New errors say why an Unnest is not admitted: `PIE-S2806` for an argument that is not a nested field of the FROM
+  reports. Such a project checks; `emit-sql --project` reports `PIE-B1003`
+  `unnest_not_admitted_on_target` at each Unnest let, since no target admits
+  its lowering yet. New errors say why an Unnest is not
+  admitted: `PIE-S2806` for an argument that is not a nested field of the FROM
   input or a CROSS, INNER or LEFT JOIN written before the let, and `PIE-S2807`
   for a RIGHT or FULL JOIN of it, a second JOIN, another read of its name, an
   Unnest in a relation let, or one beside grouping, aggregates, windows,

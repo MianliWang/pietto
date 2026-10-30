@@ -12,7 +12,6 @@ import pytest
 from pietto._project import (
     project_query_block_ir_inspection,
     project_sql_emission_portable,
-    project_sql_plan,
 )
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import (
@@ -48,7 +47,6 @@ from pietto._project.project_ir_verification import (
     verify_project_ir_stage,
 )
 from pietto._project.project_joined_row_filter import ProjectJoinedRowFilterKind
-from pietto._project.project_query_block_ir import build_project_query_block_ir
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     BlockRelationDef,
@@ -83,14 +81,6 @@ query parent:
         id
         nested = collect all_orders
 """
-COLLECT_GATE = (
-    "PIE-S2802",
-    20,
-    18,
-    "Collect relation reads are not supported by the current scalar-only "
-    "project boundary.",
-)
-
 # Completion builds the row of a producer with an authored JOIN, a set or a
 # table function; its Collect output is typed before it, its other fields
 # against the completed row.
@@ -99,16 +89,6 @@ JOINED_HEAD = HEAD.replace(
     "    from customers\n    let c2 = customers\n"
     "    inner join c2 on customers.id == c2.id\n",
 ).replace("        id\n        nested", "        id = customers.id\n        nested")
-
-
-def _gate(line: int) -> tuple[str, int, int, str]:
-    return (
-        "PIE-S2802",
-        line,
-        5,
-        "Unnest relation reads are not supported by the current scalar-only "
-        "project boundary.",
-    )
 
 
 def _query(*lines: str, name: str = "expanded") -> str:
@@ -366,13 +346,8 @@ def test_the_portable_identity_omits_an_absent_unnest_locator_and_refuses_one(
     assert "table_function" not in data and "let_position" not in data
     with pytest.raises(TypeError, match="Portable identity has no Unnest locator."):
         encode(project_declaration_occurrence_identity(catalog.unnests[0]))
-    # The SQL plan keys owners by position, which an Unnest shares (S06).
-    with pytest.raises(ValueError, match="ProjectSQLPlan has no Unnest locator."):
-        project_sql_plan._owner_key(catalog.unnests[0])
     with pytest.raises(TypeError, match="Portable emission has no Unnest locator."):
         project_sql_emission_portable._occurrence(catalog.unnests[0])
-    with pytest.raises(ValueError, match="Query-block IR has no Unnest operator."):
-        build_project_query_block_ir(_completed(semantic))
 
 
 # --- AC-02: resolution by identity ---
@@ -428,7 +403,7 @@ def test_an_unnest_name_that_a_relation_also_has_stays_ambiguous(
     ) == [("PIE-S2604", 24, 5, "Ambiguous JOIN input: o", None)]
 
 
-# --- AC-03: an admitted Unnest reports only the lowering boundary ---
+# --- AC-03: an admitted Unnest checks like any other JOIN (D-S06-1) ---
 
 
 ADMITTED = {
@@ -442,7 +417,7 @@ ADMITTED = {
 
 
 @pytest.mark.parametrize("join", ADMITTED.values(), ids=ADMITTED.keys())
-def test_an_admitted_unnest_reports_only_its_gates(
+def test_an_admitted_unnest_checks(
     tmp_path: Path,
     join: tuple[str, ...],
     capsys: pytest.CaptureFixture[str],
@@ -457,10 +432,7 @@ def test_an_admitted_unnest_reports_only_its_gates(
         "order by total desc",
         "limit 3",
     )
-    assert _located(_checked(capsys, tmp_path, {"main.pietto": source})) == [
-        COLLECT_GATE,
-        _gate(23),
-    ]
+    assert _checked(capsys, tmp_path, {"main.pietto": source}) == []
 
 
 @pytest.mark.parametrize(
@@ -507,18 +479,12 @@ def test_an_admitted_unnest_reports_only_its_gates(
     ],
     ids=["from-alias", "left-joined-parent", "join-binding", "cross-joined-parent"],
 )
-def test_an_unnest_of_an_alias_or_join_binding_reports_only_its_gates(
+def test_an_unnest_of_an_alias_or_join_binding_checks(
     tmp_path: Path,
     body: tuple[str, ...],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    let_line = 22 + next(i for i, line in enumerate(body) if "unnest(" in line)
-    assert _located(
-        _checked(capsys, tmp_path, {"main.pietto": HEAD + _query(*body)})
-    ) == [
-        COLLECT_GATE,
-        _gate(let_line),
-    ]
+    assert _checked(capsys, tmp_path, {"main.pietto": HEAD + _query(*body)}) == []
 
 
 def test_an_unnest_of_an_imported_relation_and_of_a_joined_producer(
@@ -537,13 +503,10 @@ def test_an_unnest_of_an_imported_relation_and_of_a_joined_producer(
     diagnostics = _checked(
         capsys, tmp_path, {"main.pietto": producer, "reader.pietto": reader}
     )
-    assert [(code, line, column) for code, line, column, _, _ in diagnostics] == [
-        ("PIE-S2802", 22, 18),
-        ("PIE-S2802", 6, 5),
-    ]
+    assert diagnostics == []
 
 
-def test_the_language_example_reports_only_its_gates_and_emits_nothing(
+def test_the_language_example_checks(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -553,31 +516,9 @@ def test_the_language_example_reports_only_its_gates_and_emits_nothing(
         + "    select:\n        id = parent.id\n        total = o.total\n"
     )
     root = _root(tmp_path, {"main.pietto": source})
-    (root / "contract.json").write_text("{}", encoding="utf-8")
-    for dialect in ("postgres", "mysql"):
-        code = cli_main(
-            [
-                "emit-sql",
-                "--project",
-                str(root),
-                "--module",
-                "main.pietto",
-                "--kind",
-                "query",
-                "--name",
-                "expanded",
-                "--dialect",
-                dialect,
-                "--emission-contract",
-                "contract.json",
-            ]
-        )
-        document = json.loads(capsys.readouterr().out)
-        assert code == 1
-        assert (document["status"], document["artifact"]) == ("BLOCKED", None)
-        assert [
-            (item["code"], item["location"]["line"]) for item in document["diagnostics"]
-        ] == [("PIE-S2802", 20), ("PIE-S2802", 23)]
+    assert cli_main(["check", "--project", str(root)]) == 0
+    assert capsys.readouterr().out == "Project check OK: .\nFiles checked: 1\n"
+    assert _checked(capsys, tmp_path / "json", {"main.pietto": source}) == []
 
 
 # --- AC-04 to AC-06: fields, references, nullability, presence and grain ---
@@ -685,8 +626,8 @@ def test_unnest_field_reads_report_what_alias_let_reads_report(
             + _query("from orders", "select:", "    id", "    total", name="kids")
         },
     )
-    assert _located(alias) == [COLLECT_GATE, *expected]
-    assert unnest == [alias[0], (*_gate(23), unnest[1][4]), *alias[1:]]
+    assert _located(alias) == expected
+    assert unnest == alias
 
 
 def _join_facts(tmp_path: Path, *lines: str, head: str = HEAD) -> tuple[Any, Any]:
@@ -1262,9 +1203,7 @@ def test_a_relation_let_that_names_its_own_o_reads_that_one(
         "select:",
         "    t = o.total",
     )
-    assert _located(
-        _checked(capsys, tmp_path, {"main.pietto": HEAD + _query(*body)})
-    ) == [COLLECT_GATE, _gate(22 + body.index("let o = unnest(parent.nested)"))]
+    assert _checked(capsys, tmp_path, {"main.pietto": HEAD + _query(*body)}) == []
 
 
 _NOT_BEFORE = (
@@ -1411,23 +1350,17 @@ def test_an_unnest_field_that_is_no_typed_collect_output_reports_once(
     expected: list[tuple[str, int, int, str]],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    lines = source.splitlines()
-    collect_line = next(
-        number for number, line in enumerate(lines, 1) if "= collect " in line
-    )
-    unnest_line = next(
-        number for number, line in enumerate(lines, 1) if "= unnest(" in line
-    )
-    gates = [
-        ("PIE-S2802", collect_line, 18, COLLECT_GATE[3]),
-        _gate(unnest_line),
-    ]
-    # After the gates, with no PIE-S2333, PIE-S2334 or PIE-S2335 of its JOIN.
-    assert _located(
-        _checked(
-            capsys, tmp_path, {"main.pietto": source + "    select:\n        x = 1\n"}
+    # With no PIE-S2333, PIE-S2334 or PIE-S2335 of its JOIN.
+    assert (
+        _located(
+            _checked(
+                capsys,
+                tmp_path,
+                {"main.pietto": source + "    select:\n        x = 1\n"},
+            )
         )
-    ) == [*gates, *expected]
+        == expected
+    )
 
 
 def test_an_unnest_field_check_names_each_kind_of_field(tmp_path: Path) -> None:
@@ -1497,9 +1430,14 @@ def test_an_unnest_field_check_names_each_kind_of_field(tmp_path: Path) -> None:
                 "        nested = collect all_orders\n        z = None\n",
             )
             + _query("from parent", "let o = unnest(parent.z)", "cross join o"),
-            # The producer's Collect read reports PIE-S2802 inside it, so it
-            # adds no completion fallback beside it.
-            [],
+            [
+                (
+                    "PIE-S2333",
+                    10,
+                    1,
+                    "Project relation semantic completion is unavailable: parent",
+                )
+            ],
         ),
     ],
     ids=["set-of-collected", "producer-not-completed"],
@@ -1510,16 +1448,16 @@ def test_an_unnest_field_whose_producer_reports_its_own_error_reports_nothing(
     expected: list[tuple[str, int, int, str]],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    unnest_line = next(
-        number
-        for number, line in enumerate(source.splitlines(), 1)
-        if "= unnest(" in line
-    )
-    assert _located(
-        _checked(
-            capsys, tmp_path, {"main.pietto": source + "    select:\n        x = 1\n"}
+    assert (
+        _located(
+            _checked(
+                capsys,
+                tmp_path,
+                {"main.pietto": source + "    select:\n        x = 1\n"},
+            )
         )
-    ) == [COLLECT_GATE, _gate(unnest_line), *expected]
+        == expected
+    )
 
 
 def test_an_unnest_of_a_refused_collect_reports_only_the_producer_error(
@@ -1538,7 +1476,7 @@ def test_an_unnest_of_a_refused_collect_reports_only_the_producer_error(
         for code, line, column, _, _ in _checked(
             capsys, tmp_path, {"main.pietto": source}
         )
-    ] == [("PIE-S2802", 19, 18), ("PIE-S2802", 22, 5), ("PIE-S2804", 19, 18)]
+    ] == [("PIE-S2804", 19, 18)]
 
 
 @pytest.mark.parametrize(
@@ -1581,7 +1519,7 @@ def test_an_unnest_argument_error_retires_only_the_input_diagnostics_of_its_join
         for code, line, column, _, _ in _checked(
             capsys, tmp_path, {"main.pietto": source}
         )
-    ] == [("PIE-S2802", 20, 18), ("PIE-S2802", 23, 5), *expected]
+    ] == expected
 
 
 @pytest.mark.parametrize(
@@ -1619,13 +1557,10 @@ def test_an_unnest_of_a_binding_that_is_not_one_relation_keeps_its_join_diagnost
             + _query("from orders", "select:", "    id", "    total", name="kids")
         },
     )
-    gate = next(i for i, item in enumerate(alias) if item[:4] == COLLECT_GATE) + 1
-    unnest_line = 22 + len(before)
-    assert unnest[gate][:4] == _gate(unnest_line)
-    assert [*unnest[:gate], *unnest[gate + 1 :]] == alias
+    assert unnest == alias
     # The JOIN follows the reported failure of an earlier input or JOIN, as
     # any JOIN does, so it reports nothing of its own.
-    assert unnest_line + 1 not in {item[1] for item in alias}
+    assert 23 + len(before) not in {item[1] for item in alias}
 
 
 def test_a_header_parameter_named_like_an_unnest_field_collides_as_after_an_alias_let(
@@ -1656,8 +1591,8 @@ def test_a_header_parameter_named_like_an_unnest_field_collides_as_after_an_alia
         16,
         "Query parameter name is also a field, let, relation, output or window name.",
     )
-    assert _located(alias) == [COLLECT_GATE, collision]
-    assert _located(unnest) == [COLLECT_GATE, _gate(23), collision]
+    assert _located(alias) == [collision]
+    assert _located(unnest) == [collision]
 
 
 # --- AC-10, AC-11: inherited JOIN diagnostics and unchanged neighbours ---
@@ -1691,16 +1626,16 @@ def test_a_right_join_after_an_unnest_reports_what_it_reports_after_an_alias_let
             + _query("from orders", "select:", "    id", "    total", name="kids")
         },
     )
-    assert unnest == [alias[0], (*_gate(23), unnest[1][4]), *alias[1:]]
-    assert alias[1:] == [
-        ("PIE-S2335", 26, 5, "JOIN source binding is unknown.", unnest[2][4]),
+    assert unnest == alias
+    assert alias == [
+        ("PIE-S2335", 26, 5, "JOIN source binding is unknown.", unnest[0][4]),
         (
             "PIE-S2333",
             26,
             5,
             "Project relation semantic completion is unavailable: expanded (JOIN r: "
             "write `on` with the condition that matches parent or o to orders)",
-            unnest[3][4],
+            unnest[1][4],
         ),
     ]
 
@@ -1717,7 +1652,7 @@ def test_an_unnest_let_without_its_join_keeps_its_ordinary_call(
         for code, line, column, _, _ in _checked(
             capsys, tmp_path, {"main.pietto": source}
         )
-    ] == [("PIE-S2802", 20, 18), ("PIE-S2103", 23, 13), ("PIE-S2805", 23, 20)]
+    ] == [("PIE-S2103", 23, 13), ("PIE-S2805", 23, 20)]
 
 
 # --- AC-12, AC-13: one authority, one visibility rule, determinism ---
@@ -1745,8 +1680,11 @@ def test_the_sidecar_holds_the_semantic_unnest_facts_themselves(
     (fact,) = owned
     with pytest.raises(ValueError, match="one visible binding"):
         replace(fact, binding_candidates=(None,))
+    # A typed Unnest checks without a diagnostic of its own (D-S06-1).
+    assert semantic.diagnostics == ()
+    missing = unnest_field_diagnostic(fact.query_let, ProjectRowSchema(fields={}))
     with pytest.raises(ValueError, match="typed Unnest has no diagnostic"):
-        replace(fact, diagnostic=semantic.diagnostics[0])
+        replace(fact, diagnostic=missing)
 
 
 def test_the_project_ir_verifies_an_unnest_and_inspection_fails_closed(
@@ -1770,7 +1708,8 @@ def test_the_project_ir_verifies_an_unnest_and_inspection_fails_closed(
     )
     assert verification.status is ProjectIRVerificationStatus.VERIFIED
     assert not verification.issues
-    # S06 owns the Unnest locator: the inspection refuses deterministically.
+    # The private phase-62 inspection has no Unnest locator (D-S06-8): it
+    # refuses deterministically.
     for _ in range(2):
         with pytest.raises(ValueError, match="IR inspection has no Unnest locator"):
             build_project_ir_pipeline(

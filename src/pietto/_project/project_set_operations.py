@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
@@ -218,9 +218,10 @@ class ProjectSetColumn:
         state = resolved_set_nullability(self.kind, states)
         object.__setattr__(self, "inputs", inputs)
         object.__setattr__(self, "nullability", state)
-        # The column keeps its inputs' exact type; no reader rebuilds one.
+        # A copy of its inputs' exact type, nested descriptor included
+        # (D-S04-3); a fresh record keeps flat observation bytes unchanged.
         object.__setattr__(
-            self, "resolved_type", inputs[0].selected.field.resolved_type
+            self, "resolved_type", replace(inputs[0].selected.field.resolved_type)
         )
 
     @property

@@ -29,6 +29,7 @@ from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_results as results
 from pietto._project import project_sql_plan_sets as sets
 from pietto._project import project_sql_plan_values as valuesplan
+from pietto._project import project_sql_plan_nested as nested
 
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -61,6 +62,7 @@ from pietto._project.module_semantic_fact_preservation import (
 from pietto._project.module_relation_resolution import (
     ProjectResolvedModuleRelationReference,
 )
+from pietto._project.project_current_joins import resolved_join_field_nullability
 from pietto._project.project_sql_plan import (
     ProjectSQLCause,
     ProjectSQLOriginEvidence,
@@ -96,6 +98,7 @@ from pietto._project.project_sql_plan import (
     _binding_origin,
     _origin_index,
     _field_site,
+    _nested_port,
 )
 from pietto import ast_nodes
 from pietto.ast_nodes import SelectItem, WindowExpr
@@ -103,6 +106,7 @@ from pietto.ast_nodes import (
     SourceDef,
     SetRelationDef,
     TableFunctionRelationDef,
+    UnnestRelationDef,
     ValuesRelationDef,
     TableDef,
     QueryDef,
@@ -133,12 +137,16 @@ from pietto._project.module_semantic_fact_preservation import (
 )
 from pietto._project.let_scope_facts import ProjectLetScopeFactsStatus
 from pietto._project.project_final_outputs import (
+    ProjectCompletedEffectiveOutput,
     ProjectNoJoinScalarExpression,
     ProjectRelationOrderDirection,
 )
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleClauseDependencyFact,
+    ProjectModuleCollectReadFact,
     ProjectModuleOrderReferenceFact,
+    ProjectModuleSelectFact,
+    _occurrence_identity,
 )
 from pietto._project.project_row_equivalence import ProjectRowEquivalenceInput
 from pietto._project.project_sql_plan import (
@@ -146,7 +154,10 @@ from pietto._project.project_sql_plan import (
     _normalized_scalar_expression,
     _operators,
 )
-from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
+from pietto._project.project_joined_row_filter import (
+    _SQL_ROW_RETENTION_EFFECTS,
+    ProjectJoinedRowMultiplicity,
+)
 from pietto.ast_nodes import (
     UnaryExpr,
     BinaryExpr,
@@ -202,6 +213,7 @@ _KNOWN_DEFINITIONS = frozenset(
         ast_nodes.SetRelationDef,
         ast_nodes.ValuesRelationDef,
         ast_nodes.TableFunctionRelationDef,
+        ast_nodes.UnnestRelationDef,
     }
 )
 
@@ -637,7 +649,7 @@ def _binding_origins(bindings: ProjectSQLBindings) -> bool:
                 (symbol.subject,),
             )
         )
-    if len(bindings.demands) != len(bindings.sources) + len(bindings.all_exports):
+    if len(bindings.demands) != len(bindings.sources) + len(_scalar_exports(bindings)):
         return False
     i = 0
     for source in bindings.sources:
@@ -657,6 +669,8 @@ def _binding_origins(bindings: ProjectSQLBindings) -> bool:
         if isinstance(definition.entry.owner.definition, SourceDef):
             continue
         for j, port in enumerate(definition.exports):
+            if _nested_port(port):
+                continue
             expected.append(
                 (
                     bindings.demands[i].ref,
@@ -679,10 +693,17 @@ def _binding_origins(bindings: ProjectSQLBindings) -> bool:
     )
 
 
+def _scalar_exports(bindings: ProjectSQLBindings) -> tuple[ProjectSQLPort, ...]:
+    """The exports with an export representation demand: every one but a
+    nested export, whose representation is its COLLECT_EXPORT demand."""
+    return tuple(p for p in bindings.all_exports if not _nested_port(p))
+
+
 def _binding_demands(bindings: ProjectSQLBindings) -> bool:
+    scalar_exports = _scalar_exports(bindings)
     if type(bindings.demands) is not tuple or len(bindings.demands) != len(
         bindings.sources
-    ) + len(bindings.all_exports):
+    ) + len(scalar_exports):
         return False
     origins = tuple(
         o for o in bindings.origins if o.role is ProjectSQLOriginRole.DEMAND
@@ -705,7 +726,7 @@ def _binding_demands(bindings: ProjectSQLBindings) -> bool:
             ):
                 return False
         else:
-            port = bindings.all_exports[i - len(bindings.sources)]
+            port = scalar_exports[i - len(bindings.sources)]
             if (
                 type(demand) is not ProjectSQLExportRepresentationDemand
                 or demand.subject is not port.ref
@@ -2070,7 +2091,12 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         for d in definitions
         if not isinstance(
             d.entry.owner.definition,
-            (SetRelationDef, ValuesRelationDef, TableFunctionRelationDef),
+            (
+                SetRelationDef,
+                ValuesRelationDef,
+                TableFunctionRelationDef,
+                UnnestRelationDef,
+            ),
         )
     ):
         return (Issue.UNSUPPORTED_SHAPE,)
@@ -2111,6 +2137,8 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         (plan.projections, ProjectSQLProjection, K.PROJECTION),
         (plan.operands, row.ProjectSQLExpressionOperand, K.OPERAND),
         (plan.captures, ProjectSQLCapture, K.CAPTURE),
+        (plan.collects, nested.ProjectSQLCollect, K.COLLECT),
+        (plan.unnests, nested.ProjectSQLUnnest, K.UNNEST),
     ):
         if not _inventory(values, cls, plan.scope, kind):
             return (Issue.STRUCTURE,)
@@ -2128,8 +2156,12 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
         or not _result_structure(plan)
         or not _set_structure(plan)
         or not _values_structure(plan)
+        or not _nested_structure(plan)
+        or not _unnest_structure(plan)
     ):
         return (Issue.STRUCTURE,)
+    if not _nested_exports(plan):
+        return (Issue.PORTS_AND_PROJECTIONS,)
     join_by_definition = {d.ref: [] for d in definitions}
     for joined in plan.joins:
         join_by_definition[joined.definition].append(joined)
@@ -2153,7 +2185,13 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
     for definition in definitions:
         entry, authored = definition.entry, definition.entry.owner.definition
         if isinstance(
-            authored, (SetRelationDef, ValuesRelationDef, TableFunctionRelationDef)
+            authored,
+            (
+                SetRelationDef,
+                ValuesRelationDef,
+                TableFunctionRelationDef,
+                UnnestRelationDef,
+            ),
         ):
             continue
         if not isinstance(authored, (TableDef, QueryDef)):
@@ -2506,7 +2544,10 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                             strict=True,
                         )
                     )
-                    if not isinstance(fact.item.expression, WindowExpr)
+                    if not isinstance(
+                        fact.item.expression,
+                        (WindowExpr, ast_nodes.CollectRelationExpr),
+                    )
                 ]
             local_sites = []
             for role, ordinal, occurrence, evidence, references in specs:
@@ -3540,16 +3581,28 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                     return False
         if next(references, None) is not None:
             return False
-    # Every retained expression block use is read by exactly one expression,
-    # and every capture record is completed by its let's single read.
-    if len(read_uses) != len(plan.bindings.expression_block_uses) or {
-        id(u) for u in read_uses
-    } != {id(u) for u in plan.bindings.expression_block_uses}:
+    # Every retained expression block use but a Collect read is read by
+    # exactly one expression, and every capture record of such a read is
+    # completed by its let's single read; a Collect read is its COLLECT's.
+    scalar_uses = tuple(
+        u
+        for u in plan.bindings.expression_block_uses
+        if type(u.expression) is not ast_nodes.CollectRelationExpr
+    )
+    if len(read_uses) != len(scalar_uses) or {id(u) for u in read_uses} != {
+        id(u) for u in scalar_uses
+    }:
         return False
+    collect_edges = {
+        id(u.edge)
+        for u in plan.bindings.expression_block_uses
+        if type(u.expression) is ast_nodes.CollectRelationExpr
+    }
     captures = tuple(
         c
         for c in getattr(plan, "captures", ())
         if c.edge.checkpoint.stage is not ProjectIRCaptureStage.LATERAL
+        and id(c.edge.checkpoint.read) not in collect_edges
     )
     if len(read_captures) != len(captures) or {id(c) for c in read_captures} != {
         id(c) for c in captures
@@ -3871,19 +3924,40 @@ def _row_origins_and_demands(plan):
         + len(plan.values_columns)
     )
     set_count += len(plan.values_bodies) + len(plan.values_columns)
-    if len(plan.demands) != demand_prefix + len(
-        subjects
-    ) + join_count + aggregate_count + window_count + result_count + set_demands + len(
-        plan.bind_uses
-    ) or len(plan.origins) != prefix + len(specs) + len(
-        subjects
-    ) + 2 * join_count + len(plan.join_ports) + 2 * aggregate_count + len(
-        plan.aggregate_projections
-    ) + 2 * window_count + len(
-        plan.window_projections
-    ) + 2 * result_count + set_count + set_demands + len(plan.literal_sites) + len(
-        plan.literal_slots
-    ) + len(plan.fixed_envelope.values) + 2 * len(plan.bind_uses):
+    # Each Collect read has its own and its export's origin and three demands;
+    # each Unnest its own origin and two demands.
+    if (
+        len(plan.demands)
+        != demand_prefix
+        + len(subjects)
+        + join_count
+        + aggregate_count
+        + window_count
+        + result_count
+        + set_demands
+        + 3 * len(plan.collects)
+        + 2 * len(plan.unnests)
+        + len(plan.bind_uses)
+        or len(plan.origins)
+        != prefix
+        + len(specs)
+        + len(subjects)
+        + 2 * join_count
+        + len(plan.join_ports)
+        + 2 * aggregate_count
+        + len(plan.aggregate_projections)
+        + 2 * window_count
+        + len(plan.window_projections)
+        + 2 * result_count
+        + set_count
+        + set_demands
+        + 5 * len(plan.collects)
+        + 3 * len(plan.unnests)
+        + len(plan.literal_sites)
+        + len(plan.literal_slots)
+        + len(plan.fixed_envelope.values)
+        + 2 * len(plan.bind_uses)
+    ):
         return (Issue.DEMANDS,)
     operand_types = {e.ref: [] for e in plan.expressions}
     for operand in plan.operands:
@@ -4801,6 +4875,7 @@ def _result_structure(plan):
             *plan.projections,
             *plan.aggregate_projections,
             *plan.window_projections,
+            *plan.collects,
         )
     }
     blocks = {
@@ -5940,7 +6015,406 @@ def _values_origins_and_demands(plan, origin_position, demand_position):
                 return (Issue.ORIGINS,)
             origin_position += 1
             demand_position += 1
+    return _nested_origins_and_demands(plan, origin_position, demand_position)
+
+
+def _nested_origins_and_demands(plan, origin_position, demand_position):
+    """Each Collect read's origin, its export's and its three demands, then
+    each Unnest's origin and its two demands, after the VALUES family and
+    before the literals."""
+    Issue, R, P, K = (
+        ProjectSQLPlanVerificationIssue,
+        ProjectSQLOriginRole,
+        ProjectSQLOriginProvenance,
+        ProjectSQLPlanRefKind,
+    )
+    owners = {d.ref: d.entry.owner for d in plan.bindings.definitions}
+    blocks = {b.ref: b for b in plan.blocks}
+    exports = {p.ref: p for p in plan.all_exports}
+
+    def subject_origin(subject):
+        (found,) = (o.ref for o in plan.origins if o.subject is subject)
+        return found
+
+    D = nested.ProjectSQLCollectionDemandKind
+    for value in plan.collects:
+        owner = owners[blocks[value.block].definition]
+        cause = value.semantic.item
+        antecedents, kinds = nested.origin_parts(value)
+        original = plan.origins[origin_position]
+        if not _origin_matches(
+            original,
+            (value.ref, R.COLLECT, P.MEMBERSHIP, owner, cause, value, antecedents),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        export_origin = plan.origins[origin_position + 1]
+        if not _origin_matches(
+            export_origin,
+            (
+                value.export,
+                R.EXPORT,
+                P.VALUE,
+                owner,
+                cause,
+                exports[value.export].field,
+                (value.ref,),
+            ),
+            plan.scope,
+            origin_position + 1,
+        ):
+            return (Issue.ORIGINS,)
+        origin_position += 2
+        limit = nested.collect_limit(plan, value)
+        extra = {
+            D.COLLECT: (original.ref,),
+            D.COLLECT_ORDER: (
+                original.ref,
+                subject_origin(nested.collect_order(plan, value).ref),
+                *(() if limit is None else (subject_origin(limit.ref),)),
+            ),
+            D.COLLECT_EXPORT: (export_origin.ref,),
+        }
+        for kind, subject, provenance in kinds:
+            demand, demand_origin = (
+                plan.demands[demand_position],
+                plan.origins[origin_position],
+            )
+            if (
+                type(demand) is not nested.ProjectSQLCollectionDemand
+                or not _ref(demand.ref, plan.scope, K.DEMAND, demand_position)
+                or demand.subject is not subject
+                or demand.kind is not kind
+                or demand.witness is not value
+                or demand.origin is not demand_origin.ref
+            ):
+                return (Issue.DEMANDS,)
+            if not _origin_matches(
+                demand_origin,
+                (demand.ref, R.DEMAND, provenance, owner, cause, value, extra[kind]),
+                plan.scope,
+                origin_position,
+            ):
+                return (Issue.ORIGINS,)
+            origin_position += 1
+            demand_position += 1
+    joins = {j.ref: j for j in plan.joins}
+    for value in plan.unnests:
+        condition = joins[value.join].source.condition
+        owner, cause = condition.use.owner, condition.use.clause
+        antecedents, kinds = nested.origin_parts(value)
+        original = plan.origins[origin_position]
+        if not _origin_matches(
+            original,
+            (value.ref, R.UNNEST, P.MEMBERSHIP, owner, cause, value, antecedents),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        origin_position += 1
+        extra = {
+            D.UNNEST_ROWS: (original.ref,),
+            D.UNNEST_SOURCE: (original.ref, subject_origin(value.collect)),
+        }
+        for kind, subject, provenance in kinds:
+            demand, demand_origin = (
+                plan.demands[demand_position],
+                plan.origins[origin_position],
+            )
+            if (
+                type(demand) is not nested.ProjectSQLCollectionDemand
+                or not _ref(demand.ref, plan.scope, K.DEMAND, demand_position)
+                or demand.subject is not subject
+                or demand.kind is not kind
+                or demand.witness is not value
+                or demand.origin is not demand_origin.ref
+            ):
+                return (Issue.DEMANDS,)
+            if not _origin_matches(
+                demand_origin,
+                (demand.ref, R.DEMAND, provenance, owner, cause, value, extra[kind]),
+                plan.scope,
+                origin_position,
+            ):
+                return (Issue.ORIGINS,)
+            origin_position += 1
+            demand_position += 1
     return _literal_origins_and_demands(plan, origin_position, demand_position)
+
+
+def _collected_field(evidence, element, completed) -> bool:
+    """C4: a producer export carries its nested element field itself, or, when
+    the producer's completion rebuilt its row (as SELECT DISTINCT and QUALIFY
+    do), the rebuilt field of that same output, with the same type."""
+    return evidence is element.field or (
+        completed is not None
+        and completed.field is evidence
+        and completed.identity == element.identity
+        and evidence.resolved_type == element.field.resolved_type
+        and evidence.nullability is element.field.nullability
+    )
+
+
+def _nested_structure(plan) -> bool:
+    """CollectV1: the i-th Collect block use is the i-th COLLECT, the
+    projection of its nested export, re-derived from that use and the one
+    Collect read fact (C1-C6, C8)."""
+    S = row.ProjectSQLStageKind
+    uses = tuple(
+        u
+        for u in plan.expression_block_uses
+        if type(u.expression) is ast_nodes.CollectRelationExpr
+    )
+    if type(plan.collects) is not tuple or len(plan.collects) != len(uses):
+        return False
+    definitions = {d.ref: d for d in plan.bindings.definitions}
+    blocks = {b.ref: b for b in plan.blocks}
+    boundaries = {b.ref: b for b in plan.result_boundaries}
+    stage_ports = {p.ref: p for p in plan.stage_ports}
+    captures = {c.ref: c for c in plan.captures}
+    capture_edges = plan.scope.analysis_bundle.root.capture_uses
+    for value, use in zip(plan.collects, uses, strict=True):
+        parent, producer = definitions[use.consumer], definitions[use.producer]
+        semantic, fact, expression = value.semantic, value.fact, use.expression
+        authority = row.row_authority(plan.scope.completed, parent.entry)
+        ordinal = semantic.selected_output_ordinal
+        if (
+            type(semantic) is not ProjectModuleSelectFact
+            or authority is None
+            or type(ordinal) is not int
+            or not 0 <= ordinal < len(parent.exports)
+            or authority.selections[ordinal] is not semantic
+            or semantic.item.expression is not expression
+            or value.use is not use.ref
+            or value.producer is not use.producer
+            or type(fact) is not ProjectModuleCollectReadFact
+            or fact
+            is not nested.collect_read(
+                plan.scope.completed, parent.entry.owner, expression
+            )
+            or fact.read is not use.edge.use.evidence
+            or fact.nested_type is None
+            or fact.diagnostic is not None
+        ):
+            return False
+        export = parent.exports[ordinal]
+        semantic_entry = getattr(parent.entry, "semantic_entry", None)
+        if (
+            value.export is not export.ref
+            or export.field.evidence.resolved_type.nested is not fact.nested_type
+            or export.field.effective_nullability
+            is not ProjectRowFieldNullability.NON_NULL
+            or (
+                type(semantic_entry) is ProjectCompletedEffectiveOutput
+                and semantic_entry.fields[ordinal].source is not fact
+            )
+        ):
+            return False
+        children, element_fields = producer.exports, fact.nested_type.element_fields
+        rebuilt = getattr(producer.entry, "semantic_entry", None)
+        rebuilt = (
+            rebuilt.fields
+            if type(rebuilt) is ProjectCompletedEffectiveOutput
+            and len(rebuilt.fields) == len(children)
+            else (None,) * len(children)
+        )
+        if (
+            fact.nested_type.element_relation
+            != _occurrence_identity(producer.entry.owner)
+            or not children
+            or len(children) != len(element_fields)
+            or not _same(value.children, tuple(p.ref for p in children))
+            or not all(
+                _collected_field(port.field.evidence, element, completed)
+                for port, element, completed in zip(
+                    children, element_fields, rebuilt, strict=True
+                )
+            )
+        ):
+            return False
+        block = blocks.get(value.block)
+        if (
+            block is None
+            or block.definition is not parent.ref
+            or block.kind is not S.PROJECTION
+            or not any(item is value.export for item in block.exports)
+        ):
+            return False
+        # A captured let completes one capture per capture line at this read.
+        edges = tuple(e for e in capture_edges if e.checkpoint.read is use.edge)
+        incoming = tuple(stage_ports[ref] for ref in block.inputs)
+        if (
+            bool(edges) is fact.closed
+            or type(value.captures) is not tuple
+            or len(value.captures) != len(edges)
+        ):
+            return False
+        for capture_ref, edge in zip(value.captures, edges, strict=True):
+            capture = captures.get(capture_ref)
+            if (
+                capture is None
+                or capture.ref is not capture_ref
+                or capture.edge is not edge
+                or capture.read is not value.ref
+                or capture.block is not block.ref
+                or capture.inner is not producer.ref
+                or capture.outer is not parent.ref
+                or edge.checkpoint.stage
+                not in {ProjectIRCaptureStage.INPUT, ProjectIRCaptureStage.JOINED}
+                or capture.ports != _capture_ports(edge, incoming)
+            ):
+                return False
+        # The element order is the producer's own ORDER (D71.03).
+        order = nested.collect_order(plan, value)
+        nested.collect_limit(plan, value)
+        if boundaries[order.boundary].definition is not value.producer:
+            return False
+    return True
+
+
+def _unnest_structure(plan) -> bool:
+    """UnnestV1: each Unnest occurrence is the right input of exactly one
+    CROSS, INNER or LEFT JOIN, at most one per body, and its UNNEST record,
+    in JOIN order, is re-derived from that JOIN, its left row and the
+    occurrence's one input fact (U1-U6)."""
+    rows = {
+        AuthoredJoinKind.CROSS: joining.ProjectSQLJoinRows.CARTESIAN_PAIRS,
+        AuthoredJoinKind.INNER: joining.ProjectSQLJoinRows.MATCHED_PAIRS,
+        AuthoredJoinKind.LEFT: joining.ProjectSQLJoinRows.LEFT_PRESERVED,
+    }
+    definitions = {d.ref: d for d in plan.bindings.definitions}
+    inputs = {value.ref: value for value in plan.join_inputs}
+    ports = {value.ref: value for value in plan.join_ports}
+    collects = {value.ref: value for value in plan.collects}
+    occurrences = tuple(
+        d for d in plan.bindings.definitions if d.entry.owner.unnest is not None
+    )
+    read = tuple(
+        (join, inputs[join.inputs[0]], inputs[join.inputs[1]])
+        for join in plan.joins
+        if inputs[join.inputs[1]].producer in {d.ref for d in occurrences}
+    )
+    if (
+        type(plan.unnests) is not tuple
+        or len(plan.unnests) != len(read)
+        or len(read) != len(occurrences)
+        or {id(right.producer) for _, _, right in read}
+        != {id(d.ref) for d in occurrences}
+        or len({id(join.definition) for join, _, _ in read}) != len(read)
+        # Its JOIN's binding is the only use of an Unnest's rows.
+        or {
+            id(use.ref)
+            for use in plan.input_uses
+            if definitions[use.producer].entry.owner.unnest is not None
+        }
+        != {id(right.binding_use) for _, _, right in read}
+    ):
+        return False
+    for value, (join, left, right) in zip(plan.unnests, read, strict=True):
+        definition = definitions[right.producer]
+        owner = definition.entry.owner
+        semantic = value.semantic
+        nested_type = semantic.nested_type
+        facts = plan.scope.completed.completion.plan.semantic_facts.find_owner(owner)
+        if (
+            value.join is not join.ref
+            or value.input is not right.ref
+            or value.definition is not definition.ref
+            or right.ordinal != 1
+            or rows.get(join.kind) is not join.rows
+            or len(facts) != 1
+            or semantic is not facts[0].unnest_occurrence
+            or nested_type is None
+            or semantic.occurrence != _occurrence_identity(owner)
+            or semantic.owner
+            != _occurrence_identity(definitions[join.definition].entry.owner)
+        ):
+            return False
+        sources = tuple(
+            port
+            for port, (binding, _) in zip(
+                left.ports, join.source.source.left_fields, strict=True
+            )
+            if binding is not None
+            and binding.identity.binding_position == semantic.source_binding_position
+            and ports[port].field.evidence.resolved_type.nested is nested_type
+        )
+        collect = collects.get(value.collect)
+        if (
+            not _same(sources, (value.source,))
+            or collect is None
+            or collect.fact is not semantic.collect_read
+            or not _same(value.outputs, join.outputs[len(left.ports) :])
+            or len(value.outputs) != len(nested_type.element_fields)
+        ):
+            return False
+        # U4: a LEFT JOIN nulls every element field; CROSS and INNER keep the
+        # element's nullability, except that an INNER JOIN's own `on` narrows
+        # a nullable element it proves cannot be NULL, as for any JOIN input.
+        node = join.source.node.ref
+        binary = join.source.source
+        rejected = {
+            (id(proof.field.binding), id(proof.field.input_field))
+            for proof in binary.condition.null_rejections
+        }
+        origins = binary.field_inputs[len(left.ports) :]
+        if len(origins) != len(value.outputs):
+            return False
+        for ref, element, (binding, original) in zip(
+            value.outputs, nested_type.element_fields, origins
+        ):
+            field = ports[ref].field
+            nulled = any(item is node for item in ports[ref].nulling)
+            if (
+                field.evidence is not element.field
+                or nulled is not (join.kind is AuthoredJoinKind.LEFT)
+                or field.effective_nullability
+                is not resolved_join_field_nullability(
+                    join.kind,
+                    element.field.nullability,
+                    nulled,
+                    (id(binding), id(original)) in rejected,
+                )
+            ):
+                return False
+        # Element rows are a bag without keys, dependencies, order or bound.
+        properties = definition.entry.active_properties
+        if (
+            properties.multiplicity is not ProjectJoinedRowMultiplicity.BAG
+            or properties.relational.keys
+            or properties.relational.fds
+            or properties.ordering is not None
+            or properties.cardinality is not None
+            or join.properties.keys
+        ):
+            return False
+    return True
+
+
+def _nested_exports(plan) -> bool:
+    """Each nested export is one Collect read's own: no other record projects
+    it, no row expression reads its block use, and no scalar port is one."""
+    collected = tuple(value.export for value in plan.collects)
+    projected = {
+        id(p.export)
+        for p in (
+            *plan.projections,
+            *plan.aggregate_projections,
+            *plan.window_projections,
+        )
+    }
+    collect_uses = {id(value.use) for value in plan.collects}
+    return (
+        len({id(ref) for ref in collected}) == len(collected)
+        and not any(id(ref) in projected for ref in collected)
+        and {id(p.ref) for p in plan.all_exports if _nested_port(p)}
+        == {id(ref) for ref in collected}
+        and not any(
+            id(getattr(value, "use", None)) in collect_uses
+            for value in plan.expressions
+        )
+    )
 
 
 def _values_structure(plan):

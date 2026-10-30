@@ -1810,11 +1810,10 @@ Collect read, another Unnest, or a RIGHT or FULL JOIN written before it that
 may null-extend its binding, in the same table or query. Unnest in one table or
 query, and read it with `from` in another that does the rest.
 
-These values are typed but not yet lowered: each Collect read and each Unnest
-let is PIE-S2802, so such a project, the admitted programs above included,
-does not yet check or emit SQL. Single files, LEGACY_FLAT projects and package
-modules refuse both spellings with PIE-S2801, which says how to make a
-`schema_version = 2` project.
+A project checks Collect reads and Unnest lets; `emit-sql --project` reports
+PIE-B1003 for them until their lowering is admitted on the selected target.
+Single files, LEGACY_FLAT projects and package modules refuse both spellings
+with PIE-S2801, which says how to make a `schema_version = 2` project.
 
 ### Query header parameters in explicit-module projects
 

@@ -2,7 +2,6 @@
 admission, its read facts and the nested-field boundary (S04), before lowering
 exists."""
 
-import json
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -37,6 +36,7 @@ from pietto._project.project_value_fds import build_project_value_fds
 from pietto._syntax_admission import unnest_lets
 from pietto.ast_nodes import QueryDef
 from pietto.cli import main as cli_main
+from pietto.errors import Diagnostic, Severity, SourceLocation
 
 
 def _parsed_files(tmp_path: Path, sources: dict[str, str]) -> ProjectParseCheckResult:
@@ -150,10 +150,10 @@ def test_collect_retains_one_layer_child_occurrences_and_scalar_boundary(
         "non_null",
         "nullable",
     ]
-    assert _located(facts.diagnostics) == [("PIE-S2802", 13, 18)]
-    assert not semantic.ok
-    # The relation's own Collect read reports it; no completion fallback.
-    assert _checked(semantic) == [("PIE-S2802", 13, 18)]
+    # The relation checks: its Collect read reports nothing (D-S06-1), and
+    # it has no completion fallback.
+    assert _located(semantic.diagnostics) == []
+    assert _checked(semantic) == []
 
 
 @pytest.mark.parametrize(
@@ -171,8 +171,8 @@ def test_collect_quarantines_only_the_nested_output_from_scalar_inference(
         ),
     )
 
-    assert _located(semantic.diagnostics) == [("PIE-S2802", 13, 18)]
-    assert _checked(semantic) == [("PIE-S2802", 13, 18)] + (
+    assert _located(semantic.diagnostics) == []
+    assert _checked(semantic) == (
         [("PIE-S2105", 14, 15)] if sibling.startswith("bad") else []
     )
 
@@ -199,30 +199,24 @@ def test_joined_collect_owner_completes_or_reports_its_own_diagnostics(
     tmp_path: Path, tail: str
 ) -> None:
     # S04: a JOIN relation with a Collect read completes like any other; a
-    # grouped or global SELECT refuses the read (PIE-S2803) before PIE-S2802,
-    # and SELECT DISTINCT cannot compare it (PIE-S2805).
+    # grouped or global SELECT refuses the read (PIE-S2803), and SELECT
+    # DISTINCT cannot compare it (PIE-S2805).
     semantic = _semantic(tmp_path, JOINED + tail)
 
     (collect,) = _facts(semantic).collect_facts
     line = 13 + tail.count("\n", 0, tail.index("collect children"))
     expected = {
-        "    select:\n        rows.id\n        nested": [("PIE-S2802", line, 18)],
-        "    select:\n        rows.id\n        bad": [
-            ("PIE-S2802", line, 18),
-            ("PIE-S2105", 15, 15),
-        ],
-        "    where": [("PIE-S2802", line, 18)],
-        "    select distinct": [("PIE-S2802", line, 18), ("PIE-S2805", line, 18)],
-        "    group by": [("PIE-S2803", line, 18), ("PIE-S2802", line, 18)],
-        "    select:\n        n = count()": [
-            ("PIE-S2803", line, 18),
-            ("PIE-S2802", line, 18),
-        ],
-        "    select:\n        rows.id\n        r =": [("PIE-S2802", line, 18)],
+        "    select:\n        rows.id\n        nested": [],
+        "    select:\n        rows.id\n        bad": [("PIE-S2105", 15, 15)],
+        "    where": [],
+        "    select distinct": [("PIE-S2805", line, 18)],
+        "    group by": [("PIE-S2803", line, 18)],
+        "    select:\n        n = count()": [("PIE-S2803", line, 18)],
+        "    select:\n        rows.id\n        r =": [],
     }
     (diagnostics,) = (value for key, value in expected.items() if tail.startswith(key))
     assert _checked(semantic) == diagnostics
-    refused = diagnostics[0][0] == "PIE-S2803"
+    refused = diagnostics[:1] == [("PIE-S2803", line, 18)]
     assert (collect.status is ProjectNestedRelationFactStatus.AVAILABLE) is not refused
 
 
@@ -236,7 +230,7 @@ def test_a_reader_selecting_a_collect_output_reports_the_nested_field(
         SOURCE + "query reader:\n    from parent\n    select:\n        nested\n",
     )
 
-    assert _checked(semantic) == [("PIE-S2802", 13, 18), ("PIE-S2805", 17, 9)]
+    assert _checked(semantic) == [("PIE-S2805", 17, 9)]
     # The refused selection leaves the reader's row unknown, as any SELECT
     # item with an error of its own does, so a relation reading it follows
     # its reported error and never reads the nested field again.
@@ -246,10 +240,7 @@ def test_a_reader_selecting_a_collect_output_reports_the_nested_field(
         SOURCE + "query reader:\n    from parent\n    select:\n        id = nested\n"
         "query down:\n    from reader\n    where id == 1\n    select:\n        id\n",
     )
-    assert _checked(downstream) == [
-        ("PIE-S2802", 13, 18),
-        ("PIE-S2805", 17, 14),
-    ]
+    assert _checked(downstream) == [("PIE-S2805", 17, 14)]
 
 
 @pytest.mark.parametrize(
@@ -296,7 +287,8 @@ def test_unnest_retains_the_exact_nested_output_occurrence(tmp_path: Path) -> No
     assert unnest.collect_read is collect.collect_read
     assert unnest.nested_type is collect.nested_type
     assert unnest.query_let.name == "child"
-    assert _located(facts.diagnostics) == [("PIE-S2802", 13, 18), ("PIE-S2802", 16, 5)]
+    # The Unnest checks like any JOIN; emission refuses it (D-S06-1).
+    assert _located(semantic.diagnostics) == []
 
 
 def test_unnest_resolves_the_authored_from_alias_not_the_source_name(
@@ -463,10 +455,6 @@ _WRITE_ON = (
     "Project relation semantic completion is unavailable: expanded "
     "(JOIN child: write `on` with the condition that matches parent to child)",
 )
-_UNNEST_GATE = (
-    "Unnest relation reads are not supported by the current scalar-only project "
-    "boundary."
-)
 
 
 def _messages(semantic: ProjectSemanticResult) -> list[tuple[str, int, int, str]]:
@@ -517,11 +505,11 @@ def _beside_alias(
 def test_an_unnest_join_reports_what_a_join_of_an_alias_let_reports(
     tmp_path: Path, join: str
 ) -> None:
-    # S05 (D-S05-1, PIE-S2802 row): a CROSS, INNER or LEFT Unnest JOIN reads
+    # S05 (D-S05-1, PIE-S2807 row): a CROSS, INNER or LEFT Unnest JOIN reads
     # the rows of its nested field in its place, so it reports what a JOIN of
-    # an alias let of the same fields reports, in the same order, after its
-    # gate; a JOIN without `on` of another kind than CROSS names the inputs
-    # its `on` would match. A RIGHT or FULL one is refused before semantics
+    # an alias let of the same fields reports, in the same order; a JOIN
+    # without `on` of another kind than CROSS names the inputs its `on` would
+    # match. A RIGHT or FULL one is refused before semantics
     # (PIE-S2807 K, D71.04).
     if join.startswith(("right", "full")):
         parsed = _parsed_files(tmp_path, {"main.pietto": _expanded(join)})
@@ -541,17 +529,16 @@ def test_an_unnest_join_reports_what_a_join_of_an_alias_let_reports(
         return
     unnest, alias = _beside_alias(tmp_path, _expanded(join))
 
-    gate = ("PIE-S2802", 16, 5, _UNNEST_GATE)
     hint = ("PIE-S2333", 17, 5, _WRITE_ON[1])
     writes_on = not join.startswith("cross") and " on " not in join
     cross_on = join == "cross join child on True"
-    assert unnest == [alias[0], gate, *alias[1:]]
+    assert unnest == alias
     assert (hint in unnest) is writes_on
     assert (("PIE-S2336", 17, 5, "CROSS JOIN cannot have ON or VIA.") in unnest) is (
         cross_on
     )
-    # A legal Unnest JOIN reports only the lowering boundary (AC-03).
-    assert len(unnest) == 2 + writes_on + cross_on
+    # A legal Unnest JOIN reports nothing (D-S06-1).
+    assert len(unnest) == writes_on + cross_on
 
 
 @pytest.mark.parametrize(
@@ -564,13 +551,13 @@ def test_an_unnest_join_reports_what_a_join_of_an_alias_let_reports(
             "    select:\n        v = n.value\n",
             ("PIE-S2806", 16, 24),
         ),
-        # A relation let beside the Unnest let.
+        # A relation let beside the Unnest let: a legal program.
         (
             "query q:\n    let extra:\n        from rows\n        select:\n"
             "            id\n    from parent\n    let child = unnest(parent.nested)\n"
-            "    cross join child\n    where parent.id in extra\n"
-            "    select:\n        id = parent.id\n",
-            ("PIE-S2802", 20, 5),
+            "    cross join child\n    where child.id in extra\n"
+            "    select:\n        id = child.id\n",
+            None,
         ),
         # An Unnest let inside a relation let is refused before semantics
         # (S05, PIE-S2807).
@@ -584,7 +571,7 @@ def test_an_unnest_join_reports_what_a_join_of_an_alias_let_reports(
     ],
 )
 def test_an_unnest_join_of_a_block_body_is_no_unknown_relation(
-    tmp_path: Path, body: str, expected: tuple[str, int, int]
+    tmp_path: Path, body: str, expected: tuple[str, int, int] | None
 ) -> None:
     # D71.02 holds in every relation body: the JOIN is the Unnest let's one
     # input in its place, never a named relation the module lacks.
@@ -600,7 +587,7 @@ def test_an_unnest_join_of_a_block_body_is_no_unknown_relation(
     )
 
     assert "PIE-S2301" not in {code for code, _, _ in checked}
-    assert expected in checked
+    assert (checked == []) if expected is None else (expected in checked)
 
 
 def test_unnest_join_diagnostics_take_the_completion_place_of_any_join(
@@ -623,8 +610,6 @@ def test_unnest_join_diagnostics_take_the_completion_place_of_any_join(
     # Both JOINs without `on` report in the completion stage, in its relation
     # order, after every semantic-stage diagnostic.
     assert checked == [
-        ("PIE-S2802", "b.pietto", 13),
-        ("PIE-S2802", "b.pietto", 16),
         ("PIE-S2333", "a.pietto", 8),
         ("PIE-S2333", "b.pietto", 17),
     ]
@@ -652,34 +637,25 @@ def test_joins_beside_an_unnest_join_name_it_in_source_order(tmp_path: Path) -> 
         "to rows)",
     )
     hint = ("PIE-S2333", 17, 5, _WRITE_ON[1])
-    assert alias[1:] == [hint, later]
-    assert unnest == [alias[0], ("PIE-S2802", 16, 5, _UNNEST_GATE), hint, later]
+    assert alias == [hint, later]
+    assert unnest == [hint, later]
 
 
 @pytest.mark.parametrize(
-    ("body", "let_line"),
+    "body",
     [
-        (
-            "    let c = rows\n    inner join c\n"
-            "    let child = unnest(parent.nested)\n    cross join child\n"
-            "    let d = rows\n    left join d\n",
-            18,
-        ),
-        (
-            "    let child = unnest(parent.nested)\n    cross join child\n"
-            "    let c = rows\n    inner join c on c.id == child.id\n",
-            16,
-        ),
-        (
-            "    let child = unnest(parent.nested)\n    cross join child on True\n"
-            "    let x = rows\n    left join x\n",
-            16,
-        ),
+        "    let c = rows\n    inner join c\n"
+        "    let child = unnest(parent.nested)\n    cross join child\n"
+        "    let d = rows\n    left join d\n",
+        "    let child = unnest(parent.nested)\n    cross join child\n"
+        "    let c = rows\n    inner join c on c.id == child.id\n",
+        "    let child = unnest(parent.nested)\n    cross join child on True\n"
+        "    let x = rows\n    left join x\n",
     ],
     ids=["between-joins", "on-reads-it", "cross-on-first"],
 )
 def test_joins_beside_an_unnest_join_report_what_they_report_beside_an_alias_let(
-    tmp_path: Path, body: str, let_line: int
+    tmp_path: Path, body: str
 ) -> None:
     # The Unnest JOIN stays one JOIN input in its place (D71.02), bound to its
     # occurrence (S05): every JOIN of the relation reports what it reports
@@ -692,7 +668,7 @@ def test_joins_beside_an_unnest_join_report_what_they_report_beside_an_alias_let
         + "    select:\n        id\n",
     )
 
-    assert unnest == [alias[0], ("PIE-S2802", let_line, 5, _UNNEST_GATE), *alias[1:]]
+    assert unnest == alias
     assert not any("unknown" in message for _, _, _, message in unnest)
 
 
@@ -977,15 +953,17 @@ def test_semantic_result_requires_the_nested_relation_sidecar(tmp_path: Path) ->
     nested = _facts(semantic)
 
     with pytest.raises(ValueError, match="require all module sidecars"):
-        replace(
-            semantic,
-            nested_relation_facts=None,
-            diagnostics=tuple(
-                item for item in semantic.diagnostics if item not in nested.diagnostics
-            ),
-        )
+        replace(semantic, nested_relation_facts=None)
+    # A Collect read or an Unnest reports nothing of its own (D-S06-1), so no
+    # diagnostic may join the root projection.
+    extra = Diagnostic(
+        code="PIE-S2301",
+        severity=Severity.ERROR,
+        message="Unknown relation: ghost",
+        location=SourceLocation(path="main.pietto", line=16, column=5),
+    )
     with pytest.raises(ValueError, match="exact ordered root projection"):
-        replace(semantic, diagnostics=semantic.diagnostics[:-1])
+        replace(semantic, diagnostics=(*semantic.diagnostics, extra))
     # A look-alike on the same roots that omits every fact is no fact set.
     with pytest.raises(TypeError, match="exact fact set"):
         replace(
@@ -995,7 +973,6 @@ def test_semantic_result_requires_the_nested_relation_sidecar(tmp_path: Path) ->
                 semantic=nested.semantic,
                 collect_facts=(),
                 unnest_inputs=(),
-                diagnostics=nested.diagnostics,
             ),
         )
 
@@ -1008,26 +985,26 @@ def test_semantic_result_requires_the_nested_relation_sidecar(tmp_path: Path) ->
                 "nested = collect children",
                 "nested = collect children\n        id\n        id",
             ),
-            [("PIE-S2802", 13, 18), ("PIE-S2305", 15, 9)],
+            [("PIE-S2305", 15, 9)],
         ),
         (
             SOURCE.replace(
                 "nested = collect children",
                 "id\n        id\n        nested = collect children",
             ),
-            [("PIE-S2802", 15, 18), ("PIE-S2305", 14, 9)],
+            [("PIE-S2305", 14, 9)],
         ),
         # A colliding Collect/scalar output of a JOIN relation, in both
         # orders: no winner, and PIE-S2305 once at the later occurrence.
         (
             JOINED + "    select:\n        same = collect children\n"
             "        same = rows.id\n",
-            [("PIE-S2802", 14, 16), ("PIE-S2305", 15, 9)],
+            [("PIE-S2305", 15, 9)],
         ),
         (
             JOINED + "    select:\n        same = rows.id\n"
             "        same = collect children\n",
-            [("PIE-S2802", 15, 16), ("PIE-S2305", 15, 9)],
+            [("PIE-S2305", 15, 9)],
         ),
     ],
     ids=[
@@ -1040,8 +1017,8 @@ def test_semantic_result_requires_the_nested_relation_sidecar(tmp_path: Path) ->
 def test_nested_diagnostics_precede_completion_diagnostics(
     tmp_path: Path, source: str, expected: list[tuple[str, int, int]]
 ) -> None:
-    # Project stage order: the semantic stage's PIE-S2802 comes before the
-    # completion stage's PIE-S2305 wherever each is written.
+    # A Collect read reports nothing of its own (D-S06-1): only the completion
+    # stage's PIE-S2305 at the later colliding output, wherever each is written.
     assert _checked(_semantic(tmp_path, source)) == expected
 
 
@@ -1068,15 +1045,11 @@ def test_nested_diagnostics_follow_relation_resolution_in_module_order(
         },
     )
 
-    diagnostics = semantic.diagnostics
-    codes = [d.code for d in diagnostics]
-    nested = _facts(semantic).diagnostics
-    # The nested producer follows every older producer, which keep their
-    # own relative order; no unrelated diagnostic moves it.
-    assert tuple(diagnostics[len(diagnostics) - len(nested) :]) == nested
-    assert codes.count("PIE-S2802") == 1
-    old = diagnostics[: len(diagnostics) - len(nested)]
-    assert {d.code for d in old} >= {"PIE-S2301", "PIE-S2359"}
+    codes = [d.code for d in semantic.diagnostics]
+    # A Collect read reports nothing of its own (D-S06-1): every diagnostic
+    # is an older producer's, whatever the module order.
+    assert "PIE-S2802" not in codes
+    assert set(codes) >= {"PIE-S2301", "PIE-S2359"}
 
 
 def test_nested_diagnostics_follow_relation_resolution_in_dependency_order(
@@ -1106,8 +1079,6 @@ def test_nested_diagnostics_follow_relation_resolution_in_dependency_order(
     assert [(d.code, d.location.path) for d in semantic.diagnostics] == [
         ("PIE-S2301", "z.pietto"),
         ("PIE-S2301", "a.pietto"),
-        ("PIE-S2802", "z.pietto"),
-        ("PIE-S2802", "a.pietto"),
     ]
     assert [
         fact.owner.identity.declared_name for fact in _facts(semantic).collect_facts
@@ -1412,8 +1383,8 @@ def test_a_collect_owner_completes_with_its_read_as_the_output_source(
         assert output.selected_output_ordinal == ordinal
         assert output.field.resolved_type == read.resolved_type
         assert output.field.nullability is ProjectRowFieldNullability.NON_NULL
-    assert [code for code, _, _ in _located(completed.diagnostics)] == ["PIE-S2802"] * 3
-    assert not completed.ok
+    assert _located(completed.diagnostics) == []
+    assert completed.ok
 
 
 def test_a_captured_field_of_an_outer_joined_input_is_nullable_in_its_let(
@@ -1431,38 +1402,7 @@ def test_a_captured_field_of_an_outer_joined_input_is_nullable_in_its_let(
     let = _relation_facts(semantic, "mine", let=True)
     (captured,) = let.captured_value_types.values()
     assert captured.nullability.value == "nullable"
-    assert _checked(semantic) == [("PIE-S2802", 18, 21)]
-
-
-def test_emit_sql_still_blocks_every_collect_program(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert _parsed_files(tmp_path, {"main.pietto": SOURCE}).ok
-    root = tmp_path / "project"
-    (root / "contract.json").write_text("{}", encoding="utf-8")
-
-    code = cli_main(
-        [
-            "emit-sql",
-            "--project",
-            str(root),
-            "--module",
-            "main.pietto",
-            "--kind",
-            "query",
-            "--name",
-            "parent",
-            "--dialect",
-            "postgres",
-            "--emission-contract",
-            "contract.json",
-        ]
-    )
-
-    document = json.loads(capsys.readouterr().out)
-    assert code == 1
-    assert (document["status"], document["artifact"]) == ("BLOCKED", None)
-    assert [item["code"] for item in document["diagnostics"]] == ["PIE-S2802"]
+    assert _checked(semantic) == []
 
 
 @pytest.mark.parametrize(
@@ -1474,13 +1414,13 @@ def test_emit_sql_still_blocks_every_collect_program(
                 "    from customers\n", "    from customers\n    group by region\n"
             )
             .replace("    select:\n        region", "    select:\n        region"),
-            [("PIE-S2803", 33, 25), ("PIE-S2802", 33, 25)],
+            [("PIE-S2803", 33, 25)],
             "Collect relation read is available only as a SELECT item of an ungrouped "
             "table or query, not in the SELECT of a grouped query.",
         ),
         (
             _collecting(ORDERED_RECENT, "        n = count()\n"),
-            [("PIE-S2803", 31, 25), ("PIE-S2802", 31, 25)],
+            [("PIE-S2803", 31, 25)],
             "Collect relation read is available only as a SELECT item of an ungrouped "
             "table or query, not in the SELECT of a grouped query.",
         ),
@@ -1493,7 +1433,7 @@ def test_emit_sql_still_blocks_every_collect_program(
             "    select:\n        id\n",
             # The relation reports its own error inside it, so no completion
             # fallback beside it.
-            [("PIE-S2803", 32, 17), ("PIE-S2802", 32, 17)],
+            [("PIE-S2803", 32, 17)],
             "Collect relation read is available only as a SELECT item of an ungrouped "
             "table or query, not in a relation let.",
         ),
@@ -1501,13 +1441,13 @@ def test_emit_sql_still_blocks_every_collect_program(
             ADMISSION_HEAD
             + "query parent:\n    from customers\n    select:\n        id\n"
             "        everything = collect orders\n",
-            [("PIE-S2803", 25, 22), ("PIE-S2802", 25, 22)],
+            [("PIE-S2803", 25, 22)],
             "Collect relation read orders is not a relation let of parent: collect "
             "reads a relation let declared in the same table or query.",
         ),
         (
             _collecting("        union all orders, orders\n"),
-            [("PIE-S2802", 27, 25), ("PIE-S2803", 27, 25)],
+            [("PIE-S2803", 27, 25)],
             "Collect relation read recent is not yet available: the columns of recent "
             "are not known before completion.",
         ),
@@ -1516,7 +1456,7 @@ def test_emit_sql_still_blocks_every_collect_program(
                 '        values(id: Int, label: Text | None):\n            1, "new"\n'
                 "            2, None\n"
             ),
-            [("PIE-S2802", 29, 25), ("PIE-S2803", 29, 25)],
+            [("PIE-S2803", 29, 25)],
             "Collect relation read recent is not yet available: the columns of recent "
             "are not known before completion.",
         ),
@@ -1526,7 +1466,7 @@ def test_emit_sql_still_blocks_every_collect_program(
             "    let recent:\n        from both\n        select:\n            id\n"
             "        order by id\n    from customers\n    select:\n        id\n"
             "        recent_orders = collect recent\n",
-            [("PIE-S2802", 32, 25), ("PIE-S2803", 32, 25)],
+            [("PIE-S2803", 32, 25)],
             "Collect relation read recent is not yet available: the columns of recent "
             "are not known before completion.",
         ),
@@ -1534,7 +1474,7 @@ def test_emit_sql_still_blocks_every_collect_program(
             _collecting(
                 ORDERED_RECENT.replace("            note\n", "            status\n")
             ),
-            [("PIE-S2802", 31, 25), ("PIE-S2803", 31, 25)],
+            [("PIE-S2803", 31, 25)],
             "Collect relation read recent is not available: field status of recent has "
             "type Status; a collected field must be Bool, Date, Decimal, Float, Int, "
             "Text, Timestamp or UUID.",
@@ -1544,7 +1484,7 @@ def test_emit_sql_still_blocks_every_collect_program(
                 "        from customers\n        select:\n            id\n"
                 "            home\n        order by id\n"
             ),
-            [("PIE-S2802", 31, 25), ("PIE-S2803", 31, 25)],
+            [("PIE-S2803", 31, 25)],
             "Collect relation read recent is not available: field home of recent has "
             "type Address; a collected field must be Bool, Date, Decimal, Float, Int, "
             "Text, Timestamp or UUID.",
@@ -1553,7 +1493,7 @@ def test_emit_sql_still_blocks_every_collect_program(
             _collecting(
                 ORDERED_RECENT.replace("            note\n", "            payload\n")
             ),
-            [("PIE-S2802", 31, 25), ("PIE-S2803", 31, 25)],
+            [("PIE-S2803", 31, 25)],
             "Collect relation read recent is not available: field payload of recent "
             "has type Json; a collected field must be Bool, Date, Decimal, Float, Int, "
             "Text, Timestamp or UUID.",
@@ -1563,12 +1503,7 @@ def test_emit_sql_still_blocks_every_collect_program(
             + "query twice:\n    let inner:\n        from parent\n        select:\n"
             "            id\n            recent_orders\n        order by id\n"
             "    from customers\n    select:\n        id\n        all = collect inner\n",
-            [
-                ("PIE-S2802", 31, 25),
-                ("PIE-S2802", 42, 15),
-                ("PIE-S2805", 37, 13),
-                ("PIE-S2803", 42, 15),
-            ],
+            [("PIE-S2805", 37, 13), ("PIE-S2803", 42, 15)],
             # Selecting the nested field is the let's own error (PIE-S2805), and
             # the read names the one collection layer (AC-04).
             "Collect relation read inner is not available: field recent_orders of "
@@ -1579,13 +1514,13 @@ def test_emit_sql_still_blocks_every_collect_program(
             ADMISSION_HEAD
             + "query parent:\n    from customers\n    select:\n        id\n"
             "        r = collect ghost\n",
-            [("PIE-S2301", 25, 13), ("PIE-S2802", 25, 13)],
+            [("PIE-S2301", 25, 13)],
             None,
         ),
         (
             ADMISSION_HEAD + "query parent:\n    from customers\n    group by region\n"
             "    select:\n        region\n        r = collect ghost\n",
-            [("PIE-S2803", 26, 13), ("PIE-S2802", 26, 13)],
+            [("PIE-S2803", 26, 13)],
             "Collect relation read is available only as a SELECT item of an ungrouped "
             "table or query, not in the SELECT of a grouped query.",
         ),
@@ -1593,7 +1528,7 @@ def test_emit_sql_still_blocks_every_collect_program(
             ADMISSION_HEAD
             + "query parent:\n    from customers\n    select:\n        id\n"
             "        r = collect parent\n",
-            [("PIE-S2302", 25, 13), ("PIE-S2802", 25, 13)],
+            [("PIE-S2302", 25, 13)],
             None,
         ),
         (
@@ -1601,7 +1536,7 @@ def test_emit_sql_still_blocks_every_collect_program(
             + "query parent:\n    from customers\n    select:\n        id\n"
             "        r = collect child\nquery child:\n    from parent\n"
             "    select:\n        id\n",
-            [("PIE-S2302", 25, 13), ("PIE-S2802", 25, 13)],
+            [("PIE-S2302", 25, 13)],
             None,
         ),
         (
@@ -1610,14 +1545,14 @@ def test_emit_sql_still_blocks_every_collect_program(
             ),
             # A read of a let that fails reports nothing of its own, as a scalar
             # read of one does.
-            [("PIE-S2102", 26, 13), ("PIE-S2802", 31, 25)],
+            [("PIE-S2102", 26, 13)],
             None,
         ),
         (
             _collecting(
                 ORDERED_RECENT.replace("            note\n", "            x = id + 1\n")
             ),
-            [("PIE-S2802", 31, 25), ("PIE-S2803", 31, 25)],
+            [("PIE-S2803", 31, 25)],
             "Collect relation read recent is not available: the type or nullability "
             "of field x of recent is not known.",
         ),
@@ -1692,7 +1627,7 @@ def test_an_alias_leaf_is_collected_as_the_type_it_names(tmp_path: Path) -> None
     # The alias is kept on the child field's own written type.
     assert ids.field.field_def.type_expr.name == "Id"
     assert totals.field.field_def.type_expr.name == "Money"
-    assert _checked(semantic) == [("PIE-S2802", 31, 25)]
+    assert _checked(semantic) == []
 
 
 @pytest.mark.parametrize(
@@ -1712,8 +1647,8 @@ def test_a_collected_let_without_order_by_is_refused_with_its_remedy(
 
     diagnostics = build_project_completed_semantic_result(semantic).diagnostics
     line = 26 + let_body.count("\n")
-    assert _located(diagnostics) == [("PIE-S2802", line, 25), ("PIE-S2804", line, 25)]
-    refusal = diagnostics[1]
+    assert _located(diagnostics) == [("PIE-S2804", line, 25)]
+    refusal = diagnostics[0]
     assert refusal.message == (
         "Relation let recent read by `collect` has no ORDER BY: add `order by` to "
         "recent and end it with a unique field, such as a key, because rows that "
@@ -1743,7 +1678,7 @@ def test_a_captured_top_k_let_is_collected_with_its_order_and_limit(
     (read,) = _relation_facts(semantic, "parent").collect_reads
     assert read.nested_type is not None and not read.closed
     assert read.limit_clause is not None and read.order_by_clause is not None
-    assert _checked(semantic) == [("PIE-S2802", 33, 25)]
+    assert _checked(semantic) == []
 
 
 def test_the_collected_order_reaches_its_let_keys_including_unselected_fields(
@@ -1812,8 +1747,14 @@ def test_collect_read_facts_are_the_one_authority_of_each_read(tmp_path: Path) -
         for item, read in zip(collects, reads, strict=True)
     )
     # A typed read has no diagnostic, an untyped local one names why.
+    refusal = Diagnostic(
+        code="PIE-S2804",
+        severity=Severity.ERROR,
+        message="Relation let children read by `collect` has no ORDER BY.",
+        location=SourceLocation(path="main.pietto", line=13, column=18),
+    )
     with pytest.raises(ValueError, match="no diagnostic"):
-        replace(first, diagnostic=_facts(semantic).diagnostics[0])
+        replace(first, diagnostic=refusal)
     with pytest.raises(ValueError, match="names why"):
         replace(first, nested_type=None)
 
@@ -1847,9 +1788,9 @@ _JOIN = (
 )
 _SELECT_ID = "    select:\n        id\n"
 _SELECT_JOINED = "    select:\n        id = customers.id\n"
-# Each case: the reader written after the parent, and every diagnostic after
-# the parent's own PIE-S2802 at 21:25 (a PIE-S2805 at each read of a nested
-# field, at the field reference; S04 D-S04-2).
+# Each case: the reader written after the parent, and every diagnostic of the
+# project, the parent's Collect read at 21:25 reporting none (a PIE-S2805 at
+# each read of a nested field, at the field reference; S04 D-S04-2).
 NESTED_READS = {
     "where-eq": (
         _NO_JOIN + "    where recent_orders == recent_orders\n" + _SELECT_ID,
@@ -1988,7 +1929,7 @@ NESTED_READS = {
         "            id\n        order by id\n    from customers\n    select:\n"
         "        mine_all = collect mine\n"
         "query reader:\n    from customers\n    where id in only_nested\n" + _SELECT_ID,
-        [("PIE-S2802", 30, 20), ("PIE-S2805", 33, 11)],
+        [("PIE-S2805", 33, 11)],
     ),
     "captured": (
         "query reader:\n    let t:\n        capture parent\n        from orders\n"
@@ -2122,7 +2063,7 @@ def test_every_read_of_a_nested_field_reports_it_once_at_the_field(
     semantic = _semantic(tmp_path, MATRIX_HEAD + reader)
 
     diagnostics = build_project_completed_semantic_result(semantic).diagnostics
-    assert _located(diagnostics) == [("PIE-S2802", 21, 25), *expected]
+    assert _located(diagnostics) == expected
     # The reference keeps its target: never an unknown field, and the reader
     # has its own error, so no completion fallback beside it.
     for diagnostic in diagnostics:
@@ -2160,8 +2101,7 @@ def test_a_replayed_reader_reports_each_nested_read_once_at_the_field(
 
     diagnostics = build_project_completed_semantic_result(semantic).diagnostics
     assert _located(diagnostics) == [
-        ("PIE-S2802", 23, 25),
-        *((code, line + 2, column) for code, line, column in expected),
+        (code, line + 2, column) for code, line, column in expected
     ]
 
 
@@ -2203,16 +2143,15 @@ def test_a_name_of_the_own_collect_output_reports_only_the_nested_read(
 
     diagnostics = build_project_completed_semantic_result(semantic).diagnostics
     assert _located(diagnostics) == [
-        ("PIE-S2802", 21 + shift, 25),
-        ("PIE-S2802", 31 + shift, 17),
-        *((code, line + shift, column) for code, line, column in expected),
+        (code, line + shift, column) for code, line, column in expected
     ]
 
 
-# Each case: the parent, its reader, and every diagnostic after the parent's
-# PIE-S2802. A nested field read reports beside the diagnostics of the clause
-# that checks its expression, in source order with them; a relation that an
-# earlier clause stops first does not reach it, as for an unknown field.
+# Each case: the parent, its reader, and every diagnostic of the project; the
+# parent's Collect read reports none. A nested field read reports beside the
+# diagnostics of the clause that checks its expression, in source order with
+# them; a relation that an earlier clause stops first does not reach it, as
+# for an unknown field.
 CLAUSE_ORDER = {
     "where-then-select": (
         MATRIX_HEAD,
@@ -2362,8 +2301,7 @@ def test_a_nested_read_reports_with_the_clause_that_checks_it(
         _semantic(tmp_path, head + reader)
     ).diagnostics
 
-    parent = ("PIE-S2802", 21, 25) if head == MATRIX_HEAD else ("PIE-S2802", 23, 25)
-    assert _located(diagnostics) == [parent, *expected]
+    assert _located(diagnostics) == expected
 
 
 @pytest.mark.parametrize(
@@ -2400,8 +2338,8 @@ def test_each_set_operand_with_a_nested_field_is_refused(
         _semantic(tmp_path, MATRIX_HEAD + reader)
     ).diagnostics
 
-    assert _located(diagnostics) == [("PIE-S2802", 21, 25), *expected]
-    assert diagnostics[1].message == (
+    assert _located(diagnostics) == expected
+    assert diagnostics[0].message == (
         "Set operand parent outputs nested relation field recent_orders: a set "
         "operation over a collected relation is not available."
     )
@@ -2424,11 +2362,8 @@ def test_select_distinct_with_a_collect_read_is_refused_at_the_read(
     ).diagnostics
 
     line, column = (15, 18) if joined else (13, 18)
-    assert _located(diagnostics) == [
-        ("PIE-S2802", line, column),
-        ("PIE-S2805", line, column),
-    ]
-    assert diagnostics[1].message == (
+    assert _located(diagnostics) == [("PIE-S2805", line, column)]
+    assert diagnostics[0].message == (
         "Collect relation read children cannot be part of SELECT DISTINCT: a "
         "collected relation has no equality."
     )
@@ -2448,8 +2383,6 @@ def test_each_collect_read_under_select_distinct_is_refused_whatever_its_name(
 
     # The duplicate name is its own error; neither read wins over the other.
     assert _located(diagnostics) == [
-        ("PIE-S2802", 13, 18),
-        ("PIE-S2802", 14, 18),
         ("PIE-S2805", 13, 18),
         ("PIE-S2305", 14, 9),
         ("PIE-S2805", 14, 18),
@@ -2476,7 +2409,7 @@ def test_reading_a_collect_owner_without_its_nested_field_completes(
     semantic = _semantic(tmp_path, MATRIX_HEAD + reader)
 
     completed: Any = build_project_completed_semantic_result(semantic)
-    assert _located(completed.diagnostics) == [("PIE-S2802", 21, 25)]
+    assert _located(completed.diagnostics) == []
     (entry,) = (
         item
         for item in completed.effective_outputs.entries
@@ -2505,29 +2438,29 @@ _LEFT_JOIN = (
             + _LEFT_JOIN
             + "    select:\n        id = customers.id\n        x = collect recent\n"
             "        y = customers.nope\n",
-            [("PIE-S2802", 19, 13), ("PIE-S2102", 20, 13), ("PIE-S2804", 19, 13)],
+            [("PIE-S2102", 20, 13), ("PIE-S2804", 19, 13)],
         ),
         (
             "query parent:\n"
             + _LEFT_JOIN
             + "    select:\n        id = customers.id\n        x = collect orders\n"
             "        y = customers.nope\n",
-            [("PIE-S2803", 16, 13), ("PIE-S2802", 16, 13), ("PIE-S2102", 17, 13)],
+            [("PIE-S2803", 16, 13), ("PIE-S2102", 17, 13)],
         ),
         (
             _ORDERED + _LEFT_JOIN + "    select distinct:\n        id = customers.id\n"
             "        x = collect recent\n        y = customers.nope\n",
-            [("PIE-S2802", 20, 13), ("PIE-S2805", 20, 13), ("PIE-S2102", 21, 13)],
+            [("PIE-S2805", 20, 13), ("PIE-S2102", 21, 13)],
         ),
         (
             _ORDERED + "    from customers\n    where nope > 1\n    group by region\n"
             "    select:\n        region\n        x = collect recent\n",
-            [("PIE-S2803", 20, 13), ("PIE-S2802", 20, 13), ("PIE-S2102", 16, 11)],
+            [("PIE-S2803", 20, 13), ("PIE-S2102", 16, 11)],
         ),
         (
             _ORDERED + "    from customers\n    group by region\n    select:\n"
             "        region\n        bad = region + 1\n        x = collect recent\n",
-            [("PIE-S2803", 20, 13), ("PIE-S2802", 20, 13), ("PIE-S2105", 19, 15)],
+            [("PIE-S2803", 20, 13), ("PIE-S2105", 19, 15)],
         ),
     ],
     ids=[
@@ -2560,7 +2493,7 @@ _COLLECT_X = "    from customers\n    select:\n        id\n        x = collect r
         (
             _SHAPES + _RECENT + "        order by nothing\n" + _COLLECT_X,
             "parent",
-            [("PIE-S2802", 18, 13), ("PIE-S2102", 14, 18)],
+            [("PIE-S2102", 14, 18)],
         ),
         # A key named alone may name a SELECT output, which completion does not
         # order by yet: no unknown field, the owner's completion fallback.
@@ -2570,9 +2503,7 @@ _COLLECT_X = "    from customers\n    select:\n        id\n        x = collect r
             + "        order by oid\n"
             + _COLLECT_X,
             "parent",
-            # Its Collect read's own PIE-S2802 is the owner's error, so no
-            # completion fallback beside it.
-            [("PIE-S2802", 18, 13)],
+            [("PIE-S2333", 10, 1)],
         ),
         # A key that reads a nested field is the reader's own error: no
         # completion fallback beside it.
@@ -2581,7 +2512,7 @@ _COLLECT_X = "    from customers\n    select:\n        id\n        x = collect r
             "        select id\n        order by id, recent_orders\n"
             "    from customers\n    select:\n        id\n        n = collect x\n",
             "reader",
-            [("PIE-S2802", 21, 25), ("PIE-S2802", 30, 13), ("PIE-S2805", 26, 22)],
+            [("PIE-S2805", 26, 22)],
         ),
     ],
     ids=["unknown-key", "output-name-key", "nested-key"],
@@ -2632,7 +2563,6 @@ def test_readers_of_an_owner_whose_collected_let_does_not_order_wait_for_it(
     )
 
     assert _located(completed.diagnostics) == [
-        ("PIE-S2802", 18, 13),
         ("PIE-S2102", 14, 18),
     ]
     entries = {
@@ -2690,8 +2620,8 @@ def test_a_nested_field_passed_to_a_def_is_a_read_not_a_selection(
         )
     ).diagnostics
 
-    assert _located(diagnostics) == [("PIE-S2802", 21, 25), ("PIE-S2805", 27, 15)]
-    assert "cannot be read in a SELECT expression" in diagnostics[1].message
+    assert _located(diagnostics) == [("PIE-S2805", 27, 15)]
+    assert "cannot be read in a SELECT expression" in diagnostics[0].message
 
 
 def _key_facts(semantic: ProjectSemanticResult) -> tuple[object, ...]:
@@ -2782,7 +2712,7 @@ def test_the_check_outputs_name_no_internal_nested_type(
 
 def test_an_unnest_argument_is_no_nested_field_read(tmp_path: Path) -> None:
     # The language reference example, in an EXPLICIT_MODULES project: S05
-    # binds the Unnest let, so only the lowering boundary remains (AC-03).
+    # binds the Unnest let, and it checks (D-S06-1).
     source = (
         "shape Order:\n    id: Int\n    customer_id: Int\nsource orders: Order = "
         'postgres.table("orders")\nquery customers_with_orders:\n    let recent:\n'
@@ -2795,10 +2725,7 @@ def test_an_unnest_argument_is_no_nested_field_read(tmp_path: Path) -> None:
     )
     semantic = _semantic(tmp_path, source)
 
-    assert _checked(semantic) == [
-        ("PIE-S2802", 14, 25),
-        ("PIE-S2802", 17, 5),
-    ]
+    assert _checked(semantic) == []
     (unnest,) = _facts(semantic).unnest_inputs
     assert unnest.status is ProjectNestedRelationFactStatus.AVAILABLE
 
@@ -2821,7 +2748,7 @@ def test_an_unnest_argument_is_no_nested_field_read(tmp_path: Path) -> None:
     ],
     ids=["header-parameter", "grouped-stage"],
 )
-def test_admitted_collect_shapes_report_only_the_lowering_boundary(
+def test_admitted_collect_shapes_check_without_diagnostics(
     tmp_path: Path, source: str
 ) -> None:
     semantic = _semantic(tmp_path, ADMISSION_HEAD + source)
@@ -2835,7 +2762,7 @@ def test_admitted_collect_shapes_report_only_the_lowering_boundary(
         for read in facts.collect_reads
     ]
     assert len(reads) == 1 and reads[0].nested_type is not None
-    assert [code for code, _, _ in _checked(semantic)] == ["PIE-S2802"]
+    assert _checked(semantic) == []
     # Rows that tie and rows that repeat stay a bag; no row is the empty bag,
     # and a child field keeps its own nullability.
     assert reads[0].multiplicity == "bag" and reads[0].empty_value == ()
