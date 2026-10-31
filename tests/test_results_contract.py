@@ -1,6 +1,6 @@
 """Ordinary Arrow-free tests: real authored roots and independent boundary damage."""
 
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, fields, replace
 from decimal import Decimal
 import importlib.util
 import json
@@ -236,6 +236,30 @@ def test_private_product_does_not_change_public_api_or_core_dependencies():
     assert project["dependencies"] == ["antlr4-python3-runtime==4.13.2"]
     assert project["optional-dependencies"]["arrow"] == ["pyarrow==26.0.0"]
     assert json.loads(probe.emission_input("mysql"))["target"]["family"] == "mysql"
+
+
+def test_nested_producer_binding_is_private_frozen_and_identity_compared(built):
+    import pietto
+
+    assert [f.name for f in fields(p.ProducerNestedBinding)] == [
+        "field",
+        "column",
+        "count",
+        "children",
+        "nullable",
+    ]
+    field = built["postgres"][2].shape.fields[0]
+    args = (field, None, probe.observations("postgres")[0], (), False)
+    bound = p.ProducerNestedBinding(*args)
+    with pytest.raises(FrozenInstanceError):
+        setattr(bound, "nullable", True)
+    assert not hasattr(bound, "__dict__")
+    assert bound != p.ProducerNestedBinding(*args)
+    assert p.__all__ == () and a.__all__ == ()
+    assert a.MAX_CHILD_ROWS == 1048576
+    assert not any(
+        hasattr(pietto, name) for name in ("ProducerNestedBinding", "MAX_CHILD_ROWS")
+    )
 
 
 @pytest.mark.parametrize("bad", (None, {}, object()))

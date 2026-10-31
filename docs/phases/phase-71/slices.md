@@ -48,7 +48,7 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 | [S07](slice-07.md) | 递归 ResultContract、可移植闭合 schema、层级意义与完整 digest 规则 | A07, A08 | S02, S06 | 必做 |
 | [S08](slice-08.md) | PostgreSQL 的 Collect source emission：closed/captured、空集、顺序契约与 Top-K、并列子表的独立运输与真实 artifact | A02, A03, A05, A06 | S02, S06, S07 | 必做 |
 | [S09](slice-09.md) | Collect 的 compiled build/verify/lowering 与 source-free 契约；为 Unnest 保留最小闭合表示，未接通时确定拒绝 | A07, A11 | S06, S07, S08 | 必做 |
-| S10 | 真实 emission 的 producer/Arrow binding、owned construction、递归验证与 children/bytes 计量 | A08, A09 | S07, S08 | 必做 |
+| [S10](slice-10.md) | 真实 emission 的 producer/Arrow binding、owned construction、递归验证与 children/bytes 计量 | A08, A09 | S07, S08 | 必做 |
 | S11 | 嵌套 copy/borrow/lease、C data/stream 相关通路、非零 offset、零行与 close 生命周期 | A08, A09 | S10 | 必做 |
 | S12 | **中点**：Int/Bool/有限 Text 的公开最小真实纵向；曝光前完成准入、未闭合消费者的预拒绝与基础失败/cleanup；接收 S08 的 AC-F7（`L_relation_collect` 目标变体、收据 v3 的 `array` cell、`docs/development.md` 的 denominator 段与 D71.11 的 PostgreSQL 运行；D71.10 scope 一次） | A02, A06, A07, A08, A09 | S08, S09, S10, S11 | 必做 / 中点 |
 | S13 | Unnest 的真实 source emission → compiled → 公开 native/bundle；最小纵向只交付最终平面输出，含 presence 与早期拒绝 | A04, A06, A07, A09 | S05, S06, S08, S09 | 必做 |

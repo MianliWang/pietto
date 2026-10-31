@@ -2,14 +2,20 @@
 
 from dataclasses import replace
 import json
+import sys
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
 from _pietto_execution_rows_cases import CASES, build
+import _pietto_results_nested as nested
+import _pietto_results_product as probe
 from pietto._project.project_result_output import prepare_output, verify_output
-from pietto._project.project_result_binding import bind_producer
+from pietto._project.project_result_binding import ProducerFieldBinding, bind_producer
 from pietto._project.project_result_contract import ResultError
+from pietto._project.project_execution import ExecutionLimits
+from pietto._project import project_execution_reader as reader
 from pietto._project.project_execution_reader import bind_postgres_output
 from pietto._project import project_arrow_result as scalar
 
@@ -59,7 +65,9 @@ def test_computed_metadata_and_original_damage(tmp_path):
         scalar._value(True, binding.fields[1])
     with pytest.raises(ResultError, match="^PRODUCER_UNSUPPORTED$"):
         bind_producer(
-            output.contract, artifact, tuple(f.observation for f in binding.fields)
+            output.contract,
+            artifact,
+            tuple(cast(ProducerFieldBinding, f).observation for f in binding.fields),
         )
     for columns, code in (
         (output.columns[::-1], "COLUMNS"),
@@ -217,3 +225,111 @@ def test_family_authority_cannot_be_replaced_by_matching_shape(
         match="^Emission inspection requires a verified artifact: plan_ast_correspondence$",
     ):
         verify_output(output, output.artifact, output.contract)
+
+
+# -- S10: the strict pg_column_arrays_v1 decoder (Arrow-free) -----------------
+
+
+@pytest.fixture(scope="module")
+def collect_producer(tmp_path_factory):
+    """The rows reader's binding of a real Collect: renamed, then c(i, b, t)."""
+    return nested.real(probe, tmp_path_factory.mktemp("decoder") / "collect")
+
+
+GOOD = (7, 2, [7, 7], [True, None], ["a", ""])
+DECODED = (7, ([7, 7], [True, None], ["a", ""]))
+
+
+def test_the_carrier_decodes_to_logical_nested_values(collect_producer):
+    arrow = "pyarrow" in sys.modules
+    rows = (GOOD, (0, 0, None, None, None), (1, 1, [5], [None], [None]))
+    decoded, children = reader.decode_carrier_rows(collect_producer, rows, 3)
+    # The empty collection is the count 0 with NULL arrays; an all-NULL child
+    # row is still one child row.
+    assert decoded == (DECODED, (0, ((), (), ())), (1, ([5], [None], [None])))
+    assert children == 3
+    with pytest.raises(ResultError, match="^EXECUTION_RESOURCE_LIMIT$"):
+        reader.decode_carrier_rows(collect_producer, rows, 2)
+    # Binding and decoding never import Arrow.
+    assert ("pyarrow" in sys.modules) is arrow
+
+
+CARRIER_DAMAGE = {
+    "count_bool": ((7, True, [7], [True], ["a"]), "EXECUTION_CARRIER"),
+    "count_text": ((7, "1", [7], [True], ["a"]), "EXECUTION_CARRIER"),
+    "count_negative": ((7, -1, None, None, None), "EXECUTION_CARRIER"),
+    "count_over_cap": ((7, (1 << 20) + 1, None, None, None), "EXECUTION_CARRIER"),
+    "empty_as_arrays": ((7, 0, [], [], []), "EXECUTION_CARRIER"),
+    "empty_one_array": ((7, 0, None, [], None), "EXECUTION_CARRIER"),
+    "short_array": ((7, 2, [7, 7], [True], ["a", "b"]), "EXECUTION_CARRIER"),
+    "long_array": ((7, 1, [7], [True, False], ["a"]), "EXECUTION_CARRIER"),
+    "null_array": ((7, 1, [7], None, ["a"]), "EXECUTION_CARRIER"),
+    "tuple_array": ((7, 1, (7,), [True], ["a"]), "EXECUTION_CARRIER"),
+    "absent_non_null_container": ((7, None, None, None, None), "NULL"),
+    "two_dimensional": ((7, 1, [[7]], [True], ["a"]), "VALUE_DOMAIN"),
+    "outside_int64": ((7, 1, [99999999999999999999], [True], ["a"]), "VALUE_DOMAIN"),
+    "bool_as_int": ((7, 1, [True], [True], ["a"]), "VALUE_DOMAIN"),
+    "int_as_bool": ((7, 1, [7], [1], ["a"]), "VALUE_DOMAIN"),
+    "text_too_long": ((7, 1, [7], [True], ["x" * 257]), "VALUE_DOMAIN"),
+    "text_nul": ((7, 1, [7], [True], ["a\0b"]), "VALUE_DOMAIN"),
+    "null_in_non_null_child": ((7, 1, [None], [True], ["a"]), "NULL"),
+    "row_short": ((7, 1, [7], [True]), "EXECUTION_METADATA"),
+    "row_long": ((7, 1, [7], [True], ["a"], None), "EXECUTION_METADATA"),
+}
+
+
+@pytest.mark.parametrize("name", sorted(CARRIER_DAMAGE))
+def test_a_malformed_carrier_row_is_refused(collect_producer, name):
+    row, category = CARRIER_DAMAGE[name]
+    with pytest.raises(ResultError) as caught:
+        reader.decode_carrier_rows(collect_producer, (GOOD, row), 1 << 20)
+    assert caught.value.category == category
+
+
+def test_an_absent_container_has_only_null_arrays(collect_producer):
+    """S16's NULLABLE container: the count and every array are NULL together."""
+    first, bound = collect_producer.fields
+    optional = replace(collect_producer, fields=(first, replace(bound, nullable=True)))
+    decoded, children = reader.decode_carrier_rows(
+        optional, ((7, None, None, None, None),), 0
+    )
+    assert (decoded, children) == (((7, None),), 0)
+    with pytest.raises(ResultError, match="^EXECUTION_CARRIER$"):
+        reader.decode_carrier_rows(optional, ((7, None, [7], None, None),), 1)
+
+
+def test_child_rows_are_counted_per_execution_before_allocation(
+    collect_producer, monkeypatch
+):
+    built = []
+    monkeypatch.setattr(
+        reader.interop,
+        "build_managed_batch",
+        lambda binding, rows, limits: (
+            built.append(rows) or SimpleNamespace(usage=(1, 1), close=lambda: None)
+        ),
+    )
+    payloads = object.__new__(reader.ExecutionPayloads)
+    state = dict(
+        request=SimpleNamespace(limits=ExecutionLimits()),
+        producer=collect_producer,
+        binding=None,
+        nested=True,
+        rows=0,
+        batches=0,
+        bytes=0,
+        children=0,
+    )
+    for name, value in state.items():
+        setattr(payloads, name, value)
+    cap = 1 << 20
+    first = ((1, cap - 1, [0] * (cap - 1), [None] * (cap - 1), [None] * (cap - 1)),)
+    payloads.accept(first)
+    # Parents stay the only row unit; the child rows have their own counter.
+    assert (payloads.rows, payloads.children, len(built)) == (1, cap - 1, 1)
+    with pytest.raises(ResultError, match="^EXECUTION_RESOURCE_LIMIT$"):
+        payloads.accept(((2, 2, [1, 2], [True, False], ["x", "y"]),))
+    assert (payloads.rows, payloads.children, len(built)) == (1, cap - 1, 1)
+    payloads.accept(((3, 1, [3], [False], ["z"]),))
+    assert (payloads.rows, payloads.children, len(built)) == (2, cap, 2)
+    assert built[1] == ((3, ([3], [False], ["z"])),)

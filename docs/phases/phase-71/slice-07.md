@@ -204,7 +204,7 @@ pa.field(label,
 
 | 汇合点 | 位置 | 由谁打开 |
 | --- | --- | --- |
-| output | `_prepare_output`；`verify_output` | S08 |
+| output | `_prepare_output`；`verify_output` | S10（D-S08-7） |
 | binding | `_columns`（共享检查）；`bind_producer`；`verify_producer_binding` | S10 |
 | compiled digest | `contract_digest` 的 compiled 分支 | S09 |
 
@@ -226,7 +226,7 @@ pa.field(label,
 
 **交接规则**：谁打开一个汇合点，谁就在同一片中把显式拒绝下移到仍未打开的下游读者。
 
-- S08 打开 `_prepare_output` 时，给 `describe_compiled_binding` 与 `layout` 加判定，或保证它们拿不到嵌套 output；
+- S10 打开 `_prepare_output` 时（D-S08-7），给 `describe_compiled_binding` 与 `layout` 加判定，或保证它们拿不到嵌套 output；
 - S10 打开 binding（`_columns`、`bind_producer`、`verify_producer_binding`）时，同一片中打开或显式拒绝
   `prepare_execution` 的 `postgres_rows` 无 output 路径与 `bind_native_projection`（Gate 1 §12）；
 - S09 打开 compiled digest 时，保证 `layout` 显式拒绝。compiled 分支的 `scalar_fields` 已由
@@ -235,7 +235,7 @@ pa.field(label,
 
 ## 7. 合同不包含的内容
 
-- carrier（S02 的 `pg_column_arrays_v1` 属于 producer/binding，归 S08/S10）；
+- carrier（S02 的 `pg_column_arrays_v1` 属于 producer/binding，归 S10，D-S08-7）；
 - 物理列（一个嵌套字段对应 1+F 个物理列）；
 - 元素 nullability 字段：本期由 v2 的封闭常量 `"non_null"` 表达；
 - LIMIT、WHERE 与查询文本：compiled 根由 `pin` 与 `query` 绑定；S06 的 Collect 记录保留 `limit`；

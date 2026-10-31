@@ -1866,11 +1866,13 @@ def test_executing_a_collect_read_is_refused_before_any_connection(
     assert not any(name.startswith(drivers) for name in set(sys.modules) - before)
 
 
-def test_a_verified_collect_artifact_is_inspected_but_has_no_output_yet(
+def test_a_verified_collect_artifact_is_inspected_and_has_its_output(
     tmp_path: Path,
 ) -> None:
-    from pietto._project.project_result_contract import ResultError
-    from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_result_output import (
+        NestedOutputColumn,
+        prepare_output,
+    )
     from pietto._project.project_sql_emission_inspection import (
         inspect_project_sql_emission,
     )
@@ -1878,9 +1880,17 @@ def test_a_verified_collect_artifact_is_inspected_but_has_no_output_yet(
     _, artifact = _wired(tmp_path, "parallel")
     inspection = inspect_project_sql_emission(artifact, artifact.request)
     assert inspection.artifact is artifact
-    # S07's reader refusal holds until S10 opens the output view.
-    with pytest.raises(ResultError, match="NESTED_UNAVAILABLE"):
-        prepare_output(artifact)
+    # S10 opened the output view: each sibling Collect read is its own carrier
+    # descriptor, its 1+F statement columns in order.
+    output = prepare_output(artifact)
+    assert [
+        (type(c) is NestedOutputColumn, c.label, getattr(c, "aliases", None))
+        for c in output.columns
+    ] == [
+        (False, "id", None),
+        (True, "xs", ("xs", "id")),
+        (True, "ys", ("ys", "id", "total")),
+    ]
 
 
 def _swap(units, old, new):

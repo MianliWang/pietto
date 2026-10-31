@@ -9,6 +9,7 @@ from dataclasses import dataclass, field as dc_field
 from typing import Any
 
 from pietto._project.project_result_contract import (
+    NestedShape,
     ResultError,
     build_result_contract,
     scalar_fields,
@@ -26,7 +27,11 @@ from pietto._project.project_sql_emission_ast import (
 )
 from pietto._project.project_sql_emission_aggregation import AggregateProjectionColumn
 from pietto._project.project_sql_emission_windows import WindowProjectionColumn
-from pietto._project.project_sql_emission_results import ResultColumn
+from pietto._project.project_sql_emission_results import (
+    ResultColumn,
+    ResultGroupColumn,
+)
+from pietto._project.project_sql_emission_nested import CollectColumn
 from pietto._project.project_sql_emission_sets import SetColumn
 from pietto._project.project_sql_emission_values import ValuesOutputColumn
 from pietto._project.project_sql_emission_rows import (
@@ -38,6 +43,9 @@ from pietto._project.project_sql_emission_inspection import inspect_project_sql_
 from pietto._project.project_verification_scope import entry
 
 __all__: tuple[str, ...] = ()
+# The one PostgreSQL carrier of a collected field (S02): a count, then one
+# array per child field in child order, all aligned by the child sequence.
+PG_COLUMN_ARRAYS_V1 = "pg_column_arrays_v1"
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -53,12 +61,34 @@ class OutputColumn:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class NestedOutputColumn:
+    """One collected field and its carrier descriptor, never a scalar output.
+
+    ``original`` is the statement's Collect column (or the result body's
+    carried group of it). The statement returns ``aliases``: the count, then
+    one array per child in child order; ``children`` are the collected
+    terminal's own outputs, one per child leaf of ``field``.
+    """
+
+    original: Any = dc_field(repr=False)
+    field: Any = dc_field(repr=False)
+    ordinal: int
+    label: str
+    export: Any = dc_field(repr=False)
+    terminal: Any = dc_field(repr=False)
+    carrier: str
+    aliases: tuple[str, ...]
+    children: tuple[OutputColumn, ...] = dc_field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class GeneralOutput:
     artifact: Any = dc_field(repr=False)
     contract: Any = dc_field(repr=False)
     binding: Any = dc_field(repr=False)
     units: tuple[Any, ...] = dc_field(repr=False)
-    columns: tuple[OutputColumn, ...] = dc_field(repr=False)
+    # An OutputColumn per field, a NestedOutputColumn for a collected one.
+    columns: tuple[Any, ...] = dc_field(repr=False)
     guarded: Any = dc_field(default=None, repr=False)
 
 
@@ -90,8 +120,13 @@ def _prepare_output(artifact, *, binding=None, guarded=None):
         units = ast.units
     else:
         raise ResultError("OUTPUT_ROOT")
-    columns = []
-    for original, leaf in zip(view.columns, scalar_fields(contract), strict=True):
+    if guarded is not None:
+        scalar_fields(contract)
+    columns: list[OutputColumn | NestedOutputColumn] = []
+    for original, leaf in zip(view.columns, contract.shape.fields, strict=True):
+        if type(leaf.shape) is NestedShape:
+            columns.append(_nested_column(original, leaf, units[-1]))
+            continue
         if type(original) is SQLColumn:
             source = original.source_field
             realized = field_realization(source)
@@ -124,6 +159,47 @@ def _prepare_output(artifact, *, binding=None, guarded=None):
     return output
 
 
+def _group(original):
+    """The Collect column a final statement column carries, or None."""
+    if type(original) is ResultGroupColumn:
+        original = original.group
+    return original if type(original) is CollectColumn else None
+
+
+def _nested_column(original, leaf, terminal):
+    group = _group(original)
+    if group is None:
+        raise ResultError("OUTPUT_COLUMNS")
+    body = group.lateral.target.producer
+    if len(body.columns) != len(leaf.shape.fields):
+        raise ResultError("OUTPUT_CARRIER")
+    return NestedOutputColumn(
+        original,
+        leaf,
+        original.ordinal,
+        original.label,
+        original.export,
+        terminal,
+        PG_COLUMN_ARRAYS_V1,
+        tuple(carrier[1] for carrier in original.carriers),
+        tuple(
+            OutputColumn(
+                column,
+                child,
+                k,
+                child.label,
+                column.export,
+                body,
+                column.column.realization,
+                column.column.field,
+            )
+            for k, (column, child) in enumerate(
+                zip(body.columns, leaf.shape.fields, strict=True)
+            )
+        ),
+    )
+
+
 @entry
 def verify_output(output, artifact, contract, *, binding=None):
     if (
@@ -133,6 +209,9 @@ def verify_output(output, artifact, contract, *, binding=None):
         or output.binding is not binding
     ):
         raise ResultError("OUTPUT_ROOT")
+    if output.guarded is not None:
+        # A guarded program reads scalar leaves only until S12/S20 open it.
+        scalar_fields(contract)
     if binding is not None:
         from pietto._project.project_execution_binding_verification import (
             verify_binding,
@@ -149,7 +228,7 @@ def verify_output(output, artifact, contract, *, binding=None):
     verify_result_contract(contract, view.request.verification)
     if contract.scalar_meaning is not view.request.scalar_meaning:
         raise ResultError("OUTPUT_MEANING")
-    leaves = scalar_fields(contract)
+    leaves = contract.shape.fields
     ast = artifact.ast
     if type(ast) is SQLSelect:
         expected_units = tuple(c.body for c in ast.ctes) + (ast,)
@@ -171,8 +250,9 @@ def verify_output(output, artifact, contract, *, binding=None):
     for ordinal, (supplied, original, leaf) in enumerate(
         zip(output.columns, view.columns, leaves, strict=True)
     ):
+        nested = type(leaf.shape) is NestedShape
         if (
-            type(supplied) is not OutputColumn
+            type(supplied) is not (NestedOutputColumn if nested else OutputColumn)
             or supplied.original is not original
             or supplied.field is not leaf
             or supplied.export is not leaf.port
@@ -186,6 +266,9 @@ def verify_output(output, artifact, contract, *, binding=None):
             or supplied.terminal is not expected_units[-1]
         ):
             raise ResultError("OUTPUT_COLUMNS")
+        if isinstance(supplied, NestedOutputColumn):  # exact type checked above
+            _verify_nested(supplied, original, leaf, view.request.family)
+            continue
         if type(original) is SQLColumn:
             expected = field_realization(original.source_field)
             source = original.source_field
@@ -225,6 +308,60 @@ def verify_output(output, artifact, contract, *, binding=None):
     return output.columns
 
 
+def _verify_nested(supplied, original, leaf, family):
+    """The carrier descriptor of one collected field, re-derived from the
+    statement's own Collect column and its collected terminal."""
+    group = _group(original)
+    if group is None or group.collect is not leaf.shape.collect:
+        raise ResultError("OUTPUT_COLUMNS")
+    body = group.lateral.target.producer
+    leaves = leaf.shape.fields
+    carriers = original.carriers
+    if (
+        family != "postgres"
+        or type(supplied.carrier) is not str
+        or supplied.carrier != PG_COLUMN_ARRAYS_V1
+        or type(carriers) is not tuple
+        or len(carriers) != 1 + len(leaves)
+        or carriers[0][2] is not leaf.port.ref
+        or len(group.collect.children) != len(leaves)
+        or any(
+            carrier[2] is not child
+            for carrier, child in zip(carriers[1:], group.collect.children, strict=True)
+        )
+        or type(supplied.aliases) is not tuple
+        or any(type(alias) is not str for alias in supplied.aliases)
+        or supplied.aliases != tuple(carrier[1] for carrier in carriers)
+        or type(supplied.children) is not tuple
+        or len(supplied.children) != len(leaves)
+        or len(body.columns) != len(leaves)
+    ):
+        raise ResultError("OUTPUT_CARRIER")
+    for k, (child, column, child_leaf) in enumerate(
+        zip(supplied.children, body.columns, leaves, strict=True)
+    ):
+        if (
+            type(child) is not OutputColumn
+            or type(column) is not ResultColumn
+            or child.original is not column
+            or child.field is not child_leaf
+            or child.export is not child_leaf.port
+            or column.export is not child_leaf.port
+            or type(child.ordinal) is not int
+            or child.ordinal != k
+            or type(child.label) is not str
+            or child.label != child_leaf.label
+            or child.terminal is not body
+        ):
+            raise ResultError("OUTPUT_COLUMNS")
+        if (
+            type(child.realization) is not Realization
+            or child.realization is not column.column.realization
+            or child.source_field is not column.column.field
+        ):
+            raise ResultError("OUTPUT_REALIZATION")
+
+
 def source_read_columns(output):
     """Physical columns actually read by the verified original statement.
 
@@ -248,6 +385,8 @@ def source_read_columns(output):
     )
 
     verify_output(output, output.artifact, output.contract, binding=output.binding)
+    # R2 and guard source closures read scalar outputs only (S12/S20).
+    scalar_fields(output.contract)
     sources = output.artifact.request.sources
     needed = {source: set() for source in sources}
     for unit in output.units:

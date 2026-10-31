@@ -11,14 +11,16 @@ import _pietto_results_conformance as whole
 
 
 def test_current_manifest_and_transitive_helpers_are_closed():
-    assert len(product.CASES) == len(set(product.CASES)) == 120
-    assert product.CASES[-10:] == whole.GROUPS
+    assert len(product.CASES) == len(set(product.CASES))
+    assert product.CASES[110:120] == whole.GROUPS
+    assert product.CASES[120:127] == product._nested().GROUPS
     assert len(whole.damage()) == 10
     integration = product._integration()
-    assert "_pietto_results_conformance" in integration.HELPERS
-    for closure in (product.input_closure, integration.input_closure):
-        entries = closure(Path(__file__).resolve().parents[1])
-        assert any("_pietto_results_conformance.py" in str(entry) for entry in entries)
+    for name in ("_pietto_results_conformance", "_pietto_results_nested"):
+        assert name in integration.HELPERS
+        for closure in (product.input_closure, integration.input_closure):
+            entries = closure(Path(__file__).resolve().parents[1])
+            assert any(name + ".py" in str(entry) for entry in entries)
     assert "pyarrow" not in sys.modules
 
 

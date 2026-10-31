@@ -90,6 +90,8 @@ class Connection:
 
 
 class CheckedRows:
+    nested = False
+
     def __init__(self, request, description):
         self.producer = payloads.bind_native_projection(request, description)
         self.rows = self.batches = self.bytes = 0

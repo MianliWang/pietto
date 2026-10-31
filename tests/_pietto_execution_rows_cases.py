@@ -144,3 +144,85 @@ def seven_artifact(directory, target, *, precision=39, state="values"):
     )
     assert outcome.status == "VERIFIED", (outcome.cli_errors, outcome.blockers)
     return outcome.artifact
+
+
+# -- S10 nested rows (D71.11): pg_column_arrays_v1 from a real PostgreSQL Collect
+
+LOW, HIGH = -(2**63), 2**63 - 1
+QUOTED = ',{}"\\'
+# The `rows` table above is read by `id` only: 0, 2, 5, 5 and -1.
+KIDS_TABLE = (
+    'CREATE TABLE "kids"(parent BIGINT NOT NULL,seq BIGINT NOT NULL,'
+    "i BIGINT NOT NULL,b BOOLEAN,t TEXT,w4 INTEGER NOT NULL,w2 SMALLINT)"
+)
+# (parent, seq, i, b, t, w4, w2): a duplicate child row; an all-NULL nullable
+# child; Int64 and Int32/Int16 limits; quoting characters, the empty and the
+# 'NULL' string, a multibyte one; a tie on seq 2; a kid without a parent row.
+KIDS = (
+    (0, 1, 7, True, "a", 7, 7),
+    (0, 2, 7, True, "a", 7, 7),
+    (2, 1, 5, None, None, 5, None),
+    (5, 1, LOW, False, QUOTED, -(2**31), -(2**15)),
+    (5, 2, HIGH, True, "", 2**31 - 1, 2**15 - 1),
+    (5, 2, 0, False, "NULL", 0, None),
+    (5, 3, 4, False, "é", 4, 4),
+    (99, 1, 1, True, "x", 1, 1),
+)
+IBT = (("i", "Int8", False), ("b", "Bool", True), ("t", "Text", True))
+WIDTHS = (("w4", "Int4", False), ("w2", "Int2", True))
+# name: (children, collected options, physical description, Arrow fields).
+NESTED_SHAPES: dict[str, Any] = {
+    "captured": (IBT, {}),
+    "closed": (IBT, {"closed": True}),
+    "ordered": (IBT, {"ordered": True}),
+    "widths": (WIDTHS, {}),
+}
+IBT_DESCRIPTION = [["renamed", 20], ["c", 20], ["i", 1016], ["b", 1000], ["t", 1009]]
+IBT_FIELDS = [
+    ["renamed", "int64", False],
+    ["c", "list<item: struct<i: int64 not null, b: bool, t: string> not null>", False],
+]
+NESTED_DESCRIPTIONS = {
+    "captured": IBT_DESCRIPTION,
+    "closed": IBT_DESCRIPTION,
+    "ordered": IBT_DESCRIPTION,
+    "widths": [["renamed", 20], ["c", 20], ["w4", 1007], ["w2", 1005]],
+}
+NESTED_FIELDS = {
+    "captured": IBT_FIELDS,
+    "closed": IBT_FIELDS,
+    "ordered": IBT_FIELDS,
+    "widths": [
+        ["renamed", "int64", False],
+        ["c", "list<item: struct<w4: int32 not null, w2: int16> not null>", False],
+    ],
+}
+
+
+def nested_expected(name):
+    """Independent literal oracle: each parent row's children as tie groups
+    (in seq order; the order inside one seq is not promised), parent rows as
+    a multiset, plus the parent order a parent ORDER BY fixes."""
+    labels = ("w4", "w2") if name == "widths" else ("i", "b", "t")
+    columns = (5, 6) if name == "widths" else (2, 3, 4)
+
+    def groups(kids):
+        result: list[list[dict[str, Any]]] = []
+        for seq in sorted({kid[1] for kid in kids}):
+            result.append(
+                [
+                    dict(zip(labels, (kid[c] for c in columns), strict=True))
+                    for kid in kids
+                    if kid[1] == seq
+                ]
+            )
+        return result
+
+    parents = (5, 5, 2, 0) if name == "ordered" else (0, 2, 5, 5, -1)
+    return [
+        [
+            parent,
+            groups(KIDS if name == "closed" else [k for k in KIDS if k[0] == parent]),
+        ]
+        for parent in parents
+    ]

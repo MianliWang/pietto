@@ -11,6 +11,7 @@ from typing import Any, NoReturn
 from weakref import ref
 
 from pietto._project import project_arrow_result as arrow
+from pietto._project.project_result_binding import ProducerNestedBinding
 from pietto._project.project_result_contract import ResultError
 
 __all__: tuple[str, ...] = ()
@@ -96,10 +97,24 @@ def _roots(binding):
         contract.authority,
         contract.shape,
         contract.scalar_meaning,
+        *(value for bound in producer.fields for value in _bound_roots(bound)),
+    )
+
+
+def _bound_roots(bound):
+    if type(bound) is not ProducerNestedBinding:
+        return (bound.observation, bound.observation.protocol_nullable)
+    # A coordinated child mutation must change the captured identity too.
+    return (
+        bound,
+        bound.field,
+        bound.count,
+        bound.count.protocol_nullable,
+        bound.children,
         *(
             value
-            for bound in producer.fields
-            for value in (bound.observation, bound.observation.protocol_nullable)
+            for child in bound.children
+            for value in (child.observation, child.observation.protocol_nullable)
         ),
     )
 
@@ -187,6 +202,9 @@ class CheckedFiniteReader:
         if type(binding) is not arrow.ArrowResultBinding:
             raise ResultError("ARROW_BINDING")
         arrow.verify_arrow_binding(binding, binding.producer)
+        # Nested readers (and so ingress, C streams and IPC) open in S11.
+        if any(type(b) is ProducerNestedBinding for b in binding.producer.fields):
+            raise ResultError("NESTED_UNAVAILABLE")
         pa = arrow._arrow()
         if type(source) is not pa.RecordBatchReader:
             raise ResultError("READER_SOURCE")

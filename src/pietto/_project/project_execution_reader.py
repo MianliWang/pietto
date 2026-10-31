@@ -5,6 +5,9 @@ from __future__ import annotations
 from pietto._project import project_arrow_result as arrow
 from pietto._project import project_arrow_interop as interop
 from pietto._project.project_result_binding import (
+    MAX_CHILD_ROWS,
+    ProducerFieldBinding,
+    ProducerNestedBinding,
     ProducerObservation,
     TextObservation,
     DecimalObservation,
@@ -16,6 +19,15 @@ from pietto._project.project_sql_emission_rows import field_realization
 __all__: tuple[str, ...] = ()
 
 PG_INTS = {20: "pg_int8", 21: "pg_int2", 23: "pg_int4"}
+# pg_column_arrays_v1 (S02): the count is int8; each child array's OID by the
+# child's storage. S14/S15 widen this table with the child allowlist.
+PG_ARRAYS = {
+    "pg_int2": 1005,
+    "pg_int4": 1007,
+    "pg_int8": 1016,
+    "pg_bool": 1000,
+    "pg_text": 1009,
+}
 
 
 def bind_native_projection(request, description):
@@ -261,7 +273,10 @@ def bind_stored_output(output, route):
 
 
 def _bind_output(output, route, metadata, *, stored):
-    from pietto._project.project_result_output import verify_output
+    from pietto._project.project_result_output import (
+        NestedOutputColumn,
+        verify_output,
+    )
 
     columns = verify_output(
         output, output.artifact, output.contract, binding=output.binding
@@ -271,19 +286,34 @@ def _bind_output(output, route, metadata, *, stored):
         "mysql" if route == "mysql_rows" else "postgres"
     ):
         raise ResultError("EXECUTION_METADATA_ROUTE")
+    nested = tuple(type(c) is NestedOutputColumn for c in columns)
+    # pg_column_arrays_v1 is a postgres_rows carrier; ADBC's pre-connection
+    # refusal is S12's (D71.05). This is the binder's own backstop.
+    if any(nested) and route != "postgres_rows":
+        raise ResultError("NESTED_UNAVAILABLE")
+    # A collected field spans 1+F physical columns: its count, then its arrays.
+    width = sum(
+        1 + len(c.children) if n else 1 for c, n in zip(columns, nested, strict=True)
+    )
     if stored:
-        metadata = (None,) * len(columns)
-    elif metadata is None or len(metadata) != len(columns):
+        metadata = (None,) * width
+    elif metadata is None or len(metadata) != width:
         raise ResultError("EXECUTION_METADATA")
     observations = []
-    for column, meta in zip(columns, metadata, strict=True):
-        real = column.realization
-        storage = real.storage["kind"]
+    position = 0
+    for column, is_nested in zip(columns, nested, strict=True):
+        if is_nested:
+            span = metadata[position : position + 1 + len(column.children)]
+            position += len(span)
+            observations.append(_nested_observation(column, family, span, stored))
+            continue
+        meta = metadata[position]
+        position += 1
         nullable = (
             None
             if stored
             else check_native_column(
-                real,
+                column.realization,
                 route,
                 meta,
                 label=column.label,
@@ -292,62 +322,112 @@ def _bind_output(output, route, metadata, *, stored):
                 _guarded_output=output if output.guarded is not None else None,
             )
         )
-        options = {}
-        domain, carrier = (
-            real.domain["kind"],
-            {
-                "Int": "int",
-                "Bool": "bool" if family == "postgres" else "int01",
-                "Float": "float",
-                "Text": "str",
-                "Decimal": "decimal",
-                "Date": "date",
-                "Timestamp": "datetime",
-                "UUID": "uuid" if family == "postgres" else "bytes16",
-            }[real.tag],
-        )
-        if real.tag == "Int":
-            options.update(lower=int(real.domain["min"]), upper=int(real.domain["max"]))
-        elif real.tag == "Text":
-            options["text"] = TextObservation(
-                real.domain["max_characters"],
-                real.domain["encoding"],
-                real.domain["collation"],
-                real.domain["padding"],
-                real.storage.get("length"),
-            )
-        elif real.tag == "Decimal":
-            precision, scale = real.domain["precision"], real.domain["scale"]
-            if route == "postgres_rows" and not stored:
-                for name, expected in (("precision", precision), ("scale", scale)):
-                    observed = getattr(meta, name, None)
-                    if observed is not None and (
-                        type(observed) is not int or observed != expected
-                    ):
-                        raise ResultError("EXECUTION_METADATA")
-            options["decimal"] = DecimalObservation(precision, scale)
-        elif real.tag in ("Timestamp", "UUID"):
-            options["meaning"] = column.field.meaning.law
-            if real.tag == "Timestamp":
-                options["fractional_seconds"] = 6
-        elif real.tag == "Float":
-            # Verified native window ratios have the original float64 law.
-            # Their consumer retains finite binary64 and rejects NaN/Inf.
-            domain = "finite_float"
-        observations.append(
-            ProducerObservation(
-                column.ordinal,
-                column.label,
-                family,
-                storage,
-                protocol_nullable=nullable,
-                domain=domain,
-                carrier=carrier,
-                **options,
-            )
-        )
+        observations.append(_observation(column, route, family, meta, nullable))
     return bind_producer(
         output.contract, output.artifact, tuple(observations), output=output
+    )
+
+
+def _nested_observation(column, family, metadata, stored):
+    """One collected field's count and child observations (pg_column_arrays_v1).
+
+    Labels never recover a child: each physical column is checked by position
+    against its exact alias, the count's int8 and its child's array OID.
+    """
+
+    def protocol(meta, alias, oid):
+        if stored:
+            return None
+        if (
+            type(meta.name) is not str
+            or type(meta.type_code) is not int
+            or meta.name != alias
+            or meta.type_code != oid
+        ):
+            raise ResultError("EXECUTION_METADATA")
+        return meta.null_ok
+
+    arrays = tuple(
+        PG_ARRAYS.get(child.realization.storage["kind"]) for child in column.children
+    )
+    if any(oid is None for oid in arrays):
+        raise ResultError("PRODUCER_UNSUPPORTED")
+    count = ProducerObservation(
+        column.ordinal,
+        column.label,
+        family,
+        "pg_int8",
+        0,
+        MAX_CHILD_ROWS,
+        protocol_nullable=protocol(metadata[0], column.aliases[0], 20),
+        domain="child_count",
+    )
+    children = tuple(
+        _observation(child, "postgres_rows", family, None, protocol(meta, alias, oid))
+        for child, meta, alias, oid in zip(
+            column.children, metadata[1:], column.aliases[1:], arrays, strict=True
+        )
+    )
+    return count, children
+
+
+def _observation(column, route, family, meta, nullable):
+    """Configured requirements of one scalar output; ``meta`` is its native
+    description (None when stored) and ``nullable`` the adapter's protocol
+    evidence, never logical NULL authority."""
+    real = column.realization
+    storage = real.storage["kind"]
+    options = {}
+    domain, carrier = (
+        real.domain["kind"],
+        {
+            "Int": "int",
+            "Bool": "bool" if family == "postgres" else "int01",
+            "Float": "float",
+            "Text": "str",
+            "Decimal": "decimal",
+            "Date": "date",
+            "Timestamp": "datetime",
+            "UUID": "uuid" if family == "postgres" else "bytes16",
+        }[real.tag],
+    )
+    if real.tag == "Int":
+        options.update(lower=int(real.domain["min"]), upper=int(real.domain["max"]))
+    elif real.tag == "Text":
+        options["text"] = TextObservation(
+            real.domain["max_characters"],
+            real.domain["encoding"],
+            real.domain["collation"],
+            real.domain["padding"],
+            real.storage.get("length"),
+        )
+    elif real.tag == "Decimal":
+        precision, scale = real.domain["precision"], real.domain["scale"]
+        if route == "postgres_rows" and meta is not None:
+            for name, expected in (("precision", precision), ("scale", scale)):
+                observed = getattr(meta, name, None)
+                if observed is not None and (
+                    type(observed) is not int or observed != expected
+                ):
+                    raise ResultError("EXECUTION_METADATA")
+        options["decimal"] = DecimalObservation(precision, scale)
+    elif real.tag in ("Timestamp", "UUID"):
+        options["meaning"] = column.field.meaning.law
+        if real.tag == "Timestamp":
+            options["fractional_seconds"] = 6
+    elif real.tag == "Float":
+        # Verified native window ratios have the original float64 law.
+        # Their consumer retains finite binary64 and rejects NaN/Inf.
+        domain = "finite_float"
+    return ProducerObservation(
+        column.ordinal,
+        column.label,
+        family,
+        storage,
+        protocol_nullable=nullable,
+        domain=domain,
+        carrier=carrier,
+        **options,
     )
 
 
@@ -363,6 +443,9 @@ def decode_native_rows(output, route, metadata, rows):
             raise ResultError("EXECUTION_METADATA")
         values = []
         for value, bound in zip(row, producer.fields, strict=True):
+            # ADBC and MySQL rows never carry a nested field (pg_column_arrays_v1).
+            if type(bound) is not ProducerFieldBinding:
+                raise ResultError("NESTED_UNAVAILABLE")
             kind = bound.field.shape.canonical.name
             if value is not None:
                 if route == "postgres_adbc" and kind == "Decimal":
@@ -388,6 +471,61 @@ def decode_native_rows(output, route, metadata, rows):
     return producer, tuple(result)
 
 
+def decode_carrier_rows(producer, rows, children):
+    """Strict ``pg_column_arrays_v1`` rows: each collected field's count and
+    child arrays become one logical nested value, before any Arrow allocation.
+
+    ``children`` is what is left of the execution's child-row budget; returns
+    the logical rows and the child rows they reference. Every element is also
+    checked by the scalar validator here, so a malformed carrier never reaches
+    Arrow construction.
+    """
+    width = sum(
+        1 + len(bound.children) if type(bound) is ProducerNestedBinding else 1
+        for bound in producer.fields
+    )
+    referenced = 0
+    result = []
+    for row in rows:
+        if type(row) not in (tuple, list) or len(row) != width:
+            raise ResultError("EXECUTION_METADATA")
+        values = []
+        position = 0
+        for bound in producer.fields:
+            if type(bound) is not ProducerNestedBinding:
+                values.append(row[position])
+                position += 1
+                continue
+            count = row[position]
+            arrays = tuple(row[position + 1 : position + 1 + len(bound.children)])
+            position += 1 + len(bound.children)
+            if count is None:
+                # An absent container (S16): every array is NULL with it.
+                if not bound.nullable:
+                    raise ResultError("NULL")
+                if any(array is not None for array in arrays):
+                    raise ResultError("EXECUTION_CARRIER")
+                values.append(None)
+                continue
+            if type(count) is not int or not 0 <= count <= MAX_CHILD_ROWS:
+                raise ResultError("EXECUTION_CARRIER")
+            if count == 0:
+                # The canonical empty collection has NULL arrays, never '{}'.
+                if any(array is not None for array in arrays):
+                    raise ResultError("EXECUTION_CARRIER")
+            elif any(type(a) is not list or len(a) != count for a in arrays):
+                raise ResultError("EXECUTION_CARRIER")
+            referenced += count
+            if referenced > children:
+                raise ResultError("EXECUTION_RESOURCE_LIMIT")
+            for array, child in zip(arrays, bound.children, strict=True):
+                for element in array or ():
+                    arrow._value(element, child)
+            values.append(tuple(array or () for array in arrays))
+        result.append(tuple(values))
+    return tuple(result), referenced
+
+
 class ExecutionPayloads:
     """Each returned batch is owned/checked; EOF must come from the adapter."""
 
@@ -403,12 +541,22 @@ class ExecutionPayloads:
                 raise ResultError("EXECUTION_OUTPUT_ROOT")
             self.producer = producer
         self.binding = arrow.bind_arrow(self.producer)
-        self.rows = self.batches = self.bytes = 0
+        self.nested = any(
+            type(bound) is ProducerNestedBinding for bound in self.producer.fields
+        )
+        self.rows = self.batches = self.bytes = self.children = 0
 
     def accept(self, rows):
         limits = self.request.limits
         if self.rows + len(rows) > limits.max_rows:
             raise ResultError("EXECUTION_RESOURCE_LIMIT")
+        children = 0
+        if self.nested:
+            # Parents stay the only row unit; child rows have their own
+            # per-execution cap (D71.07), checked before any allocation.
+            rows, children = decode_carrier_rows(
+                self.producer, rows, MAX_CHILD_ROWS - self.children
+            )
         managed = interop.build_managed_batch(
             self.binding,
             rows,
@@ -421,4 +569,5 @@ class ExecutionPayloads:
         self.rows += len(rows)
         self.batches += 1
         self.bytes += charge
+        self.children += children
         return managed

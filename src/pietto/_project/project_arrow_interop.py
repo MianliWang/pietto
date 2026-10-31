@@ -86,6 +86,9 @@ class _LeasedBuffer:
 def _copy_batch(batch, lease):
     """Flat finite storage only, after the original carrier has been checked."""
     pa = a._arrow()
+    # S11 replaces this refusal with a structural copy of nested columns.
+    if any(pa.types.is_nested(field.type) for field in batch.schema):
+        raise ResultError("NESTED_UNAVAILABLE")
     columns = []
     for column in batch.columns:
         extension = type(column.type) is type(pa.uuid())

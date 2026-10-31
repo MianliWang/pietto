@@ -12,6 +12,7 @@ from pietto._project.project_execution_reader import (
     bind_native_output,
     decode_native_rows,
 )
+from pietto._project.project_result_binding import ProducerFieldBinding
 from pietto._project.project_result_contract import ResultError
 from pietto._project import project_execution as execution
 from pietto._project import project_execution_postgres as pg
@@ -141,6 +142,7 @@ def test_computed_general_request_and_control_after_payload(
 
     class Payload:
         rows = batches = bytes = 0
+        nested = False
 
         def __init__(self, *args):
             pass
@@ -267,8 +269,10 @@ def test_mysql_unsigned_computed_domain_is_not_source_signedness(tmp_path):
         for i, c in enumerate(output.columns)
     ]
     binding = bind_native_output(output, "mysql_rows", metadata)
-    assert binding.fields[1].observation.lower == 0
-    assert binding.fields[1].observation.upper == 2**63 - 1
+    leaf = binding.fields[1]
+    assert isinstance(leaf, ProducerFieldBinding)
+    assert leaf.observation.lower == 0
+    assert leaf.observation.upper == 2**63 - 1
     metadata[0][7] = 33
     with pytest.raises(ResultError):
         bind_native_output(output, "mysql_rows", metadata)

@@ -43,6 +43,7 @@ HELPERS = (
     "_pietto_target_conformance_cases",
     "_pietto_results_product",
     "_pietto_results_conformance",
+    "_pietto_results_nested",
 )
 RECEIPT_HELPERS = (
     "_pietto_target_conformance_observation",

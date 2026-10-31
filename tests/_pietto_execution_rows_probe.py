@@ -25,7 +25,17 @@ def charge(path, category, reason):
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
 
 
-def collect_pg(artifact, access, *, binding=None, control=None):
+def _vmhwm():
+    """Peak resident memory so far (evidence only, never a limit)."""
+    for line in Path("/proc/self/status").read_text().splitlines():
+        if line.startswith("VmHWM:"):
+            return int(line.split()[1])
+    return None
+
+
+def collect_pg(
+    artifact, access, *, binding=None, control=None, nested=False, limits=None
+):
     pa = importlib.import_module("pyarrow")
     from pietto._project import project_execution as execution
     from pietto._project.project_execution_postgres import PostgresExecution
@@ -41,10 +51,11 @@ def collect_pg(artifact, access, *, binding=None, control=None):
         access,
         binding=binding,
         output=output,
-        limits=execution.ExecutionLimits(batch_rows=4, seconds=45),
+        limits=limits or execution.ExecutionLimits(batch_rows=4, seconds=45),
     )
     stream = PostgresExecution(request)
     submitted, rows, schemas = [], [], []
+    memory = [_vmhwm()] if nested else None
     old = sys.getprofile()
 
     def observe(frame, event, value):
@@ -76,15 +87,21 @@ def collect_pg(artifact, access, *, binding=None, control=None):
                     schemas.append(
                         [[f.name, str(f.type), f.nullable] for f in actual.schema]
                     )
-                    rows.extend(
-                        [
+                    if nested:
+                        # Collected values are records of scalars; JSON keeps them.
+                        rows.extend(actual.to_pylist())
+                        assert memory is not None
+                        memory.append(_vmhwm())
+                    else:
+                        rows.extend(
                             [
-                                prior.s01.scalar(actual.column(i)[j].as_py())
-                                for i in range(actual.num_columns)
+                                [
+                                    prior.s01.scalar(actual.column(i)[j].as_py())
+                                    for i in range(actual.num_columns)
+                                ]
+                                for j in range(actual.num_rows)
                             ]
-                            for j in range(actual.num_rows)
-                        ]
-                    )
+                        )
                 if control == "cancel":
                     stream.cancel()
                 elif control == "consumer_error":
@@ -113,6 +130,7 @@ def collect_pg(artifact, access, *, binding=None, control=None):
         context=stream.context,
         control_joined=stream.control_joined,
         caught=caught,
+        **({} if memory is None else {"vmhwm_kib": memory}),
     )
 
 
@@ -167,6 +185,107 @@ def check_pg(record, expected_rows, *, expected_sql=None):
         "pg_catalog",
     ):
         raise ValueError("execution context")
+
+
+def nested_cases(directory, access):
+    """S10 (D71.11): real Collect statements on the rows route, each checked
+    against the independent literal oracle; then a whole-batch refusal."""
+    import _pietto_results_nested as nested
+    import _pietto_results_product as product
+    from _pietto_execution_rows_cases import NESTED_SHAPES
+    from pietto._project.project_execution import ExecutionLimits
+
+    results = []
+    for name, (children, options) in NESTED_SHAPES.items():
+        output = nested.collected(
+            product, directory / (PREFIX + "nested-" + name), children, **options
+        )
+        record = collect_pg(output.artifact, access, nested=True)
+        path = directory / (PREFIX + "nested-" + name + ".json")
+        path.write_text(json.dumps(record, indent=2) + "\n")
+        check_nested_record(json.loads(path.read_text()), name)
+        results.append(dict(key=name, file=path.name))
+    output = nested.collected(product, directory / (PREFIX + "nested-small"))
+    record = collect_pg(
+        output.artifact,
+        access,
+        nested=True,
+        limits=ExecutionLimits(batch_rows=4, batch_bytes=64, seconds=45),
+    )
+    path = directory / (PREFIX + "nested-small_batch.json")
+    path.write_text(json.dumps(record, indent=2) + "\n")
+    check_nested_record(json.loads(path.read_text()), "small_batch")
+    results.append(dict(key="small_batch", file=path.name))
+    return results
+
+
+def _tie_groups(children, groups):
+    position = 0
+    for group in groups:
+        part = children[position : position + len(group)]
+        if sorted(json.dumps(c, sort_keys=True) for c in part) != sorted(
+            json.dumps(c, sort_keys=True) for c in group
+        ):
+            return False
+        position += len(group)
+    return position == len(children)
+
+
+def check_nested_record(record, name):
+    from _pietto_execution_rows_cases import (
+        NESTED_DESCRIPTIONS,
+        NESTED_FIELDS,
+        nested_expected,
+    )
+
+    if record["submissions"] != [
+        dict(sql=record["public"]["sql"], arguments=[], prepare=True)
+    ]:
+        raise ValueError("nested submitted SQL")
+    if [
+        column["representation"].get("carrier")
+        for column in record["public"]["columns"]
+    ] != [
+        None,
+        "pg_column_arrays_v1",
+    ]:
+        raise ValueError("nested public representation")
+    if name == "small_batch":
+        # One parent row never splits: the first batch is refused whole.
+        if (
+            record["caught"] != dict(kind="ResultError", category="LIMIT")
+            or record["rows"]
+            or record["outcome"]["delivery"] != "FAILED"
+        ):
+            raise ValueError("nested whole-batch refusal")
+        return
+    if record["caught"] is not None or record["outcome"]["delivery"] != "COMPLETE":
+        raise ValueError("nested terminal")
+    if [list(item[:2]) for item in record["metadata"]] != NESTED_DESCRIPTIONS[name]:
+        raise ValueError("nested native metadata")
+    if record["bound_schema"] != NESTED_FIELDS[name] or any(
+        schema != NESTED_FIELDS[name] for schema in record["schemas"]
+    ):
+        raise ValueError("nested Arrow schema")
+    expected = nested_expected(name)
+    actual = [[row["renamed"], row["c"]] for row in record["rows"]]
+    if name == "ordered" and [row[0] for row in actual] != [row[0] for row in expected]:
+        raise ValueError("nested parent order")
+    remaining = list(expected)
+    for parent, children in actual:
+        match = next(
+            (
+                item
+                for item in remaining
+                if item[0] == parent and _tie_groups(children, item[1])
+            ),
+            None,
+        )
+        if match is None:
+            raise ValueError("independent nested result")
+        remaining.remove(match)
+    if remaining:
+        raise ValueError("independent nested result")
 
 
 def setup_seven(resources):
@@ -803,6 +922,7 @@ def campaign_worker(config):
                 )
         if config["route"] == "postgres_rows":
             report["bound"] = bound_cases(directory, access)
+            report["nested"] = nested_cases(directory, access)
         report["origins"] = {}
         for name, module in tuple(sys.modules.items()):
             if name == "pietto" or name.startswith("pietto."):
@@ -836,7 +956,11 @@ def bound_cases(directory, access):
 
     source = product.source("postgres").replace("renamed = id", "renamed = id + 1")
     template = prior.template(
-        directory / (PREFIX + "bound-template"), source, lower=-10, upper=10
+        directory / (PREFIX + "bound-template"),
+        source,
+        lower=-10,
+        upper=10,
+        storage="pg_int4",
     )
     a = bind_values(template, ((template.slots[0], 1),))
     b = bind_values(template, ((template.slots[0], 5),))
@@ -861,7 +985,9 @@ def bound_cases(directory, access):
             )
             domain = result["public"]["columns"][0]["representation"]["domain"]
             if domain != dict(
-                kind="int_range", min=str(-10 + offset), max=str(10 + offset)
+                kind="int_range",
+                min=str(-(2**31) + offset),
+                max=str(2**31 - 1 + offset),
             ):
                 raise ValueError("value-sensitive original range")
         elif (
@@ -877,6 +1003,7 @@ def bound_cases(directory, access):
 
 def campaign(args):
     import subprocess
+    import _pietto_execution_rows_cases as rows_cases
     import _pietto_target_conformance_cases as fixtures
 
     args.directory.mkdir(mode=0o700)
@@ -921,14 +1048,22 @@ def campaign(args):
                             statement.close()
                 setup_seven(resources)
                 if target == "postgres":
-                    prior.s03.manager(
-                        resources,
-                        'CREATE TABLE "rows"(id BIGINT NOT NULL,other BIGINT)',
-                    )
+                    # bound_cases reads "rows_pg_int4" (prior.template storage).
+                    for name, kind in (("rows", "BIGINT"), ("rows_pg_int4", "INTEGER")):
+                        prior.s03.manager(
+                            resources,
+                            f'CREATE TABLE "{name}"(id {kind} NOT NULL,other BIGINT)',
+                        )
+                        with resources.manager.cursor() as cursor:
+                            cursor.executemany(
+                                f'INSERT INTO "{name}" VALUES($1,$2)',
+                                ((0, 0), (2, None), (5, 3), (5, 3), (-1, -1)),
+                            )
+                    prior.s03.manager(resources, rows_cases.KIDS_TABLE)
                     with resources.manager.cursor() as cursor:
                         cursor.executemany(
-                            'INSERT INTO "rows" VALUES($1,$2)',
-                            ((0, 0), (2, None), (5, 3), (5, 3), (-1, -1)),
+                            'INSERT INTO "kids" VALUES($1,$2,$3,$4,$5,$6,$7)',
+                            rows_cases.KIDS,
                         )
                 for sql, secret in resources.role_statements():
                     prior.s03.manager(resources, sql)
@@ -1071,7 +1206,9 @@ def check_worker(directory, origin, route, *, prefix):
                 if result["submissions"][0]["arguments"] != [prior.s01.scalar(offset)]:
                     raise ValueError("bound actual arguments")
                 if result["public"]["columns"][0]["representation"]["domain"] != dict(
-                    kind="int_range", min=str(-10 + offset), max=str(10 + offset)
+                    kind="int_range",
+                    min=str(-(2**31) + offset),
+                    max=str(2**31 - 1 + offset),
                 ):
                     raise ValueError("bound range")
             elif (
@@ -1080,6 +1217,16 @@ def check_worker(directory, origin, route, *, prefix):
                 or not result["control_joined"]
             ):
                 raise ValueError("bound termination")
+        from _pietto_execution_rows_cases import NESTED_SHAPES
+
+        if [n["key"] for n in report["nested"]] != [*NESTED_SHAPES, "small_batch"]:
+            raise ValueError("nested denominator")
+        for entry in report["nested"]:
+            if entry["file"] != PREFIX + "nested-" + entry["key"] + ".json":
+                raise ValueError("foreign nested record")
+            check_nested_record(
+                json.loads((directory / entry["file"]).read_text()), entry["key"]
+            )
     check_origins(report, origin, prefix)
     return report
 

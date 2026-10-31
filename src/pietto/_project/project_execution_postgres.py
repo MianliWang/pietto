@@ -40,6 +40,7 @@ from pietto._project.project_refinement_enumeration import (
     refinement_state,
     verify_refined_execution,
 )
+from pietto._project.project_result_contract import ResultError
 from pietto._project.project_result_output import source_read_columns
 from pietto._project.project_guard_runtime import (
     GuardedExecutionRequest,
@@ -720,7 +721,7 @@ class PostgresExecution:
             if self._cancel.is_set():
                 raise ExecutionError("EXECUTION_CANCELED")
             phase = "read"
-            rows = self._cursor.fetchmany(self.request.limits.batch_rows)
+            rows = self._read()
             if self.guards is not None:
                 rows = self.guards.public_rows(self, rows)
             self._remaining()
@@ -777,6 +778,21 @@ class PostgresExecution:
             self._delivery = "FAILED"
             self._finish(False)
             raise
+
+    def _read(self):
+        """One fetch; a collected field's loader text never leaves it."""
+        size = self.request.limits.batch_rows
+        if self._payloads is None or not self._payloads.nested:
+            return self._cursor.fetchmany(size)
+        try:
+            return self._cursor.fetchmany(size)
+        except Exception as error:
+            # A server state keeps its own classification; a loader message
+            # can carry result data (S02 invariant 5).
+            if getattr(error, "sqlstate", None) is not None:
+                raise
+        # Raised outside the handler: no driver text is chained.
+        raise ResultError("EXECUTION_CARRIER")
 
     def _fulfill_separate_guards(self):
         if self.guards is None or not self.guards.context.separate_allowed:

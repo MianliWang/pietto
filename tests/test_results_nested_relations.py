@@ -10,10 +10,13 @@ from copy import deepcopy
 from dataclasses import FrozenInstanceError, fields, replace
 import hashlib
 import json
+import sys
+from types import SimpleNamespace
 
 import pytest
 
 from _pietto_execution_jobs_probe import compiled_template
+import _pietto_results_nested as nested_helper
 import _pietto_results_product as probe
 from pietto._project import project_job_delivery as delivery
 from pietto._project import project_result_binding as p
@@ -24,6 +27,14 @@ from pietto._project import project_result_contract_pure_boundary as pure
 from pietto._project import project_result_ipc as ipc
 from pietto._project import project_result_output as o
 from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
+from pietto._project.project_execution import PostgresAccess, prepare_execution
+from pietto._project.project_execution_reader import (
+    bind_native_output,
+    bind_native_projection,
+    bind_postgres_output,
+    bind_stored_output,
+    decode_native_rows,
+)
 from pietto._project.project_scalar_meaning import acquire_scalar_meaning
 from pietto._project.project_sql_plan_verification import CompiledSQLPlanVerification
 
@@ -638,7 +649,9 @@ def test_flat_readers_refuse_explicitly_behind_an_admitting_authority(
     roots, target, monkeypatch
 ):
     """When an upstream authority admits nested shapes, each reader that is
-    still flat refuses at its join point instead of misreading a leaf."""
+    still flat refuses at its join point instead of misreading a leaf; the
+    output view (open since S10) refuses a nested leaf that has no Collect
+    column by correspondence."""
     artifact = roots[target][1]
     bad, entries = _entries(target, roots)
     monkeypatch.setattr(o, "verify_result_contract", lambda *args: None)
@@ -648,15 +661,13 @@ def test_flat_readers_refuse_explicitly_behind_an_admitting_authority(
     # A saved job's row layout reads its output's contract directly.
     output = roots[target][4]
     entries["layout"] = lambda: delivery.layout(replace(output, contract=bad), None)
-    for name in (
-        "prepare_output",
-        "verify_output",
-        "producer_columns",
-        "bind_producer",
-        "verify_producer_binding",
-        "layout",
-    ):
+    for name in ("producer_columns", "bind_producer", "verify_producer_binding"):
         with pytest.raises(c.ResultError, match="NESTED_UNAVAILABLE"):
+            entries[name]()
+    with pytest.raises(c.ResultError, match="NESTED_UNAVAILABLE"):
+        entries["layout"]()
+    for name in ("prepare_output", "verify_output"):
+        with pytest.raises(c.ResultError, match="^OUTPUT_COLUMNS$"):
             entries[name]()
 
 
@@ -1176,3 +1187,335 @@ def test_independent_checker_finds_each_writer_damage(tmp_path, monkeypatch, nam
     export = writer.export_result_contract(contract, checked)
     with pytest.raises(c.ResultError, match="CORRESPONDENCE"):
         runtime.verify_bound_export(export, checked)
+
+
+# -- S10: the binding join point over real PostgreSQL Collect outputs ---------
+
+
+@pytest.fixture(scope="module")
+def outputs(tmp_path_factory):
+    """Real VERIFIED Collect outputs: a captured and a closed let, and a parent
+    with its own ORDER BY and LIMIT (the result body carries the group)."""
+    root = tmp_path_factory.mktemp("nested-binding")
+    return {
+        name: nested_helper.collected(probe, root / name, **options)
+        for name, options in (
+            ("captured", {}),
+            ("closed", {"closed": True}),
+            ("ordered", {"ordered": True}),
+        )
+    }
+
+
+def _description(names_and_codes):
+    return tuple(nested_helper.Column(n, t, None) for n, t in names_and_codes)
+
+
+DESCRIPTION = (("renamed", 20), ("c", 20), ("i", 1016), ("b", 1000), ("t", 1009))
+
+
+@pytest.mark.parametrize("name", ("captured", "closed", "ordered"))
+def test_a_real_collect_output_binds_its_carrier_descriptor(outputs, name):
+    arrow = "pyarrow" in sys.modules
+    output = outputs[name]
+    assert o.verify_output(output, output.artifact, output.contract) is output.columns
+    flat, column = output.columns
+    assert (type(flat), type(column)) == (o.OutputColumn, o.NestedOutputColumn)
+    assert (column.ordinal, column.label, column.carrier, column.aliases) == (
+        1,
+        "c",
+        "pg_column_arrays_v1",
+        ("c", "i", "b", "t"),
+    )
+    leaf = output.contract.shape.fields[1]
+    assert column.field is leaf and column.export is leaf.port
+    assert [
+        (child.ordinal, child.label, child.realization.storage, child.field)
+        for child in column.children
+    ] == [
+        (k, label, {"kind": storage}, field)
+        for k, (label, storage, field) in enumerate(
+            zip(("i", "b", "t"), ("pg_int8", "pg_bool", "pg_text"), leaf.shape.fields)
+        )
+    ]
+    for producer in (
+        bind_postgres_output(output, _description(DESCRIPTION)),
+        bind_stored_output(output, "postgres_rows"),
+    ):
+        p.verify_producer_binding(producer, output.contract, output.artifact)
+        bound = producer.fields[1]
+        assert type(bound) is p.ProducerNestedBinding
+        assert (bound.field, bound.column, bound.nullable) == (leaf, column, False)
+        assert bound.count == p.ProducerObservation(
+            1, "c", "postgres", "pg_int8", 0, 1 << 20, domain="child_count"
+        )
+        assert [
+            (
+                b.field,
+                b.column,
+                b.nullable,
+                b.observation.ordinal,
+                b.observation.label,
+                b.observation.storage,
+                b.observation.carrier,
+                b.observation.protocol_nullable,
+            )
+            for b in bound.children
+        ] == [
+            (
+                leaf.shape.fields[0],
+                column.children[0],
+                False,
+                0,
+                "i",
+                "pg_int8",
+                "int",
+                None,
+            ),
+            (
+                leaf.shape.fields[1],
+                column.children[1],
+                True,
+                1,
+                "b",
+                "pg_bool",
+                "bool",
+                None,
+            ),
+            (
+                leaf.shape.fields[2],
+                column.children[2],
+                True,
+                2,
+                "t",
+                "pg_text",
+                "str",
+                None,
+            ),
+        ]
+        assert bound.children[0].observation.lower == -(2**63)
+        assert bound.children[2].observation.text == p.TextObservation(
+            256, "UTF8", "C", "NO PAD"
+        )
+    # Binding and decoding never import Arrow.
+    assert ("pyarrow" in sys.modules) is arrow
+
+
+def _swap(items, a, b):
+    items = list(items)
+    items[a], items[b] = items[b], items[a]
+    return tuple(items)
+
+
+DESCRIPTION_DAMAGE = {
+    "count_oid": DESCRIPTION[:1] + (("c", 23),) + DESCRIPTION[2:],
+    "int8_child_as_int4_array": DESCRIPTION[:2] + (("i", 1007),) + DESCRIPTION[3:],
+    "children_swapped": DESCRIPTION[:2] + _swap(DESCRIPTION[2:], 0, 1),
+    "array_missing": DESCRIPTION[:-1],
+    "array_extra": DESCRIPTION + (("t", 1009),),
+    "count_alias": DESCRIPTION[:1] + (("c_count", 20),) + DESCRIPTION[2:],
+    "child_alias": DESCRIPTION[:4] + (("text", 1009),),
+    "scalar_child_oid": DESCRIPTION[:3] + (("b", 16),) + DESCRIPTION[4:],
+}
+
+
+@pytest.mark.parametrize("damage", sorted(DESCRIPTION_DAMAGE))
+def test_a_description_must_match_the_descriptor_by_position(outputs, damage):
+    output = outputs["captured"]
+    with pytest.raises(c.ResultError, match="^EXECUTION_METADATA$"):
+        bind_postgres_output(output, _description(DESCRIPTION_DAMAGE[damage]))
+
+
+def test_only_the_rows_carrier_reads_a_collected_field(outputs):
+    output = outputs["captured"]
+    description = _description(DESCRIPTION)
+    # ADBC is refused by the binder after connecting (S12 refuses it before).
+    with pytest.raises(c.ResultError, match="^NESTED_UNAVAILABLE$"):
+        bind_native_output(output, "postgres_adbc", description)
+    with pytest.raises(c.ResultError, match="^NESTED_UNAVAILABLE$"):
+        decode_native_rows(output, "postgres_adbc", description, ())
+    with pytest.raises(c.ResultError, match="^EXECUTION_METADATA_ROUTE$"):
+        bind_native_output(output, "mysql_rows", description)
+
+
+@pytest.mark.parametrize("key", ("Float", "Decimal", "Date", "Timestamp", "UUID"))
+def test_an_unopened_child_leaf_is_refused_at_binding(tmp_path, key):
+    output = nested_helper.collected(probe, tmp_path / key, (("x", key, True),))
+    for bind in (
+        lambda: bind_postgres_output(output, nested_helper.metadata(output)),
+        lambda: bind_stored_output(output, "postgres_rows"),
+    ):
+        with pytest.raises(c.ResultError, match="^PRODUCER_UNSUPPORTED$"):
+            bind()
+
+
+def _replace_nested(producer, **changes):
+    first, bound = producer.fields
+    return replace(producer, fields=(first, replace(bound, **changes)))
+
+
+def test_a_coordinated_binding_change_is_refused(outputs):
+    output = outputs["captured"]
+    producer = bind_postgres_output(output, _description(DESCRIPTION))
+    bound = producer.fields[1]
+    assert type(bound) is p.ProducerNestedBinding
+    child = bound.children[0]
+    damaged = {
+        "count_upper": (
+            {"count": replace(bound.count, upper=(1 << 20) - 1)},
+            "PRODUCER_OBSERVATION",
+        ),
+        "count_bool": (
+            {"count": replace(bound.count, lower=False)},
+            "PRODUCER_OBSERVATION",
+        ),
+        "count_storage": (
+            {"count": replace(bound.count, storage="pg_int4")},
+            "PRODUCER_OBSERVATION",
+        ),
+        "container_nullable": ({"nullable": True}, "PRODUCER_OBSERVATION"),
+        "child_range": (
+            {
+                "children": (
+                    replace(child, observation=replace(child.observation, upper=5)),
+                    *bound.children[1:],
+                )
+            },
+            "PRODUCER_OBSERVATION",
+        ),
+        "child_nullable": (
+            {"children": (replace(child, nullable=True), *bound.children[1:])},
+            "PRODUCER_OBSERVATION",
+        ),
+        "children_swapped": (
+            {"children": _swap(bound.children, 0, 1)},
+            "PRODUCER_FIELDS",
+        ),
+        "child_dropped": ({"children": bound.children[:-1]}, "PRODUCER_FIELDS"),
+        "child_repeated": (
+            {"children": (child, child, bound.children[2])},
+            "PRODUCER_FIELDS",
+        ),
+        "column": ({"column": output.columns[0]}, "PRODUCER_FIELDS"),
+    }
+    for name, (changes, category) in damaged.items():
+        with pytest.raises(c.ResultError) as caught:
+            p.verify_producer_binding(
+                _replace_nested(producer, **changes), output.contract, output.artifact
+            )
+        assert caught.value.category == category, name
+    flat = replace(producer, fields=(producer.fields[0], producer.fields[0]))
+    with pytest.raises(c.ResultError, match="^PRODUCER_FIELDS$"):
+        p.verify_producer_binding(flat, output.contract, output.artifact)
+
+
+def test_a_damaged_carrier_descriptor_is_refused(outputs):
+    output = outputs["captured"]
+    flat, column = output.columns
+    children = column.children
+    damaged = {
+        "carrier": (replace(column, carrier="pg_json_v1"), "OUTPUT_CARRIER"),
+        "aliases": (replace(column, aliases=("c", "b", "i", "t")), "OUTPUT_CARRIER"),
+        "alias_dropped": (replace(column, aliases=("c", "i", "b")), "OUTPUT_CARRIER"),
+        "child_dropped": (replace(column, children=children[:-1]), "OUTPUT_CARRIER"),
+        "children_swapped": (
+            replace(column, children=_swap(children, 0, 1)),
+            "OUTPUT_COLUMNS",
+        ),
+        "child_realization": (
+            replace(
+                column,
+                children=(
+                    replace(children[0], realization=children[1].realization),
+                    *children[1:],
+                ),
+            ),
+            "OUTPUT_REALIZATION",
+        ),
+        "child_terminal": (
+            replace(
+                column,
+                children=(
+                    replace(children[0], terminal=column.terminal),
+                    *children[1:],
+                ),
+            ),
+            "OUTPUT_COLUMNS",
+        ),
+        "as_scalar": (flat, "OUTPUT_COLUMNS"),
+    }
+    for name, (supplied, category) in damaged.items():
+        with pytest.raises(c.ResultError) as caught:
+            o.verify_output(
+                replace(output, columns=(flat, supplied)),
+                output.artifact,
+                output.contract,
+            )
+        assert caught.value.category == category, name
+    # Another real Collect's descriptor is not this statement's.
+    other = outputs["closed"].columns[1]
+    with pytest.raises(c.ResultError, match="^OUTPUT_COLUMNS$"):
+        o.verify_output(
+            replace(output, columns=(flat, other)), output.artifact, output.contract
+        )
+
+
+def test_every_still_flat_reader_refuses_a_real_collect_output(outputs):
+    output = outputs["captured"]
+    artifact, contract = output.artifact, output.contract
+    request = SimpleNamespace(
+        output=None, contract=contract, artifact=artifact, projection=None
+    )
+    access = PostgresAccess("127.0.0.1", 5432, "phase66", "pietto_query", "x")
+    guarded = replace(output, guarded=object())
+    entries = {
+        # postgres_rows without an output, SQLSelect and native projections.
+        "producer_columns": lambda: p._columns(contract, artifact),
+        "bind_native_projection": lambda: bind_native_projection(
+            request, _description(DESCRIPTION)
+        ),
+        "prepare_execution": lambda: prepare_execution(artifact, access),
+        # A guarded program reads scalar leaves only (S12/S20).
+        "guarded_output": lambda: o.verify_output(guarded, artifact, contract),
+        "guarded_columns": lambda: p._columns(contract, artifact, None, guarded),
+        # R2 and guard source closures (S12/S20).
+        "source_read_columns": lambda: o.source_read_columns(output),
+        # A saved job's row layout and IPC framing (S17).
+        "layout": lambda: delivery.layout(output, None),
+    }
+    for name, call in entries.items():
+        with pytest.raises(c.ResultError) as caught:
+            call()
+        assert caught.value.category == "NESTED_UNAVAILABLE", name
+    # The opened route: a nested output request is checked before connecting.
+    request = prepare_execution(artifact, access, output=output)
+    assert request.output is output
+
+
+def test_the_compiled_descriptor_equals_the_live_one(tmp_path):
+    """S09 F-12: the compiled artifact's carrier descriptor is the live one's."""
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    live = nested_helper.collected(probe, tmp_path / "live")
+    build = build_compiled(live.artifact)
+    loaded = load_compiled(
+        build.payload,
+        expected_pin=build.pin,
+        accepted_producer=build.producer,
+        accepted_compatibility=build.compatibility,
+    )
+    compiled = emit_compiled(loaded, ())
+    output = o.prepare_output(compiled)
+
+    def descriptor(output):
+        column = output.columns[1]
+        return (
+            column.carrier,
+            column.aliases,
+            [(child.label, child.realization.storage) for child in column.children],
+        )
+
+    assert descriptor(output) == descriptor(live)
+    assert compiled.rendered.sql == live.artifact.rendered.sql

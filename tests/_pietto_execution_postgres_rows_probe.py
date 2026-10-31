@@ -28,13 +28,20 @@ s01 = load("s04_s01", ROOT / "scripts/phase68_executor_premise.py")
 s03 = load("s04_s03", ROOT / "tests/_pietto_execution_qualification_probe.py")
 
 
-def template(directory, source=None, *, target="postgres", lower=None, upper=None):
+def template(
+    directory, source=None, *, target="postgres", lower=None, upper=None, storage=None
+):
     probe = load("s04_emission", ROOT / "tests/_pietto_sql_emission.py")
     product = load("s04_result", ROOT / "tests/_pietto_results_product.py")
     from pietto._project.project_execution_template import prepare_template
 
     limits = {} if lower is None else dict(lower=lower, upper=upper)
     contract = json.loads(product.emission_input(target, **limits))
+    if storage is not None:
+        # Honest premise: its own table whose id column has this storage.
+        declared = contract["sources"][0]
+        declared["relation"]["name"] = "rows_" + storage
+        declared["fields"][0]["representation"]["storage"] = {"kind": storage}
     contract["environment"] += [
         dict(
             key="identifier_case",

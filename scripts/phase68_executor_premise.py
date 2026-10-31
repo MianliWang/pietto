@@ -41,6 +41,7 @@ HELPERS = {
     "_pietto_results_product",
     "_pietto_results_consumer",
     "_pietto_results_conformance",
+    "_pietto_results_nested",
 }
 
 

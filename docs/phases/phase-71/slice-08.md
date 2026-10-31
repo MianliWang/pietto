@@ -49,7 +49,8 @@ LEFT JOIN LATERAL (
   同一个词；保留 owner 一处为 `COMPILED_RETAINED_COLLECT`（[S09](slice-09.md) §6）。
 - D-S08-9：`export_emission_observation` 报 `OUTSIDE_SCHEMA`，`verify_emission_observation` 报 `outside_schema`，
   都在 `_Export` 之前；规则表 R01–R26 不变。
-- S07 的读者拒绝不变：`prepare_output` 报 `ResultError("NESTED_UNAVAILABLE")`，output 视图归 S10（D-S08-7）。
+- S07 的读者拒绝不变：`prepare_output` 报 `ResultError("NESTED_UNAVAILABLE")`，output 视图归 S10（D-S08-7）。S10 起
+  `prepare_output` 对嵌套字段打开，返回 `NestedOutputColumn`（[S10](slice-10.md) §7）。
 
 ## 3. 公开文档（Q1 (a)）
 
@@ -108,6 +109,7 @@ R27）都使公开序列化报 `PIE-B1008 artifact_correspondence`。
   Collect 的嵌套形状（S10 加入、S11 扩充），并按独立字面 oracle 核对。
 - D-S08-8 的判定已由 [S09](slice-09.md) §6 的模板闸门取代：主 plan 的判定在 `verify_template`，保留同一个 detail，
   保留 owner 一处为 `COMPILED_RETAINED_COLLECT`。
-- slice-07.md 的 output 两行与 slice-02.md 的“S08 preflight”按 D-S08-7 改为 S10，由 S10 的提交修订（F-7、F-8）。
+- slice-07.md 的 output 两行按 D-S08-7 改为 S10；slice-02.md 的“S08 preflight”由 S10 的提交改为 S12，S10 不交付
+  preflight（[S10](slice-10.md) §10、§12；F-7、F-8）。
 - 父关系被读时的发射（S16）、Unnest（S13）、Float/Date/Timestamp/UUID 子 leaf 的原生证据（S14/S15）、公开执行（S12）、
   MySQL（Phase77）。

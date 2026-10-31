@@ -2087,6 +2087,86 @@ def test_cancel_wins_before_a_blocked_read_can_publish_eof_completion():
     )
 
 
+SENTINEL = "pietto-s10-loader-sentinel-4f1c"
+
+
+class _LoaderFailure(ValueError):
+    """A driver loader failure whose message carries a result value."""
+
+    sqlstate: str | None = None
+
+
+@pytest.mark.parametrize(
+    "nested,error,expected",
+    (
+        (True, ValueError("invalid literal for int(): " + SENTINEL), None),
+        (True, _LoaderFailure("bad bool " + SENTINEL), None),
+        (False, ValueError("invalid literal for int(): " + SENTINEL), ValueError),
+    ),
+)
+def test_a_collected_fields_loader_text_never_leaves_the_fetch(nested, error, expected):
+    """S02 invariant 5: a nested attempt maps a loader failure to
+    EXECUTION_CARRIER, raised outside the handler, so no driver text is
+    chained; a flat attempt keeps its exception unchanged."""
+    log: list[str] = []
+
+    class Cursor(_CleanupStep):
+        def fetchmany(self, count):
+            assert count == 1
+            raise error
+
+    owner = _terminal_owner(
+        cursor=Cursor(log, "statement_close"), connection=_CleanupConnection(log)
+    )
+    owner.request = cast(
+        ex.ExecutionRequest,
+        SimpleNamespace(route="", limits=SimpleNamespace(batch_rows=1)),
+    )
+    owner._verify = lambda: None
+    owner._remaining = lambda: 1
+    owner._submitted = True
+    owner._source = "READING"
+    owner._payloads = cast(Any, SimpleNamespace(nested=nested))
+    with pytest.raises(BaseException) as caught:
+        next(owner)
+    raised = caught.value
+    if expected is not None:
+        assert raised is error
+        assert owner._primary == ex.ExecutionFailure("read", "ValueError")
+        return
+    assert type(raised) is ResultError and raised.category == "EXECUTION_CARRIER"
+    assert raised.__cause__ is None and raised.__context__ is None
+    texts = (str(raised), repr(raised), *getattr(raised, "__notes__", ()))
+    assert not any(SENTINEL in text for text in texts)
+    assert owner._primary == ex.ExecutionFailure("read", "ResultError")
+
+
+def test_a_server_state_during_a_nested_fetch_keeps_its_exception():
+    log: list[str] = []
+    failure = _LoaderFailure("canceling statement due to statement timeout")
+    failure.sqlstate = "57014"
+
+    class Cursor(_CleanupStep):
+        def fetchmany(self, count):
+            raise failure
+
+    owner = _terminal_owner(
+        cursor=Cursor(log, "statement_close"), connection=_CleanupConnection(log)
+    )
+    owner.request = cast(
+        ex.ExecutionRequest,
+        SimpleNamespace(route="", limits=SimpleNamespace(batch_rows=1)),
+    )
+    owner._verify = lambda: None
+    owner._remaining = lambda: 1
+    owner._submitted = True
+    owner._source = "READING"
+    owner._payloads = cast(Any, SimpleNamespace(nested=True))
+    with pytest.raises(_LoaderFailure) as caught:
+        next(owner)
+    assert caught.value is failure
+
+
 def test_cancel_after_empty_fetch_before_eof_claim_never_commits():
     """The terminal winner is checked again after an empty read becomes known."""
     log: list[str] = []

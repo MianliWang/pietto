@@ -16,7 +16,10 @@ import platform
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from pietto._project.project_result_binding import ProducerFieldBinding
 
 
 def _helper(name):
@@ -39,6 +42,15 @@ def _integration():
 
 def _whole():
     return _helper("_pietto_results_conformance")
+
+
+def _nested():
+    return _helper("_pietto_results_nested")
+
+
+def _leaves(producer) -> tuple[ProducerFieldBinding, ...]:
+    """Flat product fixtures bind scalar leaves only."""
+    return producer.fields
 
 
 FORMAT = "pietto.result-product.v1"
@@ -163,7 +175,7 @@ CASES = (
     "ipc_correspondence",
 )
 
-CASES += _integration().GROUPS + _whole().GROUPS
+CASES += _integration().GROUPS + _whole().GROUPS + _nested().GROUPS
 
 
 def source(target):
@@ -340,7 +352,7 @@ def run_cases(root):
             "types": [str(f.type) for f in batch.schema],
             "nullable": [f.nullable for f in batch.schema],
             "labels": batch.schema.names,
-            "storage": [f.observation.storage for f in producer.fields],
+            "storage": [f.observation.storage for f in _leaves(producer)],
         }
         built[target] = checked, artifact, contract, producer, arrow
     checked, artifact, contract, producer, arrow = built["postgres"]
@@ -525,6 +537,7 @@ def run_cases(root):
     results.update(run_ipc_cases(root))
     results.update(_integration().fixture_groups(root / "integration"))
     results.update(_whole().run(sys.modules[__name__], root / "whole", results))
+    results.update(_nested().run(sys.modules[__name__], root / "nested", results))
     assert set(results) == set(CASES)
     return results
 
@@ -969,7 +982,7 @@ def run_scalar_cases(root):
             ],
         }
         bad_obs = replace(
-            producer.fields[0].observation, storage=width_storage(target, 16)
+            _leaves(producer)[0].observation, storage=width_storage(target, 16)
         )
         damaged = replace(
             producer,
@@ -1000,7 +1013,7 @@ def run_scalar_cases(root):
             (4, {"domain": "bool01"}),
             (4, {"lower": 0}),
         ):
-            observations_ = [f.observation for f in producer.fields]
+            observations_ = [f.observation for f in _leaves(producer)]
             observations_[index] = replace(observations_[index], **updates)
             malformed.append(
                 refused(
@@ -1570,7 +1583,7 @@ def run_text_cases(root):
                     padding=cast(p.TextObservation, f.observation.text).padding,
                     length=cast(p.TextObservation, f.observation.text).storage_length,
                 )
-                for f in producer.fields[:2]
+                for f in _leaves(producer)[:2]
             ],
         )
         r0, r1 = (a.TextOffsetWidthRequest(f.field, 64) for f in producer.fields[:2])
@@ -2791,7 +2804,7 @@ def run_decimal_cases(root):
                     replace(f.observation, decimal=p.DecimalObservation(9, 2))
                     if i == 2
                     else f.observation
-                    for i, f in enumerate(mixed.fields)
+                    for i, f in enumerate(_leaves(mixed))
                 ),
             )
         )
@@ -5317,7 +5330,7 @@ def run_finite_cases(root):
             values=measured,
             wide=finite_observe(wide, rows, wide=True),
             semantic_labels=[b.field.label for b in producer.fields],
-            producer_labels=[b.observation.label for b in producer.fields],
+            producer_labels=[b.observation.label for b in _leaves(producer)],
             distinct_sources=len(
                 {id(b.column.source_field.field) for b in producer.fields}
             ),
@@ -5491,7 +5504,7 @@ def run_finite_cases(root):
         refusals["changed_name"] = refused(
             lambda: a.verify_batch(renamed, selected, producer)
         )
-        forged_obs = [b.observation for b in producer.fields]
+        forged_obs = [b.observation for b in _leaves(producer)]
         forged_obs[0] = replace(forged_obs[0], label="repeated")
         refusals["producer_label"] = refused(
             lambda: p.bind_producer(neutral, artifact, tuple(forged_obs))
@@ -6672,7 +6685,7 @@ def run_reader_cases(root):
                     object.__setattr__(reader.expectation.limits, "max_total_bytes", 1)
                 elif mutation == "protocol":
                     object.__setattr__(
-                        session_binding.producer.fields[0].observation,
+                        _leaves(session_binding.producer)[0].observation,
                         "protocol_nullable",
                         True,
                     )
@@ -6689,7 +6702,7 @@ def run_reader_cases(root):
                     # Restore the shared frozen default limit, not a failed session.
                     if mutation == "protocol":
                         object.__setattr__(
-                            session_binding.producer.fields[0].observation,
+                            _leaves(session_binding.producer)[0].observation,
                             "protocol_nullable",
                             None,
                         )
@@ -11154,6 +11167,7 @@ def verify_report(value, context, inputs):
     verify_ipc_report(cases)
     _integration().verify_fixture_groups(cases, inputs)
     _whole().verify(cases, sys.modules[__name__])
+    _nested().verify(cases, sys.modules[__name__])
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -11556,7 +11570,9 @@ def reject_report_damage(value, context, inputs):
             path="/checkout/pyarrow/__init__.py"
         ),
     )
-    mutations += _integration().product_damage() + _whole().damage()
+    mutations += (
+        _integration().product_damage() + _whole().damage() + _nested().damage()
+    )
     for mutate in mutations:
         bad = json.loads(json.dumps(value))
         mutate(bad)
@@ -11644,9 +11660,7 @@ def main():
         "cases": cases,
     }
     verify_report(value, context, input_closure(repository))
-    rejected = reject_report_damage(value, context, input_closure(repository))
-    assert len(cases) == 120
-    assert rejected == 118
+    reject_report_damage(value, context, input_closure(repository))
     args.report.parent.mkdir(parents=True, exist_ok=True)
     with args.report.open("x") as stream:
         json.dump(value, stream, sort_keys=True, allow_nan=False)

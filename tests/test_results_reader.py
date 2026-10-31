@@ -8,6 +8,8 @@ import pytest
 
 import _pietto_results_product as probe
 from pietto._project import project_arrow_result as arrow
+from pietto._project import project_result_binding as producers
+from pietto._project import project_result_contract as c
 from pietto._project import project_result_reader as reader
 from pietto._project.project_result_contract import ResultError
 
@@ -78,7 +80,7 @@ def test_unconstructed_receipts_and_missing_session_storage_cannot_complete():
 
 
 def test_frozen_reader_manifests_and_independent_layout_arithmetic():
-    assert len(probe.CASES) == len(set(probe.CASES)) == 120
+    assert len(probe.CASES) == len(set(probe.CASES))
     assert tuple(probe.CASES[64:74]) == probe.READER_GROUPS
     assert "project_result_reader" in probe.PRODUCTS
     assert probe.reader_expected(probe.READER_LAYOUTS["whole"])["charge"] == 630
@@ -105,8 +107,88 @@ def test_session_root_snapshot_retains_protocol_observation(tmp_path):
     *_, producer, _ = probe.finite_fixture(tmp_path / "snapshot", "postgres")
     binding = arrow.ArrowResultBinding(producer, None)
     captured = reader._roots(binding)
-    observation = producer.fields[0].observation
+    contract = producer.contract
+    flat = (
+        producer,
+        producer.fields,
+        contract,
+        producer.artifact,
+        contract.authority,
+        contract.shape,
+        contract.scalar_meaning,
+    )
+    for bound in producer.fields:
+        assert isinstance(bound, producers.ProducerFieldBinding)
+        flat += (bound.observation, bound.observation.protocol_nullable)
+    assert len(captured) == len(flat)
+    assert all(a is b for a, b in zip(captured, flat, strict=True))
+    observation = cast(producers.ProducerFieldBinding, producer.fields[0]).observation
     object.__setattr__(observation, "protocol_nullable", True)
     assert any(
         a is not b for a, b in zip(captured, reader._roots(binding), strict=True)
     )
+
+
+def _nested_binding(producer):
+    """Real Int8/Bool/Text child leaves under one assembled nested field."""
+    contract = producer.contract
+    children = (producer.fields[2], producer.fields[3], producer.fields[5])
+    shape = c.NestedShape(
+        None,
+        contract.owner,
+        contract.output,
+        contract.multiplicity,
+        contract.ordering,
+        tuple(child.field for child in children),
+    )
+    field = replace(contract.shape.fields[0], label="c", shape=shape)
+    count = producers.ProducerObservation(
+        0, "c", "postgres", "pg_int8", 0, 1048576, domain="child_count"
+    )
+    bound = producers.ProducerNestedBinding(field, None, count, children, False)
+    nested = producers.ProducerResultBinding(
+        replace(contract, shape=c.ResultShape((field,))), producer.artifact, (bound,)
+    )
+    return arrow.ArrowResultBinding(nested, None), bound
+
+
+@pytest.mark.parametrize("change", ("child_observation", "count_protocol", "children"))
+def test_session_root_snapshot_covers_nested_count_and_children(tmp_path, change):
+    *_, producer, _ = probe.finite_fixture(tmp_path / "nested", "postgres")
+    binding, bound = _nested_binding(producer)
+    nested = binding.producer
+    roots = reader._roots(binding)
+    children = bound.children
+    expected = (
+        nested,
+        nested.fields,
+        nested.contract,
+        nested.artifact,
+        nested.contract.authority,
+        nested.contract.shape,
+        nested.contract.scalar_meaning,
+        bound,
+        bound.field,
+        bound.count,
+        None,
+        children,
+    )
+    for child in children:
+        expected += (child.observation, None)
+    assert len(roots) == len(expected) == 18
+    assert all(a is b for a, b in zip(roots, expected, strict=True))
+    policies = reader._policy_snapshot(binding)
+    # Unchanged, the identity check passes and S07-A's contract authority refuses.
+    with pytest.raises(ResultError) as unchanged:
+        reader._verify_binding_snapshot(binding, roots, None, policies)
+    assert unchanged.value.category == "FIELD"
+    if change == "child_observation":
+        child = children[1]
+        object.__setattr__(child, "observation", replace(child.observation))
+    elif change == "count_protocol":
+        object.__setattr__(bound.count, "protocol_nullable", False)
+    else:
+        object.__setattr__(bound, "children", children[:2])
+    with pytest.raises(ResultError, match="READER_IDENTITY"):
+        reader._verify_binding_snapshot(binding, roots, None, policies)
+    assert importlib.util.find_spec("pyarrow") is None

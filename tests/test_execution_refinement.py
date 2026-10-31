@@ -1,6 +1,7 @@
 """Refined request/source-vector boundaries; database work is explicit elsewhere."""
 
 from dataclasses import replace
+from typing import cast
 
 import pytest
 
@@ -44,6 +45,7 @@ def test_r2_bound_adbc_preserves_int32_source_and_int64_arithmetic(tmp_path):
     from _pietto_execution_source_assurance_cases import original
     from pietto._project.project_execution_reader import bind_native_output
     from pietto._project.project_execution_template import bind_values, prepare_template
+    from pietto._project.project_result_binding import ProducerFieldBinding
     from pietto._project.project_result_output import prepare_output
 
     artifact = original(tmp_path, "postgres", "R2_bound", "range")
@@ -68,7 +70,10 @@ def test_r2_bound_adbc_preserves_int32_source_and_int64_arithmetic(tmp_path):
             for column, kind in zip(output.columns, ("int32", "int64"), strict=True)
         ),
     )
-    assert [field.observation.storage for field in producer.fields] == [
+    assert [
+        cast(ProducerFieldBinding, field).observation.storage
+        for field in producer.fields
+    ] == [
         "pg_int4",
         "pg_int8",
     ]
