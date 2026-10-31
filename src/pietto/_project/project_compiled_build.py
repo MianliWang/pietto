@@ -2714,6 +2714,10 @@ def build_compiled(artifact, *, guarded=None, refinement=None) -> CompiledBuild:
 
     if type(artifact) not in (EmissionArtifact, GuardedArtifact):
         raise BindingError("BINDING_ARTIFACT")
+    # D-S08-8: a VERIFIED Collect emission has no compiled form yet; it is
+    # refused before any export, connection or driver import.
+    if artifact.request.plan.collects:
+        raise CompiledError("NESTED_UNAVAILABLE")
     primary = _Export(artifact, guarded, refinement)
     description = primary.run()
     verify_export(description, artifact, guarded=guarded, refinement=refinement)
@@ -2742,6 +2746,8 @@ def build_compiled(artifact, *, guarded=None, refinement=None) -> CompiledBuild:
             owner,
             literal_policy=ProjectSQLLiteralPolicy.PRESERVE_LITERALS,
         )
+        if getattr(checked.plan, "collects", ()):
+            raise CompiledError("NESTED_UNAVAILABLE")
         exporter = _LogicalExport(artifact, guarded, checked)
         child = exporter.run()
         from pietto._project.project_compiled_verification import verify_logical_export

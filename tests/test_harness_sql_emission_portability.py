@@ -1561,3 +1561,31 @@ query result:
     document = json.loads(observed.canonical_bytes)
     _records(document, "sql_any_reference")[0]["position"] += 1
     assert pure.parse_emission_observation(_encode(document)).status is not OK
+
+
+def test_a_collect_emission_stays_outside_the_observation_schema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import _pietto_sql_nested_collect as collecting
+    from _pietto_plan_nested import sources
+
+    def forbidden(*args: object) -> None:
+        raise AssertionError("a Collect emission is never exported")
+
+    # D-S08-9: no record kind describes a lateral, an ordinal or a nested
+    # group, so the observation refuses a Collect explicitly, before export.
+    monkeypatch.setattr(portable, "_Export", forbidden)
+    for shape in ("closed", "top_k"):
+        outcome = collecting.wired_outcome(
+            tmp_path / shape, sources(shape), collecting.contract()
+        )
+        artifact = outcome.artifact
+        assert artifact is not None
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed == portable.EmissionObservation(
+            portable.ObservationStatus.OUTSIDE_SCHEMA
+        )
+        checked = portable.verify_emission_observation(
+            b"{}\n", artifact, artifact.request
+        )
+        assert checked.issues == ("outside_schema",)

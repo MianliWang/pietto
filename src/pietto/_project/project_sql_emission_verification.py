@@ -63,9 +63,11 @@ from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_nested as nested
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_plan_windows as plan_windows
+from pietto._project import project_sql_plan_nested as plan_nested
 from pietto._project import project_sql_emission_ast as ast
 from pietto._project.project_sql_plan_joins import ProjectSQLJoinPortKind
 from pietto import ast_nodes
@@ -3704,6 +3706,33 @@ def _verify_result_body(
         or (body.limit is None) != (limit is None)
     ):
         raise ValueError("result stage denominator")
+    # A terminal some Collect reads without DISTINCT carries one private
+    # ordinal: ROW_NUMBER over exactly its verified ORDER items (D-S08-2).
+    value = body.ordinal
+    collected = any(c.producer is definition.original.ref for c in plan.collects)
+    if (value is not None) != (collected and distinct is None):
+        raise ValueError("collect ordinal placement")
+    if value is not None:
+        assert order is not None
+        width = len(body.columns)
+        if (
+            type(value) is not nested.CollectOrdinal
+            or value.order is not order
+            or value.scope is not scan.symbol
+            or value.symbol.position != width
+            or value.symbol.binding is not order.order.ref
+            or value.symbol.name != f"c{width}"
+            or len(value.keys) != len(order.items)
+            or any(
+                key[0] is not item
+                or key[1] != item.read.name
+                or key[2] != item.direction
+                for key, item in zip(value.keys, order.items, strict=True)
+            )
+        ):
+            raise ValueError("collect ordinal")
+        state["symbols"].append(value.symbol)
+        state["nodes"] += 1 + len(value.keys)
     if (
         carried != tuple(definition.terminals)
         or body.terminals != carried
@@ -3717,17 +3746,33 @@ def _verify_result_body(
         projection_port, read = reads[port.ref]
         label = export.identity.name if body.final else f"c{ordinal}"
         trace = traces[port.ref]
+        # A nested group is carried whole: its read is the projection's
+        # Collect column itself, which has no scalar realization.
+        group = type(column) is resulting.ResultGroupColumn
+        if group and (
+            body.distinct is not None
+            or _collect_group_problems(request, body, column)
+            or column.read is not read
+            or column.column.realization is not None
+            or (column.column.position, column.column.name) != (ordinal, label)
+            or column.column.terminal is not port.ref
+        ):
+            raise ValueError("result group")
         if (
-            type(column) is not resulting.ResultColumn
+            type(column)
+            is not (resulting.ResultGroupColumn if group else resulting.ResultColumn)
             or column.ordinal != ordinal
             or column.export is not export
             or port.canonical is not export
             or column.projection_port is not projection_port
             or column.output is not port
-            or not _same_read(column.read, read)
-            or not _same_read(
-                column.column,
-                replace(read, position=ordinal, name=label, terminal=port.ref),
+            or not (group or _same_read(column.read, read))
+            or not (
+                group
+                or _same_read(
+                    column.column,
+                    replace(read, position=ordinal, name=label, terminal=port.ref),
+                )
             )
             or column.label != label
             or column.symbol.position != ordinal + 1
@@ -3747,6 +3792,8 @@ def _verify_result_body(
         ):
             raise ValueError("result column")
         state["symbols"].append(column.symbol)
+        if type(column) is resulting.ResultGroupColumn:
+            state["nodes"] += len(column.carriers) - 1
     if inline:
         # An inline body's own structure counts like any other body.
         state["nodes"] += 3 + 2 * len(body.columns)
@@ -4272,6 +4319,282 @@ def _verify_function_unit(
     state["nodes"] += 2 + len(unit.columns) + len(unit.arguments)
 
 
+def _collect_problems(request, body, column, order, limit) -> tuple[str, ...]:
+    """Every rule one Collect column of ``body`` breaks, in a fixed order.
+
+    ``order`` and ``limit`` are the plan's own ORDER and LIMIT records of the
+    collected let (LIMIT None when it has none), given by the caller and never
+    taken from the nodes. Names, reads and labels are re-derived here; the
+    builder is never called. Empty when the column corresponds.
+    """
+    try:
+        plan = request.plan
+        collect = column.collect
+        lateral = column.lateral
+        target = lateral.target
+        unit = target.producer
+        parent = body.definition.original
+        uses = {item.ref: item for item in plan.expression_block_uses}
+        definitions = {item.ref: item for item in plan.bindings.definitions}
+        use = uses.get(collect.use)
+        producer = definitions.get(collect.producer)
+        if (
+            use is None
+            or producer is None
+            or not any(block.ref is collect.block for block in plan.blocks)
+            or not any(port.ref is collect.export for port in plan.all_exports)
+        ):
+            return ("collect_foreign",)
+        position = column.ordinal
+        issues = []
+        if (
+            use.producer is not collect.producer
+            or use.consumer is not parent.ref
+            or collect.block is not body.block.ref
+            or not 0 <= position < len(parent.exports)
+            or column.export is not parent.exports[position]
+            or column.export.ref is not collect.export
+            or body.columns[position] is not column
+            or lateral.collect is not collect
+        ):
+            issues.append("collect_placement")
+        # The arrays and carriers below follow the let's own exports.
+        ports = tuple(port.ref for port in producer.exports)
+        children = tuple(collect.children)
+        if (
+            not children
+            or len(children) != len(ports)
+            or any(child is not port for child, port in zip(children, ports))
+        ):
+            issues.append("collect_children")
+        terminals = tuple(
+            d.terminals for d in request.layout.definitions if d.original is producer
+        )
+        if (
+            target.use is not use
+            or target.source is not None
+            or type(unit) is not resulting.RowResultBody
+            or unit.definition.original is not producer
+            or len(terminals) != 1
+            or tuple(unit.terminals) != tuple(terminals[0])
+        ):
+            return (*issues, "collect_terminal")
+        closed = unit.symbol is not None
+        # A captured let is read once: this read completes every capture line
+        # of the let, in capture order, and a closed let has none.
+        captures = tuple(c for c in plan.captures if c.inner is collect.producer)
+        if (
+            bool(captures) is closed
+            or len(collect.captures) != len(captures)
+            or any(
+                ref is not capture.ref
+                or capture.read is not collect.ref
+                or capture.block is not collect.block
+                for ref, capture in zip(collect.captures, captures)
+            )
+        ):
+            issues.append("collect_capture")
+        if order is None or unit.order is None or unit.order.order is not order:
+            return (*issues, "collect_order")
+        if (None if unit.limit is None else unit.limit.limit) is not limit:
+            issues.append("collect_limit")
+        n = use.ref.position
+        width = len(unit.columns)
+        wrapper = lateral.wrapper
+        if (
+            target.symbol.name != f"e{n}"
+            or lateral.symbol.name != f"g{n}"
+            or (wrapper is not None and wrapper.name != f"d{n}")
+        ):
+            issues.append("collect_symbols")
+        visible = tuple(
+            unit.cte_columns[j].name if closed else unit.columns[j].label
+            for j in range(width)
+        )
+        ordinal = lateral.ordinal
+        if unit.distinct is None and unit.ordinal is None:
+            issues.append("collect_ordinal_missing")
+        elif (
+            unit.distinct is None
+            and (wrapper is not None or ordinal is not unit.ordinal)
+        ) or (
+            unit.distinct is not None and (unit.ordinal is not None or wrapper is None)
+        ):
+            issues.append("collect_ordinal_placement")
+        else:
+            # The ordinal restates exactly the let's ORDER items: the same
+            # reads under its own scope, the same directions, in order.
+            items = {item.ref: item for item in plan.order_items}
+            keys = ordinal.keys
+            scope = unit.scan.symbol if wrapper is None else wrapper
+            expected = []
+            for k, ref in enumerate(order.items):
+                written = unit.order.items[k] if k < len(unit.order.items) else None
+                if written is None or written.item is not items.get(ref):
+                    break
+                if wrapper is None:
+                    expected.append((written, written.read.name))
+                    continue
+                at = tuple(
+                    j for j, c in enumerate(unit.columns) if c.read is written.read
+                )
+                if len(at) != 1:
+                    break
+                expected.append((written, visible[at[0]]))
+            if (
+                len(expected) != len(order.items)
+                or len(keys) != len(expected)
+                or ordinal.order is not unit.order
+                or ordinal.scope is not scope
+                or ordinal.symbol.name != f"c{width}"
+                or any(
+                    key[0] is not item
+                    or key[1] != name
+                    or key[2] != items[ref].source.direction.value
+                    for key, (item, name), ref in zip(
+                        keys, expected, order.items, strict=True
+                    )
+                )
+            ):
+                issues.append("collect_ordinal")
+        reads = visible if wrapper is None else tuple(f"c{j}" for j in range(width))
+        arrays = lateral.arrays
+        if (
+            tuple(lateral.sources) != visible
+            or len(arrays) != len(ports)
+            or len(arrays) != width
+            or any(
+                array[0] is not port or array[1] != read or array[3] != f"a{j}"
+                for j, (array, port, read) in enumerate(
+                    zip(arrays, ports, reads, strict=True)
+                )
+            )
+        ):
+            issues.append("collect_arrays")
+        elif any(array[2] != ordinal.symbol.name for array in arrays):
+            issues.append("collect_array_order")
+        # The count column under the field's label, then each child's array
+        # under the child's label; a closed stage names them c<i>, c<i>_<j>.
+        labels = (
+            (
+                parent.exports[position].identity.name,
+                *(port.identity.name for port in producer.exports),
+            )
+            if body.final
+            else (f"c{position}", *(f"c{position}_{j}" for j in range(width)))
+        )
+        expected_carriers = tuple(
+            zip(
+                ("n", *(f"a{j}" for j in range(width))),
+                labels,
+                (collect.export, *ports),
+                strict=True,
+            )
+        )
+        if (
+            len(column.carriers) != len(expected_carriers)
+            or any(
+                carrier[0] != read or carrier[1] != label or carrier[2] is not subject
+                for carrier, (read, label, subject) in zip(
+                    column.carriers, expected_carriers
+                )
+            )
+            or column.label != labels[0]
+            or column.column.terminal is not body.terminals[position].ref
+        ):
+            issues.append("collect_carriers")
+        # A final body writes the children's labels as output labels.
+        if any(
+            not identifier_valid(label, request.family, label=body.final)
+            for label in labels
+        ):
+            issues.append("collect_label")
+        # One lateral per nested column, in column order: siblings are never
+        # joined before they are collected.
+        collected = tuple(c for c in body.columns if type(c) is nested.CollectColumn)
+        laterals = tuple(c.lateral for c in collected)
+        if (
+            len(set(map(id, laterals))) != len(laterals)
+            or tuple(body.laterals) != laterals
+            or column not in collected
+        ):
+            issues.append("collect_laterals")
+        return tuple(issues)
+    except (AttributeError, TypeError, ValueError, IndexError, KeyError):
+        return ("collect_structure",)
+
+
+def _collect_group_problems(request, body, column) -> tuple[str, ...]:
+    """The rule one nested group of result body ``body`` breaks, if any.
+
+    ``column`` carries the projection's Collect column read at its position
+    whole. Its carriers are re-derived from the plan's exports and the let's
+    child order, never from the group's own carriers: the projection's count
+    column and then each child's array column, in order, under the field's and
+    the children's labels, or ``c<p>`` and ``c<p>_<j>`` when ``body`` is not
+    final. The group read is the plan's own projection port of the export at
+    its position, never a sibling's. Empty when the group corresponds.
+    """
+    try:
+        projection = body.scan.body
+        position = column.ordinal
+        group = column.group
+        exports = body.definition.original.exports
+        ports = _result_ports(request.plan)(
+            projection.block.ref, resulting.ROLES.PROJECTION
+        )
+        at = tuple(
+            index
+            for index, port in enumerate(ports)
+            if port.canonical is exports[position]
+        )
+        if (
+            len(at) != 1
+            or type(group) is not nested.CollectColumn
+            or len(projection.columns) != len(ports)
+            or projection.columns[at[0]] is not group
+            or group.column.terminal is not ports[at[0]].ref
+            or column.projection_port is not ports[at[0]]
+            or column.read is not group.column
+            or column.export is not exports[position]
+            or body.columns[position] is not column
+        ):
+            return ("collect_group",)
+        source = at[0]
+        definitions = {item.ref: item for item in request.plan.bindings.definitions}
+        children = definitions[group.collect.producer].exports
+
+        def labels(final, index):
+            if final:
+                return (
+                    exports[index].identity.name,
+                    *(port.identity.name for port in children),
+                )
+            return (f"c{index}", *(f"c{index}_{j}" for j in range(len(children))))
+
+        expected = tuple(
+            zip(
+                labels(projection.final, source),
+                labels(body.final, position),
+                (exports[position].ref, *(port.ref for port in children)),
+                strict=True,
+            )
+        )
+        if len(column.carriers) != len(expected) or any(
+            carrier[0] != read or carrier[1] != label or carrier[2] is not subject
+            for carrier, (read, label, subject) in zip(column.carriers, expected)
+        ):
+            return ("collect_group",)
+        if any(
+            not identifier_valid(label, request.family, label=body.final)
+            for label in labels(body.final, position)
+        ):
+            return ("collect_label",)
+        return ()
+    except (AttributeError, TypeError, ValueError, IndexError, KeyError):
+        return ("collect_structure",)
+
+
 def verify_row_query(request, query, *, _guarded=None):
     """Independent stage schedule, scope, column and expression correspondence."""
     try:
@@ -4399,6 +4722,8 @@ def verify_row_query(request, query, *, _guarded=None):
                 if value is not None
                 for node in rows.value_nodes(value)
                 if type(node) is rows.SQLBlockRead and node.target.use is block_use
+            ) + tuple(
+                lateral for lateral in body.laterals if lateral.target.use is block_use
             )
             if len(reads) != 1:
                 return False
@@ -4502,6 +4827,13 @@ def verify_row_query(request, query, *, _guarded=None):
                     block.kind.value == "projection"
                     and selected
                     and not result_boundaries
+                )
+                # One lateral per Collect column, in column order, and no other.
+                or tuple(body.laterals)
+                != tuple(
+                    column.lateral
+                    for column in body.columns
+                    if type(column) is nested.CollectColumn
                 )
             ):
                 return False
@@ -4668,6 +5000,12 @@ def verify_row_query(request, query, *, _guarded=None):
                     if entry.export in claims:
                         return False
                     claims[entry.export] = entry
+                for entry in plan.collects:
+                    if entry.block is not block.ref:
+                        continue
+                    if entry.export in claims:
+                        return False
+                    claims[entry.export] = entry
                 ordered_items = tuple(
                     claims.get(export.ref) for export in definition.original.exports
                 )
@@ -4754,6 +5092,46 @@ def verify_row_query(request, query, *, _guarded=None):
                         return False
                     continue
                 item = items[ordinal - carries]
+                if type(item) is plan_nested.ProjectSQLCollect:
+                    # The plan's own ORDER and LIMIT of the collected let, never
+                    # the nodes'; the read's realized terminal is the one its
+                    # scope names (a closed let's CTE, a captured let's chain).
+                    scope = readable.get(item.use)
+                    if (
+                        type(column) is not nested.CollectColumn
+                        or column.collect is not item
+                        or type(scope) is not _BlockScope
+                        or scope.source is not None
+                        or column.lateral.target.producer is not scope.producer
+                        or (column.column.position, column.column.name)
+                        != (ordinal, label)
+                        or column.column.realization is not None
+                        or _collect_problems(
+                            request,
+                            body,
+                            column,
+                            plan_nested.collect_order(plan, item),
+                            plan_nested.collect_limit(plan, item),
+                        )
+                    ):
+                        return False
+                    lateral = column.lateral
+                    symbols.extend(
+                        (
+                            lateral.target.symbol,
+                            lateral.symbol,
+                            *(() if lateral.wrapper is None else (lateral.wrapper,)),
+                        )
+                    )
+                    state.setdefault("block_reads", []).append(scope.use)
+                    # The lateral, its count, each array's aggregate, ORDER BY
+                    # and carrier, and a wrapper's SELECT, FROM, columns and keys.
+                    state["nodes"] += 6 + 3 * len(lateral.arrays)
+                    if lateral.wrapper is not None:
+                        state["nodes"] += (
+                            3 + len(lateral.sources) + len(lateral.ordinal.keys)
+                        )
+                    continue
                 if kind == "window":
                     if not _verify_window_column(
                         request,
@@ -5842,6 +6220,162 @@ def verify_row_bytes(query, rendered):
                     ("unary" if unary else "anchor", node.original.ref, start, offset)
                 )
 
+        def carriers(column, scope, role, subject):
+            # A nested group: its count, then each array, all under one scope.
+            if len(column.carriers) < 2:
+                raise ValueError("nested group without arrays")
+            for index, (read, label, carrier) in enumerate(column.carriers):
+                if index:
+                    take("syntax", "separator", carrier, ", ")
+                take("identifier", role, subject, scope, identifier=True)
+                take("syntax", "qualifier", carrier, ".")
+                take(
+                    "identifier",
+                    "collect_carrier_column",
+                    carrier,
+                    read,
+                    identifier=True,
+                )
+                take("syntax", "alias", carrier, " AS ")
+                take("identifier", "label", carrier, label, identifier=True)
+
+        def ordinal(value):
+            # ROW_NUMBER over exactly the keys, one per ORDER item, no NULLS.
+            reference = value.order.order.ref
+            if not value.keys:
+                raise ValueError("ordinal without keys")
+            take(
+                "syntax",
+                "ordinal_window",
+                reference,
+                "ROW_NUMBER() OVER (ORDER BY ",
+            )
+            for position, (item, name, direction) in enumerate(value.keys):
+                if position:
+                    take("syntax", "order_separator", item.item.ref, ", ")
+                take(
+                    "identifier",
+                    "order_scope",
+                    item.port.ref,
+                    value.scope.name,
+                    identifier=True,
+                )
+                take("syntax", "order_qualifier", item.item.ref, ".")
+                take(
+                    "identifier",
+                    "order_column",
+                    item.read.terminal,
+                    name,
+                    identifier=True,
+                )
+                take(
+                    "syntax",
+                    "order_direction",
+                    item.item.ref,
+                    {"asc": " ASC", "desc": " DESC"}[direction],
+                )
+            take("syntax", "ordinal_window", reference, ")")
+            take("syntax", "alias", reference, " AS ")
+            take(
+                "identifier",
+                "ordinal_column",
+                reference,
+                value.symbol.name,
+                identifier=True,
+            )
+
+        def collect_lateral(lateral):
+            # LEFT ... ON TRUE: one single-row aggregate per parent row that
+            # reads only its own collected terminal under its own alias.
+            reference = lateral.collect.ref
+            target = lateral.target
+            unit = target.producer
+            use = target.use.ref
+            scope = target.symbol.name
+            if not lateral.arrays or type(unit) is not resulting.RowResultBody:
+                raise ValueError("collect lateral shape")
+            take("syntax", "collect_lateral_open", reference, " LEFT JOIN LATERAL (")
+            take("syntax", "select", reference, "SELECT ")
+            take("syntax", "collect_count", reference, "COUNT(*)")
+            take("syntax", "alias", reference, " AS ")
+            take("identifier", "label", reference, "n", identifier=True)
+            for child, read, order, alias in lateral.arrays:
+                take("syntax", "separator", child, ", ")
+                take("syntax", "collect_array", child, "ARRAY_AGG(")
+                take("identifier", "collect_reference", use, scope, identifier=True)
+                take("syntax", "qualifier", child, ".")
+                take("identifier", "collect_array", child, read, identifier=True)
+                take("syntax", "collect_array_order", child, " ORDER BY ")
+                take("identifier", "collect_reference", use, scope, identifier=True)
+                take("syntax", "qualifier", child, ".")
+                take("identifier", "ordinal_column", child, order, identifier=True)
+                take("syntax", "collect_array", child, ")")
+                take("syntax", "alias", child, " AS ")
+                take("identifier", "label", child, alias, identifier=True)
+            take("syntax", "from", reference, " FROM ")
+            wrapper = lateral.wrapper
+            if wrapper is not None:
+                take("syntax", "distinct_wrapper_open", reference, "(")
+                take("syntax", "select", reference, "SELECT ")
+                for position, ((child, read, _, _), source) in enumerate(
+                    zip(lateral.arrays, lateral.sources, strict=True)
+                ):
+                    if position:
+                        take("syntax", "separator", child, ", ")
+                    take(
+                        "identifier",
+                        "result_carry_scope",
+                        child,
+                        wrapper.name,
+                        identifier=True,
+                    )
+                    take("syntax", "result_carry_qualifier", child, ".")
+                    take(
+                        "identifier",
+                        "result_carry_column",
+                        child,
+                        source,
+                        identifier=True,
+                    )
+                    take("syntax", "alias", child, " AS ")
+                    take("identifier", "label", child, read, identifier=True)
+                take("syntax", "separator", lateral.ordinal.order.order.ref, ", ")
+                ordinal(lateral.ordinal)
+                take("syntax", "from", reference, " FROM ")
+            if _inline_body(unit):
+                take("syntax", "inline_open", unit.block.ref, "(")
+                result_select(unit)
+                take("syntax", "inline_close", unit.block.ref, ")")
+            else:
+                take(
+                    "identifier",
+                    "collect_reference",
+                    unit.block.ref,
+                    unit.symbol.name,
+                    identifier=True,
+                )
+            if wrapper is not None:
+                take("syntax", "alias", reference, " AS ")
+                take(
+                    "identifier",
+                    "result_scope",
+                    reference,
+                    wrapper.name,
+                    identifier=True,
+                )
+                take("syntax", "distinct_wrapper_close", reference, ")")
+            take("syntax", "alias", use, " AS ")
+            take("identifier", "collect_reference", use, scope, identifier=True)
+            take("syntax", "collect_lateral_close", reference, ") AS ")
+            take(
+                "identifier",
+                "collect_scope",
+                reference,
+                lateral.symbol.name,
+                identifier=True,
+            )
+            take("syntax", "collect_on_true", reference, " ON TRUE")
+
         def select(body):
             scan = body.scan
             alias = scan.symbol.name
@@ -5849,6 +6383,14 @@ def verify_row_bytes(query, rendered):
             for position, column in enumerate(body.columns):
                 if position:
                     take("syntax", "separator", column.export.ref, ", ")
+                if type(column) is nested.CollectColumn:
+                    carriers(
+                        column,
+                        column.lateral.symbol.name,
+                        "collect_scope",
+                        column.collect.ref,
+                    )
+                    continue
                 carrier = {
                     RowCarryColumn: ("carry_scope", "carry_qualifier", "carry_column"),
                     grouping.AggregateKeyColumn: (
@@ -5965,6 +6507,16 @@ def verify_row_bytes(query, rendered):
                 take(
                     "identifier", "stage_scope", scan.block.ref, alias, identifier=True
                 )
+            # One lateral per nested column, in column order, right after FROM.
+            laterals = tuple(
+                c.lateral for c in body.columns if type(c) is nested.CollectColumn
+            )
+            if len(laterals) != len(body.laterals) or any(
+                a is not b for a, b in zip(laterals, body.laterals)
+            ):
+                raise ValueError("collect laterals")
+            for lateral in body.laterals:
+                collect_lateral(lateral)
             stage = body.aggregation
             if stage is not None and stage.keys:
                 take("syntax", "group_by", stage.aggregation.ref, " GROUP BY ")
@@ -6215,6 +6767,16 @@ def verify_row_bytes(query, rendered):
             for position, column in enumerate(body.columns):
                 if position:
                     take("syntax", "separator", column.export.ref, ", ")
+                if type(column) is resulting.ResultGroupColumn:
+                    if body.distinct is not None:
+                        raise ValueError("DISTINCT over a nested group")
+                    carriers(
+                        column,
+                        alias,
+                        "result_carry_scope",
+                        column.projection_port.ref,
+                    )
+                    continue
                 take(
                     "identifier",
                     "result_carry_scope",
@@ -6238,6 +6800,13 @@ def verify_row_bytes(query, rendered):
                     column.label,
                     identifier=True,
                 )
+            if body.ordinal is not None:
+                # The private ordinal of a collected terminal: never in a
+                # DISTINCT SELECT, where it would make every row distinct.
+                if body.distinct is not None or body.ordinal.order is not body.order:
+                    raise ValueError("ordinal placement")
+                take("syntax", "separator", body.ordinal.order.order.ref, ", ")
+                ordinal(body.ordinal)
             take("syntax", "from", scan.body.block.ref, " FROM ")
             if _inline_body(scan.body):
                 take("syntax", "inline_open", scan.body.block.ref, "(")
@@ -6687,6 +7256,14 @@ def verify_row_bytes(query, rendered):
                     identifier=True,
                 )
                 take("syntax", "cte_columns_open", reference, " (")
+                groups: dict[int, Any] = {
+                    position: column
+                    for position, column in enumerate(unit.columns)
+                    if type(column)
+                    in (nested.CollectColumn, resulting.ResultGroupColumn)
+                }
+                if groups and len(unit.columns) != len(unit.cte_columns):
+                    raise ValueError("nested group header")
                 for position, symbol in enumerate(unit.cte_columns):
                     if position:
                         take("syntax", "terminal_separator", symbol.binding, ", ")
@@ -6695,6 +7272,35 @@ def verify_row_bytes(query, rendered):
                         "terminal_column",
                         symbol.binding,
                         symbol.name,
+                        identifier=True,
+                    )
+                    # A nested group's array columns follow its count column.
+                    group = groups.get(position)
+                    extras: tuple[Any, ...] = (
+                        () if group is None else group.carriers[1:]
+                    )
+                    for index, (_, label, subject) in enumerate(extras):
+                        if label != f"{symbol.name}_{index}":
+                            raise ValueError("nested group header")
+                        take("syntax", "terminal_separator", subject, ", ")
+                        take(
+                            "identifier",
+                            "collect_carrier_column",
+                            subject,
+                            label,
+                            identifier=True,
+                        )
+                value = getattr(unit, "ordinal", None)
+                if value is not None:
+                    # The ordinal is the one private column after the terminals.
+                    if value.symbol.name != f"c{len(unit.cte_columns)}":
+                        raise ValueError("ordinal header")
+                    take("syntax", "terminal_separator", value.order.order.ref, ", ")
+                    take(
+                        "identifier",
+                        "ordinal_column",
+                        value.order.order.ref,
+                        value.symbol.name,
                         identifier=True,
                     )
                 take("syntax", "cte_body_open", reference, ") AS (")
@@ -6774,7 +7380,9 @@ def verify_row_requirements(request, query, original, generated):
         )
         if rule is None:
             rule = (
-                "R04"
+                "R27"
+                if entry.family.value == "collection"
+                else "R04"
                 if entry.family.value == "fixed_literal_transport"
                 or (
                     entry.family.value == "expression"
@@ -7036,6 +7644,25 @@ def verify_row_generated_requirements(request, query, generated):
             if type(column) is RowCarryColumn:
                 expected.append(("carry_projection", column.export.ref, "R05", ()))
                 continue
+            if type(column) is nested.CollectColumn:
+                # The lateral, its count and each child's array; a DISTINCT
+                # let's ordinal wrapper; a captured let's own bodies.
+                collect = column.collect
+                lateral = column.lateral
+                expected.append(("collect_lateral", collect.ref, "R27", naming))
+                expected.append(("collect_count", collect.export, "R27", ()))
+                for child in collect.children:
+                    expected.append(("collect_array", child, "R27", ()))
+                if lateral.wrapper is not None:
+                    order = plan_nested.collect_order(request.plan, collect)
+                    expected.append(("collect_ordinal", order.ref, "R27", ()))
+                    expected.append(
+                        ("read_only_select_bytes", lateral.wrapper, "R23", ())
+                    )
+                if _inline_body(lateral.target.producer):
+                    inline_expectations(lateral.target.producer)
+                expected.append(("read_only_select_bytes", lateral, "R23", ()))
+                continue
             if type(column) is grouping.AggregateKeyColumn:
                 expected.append(("group_key", column.key.ref, "R12", operators))
                 continue
@@ -7211,6 +7838,10 @@ def verify_row_generated_requirements(request, query, generated):
         for column in unit.columns:
             expected.append(
                 ("result_terminal_column", column.output.ref, "R03", naming)
+            )
+        if unit.ordinal is not None:
+            expected.append(
+                ("collect_ordinal", unit.ordinal.order.order.ref, "R27", ())
             )
         expected.append(("read_only_select_bytes", unit, "R23", ()))
 

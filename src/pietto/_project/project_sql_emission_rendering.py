@@ -27,6 +27,7 @@ from pietto._project.project_sql_emission_aggregation import (
 )
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_nested as nested
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project.project_sql_emission_contract import BoundSource
@@ -1049,6 +1050,10 @@ def _row_select(w: _Writer, body) -> None:
     for position, column in enumerate(body.columns):
         if position:
             w.emit(", ", "syntax", "separator", column.export.ref)
+        if type(column) is nested.CollectColumn:
+            scope = column.lateral.symbol.name
+            _carriers(w, column, scope, "collect_scope", column.collect.ref)
+            continue
         if type(column) is RowCarryColumn:
             w.identifier(alias, "carry_scope", column.input_port)
             w.emit(".", "syntax", "carry_qualifier", column.export.ref)
@@ -1104,6 +1109,8 @@ def _row_select(w: _Writer, body) -> None:
             w.identifier(scan.body.symbol.name, "stage_reference", reference)
         w.emit(" AS ", "syntax", "alias", scan.block.ref)
         w.identifier(alias, "stage_scope", scan.block.ref)
+    for lateral in body.laterals:
+        _collect_lateral(w, lateral)
     stage = body.aggregation
     if stage is not None and stage.keys:
         # GROUP BY binds the actual input expressions, never an output alias or
@@ -1146,11 +1153,18 @@ def _result_select(w: _Writer, body) -> None:
     for position, column in enumerate(body.columns):
         if position:
             w.emit(", ", "syntax", "separator", column.export.ref)
+        if type(column) is resulting.ResultGroupColumn:
+            subject = column.projection_port.ref
+            _carriers(w, column, alias, "result_carry_scope", subject)
+            continue
         w.identifier(alias, "result_carry_scope", column.projection_port.ref)
         w.emit(".", "syntax", "result_carry_qualifier", column.export.ref)
         w.identifier(column.read.name, "result_carry_column", column.read.terminal)
         w.emit(" AS ", "syntax", "alias", column.export.ref)
         w.identifier(column.label, "label", column.export.ref)
+    if body.ordinal is not None:
+        w.emit(", ", "syntax", "separator", body.ordinal.order.order.ref)
+        _ordinal(w, body.ordinal)
     reference = scan.body.block.ref
     w.emit(" FROM ", "syntax", "from", reference)
     if inline_body(scan.body):
@@ -1184,6 +1198,125 @@ def _result_select(w: _Writer, body) -> None:
         reference = body.limit.limit.ref
         w.emit(" LIMIT ", "syntax", "limit", reference)
         w.emit(str(body.limit.value), "literal", "limit_value", reference)
+
+
+def _carriers(w: _Writer, column, scope, role, subject) -> None:
+    """A nested group's count and arrays, each one physical column of ``scope``."""
+    for index, (read, label, carrier) in enumerate(column.carriers):
+        if index:
+            w.emit(", ", "syntax", "separator", carrier)
+        w.identifier(scope, role, subject)
+        w.emit(".", "syntax", "qualifier", carrier)
+        w.identifier(read, "collect_carrier_column", carrier)
+        w.emit(" AS ", "syntax", "alias", carrier)
+        w.identifier(label, "label", carrier)
+
+
+def _ordinal(w: _Writer, ordinal) -> None:
+    """``ROW_NUMBER() OVER (ORDER BY <the terminal's ORDER items>) AS c<V>``."""
+    reference = ordinal.order.order.ref
+    w.emit("ROW_NUMBER() OVER (ORDER BY ", "syntax", "ordinal_window", reference)
+    for position, (item, name, direction) in enumerate(ordinal.keys):
+        if position:
+            w.emit(", ", "syntax", "order_separator", item.item.ref)
+        w.identifier(ordinal.scope.name, "order_scope", item.port.ref)
+        w.emit(".", "syntax", "order_qualifier", item.item.ref)
+        w.identifier(name, "order_column", item.read.terminal)
+        w.emit(
+            " " + resulting.DIRECTIONS[direction],
+            "syntax",
+            "order_direction",
+            item.item.ref,
+        )
+    w.emit(")", "syntax", "ordinal_window", reference)
+    w.emit(" AS ", "syntax", "alias", reference)
+    w.identifier(ordinal.symbol.name, "ordinal_column", reference)
+
+
+def _collect_lateral(w: _Writer, lateral) -> None:
+    """One Collect read: ``LEFT JOIN LATERAL (SELECT COUNT(*) AS "n",
+    ARRAY_AGG(e.c<j> ORDER BY e.<ordinal>) AS "a<j>", ... FROM <terminal> AS
+    e) AS g ON TRUE``; a DISTINCT terminal is wrapped by its ordinal SELECT."""
+    reference = lateral.collect.ref
+    target = lateral.target
+    unit = target.producer
+    use = target.use.ref
+    scope = target.symbol.name
+    w.emit(" LEFT JOIN LATERAL (", "syntax", "collect_lateral_open", reference)
+    w.emit("SELECT ", "syntax", "select", reference)
+    w.emit("COUNT(*)", "syntax", "collect_count", reference)
+    w.emit(" AS ", "syntax", "alias", reference)
+    w.identifier(nested.COUNT, "label", reference)
+    for child, read, order, alias in lateral.arrays:
+        w.emit(", ", "syntax", "separator", child)
+        w.emit("ARRAY_AGG(", "syntax", "collect_array", child)
+        w.identifier(scope, "collect_reference", use)
+        w.emit(".", "syntax", "qualifier", child)
+        w.identifier(read, "collect_array", child)
+        w.emit(" ORDER BY ", "syntax", "collect_array_order", child)
+        w.identifier(scope, "collect_reference", use)
+        w.emit(".", "syntax", "qualifier", child)
+        w.identifier(order, "ordinal_column", child)
+        w.emit(")", "syntax", "collect_array", child)
+        w.emit(" AS ", "syntax", "alias", child)
+        w.identifier(alias, "label", child)
+    w.emit(" FROM ", "syntax", "from", reference)
+    if lateral.wrapper is not None:
+        wrapper = lateral.wrapper.name
+        w.emit("(", "syntax", "distinct_wrapper_open", reference)
+        w.emit("SELECT ", "syntax", "select", reference)
+        # Each wrapper column is labelled with the name its array reads.
+        for position, ((child, read, _, _), source) in enumerate(
+            zip(lateral.arrays, lateral.sources, strict=True)
+        ):
+            if position:
+                w.emit(", ", "syntax", "separator", child)
+            w.identifier(wrapper, "result_carry_scope", child)
+            w.emit(".", "syntax", "result_carry_qualifier", child)
+            w.identifier(source, "result_carry_column", child)
+            w.emit(" AS ", "syntax", "alias", child)
+            w.identifier(read, "label", child)
+        w.emit(", ", "syntax", "separator", lateral.ordinal.order.order.ref)
+        _ordinal(w, lateral.ordinal)
+        w.emit(" FROM ", "syntax", "from", reference)
+    if inline_body(unit):
+        # A captured let is the derived relation of its own read.
+        w.emit("(", "syntax", "inline_open", unit.block.ref)
+        _unit_select(w, unit)
+        w.emit(")", "syntax", "inline_close", unit.block.ref)
+    else:
+        w.identifier(unit.symbol.name, "collect_reference", unit.block.ref)
+    if lateral.wrapper is not None:
+        w.emit(" AS ", "syntax", "alias", reference)
+        w.identifier(lateral.wrapper.name, "result_scope", reference)
+        w.emit(")", "syntax", "distinct_wrapper_close", reference)
+    w.emit(" AS ", "syntax", "alias", use)
+    w.identifier(scope, "collect_reference", use)
+    w.emit(") AS ", "syntax", "collect_lateral_close", reference)
+    w.identifier(lateral.symbol.name, "collect_scope", reference)
+    w.emit(" ON TRUE", "syntax", "collect_on_true", reference)
+
+
+def _cte_columns(w: _Writer, unit) -> None:
+    """One CTE header: each terminal's name, a nested group's array columns
+    after its count, and a collected terminal's ordinal last."""
+    columns = unit.columns if len(unit.columns) == len(unit.cte_columns) else ()
+    for position, symbol in enumerate(unit.cte_columns):
+        if position:
+            w.emit(", ", "syntax", "terminal_separator", symbol.binding)
+        w.identifier(symbol.name, "terminal_column", symbol.binding)
+        if columns and type(columns[position]) in (
+            nested.CollectColumn,
+            resulting.ResultGroupColumn,
+        ):
+            for _, label, subject in columns[position].carriers[1:]:
+                w.emit(", ", "syntax", "terminal_separator", subject)
+                w.identifier(label, "collect_carrier_column", subject)
+    ordinal = getattr(unit, "ordinal", None)
+    if ordinal is not None:
+        reference = ordinal.order.order.ref
+        w.emit(", ", "syntax", "terminal_separator", reference)
+        w.identifier(ordinal.symbol.name, "ordinal_column", reference)
 
 
 def _set_operand_select(w: _Writer, unit, operand) -> None:
@@ -1382,10 +1515,7 @@ def render_row_sql(query: SQLRowQuery | CompiledSQLQuery) -> RenderedSQL:
             assert body.symbol is not None
             w.identifier(body.symbol.name, "cte_name", reference)
             w.emit(" (", "syntax", "cte_columns_open", reference)
-            for position, symbol in enumerate(body.cte_columns):
-                if position:
-                    w.emit(", ", "syntax", "terminal_separator", symbol.binding)
-                w.identifier(symbol.name, "terminal_column", symbol.binding)
+            _cte_columns(w, body)
             w.emit(") AS (", "syntax", "cte_body_open", reference)
             _unit_select(w, body)
             w.emit(")", "syntax", "cte_body_close", reference)
@@ -1494,10 +1624,7 @@ def render_join_sql(query) -> RenderedSQL:
             assert unit.symbol is not None
             w.identifier(unit.symbol.name, "cte_name", reference)
             w.emit(" (", "syntax", "cte_columns_open", reference)
-            for position, symbol in enumerate(unit.cte_columns):
-                if position:
-                    w.emit(", ", "syntax", "terminal_separator", symbol.binding)
-                w.identifier(symbol.name, "terminal_column", symbol.binding)
+            _cte_columns(w, unit)
             w.emit(") AS (", "syntax", "cte_body_open", reference)
             _unit_select(w, unit)
             w.emit(")", "syntax", "cte_body_close", reference)

@@ -60,6 +60,16 @@ query result:
                 "        where rhs.id == lhs.id\n        select:\n            id"
                 + unused.replace("    select:\n", "    where exists m\n    select:\n")
             )
+        elif retained == "collect":
+            # The unselected request owner collects a relation let (D-S08-8).
+            unused = (
+                "\n    let m:\n        from rhs\n        select:\n            id\n"
+                "        order by:\n            id"
+                + unused.replace(
+                    "        value = lhs.id\n",
+                    "        value = lhs.id\n        kids = collect m\n",
+                )
+            )
         elif retained == "lateral":
             # The unselected request owner joins a capturing let LATERAL.
             unused = (

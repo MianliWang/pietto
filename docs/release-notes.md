@@ -18,9 +18,11 @@ notes.
   `name = collect r` SELECT item now completes like any other: the Collect
   output is a nested relation that is never None, and its relation stays
   readable with `from`, a JOIN, `exists` and its scalar columns. Such a
-  project checks; `emit-sql --project` reports `PIE-B1003`
-  `collect_not_admitted_on_target` at each Collect read, since no target
-  admits its lowering yet.
+  project checks. On PostgreSQL `emit-sql --project` emits the Collect reads
+  of the selected table or query, as the SQL emission entry below describes.
+  A statement that reads such a relation from another relation, and every
+  statement on MySQL, still report `PIE-B1003`
+  `collect_not_admitted_on_target` at each Collect read.
   New errors say why a read is not admitted: `PIE-S2803` for a Collect in a
   grouped SELECT or a relation let, of a source, table or query instead of a
   relation let of the same body, of a let whose columns are not known before
@@ -51,6 +53,32 @@ notes.
   Unnest in a relation let, or one beside grouping, aggregates, windows,
   `select distinct`, `any(...)`, a Collect read, another Unnest or a RIGHT or
   FULL JOIN that may null-extend its binding.
+
+### SQL emission
+
+- **PostgreSQL Collect emission.** `emit-sql --project --dialect postgres`
+  now emits a Collect read (`name = collect r`) of the selected table or
+  query. Each read is one `LEFT JOIN LATERAL` single-row aggregate: `COUNT(*)`
+  under the field's label, then one `ARRAY_AGG` per child field under the
+  child's label, in child order. Every array of a read is ordered by one
+  private `ROW_NUMBER()` over `r`'s own ORDER BY items, so the arrays of one
+  parent row stay aligned; a LIMIT on `r` applies per parent row, and sibling
+  Collect reads are independent laterals. An empty collection is a count of 0
+  with NULL arrays; a child row whose fields are all None counts 1. The JSON
+  document (`pietto.sql-emission.v1`, or v2 with header parameters) describes
+  the column as `logical_type.kind` `collection` with `element` entries and a
+  `pg_column_arrays_v1` representation that lists the count and array columns
+  by statement position. Every `correspondence.sql_symbol` stays a logical
+  position, so a flat column after a nested field with F fields is F statement
+  columns further right than its `sql_symbol`. The three `collection` requirements and the new
+  generated kinds `collect_lateral`, `collect_count`, `collect_array` and
+  `collect_ordinal` use rule R27, and SQL ranges add the `collect_*`,
+  `ordinal_*` and `distinct_wrapper_*` roles. Flat documents are byte for byte
+  unchanged. A generated SELECT counts its physical columns against the column
+  limit (`PIE-B1007`). A query that reads such a relation from another
+  relation, an Unnest, and MySQL still report `PIE-B1003`, and `compile_query`
+  refuses a Collect read with `PIE-R1004` `NESTED_UNAVAILABLE` before any
+  connection.
 
 ### Project mode
 

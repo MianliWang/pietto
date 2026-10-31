@@ -393,6 +393,50 @@ v2 document prints its tag in the banner and adds a `parameters (N):` block
 before `parameter_uses (N):` and a `binding_obligations (N):` block after it,
 one canonical JSON line per record.
 
+A `VERIFIED` PostgreSQL document whose selected table or query has a Collect
+read (`name = collect r`) keeps its v1 or v2 tag. Its additions describe only
+the nested field, so a document without one is byte for byte unchanged:
+
+- `columns[i]` of the nested field is
+  `{"ordinal", "label", "logical_type": {"kind": "collection", "name": null,
+  "parameters": null, "element": [{"ordinal": j, "label", "logical_type",
+  "nullable"}]}, "nullable": false, "representation": {"carrier":
+  "pg_column_arrays_v1", "columns": [{"role": "count", "sql_symbol": k},
+  {"role": "field", "child": j, "storage", "sql_symbol": k + 1 + j}]},
+  "correspondence": {"collect", "use", "producer", "children", "export",
+  "sql_symbol"}}`, with `result_origin` added when the relation ends in
+  ORDER BY or LIMIT. `element` lists the collected let's fields in order with
+  the `logical_type` and `nullable` of a flat column. A `sql_symbol` in
+  `representation.columns` is the 1-based position of that physical column in
+  the statement's result; `correspondence.sql_symbol` stays the field's 1-based
+  logical position. The count column has the field's label and each array the
+  child's label. The count is 0 for no rows, and then every array is SQL NULL;
+  otherwise each array has `count` elements in `r`'s ORDER BY order, with no
+  order promised inside a tie.
+- Every `correspondence.sql_symbol` of such a document, a flat column's
+  included, is that column's 1-based logical position. A nested field with F
+  `element` entries spans 1 + F statement columns, so a flat column's
+  statement column is its `correspondence.sql_symbol` plus the F of each
+  nested field before it: in `select: id, a = collect ks, other`, with two
+  fields in `ks`, `other` has `sql_symbol` 3 and is statement column 5, while
+  statement column 3 is the array of `ks`'s first field. In a document without
+  a nested field the two positions are equal, as before.
+- `requirements`: a `collection` requirement (each Collect read's whole bag,
+  element order and container) has rule `R27`. The generated kinds
+  `collect_lateral` (subject the Collect read), `collect_count` (the nested
+  export), `collect_array` (each child export) and `collect_ordinal` (`r`'s
+  ORDER) also use `R27`, with no evidence. The lateral's aggregate SELECT and a
+  `select distinct` let's ordinal wrapper each add a `read_only_select_bytes`
+  (`R23`).
+- `ranges` add the roles `collect_lateral_open`, `collect_lateral_close`,
+  `collect_on_true`, `collect_count`, `collect_array`, `collect_array_order`,
+  `collect_scope`, `collect_reference`, `collect_carrier_column`,
+  `ordinal_window`, `ordinal_column`, `distinct_wrapper_open` and
+  `distinct_wrapper_close`.
+
+In `--format text` the nested field is one record line of the `columns`
+block, like any other column.
+
 A v2 document is a template; it carries no parameter value. A binding (the
 execution API's `parameters`, see [Execution](../execution.md#parameters))
 gives every parameter one value, derives the query again and keeps the SQL

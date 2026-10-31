@@ -1843,6 +1843,26 @@ def test_a_retained_lateral_join_of_a_capturing_let_is_refused(tmp_path):
         build_compiled(source)
 
 
+def test_a_collect_read_has_no_compiled_form_yet(tmp_path):
+    import _pietto_sql_nested_collect as collecting
+    from _pietto_plan_nested import sources
+    from pietto._project.project_compiled_schema import CompiledError
+
+    # D-S08-8: the selected statement's VERIFIED Collect emission and an
+    # unselected request owner's Collect read are both refused by the build,
+    # before any export; S09 gives them a compiled form.
+    selected = collecting.wired_outcome(
+        tmp_path / "selected", sources("top_k"), collecting.contract()
+    ).artifact
+    assert selected is not None and selected.request.plan.collects
+    with pytest.raises(CompiledError, match="NESTED_UNAVAILABLE"):
+        build_compiled(selected)
+    source = proof_artifact(tmp_path / "retained-source", retained="collect").artifact
+    assert source is not None and not source.request.plan.collects
+    with pytest.raises(CompiledError, match="NESTED_UNAVAILABLE"):
+        build_compiled(source)
+
+
 @pytest.mark.parametrize("shared_reads", (False, True))
 def test_retained_unselected_relation_reads_export_and_verify(
     tmp_path, monkeypatch, shared_reads

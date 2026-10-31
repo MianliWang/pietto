@@ -1817,6 +1817,14 @@ PIE-B1003 for them until their lowering is admitted on the selected target.
 Single files, LEGACY_FLAT projects and package modules refuse both spellings
 with PIE-S2801, which says how to make a `schema_version = 2` project.
 
+On PostgreSQL, `emit-sql --project` writes each Collect read of the selected
+table or query as one LEFT JOIN LATERAL aggregate: a count column with the
+field's label, then one array column per child field with the child's label, in
+child order. An empty collection is a count of 0 with every array column NULL;
+a child row whose fields are all None is a count of 1. A query that reads such
+a relation from another relation, and MySQL, report PIE-B1003; executing a
+Collect read is not available yet (PIE-R1004).
+
 ### Query header parameters in explicit-module projects
 
 An EXPLICIT_MODULES project admits the header of an entry query whose own body

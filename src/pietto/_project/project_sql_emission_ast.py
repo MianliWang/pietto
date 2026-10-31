@@ -22,9 +22,11 @@ from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_nested as collecting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_plan_windows as plan_windows
+from pietto._project.project_sql_plan_nested import ProjectSQLCollect
 from pietto._project.project_sql_emission_contract import (
     Blocker,
     BoundField,
@@ -193,6 +195,7 @@ def projection_chain_shape(plan):
                 plan.orders,
                 plan.result_limits,
                 plan.set_bodies,
+                plan.collects,
             )
         )
     )
@@ -488,10 +491,11 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
             raise ValueError("inconsistent retained meaning")
     except (ValueError, TypeError, AttributeError):
         return (Blocker("PIE-B1008", "scalar_meaning_correspondence"),)
-    # D-S06-1: no target admits a lowering of a Collect read or an Unnest
-    # yet. Each is refused at its own read or let, once, in source order,
-    # whatever else the statement reads; every later check, the scalar
-    # meaning admission included, assumes scalar ports and named inputs only.
+    # D-S06-1: a Collect read or an Unnest the target does not admit is
+    # refused at its own read or let, once, in source order, whatever else the
+    # statement reads (D-S08-4: PostgreSQL admits a Collect read of the
+    # selected table or query; no target admits an Unnest yet). Every later
+    # check, the scalar meaning admission included, then sees admitted reads.
     nested = sorted(
         (
             *(
@@ -502,6 +506,7 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
                     value.semantic.item.expression.span,
                 )
                 for value in plan.collects
+                if not collecting.collect_admitted(plan, value, request.family)
             ),
             *(
                 Blocker(
@@ -668,7 +673,9 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
         generated_scopes = len(query.bodies) > 1
         units = getattr(query, "units", query.bodies)
         generated_scopes = len(units) > 1
-        if any(len(unit.columns) > limits["columns"] for unit in units):
+        # A nested group is 1+F physical columns and a collected terminal's
+        # ordinal one more (D-S08-6): PostgreSQL counts physical columns.
+        if any(collecting.physical_width(unit) > limits["columns"] for unit in units):
             add("PIE-B1007", "generated_structure_limit", plan.scope)
     if admitted and (
         any(len(d.terminals) > limits["columns"] for d in bodies)
@@ -954,6 +961,8 @@ def original_rule(plan, entry, *, generated_scopes):
     rule = resulting.demand_rule(entry) or setting.demand_rule(entry)
     if rule is not None:
         return rule
+    if entry.family.value == "collection":
+        return "R27"
     if entry.family.value == "fixed_literal_transport" or (
         entry.family.value == "expression"
         and type(plan.expressions[entry.subject.position])
@@ -1226,6 +1235,8 @@ class RowBody:
     """This body's own realized GROUPED/GLOBAL stage, when it has one."""
     window: Any = None
     """This body's own realized window stage, when it has one."""
+    laterals: tuple[Any, ...] = ()
+    """One Collect lateral per nested column of this body, in column order."""
 
 
 def inline_body(unit) -> bool:
@@ -1344,6 +1355,7 @@ def admitted_row_shape(plan):
         and len(plan.projections)
         + len(plan.aggregate_projections)
         + len(plan.window_projections)
+        + len(plan.collects)
         + sum(len(body.columns) for body in plan.set_bodies)
         + sum(len(body.columns) for body in plan.values_bodies)
         == len(plan.all_exports)
@@ -1785,6 +1797,13 @@ def realize_rows(request):
     # A capturing let is realized inline at its outer body's single read
     # (a correlated reference cannot live in a CTE: native probe S10-E).
     inline = {capture.inner for capture in plan.captures}
+    # Each admitted Collect read claims its nested export in its parent's
+    # projection block, in column order; its let's terminal carries the
+    # ordinal its arrays order by.
+    collect_reads: dict[Any, list[Any]] = {}
+    for value in sorted(plan.collects, key=lambda c: c.export.position):
+        collect_reads.setdefault(value.block, []).append(value)
+    collected = {value.producer for value in plan.collects}
     problems.extend(ordered_inline_read_blockers(plan, family))
     if problems:
         return RowRealization(tuple(problems), None)
@@ -1829,9 +1848,14 @@ def realize_rows(request):
                     )
                 )
             else:
-                result.append(
-                    ([p.expression for p in projections.get(block.ref, ())], [])
-                )
+                # A captured let collected here renders inside its lateral,
+                # after the SELECT list, in column order (D-S08-5).
+                roots = [p.expression for p in projections.get(block.ref, ())]
+                for value in collect_reads.get(block.ref, ()):
+                    if value.producer in inline:
+                        parts = stage_roots(*blocks_by_definition[value.producer])
+                        roots.extend(nested_roots(parts, len(parts) - 1))
+                result.append((roots, []))
         return result
 
     def nested_roots(parts, last):
@@ -2158,6 +2182,11 @@ def realize_rows(request):
                             add("PIE-B1001", "projection_export_conflict", entry.ref)
                             return None
                         claims[entry.export] = entry
+                    for entry in collect_reads.get(block.ref, ()):
+                        if entry.export in claims:
+                            add("PIE-B1001", "projection_export_conflict", entry.ref)
+                            return None
+                        claims[entry.export] = entry
                     items = tuple(claims.get(export.ref) for export in exports)
                     if any(item is None for item in items):
                         add("PIE-B1001", "stage_export_denominator", block.ref)
@@ -2197,6 +2226,28 @@ def realize_rows(request):
                             ),
                         )
                     )
+                    continue
+                if type(item) is ProjectSQLCollect:
+                    # One LEFT JOIN LATERAL aggregate over the collected let's
+                    # realized terminal (D-S08-1).
+                    target = readable.get(item.use)
+                    if type(target) is not rows.SQLBlockTarget:
+                        add("PIE-B1001", "collect_read_drift", item.ref)
+                        return None
+                    built, problem = collecting.realize_collect(
+                        item,
+                        target,
+                        export=export,
+                        position=position,
+                        final=final,
+                        terminal=projection_terminals[position],
+                    )
+                    if built is None:
+                        assert problem is not None
+                        add(*problem)
+                        return None
+                    columns.append(built)
+                    nodes += collecting.node_count(built.lateral)
                     continue
                 if type(item) is windowing.plan_projection_type():
                     # This visible output IS an established window result port.
@@ -2344,6 +2395,11 @@ def realize_rows(request):
                 else (),
                 aggregate_stage,
                 window_stage,
+                tuple(
+                    column.lateral
+                    for column in columns
+                    if type(column) is collecting.CollectColumn
+                ),
             )
             previous = body
             if captures is not None:
@@ -2364,6 +2420,7 @@ def realize_rows(request):
                         final=False,
                         symbol=SQLSymbol,
                         inline=True,
+                        ordinal=definition.original.ref in collected,
                     )
                     if result is None:
                         assert problem is not None
@@ -2383,6 +2440,7 @@ def realize_rows(request):
                     index=len(units),
                     final=selected,
                     symbol=SQLSymbol,
+                    ordinal=definition.original.ref in collected,
                 )
                 if result is None:
                     assert problem is not None
@@ -2754,9 +2812,48 @@ def _inline_requirements(request, body):
         result.extend(
             resulting.requirements(request, body, naming, GeneratedRequirement)
         )
+        result.extend(_ordinal_requirements(body))
         result.append(GeneratedRequirement("read_only_select_bytes", body, "R23", ()))
         return result
     result.extend(_row_body_requirements(request, body, naming))
+    return result
+
+
+def _ordinal_requirements(body):
+    """A collected terminal's private ordinal: its ORDER items as a sequence."""
+    if body.ordinal is None:
+        return ()
+    return (
+        GeneratedRequirement(
+            "collect_ordinal", body.ordinal.order.order.ref, "R27", ()
+        ),
+    )
+
+
+def _collect_requirements(request, column, naming):
+    """One Collect read: its lateral aggregate SELECT, its count and each array,
+    a DISTINCT terminal's ordinal wrapper, and a captured let's own bodies."""
+    lateral = column.lateral
+    result = [
+        GeneratedRequirement("collect_lateral", column.collect.ref, "R27", naming),
+        GeneratedRequirement("collect_count", column.export.ref, "R27", ()),
+        *(
+            GeneratedRequirement("collect_array", child, "R27", ())
+            for child, _, _, _ in lateral.arrays
+        ),
+    ]
+    if lateral.wrapper is not None:
+        result.append(
+            GeneratedRequirement(
+                "collect_ordinal", lateral.ordinal.order.order.ref, "R27", ()
+            )
+        )
+        result.append(
+            GeneratedRequirement("read_only_select_bytes", lateral.wrapper, "R23", ())
+        )
+    if inline_body(lateral.target.producer):
+        result.extend(_inline_requirements(request, lateral.target.producer))
+    result.append(GeneratedRequirement("read_only_select_bytes", lateral, "R23", ()))
     return result
 
 
@@ -2936,6 +3033,7 @@ def row_generated_requirements(request, query):
             generated.extend(
                 resulting.requirements(request, unit, naming, GeneratedRequirement)
             )
+            generated.extend(_ordinal_requirements(unit))
             generated.append(
                 GeneratedRequirement("read_only_select_bytes", unit, "R23", ())
             )
@@ -3008,6 +3106,9 @@ def _row_body_requirements(request, body, naming):
             result.append(
                 GeneratedRequirement("carry_projection", column.export.ref, "R05", ())
             )
+            continue
+        if type(column) is collecting.CollectColumn:
+            result.extend(_collect_requirements(request, column, naming))
             continue
         if type(column) is grouping.AggregateKeyColumn:
             result.append(
@@ -3187,6 +3288,7 @@ def row_parameter_leaves(query):
                     values.extend(order.value for order in column.order_by)
                 elif type(column) is windowing.WindowColumn:
                     values.extend(column.arguments)
+            values.extend(lateral_values(body))
             if body.predicate is not None:
                 values.append(body.predicate.value)
         for value in values:
@@ -3257,9 +3359,22 @@ def row_value_roots(query):
                 result.extend(order.value for order in column.order_by)
             elif type(column) is windowing.WindowColumn:
                 result.extend(column.arguments)
+        result.extend(lateral_values(body))
         if body.predicate is not None:
             result.append(body.predicate.value)
     return tuple(result)
+
+
+def lateral_values(body):
+    """The value roots of the captured lets this body collects: each renders
+    inside its lateral, after the FROM and before any predicate, in column
+    order; a closed let's values are its own CTE's."""
+    return tuple(
+        value
+        for lateral in getattr(body, "laterals", ())
+        if inline_body(lateral.target.producer)
+        for value in inline_values(lateral.target.producer)
+    )
 
 
 @dataclass(frozen=True, slots=True, eq=False)

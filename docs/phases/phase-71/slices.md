@@ -3,7 +3,7 @@
 Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#future-roadmap-v6) Future Roadmap v6 中 Phase 71 一行：NestedRelation、Collect、Unnest、flatten、outer/inner grain、nested Arrow），只在 EXPLICIT_MODULES 项目与 PostgreSQL 上提供。
 本路线已由只含文档的路线发布提交 `6e9d7be6` 发布，其自然 exact-head CI `40250919248` attempt 1 的 19 个 job 全部成功：路线锁定，Phase71 开始。
 批次 B1（S01、S02、S03）已发布：S01 `be385507`、S02 `fc5e685c`、S03 `8e0a77d8` 一起 FF push，批次头的自然 exact-head CI `40770576938` 全部 19 个 job 成功；[S01](slice-01.md) 与 [S02](slice-02.md) 记录绑定下一版合成候选 `9511f13563d0`。之后的批次照此规则：只有 FF push 且批次头自然 CI 全部成功才 `COMPLETED / PUBLISHED`，此前都是 candidate。
-`0.1.6` 已从发行提交 `bdb3f567` 发行（tag `v0.1.6`），只含 Phase71 的 B1。当前批次 B2（S04、S05、S06、S07）建立在该发行提交之上，不属于 `0.1.6`，各片记录见下表的链接；B2 只在四片提交一起 FF push、批次头的自然 exact-head CI 全部 job 成功后才 `COMPLETED / PUBLISHED`，此前都是 candidate。
+`0.1.6` 已从发行提交 `bdb3f567` 发行（tag `v0.1.6`），只含 Phase71 的 B1。批次 B2（S04、S05、S06、S07）建立在该发行提交之上，不属于 `0.1.6`，各片记录见下表的链接；B2 已发布：S04 `0dc5d5c1`、S05 `0da7e40a`、S06 `fb3bc264`、S07 `ee19ee01` 与 `0.1.6` 审计的项目模式小修 `81f0d3b5` 一起 FF push，批次头 `81f0d3b5` 的自然 exact-head CI `41128410841` 全部 19 个 job 成功。当前批次 B3（S08、S09、S10、S11）建立在 main 的 `81f0d3b5` 之上，同样不属于 `0.1.6`，按同一规则发布，此前都是 candidate。
 下表是覆盖与依赖基准；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。三层验收 A01–A12、语义契约与支持域见 [brief](brief.md)，外部参考见[外部参考记录](planning-notes.md)，所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
 
 ## 授权与依赖顺序
@@ -46,11 +46,11 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 | [S05](slice-05.md) | CROSS/INNER/LEFT Unnest 的绑定、presence、输出字段/nullability/grain 与拒绝（JOIN 必须写种类，参数必须是可见 binding 的嵌套字段） | A01, A04 | S03, S04 | 必做 |
 | [S06](slice-06.md) | IR/ProjectSQLPlan 中的 Collect/Unnest 表达、source closure、需求与独立 correspondence | A02, A03, A04, A06 | S04, S05 | 必做 |
 | [S07](slice-07.md) | 递归 ResultContract、可移植闭合 schema、层级意义与完整 digest 规则 | A07, A08 | S02, S06 | 必做 |
-| S08 | PostgreSQL 的 Collect source emission：closed/captured、空集、顺序契约与 Top-K、并列子表的独立运输与真实 artifact | A02, A03, A05, A06 | S02, S06, S07 | 必做 |
+| [S08](slice-08.md) | PostgreSQL 的 Collect source emission：closed/captured、空集、顺序契约与 Top-K、并列子表的独立运输与真实 artifact | A02, A03, A05, A06 | S02, S06, S07 | 必做 |
 | S09 | Collect 的 compiled build/verify/lowering 与 source-free 契约；为 Unnest 保留最小闭合表示，未接通时确定拒绝 | A07, A11 | S06, S07, S08 | 必做 |
 | S10 | 真实 emission 的 producer/Arrow binding、owned construction、递归验证与 children/bytes 计量 | A08, A09 | S07, S08 | 必做 |
 | S11 | 嵌套 copy/borrow/lease、C data/stream 相关通路、非零 offset、零行与 close 生命周期 | A08, A09 | S10 | 必做 |
-| S12 | **中点**：Int/Bool/有限 Text 的公开最小真实纵向；曝光前完成准入、未闭合消费者的预拒绝与基础失败/cleanup | A02, A06, A07, A08, A09 | S08, S09, S10, S11 | 必做 / 中点 |
+| S12 | **中点**：Int/Bool/有限 Text 的公开最小真实纵向；曝光前完成准入、未闭合消费者的预拒绝与基础失败/cleanup；接收 S08 的 AC-F7（`L_relation_collect` 目标变体、收据 v3 的 `array` cell、`docs/development.md` 的 denominator 段与 D71.11 的 PostgreSQL 运行；D71.10 scope 一次） | A02, A06, A07, A08, A09 | S08, S09, S10, S11 | 必做 / 中点 |
 | S13 | Unnest 的真实 source emission → compiled → 公开 native/bundle；最小纵向只交付最终平面输出，含 presence 与早期拒绝 | A04, A06, A07, A09 | S05, S06, S08, S09 | 必做 |
 | S14 | Float/Decimal 嵌套 leaf 的无损 carrier、bit/scale、SQL 内 Unnest 后的 scalar 语义与独立原值证明 | A04, A06, A08, A09 | S12, S13 | 必做 |
 | S15 | Date/Timestamp/UUID 的有限域、意义、SQL 内 Unnest 后的 scalar 语义与原值证明 | A04, A06, A08, A09 | S12, S13 | 必做 |

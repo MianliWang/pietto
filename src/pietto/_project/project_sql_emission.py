@@ -41,6 +41,7 @@ from pietto._project.project_sql_emission_ast import (
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
+from pietto._project import project_sql_emission_nested as collecting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_emission_parameters as parameters
@@ -552,7 +553,14 @@ def _stage_columns(query, body, slots, *, count=None):
             if port.owner is source.ref:
                 selector_of[port.ref] = declared
     result = []
+    # A nested group spans 1+F physical columns of the statement's result.
+    physical = 0
     for column in body.columns[:count]:
+        if type(column) is collecting.CollectColumn:
+            result.append(_collect_column(column, physical))
+            physical += len(column.carriers)
+            continue
+        physical += 1
         image = column.column
         realization = image.realization
         if type(column) is grouping.AggregateProjectionColumn:
@@ -649,6 +657,69 @@ def _stage_columns(query, body, slots, *, count=None):
             }
         )
     return result
+
+
+def _logical_type(realization):
+    return {
+        "kind": "builtin",
+        "name": realization.tag,
+        "parameters": {
+            "precision": realization.domain["precision"],
+            "scale": realization.domain["scale"],
+        }
+        if realization.tag == "Decimal"
+        else None,
+    }
+
+
+def _collect_column(column, physical):
+    """One nested column (Q1 (a)): a `collection` of the collected let's child
+    fields, carried as `pg_column_arrays_v1` physical columns from 1-based
+    statement column ``physical + 1``: the count, then one array per child."""
+    collect = column.collect
+    children = column.lateral.target.producer.columns
+    return {
+        "ordinal": column.ordinal,
+        "label": column.label,
+        "logical_type": {
+            "kind": "collection",
+            "name": None,
+            "parameters": None,
+            "element": [
+                {
+                    "ordinal": index,
+                    "label": child.export.identity.name,
+                    "logical_type": _logical_type(child.column.realization),
+                    "nullable": child.column.realization.nullable,
+                }
+                for index, child in enumerate(children)
+            ],
+        },
+        "nullable": False,
+        "representation": {
+            "carrier": "pg_column_arrays_v1",
+            "columns": [
+                {"role": "count", "sql_symbol": physical + 1},
+                *(
+                    {
+                        "role": "field",
+                        "child": index,
+                        "storage": child.column.realization.storage,
+                        "sql_symbol": physical + 2 + index,
+                    }
+                    for index, child in enumerate(children)
+                ),
+            ],
+        },
+        "correspondence": {
+            "collect": _ref(collect.ref),
+            "use": _ref(collect.use),
+            "producer": _ref(collect.producer),
+            "children": [_ref(child) for child in collect.children],
+            "export": _ref(column.export.ref),
+            "sql_symbol": column.symbol.position,
+        },
+    }
 
 
 def _aggregate_provenance(origin):
@@ -953,6 +1024,10 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                     "values_rows",
                     "values_column",
                     "table_function",
+                    "collect_lateral",
+                    "collect_count",
+                    "collect_array",
+                    "collect_ordinal",
                 }
                 else {"kind": item.kind, "position": i},
                 "rule": item.rule,

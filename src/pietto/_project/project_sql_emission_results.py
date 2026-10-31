@@ -176,6 +176,27 @@ class ResultColumn:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class ResultGroupColumn:
+    """One nested group of the projection carried as a whole to the terminal.
+
+    ``group`` is the projection's Collect column; ``carriers`` are
+    ``(projection column, label, subject)``: its count, then each array.
+    """
+
+    ordinal: int
+    export: Any
+    projection_port: Any
+    read: rows.StageColumn
+    output: Any
+    stages: tuple[ResultStage, ...]
+    symbol: Any
+    label: str
+    column: rows.StageColumn
+    group: Any
+    carriers: tuple[tuple[str, str, Any], ...]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class ResultDistinct:
     """The native DISTINCT over exactly the visible positional tuple."""
 
@@ -245,7 +266,7 @@ class RowResultBody:
     boundaries: tuple[Any, ...]
     index: int
     scan: RowResultUse
-    columns: tuple[ResultColumn, ...]
+    columns: tuple[ResultColumn | ResultGroupColumn, ...]
     terminals: tuple[Any, ...]
     distinct: ResultDistinct | None
     order: ResultOrder | None
@@ -256,6 +277,8 @@ class RowResultBody:
     predicate: None = None
     aggregation: None = None
     window: None = None
+    ordinal: Any = None
+    """The private ordinal column of a terminal some Collect reads, or None."""
 
     @property
     def block(self) -> Any:
@@ -345,6 +368,12 @@ def node_count(body: RowResultBody) -> int:
         (0 if body.distinct is None else 1)
         + (0 if body.order is None else len(body.order.items))
         + (0 if body.limit is None else 1)
+        + (0 if body.ordinal is None else 1 + len(body.ordinal.keys))
+        + sum(
+            len(column.carriers) - 1
+            for column in body.columns
+            if type(column) is ResultGroupColumn
+        )
     )
 
 
@@ -524,14 +553,17 @@ def build_result_body(
     final,
     symbol,
     inline=False,
+    ordinal=False,
 ):
     """Realize one definition's result boundaries as its terminal SELECT.
 
     ``inline``: the definition is a let with capture lines; its projection and
     this body are unnamed derived relations inside the read of the let, never
-    CTEs.
+    CTEs. ``ordinal``: a Collect reads this terminal, so without DISTINCT it
+    carries the private ordinal column of its own ORDER.
     """
     from pietto._project.project_sql_emission_ast import RowValueColumn
+    from pietto._project import project_sql_emission_nested as nested
 
     plan = request.plan
     entry = definition.original.entry
@@ -564,6 +596,13 @@ def build_result_body(
     origin: dict[Any, Any] = {}
     for port, column in zip(carried, projection.columns, strict=True):
         origin[port.ref] = (port, column.column)
+    # A nested group is carried whole; it is never a DISTINCT field or an
+    # ORDER key (PIE-S2805), so meeting one there is a structural drift.
+    groups = {
+        column.column: column
+        for column in projection.columns
+        if type(column) is nested.CollectColumn
+    }
     traces: dict[Any, list[ResultStage]] = {
         port.ref: [] for port in carried if port.canonical is not None
     }
@@ -597,6 +636,8 @@ def build_result_body(
                 return problem(
                     "PIE-B1001", "distinct_boundary_evidence_missing", boundary.ref
                 )
+            if groups:
+                return problem("PIE-B1001", "distinct_over_nested_group", boundary.ref)
             fields = sorted(
                 quotient_fields.get(value.ref, ()), key=lambda f: f.position
             )
@@ -726,6 +767,10 @@ def build_result_body(
                     use = None
                     port = inputs[matches[0]]
                 read = origin[port.ref][1]
+                if read in groups:
+                    return problem(
+                        "PIE-B1001", "order_over_nested_group", item.ref, location
+                    )
                 direction = item.source.direction.value
                 if direction not in DIRECTIONS or (
                     item.source.item.direction is not None
@@ -799,21 +844,41 @@ def build_result_body(
         return problem("PIE-B1001", "result_terminal_denominator", first.ref)
     if tuple(carried) != tuple(definition.terminals):
         return problem("PIE-B1001", "result_terminal_drift", first.ref)
-    columns = []
+    columns: list[ResultColumn | ResultGroupColumn] = []
     for position, (port, export) in enumerate(zip(carried, exports, strict=True)):
         projection_port, read = origin[port.ref]
         label = export.identity.name if final else f"c{position}"
+        parts = (
+            position,
+            export,
+            projection_port,
+            read,
+            port,
+            tuple(traces[port.ref]),
+            symbol(position + 1, export.ref, label),
+            label,
+            replace(read, position=position, name=label, terminal=port.ref),
+        )
+        group = groups.get(read)
+        if group is None:
+            columns.append(ResultColumn(*parts))
+            continue
+        # The group reads the projection stage's own carrier columns.
+        names = nested.field_names(group.lateral)
+        labels = (
+            label,
+            *(names if final else (f"c{position}_{j}" for j in range(len(names)))),
+        )
         columns.append(
-            ResultColumn(
-                position,
-                export,
-                projection_port,
-                read,
-                port,
-                tuple(traces[port.ref]),
-                symbol(position + 1, export.ref, label),
-                label,
-                replace(read, position=position, name=label, terminal=port.ref),
+            ResultGroupColumn(
+                *parts,
+                group,
+                tuple(
+                    (stage, carrier_label, subject)
+                    for (_, stage, subject), carrier_label in zip(
+                        group.carriers, labels, strict=True
+                    )
+                ),
             )
         )
     body = RowResultBody(
@@ -832,6 +897,10 @@ def build_result_body(
         if final or inline
         else tuple(symbol(i, port.ref, f"c{i}") for i, port in enumerate(carried)),
     )
+    if ordinal:
+        if order is None:
+            return problem("PIE-B1001", "collect_terminal_without_order", first.ref)
+        body = replace(body, ordinal=nested.ordinal_terminal(body))
     return body, None
 
 
