@@ -289,6 +289,8 @@ STORAGE_KEYS = {
     "my_varchar": ("kind", "length"),
     "pg_timestamp": ("kind", "fractional_seconds"),
     "my_datetime": ("kind", "fractional_seconds"),
+    "pg_date": ("kind",),
+    "my_date": ("kind",),
 }
 DOMAIN_KEYS = {
     "int_range": ("kind", "min", "max"),
@@ -298,6 +300,7 @@ DOMAIN_KEYS = {
     "timestamp": ("kind",),
     "uuid": ("kind", "encoding"),
     "finite_float": ("kind", "format"),
+    "date": ("kind",),
 }
 
 

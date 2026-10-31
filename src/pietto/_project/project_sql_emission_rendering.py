@@ -444,6 +444,19 @@ class _Writer:
         self.emit("))", "syntax", "in_close", reference)
         self.enclose("relation_membership", reference, start)
 
+    def operand(self, value, position, alias):
+        """One operation operand; a bigint-computed narrow operation CASTs its
+        first operand to pg_catalog.int8."""
+        if position or not rows.int8_widened(self.request.family, value):
+            self.scalar(value.operands[position], alias)
+            return
+        start, reference = self.offset, value.original.ref
+        opening, closing = rows.INT8_WIDEN
+        self.emit(opening, "syntax", "int8_widen_open", reference)
+        self.scalar(value.operands[0], alias)
+        self.emit(closing, "syntax", "int8_widen_close", reference)
+        self.enclose("int8_widen", reference, start)
+
     def scalar(self, value, alias):
         """One admitted tree; a reference with its own scope reads that relation."""
         start = self.offset
@@ -479,7 +492,7 @@ class _Writer:
                 "unary_open",
                 reference,
             )
-            self.scalar(value.operands[0], alias)
+            self.operand(value, 0, alias)
             self.emit(")", "syntax", "unary_close", reference)
             self.enclose("unary", reference, start)
             return
@@ -790,7 +803,7 @@ class _Writer:
             for position, operand in enumerate(value.operands):
                 if position:
                     self.emit(", ", "syntax", "scalar_call_separator", reference)
-                self.scalar(operand, alias)
+                self.operand(value, position, alias)
             self.emit(")", "syntax", "scalar_call_close", reference)
             self.enclose("scalar_call", reference, start)
             return
@@ -868,7 +881,7 @@ class _Writer:
             return
         opening, operator, closing, role = OPERATORS[value.kind]
         self.emit("(", "syntax", opening, reference)
-        self.scalar(value.operands[0], alias)
+        self.operand(value, 0, alias)
         self.emit(operator_token(value), "syntax", operator, reference)
         self.scalar(value.operands[1], alias)
         self.emit(")", "syntax", closing, reference)
@@ -887,6 +900,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     """One aggregate occurrence: its own spelling over its own exact argument."""
     reference = column.aggregate.ref
     start = w.offset
+    if column.result_cast is not None:
+        w.emit("CAST(", "syntax", "aggregate_result_cast_open", reference)
     w.emit(column.spelling + "(", "syntax", "aggregate_open", reference)
     if column.argument is None:
         # count() consumes the complete input BAG, so COUNT(*) is the whole row
@@ -929,6 +944,13 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
                 reference,
             )
     w.emit(")", "syntax", "aggregate_close", reference)
+    if column.result_cast is not None:
+        w.emit(
+            " AS " + column.result_cast + ")",
+            "syntax",
+            "aggregate_result_cast_close",
+            reference,
+        )
     w.enclose("aggregate", reference, start)
 
 

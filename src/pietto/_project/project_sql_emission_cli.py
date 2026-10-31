@@ -885,9 +885,15 @@ def _blocker_hint(detail: str, family: str) -> str | None:
         "unary_result_outside_physical_range",
         "abs_result_outside_physical_range",
     }:
+        if family == "postgres":
+            return (
+                "every value of this result lies outside a signed 64-bit"
+                " integer, so PostgreSQL's checked bigint operation could only"
+                " fail"
+            )
         return (
             "an Int field ranges over its whole storage type; its declared"
-            " int_range does not narrow that, so the result must fit the"
-            " storage type"
+            " int_range does not narrow that, so the result must fit a signed"
+            " 64-bit integer"
         )
     return None

@@ -369,8 +369,17 @@ def test_a_computed_group_key_needs_its_let_site_range_proof(tmp_path, target):
     _, outcome = probe.build_case(
         tmp_path, header + body, item["contract"], item["policy"]
     )
-    assert outcome.status == "BLOCKED"
     assert outcome.diagnostics == ()
+    if target == "postgres":
+        # Q2: the bigint key + 1 is PostgreSQL's checked operation, its range
+        # the whole signed 64 bits but its lowest value, never the declared one.
+        assert outcome.status == "VERIFIED", outcome.blockers
+        public = probe.decode_public(serialize_project_sql_emission(outcome))
+        assert [
+            r["evidence"] for r in public["requirements"] if r["kind"] == "arithmetic"
+        ] == [[{"operator": "+"}, {"overflow": "target_checked_signed64_narrowing"}]]
+        return
+    assert outcome.status == "BLOCKED"
     assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
         ("PIE-B1002", "arithmetic_outside_physical_range")
     ]

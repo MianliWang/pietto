@@ -39,7 +39,9 @@ COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
 # R12 group comparison stays inside the reviewed V01-V04 domains. V05 keeps its
 # meaning limits and V06 transport never becomes Float grouping or equality.
-GROUPING_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "UUID"})
+GROUPING_TAGS = frozenset(
+    {"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "UUID"}
+)
 TEXT_DOMAIN_KEYS = ("encoding", "collation", "padding")
 DECIMAL_DOMAIN_KEYS = ("precision", "scale")
 STAGE_KINDS = (
@@ -180,6 +182,7 @@ class AggregateValueColumn:
     column: rows.StageColumn
     delimiter: Any = None
     order_by: tuple[Any, ...] = ()
+    result_cast: str | None = None
 
     def __repr__(self) -> str:
         """Summarize this occurrence; no retained product is formatted."""
@@ -189,6 +192,7 @@ class AggregateValueColumn:
             f"label={_scalar(self.label)}, function={_scalar(self.function)}, "
             f"spelling={_scalar(self.spelling)}, distinct={self.distinct!r}, "
             f"argument_cast={_scalar(self.argument_cast)}, "
+            f"result_cast={_scalar(self.result_cast)}, "
             f"argument={_present(self.argument)}, aggregate=..., "
             "export=..., symbol=..., column=...)"
         )
@@ -330,6 +334,11 @@ def grouping_problem(realization: rows.Realization):
         or realization.domain != {"kind": "timestamp"}
     ):
         return "PIE-B1002", "group_key_temporal_physical_representation_mismatch"
+    if realization.tag == "Date" and (
+        realization.storage not in ({"kind": "pg_date"}, {"kind": "my_date"})
+        or realization.domain != {"kind": "date"}
+    ):
+        return "PIE-B1002", "group_key_temporal_physical_representation_mismatch"
     if realization.tag == "UUID" and (
         realization.storage not in ({"kind": "pg_uuid"}, {"kind": "my_uuid_bytes"})
         or realization.domain != {"kind": "uuid", "encoding": "standard_bytes"}
@@ -389,6 +398,17 @@ def result_realization(family: str, function: str, argument, retained):
             rows._checked_int({"kind": COUNT_STORAGE[family]}, 0, COUNT_MAX, False),
             None,
         )
+    if function == "sum":
+        # An empty or all-null input sums to NULL; the CAST bounds the rest.
+        if (
+            family != "postgres"
+            or argument is None
+            or argument.realization.tag != "Int"
+            or tag != "Int"
+            or nullable is not True
+        ):
+            return None, ("PIE-B1002", "sum_result_logical_type_or_argument_drift")
+        return rows._checked_int({"kind": "pg_int8"}, *rows.SIGNED64, True), None
     if function == "avg":
         if (
             argument is None
@@ -426,12 +446,13 @@ def result_realization(family: str, function: str, argument, retained):
     )
 
 
-def argument_problem(function: str, argument):
+def argument_problem(function: str, argument, family: str):
     """R13 admits exactly one direct established V01 field per aggregate argument."""
     return resolved_argument_problem(
         function,
         type(argument) is rows.SQLStageReference,
         argument.realization if type(argument) is rows.SQLStageReference else None,
+        family,
     )
 
 
@@ -452,8 +473,13 @@ def string_agg_argument_problem(argument):
     return None
 
 
-def resolved_argument_problem(function: str, direct_reference: bool, realization):
-    """The same R13 argument law for an already-resolved input port."""
+def resolved_argument_problem(
+    function: str, direct_reference: bool, realization, family: str
+):
+    """The same R13 argument law for an already-resolved input port.
+
+    PostgreSQL MIN/MAX of one Timestamp or Date carrier keep its exact value;
+    the MySQL result's fractional seconds and metadata are not yet reviewed."""
     if not direct_reference:
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
     if realization is None:
@@ -463,6 +489,10 @@ def resolved_argument_problem(function: str, direct_reference: bool, realization
             return "PIE-B1004", "avg_int_range_evidence_missing"
         return None
     if function == "sum" and realization.tag == "Int":
+        # PostgreSQL sums exactly and narrows to bigint with its checked CAST;
+        # MySQL's CAST(DECIMAL AS SIGNED) would clamp an out-of-range sum.
+        if family == "postgres":
+            return None
         return "PIE-B1004", "sum_int_aggregate_range_proof_missing"
     # Only a sum or an average has a range or finite-result proof to supply;
     # any other function outside the reviewed Int domain is refused below.
@@ -470,7 +500,17 @@ def resolved_argument_problem(function: str, direct_reference: bool, realization
         return "PIE-B1004", "decimal_aggregate_range_proof_missing"
     if function in {"sum", "avg"} and realization.tag == "Float":
         return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
-    if function in COUNTING_FUNCTIONS and realization.tag in {"Timestamp", "UUID"}:
+    if function in COUNTING_FUNCTIONS and realization.tag in {
+        "Timestamp",
+        "Date",
+        "UUID",
+    }:
+        return grouping_problem(realization)
+    if (
+        function in EXTREMA_FUNCTIONS
+        and family == "postgres"
+        and realization.tag in {"Timestamp", "Date"}
+    ):
         return grouping_problem(realization)
     if realization.tag != "Int":
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
@@ -480,12 +520,26 @@ def resolved_argument_problem(function: str, direct_reference: bool, realization
 
 
 def argument_cast(family: str, function: str, argument) -> str | None:
-    """One target-native binary64 input for the reviewed AVG(Int) operation."""
-    if function != "avg":
+    """One target-native binary64 input for the reviewed AVG(Int) operation,
+    or the bigint input of a PostgreSQL SUM(Int)."""
+    if function not in {"avg", "sum"}:
         return None
     if argument is None or argument.realization.tag != "Int":
-        raise ValueError("AVG input cast requires its proven Int argument")
+        raise ValueError("AVG or SUM input cast requires its proven Int argument")
+    if function == "sum":
+        return result_cast(family, function, argument)
     return "pg_catalog.float8" if family == "postgres" else "DOUBLE"
+
+
+def result_cast(family: str, function: str, argument) -> str | None:
+    """Q1: PostgreSQL SUM(Int) accumulates exactly and its result is narrowed
+    to bigint by a checked CAST, which refuses an out-of-range sum with
+    SQLSTATE 22003 instead of returning a wrong value."""
+    if function != "sum":
+        return None
+    if family != "postgres" or argument is None or argument.realization.tag != "Int":
+        raise ValueError("SUM result cast requires a PostgreSQL Int argument")
+    return "pg_catalog.int8"
 
 
 def _input_terminals(value) -> tuple[Any, ...]:
@@ -827,7 +881,7 @@ def build_stage(
             if argument is None:
                 assert problem is not None
                 return None, (*problem, value.ref, location)
-            problem = argument_problem(function, argument)
+            problem = argument_problem(function, argument, request.family)
             if problem is not None:
                 return None, (*problem, value.ref, location)
         elif function != "count":
@@ -897,6 +951,7 @@ def build_stage(
             ),
             delimiter,
             order_by,
+            result_cast(family, function, argument),
         )
         return column, None
 
@@ -1056,7 +1111,10 @@ def build_compiled_stage(plan, record, arguments):
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
             elif (
                 argument is not None
-                and argument_problem(function, argument) is not None
+                and argument_problem(
+                    function, argument, records[Address("target", 0)].get("family")
+                )
+                is not None
             ):
                 raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
             fact = facts[address]
@@ -1128,6 +1186,9 @@ def build_compiled_stage(plan, record, arguments):
                 terminal,
                 None if not delimiters else delimiters[0],
                 order_by,
+                result_cast(
+                    records[Address("target", 0)].get("family"), function, argument
+                ),
             )
             values.append(column)
         columns.append(column)

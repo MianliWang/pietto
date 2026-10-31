@@ -426,9 +426,11 @@ def test_deleted_meaning_reference_is_a_typed_realization_failure(roots, slot):
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_intrinsic_meaning_admits_temporal_equality_and_grouping_but_not_order(
+def test_intrinsic_meaning_admits_temporal_equality_grouping_and_order_uuid_on_pg(
     tmp_path, target
 ):
+    """Q3: a UUID result ORDER key keeps its source meaning on PostgreSQL,
+    which orders it by its unsigned big-endian bytes; MySQL refuses it."""
     prefix = f"""shape Row:
     stamp: Timestamp
     identifier: UUID
@@ -446,6 +448,9 @@ query result:
         "order": prefix
         + "    select:\n        s = stamp\n        u = identifier\n"
         + "    order by:\n        stamp\n",
+        "uuid_order": prefix
+        + "    select:\n        s = stamp\n        u = identifier\n"
+        + "    order by:\n        identifier\n",
     }
     document = json.loads(probe.temporal_input(target))
     document["sources"][0]["fields"] = [
@@ -462,13 +467,86 @@ query result:
         }
     )
     encoded = json.dumps(document).encode()
-    for name in ("equality", "grouping"):
+    for name in ("equality", "grouping", "order"):
         checked = probe.build_neutral(tmp_path / name, {"main.pietto": source[name]})
         result = emit_project_sql(checked, encoded)
         assert result.status == "VERIFIED" and result.artifact is not None
         assert result.artifact.request.scalar_meaning is not None
-    checked = probe.build_neutral(tmp_path / "order", {"main.pietto": source["order"]})
+    checked = probe.build_neutral(
+        tmp_path / "uuid_order", {"main.pietto": source["uuid_order"]}
+    )
     result = emit_project_sql(checked, encoded)
+    if target == "postgres":
+        assert result.status == "VERIFIED" and result.artifact is not None
+        assert result.artifact.request.scalar_meaning is not None
+        assert result.artifact.rendered.sql.endswith(b' ORDER BY "t0"."c2" ASC')
+        return
     assert result.status == "BLOCKED" and [
         (blocker.code, blocker.detail) for blocker in result.blockers
     ] == [("PIE-B1003", "order_comparison_domain_unsupported")]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_min_of_a_timestamp_keeps_its_source_meaning(tmp_path, target):
+    """A PostgreSQL `min(stamp)` result traces to its Timestamp source through
+    its aggregate edge, so the result contract carries Timestamp meaning;
+    MySQL keeps the aggregate BLOCKED."""
+    source = f"""shape Row:
+    stamp: Timestamp
+    identifier: UUID
+source rows: Row = {target}.table("opaque.result.fixture")
+query result:
+    from rows
+    group by:
+        identifier
+    select:
+        u = identifier
+        first = min(stamp)
+"""
+    document = json.loads(probe.temporal_input(target))
+    document["sources"][0]["fields"] = [
+        document["sources"][0]["fields"][0],
+        {**document["sources"][0]["fields"][2], "ordinal": 1},
+    ]
+    document["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    checked = probe.build_neutral(tmp_path / "min", {"main.pietto": source})
+    result = emit_project_sql(checked, json.dumps(document).encode())
+    if target == "mysql":
+        assert result.status == "BLOCKED" and [
+            (blocker.code, blocker.detail) for blocker in result.blockers
+        ] == [("PIE-B1003", "min_argument_outside_reviewed_int_domain")]
+        return
+    assert result.status == "VERIFIED" and result.artifact is not None
+    scalar = result.artifact.request.scalar_meaning
+    assert scalar is not None
+    built = contract.build_result_contract(checked, scalar_meaning=scalar)
+    assert [
+        None if field.meaning is None else field.meaning.canonical.name
+        for field in built.shape.fields
+    ] == ["UUID", "Timestamp"]
+    # A compiled replay traces the same aggregate edge of its own records.
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_result_output import prepare_output
+
+    compiled = build_compiled(result.artifact)
+    loaded = load_compiled(
+        compiled.payload,
+        expected_pin=compiled.pin,
+        accepted_producer=compiled.producer,
+        accepted_compatibility=compiled.compatibility,
+    )
+    replayed = prepare_output(emit_compiled(loaded, ()))
+    assert [
+        None if field.meaning is None else field.meaning.canonical.name
+        for field in replayed.contract.shape.fields
+    ] == ["UUID", "Timestamp"]

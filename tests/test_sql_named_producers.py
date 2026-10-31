@@ -1148,11 +1148,13 @@ def test_an_unselected_let_expression_keeps_its_static_requirement(
         from lhs
         select:
             id
-            big = id * id
+            big = id * 0 + 9223372036854775807 + 1
     from wide
     select:
         id
 """
+    # A range that never fits signed 64 bits is refused on both targets, even
+    # where PostgreSQL's checked bigint operators bound one that may (Q2).
     _, _, document = _emit(tmp_path / "blocked", target, body)
     assert document["status"] == "BLOCKED"
     assert [

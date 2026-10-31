@@ -344,6 +344,25 @@ A `BLOCKED` document lists each blocker once, at its first position: a
 blocker equal to an earlier one in code, reason, subject, location and related
 locations is not repeated.
 
+A generated requirement's `evidence` may end with
+`{"overflow": "target_checked_signed64_narrowing"}`. It marks a PostgreSQL
+`Int` result whose `int_range` the compiler did not prove statically: a
+`sum(Int)` (kind `aggregate`, rule R13), written
+`CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`, or a sign, `+`,
+`-`, `*` or `abs` over `bigint` operands (kind `arithmetic` or `scalar_call`,
+rule R05) whose exact range leaves signed 64 bits. The column's `int_range`
+is then the part of that range inside signed 64 bits, and PostgreSQL's checked
+`bigint` narrowing or operator refuses any other value with SQLSTATE 22003, so
+the statement may fail while PostgreSQL plans or executes it and never returns
+a wrong value; whether and when it fails depends on the execution plan. A consumer that requires a
+statically proved range refuses a document with this evidence. Every other
+requirement's `evidence` is unchanged, and no MySQL document carries it.
+
+The additive `ranges` roles for these PostgreSQL forms are
+`expression_range` role `int8_widen`, and `syntax` roles `int8_widen_open`,
+`int8_widen_close`, `aggregate_result_cast_open` and
+`aggregate_result_cast_close`.
+
 `pietto.sql-emission.v1` stays frozen. Only a `VERIFIED` document whose
 selected query declares header parameters is tagged
 `"format": "pietto.sql-emission.v2"` (D70.02, D70.08); every other document,

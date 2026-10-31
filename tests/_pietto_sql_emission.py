@@ -389,9 +389,13 @@ def range_thresholds_exact(realization, direction, offsets):
     return True
 
 
-GROUPING_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "UUID"})
+GROUPING_TAGS = frozenset(
+    {"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "UUID"}
+)
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
+# Q1/Q2 evidence: a bigint result the target's checked operation bounds.
+TARGET_CHECKED = "target_checked_signed64_narrowing"
 AGGREGATE_DEMAND_RULES = {
     "aggregation": "R12",
     "group_key": "R12",
@@ -748,9 +752,11 @@ PARAMETER_BODY = """query result(low: Int, label: Text | None):
         above = low + 1
 """
 # Phase70 S04r: header parameters in post-aggregation and result positions over
-# the published emission rows. `id` proves over its whole int8 carrier, so
-# `id * low` binds only low 0 or 1 and `id + high` only high 0 or NULL; the
-# product binder refuses any other value before execution (D70.01).
+# the published emission rows. `id` proves over its whole int8 carrier, so on
+# MySQL `id * low` binds only low 0 or 1 and `id + high` only high 0 or NULL;
+# the product binder refuses any other value before execution (D70.01). On
+# PostgreSQL a bound range that meets signed 64 bits binds under the checked
+# bigint rule (Q2).
 PARAMETER_POSITION_BODIES = {
     # Computed key, LET aggregates, SATISFYING and grouped ORDER over parameters.
     "grouped": """query result(low: Int, high: Int | None):
@@ -1473,6 +1479,8 @@ AGGREGATE_LABELS = {
     ("Z_aggregate_membership", None): ("a",),
     ("Z_aggregate_transport", None): ("a", "b"),
     ("V_aggregate_blocked", "avg_direct"): ("a",),
+    ("V_aggregate_blocked", "sum_direct"): ("s",),
+    ("V_aggregate_blocked", "sum_hidden_right"): ("a",),
 }
 AGGREGATE_LOGICAL = {
     ("X_aggregate_global", None): ("Int",) * 5,
@@ -1501,6 +1509,8 @@ AGGREGATE_LOGICAL = {
     ("Z_aggregate_membership", None): ("Int",),
     ("Z_aggregate_transport", None): ("Int", "Int"),
     ("V_aggregate_blocked", "avg_direct"): ("Float",),
+    ("V_aggregate_blocked", "sum_direct"): ("Int",),
+    ("V_aggregate_blocked", "sum_hidden_right"): ("Int",),
 }
 
 
@@ -3594,6 +3604,16 @@ PER_TARGET_STATUS = {
     # R09: the NULL-key FULL minimum positive is PostgreSQL only; MySQL keeps
     # its approved FULL non-support.
     ("V_join_full", "null_keys"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    # Q1/Q2: PostgreSQL's checked bigint operators and SUM narrowing bound a
+    # result that may leave signed 64 bits (SQLSTATE 22003, never a wrapped
+    # value); MySQL keeps PIE-B1002 and PIE-B1004 for the same programs.
+    ("V_row_blocked", "int_overflow"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    ("V_row_blocked", "unary_overflow"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    ("V_aggregate_blocked", "sum_direct"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    ("V_aggregate_blocked", "sum_hidden_right"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
     # D70.05: a statement without a physical source is refused on MySQL.
     ("Q_values_rows", "top"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     # D70.05: generate_series is PostgreSQL only, alone or joined.
@@ -3827,6 +3847,7 @@ def _premise_shape(premise, enclosing=None):
             "timestamp": {"kind"},
             "uuid": {"kind", "encoding"},
             "finite_float": {"kind", "format"},
+            "date": {"kind"},
         }
         _need(value["kind"] in keys)
         _keys(value, keys[value["kind"]])
@@ -3864,6 +3885,8 @@ def _contract_shape(contract):
             "my_bool01",
             "my_uuid_bytes",
             "my_double",
+            "pg_date",
+            "my_date",
         )
     }
     storage_keys.update(
@@ -3883,6 +3906,7 @@ def _contract_shape(contract):
         "timestamp": {"kind"},
         "uuid": {"kind", "encoding"},
         "finite_float": {"kind", "format"},
+        "date": {"kind"},
     }
     for source in _records(contract["sources"]):
         _keys(source, ("selector", "relation", "scan", "fields", "premises"))
@@ -3986,6 +4010,8 @@ def _field_compatibility(representation, family):
         "my_datetime": "Timestamp",
         "pg_uuid": "UUID",
         "my_uuid_bytes": "UUID",
+        "pg_date": "Date",
+        "my_date": "Date",
     }
     kind = storage["kind"]
     _need(
@@ -4003,6 +4029,7 @@ def _field_compatibility(representation, family):
             "Float": "finite_float",
             "Timestamp": "timestamp",
             "UUID": "uuid",
+            "Date": "date",
         }[tag],
         "physical storage and value domain disagree",
     )
@@ -4071,6 +4098,23 @@ def _field_compatibility(representation, family):
             "unsupported uuid storage",
         )
     return {"kind": "builtin", "name": tag, "parameters": parameters}
+
+
+def _temporal_carrier(realization, family):
+    """One exactly ordered Timestamp or Date carrier of its reviewed storage."""
+    if realization["tag"] == "Timestamp":
+        return realization["domain"] == {"kind": "timestamp"} and realization[
+            "storage"
+        ] == {
+            "kind": "pg_timestamp" if family == "postgres" else "my_datetime",
+            "fractional_seconds": 6,
+        }
+    return (
+        realization["tag"] == "Date"
+        and realization["domain"] == {"kind": "date"}
+        and realization["storage"]
+        == {"kind": "pg_date" if family == "postgres" else "my_date"}
+    )
 
 
 def _public_premises(contract):
@@ -5088,6 +5132,8 @@ def _decode_row_denominators(
             continue
         elif type(evidence) is dict:
             _need(item["evidence"] == [evidence], "generated operator evidence")
+        elif type(evidence) is list:
+            _need(item["evidence"] == evidence, "generated checked evidence")
         elif type(evidence) is tuple and evidence[0] == "result":
             _need(len(item["evidence"]) == 1, "result requirement evidence")
             entry = cast(dict[str, Any], item["evidence"][0])
@@ -5800,7 +5846,7 @@ def _decode_fixed_public(document, limits):
     ARITHMETIC_TOKENS = {" + ", " - ", " * "}
     LOGICAL_TOKENS = {" AND ", " OR "}
     COMPARISON_TOKENS = {" = ", " <> ", " < ", " <= ", " > ", " >= "}
-    COMPARABLE = ("Bool", "Int", "Text", "Decimal", "Float")
+    COMPARABLE = ("Bool", "Int", "Text", "Decimal", "Float", "Timestamp", "Date")
     row_bodies: list[dict[str, Any]] = []
     row_generated: list[Any] = []
     row_port_reads: dict[str, Any] = {}
@@ -5857,29 +5903,64 @@ def _decode_fixed_public(document, limits):
         )
         return value["proven_int_range"]
 
-    def row_int(operands, low, high, nullable):
+    def row_int(operands, low, high, nullable, widened=False, operation=False):
         if family == "mysql":
+            _need(not widened, "MySQL computes no bigint widening")
             storage = {"kind": "my_signed_int"}
         else:
             widths = [INT_BITS.get(o["storage"]["kind"]) for o in operands]
             _need(all(w is not None for w in widths), "integer operand storage")
-            storage = {
-                "kind": {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"}[
-                    max(w for w in widths if w is not None)
-                ]
-            }
+            narrow = max(w for w in widths if w is not None)
+            if widened:
+                # A narrow operation whose exact range leaves its own type is
+                # computed in bigint; a redundant widening is not admitted.
+                _need(
+                    narrow < 64
+                    and not (
+                        -(1 << (narrow - 1)) <= low <= high <= (1 << (narrow - 1)) - 1
+                    ),
+                    "int8 widening",
+                )
+                narrow = 64
+            storage = {"kind": {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"}[narrow]}
         bits = INT_BITS[storage["kind"]]
+        checked = False
+        if (
+            operation
+            and storage == {"kind": "pg_int8"}
+            and not (I64_MIN <= low <= high <= I64_MAX)
+            and low <= I64_MAX
+            and high >= I64_MIN
+        ):
+            # Q2: PostgreSQL's checked bigint operation refuses a value outside
+            # signed 64 bits, so the result keeps the part of its exact range
+            # inside them and publishes the target-checked evidence.
+            low, high, checked = max(low, I64_MIN), min(high, I64_MAX), True
         _need(
             -(1 << (bits - 1)) <= low <= high <= (1 << (bits - 1)) - 1,
             "integer result outside its physical range",
         )
-        return {
+        result = {
             "tag": "Int",
             "storage": storage,
             "nullable": nullable,
             "domain": {"kind": "int_range", "min": str(low), "max": str(high)},
             "proven_int_range": (low, high),
         }
+        if checked:
+            result["checked"] = True
+        return result
+
+    def widened_operand(block, port_kind, original):
+        """One first operand, CAST to pg_catalog.int8 when its narrow
+        PostgreSQL operation is computed in bigint."""
+        if peek() != "int8_widen_open":
+            return row_parse(block, port_kind), False
+        opened, _ = take("syntax", "int8_widen_open", "CAST(", original)
+        operand = row_parse(block, port_kind)
+        closed, _ = take("syntax", "int8_widen_close", " AS pg_catalog.int8)", original)
+        expected_ranges.append(("int8_widen", original, opened["start"], closed["end"]))
+        return operand, True
 
     def constant_ahead():
         index = cursor
@@ -5999,7 +6080,7 @@ def _decode_fixed_public(document, limits):
         if role == "unary_open":
             _, text = take("syntax", "unary_open", subject=original)
             _need(text in {"(+", "(-"}, "unary operator")
-            operand = row_parse(block, port_kind)
+            operand, widened = widened_operand(block, port_kind, original)
             closed, _ = take("syntax", "unary_close", ")", original)
             expected_ranges.append(("unary", original, start, closed["end"]))
             return {
@@ -6007,6 +6088,7 @@ def _decode_fixed_public(document, limits):
                 "expression": original,
                 "operator": text[1],
                 "operands": [operand],
+                "widened": widened,
             }
         if role == "is_null_open":
             take("syntax", "is_null_open", "(", original)
@@ -6124,6 +6206,7 @@ def _decode_fixed_public(document, limits):
         if role == "scalar_call_open":
             _, opening = take("syntax", "scalar_call_open", subject=original)
             call_argument_depth[0] += 1
+            widened = False
             ordinary = {
                 "postgres": {
                     "lower(": "lower",
@@ -6339,7 +6422,9 @@ def _decode_fixed_public(document, limits):
                 else:
                     name = ordinary.get(opening)
                     _need(name is not None, "closed scalar call spelling")
-                    operands = [row_parse(block, port_kind)]
+                    first, widened = widened_operand(block, port_kind, original)
+                    _need(not widened or name == "abs", "int8 widening")
+                    operands = [first]
                     while peek() == "scalar_call_separator":
                         take("syntax", "scalar_call_separator", ", ", original)
                         operands.append(row_parse(block, port_kind))
@@ -6356,6 +6441,7 @@ def _decode_fixed_public(document, limits):
                 "expression": original,
                 "name": name,
                 "operands": operands,
+                "widened": name == "abs" and widened,
             }
         if role == "exists_open":
             # An existence read of one complete named producer terminal; a
@@ -6537,7 +6623,7 @@ def _decode_fixed_public(document, limits):
             }
         _need(role in {"binary_open", "comparison_open"}, "row expression node")
         take("syntax", role, "(", original)
-        left = row_parse(block, port_kind)
+        left, widened = widened_operand(block, port_kind, original)
         operator_role = peek()
         _, token = take("syntax", operator_role, subject=original)
         right = row_parse(block, port_kind)
@@ -6558,12 +6644,14 @@ def _decode_fixed_public(document, limits):
             else:
                 _need(token in COMPARISON_TOKENS, "operator")
             kind, enclosure = "comparison", "comparison"
+        _need(not widened or kind == "arithmetic", "int8 widening")
         expected_ranges.append((enclosure, original, start, closed["end"]))
         return {
             "kind": kind,
             "expression": original,
             "operator": token,
             "operands": [left, right],
+            "widened": widened,
         }
 
     def row_resolve(node, incoming, alias, owner, scopes=None, context=None):
@@ -7331,7 +7419,12 @@ def _decode_fixed_public(document, limits):
                 if operands[0]["tag"] == "Int":
                     low, high = row_interval(operands[0])
                     return row_int(
-                        [operands[0]], max(low, -high, 0), max(-low, high), nullable
+                        [operands[0]],
+                        max(low, -high, 0),
+                        max(-low, high),
+                        nullable,
+                        node.get("widened", False),
+                        operation=True,
                     )
                 return {
                     "tag": operands[0]["tag"],
@@ -7445,7 +7538,14 @@ def _decode_fixed_public(document, limits):
                 low, high = row_interval(operands[0])
                 if node["operator"] == "-":
                     low, high = -high, -low
-                result = row_int([operands[0], operands[0]], low, high, nullable)
+                result = row_int(
+                    [operands[0], operands[0]],
+                    low,
+                    high,
+                    nullable,
+                    node.get("widened", False),
+                    operation=True,
+                )
         elif node["kind"] == "arithmetic":
             if all(item["tag"] == "Decimal" for item in operands):
                 _need(
@@ -7524,7 +7624,14 @@ def _decode_fixed_public(document, limits):
                 else:
                     products = [a * b for a in (low_l, high_l) for b in (low_r, high_r)]
                     low, high = min(products), max(products)
-                result = row_int(operands, low, high, nullable)
+                result = row_int(
+                    operands,
+                    low,
+                    high,
+                    nullable,
+                    node.get("widened", False),
+                    operation=True,
+                )
         elif node["kind"] == "logical":
             _need(
                 all(
@@ -7546,7 +7653,11 @@ def _decode_fixed_public(document, limits):
         elif node["kind"] == "between":
             _need(
                 all(compatible(operands[0], item) for item in operands[1:])
-                and operands[0]["tag"] in COMPARABLE,
+                and (
+                    operands[0]["tag"] in COMPARABLE
+                    or operands[0]["tag"] == "UUID"
+                    and family == "postgres"
+                ),
                 "between type pair",
             )
             result = row_bool(nullable)
@@ -7641,10 +7752,20 @@ def _decode_fixed_public(document, limits):
             result = scalar_result(node["name"])
         else:
             left, right = operands
-            if left["tag"] in {"Timestamp", "UUID"}:
+            if left["tag"] == "UUID":
+                # Q3: PostgreSQL orders a uuid by its unsigned big-endian
+                # bytes; MySQL compares BINARY(16) values for equality only.
                 _need(
-                    node["operator"] in {" = ", " <> "} and compatible(left, right),
-                    "temporal/uuid equality pair",
+                    node["operator"]
+                    in (COMPARISON_TOKENS if family == "postgres" else {" = ", " <> "})
+                    and compatible(left, right),
+                    "uuid comparison pair",
+                )
+            elif left["tag"] in {"Timestamp", "Date"}:
+                # One temporal carrier orders by its exact instant or day.
+                _need(
+                    node["operator"] in COMPARISON_TOKENS and compatible(left, right),
+                    "temporal comparison pair",
                 )
             else:
                 _need(
@@ -7686,14 +7807,19 @@ def _decode_fixed_public(document, limits):
             if node["kind"] in {"scalar_call", "conditional", "not", "cast", "between"}
             else original
         )
+        evidence = (
+            spelling
+            if type(spelling) is dict or spelling is None
+            else {"operator": spelling}
+        )
+        if result.get("checked"):
+            evidence = [evidence, {"overflow": TARGET_CHECKED}]
         row_generated[slot] = (
             kind,
             generated_subject,
             rule,
             row_node_premises(result["tag"], tags, kind),
-            spelling
-            if type(spelling) is dict or spelling is None
-            else {"operator": spelling},
+            evidence,
         )
         if node["kind"] == "membership" and node.get("constant") is not None:
             hidden = node["hidden_reference"]
@@ -7900,6 +8026,10 @@ def _decode_fixed_public(document, limits):
         start = lexical[cursor][0]["start"]
         subject = lexical[cursor][0]["subject"]
         _need(subject["kind"] == "aggregate", "aggregate occurrence kind")
+        result_cast = None
+        if peek() == "aggregate_result_cast_open":
+            take("syntax", "aggregate_result_cast_open", "CAST(", subject)
+            result_cast = "pg_catalog.int8"
         _, spelling = take("syntax", "aggregate_open", subject=subject)
         _need(spelling in AGGREGATE_SPELLINGS, "aggregate spelling")
         distinct, argument, delimiter, order_by = False, None, None, []
@@ -7945,6 +8075,12 @@ def _decode_fixed_public(document, limits):
                     )
                     argument_cast = token[4:-1]
         closed, _ = take("syntax", "aggregate_close", ")", subject)
+        if result_cast is not None:
+            # Q1: only a PostgreSQL SUM is narrowed by a checked bigint CAST.
+            _need(family == "postgres" and spelling == "SUM(", "sum result cast")
+            closed, _ = take(
+                "syntax", "aggregate_result_cast_close", " AS pg_catalog.int8)", subject
+            )
         expected_ranges.append(("aggregate", subject, start, closed["end"]))
         return {
             "aggregate": subject,
@@ -7953,14 +8089,37 @@ def _decode_fixed_public(document, limits):
             "argument": argument,
             "delimiter": delimiter,
             "order_by": order_by,
+            "result_cast": result_cast,
             "argument_cast": argument_cast if argument is not None else None,
             "function": "count_distinct" if distinct else AGGREGATE_SPELLINGS[spelling],
         }
 
     def aggregate_realization(
-        function, argument, argument_cast, delimiter=None, order_by=()
+        function, argument, argument_cast, delimiter=None, order_by=(), result_cast=None
     ):
         """This result's own domain: a count is not its argument's value range."""
+        _need((result_cast is not None) is (function == "sum"), "sum result cast")
+        if function == "sum":
+            # Q1: an exact PostgreSQL sum narrowed to bigint by a checked CAST,
+            # NULL for an empty input; MySQL emits no SUM of an Int.
+            _need(
+                family == "postgres"
+                and argument is not None
+                and argument["tag"] == "Int"
+                and argument_cast == result_cast == "pg_catalog.int8",
+                "SUM bigint casts",
+            )
+            return {
+                "tag": "Int",
+                "storage": {"kind": "pg_int8"},
+                "nullable": True,
+                "domain": {
+                    "kind": "int_range",
+                    "min": str(-(1 << 63)),
+                    "max": str((1 << 63) - 1),
+                },
+                "proven_int_range": (-(1 << 63), (1 << 63) - 1),
+            }
         if function in {"count", "count_distinct"}:
             _need(argument_cast is None, "count has no aggregate argument cast")
             return {
@@ -8540,7 +8699,7 @@ def _decode_fixed_public(document, limits):
                     "qualifier": qualifier["subject"],
                 }
                 row_stage_ports.add(encoded(port).decode())
-            elif peek() == "aggregate_open":
+            elif peek() in ("aggregate_open", "aggregate_result_cast_open"):
                 node = {"kind": "aggregate", **aggregate_parse(block)}
             elif peek() == "window_open":
                 node = {"kind": "window", **window_parse(block)}
@@ -8951,7 +9110,9 @@ def _decode_fixed_public(document, limits):
                             for i in statements
                             if premises[i]["key"] == "operator_environment"
                         ],
-                        None,
+                        None
+                        if node["result_cast"] is None
+                        else [{"overflow": TARGET_CHECKED}],
                     )
                 )
                 argument = None
@@ -8973,7 +9134,12 @@ def _decode_fixed_public(document, limits):
                             argument["tag"] == "Int"
                             or (
                                 node["function"] in {"count", "count_distinct"}
-                                and argument["tag"] in {"Timestamp", "UUID"}
+                                and argument["tag"] in {"Timestamp", "Date", "UUID"}
+                            )
+                            or (
+                                node["function"] in {"min", "max"}
+                                and family == "postgres"
+                                and argument["tag"] in {"Timestamp", "Date"}
                             ),
                             "aggregate argument carrier",
                         )
@@ -8997,6 +9163,7 @@ def _decode_fixed_public(document, limits):
                     node["argument_cast"],
                     delimiter,
                     order_by,
+                    node["result_cast"],
                 )
                 read, field, literal, root = None, None, None, None
                 origin = {
@@ -9449,7 +9616,11 @@ def _decode_fixed_public(document, limits):
                 _need(len(matches) == 1, "an ORDER key is one established column")
                 read = matches[0]
                 _need(
-                    read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal"),
+                    read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal")
+                    or _temporal_carrier(read["realization"], family)
+                    or family == "postgres"
+                    and read["realization"]["tag"] == "UUID"
+                    and read["realization"]["storage"] == {"kind": "pg_uuid"},
                     "relation ORDER comparison domain",
                 )
                 _need(
@@ -10898,7 +11069,7 @@ def _decode_fixed_public(document, limits):
                 == right["read"]["realization"]["tag"],
                 "relationship equality type pair",
             )
-            if left["read"]["realization"]["tag"] in {"Timestamp", "UUID"}:
+            if left["read"]["realization"]["tag"] in {"Timestamp", "Date", "UUID"}:
                 _need(
                     left["read"]["realization"]["storage"]
                     == right["read"]["realization"]["storage"]
@@ -11954,7 +12125,16 @@ def decode_public(data: bytes) -> dict[str, Any]:
             _need(
                 column["logical_type"]["kind"] == "builtin"
                 and column["logical_type"]["name"]
-                in {"Int", "Bool", "Text", "Decimal", "Float", "Timestamp", "UUID"}
+                in {
+                    "Int",
+                    "Bool",
+                    "Text",
+                    "Decimal",
+                    "Float",
+                    "Timestamp",
+                    "Date",
+                    "UUID",
+                }
             )
             correspondence = column["correspondence"]
             _keys(
@@ -12329,6 +12509,70 @@ def block_reads(query):
         ) and dataclasses.is_dataclass(value):
             pending.extend(getattr(value, f.name) for f in dataclasses.fields(value))
     return found
+
+
+# One source of exact Q3/Date carriers beside a signed int4, for both targets.
+TEMPORAL_FIELDS = (
+    ("id", "Int", False),
+    ("ts", "Timestamp", False),
+    ("ts2", "Timestamp", True),
+    ("d", "Date", False),
+    ("d2", "Date", True),
+    ("u", "UUID", False),
+)
+
+
+def temporal_case(
+    directory, target, body, policy="preserve_literals", *, representations=None
+):
+    """Build ``table result:`` (``body`` is its indented block) over
+    ``TEMPORAL_FIELDS`` with the base fixture's premises; ``representations``
+    replaces named fields' contract representations."""
+    contract = json.loads(fixture(target, "T_row_direct", "table_preserve")["contract"])
+    pg = target == "postgres"
+    physical = {
+        "Int": (
+            {"kind": "pg_int4" if pg else "my_int"},
+            {"kind": "int_range", "min": "-2147483648", "max": "2147483647"},
+        ),
+        "Timestamp": (
+            {"kind": "pg_timestamp" if pg else "my_datetime", "fractional_seconds": 6},
+            {"kind": "timestamp"},
+        ),
+        "Date": ({"kind": "pg_date" if pg else "my_date"}, {"kind": "date"}),
+        "UUID": (
+            {"kind": "pg_uuid" if pg else "my_uuid_bytes"},
+            {"kind": "uuid", "encoding": "standard_bytes"},
+        ),
+    }
+    contract["sources"][0]["fields"] = [
+        {
+            "ordinal": i,
+            "name": name,
+            "column": name,
+            "representation": {
+                "storage": physical[kind][0],
+                "nullable": nullable,
+                "domain": physical[kind][1],
+            },
+        }
+        for i, (name, kind, nullable) in enumerate(TEMPORAL_FIELDS)
+    ]
+    for field in contract["sources"][0]["fields"]:
+        field["representation"] = (representations or {}).get(
+            field["name"], field["representation"]
+        )
+    source = (
+        "shape Row:\n"
+        + "".join(
+            f"    {name}: {kind}{' | None' if nullable else ''}\n"
+            for name, kind, nullable in TEMPORAL_FIELDS
+        )
+        + f'source rows: Row = {target}.table("opaque.locator.not.sql")\n'
+        + "table result:\n"
+        + body
+    )
+    return build_case(directory, source, encoded(contract).decode(), policy)
 
 
 def build_case(

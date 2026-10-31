@@ -648,7 +648,11 @@ def verify_emission_generation(value, target, expected):
                     and record["variant"]
                     in {"table_preserve", "empty_preserve", "truth_table"}
                 )
-                or (record["id"], record["variant"]) == ("V_row_blocked", "between")
+                or (
+                    record["id"] == "V_row_blocked"
+                    and record["variant"]
+                    in {"between", "int_overflow", "unary_overflow"}
+                )
                 else "query"
             )
             if document["request"]["owner"] != {

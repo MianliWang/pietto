@@ -168,6 +168,8 @@ def test_signed_zero_is_not_python_equality(tmp_path):
 
 
 def test_value_dependent_arithmetic_and_sign(tmp_path):
+    """A sign of a bound literal that never fits signed 64 bits is refused;
+    a bound sum that only may leave them binds under the checked rule."""
     import _pietto_sql_emission as emission
 
     source = product.source("postgres").replace("renamed = id", "renamed = id + 1")
@@ -189,8 +191,14 @@ def test_value_dependent_arithmetic_and_sign(tmp_path):
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
     t = binding.prepare_template(outcome.artifact)
     assert bind(t, 2).arguments == (2,)
-    with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
-        bind(t, 2**63 - 1)
+    # Q2: `id + (2**63 - 1)` meets signed 64 bits, so PostgreSQL's checked
+    # bigint `+` bounds it; the bound statement says so and keeps the SQL.
+    checked = bind(t, 2**63 - 1)
+    assert checked.arguments == (2**63 - 1,)
+    assert checked.artifact.rendered.sql == t.artifact.rendered.sql
+    assert [
+        r.evidence for r in checked.artifact.generated_requirements if r.evidence
+    ] == [("target_checked_signed64_narrowing",)]
     signed = template(
         tmp_path / "signed",
         product.source("postgres").replace("renamed = id", "renamed = -1"),
@@ -606,11 +614,20 @@ def test_each_position_witness_binds_to_its_decoded_arguments(
 def test_a_position_binding_outside_its_proven_range_is_refused(
     tmp_path, target, variant, values
 ):
+    """MySQL refuses each binding. On PostgreSQL a bound range that meets
+    signed 64 bits is the checked bigint operation (Q2), so only `low + 1`
+    past the int8 top, a range wholly outside them, is refused."""
     t, _ = _witness(tmp_path, target, variant)
+    named = _named(t, *(values[p.name] for p in t.parameters))
+    if target == "postgres" and variant != "result_null_label":
+        accepted = binding.bind_values(t, _literals(t), named)
+        checking.verify_binding(accepted)
+        assert ("target_checked_signed64_narrowing",) in [
+            r.evidence for r in accepted.artifact.generated_requirements
+        ]
+        return
     with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
-        binding.bind_values(
-            t, _literals(t), _named(t, *(values[p.name] for p in t.parameters))
-        )
+        binding.bind_values(t, _literals(t), named)
 
 
 QUALIFY_ONLY = """query result(low: Int, label: Text | None):
@@ -804,3 +821,83 @@ def test_a_window_count_check_reads_the_one_interval_table(tmp_path, monkeypatch
     monkeypatch.setattr(checking, "BINDING_CHECKS", checks)
     with pytest.raises(binding.BindingError, match="^BINDING_OBLIGATION_KIND$"):
         checking.verify_binding(accepted)
+
+
+def test_a_bigint_widened_narrow_template_binds_where_it_once_could_not(tmp_path):
+    """Before PostgreSQL computed a narrow operation in bigint, the int4
+    `-nullif(id, low)` kept an int4 carrier whose range no binding could
+    narrow, so every bind failed; it is now proved statically and binds."""
+    body = (
+        "query result(low: Int):\n"
+        "    from rows\n"
+        "    select:\n"
+        "        negated = -nullif(id, low)\n"
+        "        summed = nullif(id, low) + id\n"
+    )
+    item = probe.parameterized_fixture("postgres", body)
+    contract = json.loads(item["contract"])
+    contract["sources"][0]["fields"][0]["representation"]["storage"] = {
+        "kind": "pg_int4"
+    }
+    contract["sources"][0]["fields"][0]["representation"]["domain"] = {
+        "kind": "int_range",
+        "min": "0",
+        "max": "5",
+    }
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], probe.encoded(contract).decode(), item["policy"]
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["binding_obligations"] == []
+    assert [c["representation"]["storage"] for c in document["columns"]] == [
+        {"kind": "pg_int8"}
+    ] * 2
+    t = binding.prepare_live_template(outcome.artifact)
+    for low in (0, 5, -(2**63)):
+        accepted = binding.bind_values(t, _literals(t), _named(t, low))
+        checking.verify_binding(accepted)
+        assert accepted.artifact.rendered.sql == t.artifact.rendered.sql
+
+
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+def test_a_bigint_binding_follows_the_checked_rule(tmp_path, target):
+    """Q2: the template defers `id + low` and `low + 1` to each binding. On
+    PostgreSQL a bound range that meets signed 64 bits is the target's
+    checked bigint operation, whose evidence the bound statement carries; a
+    range wholly outside them is refused. MySQL binds only a range that fits."""
+    body = (
+        "query result(low: Int):\n"
+        "    from rows\n"
+        "    select:\n"
+        "        shifted = id + low\n"
+        "        next = low + 1\n"
+    )
+    item = probe.parameterized_fixture(target, body)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert [o["kind"] for o in document["binding_obligations"]] == [
+        "int_range_representable"
+    ] * 2
+    t = binding.prepare_live_template(outcome.artifact)
+
+    def bound(low):
+        accepted = binding.bind_values(t, _literals(t), _named(t, low))
+        checking.verify_binding(accepted)
+        assert accepted.artifact.rendered.sql == t.artifact.rendered.sql
+        return [
+            r.evidence for r in accepted.artifact.generated_requirements if r.evidence
+        ]
+
+    assert bound(0) == []
+    if target == "mysql":
+        with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+            binding.bind_values(t, _literals(t), _named(t, 5))
+        return
+    for low in (5, -(2**63), 2**63 - 2):
+        assert bound(low) == [("target_checked_signed64_narrowing",)]
+    with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+        binding.bind_values(t, _literals(t), _named(t, 2**63 - 1))

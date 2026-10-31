@@ -201,6 +201,8 @@ ORACLES: dict[str, dict[str, Any]] = {
             "obligation": BINDING_INVALID,
             "null_for_not_null": ("PIE-R1006", "BINDING_PARAMETER:0:Int"),
         },
+        # PostgreSQL's checked bigint `id * 2` accepts that binding (Q2).
+        "negative_dialects": {"obligation": ("mysql",)},
         "vectors": {},
     },
     # "a" is in "trail 😀  " (twice) and "a ", not in "A"; row_number over id
@@ -764,8 +766,14 @@ def check_shape(name: str, record: Any, mode: str, routes: Any) -> None:
                 reached,
             )
         negatives = _record(route_facts.get("negatives"), "NEGATIVE_" + reasons)
-        need(set(negatives) == set(oracle["negatives"]), "NEGATIVE_" + reasons)
-        for negative, refusal in oracle["negatives"].items():
+        scoped = oracle.get("negative_dialects", {})
+        expected = {
+            negative: refusal
+            for negative, refusal in oracle["negatives"].items()
+            if ROUTES[route] in scoped.get(negative, (ROUTES[route],))
+        }
+        need(set(negatives) == set(expected), "NEGATIVE_" + reasons)
+        for negative, refusal in expected.items():
             _check_probe(
                 "NEGATIVE_" + reasons + "_" + negative,
                 negatives[negative],

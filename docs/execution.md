@@ -846,7 +846,14 @@ The values:
   under a sign or inside arithmetic, a slot accepts only values whose result
   stays representable for every value that the contract's domains allow, so
   `-2**63` under that minus is refused. That is `PIE-R1004` with `detail`
-  `BINDING_INVALID`, which does not name the slot.
+  `BINDING_INVALID`, which does not name the slot. On PostgreSQL a `bigint`
+  result that may leave signed 64 bits but meets them binds instead, as
+  project SQL emission admits it (see [Language](language.md)): PostgreSQL's
+  checked `bigint` operators refuse a value outside signed 64 bits, so the
+  attempt may fail after connecting, with `PIE-R3003` and SQLSTATE 22003,
+  while PostgreSQL plans or runs the statement, and never returns a wrong
+  value. A result wholly outside signed 64 bits, as that of `-2**63` under
+  the minus, is still refused.
 
 ## Parameters
 
@@ -883,8 +890,12 @@ each parameter as `(name, tag, nullable)` in declaration order, for example
   width or a window count interval), is checked for each binding. A value it
   does not accept, such as `low = 2**63 - 1` under `low + 1`, or a window
   offset outside 0 to 2147483647 or a bucket count or position outside 1 to
-  2147483647, is `PIE-R1004` with `detail` `BINDING_INVALID`. Every binding
-  derives the query again and checks that its SQL text is the template's.
+  2147483647, is `PIE-R1004` with `detail` `BINDING_INVALID`. On PostgreSQL
+  an `Int` result range that meets signed 64 bits is accepted, as for a slot
+  (see [Values](#values)), such as `low = 1` under `low + qty` over a
+  `bigint` field, and the attempt may then fail with `PIE-R3003` and
+  SQLSTATE 22003. Every binding derives the query again and checks that its
+  SQL text is the template's.
 - `values` and `parameters` are independent: a `bind-safe` query takes both.
 - Every route binds them the same way: `postgres_rows` and `postgres_adbc`
   send one `$n` per parameter, `mysql_rows` one `?` per read, in the order the

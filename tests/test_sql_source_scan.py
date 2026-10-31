@@ -872,6 +872,21 @@ def test_multiple_full_width_arithmetic_projections_keep_each_blocker(tmp_path, 
         "        ratio\n",
         "        ratio\n        first = id + 1\n        second = id + 2\n",
     )
+    if target == "postgres":
+        # Q2: PostgreSQL's checked bigint `+` bounds both, each with its own
+        # evidence; two results that never fit signed 64 bits stay refused.
+        checked, result = probe.build_case(
+            tmp_path / "checked", source, probe.encoded(contract).decode()
+        )
+        assert checked.verified and result.status == "VERIFIED"
+        assert result.artifact is not None
+        assert [
+            r.evidence
+            for r in result.artifact.generated_requirements
+            if r.kind == "arithmetic"
+        ] == [("target_checked_signed64_narrowing",)] * 2
+        source = source.replace("id + 1", "id * 0 + 9223372036854775807 + 1")
+        source = source.replace("id + 2", "id * 0 + 9223372036854775807 + 2")
     checked, result = probe.build_case(
         tmp_path, source, probe.encoded(contract).decode()
     )
@@ -887,7 +902,7 @@ def test_multiple_full_width_arithmetic_projections_keep_each_blocker(tmp_path, 
     for blocker in blockers:
         assert isinstance(blocker.subject, ProjectSQLPlanRef)
         positions.append(blocker.subject.position)
-    assert positions == [5, 6]
+    assert positions == ([5, 6] if target == "mysql" else sorted(set(positions)))
     assert blockers[0].subject is not blockers[1].subject
 
 
@@ -955,3 +970,87 @@ def test_extended_shared_fact_reaches_genuine_source_preparation(
     assert verify_project_sql_emission(
         result.artifact, result.artifact.request
     ).verified
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_date_source_field_scans_with_its_exact_civil_carrier(tmp_path, target):
+    """A Date field needs PostgreSQL `date` or MySQL `DATE`, the `date` domain
+    and the field's own NULL posture; it then carries, compares by equality
+    and extracts like a derived Date."""
+    checked, outcome = probe.temporal_case(
+        tmp_path / "carried",
+        target,
+        "    from rows\n    where d == d\n    select:\n"
+        "        day = d\n        maybe = d2\n        y = year(d)\n",
+    )
+    assert checked.verified and outcome.status == "VERIFIED"
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    pg = target == "postgres"
+    storage = {"kind": "pg_date" if pg else "my_date"}
+    assert [c["representation"] for c in public["columns"]] == [
+        {"storage": storage, "nullable": False, "domain": {"kind": "date"}},
+        {"storage": storage, "nullable": True, "domain": {"kind": "date"}},
+        {
+            "storage": {"kind": "pg_int8" if pg else "my_signed_int"},
+            "nullable": False,
+            "domain": {"kind": "int_range", "min": "1000", "max": "9999"},
+        },
+    ]
+    q = '"' if pg else "`"
+    assert f"WHERE ({q}s0{q}.{q}d{q} = {q}s0{q}.{q}d{q})" in public["sql"]
+
+    for name, representation, expected in (
+        (
+            "storage",
+            {
+                "storage": {
+                    "kind": "pg_timestamp" if pg else "my_datetime",
+                    "fractional_seconds": 6,
+                },
+                "nullable": False,
+                "domain": {"kind": "date"},
+            },
+            ("PIE-B1002", "physical_storage_or_domain_mismatch"),
+        ),
+        (
+            "domain",
+            {"storage": storage, "nullable": False, "domain": {"kind": "timestamp"}},
+            ("PIE-B1002", "physical_storage_or_domain_mismatch"),
+        ),
+        (
+            "family",
+            {
+                "storage": {"kind": "my_date" if pg else "pg_date"},
+                "nullable": False,
+                "domain": {"kind": "date"},
+            },
+            ("PIE-B1002", "physical_storage_or_domain_mismatch"),
+        ),
+        (
+            "nullable",
+            {"storage": storage, "nullable": True, "domain": {"kind": "date"}},
+            ("PIE-B1002", "nullability_mismatch"),
+        ),
+    ):
+        _, outcome = probe.temporal_case(
+            tmp_path / name,
+            target,
+            "    from rows\n    select:\n        day = d\n",
+            representations={"d": representation},
+        )
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [(b.code, b.detail) for b in outcome.blockers] == [expected]
+    # A Date storage takes no other key, as the contract's closed schema says.
+    _, outcome = probe.temporal_case(
+        tmp_path / "keys",
+        target,
+        "    from rows\n    select:\n        day = d\n",
+        representations={
+            "d": {
+                "storage": {**storage, "fractional_seconds": 0},
+                "nullable": False,
+                "domain": {"kind": "date"},
+            }
+        },
+    )
+    assert outcome.status == "INPUT_REJECTED" and outcome.artifact is None

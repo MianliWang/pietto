@@ -711,7 +711,7 @@ def test_date_of_derives_the_date_result_carrier_and_civil_parts(tmp_path, targe
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_date_has_no_independent_selected_project_source(tmp_path, target):
+def test_a_date_field_is_an_independent_selected_project_source(tmp_path, target):
     source = f"""shape Row:
     event_date: Date | None
 source rows: Row = {target}.table("opaque.result.fixture")
@@ -741,7 +741,25 @@ table result:
     )
     outcome = emit_project_sql(checked, json.dumps(contract).encode())
 
-    assert outcome.status == "INPUT_REJECTED" and outcome.artifact is None
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [c["representation"] for c in document["columns"]] == [
+        field["representation"]
+    ]
+    # The same Date field described as a Timestamp carrier is not its source.
+    field["representation"] = {
+        "storage": {
+            "kind": "pg_timestamp" if target == "postgres" else "my_datetime",
+            "fractional_seconds": 6,
+        },
+        "nullable": True,
+        "domain": {"kind": "timestamp"},
+    }
+    outcome = emit_project_sql(checked, json.dumps(contract).encode())
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1002", "physical_storage_or_domain_mismatch")
+    ]
 
 
 @pytest.mark.parametrize("target", TARGETS)

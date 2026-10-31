@@ -1,4 +1,4 @@
-"""Date result carriers remain derived, exact, and Arrow-lazy."""
+"""Derived and source Date result carriers stay exact and Arrow-lazy."""
 
 from datetime import date, datetime
 import json
@@ -152,3 +152,56 @@ def test_derived_date_result_uses_exact_carrier_and_lazy_date32(tmp_path, target
         )
     with pytest.raises(contract.ResultError, match="ARROW_DEPENDENCY_MISSING"):
         arrow.bind_arrow(producer)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_source_date_result_binds_the_same_civil_carrier(tmp_path, target):
+    """A source Date field is read and bound exactly as a derived Date: no
+    scalar meaning, the date32 civil range, and every other value refused."""
+    source = f"""shape Row:
+    day: Date | None
+source rows: Row = {target}.table("opaque.result.fixture")
+table result:
+    from rows
+    select:
+        event_date = day
+"""
+    document = json.loads(probe.temporal_input(target))
+    (field,) = document["sources"][0]["fields"][:1]
+    field.update(name="day", column="day")
+    field["representation"] = {
+        "storage": {"kind": "pg_date" if target == "postgres" else "my_date"},
+        "nullable": True,
+        "domain": {"kind": "date"},
+    }
+    document["sources"][0]["fields"] = [field]
+    checked = probe.build_neutral(tmp_path / target, {"main.pietto": source})
+    assert meaning.intrinsic_scalar_meaning(checked) is None
+    outcome = emit_project_sql(checked, json.dumps(document).encode())
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    output = prepare_output(outcome.artifact)
+    assert [field.shape.canonical.name for field in output.contract.shape.fields] == [
+        "Date"
+    ]
+    assert output.contract.shape.fields[0].meaning is None
+    producer = binding.bind_producer(
+        output.contract,
+        outcome.artifact,
+        (
+            binding.ProducerObservation(
+                0,
+                "event_date",
+                target,
+                "pg_date" if target == "postgres" else "my_date",
+                domain="date",
+                carrier="date",
+            ),
+        ),
+        output=output,
+    )
+    assert arrow._value(None, producer.fields[0]) is None
+    assert arrow._value(date(1000, 1, 1), producer.fields[0]) == date(1000, 1, 1)
+    assert arrow._value(date(9999, 12, 31), producer.fields[0]) == date(9999, 12, 31)
+    for value in (date(999, 12, 31), datetime(2026, 10, 13), "2026-10-13", 0):
+        with pytest.raises(contract.ResultError, match="VALUE_DOMAIN"):
+            arrow._value(value, producer.fields[0])

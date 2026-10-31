@@ -1434,8 +1434,8 @@ EXPECTED_WIRED = {
         ' ORDER BY "t0"."c1" DESC LIMIT 3) AS "e0") AS "g0" ON TRUE'
     ),
 }
-# S06's staged shape doubles `id` over the full Int domain, which is a flat
-# PIE-B1002; `filtered` is the staged captured read that emits.
+# The staged-capture fixture has its own checked-arithmetic and static
+# range-refusal witness below.
 NESTED_SHAPES = frozenset(SHAPES) - {*POSTGRES_REFUSED, "staged_capture"}
 
 
@@ -1453,8 +1453,25 @@ def test_an_admitted_collect_read_keeps_the_flat_refusals_of_its_statement(
     tmp_path: Path,
 ) -> None:
     assert set(EXPECTED_WIRED) == {*NESTED_SHAPES, *collecting.WIRED, "imported_source"}
+    files = sources("staged_capture")
     outcome = collecting.wired_outcome(
-        tmp_path / "staged", sources("staged_capture"), collecting.contract()
+        tmp_path / "staged", files, collecting.contract()
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    assert verify_project_sql_emission(
+        outcome.artifact, outcome.artifact.request
+    ).verified
+    assert b"target_checked_signed64_narrowing" in serialize_project_sql_emission(
+        outcome
+    )
+    files = {
+        path: text.replace(
+            "let doubled = id * 2", "let doubled = 9223372036854775807 + 1"
+        )
+        for path, text in files.items()
+    }
+    outcome = collecting.wired_outcome(
+        tmp_path / "outside", files, collecting.contract()
     )
     assert outcome.status == "BLOCKED"
     assert [(b.code, b.detail) for b in outcome.blockers] == [

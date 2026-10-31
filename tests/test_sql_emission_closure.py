@@ -1625,11 +1625,22 @@ def test_admitted_literal_and_materialized_aggregate_window_carriers(target, bod
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_an_arithmetic_window_value_meets_its_carrier_rules(target):
-    # The window is accepted; `rid + 1` keeps its own physical-range refusal,
-    # and a narrower sum reaches the window, which MySQL refuses by origin.
-    assert _refusal(_build(_widths_item(target, COMPUTED))) == [
-        ("PIE-B1002", "arithmetic_outside_physical_range")
-    ]
+    # The window is accepted; MySQL keeps `rid + 1`'s own physical-range
+    # refusal, PostgreSQL's checked bigint `+` bounds it (Q2) and the window
+    # carries its signed 64-bit result, and a narrower sum reaches the
+    # window, which MySQL refuses by origin.
+    computed = _build(_widths_item(target, COMPUTED))
+    if target == "mysql":
+        assert _refusal(computed) == [
+            ("PIE-B1002", "arithmetic_outside_physical_range")
+        ]
+    else:
+        assert '("s0"."rid" + CAST(1 AS pg_catalog.int8)) AS "c1"' in _sql(
+            computed
+        ) and 'FIRST_VALUE("s1"."c1") OVER (' in _sql(computed)
+        assert [r.evidence for r in _generated(computed.artifact) if r.evidence] == [
+            ("target_checked_signed64_narrowing",)
+        ]
     narrow = _build(_widths_item(target, COMPUTED.replace("rid + 1", "s + 1")))
     if target == "mysql":
         assert _refusal(narrow) == [ORIGIN_BLOCKED]

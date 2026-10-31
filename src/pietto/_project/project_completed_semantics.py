@@ -23,7 +23,7 @@ from pietto._project.module_relation_resolution import (
     ProjectResolvedSetOperand,
 )
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 from pietto._flat_relational_admission import syntax_diagnostics
@@ -2584,7 +2584,10 @@ def derive_compiled_semantics(root, values, parameters=None):
                     and function != "string_agg"
                     and argument is not None
                     and grouping.resolved_argument_problem(
-                        function, argument.address.kind == "read", argument.realization
+                        function,
+                        argument.address.kind == "read",
+                        argument.realization,
+                        family,
                     )
                     is not None
                 ):
@@ -3172,12 +3175,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                         low, high = (
                             (-interval[1], -interval[0]) if token == "-" else interval
                         )
-                        storage = physical._arithmetic_storage(family, inner, inner)
-                        realized = physical._checked_int(storage, low, high, nullable)
-                        if realized is None and inner.binding:
-                            realized = physical.deferred_int(storage, nullable)
-                        elif realized is not None:
-                            realized = replace(realized, binding=inner.binding)
+                        realized = physical._unary_int(
+                            family, inner, low, high, nullable
+                        )
                     if realized is None or problem is not None:
                         raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
                 else:
@@ -3735,6 +3735,7 @@ def verify_compiled_semantics(value):
                             function,
                             argument.address.kind == "read",
                             argument.realization,
+                            family,
                         )
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",

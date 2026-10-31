@@ -1451,3 +1451,59 @@ def test_cross_feature_templates_emit_exact_sql(
     assert [
         (o["kind"], o["parameters"]) for o in document["binding_obligations"]
     ] == obligations
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_narrow_operation_over_a_parameter_read_is_proved_statically(
+    tmp_path: Path, target: str
+) -> None:
+    """`nullif(id, low)` keeps an int4 id's carrier and range, so PostgreSQL
+    computes its negation and its sum with id in bigint, proved without a
+    binding; `id + low` is already bigint and still waits for one. MySQL
+    computes all three as signed 64-bit, as before."""
+    body = (
+        "query result(low: Int):\n"
+        "    from rows\n"
+        "    select:\n"
+        "        display_text = text\n"
+        "        negated = -nullif(id, low)\n"
+        "        summed = nullif(id, low) + id\n"
+        "        bound = id + low\n"
+    )
+    item = probe.parameterized_fixture(target, body, "preserve_literals")
+    contract = json.loads(item["contract"])
+    contract["sources"][0]["fields"][0]["representation"]["storage"] = {
+        "kind": "pg_int4" if target == "postgres" else "my_int"
+    }
+    contract["sources"][0]["fields"][0]["representation"]["domain"] = {
+        "kind": "int_range",
+        "min": "0",
+        "max": "5",
+    }
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], probe.encoded(contract).decode()
+    )
+    document = _document(outcome)
+    assert outcome.status == "VERIFIED", document
+    columns = {c["label"]: c["representation"] for c in document["columns"]}
+    assert [columns[name]["storage"] for name in ("negated", "summed", "bound")] == [
+        {"kind": "pg_int8" if target == "postgres" else "my_signed_int"}
+    ] * 3
+    assert [
+        (columns[name]["domain"]["min"], columns[name]["domain"]["max"])
+        for name in ("negated", "summed")
+    ] == [("-2147483647", "2147483648"), ("-4294967296", "4294967294")]
+    # Only `bound` (expression 10) keeps a per-binding range proof.
+    assert [
+        (o["kind"], o["parameters"], o["subject"])
+        for o in document["binding_obligations"]
+    ] == [("int_range_representable", [0], {"kind": "expression", "position": 10})]
+    if target == "mysql":
+        assert "(-NULLIF(`s0`.`order.id`, CAST(? AS SIGNED)))" in document["sql"]
+        return
+    assert (
+        '(-CAST(NULLIF("s0"."order.id", CAST($1 AS pg_catalog.int8))'
+        ' AS pg_catalog.int8)) AS "negated", '
+        '(CAST(NULLIF("s0"."order.id", CAST($1 AS pg_catalog.int8))'
+        ' AS pg_catalog.int8) + "s0"."order.id") AS "summed"'
+    ) in document["sql"]

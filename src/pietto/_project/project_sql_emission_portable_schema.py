@@ -493,6 +493,7 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("symbol", "@sql_symbol"),
         ("label", "text"),
         ("column", "@stage_column"),
+        ("result_cast", "?text"),
     ),
     "aggregate_order_item": (
         ("value", _VALUE),
@@ -735,6 +736,7 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("subject", "subject"),
         ("rule", "text"),
         ("premises", "*@premise"),
+        ("evidence", "*text"),
     ),
 }
 
@@ -886,7 +888,7 @@ JOIN_SPELLING = {
 MEMBERSHIP_SPELLING = {"exists": " WHERE EXISTS (", "not_exists": " WHERE NOT EXISTS ("}
 DIRECTIONS = {"asc": " ASC", "desc": " DESC"}
 CARRIERS = frozenset({"ordinary", "rebound", "completed"})
-AGGREGATE_SPELLING = {"COUNT", "MIN", "MAX", "AVG", "string_agg"}
+AGGREGATE_SPELLING = {"COUNT", "SUM", "MIN", "MAX", "AVG", "string_agg"}
 WINDOW_SPELLING = {
     "row_number": "ROW_NUMBER",
     "rank": "RANK",
@@ -929,6 +931,8 @@ SYNTAX = {
     "with_body": " ",
     "unary_close": ")",
     "anchor_open": "CAST(",
+    "int8_widen_open": "CAST(",
+    "int8_widen_close": " AS pg_catalog.int8)",
     "value_qualifier": ".",
     "is_null_open": "(",
     "is_null_close": ")",
@@ -943,6 +947,7 @@ SYNTAX = {
     "aggregate_row_count": "*",
     "aggregate_distinct": "DISTINCT ",
     "aggregate_argument_cast_open": "CAST(",
+    "aggregate_result_cast_open": "CAST(",
     "aggregate_separator": ", ",
     "aggregate_order": " ORDER BY ",
     "aggregate_order_separator": ", ",
@@ -1030,6 +1035,7 @@ SYNTAX = {
 OVERLAYS = {
     "unary": (("unary_open",), ("unary_close",)),
     "anchor": (("anchor_open",), ("anchor_close",)),
+    "int8_widen": (("int8_widen_open",), ("int8_widen_close",)),
     "reference": (("value_scope",), ("value_column",)),
     "capture": (("capture_scope",), ("capture_column",)),
     "binary": (("binary_open",), ("binary_close",)),
@@ -1047,7 +1053,10 @@ OVERLAYS = {
     "scalar": (("scalar_open",), ("scalar_close",)),
     "relation_membership": (("in_open",), ("in_close",)),
     "is_null": (("is_null_open",), ("is_null_close",)),
-    "aggregate": (("aggregate_open",), ("aggregate_close",)),
+    "aggregate": (
+        ("aggregate_open", "aggregate_result_cast_open"),
+        ("aggregate_close", "aggregate_result_cast_close"),
+    ),
     "window": (("window_open",), ("window_spec_close", "window_reference")),
     "window_specification": (("window_spec_open",), ("window_spec_close",)),
     "grouping": (("grouping_scope",), ("grouping_column",)),

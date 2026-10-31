@@ -81,6 +81,48 @@ def test_abs_replays_from_compiled_input(tmp_path, target):
     _compare(original.artifact, refinement=False)
 
 
+@pytest.mark.parametrize(
+    "case,variant",
+    (
+        ("V_aggregate_blocked", "sum_direct"),
+        ("V_row_blocked", "int_overflow"),
+        ("V_row_blocked", "unary_overflow"),
+    ),
+)
+def test_postgresql_checked_bigint_replays_from_compiled_input(tmp_path, case, variant):
+    """Q1/Q2: SUM's bigint casts, a checked operation's clipped range and the
+    target-checked evidence replay from compiled input."""
+    original = build(tmp_path, "postgres", case, variant)
+    assert original.status == "VERIFIED" and original.artifact is not None
+    aggregate = case == "V_aggregate_blocked"
+    candidate = _compare(original.artifact, refinement=not aggregate)
+    if aggregate:
+        # The R2 refinement page reads no aggregate cast yet, as for AVG:
+        # it refuses the statement rather than page it.
+        with pytest.raises(ValueError, match="^REFINEMENT_NATIVE_SQL$"):
+            _compare_refinement(original.artifact)
+    evidence = [r.evidence for r in original.artifact.generated_requirements]
+    assert ("target_checked_signed64_narrowing",) in evidence
+    assert [r.evidence for r in candidate.generated_requirements] == evidence
+
+
+def test_a_postgresql_uuid_order_replays_from_compiled_input(tmp_path):
+    """Q3: a UUID comparison and window and result ORDER keys replay."""
+    checked, original = emission.temporal_case(
+        tmp_path,
+        "postgres",
+        "    from rows\n    where u < u or u <= u <= u\n    select:\n"
+        "        key = u\n        r = row_number() window(order by u desc)\n"
+        "    order by u\n",
+    )
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    _compare(original.artifact, refinement=False)
+    # The R2 refinement page orders Int, Bool, Text and Decimal coordinates
+    # only; it refuses a UUID key, as it refuses a Timestamp one.
+    with pytest.raises(ValueError, match="^REFINEMENT_COMPARISON_DOMAIN$"):
+        _compare_refinement(original.artifact)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("variant", ("let_key", "bind"))
 def test_computed_let_determinant_replays_from_compiled_input(

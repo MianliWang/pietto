@@ -1001,7 +1001,7 @@ def _public(view: pure.View, artifact, request) -> None:
             item["kind"],
             item["rule"],
             [record(p).fields["position"] for p in item["premises"]],
-            None,
+            list(item["evidence"]),
         )
         for i, item in enumerate(generated)
     ]
@@ -1013,7 +1013,9 @@ def _public(view: pure.View, artifact, request) -> None:
                 r["kind"],
                 r["rule"],
                 r["premises"],
-                r["evidence"] if r["denominator"] == "original" else None,
+                r["evidence"]
+                if r["denominator"] == "original"
+                else [e["overflow"] for e in r["evidence"] if "overflow" in e],
             )
             for r in public["requirements"]
         ]

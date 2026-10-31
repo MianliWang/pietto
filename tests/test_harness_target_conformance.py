@@ -1090,6 +1090,11 @@ def valid_receipts(
                         rows = cases.between_rows(target)
                         names = ["inside"]
                         types = cases.between_metadata(target)
+                    if (case_id, record["variant"]) in cases.CHECKED_BIGINT_ROWS:
+                        rows, label = cases.checked_bigint_expectation(
+                            target, case_id, record["variant"]
+                        )
+                        names, types = [label], [20]
                     if case_id in {"T_row_direct", "U_row_named"}:
                         rows = cases.row_result_rows(
                             target, empty=record["variant"].startswith("empty")

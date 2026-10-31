@@ -1086,6 +1086,7 @@ def verify_requirements(request, ast, original, generated):
             or requirement.subject is not subject
             or (requirement.kind, requirement.rule) != (kind, rule)
             or not _same(requirement.premises, premises)
+            or requirement.evidence != ()
         ):
             return False
     return True
@@ -1407,6 +1408,7 @@ def resolved_row_realization(
         if (
             tag != "Bool"
             or first.tag not in rows.COMPARABLE
+            and not (first.tag == "UUID" and family == "postgres")
             or lower.tag != first.tag
             or upper.tag != first.tag
         ):
@@ -1424,6 +1426,11 @@ def resolved_row_realization(
             for value in (lower, upper)
         ):
             raise ValueError("decimal between parameters")
+        if first.tag in {"Timestamp", "Date", "UUID"} and any(
+            first.storage != value.storage or first.domain != value.domain
+            for value in (lower, upper)
+        ):
+            raise ValueError("temporal or UUID between carrier")
         return rows.Realization(
             "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
         )
@@ -1531,6 +1538,27 @@ def resolved_row_realization(
     limits = rows.signed_range(storage)
     if limits is None:
         raise ValueError("integer result outside its physical range")
+    if (
+        (low < limits[0] or high > limits[1])
+        and family == "postgres"
+        and storage["kind"] in {"pg_int2", "pg_int4"}
+    ):
+        # PostgreSQL computes a narrow operation that may leave its type in
+        # bigint; every narrow exact range fits signed 64 bits.
+        storage = {"kind": "pg_int8"}
+        limits = (-(1 << 63), (1 << 63) - 1)
+    if (
+        (low < limits[0] or high > limits[1])
+        and not binding
+        and family == "postgres"
+        and storage == {"kind": "pg_int8"}
+        and low <= limits[1]
+        and high >= limits[0]
+    ):
+        # Q2: PostgreSQL's checked bigint operators refuse a value outside
+        # signed 64 bits (SQLSTATE 22003), so the result keeps the part of
+        # its exact range that meets them. A disjoint range stays refused.
+        low, high = max(low, limits[0]), min(high, limits[1])
     if low < limits[0] or high > limits[1]:
         if not binding:
             raise ValueError("integer result outside its physical range")
@@ -1552,6 +1580,111 @@ def resolved_row_realization(
         {"kind": "int_range", "min": str(low), "max": str(high)},
         (low, high),
         binding=binding,
+    )
+
+
+def _order_key(realization, family):
+    """Independent R14/R19 order-key domain: exact Int/Bool/Text/Decimal, one
+    Timestamp/Date carrier of its reviewed representation, or on PostgreSQL a
+    uuid, which orders by its 16 bytes as unsigned big-endian values."""
+    if realization.tag in {"Int", "Bool", "Text", "Decimal"}:
+        return True
+    if realization.tag == "UUID":
+        return family == "postgres" and _uuid_carrier(realization, family)
+    return realization.tag in {"Timestamp", "Date"} and _temporal_carrier(realization)
+
+
+def _uuid_carrier(realization, family):
+    return (
+        realization.tag == "UUID"
+        and realization.storage
+        == {"kind": "pg_uuid" if family == "postgres" else "my_uuid_bytes"}
+        and realization.domain == {"kind": "uuid", "encoding": "standard_bytes"}
+    )
+
+
+def _partition_key(realization, family):
+    """A partition key compares by equality: every order key, a UUID."""
+    return _order_key(realization, family) or _uuid_carrier(realization, family)
+
+
+def _temporal_carrier(realization):
+    if realization.tag == "Timestamp":
+        return realization.domain == {"kind": "timestamp"} and realization.storage in (
+            {"kind": "pg_timestamp", "fractional_seconds": 6},
+            {"kind": "my_datetime", "fractional_seconds": 6},
+        )
+    return (
+        realization.tag == "Date"
+        and realization.domain == {"kind": "date"}
+        and realization.storage in ({"kind": "pg_date"}, {"kind": "my_date"})
+    )
+
+
+TARGET_CHECKED = "target_checked_signed64_narrowing"
+
+
+def _target_checked(family, value):
+    """Independent Q2 image: a static PostgreSQL bigint sign, arithmetic or
+    `abs` whose exact range, from its operands' proven ranges, leaves signed
+    64 bits, so the target's checked operator bounds it."""
+    if (
+        family != "postgres"
+        or type(value) is not rows.SQLOperation
+        or value.realization.tag != "Int"
+        or value.realization.binding
+        or value.realization.storage != {"kind": "pg_int8"}
+    ):
+        return False
+    bounds = []
+    for operand in value.operands:
+        interval = rows.proven_int_bounds(rows.realization_of(operand, family))
+        if interval is None:
+            return False
+        bounds.append(interval)
+    if value.kind == "scalar_call":
+        if value.original.callee_symbol.name != "abs" or len(bounds) != 1:
+            return False
+        ((low, high),) = bounds
+        low, high = max(low, -high, 0), max(-low, high)
+    elif value.kind == "sign" and len(bounds) == 1:
+        ((low, high),) = bounds
+        if value.original.expression.operator == "-":
+            low, high = -high, -low
+    elif value.kind == "arithmetic" and len(bounds) == 2:
+        (a, b), (c, d) = bounds
+        operator = value.original.expression.operator
+        if operator == "+":
+            low, high = a + c, b + d
+        elif operator == "-":
+            low, high = a - d, b - c
+        else:
+            products = (a * c, a * d, b * c, b * d)
+            low, high = min(products), max(products)
+    else:
+        return False
+    return low < -(1 << 63) or high > (1 << 63) - 1
+
+
+def _int8_widened(family, value):
+    """A checked Int sign/arithmetic/abs result in bigint over operands that
+    are all PostgreSQL int2/int4: only the static bigint rule yields it."""
+    if family != "postgres" or type(value) is not rows.SQLOperation:
+        return False
+    if value.kind == "scalar_call":
+        if value.original.callee_symbol.name != "abs":
+            return False
+    elif value.kind not in {"sign", "arithmetic"}:
+        return False
+    return (
+        value.realization.tag == "Int"
+        and value.realization.storage == {"kind": "pg_int8"}
+        and len(value.operands) in {1, 2}
+        and all(
+            rows.realization_of(item, family).storage.get("kind")
+            in {"pg_int2", "pg_int4"}
+            for item in value.operands
+        )
     )
 
 
@@ -1822,6 +1955,24 @@ def _aggregate_result_realization(family, function, argument, retained):
             {"kind": "int_range", "min": "0", "max": str(grouping.COUNT_MAX)},
             (0, grouping.COUNT_MAX),
         )
+    if function == "sum":
+        # Q1: a PostgreSQL bigint narrowed by its checked CAST, NULL when empty.
+        if (
+            family != "postgres"
+            or argument is None
+            or argument.realization.tag != "Int"
+            or tag != "Int"
+            or nullable is not True
+        ):
+            raise ValueError("sum result domain")
+        low, high = -(1 << 63), (1 << 63) - 1
+        return rows.Realization(
+            "Int",
+            {"kind": "pg_int8"},
+            True,
+            {"kind": "int_range", "min": str(low), "max": str(high)},
+            (low, high),
+        )
     if function == "avg":
         if (
             argument is None
@@ -2043,7 +2194,10 @@ def _verify_aggregate_body(
                 state,
                 reference_type=reference_type,
             )
-            if grouping.argument_problem(function, argument) is not None:
+            if (
+                grouping.argument_problem(function, argument, request.family)
+                is not None
+            ):
                 raise ValueError("aggregate argument outside its admitted domain")
         elif argument is not None or function != "count":
             raise ValueError("row count keeps no scalar argument")
@@ -2063,6 +2217,8 @@ def _verify_aggregate_body(
             or column.distinct is not (function in grouping.DISTINCT_FUNCTIONS)
             or column.argument_cast
             != grouping.argument_cast(request.family, function, argument)
+            # Q1: SUM(Int) is cast to bigint before and after it accumulates.
+            or column.result_cast != ("pg_catalog.int8" if function == "sum" else None)
             or (
                 function != "string_agg"
                 and (column.delimiter is not None or column.order_by)
@@ -2367,7 +2523,7 @@ def _verify_window_column(request, column, window, export, columns, definitions,
             if (
                 (own and binding is not policy.partitions[use.role_position])
                 or not _same_read(read, columns[use.input])
-                or read.realization.tag not in windowing.ORDER_TAGS
+                or not _partition_key(read.realization, request.family)
             ):
                 return False
         for item, use in zip(candidate.orders, orders, strict=True):
@@ -2378,7 +2534,7 @@ def _verify_window_column(request, column, window, export, columns, definitions,
                 or item.direction not in {"asc", "desc"}
                 or item.nulls is not None
                 or not _same_read(item.read, columns[use.input])
-                or item.read.realization.tag not in windowing.ORDER_TAGS
+                or not _order_key(item.read.realization, request.family)
             ):
                 return False
         frame = candidate.frame
@@ -3666,7 +3822,9 @@ def _verify_result_body(
                     )
                     or realized.nulls is not None
                     or realized.carrier != carrier
-                    or read.realization.tag not in resulting.ORDER_TAGS
+                    or not _order_key(read.realization, request.family)
+                    or resulting.distinct_problem(request.family, read.realization)
+                    is not None
                     or rows.value_tag(item.source) != read.realization.tag
                 ):
                     raise ValueError("order item binding")
@@ -5521,6 +5679,19 @@ def verify_row_bytes(query, rendered):
             offset = event.end
             return event
 
+        def operation_operand(value, position, alias):
+            # A narrow PostgreSQL Int operation computed in bigint CASTs its
+            # first operand; independently read from the checked realizations.
+            start = offset
+            if position or not _int8_widened(request.family, value):
+                scalar(value.operands[position], alias)
+                return
+            reference = value.original.ref
+            take("syntax", "int8_widen_open", reference, "CAST(")
+            scalar(value.operands[0], alias)
+            take("syntax", "int8_widen_close", reference, " AS pg_catalog.int8)")
+            spans.append(("int8_widen", reference, start, offset))
+
         def scalar(value, alias):
             start = offset
             if type(value) is rows.SQLBlockRead and value.kind in ("in", "not_in"):
@@ -5763,7 +5934,7 @@ def verify_row_bytes(query, rendered):
                 if operator not in {"+", "-"}:
                     raise ValueError("unary operator")
                 take("syntax", "unary_open", reference, "(" + operator)
-                scalar(value.operands[0], alias)
+                operation_operand(value, 0, alias)
                 take("syntax", "unary_close", reference, ")")
                 spans.append(("unary", reference, start, offset))
                 return
@@ -6094,10 +6265,10 @@ def verify_row_bytes(query, rendered):
                 if spelling is None or not value.operands:
                     raise ValueError("scalar call spelling")
                 take("syntax", "scalar_call_open", reference, spelling + "(")
-                for position, operand in enumerate(value.operands):
+                for position in range(len(value.operands)):
                     if position:
                         take("syntax", "scalar_call_separator", reference, ", ")
-                    scalar(operand, alias)
+                    operation_operand(value, position, alias)
                 take("syntax", "scalar_call_close", reference, ")")
                 spans.append(("scalar_call", reference, start, offset))
                 return
@@ -6170,7 +6341,7 @@ def verify_row_bytes(query, rendered):
                 return
             opening, operator, closing, role = OPERATORS[value.kind]
             take("syntax", opening, reference, "(")
-            scalar(value.operands[0], alias)
+            operation_operand(value, 0, alias)
             take("syntax", operator, reference, operator_token(value))
             scalar(value.operands[1], alias)
             take("syntax", closing, reference, ")")
@@ -6556,6 +6727,8 @@ def verify_row_bytes(query, rendered):
         def aggregate_value(column, alias):
             reference = column.aggregate.ref
             start = offset
+            if column.result_cast is not None:
+                take("syntax", "aggregate_result_cast_open", reference, "CAST(")
             take("syntax", "aggregate_open", reference, column.spelling + "(")
             if column.argument is None:
                 take("syntax", "aggregate_row_count", reference, "*")
@@ -6596,6 +6769,13 @@ def verify_row_bytes(query, rendered):
                         " AS " + column.argument_cast + ")",
                     )
             take("syntax", "aggregate_close", reference, ")")
+            if column.result_cast is not None:
+                take(
+                    "syntax",
+                    "aggregate_result_cast_close",
+                    reference,
+                    " AS " + column.result_cast + ")",
+                )
             spans.append(("aggregate", reference, start, offset))
 
         def window_specification(specification, reference, alias):
@@ -7502,6 +7682,9 @@ def verify_row_generated_requirements(request, query, generated):
                         node.original.ref,
                         rows.REQUIREMENT_RULES[kind],
                         node_premises(request, node.realization, operands, kind),
+                        (TARGET_CHECKED,)
+                        if _target_checked(request.family, node)
+                        else (),
                     )
                 )
                 continue
@@ -7669,7 +7852,19 @@ def verify_row_generated_requirements(request, query, generated):
                 expected.append(("group_key", column.key.ref, "R12", operators))
                 continue
             if type(column) is grouping.AggregateValueColumn:
-                expected.append(("aggregate", column.aggregate.ref, "R13", operators))
+                # Q1: only a PostgreSQL SUM(Int) rests on the target's checked
+                # bigint narrowing rather than a static range.
+                expected.append(
+                    (
+                        "aggregate",
+                        column.aggregate.ref,
+                        "R13",
+                        operators,
+                        (TARGET_CHECKED,)
+                        if column.function == "sum" and request.family == "postgres"
+                        else (),
+                    )
+                )
                 if column.argument is not None:
                     node_expectations(column.argument)
                 if column.delimiter is not None:
@@ -7921,7 +8116,7 @@ def verify_row_generated_requirements(request, query, generated):
         expected.append(("nonrecursive_with_bytes", query, "R23", ()))
     if len(expected) != len(generated):
         return False
-    for requirement, (kind, subject, rule, premises) in zip(
+    for requirement, (kind, subject, rule, premises, *evidence) in zip(
         generated, expected, strict=True
     ):
         if (
@@ -7929,6 +8124,7 @@ def verify_row_generated_requirements(request, query, generated):
             or requirement.subject is not subject
             or (requirement.kind, requirement.rule) != (kind, rule)
             or not _same(requirement.premises, premises)
+            or requirement.evidence != (evidence[0] if evidence else ())
         ):
             return False
     return True

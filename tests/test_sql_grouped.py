@@ -17,6 +17,7 @@ from pietto._project.project_sql_emission import serialize_project_sql_emission
 
 TARGETS = ("postgres", "mysql")
 SIGNED64 = "9223372036854775807"
+CHECKED = [{"overflow": "target_checked_signed64_narrowing"}]
 
 
 def emit(tmp_path, target, case, variant):
@@ -688,7 +689,7 @@ def test_a_joined_computed_key_inside_a_relation_let_matches_top_level(
     from lhs
     let r = rhs
     inner join r on lhs.id == r.id
-    let k = lhs.id + 1
+    let k = lhs.id * 0 + 9223372036854775807 + 1
     group by:
         k
     select:
@@ -703,7 +704,7 @@ def test_a_joined_computed_key_inside_a_relation_let_matches_top_level(
         from lhs
         let r = rhs
         inner join r on lhs.id == r.id
-        let k = lhs.id + 1
+        let k = lhs.id * 0 + 9223372036854775807 + 1
         group by:
             k
         select:
@@ -715,7 +716,8 @@ def test_a_joined_computed_key_inside_a_relation_let_matches_top_level(
         n
 """,
     )
-    # The key is admitted; only the unproven `lhs.id + 1` representation blocks.
+    # The key is admitted; only its representation, which can never fit signed
+    # 64 bits on either target, blocks.
     assert [item[0] for item in top] == ["PIE-B1002"]
     # The let body is one line lower and one indentation level deeper.
     assert nested == [
@@ -1049,7 +1051,8 @@ def test_an_extreme_value_admits_null_over_a_non_null_argument(tmp_path, target)
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_count_result_does_not_license_wider_arithmetic(tmp_path, target):
-    """A nonnegative signed64 count cannot be incremented without overflow room."""
+    """A nonnegative signed64 count cannot be doubled without overflow room:
+    MySQL refuses it, and PostgreSQL's checked bigint `+` bounds it (Q2)."""
     outcome = emit_source(
         tmp_path,
         target,
@@ -1063,6 +1066,18 @@ query result:
         bumped = total + total
 """,
     )
+    if target == "postgres":
+        assert outcome.status == "VERIFIED", outcome.blockers
+        data = public(outcome)
+        assert column(data, "bumped")["representation"]["domain"] == {
+            "kind": "int_range",
+            "min": "0",
+            "max": SIGNED64,
+        }
+        assert [
+            r["evidence"] for r in data["requirements"] if r["kind"] == "arithmetic"
+        ] == [[{"operator": "+"}, CHECKED[0]]]
+        return
     assert outcome.status == "BLOCKED"
     assert any(
         item.code == "PIE-B1002" and item.detail == "arithmetic_outside_physical_range"
@@ -1214,12 +1229,77 @@ def test_global_with_satisfying_stays_rejected_at_its_own_boundary(tmp_path, tar
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("variant", ("sum_direct", "sum_hidden_right"))
-def test_sum_requires_an_actual_aggregate_range_proof(tmp_path, target, variant):
+def test_sum_of_an_int_is_a_checked_bigint_narrowing_on_postgresql_only(
+    tmp_path, target, variant
+):
+    """Q1: PostgreSQL sums exactly and narrows to bigint with a checked CAST,
+    refusing an out-of-range sum with SQLSTATE 22003; MySQL's CAST(DECIMAL AS
+    SIGNED) would clamp one, so MySQL keeps the range-proof blocker."""
     outcome = emit(tmp_path, target, "V_aggregate_blocked", variant)
-    assert outcome.status == "BLOCKED"
-    assert [(item.code, item.detail) for item in outcome.blockers] == [
-        ("PIE-B1004", "sum_int_aggregate_range_proof_missing")
-    ]
+    if target == "mysql":
+        assert outcome.status == "BLOCKED"
+        assert [(item.code, item.detail) for item in outcome.blockers] == [
+            ("PIE-B1004", "sum_int_aggregate_range_proof_missing")
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    data = public(outcome)
+    assert data["sql"].count(
+        'CAST(SUM(CAST("s0"."value é" AS pg_catalog.int8)) AS pg_catalog.int8)'
+    ) == 1 and "SUM(" not in data["sql"].replace("CAST(SUM(", "")
+    (aggregate,) = [r for r in data["requirements"] if r["kind"] == "aggregate"]
+    assert (aggregate["rule"], aggregate["evidence"]) == ("R13", CHECKED)
+    # No other generated requirement claims the target check.
+    assert all(
+        "overflow" not in item
+        for r in data["requirements"]
+        if r["kind"] != "aggregate"
+        for item in r["evidence"]
+        if type(item) is dict
+    )
+    if variant == "sum_direct":
+        assert column(data, "s")["representation"] == {
+            "storage": {"kind": "pg_int8"},
+            "nullable": True,
+            "domain": {
+                "kind": "int_range",
+                "min": "-9223372036854775808",
+                "max": SIGNED64,
+            },
+        }
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_grouped_sum_of_a_narrow_int_is_spelled_exactly(tmp_path, target):
+    """A grouped sum over an int4 field, read by a later filter, has the same
+    two casts: PostgreSQL never accumulates it in an unchecked bigint."""
+    checked, outcome = probe.temporal_case(
+        tmp_path,
+        target,
+        "    from rows\n    group by:\n        u\n    select:\n        key = u\n"
+        "        total = sum(id)\n    having:\n        total > 5\n",
+    )
+    assert checked.verified
+    if target == "mysql":
+        assert [(b.code, b.detail) for b in outcome.blockers] == [
+            ("PIE-B1004", "sum_int_aggregate_range_proof_missing")
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    data = public(outcome)
+    assert data["sql"] == (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."u" AS "c0", '
+        'CAST(SUM(CAST("s0"."id" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" '
+        'FROM "public"."phase66 safe int source" AS "s0" GROUP BY "s0"."u"), '
+        '"p1" ("c0", "c1") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1" '
+        'FROM "p0" AS "t1" WHERE ("t1"."c1" > CAST(5 AS pg_catalog.int8))) '
+        'SELECT "t2"."c0" AS "key", "t2"."c1" AS "total" FROM "p1" AS "t2"'
+    )
+    assert [
+        (r["kind"], r["evidence"])
+        for r in data["requirements"]
+        if r["kind"] == "aggregate"
+    ] == [("aggregate", CHECKED)]
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1491,3 +1571,34 @@ def test_an_aggregate_outcome_repr_stays_bounded(tmp_path):
     body = [item for item in query.bodies if item.aggregation is not None]
     assert len(body) == 1
     assert len(repr(body[0].aggregation)) < REPR_LIMIT
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_min_and_max_of_a_temporal_carrier_are_postgresql_only(tmp_path, target):
+    """PostgreSQL MIN/MAX keep one exact Timestamp or Date carrier, NULL for
+    an empty group; MySQL's result metadata is not reviewed yet."""
+    checked, outcome = probe.temporal_case(
+        tmp_path,
+        target,
+        "    from rows\n    group by id\n    select:\n        key = id\n"
+        "        first = min(ts)\n        last = max(d2)\n",
+    )
+    assert checked.verified
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [(b.code, b.detail) for b in outcome.blockers] == [
+            ("PIE-B1003", "min_argument_outside_reviewed_int_domain"),
+            ("PIE-B1003", "max_argument_outside_reviewed_int_domain"),
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert 'MIN("s0"."ts") AS "c1", MAX("s0"."d2") AS "c2"' in public["sql"]
+    assert [c["representation"] for c in public["columns"][1:]] == [
+        {
+            "storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
+            "nullable": True,
+            "domain": {"kind": "timestamp"},
+        },
+        {"storage": {"kind": "pg_date"}, "nullable": True, "domain": {"kind": "date"}},
+    ]

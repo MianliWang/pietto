@@ -8,6 +8,7 @@ from dataclasses import asdict
 import gc
 import json
 from pathlib import Path
+import subprocess
 import sys
 import time
 
@@ -524,6 +525,7 @@ def main():
     parser.add_argument("--directory", required=True, type=Path)
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--tree", required=True)
+    parser.add_argument("--target", choices=("postgres", "mysql", "all"), default="all")
     args = parser.parse_args()
     start = time.monotonic()
     campaign(args)
@@ -1027,19 +1029,28 @@ def bound_cases(directory, access):
 
 
 def campaign(args):
-    import subprocess
     import _pietto_execution_rows_cases as rows_cases
     import _pietto_target_conformance_cases as fixtures
 
+    targets = {
+        "all": ("postgres", "mysql"),
+        "postgres": ("postgres",),
+        "mysql": ("mysql",),
+    }[args.target]
     args.directory.mkdir(mode=0o700)
     runtime = prior.s01.runtime_identity()
     if runtime["versions"] != prior.s01.helper("_pietto_execution_cases").PINS:
         raise ValueError("changed pinned runtime")
     report: dict[str, Any] = dict(
-        tree=args.tree, runtime=runtime, workers=[], resources=[], complete=False
+        tree=args.tree,
+        runtime=runtime,
+        selected_targets=list(targets),
+        workers=[],
+        resources=[],
+        complete=False,
     )
     try:
-        for target in ("postgres", "mysql"):
+        for target in targets:
             root = args.directory / (PREFIX + target)
             root.mkdir()
             pins = json.loads((ROOT / "tests/phase66_target_pins.json").read_text())

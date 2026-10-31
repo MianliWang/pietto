@@ -587,6 +587,7 @@ one) and its `domain`:
 | `Decimal(p, s)` | `pg_numeric` | `my_decimal` | `decimal`; the storage and domain `precision` and `scale` are `p` and `s` |
 | `Float` | `pg_float8` | `my_double` | `finite_float`, with `format` `binary64` |
 | `Timestamp` | `pg_timestamp` | `my_datetime` | `timestamp`; the storage has `fractional_seconds` 6 |
+| `Date` | `pg_date` | `my_date` | `date` |
 | `UUID` | `pg_uuid` | `my_uuid_bytes` | `uuid`, with `encoding` `standard_bytes` |
 
 Premises declare facts about the database that the compiler cannot see. A
@@ -657,8 +658,26 @@ results only when their retained carrier/range facts close. PostgreSQL `substr`
 requires statically proved signed-`int32` start and count bounds before its
 selected-project argument casts. `date_of` accepts only the exact qualified
 Timestamp carrier and emits a derived Date with PostgreSQL `DATE` or MySQL
-`DATE`, preserving NULL; the Date result has no independent selected-project
-source, literal, parsing, arithmetic, or timezone admission. Q1 conditionals
+`DATE`, preserving NULL. A `Date` source field requires PostgreSQL `date` or
+MySQL `DATE` and the civil range 1000-01-01 to 9999-12-31 without a time zone,
+which `row_domain_matches` declares. A source or derived Date supports
+carrying, `==` and `!=`, `count`, `count_distinct`, DISTINCT, GROUP BY and
+`year`/`month`/`day`, and a source Date field, not a derived one, is an
+equality JOIN key (INNER, LEFT, RIGHT); a Date has no literal, parsing,
+arithmetic or time-zone admission. Timestamp and Date values of one carrier
+also compare with `<`, `<=`, `>`, `>=` and an inclusive comparison chain, in
+WHERE and in a JOIN ON condition alike, order a result or a window, and on
+PostgreSQL are `min` and
+`max` arguments, whose result keeps the carrier and admits NULL (MySQL reports
+`min`/`max` of them BLOCKED with `PIE-B1003` until their result metadata is
+reviewed); Timestamp, Date and UUID values partition a window by equality, as
+GROUP BY compares them. On PostgreSQL UUID values of one carrier also compare
+with `<`, `<=`, `>`, `>=` and an inclusive comparison chain and order a result
+or a window, by their 16 bytes compared as unsigned big-endian values (the
+order of PostgreSQL `uuid_cmp` and of Python `uuid.UUID`); MySQL keeps UUID
+ordering and inequality comparison BLOCKED until a real-database differential
+reviews its `BINARY(16)` order. `min`/`max` of a UUID stay refused
+(`PIE-S2314`), and a Timestamp never compares with a Date. Q1 conditionals
 retain SQL `CASE` order for parameter occurrences (condition, true branch,
 false branch); a bind-safe artifact therefore requires its exact
 `fixed_values` and `parameter_uses`, rather than SQL text alone. A computed
@@ -666,21 +685,49 @@ relation ORDER item must reuse a visible established selected expression, with
 its authored direction and target NULL/collation behavior; hidden-input reuse
 is rejected. Q2 accepts only independently proved numeric realizations:
 signed-range Int arithmetic and direct `avg(Int)` with an input range and a
-target Float carrier. `sum(Int)`, Decimal `sum`/`avg`, and Float `sum`/`avg`
-remain fail-closed without their aggregate-range, exact-division, or finite
-result proof; caller JSON cannot supply that proof.
+target Float carrier, and, on PostgreSQL, the `Int` results its checked
+`bigint` operations bound. PostgreSQL emits `sum(Int)` of a direct `Int` input
+as `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the sum
+accumulates exactly, and its result is a nullable `Int` with storage
+`pg_int8` over the whole signed 64-bit range. An `Int` sign, `+`, `-`, `*` or
+`abs` over `bigint` operands whose exact range leaves signed 64 bits but meets
+them is emitted unchanged, and its result keeps the part of that range inside
+signed 64 bits. Neither ever returns a wrong value: a sum or result outside
+signed 64 bits may make the statement fail at run time with SQLSTATE 22003
+(`bigint out of range`). Whether and when it fails depends on the execution
+plan: a LIMIT may stop before the value is computed, and a group or row that
+a later filter drops may still raise it. The generated requirement of each
+such aggregate (R13) or operation (R05) carries the evidence
+`{"overflow": "target_checked_signed64_narrowing"}`, and the emission
+observation lists the token in that requirement's `evidence`. PostgreSQL may
+also raise the error while planning, wherever it reduces an operation's
+operands to constants, such as `(9223372036854775807 if True else 0) + 1`,
+or through a bound slot or parameter value: the statement then fails even
+over no rows, or with the operation in a branch no row takes. A range wholly
+outside signed 64 bits, such as that of a constant, stays `PIE-B1002`, as
+such an operation could only fail. This `sum` spelling differs from
+single-file `emit-sql`, which writes a bare `SUM(x)`: PostgreSQL then returns
+an exact `numeric` for a `bigint` column, which may leave signed 64 bits where
+project SQL fails with 22003. MySQL keeps `sum(Int)` BLOCKED with `PIE-B1004`,
+as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
+arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`.
+Decimal `sum`/`avg` and Float `sum`/`avg` remain fail-closed without their
+aggregate-range, exact-division, or finite result proof; caller JSON cannot
+supply that proof.
 
 The rules in the previous paragraph postdate the published `0.1.2` (GitHub
 pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those
 distributions; the published `0.1.3`, `0.1.4` and `0.1.5` include them. This
 `0.1.6` candidate is available only when its accepted files appear on its
-versioned release channels. Git publication and natural exact-head CI remain
-the lifecycle authority.
+versioned release channels. The Date source, temporal and UUID ordering,
+checked `bigint` and PostgreSQL `sum(Int)` rules follow `0.1.6` and are
+listed under the unreleased changes of the release notes. Git publication and
+natural exact-head CI remain the lifecycle authority.
 
 These proofs belong to project SQL emission, not to `check --project`: the
-check accepts, for example, `sum` over an `Int`, `Decimal` or `Float` field,
-and `emit-sql --project` then reports the table or query BLOCKED with
-`PIE-B1004`. Single-file `emit-sql` emits such a `SUM`.
+check accepts, for example, `sum` over a `Decimal` or `Float` field, or over
+an `Int` field on MySQL, and `emit-sql --project` then reports the table or
+query BLOCKED with `PIE-B1004`. Single-file `emit-sql` emits such a `SUM`.
 
 `check --project` also accepts the following forms, which
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract
@@ -696,11 +743,15 @@ declares:
 - `/` and `%`, whatever their operand types, `Float(x) / y` included;
 - `matches(...)`;
 - a `Text` default of `lag` or `lead` (`lead(label, 1, "none")`);
-- `Int` arithmetic whose result is not proved to fit the column's storage
-  type. The proof uses the storage type, not the declared `int_range`:
-  `id + 1` over `pg_int4` or `my_int` is admitted, while `qty + 1` over
-  `pg_int8` or `my_bigint` is BLOCKED with `PIE-B1002`, and so are `-id` and
-  `abs(id)` over `pg_int4`.
+- `Int` arithmetic whose result is not proved to fit a signed 64-bit integer,
+  on PostgreSQL only where its range lies wholly outside signed 64 bits.
+  The proof uses the storage type, not the declared `int_range`. On
+  PostgreSQL an operation on `pg_int2`/`pg_int4` operands whose result may
+  leave that type is computed in `bigint` (`CAST(x AS pg_catalog.int8)` on its
+  first operand), so `id + id`, `id * id`, `-id` and `abs(id)` over `pg_int4`
+  are admitted, as they are over `my_int`, and `qty + 1` over `pg_int8` is
+  admitted with the checked `bigint` rule above, while `qty + 1` over
+  `my_bigint` is BLOCKED with `PIE-B1002`.
 
 Admitting these forms needs reviewed SQL and a real-database differential on
 PostgreSQL and MySQL, which the PostgreSQL/MySQL parity batch plans (see the

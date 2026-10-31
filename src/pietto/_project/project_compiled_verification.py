@@ -587,7 +587,16 @@ def verify_description(value: Description) -> None:
                 type(logical) is tuple
                 and len(logical) == 2
                 and logical[0]
-                in ("Int", "Bool", "Float", "Text", "Decimal", "Timestamp", "UUID")
+                in (
+                    "Int",
+                    "Bool",
+                    "Float",
+                    "Text",
+                    "Decimal",
+                    "Timestamp",
+                    "Date",
+                    "UUID",
+                )
                 and logical[1] in ("non_null", "nullable", "unknown"),
                 "FIELD_LOGICAL",
             )
@@ -5170,7 +5179,9 @@ def _verify_compiled_emission(artifact, request):
                             and grouping.string_agg_argument_problem(column.delimiter)
                             is None
                             if function == "string_agg"
-                            else grouping.argument_problem(function, column.argument)
+                            else grouping.argument_problem(
+                                function, column.argument, request.family
+                            )
                             is None
                         ),
                         "EMISSION_AGGREGATE_ARGUMENT",
@@ -5187,9 +5198,9 @@ def _verify_compiled_emission(artifact, request):
                         )
                 need(
                     column.argument_cast
-                    == grouping.argument_cast(
-                        request.family, function, column.argument
-                    ),
+                    == grouping.argument_cast(request.family, function, column.argument)
+                    and column.result_cast
+                    == ("pg_catalog.int8" if function == "sum" else None),
                     "EMISSION_AGGREGATE_CAST",
                 )
                 origin = column.column.aggregate
@@ -5597,7 +5608,8 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
             need(binding.ref is refs[a], "WINDOW_PARTITION_BINDING")
             check_read(read, a)
             need(
-                read.realization.tag in windowing.ORDER_TAGS, "WINDOW_PARTITION_DOMAIN"
+                windowing.partition_key_admitted(read.realization),
+                "WINDOW_PARTITION_DOMAIN",
             )
         for i, (item, (a, direction, nulls)) in enumerate(
             zip(actual.orders, described.get("ordering"), strict=True)
@@ -5608,7 +5620,7 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
                 and item.binding.ref is refs[a]
                 and item.direction == direction
                 and item.nulls is nulls is None
-                and item.read.realization.tag in windowing.ORDER_TAGS,
+                and windowing.order_key_admitted(item.read.realization, request.family),
                 "WINDOW_ORDER_ITEM",
             )
             check_read(item.read, a)

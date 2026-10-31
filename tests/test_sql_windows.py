@@ -648,3 +648,63 @@ def test_independent_verifiers_reject_coherent_faulty_builder_arguments(
     result = pure.parse_emission_observation(json.dumps(document))
     assert result.status is pure.Status.INVALID_RELATION
     assert result.detail == "postgres window structural argument roles"
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_temporal_and_uuid_window_keys(tmp_path, target):
+    """Timestamp and Date keys order a window; Timestamp, Date and UUID keys
+    partition it by equality, as GROUP BY compares them. A UUID orders one on
+    PostgreSQL only, and a RANGE offset needs a signed Int key."""
+    checked, outcome = probe.temporal_case(
+        tmp_path / "keys",
+        target,
+        "    from rows\n    select:\n        t = ts\n"
+        "        r = row_number() window(partition by u, ts, d order by ts desc, d2)\n",
+    )
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    q = '"' if target == "postgres" else "`"
+
+    def col(name):
+        return f"{q}s0{q}.{q}{name}{q}"
+
+    assert (
+        f"ROW_NUMBER() OVER (PARTITION BY {col('u')}, {col('ts')}, {col('d')}"
+        f" ORDER BY {col('ts')} DESC, {col('d2')} ASC)"
+    ) in public["sql"]
+    checked, outcome = probe.temporal_case(
+        tmp_path / "uuid_order",
+        target,
+        "    from rows\n    select:\n"
+        "        r = row_number() window(partition by d order by u desc, id)\n",
+    )
+    assert checked.verified
+    if target == "mysql":
+        # Q3 orders a UUID on PostgreSQL only.
+        assert outcome.status == "BLOCKED"
+        assert [(b.code, b.detail) for b in outcome.blockers] == [
+            ("PIE-B1002", "window_order_comparison_domain_unsupported")
+        ]
+    else:
+        assert outcome.status == "VERIFIED", outcome.blockers
+        public = probe.decode_public(serialize_project_sql_emission(outcome))
+        assert (
+            'ROW_NUMBER() OVER (PARTITION BY "s0"."d"'
+            ' ORDER BY "s0"."u" DESC, "s0"."id" ASC) AS "c6"'
+        ) in public["sql"]
+    checked, outcome = probe.temporal_case(
+        tmp_path / "uuid_range",
+        target,
+        "    from rows\n    select:\n"
+        "        r = first_value(id) window(order by u range between 1 preceding"
+        " and current row)\n",
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    checked, outcome = probe.temporal_case(
+        tmp_path / "range_offset",
+        target,
+        "    from rows\n    select:\n"
+        "        r = first_value(id) window(order by ts range between 1 preceding"
+        " and current row)\n",
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None

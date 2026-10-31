@@ -983,6 +983,21 @@ def _is_pg_int(realization) -> bool:
     )
 
 
+# Q1/Q2 evidence: a bigint result bounded by the target's checked signed
+# 64-bit operation or narrowing (SQLSTATE 22003), not by a static range.
+_TARGET_CHECKED = "target_checked_signed64_narrowing"
+
+
+def _aggregate_casts(family: str, function: str) -> tuple[str | None, str | None]:
+    """The reviewed argument and result casts of one aggregate: AVG(Int)
+    averages binary64 and PostgreSQL SUM(Int) is bigint before and after."""
+    if function == "avg":
+        return ("pg_catalog.float8" if family == "postgres" else "DOUBLE"), None
+    if function == "sum":
+        return "pg_catalog.int8", "pg_catalog.int8"
+    return None, None
+
+
 def _is_pg_order_value(realization) -> bool:
     """The closed PostgreSQL aggregate-order carrier domain."""
 
@@ -1005,6 +1020,10 @@ def _is_pg_order_value(realization) -> bool:
             {"kind": "pg_timestamp", "fractional_seconds": 6},
             {"kind": "timestamp"},
         )
+    if realization["tag"] == "Date":
+        return _is_realization(
+            realization, "Date", {"kind": "pg_date"}, {"kind": "date"}
+        )
     if realization["tag"] == "UUID":
         return _is_realization(
             realization,
@@ -1013,6 +1032,101 @@ def _is_pg_order_value(realization) -> bool:
             {"kind": "uuid", "encoding": "standard_bytes"},
         )
     return False
+
+
+def _is_key_value(realization, family: str, *, partition: bool = False) -> bool:
+    if family == "postgres":
+        return _is_pg_order_value(realization)
+    if realization is None or family != "mysql":
+        return False
+    tag, storage, domain = (
+        realization["tag"],
+        realization["storage"],
+        realization["domain"],
+    )
+    if tag == "Int":
+        return storage.get("kind") in {
+            "my_smallint",
+            "my_int",
+            "my_bigint",
+            "my_signed_int",
+        } and _is_pg_int(realization)
+    if tag == "Bool":
+        return dict(storage) in (
+            {"kind": "my_bool01"},
+            {"kind": "my_signed_bool"},
+        ) and dict(domain) == {"kind": "bool01"}
+    if tag == "Decimal":
+        if storage.get("kind") != "my_decimal":
+            return False
+        return (
+            _pg_decimal_parameters(
+                {**realization, "storage": {**storage, "kind": "pg_numeric"}}
+            )
+            is not None
+        )
+    if tag == "Text":
+        maximum = domain.get("max_characters")
+        length = storage.get("length")
+        return (
+            type(maximum) is int
+            and maximum >= 0
+            and dict(domain)
+            == {
+                "kind": "text",
+                "max_characters": maximum,
+                "encoding": "utf8mb4",
+                "collation": "utf8mb4_0900_bin",
+                "padding": "NO PAD",
+            }
+            and (
+                dict(storage) == {"kind": "my_utf8mb4_text"}
+                or type(length) is int
+                and maximum <= length <= 16383
+                and dict(storage) == {"kind": "my_varchar", "length": length}
+            )
+        )
+    if tag == "Date":
+        return _is_realization(
+            realization, "Date", {"kind": "my_date"}, {"kind": "date"}
+        )
+    if tag == "Timestamp":
+        return _is_realization(
+            realization,
+            "Timestamp",
+            {"kind": "my_datetime", "fractional_seconds": 6},
+            {"kind": "timestamp"},
+        )
+    if tag == "UUID" and partition:
+        return _is_realization(
+            realization,
+            "UUID",
+            {"kind": "my_uuid_bytes"},
+            {"kind": "uuid", "encoding": "standard_bytes"},
+        )
+    return False
+
+
+def _source_field_matches_stage(doc, stage) -> bool:
+    """A source-derived stage keeps its source carrier, apart from null widening."""
+
+    field = stage["field"]
+    if field is None:
+        return True
+    bound, realization = doc[field], doc[stage["realization"]]
+    try:
+        representation = _json(bound["representation"])
+    except _Reject:
+        return False
+    return (
+        realization["tag"] == bound["logical"]["name"]
+        and dict(realization["storage"]) == representation["storage"]
+        and dict(realization["domain"]) == representation["domain"]
+        and (
+            realization["nullable"] is True
+            or realization["nullable"] == representation["nullable"]
+        )
+    )
 
 
 def _validate_any_scopes(doc):
@@ -1443,6 +1557,16 @@ class _Check:
             _require(
                 op["operator"] in schema.OPERATORS[op["kind"]], "operation operator"
             )
+            if op["kind"] == "scalar_call" and op["operator"] == "date_of":
+                _require(
+                    _is_realization(
+                        doc[op["realization"]],
+                        "Date",
+                        {"kind": "pg_date" if family == "postgres" else "my_date"},
+                        {"kind": "date"},
+                    ),
+                    "date_of result carrier",
+                )
             arity = {
                 "sign": 1,
                 "null_test": 1,
@@ -1626,6 +1750,7 @@ class _Check:
             expected = {
                 "count": "COUNT",
                 "count_distinct": "COUNT",
+                "sum": "SUM",
                 "min": "MIN",
                 "max": "MAX",
                 "avg": "AVG",
@@ -1635,16 +1760,37 @@ class _Check:
                 expected is not None and column["spelling"] == expected,
                 "aggregate spelling",
             )
-            if column["function"] == "avg":
-                _require(
-                    column["argument"] is not None
+            argument_cast, result_cast = _aggregate_casts(family, column["function"])
+            _require(
+                column["argument_cast"] == argument_cast
+                and column["result_cast"] == result_cast
+                and (
+                    argument_cast is None
+                    or column["argument"] is not None
                     and not column["distinct"]
-                    and column["argument_cast"]
-                    == ("pg_catalog.float8" if family == "postgres" else "DOUBLE"),
-                    "aggregate argument cast",
+                ),
+                "aggregate argument cast",
+            )
+            if column["function"] == "sum":
+                # Q1: PostgreSQL only; the checked bigint narrowing bounds an
+                # Int argument's exact sum, NULL for an empty input.
+                _require(
+                    family == "postgres"
+                    and (_value_realization(doc, column["argument"]) or {}).get("tag")
+                    == "Int"
+                    and _is_realization(
+                        doc[doc[column["column"]]["realization"]],
+                        "Int",
+                        {"kind": "pg_int8"},
+                        {
+                            "kind": "int_range",
+                            "min": str(-(1 << 63)),
+                            "max": str((1 << 63) - 1),
+                        },
+                    )
+                    and doc[doc[column["column"]]["realization"]]["nullable"] is True,
+                    "sum result",
                 )
-            else:
-                _require(column["argument_cast"] is None, "aggregate argument cast")
             if column["function"] == "string_agg":
                 result = doc[doc[column["column"]]["realization"]]
                 _require(
@@ -1802,6 +1948,12 @@ class _Check:
                     and fields["carrier"] == order["carrier"]
                     and fields["direction"] in schema.DIRECTIONS,
                     "order item",
+                )
+                read = doc[fields["read"]]
+                _require(
+                    _source_field_matches_stage(doc, read)
+                    and _is_key_value(doc[read["realization"]], self.family),
+                    "result order carrier",
                 )
         for ref in doc.all("window_frame"):
             frame = doc[ref]
@@ -1975,6 +2127,7 @@ class _Tokens:
         self.partition()
         self.bindings()
         self.overlay_alignment()
+        self.int8_widening()
         self.origins()
 
     def partition(self) -> None:
@@ -2484,19 +2637,31 @@ class _Tokens:
                     "string_agg token sequence",
                 )
             else:
-                _require(
-                    all(
-                        role
-                        not in {
-                            "aggregate_separator",
-                            "aggregate_order",
-                            "aggregate_order_separator",
-                            "aggregate_order_direction",
-                        }
-                        for role, _ in aggregate_tokens
-                    ),
-                    "aggregate extra tokens",
-                )
+                expected = []
+                if column["result_cast"] is not None:
+                    expected.append(("aggregate_result_cast_open", "CAST("))
+                expected.append(("aggregate_open", column["spelling"] + "("))
+                if column["argument"] is None:
+                    expected.append(("aggregate_row_count", "*"))
+                if column["distinct"]:
+                    expected.append(("aggregate_distinct", "DISTINCT "))
+                if column["argument_cast"] is not None:
+                    expected.append(("aggregate_argument_cast_open", "CAST("))
+                    expected.append(
+                        (
+                            "aggregate_argument_cast_close",
+                            " AS " + column["argument_cast"] + ")",
+                        )
+                    )
+                expected.append(("aggregate_close", ")"))
+                if column["result_cast"] is not None:
+                    expected.append(
+                        (
+                            "aggregate_result_cast_close",
+                            " AS " + column["result_cast"] + ")",
+                        )
+                    )
+                _require(aggregate_tokens == expected, "aggregate token sequence")
         parameters_in_order = [
             event["subject"] for event in self.events if event["kind"] == "parameter"
         ]
@@ -2721,14 +2886,12 @@ class _Tokens:
                     "scalar call operator",
                 )
             return
-        if role == "aggregate_argument_cast_open":
+        if role in ("aggregate_argument_cast_open", "aggregate_result_cast_open"):
             column = self.one(aggregates, subject, "aggregate subject")
             _require(
-                column["function"] == "avg"
-                and column["argument_cast"]
-                == ("pg_catalog.float8" if self.family == "postgres" else "DOUBLE")
+                column[role[len("aggregate_") : -len("_open")]] is not None
                 and text == schema.SYNTAX[role],
-                "aggregate argument cast",
+                "aggregate cast",
             )
             return
         elif role in schema.SYNTAX:
@@ -2761,15 +2924,10 @@ class _Tokens:
         elif role == "aggregate_open":
             column = self.one(aggregates, subject, "aggregate subject")
             _require(text == column["spelling"] + "(", "aggregate spelling")
-        elif role == "aggregate_argument_cast_close":
+        elif role in ("aggregate_argument_cast_close", "aggregate_result_cast_close"):
             column = self.one(aggregates, subject, "aggregate subject")
-            _require(
-                column["function"] == "avg"
-                and column["argument_cast"]
-                == ("pg_catalog.float8" if self.family == "postgres" else "DOUBLE")
-                and text == " AS " + column["argument_cast"] + ")",
-                "aggregate argument cast",
-            )
+            cast = column[role[len("aggregate_") : -len("_close")]]
+            _require(cast is not None and text == " AS " + cast + ")", "aggregate cast")
         elif role == "aggregate_order_direction":
             column = self.one(aggregates, subject, "aggregate subject")
             _require(
@@ -2887,6 +3045,71 @@ class _Tokens:
             _require(not enclosing or end <= enclosing[-1], "overlay nesting")
             enclosing.append(end)
 
+    def int8_widening(self) -> None:
+        """PostgreSQL `sign`, arithmetic and `abs` over int2/int4 operands are
+        widened to bigint exactly when their exact range leaves the operands'
+        own type: one first-operand CAST, never a redundant one."""
+        doc = self.doc
+        expected: set[PlanRef] = set()
+        for ref in doc.all("sql_operation"):
+            op = doc[ref]
+            if not (
+                op["kind"] in ("sign", "arithmetic")
+                or op["kind"] == "scalar_call"
+                and op["operator"] == "abs"
+            ):
+                continue
+            result = doc[op["realization"]]
+            kinds = [
+                (_value_realization(doc, operand) or {"storage": {}})["storage"].get(
+                    "kind"
+                )
+                for operand in op["operands"]
+            ]
+            narrow = [
+                kind
+                for kind in kinds
+                if type(kind) is str and kind in ("pg_int2", "pg_int4")
+            ]
+            if (
+                self.family != "postgres"
+                or result["tag"] != "Int"
+                or dict(result["storage"]) != {"kind": "pg_int8"}
+                or not kinds
+                or len(narrow) != len(kinds)
+            ):
+                continue
+            bits = max(_SIGNED_STORAGE_BITS[kind] for kind in narrow)
+            _require(_is_pg_int(result), "int8 widening")
+            low, high = int(result["domain"]["min"]), int(result["domain"]["max"])
+            _require(
+                low < -(1 << (bits - 1)) or high > (1 << (bits - 1)) - 1,
+                "int8 widening",
+            )
+            expected.add(op["original"])
+        starts = {event["start"]: i for i, event in enumerate(self.events)}
+        ends = {event["end"]: i for i, event in enumerate(self.events)}
+        seen: list[PlanRef] = []
+        for overlay in self.overlays:
+            if overlay["role"] != "int8_widen":
+                continue
+            subject = overlay["subject"]
+            i, j = starts[overlay["start"]], ends[overlay["end"]]
+            _require(
+                subject in expected
+                and 0 < i
+                and j + 1 < len(self.events)
+                and self.events[i - 1]["subject"] == subject
+                and self.events[i - 1]["role"]
+                in ("binary_open", "unary_open", "scalar_call_open")
+                and self.events[j + 1]["subject"] == subject
+                and self.events[j + 1]["role"]
+                in ("arithmetic_operator", "unary_close", "scalar_call_close"),
+                "int8 widening",
+            )
+            seen.append(subject)
+        _require(len(seen) == len(set(seen)) and set(seen) == expected, "int8 widening")
+
     def origins(self) -> None:
         by_subject: dict[PlanRef, tuple[Ref, ...]] = {}
         for event in (*self.events, *self.overlays):
@@ -2916,16 +3139,411 @@ class _Tokens:
                 )
 
 
+class _ProvenIntRanges:
+    """Rebuild the Int proof carried by the closed public provenance graph."""
+
+    _UNKNOWN = object()
+    _EMPTY = object()
+    _COLUMN_PRODUCERS = (
+        "row_carry_column",
+        "row_value_column",
+        "aggregate_key_column",
+        "aggregate_value_column",
+        "aggregate_projection_column",
+        "window_column",
+        "window_projection_column",
+        "result_column",
+        "set_column",
+        "join_column",
+    )
+
+    def __init__(self, doc: _Doc, family: str) -> None:
+        self.doc = doc
+        self.family = family
+        self.columns: dict[Ref, tuple[Ref, ...]] = {}
+        self.terminals: dict[PlanRef, tuple[Ref, ...]] = {}
+        for kind in self._COLUMN_PRODUCERS:
+            for ref in doc.all(kind):
+                fields = doc[ref]
+                column = fields.get("column")
+                if isinstance(column, Ref):
+                    self.columns[column] = (*self.columns.get(column, ()), ref)
+                terminal = fields["port" if kind == "join_column" else "export"]
+                self.terminals[terminal] = (*self.terminals.get(terminal, ()), ref)
+        for kind in ("row_body", "row_result_body", "set_body"):
+            for ref in doc.all(kind):
+                body = doc[ref]
+                for terminal, column in zip(
+                    body["terminals"], body["columns"], strict=True
+                ):
+                    producers = self.terminals.get(terminal, ())
+                    if column not in producers:
+                        self.terminals[terminal] = (*producers, column)
+        self.values: dict[Ref, tuple[int, int] | object] = {}
+        self.visiting: set[Ref] = set()
+
+    def value(self, ref: Ref) -> tuple[int, int] | object:
+        if self.family != "postgres":
+            return self._UNKNOWN
+        if ref in self.values:
+            return self.values[ref]
+        if ref in self.visiting:
+            return self._UNKNOWN
+        self.visiting.add(ref)
+        try:
+            result = self._value(ref)
+        finally:
+            self.visiting.remove(ref)
+        self.values[ref] = result
+        return result
+
+    def _value(self, ref: Ref) -> tuple[int, int] | object:
+        doc = self.doc
+        if ref.kind in {
+            "sql_stage_reference",
+            "sql_captured_reference",
+            "sql_any_reference",
+        }:
+            return self.column(doc[ref]["column"])
+        if ref.kind == "sql_block_read":
+            read, target = doc[ref], doc[doc[ref]["target"]]
+            if read["kind"] != "scalar" or type(read["column"]) is not int:
+                return self._UNKNOWN
+            producer = target["producer"]
+            if producer.kind == "bound_source":
+                fields = [
+                    field
+                    for field in doc[producer]["fields"]
+                    if doc[field]["ordinal"] == read["column"]
+                ]
+                return self.field(fields[0]) if len(fields) == 1 else self._UNKNOWN
+            columns = doc[producer]["columns"]
+            index = read["column"]
+            return (
+                self.column(doc[columns[index]]["column"])
+                if 0 <= index < len(columns)
+                else self._UNKNOWN
+            )
+        if ref.kind == "sql_anchor":
+            value = _literal_int(doc, ref)
+            if value is not None:
+                return value, value
+            leaf = doc[ref]["operand"]
+            fixed = (
+                doc[leaf]["value"]
+                if leaf.kind == "sql_literal"
+                else doc[doc[leaf]["fixed"]]["value"]
+                if leaf.kind == "sql_parameter"
+                else None
+            )
+            return (
+                fixed.tag
+                if fixed is not None and fixed.tag in {"Float", "Decimal"}
+                else self._UNKNOWN
+            )
+        if ref.kind == "sql_null":
+            return self._EMPTY
+        if ref.kind == "sql_unary":
+            value = self.value(doc[ref]["operand"])
+            interval = self.as_range(value)
+            if interval is None:
+                return value
+            return (
+                interval
+                if doc[ref]["operator"] == "+"
+                else (-interval[1], -interval[0])
+            )
+        if ref.kind != "sql_operation":
+            return self._UNKNOWN
+        op = doc[ref]
+        if op["kind"] == "cast" and op["operator"] == "Float":
+            return "Float"
+        if op["kind"] == "scalar_call" and op["operator"] == "round":
+            value = self.value(op["operands"][0])
+            return value if value in {"Float", "Decimal"} else self._UNKNOWN
+        if op["kind"] == "conditional" and len(op["operands"]) == 3:
+            return self.union(
+                (self.value(op["operands"][0]), self.value(op["operands"][2]))
+            )
+        if op["kind"] == "scalar_call" and op["operator"] == "nullif":
+            return (
+                self.value(op["operands"][0])
+                if len(op["operands"]) == 2
+                else self._UNKNOWN
+            )
+        if op["kind"] == "scalar_call" and op["operator"] == "coalesce":
+            return self.union(tuple(self.value(value) for value in op["operands"]))
+        if op["kind"] == "scalar_call" and op["operator"] == "len":
+            return _I64_MIN, _I64_MAX
+        if op["kind"] == "scalar_call" and op["operator"] == "sign":
+            return -1, 1
+        if op["kind"] == "scalar_call" and op["operator"] in {
+            "year",
+            "month",
+            "day",
+            "hour",
+            "minute",
+        }:
+            return {
+                "year": (1000, 9999),
+                "month": (1, 12),
+                "day": (1, 31),
+                "hour": (0, 23),
+                "minute": (0, 59),
+            }[op["operator"]]
+        raw = self.operation(ref)
+        interval = self.as_range(raw)
+        return self.checked(interval) if interval is not None else raw
+
+    def field(self, ref: Ref) -> tuple[int, int] | object:
+        try:
+            field = self.doc[ref]
+            representation = json.loads(field["representation"])
+            tag = field["logical"]["name"]
+            kind = representation["storage"]["kind"]
+            realization = {"tag": tag, **representation}
+        except (KeyError, TypeError, ValueError):
+            return self._UNKNOWN
+        if tag == "Decimal" and _pg_decimal_parameters(realization) is not None:
+            return "Decimal"
+        if _is_realization(
+            realization,
+            "Float",
+            {"kind": "pg_float8"},
+            {"kind": "finite_float", "format": "binary64"},
+        ):
+            return "Float"
+        if tag != "Int" or kind not in {"pg_int2", "pg_int4", "pg_int8"}:
+            return self._UNKNOWN
+        bits = _SIGNED_STORAGE_BITS.get(kind)
+        return (
+            self._UNKNOWN
+            if bits is None
+            else (-(1 << (bits - 1)), (1 << (bits - 1)) - 1)
+        )
+
+    def column(self, ref: Ref) -> tuple[int, int] | object:
+        if ref in self.values:
+            return self.values[ref]
+        if ref in self.visiting:
+            return self._UNKNOWN
+        self.visiting.add(ref)
+        try:
+            result = self._column(ref)
+        finally:
+            self.visiting.remove(ref)
+        self.values[ref] = result
+        return result
+
+    def _column(self, ref: Ref) -> tuple[int, int] | object:
+        column = self.doc[ref]
+        if column["field"] is not None:
+            return self.field(column["field"])
+        if column["literal"] is not None:
+            return self.value(self.doc[column["literal"]]["value"])
+        if column["aggregate"] is not None:
+            origin = self.doc[column["aggregate"]]
+            values = [
+                ref
+                for ref in self.doc.all("aggregate_value_column")
+                if self.doc[ref]["aggregate"] == origin["aggregate"]
+            ]
+            return (
+                self.aggregate(self.doc[values[0]])
+                if len(values) == 1
+                else self._UNKNOWN
+            )
+        if column["window"] is not None:
+            origin = self.doc[column["window"]]
+            windows = [
+                ref
+                for ref in self.doc.all("window_column")
+                if self.doc[ref]["window"] == origin["window"]
+            ]
+            return (
+                self.window(self.doc[windows[0]])
+                if len(windows) == 1
+                else self._UNKNOWN
+            )
+        # Reads may be distinct serialized views of the same exported occurrence.
+        producers = self.terminals.get(column["terminal"], self.columns.get(ref, ()))
+        defining = tuple(
+            producer
+            for producer in producers
+            if producer.kind
+            in {
+                "row_value_column",
+                "aggregate_value_column",
+                "window_column",
+                "set_column",
+            }
+        )
+        if len(defining) == 1:
+            producer = defining[0]
+        elif len(producers) == 1:
+            producer = producers[0]
+        else:
+            return self._UNKNOWN
+        fields = self.doc[producer]
+        if producer.kind in {
+            "row_carry_column",
+            "aggregate_key_column",
+            "aggregate_projection_column",
+            "window_projection_column",
+            "result_column",
+            "join_column",
+        }:
+            return self.column(fields["read"])
+        if producer.kind == "row_value_column":
+            return self.value(fields["value"])
+        if producer.kind == "set_column":
+            values = tuple(self.column(value) for value in fields["inputs"])
+            return self.union(values)
+        if producer.kind == "aggregate_value_column":
+            return self.aggregate(fields)
+        if producer.kind == "window_column":
+            return self.window(fields)
+        return self._UNKNOWN
+
+    def aggregate(self, column: Mapping[str, Any]) -> tuple[int, int] | object:
+        function = column["function"]
+        if function in {"count", "count_distinct"}:
+            return 0, _I64_MAX
+        if function == "sum":
+            return _I64_MIN, _I64_MAX
+        if function == "avg":
+            return "Float"
+        if function in {"min", "max"} and column["argument"] is not None:
+            return self.value(column["argument"])
+        return self._UNKNOWN
+
+    def window(self, column: Mapping[str, Any]) -> tuple[int, int] | object:
+        function = column["function"]
+        if function in {"percent_rank", "cume_dist", "avg"}:
+            return "Float"
+        if function in {"row_number", "rank", "dense_rank", "count"}:
+            return 0, _I64_MAX
+        if function == "sum":
+            return _I64_MIN, _I64_MAX
+        if function == "ntile":
+            return 1, (1 << 31) - 1
+        arguments = [self.doc[item] for item in column["arguments"]]
+        reads = [item["read"] for item in arguments if item["read"] is not None]
+        if function in {"min", "max"}:
+            return self.column(reads[0]) if len(reads) == 1 else self._UNKNOWN
+        if function not in _VALUE_WINDOWS or len(reads) != 1:
+            return self._UNKNOWN
+        value = self.column(reads[0])
+        defaults = [item["literal"] for item in arguments if item["role"] == "default"]
+        if not defaults or defaults[0] == "NULL" or value in {"Float", "Decimal"}:
+            return value
+        try:
+            default = int(defaults[0])
+        except (TypeError, ValueError):
+            return self._UNKNOWN
+        return self.union((value, (default, default)))
+
+    @classmethod
+    def known(cls, value: tuple[int, int] | object) -> bool:
+        return isinstance(value, tuple)
+
+    @staticmethod
+    def as_range(value: tuple[int, int] | object) -> tuple[int, int] | None:
+        return value if isinstance(value, tuple) else None
+
+    def union(self, values) -> tuple[int, int] | object:
+        if any(value is self._UNKNOWN for value in values):
+            return self._UNKNOWN
+        present = tuple(value for value in values if value is not self._EMPTY)
+        if any(value in {"Float", "Decimal"} for value in present):
+            return (
+                present[0]
+                if all(value == present[0] for value in present)
+                else self._UNKNOWN
+            )
+        known = tuple(value for value in present if self.known(value))
+        if not known:
+            return self._EMPTY
+        ranges = cast(tuple[tuple[int, int], ...], known)
+        return min(low for low, _ in ranges), max(high for _, high in ranges)
+
+    def checked(self, value: tuple[int, int]) -> tuple[int, int] | object:
+        low, high = max(value[0], _I64_MIN), min(value[1], _I64_MAX)
+        return (low, high) if low <= high else self._UNKNOWN
+
+    def operation(self, ref: Ref) -> tuple[int, int] | object:
+        op = self.doc[ref]
+        supported = op["kind"] in {"sign", "arithmetic"} or (
+            op["kind"] == "scalar_call" and op["operator"] == "abs"
+        )
+        if not supported:
+            return self._UNKNOWN
+        values = tuple(self.value(value) for value in op["operands"])
+        if any(value is self._UNKNOWN for value in values):
+            return self._UNKNOWN
+        if any(value is self._EMPTY for value in values):
+            return self._EMPTY
+        if any(value in {"Float", "Decimal"} for value in values):
+            return values[0] if len(values) == 1 else self._UNKNOWN
+        ranges = cast(tuple[tuple[int, int], ...], values)
+        if op["kind"] == "sign" and len(ranges) == 1:
+            low, high = ranges[0]
+            return (-high, -low) if op["operator"] == "-" else (low, high)
+        if op["kind"] == "arithmetic" and len(ranges) == 2:
+            (a, b), (c, d) = ranges
+            if op["operator"] == "+":
+                return a + c, b + d
+            if op["operator"] == "-":
+                return a - d, b - c
+            if op["operator"] == "*":
+                products = (a * c, a * d, b * c, b * d)
+                return min(products), max(products)
+        if op["kind"] == "scalar_call" and op["operator"] == "abs" and len(ranges) == 1:
+            low, high = ranges[0]
+            return max(low, -high, 0), max(-low, high)
+        return self._UNKNOWN
+
+    def target_checked(self, ref: Ref) -> tuple[int, int] | object | None:
+        if self.family != "postgres" or ref.kind != "sql_operation":
+            return None
+        op = self.doc[ref]
+        supported = op["kind"] in {"sign", "arithmetic"} or (
+            op["kind"] == "scalar_call" and op["operator"] == "abs"
+        )
+        if not supported:
+            return None
+        result = self.doc[op["realization"]]
+        raw = self.operation(ref)
+        if raw is self._EMPTY:
+            return None
+        if raw in {"Float", "Decimal"}:
+            return None if result["tag"] == raw else self._UNKNOWN
+        if result["tag"] != "Int" or raw is self._UNKNOWN:
+            return self._UNKNOWN
+        interval = self.as_range(raw)
+        if interval is None:
+            return self._UNKNOWN
+        if interval[1] < _I64_MIN or interval[0] > _I64_MAX:
+            return self._UNKNOWN
+        return (
+            self.checked(interval)
+            if interval[0] < _I64_MIN or interval[1] > _I64_MAX
+            else None
+        )
+
+
 class _Requirements:
     """Independent re-enumeration of both requirement inventories."""
 
     def __init__(self, check: _Check, units: list[Ref]) -> None:
         self.check = check
         self.doc = check.doc
+        self.family = check.family
         self.units = units
         doc = self.doc
         self.premises = [(ref, doc[ref]) for ref in check.request["premises"]]
-        self.expected: list[tuple[str, Any, str, Any]] = []
+        self.expected: list[tuple[str, Any, str, Any, Any]] = []
+        self.ranges = _ProvenIntRanges(doc, self.family)
 
     def statement(self, *keys: str) -> tuple[Ref, ...]:
         return tuple(
@@ -2934,8 +3552,32 @@ class _Requirements:
             if p["scope"] == "statement" and p["key"] in keys
         )
 
-    def add(self, kind: str, subject: Any, rule: str, premises: Any) -> None:
-        self.expected.append((kind, subject, rule, premises))
+    def add(
+        self, kind: str, subject: Any, rule: str, premises: Any, evidence: Any = ()
+    ) -> None:
+        self.expected.append((kind, subject, rule, premises, evidence))
+
+    def checked_evidence(self, evidence: Any, value: Ref) -> None:
+        """Q2 evidence follows the independently rebuilt operand proof."""
+        interval = self.ranges.target_checked(value)
+        _require(interval is not self.ranges._UNKNOWN, "target checked proof")
+        if interval is None:
+            _require(evidence == (), "target checked evidence")
+            return
+        proven = self.ranges.as_range(interval)
+        _require(proven is not None, "target checked proof")
+        if proven is None:
+            return
+        low, high = proven
+        result = self.doc[self.doc[value]["realization"]]
+        _require(
+            _is_pg_int(result)
+            and dict(result["storage"]) == {"kind": "pg_int8"}
+            and dict(result["domain"])
+            == {"kind": "int_range", "min": str(low), "max": str(high)},
+            "target checked result",
+        )
+        _require(evidence == (_TARGET_CHECKED,), "target checked evidence")
 
     def applicable(self, owner: Ref, field: bool) -> Any:
         required = tuple(
@@ -3089,6 +3731,7 @@ class _Requirements:
             fields["original"],
             "R06" if kind in {"logical", "not"} else "R05",
             self.node_premises(self.tag(value), operands, kind),
+            ("checked", value) if kind in ("arithmetic", "scalar_call") else (),
         )
         operands = fields["operands"]
         if fields["kind"] == "conditional":
@@ -3106,13 +3749,17 @@ class _Requirements:
             self.doc[ref] for ref in self.check.artifact["generated_requirements"]
         ]
         _require(len(actual) == len(self.expected), "generated inventory size")
-        for item, (kind, subject, rule, premises) in zip(
+        for item, (kind, subject, rule, premises, evidence) in zip(
             actual, self.expected, strict=True
         ):
             _require(
                 (item["kind"], item["subject"], item["rule"]) == (kind, subject, rule),
                 "generated inventory entry",
             )
+            if evidence[:1] == ("checked",):
+                self.checked_evidence(item["evidence"], evidence[1])
+            else:
+                _require(item["evidence"] == evidence, "generated evidence")
             if type(premises) is tuple and premises[:1] == ("between",):
                 _, required, allowed = premises
                 have = item["premises"]
@@ -3289,7 +3936,13 @@ class _Requirements:
             elif kind == "aggregate_key_column":
                 self.add("group_key", item["key"], "R12", operators)
             elif kind == "aggregate_value_column":
-                self.add("aggregate", item["aggregate"], "R13", operators)
+                self.add(
+                    "aggregate",
+                    item["aggregate"],
+                    "R13",
+                    operators,
+                    () if item["result_cast"] is None else (_TARGET_CHECKED,),
+                )
                 if item["argument"] is not None:
                     self.value(item["argument"])
                 if item["delimiter"] is not None:
@@ -3315,9 +3968,21 @@ class _Requirements:
                         )
                 for partition in spec["partitions"]:
                     read = doc[doc[partition]["read"]]
+                    _require(
+                        _source_field_matches_stage(doc, read)
+                        and _is_key_value(
+                            doc[read["realization"]], self.family, partition=True
+                        ),
+                        "window comparison carrier",
+                    )
                     self.add("window_partition_comparison", read["terminal"], "R14", ())
                 for order in spec["orders"]:
                     read = doc[doc[order]["read"]]
+                    _require(
+                        _source_field_matches_stage(doc, read)
+                        and _is_key_value(doc[read["realization"]], self.family),
+                        "window comparison carrier",
+                    )
                     self.add("window_order_comparison", read["terminal"], "R14", ())
             elif kind == "window_projection_column":
                 self.add("window_result_projection", item["projection"], "R17", ())

@@ -18,6 +18,7 @@ from typing import Any
 
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto.ast_nodes import ParameterRefExpr
 from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
@@ -110,8 +111,34 @@ EXCLUSION_SPELLING = {
 # documentation, and an excess is a typed resource blocker.
 MYSQL_WINDOW_LIMIT = 127
 # R14/R15 admit V01 signed Int order keys and arguments; ranking and
-# distribution Float results travel only through the V06 boundary.
-ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
+# distribution Float results travel only through the V06 boundary. A UUID
+# partitions a window by equality everywhere and orders one only where its
+# unsigned big-endian byte order is reviewed (`rows.uuid_ordered`).
+ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "Date"})
+
+
+def order_key_admitted(realization, family: str) -> bool:
+    """One ORDER key of an exactly ordered carrier; a temporal or UUID key
+    keeps its reviewed representation."""
+    if realization.tag == "UUID":
+        return (
+            rows.uuid_ordered(family) and grouping.grouping_problem(realization) is None
+        )
+    return realization.tag in ORDER_TAGS and (
+        realization.tag not in rows.TEMPORAL
+        or grouping.grouping_problem(realization) is None
+    )
+
+
+def partition_key_admitted(realization) -> bool:
+    """A PARTITION BY key compares by equality, as a GROUP BY key does."""
+    return (
+        realization.tag in ORDER_TAGS
+        and realization.tag not in rows.TEMPORAL
+        or grouping.grouping_problem(realization) is None
+    )
+
+
 # A ranking result is the target's own signed64 integer; R14 declares that
 # premise rather than deriving it from an input's value range. A bucket result is
 # the width the target itself returns: PostgreSQL's ntile sends int4 and MySQL's
@@ -708,14 +735,14 @@ def _specification(policy, reads, target: str):
     for binding, read in reads["partition"]:
         if read is None:
             return None, ("PIE-B1001", "window_partition_outside_pre_window_input")
-        if read.realization.tag not in ORDER_TAGS:
+        if not partition_key_admitted(read.realization):
             return None, ("PIE-B1002", "window_partition_comparison_domain_unsupported")
         partitions.append((binding, read))
     orders: list[WindowOrderItem] = []
     for position, (binding, read) in enumerate(reads["order"]):
         if read is None:
             return None, ("PIE-B1001", "window_order_outside_pre_window_input")
-        if read.realization.tag not in ORDER_TAGS:
+        if not order_key_admitted(read.realization, target):
             return None, ("PIE-B1002", "window_order_comparison_domain_unsupported")
         direction = binding.effective_direction
         if direction not in {"asc", "desc"}:
@@ -1388,11 +1415,11 @@ def compiled_specification(plan, address, reads, definitions):
     )
     if (
         not orders
-        or any(read.realization.tag not in ORDER_TAGS for _, read in partitions)
+        or any(not partition_key_admitted(read.realization) for _, read in partitions)
         or any(
             i.direction not in {"asc", "desc"}
             or i.nulls is not None
-            or i.read.realization.tag not in ORDER_TAGS
+            or not order_key_admitted(i.read.realization, target)
             for i in orders
         )
     ):

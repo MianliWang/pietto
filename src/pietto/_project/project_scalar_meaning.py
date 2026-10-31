@@ -249,7 +249,7 @@ def operations_admitted(bundle) -> bool:
 
         plan = verification.plan
         temporal_join_ports = any(
-            port.field.evidence.resolved_type.name in {"Timestamp", "UUID"}
+            port.field.evidence.resolved_type.name in {"Timestamp", "Date", "UUID"}
             for port in plan.join_ports
         )
         if temporal_join_ports and any(
@@ -327,6 +327,15 @@ def _output_entry(bundle, port):
     for projection in plan.aggregate_projections:
         add(projection.ref, projection.input)
         add(projection.export, projection.input)
+    from pietto._project.project_sql_emission_aggregation import function_name
+
+    # MIN and MAX keep the exact value of their one direct argument.
+    for aggregate in plan.aggregates:
+        if function_name(aggregate.source) in ("min", "max") and (
+            len(aggregate.arguments) == 1
+        ):
+            argument = plan.expressions[aggregate.arguments[0].position]
+            add(aggregate.ref, getattr(argument, "port", None))
     for result_port in plan.result_ports:
         add(result_port.ref, result_port.source)
     for export in plan.result_exports:
@@ -389,6 +398,12 @@ def _compiled_output_entry(bundle, port):
             pending.append(record.get("input"))
         elif address.kind == "window_value":
             pending.extend(a for role, a in record.get("arguments") if role == "value")
+        elif address.kind == "aggregate_value" and record.get("function") in (
+            "min",
+            "max",
+        ):
+            # MIN and MAX keep the exact value of their one direct argument.
+            pending.extend(record.get("arguments")[:1])
         else:
             raise ScalarMeaningError("MEANING_OUTPUT")
     if len(found) != 1:

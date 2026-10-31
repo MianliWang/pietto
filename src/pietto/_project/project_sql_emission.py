@@ -964,6 +964,9 @@ def _document(outcome, artifact, request, columns, source_map, slots):
             evidence = setting.requirement_evidence(artifact.ast, item)
         elif item.kind in {"values_rows", "values_column", "table_function"}:
             evidence = valuing.requirement_evidence(artifact.ast, item)
+        # A bigint result the target bounds with its checked signed 64-bit
+        # operation or narrowing (SQLSTATE 22003) rather than a static range.
+        evidence = evidence + [{"overflow": token} for token in item.evidence]
         requirements.append(
             {
                 "denominator": "generated",

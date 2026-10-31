@@ -399,3 +399,16 @@ lead 2026-10-28 问是否提高 D71.09“至多 3 个隔离 worker（加一个�
 | 版本号 | 这次发行是 `0.1.6`（所有者原话提到 `0.1.6.1`）；Phase71 的完成版由 `0.1.6` 改为 `0.1.7`。D71.05、D71.09 与 [Phase71 路线](phases/phase-71/slices.md)中指向 Phase71 完成版的现行文字随之改为 `0.1.7`，S23 准备的是 `0.1.7` 的发行决策材料。 |
 
 本节不授权发行提交的 push、tag `v0.1.6`、GitHub pre-release 或 PyPI 上传：与 `0.1.5` 一样，这条发布链需要所有者的明确批准，PyPI 上传由所有者用自己的 token 完成。D71.01–D71.12 的其余内容不变。
+
+
+## Project emission and bounded Phase71 continuation — owner decisions (2026-10-31)
+
+- 项目 emission 的 Q2 受检 bigint 规则明确允许 PostgreSQL 在规划期或执行期
+  报 SQLSTATE 22003，包括空表和未取分支；保证不返回回绕错值，不保证报错时机。
+  这修正了旧设计中“静态区间拒绝能排除所有规划期错误”的前提。
+- 所有者批准批量 `emit-sql --all` 的设计与目录方案 A：只新建目录，逐文件原子写，
+  manifest 最后写；崩溃可留下无 manifest 的不完整目录。单产物字节保持不变，
+  公开 Python compile API 本次只设计，留待 Phase75。
+- 在保留历史计数及 UNKNOWN 的前提下，仅第一个项目 emission interlude、B4 与
+  中点复查增加独立 causal 20 / focused 30 / diagnostic 40 余额，逐次记账，接近即停。
+  这不重置旧账，不增加 scope、Teach、Docker 或发行权限；D71.09 的批次发布规则不变。

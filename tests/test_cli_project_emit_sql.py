@@ -2054,7 +2054,7 @@ query renamed:
 query arithmetic:
     from items
     select:
-        d = qty + 1
+        d = qty * 0 + 9223372036854775807 + 1
 
 query plain:
     from items
@@ -2181,15 +2181,17 @@ def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None
         "pietto.sql-emission.v1 BLOCKED\n"
         "blocker PIE-B1002 REPRESENTATION: arithmetic_outside_physical_range"
         " (main.pietto:37:9)\n"
-        "  hint: an Int field ranges over its whole storage type; its declared"
-        " int_range does not narrow that, so the result must fit the storage"
-        " type\n",
+        "  hint: every value of this result lies outside a signed 64-bit"
+        " integer, so PostgreSQL's checked bigint operation could only fail\n",
     )
-    # The field's storage, not the family's widest, bounds the result: the
-    # hint names none.
-    assert emission_cli._blocker_hint(
-        "arithmetic_outside_physical_range", "mysql"
-    ) == emission_cli._blocker_hint("arithmetic_outside_physical_range", "postgres")
+    # PostgreSQL's checked bigint `qty + 1` is admitted (Q2): only a range
+    # wholly outside signed 64 bits stays refused. MySQL computes every Int
+    # operation in signed 64 bits and refuses any result not proved to fit.
+    assert emission_cli._blocker_hint("arithmetic_outside_physical_range", "mysql") == (
+        "an Int field ranges over its whole storage type; its declared"
+        " int_range does not narrow that, so the result must fit a signed"
+        " 64-bit integer"
+    )
     # Premise and target refusals name the reviewed value to write.
     assert _reasons(
         tmp_path,

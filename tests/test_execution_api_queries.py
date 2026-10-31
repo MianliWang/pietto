@@ -1148,15 +1148,20 @@ def test_each_slot_is_one_literal_in_the_compiler_order(tmp_path, unconnected):
     query = compiled(stages)
     assert query.slots == ("Int", "Int", "Text", "Int")
     assert literals(query, text) == ["30", "1", '"x"', "7"]
-    # Inside arithmetic a slot takes only values whose results stay
     # The source's full int4 range is proved; each literal anchors the result
-    # in int8. Both bonus = id + v and more = bonus + 7 must fit that carrier.
+    # in int8. Up to `largest`, bonus = id + v and more = bonus + 7 provably
+    # fit it; past it, `more` meets but may leave signed 64 bits, which
+    # PostgreSQL's checked bigint `+` bounds (Q2): the binding is accepted
+    # and the bound statement says the target checks it.
     largest = 2**63 - 1 - (2**31 - 1) - 7
     assert bound(run(query, (largest, 1, "x", 7)))[1] == (largest, 1, "x", 7)
-    assert refused(run, query, (largest + 1, 1, "x", 7)) == (
-        "PIE-R1004",
-        "BINDING_INVALID",
-    )
+    checked = run(query, (largest + 1, 1, "x", 7))
+    assert bound(checked)[1] == (largest + 1, 1, "x", 7)
+    assert [
+        r.evidence
+        for r in checked._owner.request.artifact.generated_requirements
+        if r.evidence
+    ] == [("target_checked_signed64_narrowing",)]
     reading = (
         "table b:\n    from items\n    where id > 2\n    select:\n        id\n"
         "table a:\n    from items\n    where id > 1\n    select:\n        id\n"

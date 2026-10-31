@@ -782,6 +782,404 @@ def test_avg_argument_cast_and_spelling_are_closed_data_relations(
     ).corresponds
 
 
+TARGET_CHECKED = "target_checked_signed64_narrowing"
+
+
+def test_sum_casts_and_checked_evidence_are_closed_data_relations(tmp_path_factory):
+    """Q1: a public consumer admits PostgreSQL SUM(Int) only with its bigint
+    argument and result casts, its nullable signed 64-bit result and the R13
+    target-checked evidence."""
+    artifact, data = _observed(
+        tmp_path_factory, "postgres", "V_aggregate_blocked", "sum_direct"
+    )
+    document = json.loads(data)
+    (column,) = _records(document, "aggregate_value_column")
+    assert (
+        column["function"],
+        column["spelling"],
+        column["argument_cast"],
+        column["result_cast"],
+    ) == ("sum", "SUM", "pg_catalog.int8", "pg_catalog.int8")
+    assert [
+        r["evidence"]
+        for r in _records(document, "generated_requirement")
+        if r["evidence"]
+    ] == [[TARGET_CHECKED]]
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def field(name, value):
+        def edit(candidate):
+            _records(candidate, "aggregate_value_column")[0][name] = value
+
+        return edit
+
+    def evidence(value):
+        def edit(candidate):
+            for requirement in _records(candidate, "generated_requirement"):
+                if requirement["kind"] == "aggregate":
+                    requirement["evidence"] = value
+
+        return edit
+
+    def narrowed(candidate):
+        (value,) = _records(candidate, "aggregate_value_column")
+        realization = _record(
+            candidate, _record(candidate, value["column"])["realization"]
+        )
+        realization["domain"]["min"] = "0"
+
+    for edit in (
+        field("result_cast", None),
+        field("argument_cast", None),
+        field("result_cast", "pg_catalog.int4"),
+        field("spelling", "MAX"),
+        field("function", "max"),
+        evidence([]),
+        evidence([TARGET_CHECKED, TARGET_CHECKED]),
+        narrowed,
+    ):
+        assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
+
+
+@pytest.mark.parametrize(
+    ("expression", "static_expression", "kind"),
+    (
+        ("id + 1", "id + 0", "arithmetic"),
+        ("id - 1", "id - 0", "arithmetic"),
+        ("id * 2", "id * 1", "arithmetic"),
+        ("-id", "+id", "arithmetic"),
+        ("abs(id)", "abs(id * 0)", "scalar_call"),
+    ),
+)
+def test_checked_bigint_evidence_is_claimed_only_where_it_can_hold(
+    tmp_path_factory, expression, static_expression, kind
+):
+    """Q2: the token belongs to a PostgreSQL bigint sign, arithmetic or `abs`
+    whose clipped range meets an end of signed 64 bits, and to no other
+    requirement."""
+    item = emission.fixture("postgres", "V_row_blocked", "int_overflow")
+    source = item["source"].replace("big = id + 1", "big = " + expression)
+    _, outcome = emission.build_case(
+        tmp_path_factory.mktemp("checked-bigint"),
+        source,
+        item["contract"],
+        item["policy"],
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    artifact = outcome.artifact
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    data = observed.canonical_bytes
+    document = json.loads(data)
+    assert [
+        (r["kind"], r["evidence"])
+        for r in _records(document, "generated_requirement")
+        if r["evidence"]
+    ] == [(kind, [TARGET_CHECKED])]
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def claimed(kind):
+        def edit(candidate):
+            for requirement in _records(candidate, "generated_requirement"):
+                if requirement["kind"] == kind:
+                    requirement["evidence"] = [TARGET_CHECKED]
+
+        return edit
+
+    def bounded(candidate):
+        (operation,) = _records(candidate, "sql_operation")
+        realization = _record(candidate, operation["realization"])
+        realization["domain"].update(min="0", max="10")
+
+    def dropped(candidate):
+        for requirement in _records(candidate, "generated_requirement"):
+            if requirement["evidence"]:
+                requirement["evidence"] = []
+
+    def bounded_and_dropped(candidate):
+        bounded(candidate)
+        dropped(candidate)
+
+    def renamed(candidate):
+        for requirement in _records(candidate, "generated_requirement"):
+            if requirement["evidence"]:
+                requirement["evidence"] = ["target_checked_signed32_narrowing"]
+
+    def floating_claim_without_token(candidate):
+        (operation,) = _records(candidate, "sql_operation")
+        realization = _record(candidate, operation["realization"])
+        realization.update(
+            tag="Float",
+            storage={"kind": "pg_float8"},
+            domain={"format": "binary64", "kind": "finite_float"},
+        )
+        dropped(candidate)
+
+    for edit, detail in (
+        (claimed("reference"), "generated evidence"),
+        (claimed("read_only_select_bytes"), "generated evidence"),
+        (bounded, "target checked result"),
+        (dropped, "target checked evidence"),
+        (bounded_and_dropped, "target checked result"),
+        (renamed, "target checked evidence"),
+        (floating_claim_without_token, "target checked proof"),
+    ):
+        assert _status(_mutated(data, edit)) == (pure.Status.INVALID_RELATION, detail)
+
+    contract = json.loads(item["contract"])
+    contract["sources"][0]["fields"][0]["representation"]["domain"] = {
+        "kind": "int_range",
+        "min": "0",
+        "max": "10",
+    }
+    for narrow in ("id + 1", "nullif(id, 0) + 1"):
+        _, outcome = emission.build_case(
+            tmp_path_factory.mktemp("checked-bigint-narrow"),
+            item["source"].replace("big = id + 1", "big = " + narrow),
+            emission.encoded(contract).decode(),
+            item["policy"],
+        )
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        observation = portable.export_emission_observation(
+            outcome.artifact, outcome.artifact.request
+        )
+        assert observation.status is portable.ObservationStatus.OK
+        assert observation.canonical_bytes is not None
+        assert portable.verify_emission_observation(
+            observation.canonical_bytes, outcome.artifact, outcome.artifact.request
+        ).corresponds
+
+    _, static = emission.build_case(
+        tmp_path_factory.mktemp("checked-bigint-static"),
+        item["source"].replace("big = id + 1", "big = " + static_expression),
+        item["contract"],
+        item["policy"],
+    )
+    assert static.status == "VERIFIED" and static.artifact is not None
+    static_observation = portable.export_emission_observation(
+        static.artifact, static.artifact.request
+    )
+    assert static_observation.canonical_bytes is not None
+    assert _status(_mutated(static_observation.canonical_bytes, claimed(kind))) == (
+        pure.Status.INVALID_RELATION,
+        "target checked evidence",
+    )
+
+
+def test_checked_bigint_evidence_rebuilds_public_provenance(tmp_path_factory):
+    """Q2 proof follows actual producers, rather than a declared source range."""
+    item = emission.fixture("postgres", "V_row_blocked", "int_overflow")
+    head = item["source"].split("table result:", 1)[0]
+    contract = json.loads(item["contract"])
+    contract["sources"][0]["fields"][0]["representation"]["domain"] = {
+        "kind": "int_range",
+        "min": "0",
+        "max": "10",
+    }
+    sources = (
+        head
+        + """table result:
+    from rows
+    let carried = id
+    select:
+        big = carried + 1
+""",
+        head
+        + """table result:
+    from rows
+    select:
+        big = coalesce(None, id) + 1
+""",
+        head
+        + """table result:
+    from rows
+    select:
+        big = (id if flag else None) + 1
+""",
+        head
+        + """table result:
+    from rows
+    select:
+        big = len(text) + id
+""",
+        head
+        + """table first:
+    from rows
+    select:
+        counted = count()
+query result:
+    from first
+    select:
+        big = counted + 1
+""",
+        head
+        + """table first:
+    from rows
+    select:
+        ranked = row_number() window(order by id)
+query result:
+    from first
+    select:
+        big = ranked + 1
+""",
+    )
+    for source in sources:
+        _, outcome = emission.build_case(
+            tmp_path_factory.mktemp("checked-bigint-provenance"),
+            source,
+            emission.encoded(contract).decode(),
+            item["policy"],
+        )
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        observation = portable.export_emission_observation(
+            outcome.artifact, outcome.artifact.request
+        )
+        assert observation.status is portable.ObservationStatus.OK
+        assert observation.canonical_bytes is not None
+        assert portable.verify_emission_observation(
+            observation.canonical_bytes, outcome.artifact, outcome.artifact.request
+        ).corresponds
+        assert any(
+            requirement["evidence"] == [TARGET_CHECKED]
+            for requirement in _records(
+                json.loads(observation.canonical_bytes), "generated_requirement"
+            )
+        )
+
+
+def test_postgres_window_keys_keep_their_closed_source_carriers(tmp_path):
+    """Window and result keys retain their qualified source type and carrier."""
+
+    def observed(name, body):
+        _, outcome = emission.temporal_case(tmp_path / name, "postgres", body)
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        artifact = outcome.artifact
+        observation = portable.export_emission_observation(artifact, artifact.request)
+        assert observation.status is portable.ObservationStatus.OK
+        assert observation.canonical_bytes is not None
+        data = observation.canonical_bytes
+        assert portable.verify_emission_observation(
+            data, artifact, artifact.request
+        ).corresponds
+        return data
+
+    windows = observed(
+        "windows",
+        """    from rows
+    select:
+        date_rank = row_number() window(partition by d order by d)
+        uuid_rank = row_number() window(partition by u order by u)
+""",
+    )
+    ordered = observed(
+        "result-order",
+        """    from rows
+    select:
+        id
+    order by d, u
+""",
+    )
+
+    def carrier(kind, tag, storage, domain, replacement_tag=None):
+        def edit(candidate):
+            for item in _records(candidate, kind):
+                stage = _record(candidate, item["read"])
+                realization = _record(candidate, stage["realization"])
+                if realization["tag"] == tag:
+                    realization["storage"] = dict(sorted(storage.items()))
+                    realization["domain"] = dict(sorted(domain.items()))
+                    if replacement_tag is not None:
+                        realization["tag"] = replacement_tag
+                    return
+            raise AssertionError(tag)
+
+        return edit
+
+    for data, kinds, reason in (
+        (
+            windows,
+            ("window_order_item", "window_partition"),
+            "window comparison carrier",
+        ),
+        (ordered, ("result_order_item",), "result order carrier"),
+    ):
+        for kind in kinds:
+            for tag, storage, domain, replacement in (
+                (
+                    "Date",
+                    {"fractional_seconds": 6, "kind": "pg_timestamp"},
+                    {"kind": "timestamp"},
+                    None,
+                ),
+                (
+                    "Date",
+                    {"fractional_seconds": 6, "kind": "pg_timestamp"},
+                    {"kind": "timestamp"},
+                    "Timestamp",
+                ),
+                ("UUID", {"kind": "pg_date"}, {"kind": "date"}, None),
+                ("UUID", {"kind": "pg_date"}, {"kind": "date"}, "Date"),
+            ):
+                assert _status(
+                    _mutated(data, carrier(kind, tag, storage, domain, replacement))
+                ) == (
+                    pure.Status.INVALID_RELATION,
+                    reason,
+                )
+
+
+def test_mysql_derived_date_order_keeps_its_closed_carrier(tmp_path):
+    _, outcome = emission.temporal_case(
+        tmp_path,
+        "mysql",
+        """    from rows
+    let day_key = date_of(ts)
+    select:
+        day = day_key
+    order by day_key
+""",
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    artifact = outcome.artifact
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    data = observed.canonical_bytes
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def changed(candidate):
+        (item,) = _records(candidate, "result_order_item")
+        stage = _record(candidate, item["read"])
+        assert stage["field"] is None
+        realization = _record(candidate, stage["realization"])
+        assert realization["tag"] == "Date"
+        realization["storage"] = {"fractional_seconds": 6, "kind": "my_datetime"}
+        realization["domain"] = {"kind": "timestamp"}
+
+    assert _status(_mutated(data, changed)) == (
+        pure.Status.INVALID_RELATION,
+        "date_of result carrier",
+    )
+
+    def changed_type(candidate):
+        changed(candidate)
+        (item,) = _records(candidate, "result_order_item")
+        stage = _record(candidate, item["read"])
+        _record(candidate, stage["realization"])["tag"] = "Timestamp"
+
+    assert _status(_mutated(data, changed_type)) == (
+        pure.Status.INVALID_RELATION,
+        "date_of result carrier",
+    )
+
+
 def test_sql_only_and_sidecar_only_corruptions_reject(tmp_path_factory):
     _, data = _observed(
         tmp_path_factory, "postgres", "R_fixed_direct", "table_preserve"
@@ -1589,3 +1987,84 @@ def test_a_collect_emission_stays_outside_the_observation_schema(
             b"{}\n", artifact, artifact.request
         )
         assert checked.issues == ("outside_schema",)
+
+
+def test_int8_widening_is_a_closed_data_relation(tmp_path):
+    """A public consumer admits the bigint CAST of a narrow PostgreSQL
+    operation exactly where its range leaves the operands' own type."""
+    base = emission.fixture("postgres", "T_row_direct", "table_preserve")
+    head = base["source"].split("table result:", 1)[0]
+    _, outcome = emission.build_case(
+        tmp_path,
+        head + "table result:\n    from rows\n    select:\n        doubled = id + id\n",
+        base["contract"],
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    data = observed.canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+    document = json.loads(data)
+    ranges = _records(document, "rendered")[0]["expression_ranges"]
+    assert [_record(document, ref)["role"] for ref in ranges].count("int8_widen") == 1
+
+    def redundant(candidate):
+        # The result range now fits int4: the widening would be redundant.
+        _record(candidate, ("realization", 1))["domain"].update(min="0", max="10")
+
+    def narrow_result(candidate):
+        _record(candidate, ("realization", 1))["storage"] = {"kind": "pg_int4"}
+
+    def unwidened(candidate):
+        rendered = _records(candidate, "rendered")[0]
+        rendered["expression_ranges"] = [
+            ref
+            for ref in rendered["expression_ranges"]
+            if _record(candidate, ref)["role"] != "int8_widen"
+        ]
+
+    for edit, recanonical in (
+        (redundant, False),
+        (narrow_result, False),
+        (unwidened, True),
+    ):
+        assert _status(_mutated(data, edit, recanonical=recanonical)) == (
+            pure.Status.INVALID_RELATION,
+            "int8 widening",
+        )
+
+
+def test_a_date_orders_a_postgresql_string_agg_for_a_public_consumer(tmp_path):
+    """The string_agg ORDER BY carrier domain the emitter admits through the
+    GROUP BY equality law, a Date included, is the one a consumer accepts."""
+    base = emission.fixture("postgres", "T_row_direct", "table_preserve")
+    head = base["source"].split("table result:", 1)[0]
+    assert "    ratio: Float\n" in head
+    contract = json.loads(base["contract"])
+    (field,) = [f for f in contract["sources"][0]["fields"] if f["name"] == "ratio"]
+    field["representation"] = {
+        "storage": {"kind": "pg_date"},
+        "nullable": False,
+        "domain": {"kind": "date"},
+    }
+    _, outcome = emission.build_case(
+        tmp_path,
+        head.replace("    ratio: Float\n", "    ratio: Date\n")
+        + "table result:\n    from rows\n    group by id\n    select:\n"
+        + '        key = id\n        names = string_agg(text, ",", order by ratio desc)\n',
+        json.dumps(contract),
+    )
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED" and artifact is not None, outcome.blockers
+    assert b' DESC) AS "c1"' in artifact.rendered.sql
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    data = observed.canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds

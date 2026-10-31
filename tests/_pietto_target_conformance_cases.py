@@ -525,6 +525,20 @@ def meaning_logical(variant):
     )
 
 
+CHECKED_BIGINT_ROWS = {
+    ("V_row_blocked", "int_overflow"): ("big", lambda value: value + 1),
+    ("V_row_blocked", "unary_overflow"): ("negated", lambda value: -value),
+}
+
+
+def checked_bigint_expectation(target, case, variant):
+    """PostgreSQL only (Q2): the checked bigint operation over the emission
+    ids stays inside signed 64 bits, so every row has its exact value."""
+    label, image = CHECKED_BIGINT_ROWS[case, variant]
+    rows = [[_int(str(image(int(row[1]["value"]))))] for row in emission_rows(target)]
+    return rows, label
+
+
 def between_rows(target):
     return [
         [_bool(target, int(row[1]["value"]) in {0, 1})] for row in emission_rows(target)
@@ -1040,6 +1054,13 @@ AGGREGATE_TYPE_CODES = {
 
 def aggregate_rows(target, case, variant):
     """The exact typed BAG one aggregate case must observe on this target."""
+    if (case, variant) == ("V_aggregate_blocked", "sum_direct"):
+        # PostgreSQL only (Q1): 10 + 20 + 30, the two NULL values adding
+        # nothing, accumulated exactly and narrowed to bigint.
+        return [[_integer("60")]]
+    if (case, variant) == ("V_aggregate_blocked", "sum_hidden_right"):
+        # The keys 0, 1, 1 and NULL never equal the global sum 60.
+        return []
     if (case, variant) == ("V_aggregate_blocked", "avg_direct"):
         # The qualified `value` carrier contributes 10, 20 and 30; AVG's
         # selected target cast publishes their exact binary64 mean.
@@ -1618,6 +1639,18 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
             != list(expected_logical)
         ):
             raise ValueError("qualified meaning positional physical/logical metadata")
+        return
+    if (case_id, variant_name) in CHECKED_BIGINT_ROWS:
+        expected_rows, label = checked_bigint_expectation(target, case_id, variant_name)
+        if (
+            target != "postgres"
+            or Counter(json.dumps(row, sort_keys=True) for row in observation["rows"])
+            != Counter(json.dumps(row, sort_keys=True) for row in expected_rows)
+            or [m[:2] for m in observation["metadata"]] != [[label, 20]]
+            or [(c["label"], c["logical_type"]["name"]) for c in document["columns"]]
+            != [(label, "Int")]
+        ):
+            raise ValueError("checked bigint typed BAG or metadata mismatch")
         return
     if (case_id, variant_name) == ("V_row_blocked", "between"):
         if (

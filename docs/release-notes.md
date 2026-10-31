@@ -6,6 +6,92 @@ These changes are on `main` after `0.1.6` and are in no published release
 yet. They do not assign a new version or replace the published 0.1.6 release
 notes.
 
+### Project SQL emission: numeric and temporal operations
+
+- **Narrow Int arithmetic in bigint on PostgreSQL.** `emit-sql --project`
+  computes a `+`, `-`, `*`, unary `-` or `abs` over `pg_int2`/`pg_int4`
+  operands whose exact range leaves that type in `bigint`, writing
+  `CAST(x AS pg_catalog.int8)` around its first operand, so `id + id`,
+  `id * id`, `-id` and `abs(id)` over an `int4` field are now emitted instead
+  of `PIE-B1002`. The proof is static (a narrow operation always fits 64
+  bits), so a parameterized template such as `-nullif(id, low)` now carries no
+  `int_range_representable` obligation and binds; before, it kept an `int4`
+  carrier that no binding could satisfy. An operation that already fits its
+  narrow type, an operation with a `bigint` operand (`id + 1` with its literal
+  anchored to `bigint` included) and every MySQL statement are unchanged, and
+  arithmetic that may leave 64 bits stays `PIE-B1002` except on PostgreSQL
+  `bigint` operands (see the checked bigint rule below). For a still-BLOCKED
+  PostgreSQL operation, the blocker hint says every result lies outside signed
+  64 bits and PostgreSQL's checked operation could only fail; the MySQL hint
+  keeps the signed-64-bit fit requirement. A public consumer of the
+  emission observation accepts the new `int8_widen` overlay only where this
+  rule requires it.
+- **Date source fields.** An emission contract may map a `Date` field to
+  PostgreSQL `pg_date` or MySQL `my_date` with the `date` domain. Such a field,
+  like a derived Date, supports carrying, `==`/`!=`, `count`,
+  `count_distinct`, DISTINCT, GROUP BY and `year`/`month`/`day`, and unlike a
+  derived Date it is an equality JOIN key (INNER, LEFT, RIGHT); a FULL JOIN on
+  a Date key stays refused.
+- **Timestamp and Date ordering.** Timestamp and Date values of one carrier
+  compare with `<`, `<=`, `>`, `>=` and inclusive comparison chains, in WHERE
+  and in a JOIN ON condition alike (`on a.id == b.id and a.ts <= b.ts`),
+  order a result or a window, and on PostgreSQL are `min`/`max` arguments,
+  whose result keeps the carrier and, for a Timestamp, its result-contract
+  meaning (MySQL keeps `PIE-B1003` for these `min`/`max`). Timestamp, Date and
+  UUID values may partition a window; UUID ordering follows below. `min`/`max`
+  of a UUID stays refused, and a Timestamp never compares with a Date.
+- **Exact `sum(Int)` on PostgreSQL.** `emit-sql --project` now emits a
+  PostgreSQL `sum` of a direct `Int` input as
+  `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)` instead of
+  `PIE-B1004` (`sum_int_aggregate_range_proof_missing`): the sum accumulates
+  exactly, and its result is a nullable `Int` with storage `pg_int8` over the
+  whole signed 64-bit range. A sum outside that range is never returned as a
+  wrong value: the statement may be refused at run time with SQLSTATE 22003
+  (`bigint out of range`), and whether and when that happens depends on the
+  execution plan (a LIMIT may stop before the value is computed; a group that
+  a later filter drops may still raise it). The aggregate's generated R13
+  requirement carries the new evidence
+  `{"overflow": "target_checked_signed64_narrowing"}`. This revises Phase66
+  R13, which admitted no final aggregate CAST, and differs from single-file
+  `emit-sql`, whose bare `SUM(x)` returns an exact `numeric` for a `bigint`
+  column that may leave signed 64 bits. MySQL keeps `PIE-B1004`, as its
+  `CAST(DECIMAL AS SIGNED)` would clamp such a sum; a `Decimal` or `Float`
+  `sum` or `avg` keeps its own `PIE-B1004` on both targets.
+- **Checked bigint arithmetic on PostgreSQL.** An `Int` sign, `+`, `-`, `*`
+  or `abs` over `bigint` operands whose exact range leaves signed 64 bits but
+  meets them, such as `qty + 1`, `-qty` or `abs(qty)` over a `pg_int8` field,
+  is now emitted unchanged instead of `PIE-B1002`: PostgreSQL's `bigint`
+  operators are checked, so an out-of-range value is the same run-time
+  SQLSTATE 22003 and never a wrapped one. The result keeps the part of the
+  exact range inside signed 64 bits, and the operation's generated R05
+  requirement carries the same evidence. PostgreSQL may also raise the
+  error while planning, wherever it reduces the operands to constants, such
+  as `(9223372036854775807 if True else 0) + 1` or a bound value, even over
+  no rows or in a branch no row takes. A range wholly outside signed 64 bits,
+  such as that of a constant, stays `PIE-B1002`, as such an operation could
+  only fail. A parameterized template keeps its
+  `int_range_representable` obligation, and on PostgreSQL a binding now
+  discharges it under the same rule when the bound range meets signed 64
+  bits. Likewise a slot value under a sign or inside arithmetic whose result
+  only meets signed 64 bits now binds on PostgreSQL instead of `PIE-R1004`
+  (`BINDING_INVALID`), so `execute()` may then fail after connecting, with
+  `PIE-R3003` and SQLSTATE 22003, where it refused the value before. MySQL
+  keeps `PIE-B1002` until a real-database differential reviews its `BIGINT`
+  overflow error.
+- **UUID ordering on PostgreSQL.** UUID values of one carrier now compare
+  with `<`, `<=`, `>`, `>=` and inclusive comparison chains, order a result
+  and order a window on PostgreSQL, by their 16 bytes compared as unsigned
+  big-endian values, the order of PostgreSQL `uuid_cmp` and of Python
+  `uuid.UUID`. MySQL keeps them BLOCKED (`PIE-B1003` for a comparison or
+  result ORDER, `PIE-B1002` for a window ORDER key) until a real-database
+  differential reviews its `BINARY(16)` byte order; `min` and `max` of a UUID
+  stay `PIE-S2314`.
+- **Observation and evidence.** The private emission observation records
+  each generated requirement's evidence tokens and each aggregate's
+  `result_cast`, and a public consumer admits `SUM`, its two casts and
+  `target_checked_signed64_narrowing` only where the rules above produce
+  them.
+
 ### Checking and diagnostics
 
 - **Phase71 nested-relation spellings are checked.** In an EXPLICIT_MODULES

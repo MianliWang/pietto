@@ -717,6 +717,9 @@ isolated Python, current ordinary wheel and registered disposable fixtures. Gene
 output correspondence, metadata and lossless carrier checks feed the existing scalar,
 batch and Arrow consumers; source/installed PG and test-only MySQL/ADBC claims stay
 separate. The finite named query/type manifest preserves original target exclusions.
+The campaign defaults to both targets; an explicit `--target postgres` keeps the
+complete PostgreSQL rows source/installed and ADBC workers while recording the selected
+target in its report. It is not evidence for MySQL.
 Shared binder/decoder changes require current dependent native acceptance. Ordinary
 pytest remains offline; focused/direct readers, full typing/Ruff, required package
 smoke and the complete guarded unfiltered Python3.13 validator remain local gates.

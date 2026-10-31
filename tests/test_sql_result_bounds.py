@@ -859,3 +859,41 @@ def test_result_body_repr_is_bounded():
     for value in (body, body.distinct, body.order, body.order.items[0], body.limit):
         text = repr(value)
         assert len(text) < 512 and "ProjectSQL" not in text
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_timestamp_date_and_postgresql_uuid_keys_order_a_result(tmp_path, target):
+    """R19 orders one exact Timestamp or Date carrier as it orders Int keys;
+    a UUID orders by its unsigned big-endian bytes on PostgreSQL only (Q3)
+    and stays out of MySQL ORDER."""
+    checked, outcome = probe.temporal_case(
+        tmp_path / "ordered",
+        target,
+        "    from rows\n    select:\n        t = ts\n        day = d2\n"
+        "    order by ts desc, d2\n",
+    )
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    q = Q[target]
+    assert public["sql"].endswith(
+        f" ORDER BY {q}t0{q}.{q}c2{q} DESC, {q}t0{q}.{q}c3{q} ASC"
+    )
+    checked, outcome = probe.temporal_case(
+        tmp_path / "uuid",
+        target,
+        "    from rows\n    select:\n        key = u\n    order by u desc\n",
+    )
+    assert checked.verified
+    if target == "mysql":
+        assert outcome.status == "BLOCKED"
+        assert [(b.code, b.detail) for b in outcome.blockers] == [
+            ("PIE-B1003", "order_comparison_domain_unsupported")
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert public["sql"] == (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."u" AS "c0", "s0"."u" AS "c1"'
+        ' FROM "public"."phase66 safe int source" AS "s0") SELECT "t0"."c0" AS'
+        ' "key" FROM "p0" AS "t0" ORDER BY "t0"."c1" DESC'
+    )

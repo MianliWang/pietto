@@ -1493,3 +1493,20 @@ It changes no macro phase decision, numbered Slice, public format or package ver
 ## 2026-09-26 Phase67 Slice07 V05 conditional refinement
 
 [Slice07](../phases/phase-67/slice-07.md) 经明确批准实现private source-bound meaning acquisition及独立核验；V05原年级outline细化为civil microsecond inclusive1000-01-01 00:00:00.000000至9999-12-31 23:59:59.499999。该精确末端取自MySQL8.4手册的保守共同域，非pinned server实测。标准UUID全部128bits big-endian的原选择保持。默认public/CLI调用与既有native缺meaning负例不改变；只有显式private证据且field-only scan/projection可进入新结果域，后续native/公开接口接线须另行明确授权。原V05条件记录保留，不追认为历史已实现。
+
+## 2026-10-30 Project-emission interlude R05/R13/R14/R19 revision
+
+Owner decisions Q1-Q3 (option A each, 2026-10-30) revise four rows on
+PostgreSQL only; MySQL keeps every earlier boundary. R13: `sum(Int)` of a
+direct Int input is `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`,
+a nullable signed64 result; this replaces "no generic final CAST" for that one
+aggregate, and MySQL keeps `PIE-B1004`. R05: an Int sign, arithmetic or `abs`
+over `bigint` operands whose exact range meets but leaves signed 64 bits uses
+the checked `bigint` operators, its range clipped to signed 64 bits; a
+disjoint range stays `PIE-B1002`. Both carry the generated-requirement
+evidence token `target_checked_signed64_narrowing`: an out-of-range value is
+the run-time SQLSTATE 22003, never a wrong value. R14/R19 and the R05
+comparison domain: a UUID orders by its 16 bytes as unsigned big-endian
+values (PostgreSQL `uuid_cmp`), as a comparison operand, result ORDER key and
+window ORDER key; `min`/`max` of a UUID stay semantic `PIE-S2314`. Every other
+approved boundary, public format and package version is unchanged.

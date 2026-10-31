@@ -3,7 +3,7 @@
 Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#future-roadmap-v6) Future Roadmap v6 中 Phase 71 一行：NestedRelation、Collect、Unnest、flatten、outer/inner grain、nested Arrow），只在 EXPLICIT_MODULES 项目与 PostgreSQL 上提供。
 本路线已由只含文档的路线发布提交 `6e9d7be6` 发布，其自然 exact-head CI `40250919248` attempt 1 的 19 个 job 全部成功：路线锁定，Phase71 开始。
 批次 B1（S01、S02、S03）已发布：S01 `be385507`、S02 `fc5e685c`、S03 `8e0a77d8` 一起 FF push，批次头的自然 exact-head CI `40770576938` 全部 19 个 job 成功；[S01](slice-01.md) 与 [S02](slice-02.md) 记录绑定下一版合成候选 `9511f13563d0`。之后的批次照此规则：只有 FF push 且批次头自然 CI 全部成功才 `COMPLETED / PUBLISHED`，此前都是 candidate。
-`0.1.6` 已从发行提交 `bdb3f567` 发行（tag `v0.1.6`），只含 Phase71 的 B1。批次 B2（S04、S05、S06、S07）建立在该发行提交之上，不属于 `0.1.6`，各片记录见下表的链接；B2 已发布：S04 `0dc5d5c1`、S05 `0da7e40a`、S06 `fb3bc264`、S07 `ee19ee01` 与 `0.1.6` 审计的项目模式小修 `81f0d3b5` 一起 FF push，批次头 `81f0d3b5` 的自然 exact-head CI `41128410841` 全部 19 个 job 成功。当前批次 B3（S08、S09、S10、S11）建立在 main 的 `81f0d3b5` 之上，同样不属于 `0.1.6`，按同一规则发布，此前都是 candidate。
+`0.1.6` 已从发行提交 `bdb3f567` 发行（tag `v0.1.6`），只含 Phase71 的 B1。批次 B2（S04、S05、S06、S07）建立在该发行提交之上，不属于 `0.1.6`，各片记录见下表的链接；B2 已发布：S04 `0dc5d5c1`、S05 `0da7e40a`、S06 `fb3bc264`、S07 `ee19ee01` 与 `0.1.6` 审计的项目模式小修 `81f0d3b5` 一起 FF push，批次头 `81f0d3b5` 的自然 exact-head CI `41128410841` 全部 19 个 job 成功。批次 B3（S08、S09、S10、S11）同样不属于 `0.1.6`，已在 `81f0d3b5` 上发布：四片提交依次为 `d1048d4e`、`20f02afc`、`21205d65`、`c6ae07ab`，批次头 `c6ae07ab` 的树为 `88e19f85`，自然 exact-head CI `41153438678` attempt 2 的 19 个 job 全部成功。attempt 1 的 artifact 上传 `ECONNRESET` 失败保留；所有者特别批准了整次 attempt 2 重跑，不改变以后失败头以子提交修复的规则。项目 emission interlude 后继续 B4（S12 并入 AC-F7、S13、S17），再做中点复查。
 下表是覆盖与依赖基准；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。三层验收 A01–A12、语义契约与支持域见 [brief](brief.md)，外部参考见[外部参考记录](planning-notes.md)，所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
 
 ## 授权与依赖顺序

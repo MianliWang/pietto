@@ -87,7 +87,8 @@ class Shape:
     `sourceless` shape reads neither and its contract describes no source.
     `values` restates the slots of the literal policy, `bindings` gives the
     declared parameters of each execution (None: no header; the first one is
-    saved), `negatives` are execute bindings, `vectors` R1 value restatements
+    saved), `negatives` are execute bindings (one that names its dialects
+    applies to their routes only), `vectors` R1 value restatements
     and `restated` R1 and R2 parameter restatements that must be refused.
     `recovers` is False for a shape of fewer than nine rows that R2 accepts:
     no prefix of it would fail, so R2 runs its probes only."""
@@ -217,8 +218,10 @@ SHAPES = (
         n desc
 """,
         bindings=({"low": 1, "high": None}, {"low": 0, "high": None}),
+        # `id * 2` may leave signed 64 bits: MySQL refuses the binding, while
+        # PostgreSQL's checked bigint `*` bounds it (Q2) and accepts it.
         negatives=(
-            ("obligation", {"low": 2, "high": None}),
+            ("obligation", {"low": 2, "high": None}, ("mysql",)),
             ("null_for_not_null", {"low": None, "high": None}),
         ),
     ),
@@ -239,7 +242,9 @@ SHAPES = (
         id * low
 """,
         bindings=({"low": 1, "label": "a"}, {"low": 1, "label": None}),
-        negatives=(("obligation", {"low": 2, "label": "a"}),),
+        # `low + 1` past the int8 top never fits signed 64 bits, so both
+        # dialects refuse it; `id * low` alone PostgreSQL would check (Q2).
+        negatives=(("obligation", {"low": 2**63 - 1, "label": "a"}),),
         recovers=False,
     ),
     # S04w: a lag offset and default, an ntile bucket, an nth_value position.
@@ -1340,7 +1345,8 @@ def target_facts(
                 "probe": probes,
                 "negatives": {
                     name: _probe(case, "execute", parameters, access, schemas)
-                    for name, parameters in shape.negatives
+                    for name, parameters, *dialects in shape.negatives
+                    if not dialects or target in dialects[0]
                 },
             }
             if native is not None:

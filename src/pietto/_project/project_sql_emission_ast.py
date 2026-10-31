@@ -125,6 +125,9 @@ class GeneratedRequirement:
     subject: object
     rule: str
     premises: tuple[Any, ...]
+    # Evidence tokens beyond the rule itself: TARGET_CHECKED_SIGNED64 marks a
+    # bigint result whose range the target checks instead of a static proof.
+    evidence: tuple[str, ...] = ()
 
 
 def identifier_valid(name, family, *, label=False, relation=False):
@@ -395,6 +398,14 @@ def resolved_representation_problem(
             and storage
             == {"kind": "pg_uuid" if family == "postgres" else "my_uuid_bytes"}
             and domain == {"kind": "uuid", "encoding": "standard_bytes"}
+        )
+    elif tag == "Date":
+        # The proleptic Gregorian civil range 1000-01-01..9999-12-31 without a
+        # time zone; `row_domain_matches` excludes every other target value.
+        valid = (
+            valid
+            and storage == {"kind": "pg_date" if family == "postgres" else "my_date"}
+            and domain == {"kind": "date"}
         )
     elif tag == "Float":
         valid = (
@@ -2716,6 +2727,10 @@ def value_requirements(request, value):
                     node.original.ref,
                     rows.REQUIREMENT_RULES[kind],
                     node_premises(request, node.realization, operands, kind),
+                    (rows.TARGET_CHECKED_SIGNED64,)
+                    if type(node) is rows.SQLOperation
+                    and rows.target_checked(family, node)
+                    else (),
                 )
             )
             continue
@@ -3118,7 +3133,13 @@ def _row_body_requirements(request, body, naming):
         if type(column) is grouping.AggregateValueColumn:
             result.append(
                 GeneratedRequirement(
-                    "aggregate", column.aggregate.ref, "R13", operators
+                    "aggregate",
+                    column.aggregate.ref,
+                    "R13",
+                    operators,
+                    ()
+                    if column.result_cast is None
+                    else (rows.TARGET_CHECKED_SIGNED64,),
                 )
             )
             if column.argument is not None:

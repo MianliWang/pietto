@@ -180,16 +180,21 @@ separately, so `"public.users"` emits `FROM "public"."users"`, and more than
 one dot or an empty part fails `check` with `PIE-S2306`. Project SQL emission
 takes physical schema and relation names from its emission contract.
 
-Project SQL emission carries `Timestamp` and `UUID` fields only as the
+Project SQL emission carries `Timestamp`, `Date` and `UUID` fields only as the
 contract-qualified physical values of its emission contract: Timestamp
 requires PostgreSQL `timestamp without time zone(6)` or MySQL `DATETIME(6)` and
-the fixed civil law, and UUID requires PostgreSQL `uuid` or MySQL `BINARY(16)`
-and standard big-endian bytes. On those carriers it admits carrying and
-projecting the values, `==`/`!=`, `count`, `count_distinct`, `DISTINCT`,
-`GROUP BY`, and direct inner/left/right equality joins; ordering and
-inequality comparison, `min`/`max`, full joins, a `Timestamp` or `UUID`
-window partition or order key, range/as-of behavior, timezone conversion,
-parsing and other casts remain unavailable. See
+the fixed civil law, Date requires PostgreSQL `date` or MySQL `DATE`, and UUID
+requires PostgreSQL `uuid` or MySQL `BINARY(16)` and standard big-endian bytes.
+On those carriers it admits carrying and projecting the values, `==`/`!=`,
+`count`, `count_distinct`, `DISTINCT`, `GROUP BY`, direct inner/left/right
+equality joins and window partition keys. Timestamp and Date values also
+compare with `<`, `<=`, `>`, `>=`, in WHERE and in a JOIN ON condition
+alike, order a result or a window, and are `min`/`max` arguments on
+PostgreSQL, where UUID values also compare and order by their unsigned
+big-endian bytes; `min`/`max` of a UUID (refused by `check` with
+`PIE-S2314`), MySQL UUID ordering, full joins on these keys, range or
+as-of relationships (such as matching only the latest earlier row), timezone
+conversion, parsing and other casts remain unavailable. See
 [Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.6/docs/language.md#timestamp-and-uuid-source-meaning).
 
 ## Reusable row predicates and migration

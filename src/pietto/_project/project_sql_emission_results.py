@@ -79,8 +79,21 @@ DIRECTIONS = {"asc": "ASC", "desc": "DESC"}
 NULL_POSTURE = "target_defined"
 # R19 orders the same exact comparison domain the window stage admits; a Float
 # key stays outside relation ORDER exactly as it stays outside window ORDER.
-ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
-DISTINCT_TAGS = ORDER_TAGS | {"Timestamp", "UUID"}
+# A UUID is DISTINCT everywhere and orders only where its unsigned big-endian
+# byte order is reviewed (`rows.uuid_ordered`).
+ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "Date"})
+DISTINCT_TAGS = ORDER_TAGS | {"UUID"}
+
+
+def order_admitted(family: str, realization: rows.Realization) -> bool:
+    """R19 orders one exactly comparable carrier of its reviewed representation."""
+    return (
+        realization.tag in ORDER_TAGS
+        or realization.tag == "UUID"
+        and rows.uuid_ordered(family)
+    ) and distinct_problem(family, realization) is None
+
+
 # The published rule each retained result-boundary demand belongs to, by
 # subject kind. A projection-role result port and a canonical result export
 # exist for every definition and keep their prior generic attribution.
@@ -108,7 +121,8 @@ def _count(value: Any) -> int | str:
 
 
 def distinct_problem(family: str, realization: rows.Realization) -> str | None:
-    """Keep Q3 equality-only carriers out of ORDER while admitting exact DISTINCT."""
+    """Admit exact DISTINCT over one reviewed carrier representation; the
+    temporal carriers it checks are also the ones ORDER compares."""
     if realization.tag not in DISTINCT_TAGS:
         return "distinct_field_comparison_domain_unsupported"
     if realization.tag == "Timestamp" and (
@@ -118,6 +132,12 @@ def distinct_problem(family: str, realization: rows.Realization) -> str | None:
             "fractional_seconds": 6,
         }
         or realization.domain != {"kind": "timestamp"}
+    ):
+        return "distinct_field_temporal_physical_representation_mismatch"
+    if realization.tag == "Date" and (
+        realization.storage
+        != {"kind": "pg_date" if family == "postgres" else "my_date"}
+        or realization.domain != {"kind": "date"}
     ):
         return "distinct_field_temporal_physical_representation_mismatch"
     if realization.tag == "UUID" and (
@@ -783,7 +803,7 @@ def build_result_body(
                         location,
                     )
                 if (
-                    read.realization.tag not in ORDER_TAGS
+                    not order_admitted(request.family, read.realization)
                     or rows.value_tag(item.source) != read.realization.tag
                 ):
                     return problem(
@@ -1070,7 +1090,9 @@ def build_compiled_result_body(
             zip(order_reads, record.get("ordering"), strict=True)
         ):
             direction = described[1]
-            if direction not in DIRECTIONS or read.realization.tag not in ORDER_TAGS:
+            if direction not in DIRECTIONS or not order_admitted(
+                request.family, read.realization
+            ):
                 raise CompiledError("COMPILED_ORDER_DOMAIN")
             item = boundary("result_order_item", position)
             record_port = request.verification.completed.root.records[described[0]].get(

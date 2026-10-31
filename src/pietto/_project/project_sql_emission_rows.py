@@ -29,7 +29,18 @@ COMPARISONS = {
     "like": " LIKE ",
     "not like": " NOT LIKE ",
 }
-COMPARABLE = ("Int", "Text", "Decimal")
+COMPARABLE = ("Int", "Text", "Decimal", "Timestamp", "Date")
+# One carrier's values order by their exact civil instant or day.
+TEMPORAL = ("Timestamp", "Date")
+
+
+def uuid_ordered(family: str) -> bool:
+    """A UUID orders by its 16 bytes as unsigned big-endian values, as
+    PostgreSQL's uuid_cmp compares them; MySQL keeps equality only until its
+    BINARY(16) order has a real-database differential."""
+    return family == "postgres"
+
+
 # SQL IN is only emitted for carriers with an established equality operation.
 # Other same-canonical semantic values (for example Json or Bytes) stay at the
 # project boundary until their physical equality proof is reviewed.
@@ -1128,15 +1139,118 @@ def _checked_int(storage, low, high, nullable) -> Realization | None:
     )
 
 
+NARROW_PG_INTS = ("pg_int2", "pg_int4")
+INT8_WIDEN = ("CAST(", " AS pg_catalog.int8)")
+SIGNED64 = (-(1 << 63), (1 << 63) - 1)
+# Evidence that a bigint result's range is not proved statically: the target's
+# checked signed 64-bit operation or narrowing refuses an out-of-range value
+# with SQLSTATE 22003 and never returns a wrapped one.
+TARGET_CHECKED_SIGNED64 = "target_checked_signed64_narrowing"
+
+
+def _target_checked_int(family, storage, low, high, nullable) -> Realization | None:
+    """PostgreSQL computes a bigint operation with its checked operators, so a
+    range that meets signed 64 bits is admitted, clipped to it. A range wholly
+    outside it stays refused: such an operation could only fail. An admitted
+    one may still fail while planning, wherever PostgreSQL folds operands it
+    reduces to constants (a constant condition or COALESCE argument, a bound
+    value), even in a branch no row takes."""
+    if (
+        family != "postgres"
+        or storage != {"kind": "pg_int8"}
+        or high < SIGNED64[0]
+        or low > SIGNED64[1]
+    ):
+        return None
+    return _checked_int(
+        storage, max(low, SIGNED64[0]), min(high, SIGNED64[1]), nullable
+    )
+
+
+def target_checked(family: str, operation) -> bool:
+    """Whether one realized Int sign, arithmetic or `abs` relies on the
+    target's checked signed 64-bit operation: its exact range, recomputed from
+    its operands, leaves signed 64 bits."""
+    result = operation.realization
+    if (
+        family != "postgres"
+        or result.tag != "Int"
+        or result.binding
+        or result.storage != {"kind": "pg_int8"}
+    ):
+        return False
+    bounds: list[tuple[int, int]] = []
+    for operand in operation.operands:
+        interval = proven_int_bounds(realization_of(operand, family))
+        if interval is None:
+            return False
+        bounds.append(interval)
+    if operation.kind == "arithmetic" and len(bounds) == 2:
+        low, high = _interval(
+            operation.original.expression.operator, bounds[0], bounds[1]
+        )
+    elif operation.kind == "sign" and len(bounds) == 1:
+        low, high = bounds[0]
+        if operation.original.expression.operator == "-":
+            low, high = -high, -low
+    elif (
+        operation.kind == "scalar_call"
+        and operation.original.callee_symbol.name == "abs"
+        and len(bounds) == 1
+    ):
+        low, high = bounds[0]
+        low, high = max(low, -high, 0), max(-low, high)
+    else:
+        return False
+    return low < SIGNED64[0] or high > SIGNED64[1]
+
+
+def _widened_int(family, storage, low, high, nullable) -> Realization | None:
+    """PostgreSQL computes an int2/int4 operation whose exact range leaves that
+    type in bigint (its first operand CAST to pg_catalog.int8). A narrow
+    operation's exact range always fits bigint, so this proof is static."""
+    if family != "postgres" or storage is None:
+        return None
+    if storage["kind"] not in NARROW_PG_INTS:
+        return None
+    return _checked_int({"kind": "pg_int8"}, low, high, nullable)
+
+
+def int8_widened(family: str, operation) -> bool:
+    """Whether one realized Int operation is computed in bigint over narrow
+    PostgreSQL operands: its rendering CASTs the first operand to int8."""
+    result = operation.realization
+    return (
+        family == "postgres"
+        and (
+            operation.kind in ("sign", "arithmetic")
+            or operation.kind == "scalar_call"
+            and operation.original.callee_symbol.name == "abs"
+        )
+        and result.tag == "Int"
+        and result.storage == {"kind": "pg_int8"}
+        and bool(operation.operands)
+        and all(
+            realization_of(operand, family).storage.get("kind") in NARROW_PG_INTS
+            for operand in operation.operands
+        )
+    )
+
+
 def _unary_int(family, inner, low, high, nullable) -> Realization | None:
     """A one-operand Int result of range ``low``..``high`` in the operand's
-    own signed integer type (unary `+`/`-` and `abs`), proved per binding
-    for a query parameter operand."""
+    own signed integer type (unary `+`/`-` and `abs`), or bigint over a
+    narrow PostgreSQL operand, proved per binding for a query parameter
+    operand that no static type holds."""
     storage = _arithmetic_storage(family, inner, inner)
     checked = _checked_int(storage, low, high, nullable)
+    if checked is None:
+        checked = _widened_int(family, storage, low, high, nullable)
     if checked is None and inner.binding:
         return deferred_int(storage, nullable)
-    return None if checked is None else replace(checked, binding=inner.binding)
+    if checked is None:
+        return _target_checked_int(family, storage, low, high, nullable)
+    return replace(checked, binding=inner.binding)
 
 
 def _decimal_parameters(family: str, value: Realization) -> tuple[int, int] | None:
@@ -1316,10 +1430,14 @@ def resolved_binary_realization(
     storage = _arithmetic_storage(family, left, right)
     binding = left.binding or right.binding
     checked = _checked_int(storage, low, high, nullable)
+    if checked is None:
+        checked = _widened_int(family, storage, low, high, nullable)
     if checked is None and binding:
         checked = deferred_int(storage, nullable)
     elif checked is not None:
         checked = replace(checked, binding=binding)
+    else:
+        checked = _target_checked_int(family, storage, low, high, nullable)
     if checked is None:
         return None, ("PIE-B1002", "arithmetic_outside_physical_range")
     return checked, None
@@ -1383,15 +1501,20 @@ def resolved_comparison_realization(
         return None, ("PIE-B1002", "comparison_result_not_bool")
     if left.tag != right.tag:
         return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
-    if left.tag in {"Timestamp", "UUID"}:
+    if left.tag == "UUID":
         if (
-            operator not in {"==", "!="}
+            not uuid_ordered(family)
+            and operator not in {"==", "!="}
             or left.storage != right.storage
             or left.domain != right.domain
         ):
             return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
         return _bool(family, nullable), None
     if left.tag not in COMPARABLE:
+        return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
+    if left.tag in TEMPORAL and (
+        left.storage != right.storage or left.domain != right.domain
+    ):
         return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
     if left.tag == "Text" and _text_domain(left) != _text_domain(right):
         return None, ("PIE-B1005", "text_comparison_domain_conflict")
@@ -1420,8 +1543,10 @@ def resolved_between_realization(family, tag, nullable, values):
     if len(values) != 3:
         return None, ("PIE-B1008", "between_operand_arity")
     first, lower, upper = values
-    if first.tag not in COMPARABLE or any(
-        value.tag != first.tag for value in (lower, upper)
+    if (
+        first.tag not in COMPARABLE
+        and not (first.tag == "UUID" and uuid_ordered(family))
+        or any(value.tag != first.tag for value in (lower, upper))
     ):
         return None, ("PIE-B1003", "between_type_pair_not_admitted")
     for bound in (lower, upper):

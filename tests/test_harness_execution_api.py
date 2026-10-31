@@ -27,6 +27,7 @@ import _pietto_execution_api_check as check
 import _pietto_execution_api_probe as probe
 import _pietto_execution_joint_acceptance as joint
 import _pietto_execution_joint_acceptance_check as joint_check
+import _pietto_execution_rows_probe as rows_probe
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -2347,3 +2348,158 @@ def test_the_joint_checker_refuses_a_damaged_native_envelope(
     damage(report)
     with pytest.raises(joint_check.Rejected, match="^" + reason + "$"):
         joint_check.check(report)
+
+
+def test_s05_campaign_can_select_only_postgres(tmp_path, monkeypatch):
+    """The D71 PG-only entry still drives every PostgreSQL S05 worker."""
+
+    created, checked, pumped = [], [], []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *unused):
+            return False
+
+        def execute(self, *unused):
+            return None
+
+        def executemany(self, *unused):
+            return None
+
+    class Resources:
+        def __init__(self, target, pin, directory):
+            assert target == "postgres"
+            self.target = target
+            self.directory = directory
+            self.manager = SimpleNamespace(cursor=lambda: Cursor())
+            self.port = 5432
+            self._passwords = ("manager", "query")
+            self.ca_path = directory / "ca.pem"
+            self.events = []
+            created.append(target)
+
+        def acquire(self):
+            return None
+
+        def role_statements(self):
+            return ()
+
+        def cleanup(self):
+            return {"status": "success"}
+
+    class Stream:
+        def close(self):
+            return None
+
+    class Process:
+        def __init__(self, command, **unused):
+            assert command[-1] == "worker"
+            self.stdin = self.stdout = self.stderr = Stream()
+            self.pid = len(pumped) + 1
+
+        def poll(self):
+            return 0
+
+    def helper(name):
+        if name == "_pietto_execution_cases":
+            return SimpleNamespace(PINS={"python": "test"})
+        assert name == "_pietto_target_conformance_resources"
+        return SimpleNamespace(Resources=Resources)
+
+    def pump(process, receive, *, initial, seconds):
+        assert seconds == 180
+        pumped.append((process.pid, initial["route"], initial["origin"]))
+        receive({"event": "result", "data": {"complete": True}})
+
+    monkeypatch.setattr(
+        rows_probe.prior.s01,
+        "runtime_identity",
+        lambda: {"versions": {"python": "test"}},
+    )
+    monkeypatch.setattr(rows_probe.prior.s01, "helper", helper)
+    monkeypatch.setattr(rows_probe.prior.s01, "_pump_child", pump)
+    monkeypatch.setattr(rows_probe.prior.s03, "manager", lambda *unused: None)
+    monkeypatch.setattr(rows_probe, "setup_seven", lambda resources: None)
+    monkeypatch.setattr(
+        rows_probe,
+        "check_worker",
+        lambda directory, origin, route, *, prefix: checked.append(
+            (origin, route, prefix)
+        ),
+    )
+    monkeypatch.setattr(rows_probe.subprocess, "Popen", Process)
+    ledger = tmp_path / "ledger.json"
+    ledger.write_text(
+        json.dumps(
+            {
+                "ceilings": {"source_db_lifecycle_starts": 1},
+                "used": {"source_db_lifecycle_starts": 0},
+                "events": [],
+            }
+        )
+    )
+    args = SimpleNamespace(
+        directory=tmp_path / "campaign", ledger=ledger, target="postgres", tree="tree"
+    )
+
+    rows_probe.campaign(args)
+
+    report = json.loads(
+        (args.directory / (rows_probe.PREFIX + "report.json")).read_text()
+    )
+    assert report["complete"] is True
+    assert report["selected_targets"] == ["postgres"]
+    assert created == ["postgres"]
+    assert [(route, origin) for _, route, origin in pumped] == [
+        ("postgres_rows", "source"),
+        ("postgres_rows", "installed"),
+        ("postgres_adbc", "source"),
+    ]
+    assert [(origin, route) for origin, route, _ in checked] == [
+        ("source", "postgres_rows"),
+        ("installed", "postgres_rows"),
+        ("source", "postgres_adbc"),
+    ]
+    assert json.loads(ledger.read_text())["events"] == [
+        {
+            "kind": "charge",
+            "category": "source_db_lifecycle_starts",
+            "reason": "complete S05 postgres",
+        }
+    ]
+
+
+def test_s05_campaign_parser_defaults_all_and_rejects_unknown_target(monkeypatch):
+    observed = []
+    monkeypatch.setattr(
+        rows_probe, "campaign", lambda args: observed.append(args.target)
+    )
+    monkeypatch.setattr(
+        rows_probe.sys,
+        "argv",
+        ["rows", "campaign", "--directory", "d", "--ledger", "l", "--tree", "t"],
+    )
+    rows_probe.main()
+    assert observed == ["all"]
+
+    monkeypatch.setattr(
+        rows_probe.sys,
+        "argv",
+        [
+            "rows",
+            "campaign",
+            "--directory",
+            "d",
+            "--ledger",
+            "l",
+            "--tree",
+            "t",
+            "--target",
+            "other",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        rows_probe.main()
+    assert error.value.code == 2

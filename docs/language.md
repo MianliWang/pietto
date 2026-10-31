@@ -2453,8 +2453,11 @@ physical signed integers with ranges `1000..9999`, `1..12`, `1..31`, `0..23`,
 and `0..59`, respectively. `date_of` admits that exact Timestamp carrier and
 preserves NULL as a derived Gregorian Date in `1000-01-01..9999-12-31`, emitted
 as PostgreSQL `DATE` or MySQL `DATE`; `year`, `month`, and `day` also accept
-that derived Date. Date has no independent selected-project source, literal,
-parsing, arithmetic, or timezone surface. There is no arbitrary Python
+that derived Date. A `Date` source field requires PostgreSQL `date` or MySQL
+`DATE` over the same civil interval without a time zone, as its source's
+`row_domain_matches` premise declares, and is carried and compared as the
+paragraph on Timestamp and UUID source meaning below describes. Date has no
+literal, parsing, arithmetic, or timezone surface. There is no arbitrary Python
 evaluation, user code execution, or general cast language.
 
 ## Inline functions (`def`)
@@ -2759,18 +2762,42 @@ PIE-B1000 there, as it refuses every aggregate over such a source (see below).
 `count()` lowers to `COUNT(*)`; supported `count(field)` forms count non-null
 field values. The selected project numeric boundary admits Int unary `+`/`-`,
 `abs` and binary `+`, `-`, `*` only when the compiler can propagate a signed
-range that fits the selected physical carrier. `abs` of an `Int` is proved in
-its operand's integer type, as unary `-` is, and fits exactly where `-` fits:
-where `-id` is PIE-B1002 (`unary_result_outside_physical_range`), `abs(id)`
-is PIE-B1002 (`abs_result_outside_physical_range`), though unlike `-` it
-reads no query header parameter (PIE-S2355); `abs` of a `Float` or `Decimal`
-keeps its argument's carrier. It also admits `avg(Int)` for a direct
+range that fits a signed 64-bit integer, or, on PostgreSQL, a `bigint` range
+that leaves signed 64 bits but meets them. The result keeps its operands' own
+integer type where the range fits it; on PostgreSQL an operation on `int2` or
+`int4` operands whose range leaves that type is computed in `bigint`, its first
+operand written `CAST(x AS pg_catalog.int8)`, and MySQL computes every Int
+operation in signed 64 bits. On PostgreSQL an operation on `bigint` operands
+whose range may leave signed 64 bits, such as `qty + 1` over a `bigint` field,
+is emitted unchanged: PostgreSQL's `bigint` operators are checked, so a value
+outside signed 64 bits is never returned wrapped; the statement may fail at
+run time with SQLSTATE 22003 (`bigint out of range`) instead, and whether and
+when it fails depends on the execution plan. The result's range is the part
+of the exact range inside signed 64 bits. PostgreSQL may also raise the error
+while it plans the statement, wherever it reduces such an operation's
+operands to constants, as in `(9223372036854775807 if True else 0) + 1` or
+`coalesce(9223372036854775807, id) + 1`, or through a bound slot or parameter
+value: the statement then fails even over no rows, or with the operation in a
+branch no row takes. A range wholly outside signed 64 bits, as that of a
+constant such as `9223372036854775807 + 1`, stays PIE-B1002, as such an
+operation could only fail, and MySQL keeps PIE-B1002 for any result not
+proved to fit signed 64 bits. `abs` of an `Int` is proved as
+unary `-` is and fits exactly where `-` fits: where `-id` is PIE-B1002
+(`unary_result_outside_physical_range`), as over a MySQL `BIGINT` field,
+`abs(id)` is PIE-B1002 (`abs_result_outside_physical_range`), though unlike
+`-` it reads no query header parameter (PIE-S2355); `abs` of a `Float` or
+`Decimal` keeps its argument's carrier. It also admits `avg(Int)` for a direct
 Int input with `int_range` evidence, casting that input to the target Float
 carrier before aggregation. Empty and all-NULL inputs remain NULL. Project SQL
-emission (`emit-sql --project`) reports `sum(Int)` BLOCKED with `PIE-B1004`
-(`sum_int_aggregate_range_proof_missing`) until an aggregate-range proof
-exists, although `check --project` accepts it and single-file `emit-sql` emits
-`SUM`; Decimal `sum`/`avg` require
+emission (`emit-sql --project`) on PostgreSQL emits `sum(Int)` of a direct
+Int input as `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the
+sum accumulates exactly and its result is a nullable `Int` over the whole
+signed 64-bit range, and a sum outside that range is the run-time error
+SQLSTATE 22003, never a wrong value, by the same rule. MySQL reports
+`sum(Int)` BLOCKED with `PIE-B1004` (`sum_int_aggregate_range_proof_missing`),
+as `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, although
+`check --project` accepts it and single-file `emit-sql` emits `SUM`; Decimal
+`sum`/`avg` require
 an exact aggregate range/scale and division proof, and Float `sum`/`avg`
 require a finite-result proof. A source range, free JSON declaration, renderer
 spelling, or database default rounding rule is not such proof. `min` and `max`
@@ -2812,7 +2839,12 @@ PostgreSQL `numeric` or MySQL DECIMAL, as the Pietto types say. `sum(Int)` is
 an `Int`, a whole number, returned in the target's exact type: PostgreSQL
 `bigint` for a `smallint` or `integer` column and `numeric` for a `bigint`
 column, and MySQL DECIMAL. These `numeric` and DECIMAL sums are exact and can
-leave the signed 64-bit range. `avg(Int)` is a `Float` average on both
+leave the signed 64-bit range. Project SQL emission spells PostgreSQL
+`sum(Int)` differently (see above): its result is a signed 64-bit `bigint`,
+so a sum of a `bigint` column outside that range, which single-file SQL
+returns exactly as `numeric`, fails with SQLSTATE 22003 there, and a sum of a
+`smallint` or `integer` column is accumulated exactly instead of in an
+unchecked `bigint`. `avg(Int)` is a `Float` average on both
 targets: as in project SQL, its argument is cast before averaging (PostgreSQL
 `AVG(CAST(x AS double precision))`, MySQL `AVG(CAST(x AS DOUBLE))`), so the
 target returns a binary64 average instead of its own decimal one.
@@ -2956,8 +2988,8 @@ PIE-S2333, whose message may identify repeating JOINs and available unique-key
 or group-key remedies. The selected SQL/compiled aggregate path still refuses
 Bool arguments: typed semantic facts for `count(predicate(...))` do not by
 themselves establish emission or source-free execution capability. ANY does not
-widen that domain. Project `sum(Int)` still needs the aggregate-range proof
-described above.
+widen that domain. Project `sum(Int)` follows the checked `bigint` rule
+described above on PostgreSQL and stays PIE-B1004 on MySQL.
 
 ```pietto
 shape Customer:
@@ -3382,8 +3414,25 @@ the inclusive interval `1000-01-01 00:00:00.000000` through
 final endpoint. UUID values preserve all 128 bits in standard big-endian order,
 with no version restriction. The selected source mapping is PostgreSQL
 `timestamp without time zone(6)`/`uuid` and MySQL `DATETIME(6)`/`BINARY(16)`.
-Qualified project SQL admits carrying and projecting these values, `==`/`!=`,
-`count`, `count_distinct`, `DISTINCT`, `GROUP BY`, and direct inner/left/right
-equality joins. Ordering and inequality comparison, `min`/`max`, full joins,
-a `Timestamp` or `UUID` window partition or order key, range/as-of behavior,
-timezone conversion, parsing, and other casts remain unavailable.
+Qualified project SQL admits carrying and projecting these values, and a
+source or derived `Date` too, `==`/`!=`, `count`, `count_distinct`,
+`DISTINCT`, `GROUP BY`, and a window partition key, which compares by equality
+as `GROUP BY` does; a source field of these types, but not a derived `Date`,
+is also a key of a direct inner/left/right equality join. Timestamp and Date
+values of one carrier also compare with `<`, `<=`, `>`, `>=` and inclusive
+comparison chains, in WHERE and in a JOIN ON condition alike, and order a
+result or a window; on PostgreSQL they are also
+`min`/`max` arguments, whose result keeps the carrier and admits NULL, while
+MySQL reports such a `min`/`max` BLOCKED (PIE-B1003) until its result metadata
+is reviewed. On PostgreSQL UUID values of one carrier also compare with `<`,
+`<=`, `>`, `>=` and inclusive comparison chains and order a result or a
+window, by their 16 bytes compared as unsigned big-endian values: the order
+of PostgreSQL `uuid_cmp`, of MySQL `BINARY(16)` byte comparison and of Python
+`uuid.UUID`. MySQL keeps UUID ordering and inequality comparison BLOCKED
+(PIE-B1003 for a comparison or result ORDER, PIE-B1002 for a window ORDER key)
+until a real-database differential reviews it. `min`/`max` of a UUID, a
+Timestamp compared with a Date, full joins on these keys, a RANGE frame offset
+over a temporal or UUID order key, range or as-of relationships (such as
+matching only the latest earlier row), timezone conversion, parsing, and other
+casts remain unavailable; `min` and `max` refuse a UUID argument with
+PIE-S2314 before emission.

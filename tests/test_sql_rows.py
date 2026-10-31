@@ -306,16 +306,27 @@ def test_filter_preserves_bag_multiplicity_of_surviving_rows(built, target):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize(
-    "variant,code,detail",
+    "target,variant,code,detail",
     (
-        ("int_overflow", "PIE-B1002", "arithmetic_outside_physical_range"),
-        ("unary_overflow", "PIE-B1002", "unary_result_outside_physical_range"),
-        ("float_arithmetic", "PIE-B1003", "float_literal_operands_required"),
-        ("float_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
-        ("bool_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
-        ("modulo", "PIE-B1003", "binary_operator_not_admitted"),
+        # Q2: PostgreSQL's checked bigint operators bound these (see below).
+        ("mysql", "int_overflow", "PIE-B1002", "arithmetic_outside_physical_range"),
+        (
+            "mysql",
+            "unary_overflow",
+            "PIE-B1002",
+            "unary_result_outside_physical_range",
+        ),
+        *(
+            (target, variant, code, detail)
+            for target in ("postgres", "mysql")
+            for variant, code, detail in (
+                ("float_arithmetic", "PIE-B1003", "float_literal_operands_required"),
+                ("float_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
+                ("bool_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
+                ("modulo", "PIE-B1003", "binary_operator_not_admitted"),
+            )
+        ),
     ),
 )
 def test_row_boundaries_keep_no_usable_partial_sql(
@@ -377,23 +388,124 @@ def test_between_preserves_ordered_three_operand_realization(tmp_path, target):
     assert between.realization.tag == "Bool"
 
 
-@pytest.mark.parametrize("target", ("postgres", "mysql"))
+CHECKED = {"overflow": "target_checked_signed64_narrowing"}
+
+
+@pytest.mark.parametrize(
+    "target,expression",
+    (
+        ("postgres", "(id * 0 + 9223372036854775807) + 1"),
+        ("mysql", "(id + 1) - 1"),
+    ),
+)
 def test_an_overflowing_intermediate_is_rejected_beneath_a_false_filter(
-    tmp_path, target
+    tmp_path, target, expression
 ):
-    """A filter that can never retain a row still cannot license an overflow."""
+    """A filter that can never retain a row still cannot license an overflow:
+    on MySQL one that may happen, on PostgreSQL one that always happens, which
+    planning would otherwise raise however the filter runs."""
     item = probe.fixture(target, "V_row_blocked", "int_overflow")
     source = item["source"].replace(
         "    select:\n", "    where id > 0 and id < 0\n    select:\n"
     )
-    source = source.replace("        big = id + 1\n", "        big = (id + 1) - 1\n")
+    source = source.replace("        big = id + 1\n", f"        big = {expression}\n")
     _, outcome = probe.build_case(tmp_path, source, item["contract"], item["policy"])
     assert outcome.status == "BLOCKED" and outcome.artifact is None
     public = probe.decode_public(serialize_project_sql_emission(outcome))
-    assert "PIE-B1002" in [b["code"] for b in public["blockers"]]
-    assert "arithmetic_outside_physical_range" in [
-        b["subject"]["detail"] for b in public["blockers"]
+    assert [(b["code"], b["subject"]["detail"]) for b in public["blockers"]] == [
+        ("PIE-B1002", "arithmetic_outside_physical_range")
     ]
+
+
+@pytest.mark.parametrize(
+    "variant,label,sql,low,high,operators",
+    (
+        (
+            "int_overflow",
+            "big",
+            '("s0"."order.id" + CAST(1 AS pg_catalog.int8))',
+            -(2**63) + 1,
+            2**63 - 1,
+            [{"operator": "+"}],
+        ),
+        (
+            "unary_overflow",
+            "negated",
+            '(-"s0"."order.id")',
+            -(2**63) + 1,
+            2**63 - 1,
+            [{"operator": "-"}],
+        ),
+        (
+            "abs",
+            "magnitude",
+            'abs("s0"."order.id")',
+            0,
+            2**63 - 1,
+            [{"callable": "abs", "namespace": "callable"}],
+        ),
+        (
+            "nested",
+            "big",
+            '((("s0"."order.id" + CAST(1 AS pg_catalog.int8))'
+            ' - CAST(1 AS pg_catalog.int8)) * "s0"."order.id")',
+            -(2**63),
+            2**63 - 1,
+            [{"operator": "*"}, {"operator": "+"}],
+        ),
+        (
+            "folded",
+            "big",
+            "((CASE WHEN CAST(TRUE AS pg_catalog.bool)"
+            " THEN CAST(9223372036854775807 AS pg_catalog.int8)"
+            " ELSE CAST(0 AS pg_catalog.int8) END) + CAST(1 AS pg_catalog.int8))",
+            1,
+            2**63 - 1,
+            [{"operator": "+"}],
+        ),
+    ),
+)
+def test_postgresql_checks_a_bigint_result_that_may_leave_signed_64(
+    tmp_path, variant, label, sql, low, high, operators
+):
+    """Q2: a bigint operation whose exact range meets but leaves signed 64 bits
+    is emitted unchanged; PostgreSQL's checked operator refuses a value outside
+    them (SQLSTATE 22003), so the result keeps the part of its range inside
+    them and its requirement says so. `(id + 1) - 1` is checked once, by its
+    `+`: the `-` brings it back inside. A conditional's range spans both
+    branches, so one with a constant condition is admitted too, though
+    PostgreSQL folds it while planning and may raise the error then."""
+    item = probe.fixture("postgres", "V_row_blocked", "int_overflow")
+    source = item["source"]
+    if variant == "unary_overflow":
+        source = probe.fixture("postgres", "V_row_blocked", variant)["source"]
+    elif variant == "abs":
+        source = source.replace("big = id + 1", "magnitude = abs(id)")
+    elif variant == "nested":
+        source = source.replace("big = id + 1", "big = ((id + 1) - 1) * id")
+    elif variant == "folded":
+        source = source.replace(
+            "big = id + 1", "big = (9223372036854775807 if True else 0) + 1"
+        )
+    _, outcome = probe.build_case(tmp_path, source, item["contract"], item["policy"])
+    assert outcome.status == "VERIFIED", outcome.blockers
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert public["sql"] == (
+        f'SELECT {sql} AS "{label}" FROM "public"."phase66 source é" AS "s0"'
+    )
+    assert [c["representation"] for c in public["columns"]] == [
+        {
+            "storage": {"kind": "pg_int8"},
+            # A binary result keeps its semantic UNKNOWN nullability.
+            "nullable": "unknown" if label == "big" else False,
+            "domain": {"kind": "int_range", "min": str(low), "max": str(high)},
+        }
+    ]
+    assert [
+        (r["rule"], r["evidence"])
+        for r in public["requirements"]
+        if r["denominator"] == "generated" and CHECKED in r["evidence"]
+    ] == [("R05", [spelling, CHECKED]) for spelling in operators]
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -486,10 +598,12 @@ def test_abs_keeps_the_unary_range_proof_and_its_argument_carrier(tmp_path, targ
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_abs_of_an_int_is_blocked_exactly_where_unary_minus_is(tmp_path, target):
-    """PostgreSQL `abs` and `-` of an int4 stay int4, which cannot hold the
-    smallest value's magnitude; MySQL computes both as signed 64-bit, which
-    a signed 64-bit source overflows on both targets."""
+def test_abs_and_unary_minus_of_an_int_are_blocked_only_past_signed_64(
+    tmp_path, target
+):
+    """An int4 `-` or `abs` whose magnitude leaves int4 is computed in bigint
+    on PostgreSQL (its operand CAST to pg_catalog.int8) and as signed 64-bit
+    on MySQL; over a signed 64-bit source MySQL refuses it."""
     source = row_source(
         target,
         "    from rows\n    select:\n        negated = -id\n        magnitude = abs(id)\n",
@@ -498,22 +612,23 @@ def test_abs_of_an_int_is_blocked_exactly_where_unary_minus_is(tmp_path, target)
         tmp_path / "int4", source, stage_contract(target), "preserve_literals"
     )
     public = probe.decode_public(serialize_project_sql_emission(outcome))
-    if target == "postgres":
-        assert outcome.status == "BLOCKED" and public["artifact"] is None
-        assert [
-            (b["code"], b["subject"]["detail"], b["location"]["line"])
-            for b in public["blockers"]
-        ] == [
-            ("PIE-B1002", "unary_result_outside_physical_range", 11),
-            ("PIE-B1002", "abs_result_outside_physical_range", 12),
-        ]
-        assert {b["location"]["column"] for b in public["blockers"]} == {9}
-    else:
-        assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
-        assert [c["representation"]["domain"] for c in public["columns"]] == [
-            {"kind": "int_range", "min": "-2147483647", "max": "2147483648"},
-            {"kind": "int_range", "min": "0", "max": "2147483648"},
-        ]
+    assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
+    assert [c["representation"]["domain"] for c in public["columns"]] == [
+        {"kind": "int_range", "min": "-2147483647", "max": "2147483648"},
+        {"kind": "int_range", "min": "0", "max": "2147483648"},
+    ]
+    assert [c["representation"]["storage"] for c in public["columns"]] == [
+        {"kind": "pg_int8" if target == "postgres" else "my_signed_int"}
+    ] * 2
+    assert public["sql"] == (
+        'SELECT (-CAST("s0"."order.id" AS pg_catalog.int8)) AS "negated", '
+        'abs(CAST("s0"."order.id" AS pg_catalog.int8)) AS "magnitude" '
+        'FROM "public"."phase66 safe int source" AS "s0"'
+        if target == "postgres"
+        else "SELECT (-`s0`.`order.id`) AS `negated`, "
+        "ABS(`s0`.`order.id`) AS `magnitude` "
+        "FROM `phase66`.`phase66 safe int source` AS `s0`"
+    )
     item = probe.fixture(target, "V_row_blocked", "unary_overflow")
     wide = item["source"].replace("negated = -id", "magnitude = abs(id)")
     assert wide != item["source"]
@@ -521,6 +636,11 @@ def test_abs_of_an_int_is_blocked_exactly_where_unary_minus_is(tmp_path, target)
         tmp_path / "int8", wide, item["contract"], item["policy"]
     )
     public = probe.decode_public(serialize_project_sql_emission(outcome))
+    if target == "postgres":
+        # Q2: PostgreSQL's checked bigint abs bounds it (see the checked
+        # bigint test); MySQL keeps the static signed 64-bit proof.
+        assert outcome.status == "VERIFIED"
+        return
     assert outcome.status == "BLOCKED" and public["artifact"] is None
     assert [
         (b["code"], b["subject"]["detail"], b["location"]["line"])
