@@ -83,26 +83,79 @@ class _LeasedBuffer:
         return memoryview(self.buffer)
 
 
+def _buffer(pa, buffer, lease):
+    if buffer is None:
+        return None
+    return pa.py_buffer(
+        bytes(memoryview(buffer)) if lease is None else _LeasedBuffer(buffer, lease)
+    )
+
+
+def _empty(pa, kind):
+    """The canonical owned empty array of a nested-column type at any depth."""
+    if pa.types.is_struct(kind):
+        children = [_empty(pa, field.type) for field in kind]
+        return pa.Array.from_buffers(kind, 0, [None], children=children)
+    offsets = pa.py_buffer(bytes(4))
+    if pa.types.is_list(kind):
+        children = [_empty(pa, kind.value_type)]
+        return pa.Array.from_buffers(kind, 0, [None, offsets], children=children)
+    data = pa.py_buffer(b"")
+    buffers = [None, offsets, data] if pa.types.is_string(kind) else [None, data]
+    return pa.Array.from_buffers(kind, 0, buffers)
+
+
+def _nested(pa, array, kind, lease):
+    """Structural copy stamped with the verified type at every depth.
+
+    Only len() is read before a zero-length array is replaced: PyArrow 26 can
+    crash on list accessors of one. The struct validity is dropped; the source
+    check already refused a null element inside the referenced range.
+    """
+    if not len(array):
+        return _empty(pa, kind)
+    if pa.types.is_struct(kind):
+        children = [
+            _nested(pa, array.field(k), field.type, lease)
+            for k, field in enumerate(kind)
+        ]
+        return pa.Array.from_buffers(
+            kind, len(array), [None], null_count=0, children=children
+        )
+    own = array.buffers()[:2] if pa.types.is_list(kind) else array.buffers()
+    children = (
+        [_nested(pa, array.values, kind.value_type, lease)]
+        if pa.types.is_list(kind)
+        else None
+    )
+    return pa.Array.from_buffers(
+        kind,
+        len(array),
+        [_buffer(pa, buffer, lease) for buffer in own],
+        offset=array.offset,
+        null_count=-1,
+        children=children,
+    )
+
+
 def _copy_batch(batch, lease):
-    """Flat finite storage only, after the original carrier has been checked."""
+    """Finite storage after the original carrier has been checked."""
     pa = a._arrow()
-    # S11 replaces this refusal with a structural copy of nested columns.
-    if any(pa.types.is_nested(field.type) for field in batch.schema):
-        raise ResultError("NESTED_UNAVAILABLE")
     columns = []
-    for column in batch.columns:
+    for i, column in enumerate(batch.columns):
+        kind = batch.schema.field(i).type
+        if pa.types.is_list(kind):
+            failed = False
+            try:
+                columns.append(_nested(pa, column, kind, lease))
+            except (ValueError, pa.ArrowException):
+                failed = True
+            if failed:  # Outside the handler: no PyArrow text is chained.
+                raise ResultError("ARROW_BATCH")
+            continue
         extension = type(column.type) is type(pa.uuid())
         storage = column.storage if extension else column
-        buffers = [
-            None
-            if buffer is None
-            else pa.py_buffer(
-                bytes(memoryview(buffer))
-                if lease is None
-                else _LeasedBuffer(buffer, lease)
-            )
-            for buffer in storage.buffers()
-        ]
+        buffers = [_buffer(pa, buffer, lease) for buffer in storage.buffers()]
         copied = pa.Array.from_buffers(
             storage.type, len(storage), buffers, offset=storage.offset, null_count=-1
         )
@@ -110,6 +163,20 @@ def _copy_batch(batch, lease):
             pa.ExtensionArray.from_storage(column.type, copied) if extension else copied
         )
     return pa.RecordBatch.from_arrays(columns, schema=batch.schema)
+
+
+def _delivered(batch, binding, lease, limits):
+    """Check the source, copy it and check the copy; child rows must correspond."""
+    *source_usage, children = a._checked_batch_counts(
+        batch, binding, binding.producer, limits=limits
+    )
+    delivered = _copy_batch(batch, lease)
+    *usage, delivered_children = a._checked_batch_counts(
+        delivered, binding, binding.producer, limits=limits
+    )
+    if delivered_children != children:
+        raise ResultError("ARROW_BATCH")
+    return delivered, tuple(source_usage), tuple(usage)
 
 
 def _export_array(batch):
@@ -120,13 +187,7 @@ class ManagedBatch:
     def __init__(self, binding, batch, *, lease=None, limits=a.BatchLimits()):
         captured = _capture(binding)
         borrowed = _lease_capture(lease, batch, binding)
-        source_usage = a._checked_batch_usage(
-            batch, binding, binding.producer, limits=limits
-        )
-        delivered = _copy_batch(batch, borrowed)
-        usage = a._checked_batch_usage(
-            delivered, binding, binding.producer, limits=limits
-        )
+        delivered, source_usage, usage = _delivered(batch, binding, borrowed, limits)
         self._initialize(captured, delivered, borrowed, limits, source_usage, usage)
 
     def _initialize(self, captured, batch, lease, limits, source_usage, usage):
@@ -287,11 +348,7 @@ def import_batch(binding, provider, *, lease=None, limits=a.BatchLimits()):
         raise ResultError("INTEROP_PROTOCOL") from exc
     _check_binding(captured)
     _check_lease(borrowed)
-    source_usage = a._checked_batch_usage(
-        batch, binding, binding.producer, limits=limits
-    )
-    delivered = _copy_batch(batch, borrowed)
-    usage = a._checked_batch_usage(delivered, binding, binding.producer, limits=limits)
+    delivered, source_usage, usage = _delivered(batch, binding, borrowed, limits)
     result = object.__new__(ManagedBatch)
     result._initialize(captured, delivered, borrowed, limits, source_usage, usage)
     return result
@@ -434,18 +491,20 @@ class ManagedStream:
         except BaseException as exc:
             self._fail(exc, during_pull=True)
         try:
-            source_a, source_r = self._reader._observations[-1][3:]
+            source_a, source_r, source_c = self._reader._observations[-1][3:6]
             limits = self._reader.expectation.limits
             remaining = min(limits.batch.bytes, limits.max_total_bytes - self._charge)
             if max(source_a, source_r) > remaining:
                 raise ResultError("LIMIT")
             delivered = _copy_batch(batch, self._lease)
-            delivery_a, delivery_r = a._checked_batch_usage(
+            delivery_a, delivery_r, delivery_c = a._checked_batch_counts(
                 delivered,
                 self._captured[0],
                 self._captured[0].producer,
                 limits=a.BatchLimits(limits.batch.fields, limits.batch.rows, remaining),
             )
+            if delivery_c != source_c:
+                raise ResultError("ARROW_BATCH")
             charge = max(source_a, source_r, delivery_a, delivery_r)
             if self._charge + charge > limits.max_total_bytes:
                 raise ResultError("LIMIT")

@@ -41,6 +41,8 @@ class BatchDescriptor:
     rows: int
     logical_bytes: int
     retained_bytes: int
+    # Referenced nested child rows; parents stay the only row unit (D71.07).
+    child_rows: int
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -202,14 +204,13 @@ class CheckedFiniteReader:
         if type(binding) is not arrow.ArrowResultBinding:
             raise ResultError("ARROW_BINDING")
         arrow.verify_arrow_binding(binding, binding.producer)
-        # Nested readers (and so ingress, C streams and IPC) open in S11.
-        if any(type(b) is ProducerNestedBinding for b in binding.producer.fields):
-            raise ResultError("NESTED_UNAVAILABLE")
         pa = arrow._arrow()
         if type(source) is not pa.RecordBatchReader:
             raise ResultError("READER_SOURCE")
         arrow._dimensions(len(source.schema), 0, limits.batch)
         arrow._verify_schema(source.schema, binding)
+        # Child fields count too; a binding no batch could fit is never accepted.
+        arrow._dimensions(arrow._width(binding.producer.fields), 0, limits.batch)
         expected = FiniteResultExpectation(
             binding, expected_rows, limits, ref(source), object()
         )
@@ -232,7 +233,7 @@ class CheckedFiniteReader:
         self._consumer = None
         self._state = "OPEN"
         self._observations: tuple[tuple[int, ...], ...] = ()
-        self._rows = self._charge = self._pulls = 0
+        self._rows = self._charge = self._pulls = self._children = 0
         self._normal_end = self._close_attempted = self._close_succeeded = False
         self._primary_error: BaseException | None = None
         self._cleanup_error: BaseException | None = None
@@ -429,7 +430,7 @@ class CheckedFiniteReader:
             if self._rows + batch.num_rows > self._captured[4]:
                 raise ResultError("READER_EXTENT")
             remaining = min(limits.batch.bytes, limits.max_total_bytes - self._charge)
-            allowance, retained = arrow._checked_batch_usage(
+            allowance, retained, children = arrow._checked_batch_counts(
                 batch,
                 self._expectation.binding,
                 self._expectation.binding.producer,
@@ -437,15 +438,19 @@ class CheckedFiniteReader:
                     limits.batch.fields, limits.batch.rows, remaining
                 ),
             )
+            if self._children + children > arrow.MAX_CHILD_ROWS:
+                raise ResultError("LIMIT")
             descriptor = (
                 len(self._observations),
                 self._rows,
                 batch.num_rows,
                 allowance,
                 retained,
+                children,
             )
             self._observations += (descriptor,)
             self._rows += batch.num_rows
+            self._children += children
             self._charge += max(allowance, retained)
             return batch
         except BaseException as exc:
@@ -524,7 +529,7 @@ def verify_finite_completion(reader, expectation, completion) -> None:
             or len(completion.descriptors) != len(reader._observations)
         ):
             raise ResultError("READER_IDENTITY")
-        rows = charge = 0
+        rows = charge = children = 0
         for ordinal, (entry, original) in enumerate(
             zip(completion.descriptors, reader._observations, strict=True)
         ):
@@ -536,6 +541,7 @@ def verify_finite_completion(reader, expectation, completion) -> None:
                 entry.rows,
                 entry.logical_bytes,
                 entry.retained_bytes,
+                entry.child_rows,
             )
             if (
                 any(type(n) is not int or n < 0 for n in actual)
@@ -545,10 +551,12 @@ def verify_finite_completion(reader, expectation, completion) -> None:
                 or entry.rows > expectation.limits.batch.rows
                 or max(entry.logical_bytes, entry.retained_bytes)
                 > expectation.limits.batch.bytes
+                or entry.child_rows > arrow.MAX_CHILD_ROWS
             ):
                 raise ResultError("READER_IDENTITY")
             rows += entry.rows
             charge += max(entry.logical_bytes, entry.retained_bytes)
+            children += entry.child_rows
         batches = len(completion.descriptors)
         if (
             any(
@@ -561,6 +569,7 @@ def verify_finite_completion(reader, expectation, completion) -> None:
                     reader._rows,
                     reader._charge,
                     reader._pulls,
+                    reader._children,
                 )
             )
             or rows != completion.rows
@@ -573,6 +582,8 @@ def verify_finite_completion(reader, expectation, completion) -> None:
             or charge > expectation.limits.max_total_bytes
             or completion.pulls != reader._pulls
             or completion.pulls != batches + 1
+            or children != reader._children
+            or children > arrow.MAX_CHILD_ROWS
         ):
             raise ResultError("READER_IDENTITY")
     except (AttributeError, TypeError, IndexError) as exc:

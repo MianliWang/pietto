@@ -5,6 +5,7 @@ import importlib
 from typing import Any
 from collections import Counter
 from dataclasses import asdict
+import gc
 import json
 from pathlib import Path
 import sys
@@ -54,7 +55,7 @@ def collect_pg(
         limits=limits or execution.ExecutionLimits(batch_rows=4, seconds=45),
     )
     stream = PostgresExecution(request)
-    submitted, rows, schemas = [], [], []
+    submitted, rows, schemas, exports = [], [], [], []
     memory = [_vmhwm()] if nested else None
     old = sys.getprofile()
 
@@ -88,10 +89,8 @@ def collect_pg(
                         [[f.name, str(f.type), f.nullable] for f in actual.schema]
                     )
                     if nested:
-                        # Collected values are records of scalars; JSON keeps them.
-                        rows.extend(actual.to_pylist())
-                        assert memory is not None
-                        memory.append(_vmhwm())
+                        # S11: the C export outlives its handle, closed here.
+                        exports.append(actual)
                     else:
                         rows.extend(
                             [
@@ -102,6 +101,12 @@ def collect_pg(
                                 for j in range(actual.num_rows)
                             ]
                         )
+                if nested:
+                    gc.collect()
+                    # Collected values are records of scalars; JSON keeps them.
+                    rows.extend(actual.to_pylist())
+                    assert memory is not None
+                    memory.append(_vmhwm())
                 if control == "cancel":
                     stream.cancel()
                 elif control == "consumer_error":
@@ -111,6 +116,12 @@ def collect_pg(
     finally:
         sys.setprofile(old)
         stream.close()
+    interop = None
+    if nested and caught is None:
+        import _pietto_results_nested_interop as steps
+
+        assert stream._payloads is not None
+        interop = steps.delivered(stream._payloads.binding, exports)
     return dict(
         public=json.loads(
             serialize_project_sql_emission(EmissionOutcome("VERIFIED", (), artifact))
@@ -130,7 +141,7 @@ def collect_pg(
         context=stream.context,
         control_joined=stream.control_joined,
         caught=caught,
-        **({} if memory is None else {"vmhwm_kib": memory}),
+        **({} if memory is None else {"vmhwm_kib": memory, "interop": interop}),
     )
 
 
@@ -236,6 +247,7 @@ def check_nested_record(record, name):
         NESTED_DESCRIPTIONS,
         NESTED_FIELDS,
         nested_expected,
+        nested_interop_expected,
     )
 
     if record["submissions"] != [
@@ -256,6 +268,7 @@ def check_nested_record(record, name):
             record["caught"] != dict(kind="ResultError", category="LIMIT")
             or record["rows"]
             or record["outcome"]["delivery"] != "FAILED"
+            or record["interop"] is not None
         ):
             raise ValueError("nested whole-batch refusal")
         return
@@ -286,6 +299,18 @@ def check_nested_record(record, name):
         remaining.remove(match)
     if remaining:
         raise ValueError("independent nested result")
+    # S11: the rows above were read after each handle closed; every export
+    # then went back through the copy, lease and stream entries.
+    interop = record["interop"]
+    batch_rows = interop.get("rows") if type(interop) is dict else None
+    if (
+        type(batch_rows) is not list
+        or len(batch_rows) != len(record["schemas"])
+        or any(type(k) is not int or not 1 <= k <= 4 for k in batch_rows)
+        or sum(batch_rows) != len(expected)
+        or interop != nested_interop_expected(name, batch_rows)
+    ):
+        raise ValueError("nested S11 steps")
 
 
 def setup_seven(resources):

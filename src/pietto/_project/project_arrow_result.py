@@ -765,7 +765,12 @@ def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
 
 
 def _checked_batch_usage(batch, binding, producer, *, limits=BatchLimits()):
-    """Check the supplied carrier, not a rebuilt candidate or a checked flag.
+    return _checked_batch_counts(batch, binding, producer, limits=limits)[:2]
+
+
+def _checked_batch_counts(batch, binding, producer, *, limits=BatchLimits()):
+    """Check the supplied carrier, not a rebuilt candidate or a checked flag;
+    return its logical allowance, retained bytes and referenced child rows.
 
     This proves bounded batch correspondence, not EOF or whole-result completion.
     """
@@ -841,7 +846,7 @@ def _checked_batch_usage(batch, binding, producer, *, limits=BatchLimits()):
         raise
     except (ValueError, pa.ArrowException) as exc:
         raise ResultError("ARROW_BATCH") from exc
-    return charge, retained_bytes
+    return charge, retained_bytes, child_rows
 
 
 def _nested_usage(column, bound, children, charge, limit, child_rows):

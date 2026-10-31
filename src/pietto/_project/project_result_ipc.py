@@ -12,6 +12,7 @@ from weakref import ref
 from pietto._project import project_arrow_result as arrow
 from pietto._project import project_result_ingress as ingress
 from pietto._project import project_result_reader as reader
+from pietto._project.project_result_binding import ProducerNestedBinding
 from pietto._project.project_result_contract import (
     NestedShape,
     ResultError,
@@ -53,6 +54,9 @@ def _extent(expected_rows, limits):
 
 def _contract_digest(binding):
     ingress.interop._capture(binding)
+    # Nested IPC framing opens in S17, which removes this refusal (S02, D71.05).
+    if any(type(b) is ProducerNestedBinding for b in binding.producer.fields):
+        raise ResultError("NESTED_UNAVAILABLE")
     return contract_digest(binding.producer.contract)
 
 

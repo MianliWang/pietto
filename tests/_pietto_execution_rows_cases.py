@@ -219,10 +219,35 @@ def nested_expected(name):
         return result
 
     parents = (5, 5, 2, 0) if name == "ordered" else (0, 2, 5, 5, -1)
+    kids = KIDS
+    if name == "no_parents":
+        parents = tuple(parent for parent in parents if parent > 100)
+    elif name == "all_empty":
+        kids = tuple(kid for kid in KIDS if kid[1] > 9)
     return [
         [
             parent,
-            groups(KIDS if name == "closed" else [k for k in KIDS if k[0] == parent]),
+            groups(kids if name == "closed" else [k for k in kids if k[0] == parent]),
         ]
         for parent in parents
     ]
+
+
+# -- S11 (D71.11): real zero parent rows and an all-[] result; the S11 steps
+# run on the C exports of each nested result (`_pietto_results_nested_interop`).
+
+NESTED_SHAPES["no_parents"] = (IBT, {"where": "rows.id > 100"})
+NESTED_SHAPES["all_empty"] = (IBT, {"kid_where": "kids.seq > 9"})
+for _name in ("no_parents", "all_empty"):
+    NESTED_DESCRIPTIONS[_name] = IBT_DESCRIPTION
+    NESTED_FIELDS[_name] = IBT_FIELDS
+
+
+def nested_interop_expected(name, batch_rows):
+    """The S11 facts of a nested result, with child rows from the literal oracle."""
+    import _pietto_results_nested_interop as interop
+
+    return interop.steps(
+        batch_rows,
+        sum(len(group) for _, groups in nested_expected(name) for group in groups),
+    )

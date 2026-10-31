@@ -48,6 +48,10 @@ def _nested():
     return _helper("_pietto_results_nested")
 
 
+def _nested_interop():
+    return _helper("_pietto_results_nested_interop")
+
+
 def _leaves(producer) -> tuple[ProducerFieldBinding, ...]:
     """Flat product fixtures bind scalar leaves only."""
     return producer.fields
@@ -175,7 +179,12 @@ CASES = (
     "ipc_correspondence",
 )
 
-CASES += _integration().GROUPS + _whole().GROUPS + _nested().GROUPS
+CASES += (
+    _integration().GROUPS
+    + _whole().GROUPS
+    + _nested().GROUPS
+    + _nested_interop().GROUPS
+)
 
 
 def source(target):
@@ -538,6 +547,9 @@ def run_cases(root):
     results.update(_integration().fixture_groups(root / "integration"))
     results.update(_whole().run(sys.modules[__name__], root / "whole", results))
     results.update(_nested().run(sys.modules[__name__], root / "nested", results))
+    results.update(
+        _nested_interop().run(sys.modules[__name__], root / "nested_interop", results)
+    )
     assert set(results) == set(CASES)
     return results
 
@@ -6364,7 +6376,7 @@ def run_reader_cases(root):
                 if operation == "finalization_stop":
                     reader.read_next_batch()
                 owner, attribute = (
-                    (a, "_checked_batch_usage")
+                    (a, "_checked_batch_counts")
                     if operation == "validation_stop"
                     else (r, "_make_completion")
                     if operation == "finalization_stop"
@@ -9064,7 +9076,7 @@ def run_ingress_cases(root):
             i._copy_batch = old_copy
 
         # All five paths really call the shared checker; no unchecked route or fabricated usage.
-        original_checker = a._checked_batch_usage
+        original_checker = a._checked_batch_counts
         reached = []
         for route in ("rows", "batch", "raw", "array", "protocol"):
             calls = []
@@ -9074,7 +9086,7 @@ def run_ingress_cases(root):
                 raise a.ResultError("VALUE_DOMAIN")
 
             try:
-                a._checked_batch_usage = reject_checked
+                a._checked_batch_counts = reject_checked
                 if route == "rows":
                     error = refused(lambda: ingress.ingest_rows(binding, rows))
                 elif route == "batch":
@@ -9087,7 +9099,7 @@ def run_ingress_cases(root):
                     error = interop_stream(binding, [native], 4, route=route)["error"]
                 reached.append(dict(route=route, error=error, calls=len(calls)))
             finally:
-                a._checked_batch_usage = original_checker
+                a._checked_batch_counts = original_checker
         altered = {}
         wrong = [list(row) for row in rows]
         wrong[0][4] = float("nan")
@@ -11168,6 +11180,7 @@ def verify_report(value, context, inputs):
     _integration().verify_fixture_groups(cases, inputs)
     _whole().verify(cases, sys.modules[__name__])
     _nested().verify(cases, sys.modules[__name__])
+    _nested_interop().verify(cases, sys.modules[__name__])
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -11571,7 +11584,10 @@ def reject_report_damage(value, context, inputs):
         ),
     )
     mutations += (
-        _integration().product_damage() + _whole().damage() + _nested().damage()
+        _integration().product_damage()
+        + _whole().damage()
+        + _nested().damage()
+        + _nested_interop().damage()
     )
     for mutate in mutations:
         bad = json.loads(json.dumps(value))

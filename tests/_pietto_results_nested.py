@@ -188,11 +188,22 @@ def donor(p, directory, leaves):
     return contract, bind_producer(contract, result.artifact, tuple(observed))
 
 
-def collected(p, directory, children=IBT, *, alone=False, closed=False, ordered=False):
+def collected(
+    p,
+    directory,
+    children=IBT,
+    *,
+    alone=False,
+    closed=False,
+    ordered=False,
+    where=None,
+    kid_where=None,
+):
     """A real VERIFIED PostgreSQL Collect and its output: `rows` (`renamed`,
     unless ``alone``) collecting `members`, the `kids` of each row (or every
     kid when ``closed``) in `seq` order; ``ordered`` adds the parent's own
-    ORDER BY and LIMIT, so the result body carries the group."""
+    ORDER BY and LIMIT, so the result body carries the group. ``where``
+    filters the parent rows and ``kid_where`` a captured row's kids."""
     from pietto._project.project_result_output import prepare_output
     from pietto._project.project_scalar_meaning import acquire_scalar_meaning
     from pietto._project.project_sql_emission import emit_project_sql
@@ -216,7 +227,13 @@ def collected(p, directory, children=IBT, *, alone=False, closed=False, ordered=
         "query result:\n    let members:\n"
         + ("" if closed else "        capture rows\n")
         + "        from kids\n"
-        + ("" if closed else "        where kids.parent == rows.id\n")
+        + (
+            ""
+            if closed
+            else "        where kids.parent == rows.id"
+            + (f" and {kid_where}" if kid_where else "")
+            + "\n"
+        )
         + "        select:\n"
         + "".join(
             f"            {label} = date_of({label}_at)\n"
@@ -225,7 +242,9 @@ def collected(p, directory, children=IBT, *, alone=False, closed=False, ordered=
             for label, key, _ in children
         )
         + "        order by:\n            seq\n"
-        + "    from rows\n    select:\n"
+        + "    from rows\n"
+        + (f"    where {where}\n" if where else "")
+        + "    select:\n"
         + ("" if alone else "        renamed = id\n")
         + "        c = collect members\n"
         + ("    order by:\n        rows.id desc\n    limit 4\n" if ordered else "")
@@ -928,7 +947,7 @@ def guards(real, p):
         ),
         owned.closed,
     ]
-    # The reader guard refuses nested encoding; the zero-digest envelope fails its contract first.
+    # S11 refuses nested IPC before the contract digest until S17.
     observed["encode_ipc"] = outcome(
         lambda: ipc.encode_ipc(binding, source(), expected_rows=5)
     )
@@ -1182,14 +1201,15 @@ EXPECTED: dict[str, Any] = {
         authority="FIELD",
     ),
     GROUPS[6]: dict(
-        manage_batch="NESTED_UNAVAILABLE",
-        import_batch="NESTED_UNAVAILABLE",
-        open_finite_reader="NESTED_UNAVAILABLE",
-        ingest_reader="NESTED_UNAVAILABLE",
-        import_stream="NESTED_UNAVAILABLE",
-        owned_ingress=["NESTED_UNAVAILABLE", True],
+        manage_batch="ACCEPTED",
+        import_batch="ACCEPTED",
+        open_finite_reader="ACCEPTED",
+        ingest_reader="ACCEPTED",
+        import_stream="ACCEPTED",
+        # _Source is not a RecordBatchReader; owned ingress still closes it.
+        owned_ingress=["READER_SOURCE", True],
         encode_ipc="NESTED_UNAVAILABLE",
-        open_ipc="IPC_CONTRACT",
+        open_ipc="NESTED_UNAVAILABLE",
         build_managed_batch=dict(
             policy="owned_copy", usage=230, schema=True, values=True
         ),
