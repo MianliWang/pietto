@@ -8,6 +8,7 @@ from pietto.ast_nodes import CallExpr
 from pietto._project.project_verification_scope import once
 from pietto._project.project_compiled_schema import (
     BLOCK_READ_OPERATORS,
+    COLLECT_OPERATOR,
     captured_logical,
     captured_reads,
     executed_operations,
@@ -144,6 +145,116 @@ def need(condition, category):
         raise CompiledError("COMPILED_" + category)
 
 
+def _collection(logical):
+    return type(logical) is tuple and logical[:1] == ("collection",)
+
+
+def _declares(records, parent, let) -> bool:
+    """Whether the block ``parent`` declares the relation let ``let``: it has
+    no let of its own, the let's coordinates, and owns no table function
+    (which shares its reader's coordinates)."""
+    return (
+        let.get("let") is not None
+        and parent.get("let") is None
+        and all(
+            parent.get(n) == let.get(n)
+            for n in ("module", "module_position", "position")
+        )
+        and not any(
+            r.address.kind == "table_function" and r.get("owner") == parent.address
+            for r in records.values()
+        )
+    )
+
+
+def _verify_collections(records) -> None:
+    """Where a collection value may stand (Phase71 S09).
+
+    A Collect is one direct value of one row, the source of that row's one
+    port and the operation of its one expression block use, which places it in
+    the projection row of its let's parent. A collection port carries a
+    Collect, or is a result unit's port carrying such a port through a value
+    read in that unit's projection; a collection has no equality, so that unit
+    is not DISTINCT. Only that read, its owner, a use of its owner (the
+    parent's result unit over that row, or a reader's ``from`` or JOIN input
+    of the parent), the entry and an output name a collection port; no other
+    record has a collection logical, whether or not a Collect stands
+    elsewhere, so no reader reads or carries one. Requirement anchors are
+    occurrences, not placements.
+    """
+    for record in records.values():
+        kind = record.address.kind
+        if kind not in ("operation", "port", "output") and "logical" in FIELDS[kind]:
+            need(not _collection(record.get("logical")), "COLLECTION_LOGICAL")
+    ports = {
+        a
+        for a, r in records.items()
+        if a.kind == "port" and _collection(r.get("logical"))
+    }
+    collects = {
+        a
+        for a, r in records.items()
+        if a.kind == "operation" and r.get("operator") == COLLECT_OPERATOR
+    }
+    if not ports and not collects:
+        return
+    for record in records.values():
+        if record.address.kind != "port":
+            continue
+        source = records[record.get("source")]
+        carried = unit = None
+        if source.address in collects:
+            carried, unit = source.get("logical"), "row"
+        elif source.address.kind == "read" and source.get("port") in ports:
+            carried, unit = records[source.get("port")].get("logical"), "result"
+        if carried is not None or record.address in ports:
+            need(
+                record.get("logical") == carried and record.get("owner").kind == unit,
+                "COLLECTION_PORT",
+            )
+    reads = {
+        a for a, r in records.items() if a.kind == "read" and r.get("port") in ports
+    }
+    named: dict[Address, list[Record]] = {a: [] for a in collects | ports | reads}
+    for record in records.values():
+        # A requirement anchors an occurrence; it places no value.
+        if record.address.kind == "requirement":
+            continue
+        for address in _references(record.values):
+            if address in named:
+                named[address].append(record)
+    for address, referrers in named.items():
+        kinds = sorted(r.address.kind for r in referrers)
+        if address in collects:
+            need(kinds == ["expression_block_use", "port", "row"], "COLLECT_PLACEMENT")
+        elif address in reads:
+            read = records[address]
+            need(
+                kinds == ["port", "result"] and read.get("role") == "value",
+                "COLLECTION_READ",
+            )
+            (result,) = (r for r in referrers if r.address.kind == "result")
+            need(
+                address in result.get("projection")
+                and not result.get("distinct")
+                and records[read.get("use")].get("consumer") == result.address
+                and records[read.get("port")].get("owner") == result.get("input"),
+                "COLLECTION_READ",
+            )
+        else:
+            owner = records[address].get("owner")
+            need(
+                all(
+                    r.address == owner
+                    or r.address.kind in ("entry", "output", "read")
+                    or r.address.kind == "use"
+                    and r.get("producer") == owner
+                    for r in referrers
+                ),
+                "COLLECTION_READ",
+            )
+
+
 def _references(value):
     pending = [value]
     while pending:
@@ -223,6 +334,9 @@ def verify_description(value: Description) -> None:
         )
         for record in member[1]:
             need(type(record) is Record and type(record.address) is Address, "RECORD")
+            # A reserved Unnest (S13) is refused wherever and however often it
+            # appears, before any of its fields is read.
+            need(record.address.kind != "unnest", "UNNEST_UNAVAILABLE")
             address = record.address
             need(
                 address.kind in MEMBER_KINDS[expected]
@@ -539,16 +653,44 @@ def verify_description(value: Description) -> None:
             operation = ref(get("operation"), {"operation"})
             consumer = ref(get("consumer"), RELATIONS - {"source"})
             producer = ref(get("producer"), RELATIONS)
-            # An existence read has no column, a scalar read names one output
-            # port of its producer, and a membership read compares with column
-            # 0 of its single-column producer.
-            need(
-                operation.get("operator") in BLOCK_READ_OPERATORS
-                and (
+            operator = operation.get("operator")
+            if operator == COLLECT_OPERATOR:
+                # PostgreSQL only, as at emission. A Collect reads the whole
+                # ordered (D71.03) result unit of a let into the projection row
+                # of its parent, the table or query declaring that let, entry
+                # or not, and names no column; a captured let's inline unit has
+                # no other reader.
+                need(family == "postgres", "COLLECT_TARGET")
+                shaped = (
                     get("column") is None
-                    if operation.get("operator") == ("exists", "exists")
+                    and producer.address.kind == "result"
+                    and bool(producer.get("ordering"))
+                    and consumer.address.kind == "row"
+                    and consumer.get("stage") == "projection"
+                    and _declares(
+                        records,
+                        ref(consumer.get("owner"), {"declaration"}),
+                        ref(producer.get("owner"), {"declaration"}),
+                    )
+                    and (
+                        unit_position(producer) is not None
+                        or sum(
+                            r.address.kind in ("use", "expression_block_use")
+                            and r.get("producer") == producer.address
+                            for r in records.values()
+                        )
+                        == 1
+                    )
+                )
+            else:
+                # An existence read has no column, a scalar read names one
+                # output port of its producer, and a membership read compares
+                # with column 0 of its single-column producer.
+                shaped = operator in BLOCK_READ_OPERATORS and (
+                    get("column") is None
+                    if operator == ("exists", "exists")
                     else scalar_read_port(records, operation.address) is not None
-                    if operation.get("operator") == ("scalar", "scalar")
+                    if operator == ("scalar", "scalar")
                     else type(get("column")) is int
                     and get("column") == 0
                     and sum(
@@ -557,6 +699,8 @@ def verify_description(value: Description) -> None:
                     )
                     == 1
                 )
+            need(
+                shaped
                 and get("producer") != consumer.address
                 and operation.address in executed_operations(records, consumer.address),
                 "EXPRESSION_BLOCK_USE",
@@ -1317,9 +1461,12 @@ def verify_description(value: Description) -> None:
                 "OUTPUT",
             )
             port = ref(get("port"), {"port"})
+            # The type is its port's copy; no reader may see another one.
             need(
                 port is exports[record.address.position]
-                and get("label") == port.get("label"),
+                and get("label") == port.get("label")
+                and get("logical") == port.get("logical")
+                and get("meaning") is None,
                 "OUTPUT_PORT",
             )
     need(
@@ -1354,6 +1501,7 @@ def verify_description(value: Description) -> None:
                 "exists": ({"exists"}, None),
                 "scalar": ({"scalar"}, 0),
                 "relation_membership": ({"in", "not_in"}, 1),
+                "collect": ({"collect"}, 0),
                 "scalar_call": (
                     {
                         "lower",
@@ -1398,11 +1546,15 @@ def verify_description(value: Description) -> None:
                 and (role != "scalar_call" or len(operands) >= 1),
                 "OPERATOR_ARITY",
             )
+            # The build writes no site on an operation: a literal, slot or
+            # predicate call names its own site, so a set one is no record.
+            need(record.get("site") is None, "OPERATION_SITE")
             refs(
                 operands,
                 {"literal", "null_literal", "parameter_read", "read", "operation"},
             )
-            if (role, token) in BLOCK_READ_OPERATORS:
+            collect = (role, token) == COLLECT_OPERATOR
+            if collect or (role, token) in BLOCK_READ_OPERATORS:
                 # Exactly one expression block use names each block read.
                 need(
                     sum(
@@ -1413,6 +1565,15 @@ def verify_description(value: Description) -> None:
                     == 1,
                     "EXPRESSION_BLOCK_USE_INVENTORY",
                 )
+            # Only a Collect has a collection value; its container is never
+            # null (an empty child relation is an empty collection, D71.06).
+            need(
+                record.get("logical") == ("collection", "non_null")
+                if collect
+                else not _collection(record.get("logical")),
+                "COLLECT_LOGICAL",
+            )
+    _verify_collections(records)
     bound_literals = {
         r.get("literal"): records[r.get("site")]
         for r in records.values()
@@ -2584,6 +2745,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
     from pietto._project import project_sql_emission_sets as setting
     from pietto._project import project_sql_emission_values as valuing
     from pietto._project import project_sql_emission_joins as joining
+    from pietto._project import project_sql_emission_nested as collecting
 
     view = inspect(artifact, guarded)
     verify_description(description)
@@ -3001,16 +3163,13 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         finally:
             capture_context.pop()
 
-    def check_inline(block_use, actual, producer, use):
-        """A live inline let, unit by unit, and the capture records of its read."""
+    def check_inline(block_use, terminal, read, producer, use):
+        """A live inline let ending in ``terminal``, unit by unit, and the
+        capture records of its read ``read`` (a block read or a Collect)."""
         outer = current_units[-1]
         need(type(outer) is sql.RowBody, "EXPORT_INLINE")
-        check_inline_units(
-            block_use.get("producer"), actual.target.producer, (producer, use)
-        )
-        captures = tuple(
-            c for c in original.plan.captures if c.read is actual.original.ref
-        )
+        check_inline_units(block_use.get("producer"), terminal, (producer, use))
+        captures = tuple(c for c in original.plan.captures if c.read is read)
         described = tuple(
             r for r in grouped["capture_use"] if r.get("read") == block_use.address
         )
@@ -3267,7 +3426,9 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 else unit_map.get(id(target.producer))
             )
             if target.source is None and sql.inline_body(target.producer):
-                check_inline(matches[0], actual, producer, use)
+                check_inline(
+                    matches[0], target.producer, actual.original.ref, producer, use
+                )
                 expected_producer = unit_map.get(id(target.producer))
             need(
                 expected_producer is not None
@@ -3286,6 +3447,40 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             )
         else:
             raise CompiledError("COMPILED_EXPORT_SCALAR")
+
+    def check_collect(port, actual, producer, use):
+        """A live Collect column (Phase71 S09): a collection port whose source
+        is the Collect operation, and that operation's one expression block use
+        of the let's terminal result unit, column null; a captured let's units
+        and capture records are checked at this read."""
+        address = port.get("source")
+        record = records[address]
+        target = actual.lateral.target
+        need(
+            port.get("logical") == ("collection", "non_null")
+            and record.address.kind == "operation"
+            and record.get("operator") == COLLECT_OPERATOR
+            and record.get("operands") == ()
+            and type(target) is rows.SQLBlockTarget
+            and target.source is None
+            and target.use.ref is actual.collect.use,
+            "EXPORT_COLLECT",
+        )
+        matches = tuple(
+            r for r in grouped["expression_block_use"] if r.get("operation") == address
+        )
+        need(len(matches) == 1, "EXPORT_COLLECT")
+        if sql.inline_body(target.producer):
+            check_inline(matches[0], target.producer, actual.collect.ref, producer, use)
+        expected = unit_map.get(id(target.producer))
+        need(
+            expected is not None
+            and matches[0].address.position == target.use.ref.position
+            and target.symbol.name == f"e{target.use.ref.position}"
+            and matches[0].values
+            == (address, records[use].get("consumer"), expected, None),
+            "EXPORT_COLLECT",
+        )
 
     def check_window_spec(address, actual, policy, producer, use, definitions):
         described = records[address]
@@ -3590,22 +3785,34 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                     use,
                     definitions,
                 )
-        # The original terminal remains positional even when labels repeat.
+        # The original terminal remains positional even when labels repeat; a
+        # collected terminal's port keeps its let's field name (S09).
         need(len(record.get("outputs")) == len(unit.columns), "EXPORT_COLUMNS")
+        collected = record.address.kind == "result" and any(
+            c.producer is unit.definition.original.ref for c in original.plan.collects
+        )
         for address, actual in zip(record.get("outputs"), unit.columns, strict=True):
             port = records[address]
-            need(port.get("label") == actual.label, "EXPORT_COLUMN_LABEL")
+            need(
+                port.get("label")
+                == (actual.export.identity.name if collected else actual.label),
+                "EXPORT_COLUMN_LABEL",
+            )
             if isinstance(
                 actual,
                 (
                     sql.RowCarryColumn,
                     results.ResultColumn,
+                    results.ResultGroupColumn,
                     grouping.AggregateKeyColumn,
                     grouping.AggregateProjectionColumn,
                     windowing.WindowProjectionColumn,
                 ),
             ):
                 check_read(port.get("source"), actual.read, producer, use)
+            elif type(actual) is collecting.CollectColumn:
+                need(record.address.kind == "row", "EXPORT_COLLECT")
+                check_collect(port, actual, producer, use)
             elif type(actual) is windowing.WindowColumn:
                 value = records[port.get("source")]
                 need(
@@ -3967,6 +4174,8 @@ def _verify_compiled_emission(artifact, request):
     from pietto._project import project_sql_emission_windows as windowing
     from pietto._project.project_query_block_ir import CompiledIRReference
     from pietto._project.project_sql_emission_verification import verify_row_bytes
+    from pietto._project import project_sql_emission_nested as collecting
+    from pietto._project import project_sql_emission_results as resulting
 
     need(
         type(artifact) in (CompiledEmissionArtifact, CompiledGuardedArtifact)
@@ -4568,6 +4777,154 @@ def _verify_compiled_emission(artifact, request):
                         join_contexts,
                     )
 
+    collects = {c.ref: c for c in plan.collects}
+
+    def check_collect(column, position, address, record, use, producer, final):
+        """A Collect column against its records alone (Phase71 S09): its
+        operation, block use, let's terminal (a captured let's units are
+        checked here, over this row), the ordinal or DISTINCT wrapper restating
+        that terminal's ORDER, one array per child port and the carriers."""
+        expression = records[address].get("source")
+        described = tuple(
+            r
+            for r in records.values()
+            if r.address.kind == "expression_block_use"
+            and r.get("operation") == expression
+        )
+        need(
+            type(column) is collecting.CollectColumn
+            and expression.kind == "operation"
+            and records[expression].get("operator") == COLLECT_OPERATOR
+            and len(described) == 1
+            and described[0].get("consumer") == record.address
+            and described[0].get("column") is None,
+            "EMISSION_COLLECT",
+        )
+        block_use = described[0]
+        n = block_use.address.position
+        item = collects.get(refs[expression])
+        if item is None:
+            raise CompiledError("COMPILED_EMISSION_COLLECT")
+        lateral = column.lateral
+        target = lateral.target
+        need(
+            column.collect is item
+            and lateral.collect is item
+            and item.export is refs[address]
+            and item.use is refs[block_use.address]
+            and item.block is refs[record.address]
+            and type(target) is rows.SQLBlockTarget
+            and target.source is None
+            and target.use.ref is item.use
+            and target.symbol.binding is item.use
+            and target.symbol.position == 0
+            and target.symbol.name == f"e{n}"
+            and lateral.symbol.binding is item.ref
+            and lateral.symbol.name == f"g{n}",
+            "EMISSION_COLLECT",
+        )
+        producer_address = block_use.get("producer")
+        if producer_address in inline_units:
+            verify_inline_units(
+                producer_address,
+                target.producer,
+                (use, producer, current_bodies[-1].scan.symbol, block_use.address),
+                "EMISSION_COLLECT_INLINE",
+            )
+        unit = target.producer
+        children = tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "port" and r.get("owner") == producer_address
+        )
+        width = len(children)
+        order = unit.order
+        if order is None:
+            raise CompiledError("COMPILED_EMISSION_COLLECT_TERMINAL")
+        need(
+            unit is observed_bodies.get(producer_address)
+            and type(unit) is resulting.RowResultBody
+            and len(unit.columns) == width > 0
+            and item.children == tuple(refs[p] for p in children)
+            and all(
+                c.export is plan.ports[p]
+                for c, p in zip(unit.columns, children, strict=True)
+            ),
+            "EMISSION_COLLECT_TERMINAL",
+        )
+        visible = tuple(
+            unit.cte_columns[j].name if unit.symbol is not None else c.label
+            for j, c in enumerate(unit.columns)
+        )
+        ordinal, wrapper = lateral.ordinal, lateral.wrapper
+        if unit.distinct is None:
+            keys = tuple((i, i.read.name, i.direction) for i in order.items)
+            scope, reads = unit.scan.symbol, visible
+            need(
+                wrapper is None and ordinal is unit.ordinal, "EMISSION_COLLECT_ORDINAL"
+            )
+        else:
+            at = tuple(
+                tuple(j for j, c in enumerate(unit.columns) if c.read is i.read)
+                for i in order.items
+            )
+            need(
+                unit.ordinal is None
+                and wrapper is not None
+                and wrapper.binding is item.ref
+                and wrapper.position == 0
+                and wrapper.name == f"d{n}"
+                and all(len(j) == 1 for j in at),
+                "EMISSION_COLLECT_ORDINAL",
+            )
+            keys = tuple(
+                (i, visible[j[0]], i.direction)
+                for i, j in zip(order.items, at, strict=True)
+            )
+            scope, reads = wrapper, tuple(f"c{j}" for j in range(width))
+        need(
+            type(ordinal) is collecting.CollectOrdinal
+            and ordinal.order is order
+            and ordinal.scope is scope
+            and ordinal.keys == keys
+            and ordinal.symbol.binding is order.order.ref
+            and ordinal.symbol.position == width
+            and ordinal.symbol.name == f"c{width}",
+            "EMISSION_COLLECT_ORDINAL",
+        )
+        labels = (
+            (
+                records[address].get("label"),
+                *(records[p].get("label") for p in children),
+            )
+            if final
+            else (f"c{position}", *(f"c{position}_{j}" for j in range(width)))
+        )
+        need(
+            tuple(lateral.sources) == visible
+            and lateral.arrays
+            == tuple(
+                (refs[p], reads[j], ordinal.symbol.name, f"a{j}")
+                for j, p in enumerate(children)
+            )
+            and column.carriers
+            == tuple(
+                zip(
+                    (collecting.COUNT, *(f"a{j}" for j in range(width))),
+                    labels,
+                    (refs[address], *(refs[p] for p in children)),
+                    strict=True,
+                )
+            )
+            and column.label == labels[0]
+            and column.symbol.binding is refs[address]
+            and column.symbol.position == position + 1
+            and column.symbol.name == labels[0]
+            and column.column.position == position
+            and column.column.name == labels[0],
+            "EMISSION_COLLECT_CARRIERS",
+        )
+
     def verify_unit(index, body, record, inline=False):
         current_bodies.append(body)
         try:
@@ -4698,6 +5055,8 @@ def _verify_compiled_emission(artifact, request):
             )
         ports = record.get("outputs")
         need(len(body.columns) == len(ports), "EMISSION_COLUMNS")
+        nested = tuple(c for c in body.columns if type(c) is collecting.CollectColumn)
+        need(body.laterals == tuple(c.lateral for c in nested), "EMISSION_LATERALS")
         for position, (column, address) in enumerate(
             zip(body.columns, ports, strict=True)
         ):
@@ -4705,13 +5064,23 @@ def _verify_compiled_emission(artifact, request):
             need(
                 column.ordinal == position
                 and column.export is plan.ports[address]
-                and column.label == port.get("label")
+                # A Collect column's labels are checked with its carriers.
+                and (
+                    column.label == port.get("label")
+                    or any(column is c for c in nested)
+                )
                 and column.column.terminal is refs[address]
                 and column.column.realization is facts[address].realization,
                 "EMISSION_COLUMN",
             )
             expression = port.get("source")
-            if type(column) in (ast.RowCarryColumn, grouping.AggregateKeyColumn):
+            if (
+                expression.kind == "operation"
+                and records[expression].get("operator") == COLLECT_OPERATOR
+            ):
+                need(record.address.kind == "row", "EMISSION_COLLECT")
+                check_collect(column, position, address, record, use, producer, final)
+            elif type(column) in (ast.RowCarryColumn, grouping.AggregateKeyColumn):
                 read = records[expression]
                 need(
                     read.address.kind == "read"
@@ -4955,6 +5324,9 @@ def verify_compiled_result_unit(
     )
     from pietto.semantic.relation_limits import valid_resolved_limit
 
+    from pietto._project.project_sql_emission_results import ResultGroupColumn
+    from pietto._project import project_sql_emission_nested as collecting
+
     need(type(body) is RowResultBody, "RESULT_BODY")
     plan, records = request.plan, request.verification.completed.root.records
     producer = record.get("input")
@@ -5037,8 +5409,32 @@ def verify_compiled_result_unit(
         read = records[port.get("source")]
         input_port = plan.ports[read.get("port")]
         i = records[read.get("port")].get("ordinal")
+        group = original.columns[i]
+        nested = type(group) is collecting.CollectColumn
+        if nested:
+            # The parent's nested group, carried whole to this result (S09).
+            labels = (
+                (port.get("label"), *collecting.field_names(group.lateral))
+                if final
+                else (
+                    f"c{position}",
+                    *(f"c{position}_{j}" for j in range(len(group.carriers) - 1)),
+                )
+            )
+            need(
+                type(column) is ResultGroupColumn
+                and column.group is group
+                and column.carriers
+                == tuple(
+                    (carried, label, subject)
+                    for (_, carried, subject), label in zip(
+                        group.carriers, labels, strict=True
+                    )
+                ),
+                "RESULT_GROUP",
+            )
         need(
-            type(column) is ResultColumn
+            type(column) is (ResultGroupColumn if nested else ResultColumn)
             and column.ordinal == position
             and column.export is plan.ports[address]
             and column.projection_port is input_port
@@ -5107,6 +5503,30 @@ def verify_compiled_result_unit(
                 and item.nulls is None,
                 "RESULT_ORDER_ITEM",
             )
+    # A terminal a Collect reads carries, without DISTINCT, the private
+    # ordinal restating its ORDER (Phase71 S09); no other result body has one.
+    collected = any(
+        r.address.kind == "expression_block_use"
+        and r.get("producer") == record.address
+        and records[r.get("operation")].get("operator") == COLLECT_OPERATOR
+        for r in records.values()
+    )
+    if collected and body.distinct is None:
+        width, ordinal = len(body.columns), body.ordinal
+        need(
+            body.order is not None
+            and type(ordinal) is collecting.CollectOrdinal
+            and ordinal.order is body.order
+            and ordinal.scope is body.scan.symbol
+            and ordinal.keys
+            == tuple((i, i.read.name, i.direction) for i in body.order.items)
+            and ordinal.symbol.binding is body.order.order.ref
+            and ordinal.symbol.position == width
+            and ordinal.symbol.name == f"c{width}",
+            "RESULT_ORDINAL",
+        )
+    else:
+        need(body.ordinal is None, "RESULT_ORDINAL")
 
 
 def verify_compiled_window_stage(body, record, request, produced, sources):
@@ -5903,6 +6323,43 @@ def verify_requirement_export(records, artifact, check_declaration):
             ),
             "EXPORT_REQUIREMENT_ENTRY",
         )
+        if actual.family.value == "collection":
+            # A Collect read's demands anchor its Collect operation; its export's
+            # demand anchors the port that operation is the source of and the
+            # parent's result port carrying that one.
+            operations = tuple(
+                r.get("operation")
+                for r in records.values()
+                if r.address.kind == "expression_block_use"
+                and records[r.get("operation")].get("operator") == COLLECT_OPERATOR
+                and any(
+                    c.ref is actual.subject or c.export is actual.subject
+                    for c in plan.collects
+                    if c.use.position == r.address.position
+                )
+            )
+            need(len(operations) == 1, "EXPORT_REQUIREMENT_COLLECT_ANCHOR")
+            carriers = {
+                r.address
+                for r in records.values()
+                if r.address.kind == "port" and r.get("source") == operations[0]
+            }
+            expected = (
+                operations
+                if actual.subject.kind.value == "collect"
+                else tuple(
+                    r.address
+                    for r in records.values()
+                    if r.address in carriers
+                    or r.address.kind == "port"
+                    and records[r.get("source")].address.kind == "read"
+                    and records[r.get("source")].get("port") in carriers
+                )
+            )
+            need(
+                described.get("anchors") == expected,
+                "EXPORT_REQUIREMENT_COLLECT_ANCHOR",
+            )
         if actual.family.value == "expression":
             expression = plan.expressions[actual.subject.position]
             logical = (

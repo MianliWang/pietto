@@ -6,6 +6,7 @@ import hashlib
 import json
 
 from pietto._project.project_compiled_schema import (
+    COLLECT_OPERATOR,
     Address,
     CompiledError,
     Description,
@@ -37,6 +38,7 @@ from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_emission_joins as joining
+from pietto._project import project_sql_emission_nested as collecting
 
 __all__: tuple[str, ...] = ()
 
@@ -538,22 +540,9 @@ class _Export:
             or value.kind not in ("exists", "scalar", "in", "not_in")
         ):
             raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
-        if self.block_uses is None:
-            # One record per statement block use, in its plan order, so record
-            # ``n`` is the read the live statement aliases ``e<n>``.
-            self.block_uses = {
-                item.ref: self.reserve("expression_block_use")
-                for item in self.request.plan.expression_block_uses
-            }
-        address = self.block_uses.get(target.use.ref)
-        if (
-            address is None
-            or address.position != target.use.ref.position
-            or target.symbol.name != f"e{address.position}"
-        ):
-            raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
+        address = self.block_use(target)
         if target.source is None and sql.inline_body(target.producer):
-            self.inline_let(value, use, address)
+            self.inline_let(target.producer, value.original.ref, use, address)
         operands = tuple(
             self.scalar(v, producer, use, join_inputs) for v in value.operands
         )
@@ -584,6 +573,53 @@ class _Export:
         )
         return operation
 
+    def block_use(self, target):
+        """The reserved expression block use record of one realized read."""
+        if self.block_uses is None:
+            # One record per statement block use, in its plan order, so record
+            # ``n`` is the read the live statement aliases ``e<n>``.
+            self.block_uses = {
+                item.ref: self.reserve("expression_block_use")
+                for item in self.request.plan.expression_block_uses
+            }
+        address = self.block_uses.get(target.use.ref)
+        if (
+            address is None
+            or address.position != target.use.ref.position
+            or target.symbol.name != f"e{address.position}"
+        ):
+            raise CompiledError("COMPILED_EXPORT_BLOCK_READ")
+        return address
+
+    def collect(self, column, use):
+        """A Collect read (Phase71 S09): its operation and the expression block
+        use of its let's terminal result unit, column null. A captured let's
+        units are exported here, at the read that renders them; the ordinal,
+        lateral, carriers and any DISTINCT wrapper are derived, never stored."""
+        target = column.lateral.target
+        if (
+            use is None
+            or type(target) is not rows.SQLBlockTarget
+            or target.source is not None
+            or target.use.ref is not column.collect.use
+        ):
+            raise CompiledError("COMPILED_EXPORT_COLLECT")
+        address = self.block_use(target)
+        if sql.inline_body(target.producer):
+            self.inline_let(target.producer, column.collect.ref, use, address)
+        operation = self.add(
+            "operation", COLLECT_OPERATOR, (), ("collection", "non_null"), None
+        )
+        self.anchor(column.collect.ref, operation)
+        self.finish(
+            address,
+            operation,
+            self.records[use].get("consumer"),
+            self.units[id(target.producer)],
+            None,
+        )
+        return operation
+
     def port_of(self, read, producer):
         """The producer port one stage column read carries."""
         if isinstance(producer, BoundSource):
@@ -598,12 +634,13 @@ class _Export:
             raise CompiledError("COMPILED_EXPORT_READ")
         return self.producer_ports(producer)[indexes[0]]
 
-    def inline_let(self, value, use, block_use):
+    def inline_let(self, terminal, read, use, block_use):
         """A capturing let's bodies, exported at the read that renders them.
 
         Each body is an ordinary unit without a unit position; one
-        ``capture_use`` record per capture line names the reading body's
-        producer ports of the captured input, in capture field order.
+        ``capture_use`` record per capture line of the read ``read`` (a block
+        read or a Collect) names the reading body's producer ports of the
+        captured input, in capture field order.
         """
         outer = self.current_unit
         if outer is None or type(outer) is not sql.RowBody:
@@ -613,14 +650,12 @@ class _Export:
         self.capture_context = (producer, use)
         try:
             # Innermost first; ORDER BY and LIMIT end it in its result body.
-            for body in sql.inline_chain(value.target.producer):
+            for body in sql.inline_chain(terminal):
                 self.ordinary_unit(body, {}, None)
                 self.requirement_unit_anchors(body)
         finally:
             self.capture_context = previous
-        captures = tuple(
-            c for c in self.request.plan.captures if c.read is value.original.ref
-        )
+        captures = tuple(c for c in self.request.plan.captures if c.read is read)
         if not captures:
             raise CompiledError("COMPILED_EXPORT_CAPTURE")
         for capture in captures:
@@ -1090,6 +1125,10 @@ class _Export:
                 )
                 self.finish(definitions[id(d.symbol)], d.index, d.label, spec)
         values, ports = [], []
+        collected = kind == "result" and any(
+            c.producer is unit.definition.original.ref
+            for c in self.request.plan.collects
+        )
         for i, column in enumerate(unit.columns):
             if type(column) is sql.SQLColumn:
                 if isinstance(producer, BoundSource):
@@ -1196,6 +1235,13 @@ class _Export:
             elif type(column) is sql.RowValueColumn:
                 expr = self.scalar(column.value, producer, use)
                 logical = _logical(column.value.original.value_type)
+            elif type(column) is collecting.CollectColumn:
+                expr = self.collect(column, use)
+                logical = ("collection", "non_null")
+            elif type(column) is results.ResultGroupColumn:
+                # The parent's result unit carries the nested group whole.
+                expr = self.read(column.read, producer, use)
+                logical = self.records[self.records[expr].get("port")].get("logical")
             elif type(column) is sql.SQLLiteralColumn:
                 value = (
                     column.value if column.value is not None else column.origin.value
@@ -1222,7 +1268,10 @@ class _Export:
             else:
                 raise CompiledError("COMPILED_EXPORT_COLUMN")
             values.append(expr)
-            ports.append(self.add("port", address, i, column.label, expr, logical))
+            # A collected terminal's port keeps its let's field name, the
+            # Collect's child label; the body renders it as ``c<i>`` (S09).
+            label = column.export.identity.name if collected else column.label
+            ports.append(self.add("port", address, i, label, expr, logical))
         self.unit_ports[id(unit)] = tuple(ports)
         predicate = getattr(unit, "predicate", None)
         condition = (
@@ -1414,7 +1463,7 @@ class _Export:
                 self.anchor(
                     column.window.policy, self.records[value].get("specification")
                 )
-            elif type(column) is results.ResultColumn:
+            elif type(column) in (results.ResultColumn, results.ResultGroupColumn):
                 self.anchor(column.projection_port.ref, self.records[value].get("port"))
                 for stage in column.stages:
                     self.anchor(stage.input_port.ref, port)
@@ -1687,6 +1736,10 @@ class _LogicalExport(_Export):
     """Build-only adapter over an actual verified retained plan, without SQL."""
 
     def __init__(self, artifact, guarded, checked):
+        # No consumer reads a retained owner's Collect: guarded and R2 owners
+        # admit no nested value (D71.05, D-S09-8).
+        if checked.plan.collects:
+            raise CompiledError("COMPILED_RETAINED_COLLECT")
         super().__init__(artifact, guarded, None)
         self.checked = checked
         self.plan = checked.plan
@@ -2442,6 +2495,12 @@ class _LogicalExport(_Export):
             _same_order_expression,
         )
 
+        # An ORDER BY without DISTINCT carries its keys beside the projection;
+        # a retained result has no form for such a hidden key yet.
+        if any(
+            self.result_ports[r].canonical is None for b in boundaries for r in b.inputs
+        ):
+            raise CompiledError("COMPILED_RETAINED_ORDER")
         address = self.reserve("result")
         (use,) = self.inputs(address, (previous,))
         incoming = self.records[use].get("ports")
@@ -2714,10 +2773,6 @@ def build_compiled(artifact, *, guarded=None, refinement=None) -> CompiledBuild:
 
     if type(artifact) not in (EmissionArtifact, GuardedArtifact):
         raise BindingError("BINDING_ARTIFACT")
-    # D-S08-8: a VERIFIED Collect emission has no compiled form yet; it is
-    # refused before any export, connection or driver import.
-    if artifact.request.plan.collects:
-        raise CompiledError("NESTED_UNAVAILABLE")
     primary = _Export(artifact, guarded, refinement)
     description = primary.run()
     verify_export(description, artifact, guarded=guarded, refinement=refinement)
@@ -2746,8 +2801,6 @@ def build_compiled(artifact, *, guarded=None, refinement=None) -> CompiledBuild:
             owner,
             literal_policy=ProjectSQLLiteralPolicy.PRESERVE_LITERALS,
         )
-        if getattr(checked.plan, "collects", ()):
-            raise CompiledError("NESTED_UNAVAILABLE")
         exporter = _LogicalExport(artifact, guarded, checked)
         child = exporter.run()
         from pietto._project.project_compiled_verification import verify_logical_export

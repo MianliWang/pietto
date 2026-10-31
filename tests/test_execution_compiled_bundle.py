@@ -1129,6 +1129,63 @@ def test_compiled_modern_call_forgery_is_refused(modern_predicate_bundle, mutati
         verify_description(forged)
 
 
+def test_a_description_of_an_earlier_version_is_refused(modern_predicate_bundle):
+    description = modern_predicate_bundle[0].root.description
+    assert description.compatibility[:4] == wire.VERSIONS
+    schema, semantic, occurrence, profile = wire.VERSIONS
+    earlier = (schema - 1, semantic, occurrence - 1, profile)
+    for labels in (
+        earlier,
+        (*wire.VERSIONS[:2], *earlier[2:]),
+        (*earlier[:2], *wire.VERSIONS[2:]),
+    ):
+        forged = wire.Description(
+            (*labels, description.compatibility[4]),
+            description.producer,
+            description.query,
+            description.members,
+        )
+        with pytest.raises(wire.CompiledError, match="^COMPILED_COMPATIBILITY$"):
+            verify_description(forged)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    (
+        ("logical", ("collection", "non_null")),
+        ("logical", ("Float", "nullable")),
+        ("meaning", "UUID"),
+    ),
+)
+def test_an_output_record_repeats_its_port_exactly(
+    modern_predicate_bundle, field, value
+):
+    """No reader reads an output record's own type; a bundle whose output
+    record disagrees with its port is refused at load."""
+    from pietto._project.project_compiled_loading import load_compiled
+
+    built, _ = modern_predicate_bundle
+    records = built.root.records
+    first = records[wire.Address("output", 0)]
+    assert (first.get("logical"), first.get("meaning")) == (
+        records[first.get("port")].get("logical"),
+        None,
+    )
+    raw = wire.encode(
+        _forged(
+            built.root.description,
+            lambda r: _set(r, field, value) if r.address == first.address else r,
+        )
+    )
+    with pytest.raises(wire.CompiledError, match="^COMPILED_OUTPUT_PORT$"):
+        load_compiled(
+            raw,
+            expected_pin=wire.content_pin(raw),
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize(
     "body,expanded,concrete",

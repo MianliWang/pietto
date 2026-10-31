@@ -5244,8 +5244,12 @@ def _verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
             need(
                 type(retained_field.evidence) is ProjectRowField
                 and retained_field.evidence.field_def is None
-                and retained_field.evidence.resolved_type.kind
-                is ProjectResolvedTypeKind.BUILTIN
+                and (
+                    retained_field.evidence.resolved_type.kind
+                    is ProjectResolvedTypeKind.BUILTIN
+                    if fact.nested is None
+                    else retained_field.evidence.resolved_type is fact.nested
+                )
                 and retained_field.evidence.name == port.get("label")
                 and retained_field.evidence.resolved_type.name
                 == fact.value_type.resolved_type.name
@@ -5458,7 +5462,8 @@ def verify_compiled_property_laws(root):
                 for value in incoming.value_classes
             )
             groups = tuple(image for image in images if image)
-            used = {i for group in groups for i in group}
+            # A Collect's nested field is in no value class (D-S04-3).
+            used = {i for group in groups for i in group} | _nested_positions(actual)
             expected_classes = tuple(
                 sorted(
                     (

@@ -7316,7 +7316,71 @@ def _verify_compiled_sql_plan(plan):
             and risk.source is source,
             "PLAN_AGGREGATE_RISK",
         )
+    _verify_compiled_collects(plan)
     return CompiledSQLPlanVerification(plan, ir.completed, ir.selected.owner)
+
+
+def _verify_compiled_collects(plan):
+    """Each compiled Collect record against its own records (Phase71 S09):
+    one per Collect operation, in operation order, never deleted, copied,
+    reordered or grafted from another root."""
+    from pietto._project.project_compiled_schema import COLLECT_OPERATOR
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_sql_plan import CompiledSQLCollect
+
+    records, refs = plan.ir.completed.root.records, plan.references
+    operations = tuple(
+        r
+        for r in records.values()
+        if r.address.kind == "operation" and r.get("operator") == COLLECT_OPERATOR
+    )
+    need(
+        type(plan.collects) is tuple and len(plan.collects) == len(operations),
+        "PLAN_COLLECT_INVENTORY",
+    )
+    for collect, operation in zip(plan.collects, operations, strict=True):
+        uses = tuple(
+            r
+            for r in records.values()
+            if r.address.kind == "expression_block_use"
+            and r.get("operation") == operation.address
+        )
+        ports = tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "port" and r.get("source") == operation.address
+        )
+        need(len(uses) == 1 and len(ports) == 1, "PLAN_COLLECT")
+        use = uses[0]
+        children = tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "port" and r.get("owner") == use.get("producer")
+        )
+        captures = tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "capture_use" and r.get("read") == use.address
+        )
+        need(
+            type(collect) is CompiledSQLCollect
+            and collect.ref is refs[operation.address]
+            and collect.block is refs[use.get("consumer")]
+            and collect.export is refs[ports[0]]
+            and collect.use is refs[use.address]
+            and collect.producer is refs[use.get("producer")]
+            and type(collect.children) is tuple
+            and len(collect.children) == len(children) > 0
+            and all(
+                a is refs[b] for a, b in zip(collect.children, children, strict=True)
+            )
+            and type(collect.captures) is tuple
+            and len(collect.captures) == len(captures)
+            and all(
+                a is refs[b] for a, b in zip(collect.captures, captures, strict=True)
+            ),
+            "PLAN_COLLECT",
+        )
 
 
 def verify_compiled_sql_plan(plan):

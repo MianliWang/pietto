@@ -152,11 +152,8 @@ def build_result_contract(
         kind = port.field.evidence.resolved_type.kind
         if kind in _SCALAR_KINDS:
             leaves.append(_scalar_leaf(ordinal, port, scalar_meaning))
-        elif (
-            kind is ProjectResolvedTypeKind.NESTED_RELATION
-            and type(checked) is ProjectSQLPlanVerification
-        ):
-            leaves.append(_nested_leaf(plan, ordinal, port, scalar_meaning))
+        elif kind is ProjectResolvedTypeKind.NESTED_RELATION:
+            leaves.append(_nested_leaf(checked, ordinal, port, scalar_meaning))
         else:
             raise ResultError("SCALAR_UNAVAILABLE")
     contract = PiettoResultContract(
@@ -257,7 +254,50 @@ def _same_leaf(leaf, ordinal, port, scalar_meaning) -> bool:
     )
 
 
-def _element(plan, port):
+def _compiled_element(plan, port):
+    """The compiled authority's counterpart of ``_element`` (Phase71 S09):
+    the Collect a nested export carries (through the parent's result unit),
+    its let's terminal result unit and that unit's ports, which the rebuilt
+    S04 descriptor must name in order."""
+    from pietto._project.project_compiled_schema import Address
+
+    records = plan.ir.completed.root.records
+    current = Address(port.ref.kind, port.ref.position)
+    source = records[records[current].get("source")]
+    if source.address.kind == "read":
+        current = source.get("port")
+    collects = tuple(c for c in plan.collects if c.export is plan.references[current])
+    definitions = tuple(
+        d
+        for d in plan.definitions
+        if len(collects) == 1 and d.ref is collects[0].producer
+    )
+    if len(collects) != 1 or len(definitions) != 1:
+        raise ResultError("NESTED_ELEMENT")
+    collect, entry, children = collects[0], definitions[0].entry, definitions[0].exports
+    nested = port.field.evidence.resolved_type.nested
+    if (
+        len(collect.children) != len(children)
+        or any(a is not b.ref for a, b in zip(collect.children, children, strict=True))
+        or entry.kind != "result"
+        or len(nested.element_fields) != len(children)
+        or any(
+            child.identity.name != item.identity.name
+            or child.field.effective_nullability is not item.effective_nullability
+            or child.field.evidence.resolved_type.kind not in _SCALAR_KINDS
+            for child, item in zip(children, nested.element_fields, strict=True)
+        )
+        or type(entry.owner.let_position) is not int
+        or nested.element_relation.let_position != entry.owner.let_position
+        or entry.active_properties.multiplicity.value != ("bag",)
+    ):
+        raise ResultError("NESTED_ELEMENT")
+    if not entry.active_properties.ordering.value:
+        raise ResultError("NESTED_ORDER")
+    return collect, entry, children
+
+
+def _element(checked, port):
     """The one Collect read a nested export carries, its producer's entry and
     exports; the S04 descriptor must name exactly those children. A rebuilt
     producer row (DISTINCT, QUALIFY) has other field evidence than the
@@ -265,6 +305,9 @@ def _element(plan, port):
     from pietto._project.project_joined_row_filter import ProjectJoinedRowMultiplicity
     from pietto._project.project_sql_plan_nested import collect_of
 
+    plan = checked.plan
+    if type(checked) is not ProjectSQLPlanVerification:
+        return _compiled_element(plan, port)
     try:
         collect = collect_of(plan, port.ref)
     except ValueError as exc:
@@ -300,10 +343,10 @@ def _element(plan, port):
     return collect, entry, children
 
 
-def _nested_leaf(plan, ordinal, port, scalar_meaning):
+def _nested_leaf(checked, ordinal, port, scalar_meaning):
     from pietto._project.project_scalar_meaning import ScalarMeaningError
 
-    collect, entry, children = _element(plan, port)
+    collect, entry, children = _element(checked, port)
     fields = []
     for position, child in enumerate(children):
         kind = child.field.evidence.resolved_type.kind
@@ -336,12 +379,9 @@ def _nested_leaf(plan, ordinal, port, scalar_meaning):
 
 
 def _verify_nested(checked, leaf, port, scalar_meaning) -> None:
-    # Compiled roots admit no nested shape before S09.
-    if type(checked) is not ProjectSQLPlanVerification:
-        raise ResultError("FIELD")
     shape = leaf.shape
     try:
-        collect, entry, children = _element(checked.plan, port)
+        collect, entry, children = _element(checked, port)
         same = (
             shape.collect is collect
             and shape.owner is entry.owner

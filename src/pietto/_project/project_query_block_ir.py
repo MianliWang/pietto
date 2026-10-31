@@ -5310,9 +5310,12 @@ def build_compiled_query_block_ir(completed):
                     position,
                     ProjectRowField(
                         port.get("label"),
+                        # A Collect's port carries its S04 descriptor (I-S04-C1).
                         ProjectResolvedType(
                             typed.resolved_type.name, ProjectResolvedTypeKind.BUILTIN
-                        ),
+                        )
+                        if fact.nested is None
+                        else fact.nested,
                         ProjectRowFieldNullability(typed.nullability.value),
                     ),
                     fact,
@@ -5392,6 +5395,7 @@ def compiled_relational_properties(
     completed, record, output, built, origin, references
 ):
     """Feed validated resolved inputs into the existing property kernels."""
+    from pietto._project.model import ProjectResolvedTypeKind
     from pietto._project.project_compiled_schema import CompiledError
     from pietto._project.project_grain import (
         CompiledGrainFactorIdentity,
@@ -5522,9 +5526,14 @@ def compiled_relational_properties(
             for c in incoming.value_classes
             if any(m.field_position == port.get("ordinal") for m in c.members)
         )
-        if len(matches) != 1:
+        # A nested field is in no value class (D-S04-3): a reader images none.
+        nested = (
+            incoming.fields[port.get("ordinal")].evidence.resolved_type.kind
+            is ProjectResolvedTypeKind.NESTED_RELATION
+        )
+        if len(matches) != (0 if nested else 1):
             raise CompiledError("COMPILED_VALUE_CLASS")
-        class_by_port[port.address] = matches[0]
+        class_by_port[port.address] = matches[0] if matches else None
     if kind == "aggregate":
         mode = ProjectJoinedAggregationMode(record.get("mode"))
         factor = (

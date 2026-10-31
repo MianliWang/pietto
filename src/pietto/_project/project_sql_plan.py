@@ -5349,6 +5349,75 @@ class CompiledSQLAggregateRisk:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLCollect:
+    """One Collect read of the compiled branch (Phase71 S09), the compiled
+    counterpart of ``ProjectSQLCollect``: ``ref`` is its operation, ``use`` its
+    expression block use, ``block`` the parent's projection row, ``export``
+    the port the Collect is the source of, ``producer`` the let's terminal
+    result unit, ``children`` that unit's ports in order and ``captures`` the
+    capture records of a captured let, in order."""
+
+    ref: CompiledIRReference
+    block: CompiledIRReference
+    export: CompiledIRReference
+    use: CompiledIRReference
+    producer: CompiledIRReference
+    children: tuple[CompiledIRReference, ...]
+    captures: tuple[CompiledIRReference, ...]
+
+
+def compiled_collects(records, refs):
+    """The Collect reads of a compiled description, in operation order."""
+    from pietto._project.project_compiled_schema import (
+        COLLECT_OPERATOR,
+        CompiledError,
+    )
+
+    result = []
+    for record in records.values():
+        if (
+            record.address.kind != "operation"
+            or record.get("operator") != COLLECT_OPERATOR
+        ):
+            continue
+        uses = tuple(
+            r
+            for r in records.values()
+            if r.address.kind == "expression_block_use"
+            and r.get("operation") == record.address
+        )
+        ports = tuple(
+            r.address
+            for r in records.values()
+            if r.address.kind == "port" and r.get("source") == record.address
+        )
+        if len(uses) != 1 or len(ports) != 1:
+            raise CompiledError("COMPILED_PLAN_COLLECT")
+        use = uses[0]
+        result.append(
+            CompiledSQLCollect(
+                refs[record.address],
+                refs[use.get("consumer")],
+                refs[ports[0]],
+                refs[use.address],
+                refs[use.get("producer")],
+                tuple(
+                    refs[r.address]
+                    for r in records.values()
+                    if r.address.kind == "port"
+                    and r.get("owner") == use.get("producer")
+                ),
+                tuple(
+                    refs[r.address]
+                    for r in records.values()
+                    if r.address.kind == "capture_use" and r.get("read") == use.address
+                ),
+            )
+        )
+    return tuple(result)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class CompiledSQLPlan:
     ir: CompiledQueryBlockIR = field(repr=False)
     scope: object = field(repr=False)
@@ -5375,6 +5444,7 @@ class CompiledSQLPlan:
     window_policies: tuple = ()
     semantic_references: Mapping = field(default_factory=dict, repr=False)
     parameters: tuple = ()
+    collects: tuple[CompiledSQLCollect, ...] = ()
 
 
 def build_compiled_sql_plan(ir):
@@ -5642,4 +5712,5 @@ def build_compiled_sql_plan(ir):
         window_policies=windows.compiled_window_policies(ir, primitives),
         semantic_references=compiled_semantic_references(ir.scope, records),
         parameters=tuple(query_parameters.values()),
+        collects=compiled_collects(records, refs),
     )

@@ -114,6 +114,13 @@ def verify_template(template):
     if type(template) is not ExecutionTemplate or type(template.slots) is not tuple:
         raise BindingError("BINDING_TEMPLATE")
     inspect(template.artifact, template.guarded)
+    # D-S08-8/S09: no execution reads a Collect before S12, so a nested query
+    # has no template: compile_query and load_bundle refuse it (PIE-R1004)
+    # before any connection, workspace or driver import.
+    if template.artifact.request.plan.collects:
+        from pietto._project.project_compiled_schema import CompiledError
+
+        raise CompiledError("NESTED_UNAVAILABLE")
     slots = template.artifact.request.plan.literal_slots
     if len(slots) != len(template.slots) or any(
         type(s) is not ExecutionSlot

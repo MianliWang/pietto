@@ -12,7 +12,11 @@ from weakref import ref
 from pietto._project import project_arrow_result as arrow
 from pietto._project import project_result_ingress as ingress
 from pietto._project import project_result_reader as reader
-from pietto._project.project_result_contract import ResultError, scalar_fields
+from pietto._project.project_result_contract import (
+    NestedShape,
+    ResultError,
+    ScalarShape,
+)
 from pietto._project.project_result_contract_portable import export_result_contract
 
 __all__: tuple[str, ...] = ()
@@ -70,33 +74,55 @@ def contract_digest(contract):
 
     verify_result_contract(contract, contract.authority)
     root = contract.authority.completed.root
-    fields = []
-    for leaf in scalar_fields(contract):
+
+    def scalar(leaf):
         law = None if leaf.meaning is None else leaf.meaning.law
+        return [
+            leaf.ordinal,
+            leaf.label,
+            leaf.shape.canonical.kind.value,
+            leaf.shape.canonical.name,
+            leaf.nullability.value,
+            None
+            if law is None
+            else [
+                "timestamp",
+                law.calendar,
+                law.resolution,
+                law.timezone,
+                list(law.lower),
+                list(law.upper),
+            ]
+            if type(law) is TimestampMeaning
+            else ["uuid", law.byte_order, law.byte_width],
+        ]
+
+    # A flat contract keeps its v1 bytes. A collection is its container
+    # nullability and its scalar child leaves in order; the element owner,
+    # ordering and LIMIT are bound by the pin (Phase71 slice-07 4.2).
+    fields, nested = [], False
+    for leaf in contract.shape.fields:
+        if type(leaf.shape) is ScalarShape:
+            fields.append(scalar(leaf))
+            continue
+        children = leaf.shape.fields if type(leaf.shape) is NestedShape else None
+        if children is None or any(type(c.shape) is not ScalarShape for c in children):
+            raise ResultError("FIELD")
+        nested = True
         fields.append(
             [
                 leaf.ordinal,
                 leaf.label,
-                leaf.shape.canonical.kind.value,
-                leaf.shape.canonical.name,
+                "collection",
                 leaf.nullability.value,
-                None
-                if law is None
-                else [
-                    "timestamp",
-                    law.calendar,
-                    law.resolution,
-                    law.timezone,
-                    list(law.lower),
-                    list(law.upper),
-                ]
-                if type(law) is TimestampMeaning
-                else ["uuid", law.byte_order, law.byte_width],
+                [scalar(child) for child in children],
             ]
         )
     document = {
         "fields": fields,
-        "format": "pietto.compiled-result-contract.v1",
+        "format": "pietto.compiled-result-contract.v2"
+        if nested
+        else "pietto.compiled-result-contract.v1",
         "multiplicity": contract.multiplicity.value,
         "pin": root.expected_pin,
         "query": _wire(root.description.query),

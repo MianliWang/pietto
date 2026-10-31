@@ -8,7 +8,7 @@ import math
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from pietto._project.model import CompiledProjectInput
+    from pietto._project.model import CompiledProjectInput, ProjectResolvedType
     from pietto._project.module_attribution import CompiledDeclarationOccurrence
     from pietto._project.nested_relation_facts import ProjectNestedRelationFactSet
     from pietto._project.project_compiled_schema import Address
@@ -2037,6 +2037,10 @@ class CompiledScalarFact:
     parameters: tuple[int, int] | None = field(kw_only=True, default=None)
     introduction: Address | None = field(kw_only=True, default=None)
     nulling: tuple[Address, ...] = field(kw_only=True, default=())
+    # Phase71 S09: the NESTED_RELATION type of a Collect and of each port or
+    # read carrying it, rebuilt from records (I-S04-C1); its value type names
+    # no builtin and it has no realization, so a scalar reader fails closed.
+    nested: ProjectResolvedType | None = field(kw_only=True, default=None, repr=False)
 
     def require_realization(self) -> Realization:
         from pietto._project.project_sql_emission_rows import Realization
@@ -2074,6 +2078,116 @@ def _captured(records, read, typed, realized):
     )
 
 
+def compiled_collected_ports(records, operation):
+    """The ports of the terminal result unit one Collect operation reads, in
+    order: its one expression block use names that unit (Phase71 S09)."""
+    from pietto._project.project_compiled_schema import CompiledError
+
+    uses = tuple(
+        r
+        for r in records.values()
+        if r.address.kind == "expression_block_use" and r.get("operation") == operation
+    )
+    if len(uses) != 1:
+        raise CompiledError("COMPILED_BLOCK_READ")
+    return tuple(
+        r.address
+        for r in records.values()
+        if r.address.kind == "port" and r.get("owner") == uses[0].get("producer")
+    )
+
+
+def compiled_nested_value():
+    """The value type of a nested fact: no builtin, never NULL (D71.04)."""
+    from pietto._project.model import NESTED_RELATION_TYPE_NAME
+    from pietto.semantic.model import (
+        EffectiveNullability,
+        ResolvedType,
+        TypeKind,
+        ValueType,
+    )
+
+    return ValueType(
+        ResolvedType(NESTED_RELATION_TYPE_NAME, TypeKind.UNKNOWN),
+        EffectiveNullability.NON_NULL,
+    )
+
+
+def _compiled_nested_type(records, operation, children):
+    """A Collect's S04 descriptor from compiled records alone: its let's
+    occurrence and the scalar facts of that let's terminal ports (I-S04-C1)."""
+    from pietto._project.model import (
+        ProjectDeclarationOccurrenceIdentity,
+        ProjectModuleRowFieldIdentity,
+        ProjectModuleRowFieldKind,
+        ProjectNestedRelationElementField,
+        ProjectNestedRelationType,
+        ProjectNominalDeclarationIdentity,
+        ProjectResolvedType,
+        ProjectResolvedTypeKind,
+        ProjectRowField,
+        ProjectRowFieldNullability,
+        ProjectSymbolKind,
+        ProjectSymbolNamespace,
+        nested_relation_type,
+    )
+    from pietto._project.project_compiled_schema import CompiledError
+
+    (use,) = (
+        r
+        for r in records.values()
+        if r.address.kind == "expression_block_use" and r.get("operation") == operation
+    )
+    module, module_position, position, namespace, kind, label, let = records[
+        records[use.get("producer")].get("owner")
+    ].values
+    if not children or any(child.nested is not None for child in children):
+        raise CompiledError("COMPILED_COLLECT_ELEMENT")
+    try:
+        relation = ProjectDeclarationOccurrenceIdentity(
+            identity=ProjectNominalDeclarationIdentity(
+                module_path=module,
+                namespace=ProjectSymbolNamespace(namespace),
+                declaration_kind=ProjectSymbolKind(kind),
+                declared_name=label,
+            ),
+            module_position=module_position,
+            declaration_position=position,
+            let_position=let,
+        )
+        fields = []
+        for ordinal, child in enumerate(children):
+            name = records[child.address].get("label")
+            evidence = ProjectRowField(
+                name,
+                ProjectResolvedType(
+                    child.value_type.resolved_type.name,
+                    ProjectResolvedTypeKind.BUILTIN,
+                ),
+                ProjectRowFieldNullability(child.value_type.nullability.value),
+            )
+            fields.append(
+                ProjectNestedRelationElementField(
+                    position=ordinal,
+                    identity=ProjectModuleRowFieldIdentity(
+                        owner=relation,
+                        kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+                        field_position=ordinal,
+                        name=name,
+                    ),
+                    field=evidence,
+                    effective_nullability=evidence.nullability,
+                )
+            )
+        return nested_relation_type(
+            ProjectNestedRelationType(
+                element_relation=relation, element_fields=tuple(fields)
+            )
+        )
+    except (TypeError, ValueError):
+        raise CompiledError("COMPILED_COLLECT_ELEMENT") from None
+
+
 def _compiled_parameter_values(records, parameters, family):
     """Header records in order; a binding gives every one a valid value."""
     from pietto._project.project_compiled_schema import CompiledError
@@ -2105,6 +2219,7 @@ def derive_compiled_semantics(root, values, parameters=None):
     from pietto._project.project_sql_emission_parameters import literal_representation
     from pietto._project.module_attribution import compiled_declarations
     from pietto._project.project_compiled_schema import (
+        COLLECT_OPERATOR,
         Address,
         CompiledError,
         Scalar,
@@ -2187,6 +2302,11 @@ def derive_compiled_semantics(root, values, parameters=None):
 
     def dependencies(record) -> tuple[Address, ...]:
         kind, get = record.address.kind, record.get
+        if kind == "operation" and get("operator") == COLLECT_OPERATOR:
+            # A Collect reads its let's whole terminal result unit (S09).
+            if get("operands"):
+                raise CompiledError("COMPILED_BLOCK_READ")
+            return compiled_collected_ports(records, record.address)
         if kind == "operation" and get("operator") == ("scalar", "scalar"):
             # A scalar read reads the one producer output its block use names.
             port = scalar_read_port(records, record.address)
@@ -2286,6 +2406,7 @@ def derive_compiled_semantics(root, values, parameters=None):
             origin = "unsupported"
             type_parameters = None
             introduction, nulling = None, ()
+            nested = None
             if kind == "field":
                 origin = "field"
                 type_parameters = get("decimal")
@@ -2663,6 +2784,16 @@ def derive_compiled_semantics(root, values, parameters=None):
                         raise CompiledError("COMPILED_WINDOW_DOMAIN")
                 else:
                     realized = None
+            elif kind == "operation" and get("operator") == COLLECT_OPERATOR:
+                # A nested value: no scalar realization, so every scalar reader
+                # of it fails closed (Phase71 S09).
+                if get("logical") != ("collection", "non_null"):
+                    raise CompiledError("COMPILED_COLLECT_LOGICAL")
+                origin, operator = "collect", COLLECT_OPERATOR
+                nested = _compiled_nested_type(
+                    records, ref, tuple(facts[child] for child in operands)
+                )
+                typed, realized = compiled_nested_value(), None
             elif kind in ("port", "read"):
                 origin = facts[operands[0]].origin
                 value = facts[operands[0]].value
@@ -2675,7 +2806,12 @@ def derive_compiled_semantics(root, values, parameters=None):
                     origin = "aggregate"
                 typed = facts[operands[0]].value_type
                 realized = facts[operands[0]].realization
-                if kind == "port" and declared(get("logical")) != typed:
+                nested = facts[operands[0]].nested
+                if kind == "port" and (
+                    get("logical") != ("collection", typed.nullability.value)
+                    if nested is not None
+                    else declared(get("logical")) != typed
+                ):
                     raise CompiledError("COMPILED_PORT_TYPE")
                 if kind == "read" and get("role") == "capture":
                     typed, realized = _captured(records, ref, typed, realized)
@@ -3060,6 +3196,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                 parameters=type_parameters,
                 introduction=introduction,
                 nulling=nulling,
+                nested=nested,
             )
     if set(facts) != {
         r.address for r in records.values() if r.address.kind in scalar_kinds
@@ -3144,6 +3281,8 @@ def verify_compiled_semantics(value):
         ValueType,
         ValueTypeKind,
     )
+
+    from pietto._project.project_compiled_schema import COLLECT_OPERATOR
 
     need(type(value) is CompiledCompletedSemanticResult, "SEMANTIC_ROOT")
     value.root.verify()
@@ -3305,7 +3444,7 @@ def verify_compiled_semantics(value):
             type(fact.value_type) is ValueType
             and (
                 type(fact.realization) is Realization
-                if fact.address in executable
+                if fact.address in executable and fact.nested is None
                 else fact.realization is None
             ),
             "SEMANTIC_FACT_TYPE",
@@ -3322,6 +3461,7 @@ def verify_compiled_semantics(value):
                 continue
             record, actual = records[current], by_address[current]
             kind, get = record.address.kind, record.get
+            collect = kind == "operation" and get("operator") == COLLECT_OPERATOR
             children = (
                 tuple(
                     port
@@ -3329,6 +3469,8 @@ def verify_compiled_semantics(value):
                     if port is not None
                 )
                 if kind == "operation" and get("operator") == ("scalar", "scalar")
+                else compiled_collected_ports(records, current)
+                if collect
                 else get("operands")
                 if kind == "operation"
                 else get("arguments")
@@ -3391,6 +3533,7 @@ def verify_compiled_semantics(value):
             origin = "unsupported"
             type_parameters = None
             introduction, nulling = None, ()
+            nested = None
             if kind == "field":
                 origin = "field"
                 type_parameters = get("decimal")
@@ -3775,6 +3918,11 @@ def verify_compiled_semantics(value):
                         )
                 else:
                     realization = None
+            elif collect:
+                need(not get("operands"), "SEMANTIC_COLLECT")
+                origin, operator = "collect", COLLECT_OPERATOR
+                nested = _compiled_nested_type(records, current, inputs)
+                typed, realization = compiled_nested_value(), None
             elif kind in ("read", "port"):
                 origin = (
                     "aggregate"
@@ -3783,6 +3931,12 @@ def verify_compiled_semantics(value):
                 )
                 expected_value = inputs[0].value
                 typed, realization = inputs[0].value_type, inputs[0].realization
+                nested = inputs[0].nested
+                if kind == "port" and nested is not None:
+                    need(
+                        get("logical") == ("collection", typed.nullability.value),
+                        "SEMANTIC_COLLECT",
+                    )
                 if kind == "read" and get("role") == "capture":
                     typed, realization = _captured(records, current, typed, realization)
                 type_parameters = inputs[0].parameters
@@ -4194,9 +4348,18 @@ def verify_compiled_semantics(value):
             if kind == "operation":
                 need(
                     get("logical")
-                    == (typed.resolved_type.name, typed.nullability.value),
+                    == (
+                        ("collection", typed.nullability.value)
+                        if collect
+                        else (typed.resolved_type.name, typed.nullability.value)
+                    ),
                     "SEMANTIC_LOGICAL",
                 )
+            need(
+                actual.nested == nested
+                and (nested is None or type(actual.nested) is type(nested)),
+                "SEMANTIC_COLLECT",
+            )
             need(
                 actual.value_type == typed
                 and actual.origin == origin
@@ -4208,7 +4371,7 @@ def verify_compiled_semantics(value):
                 and actual.operands == children,
                 "SEMANTIC_DERIVATION",
             )
-            if physical_required:
+            if physical_required and nested is None:
                 observed = actual.require_realization()
                 if type(realization) is not Realization:
                     raise ValueError("COMPILED_SEMANTIC_REALIZATION")

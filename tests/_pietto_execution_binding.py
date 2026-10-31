@@ -70,6 +70,9 @@ query result:
                     "        value = lhs.id\n        kids = collect m\n",
                 )
             )
+        elif retained == "ordered":
+            # The unselected request owner orders without DISTINCT.
+            unused += "    order by:\n        lhs.id\n    limit 3\n"
         elif retained == "lateral":
             # The unselected request owner joins a capturing let LATERAL.
             unused = (

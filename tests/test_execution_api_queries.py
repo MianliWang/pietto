@@ -2879,7 +2879,7 @@ def test_a_compiled_capture_names_the_outer_ports_of_its_read(tmp_path):
     bundle = execution.export_bundle(query)
     description = decode(bundle.payload)
     records = {r.address: r for r in description.records}
-    assert tuple(description.compatibility[:4]) == VERSIONS == (5, 1, 5, 1)
+    assert tuple(description.compatibility[:4]) == VERSIONS
     (capture,) = [r for r in description.records if r.address.kind == "capture_use"]
     block = records[capture.get("read")]
     assert block.address.kind == "expression_block_use"

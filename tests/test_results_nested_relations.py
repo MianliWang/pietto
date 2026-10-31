@@ -15,6 +15,7 @@ import pytest
 
 from _pietto_execution_jobs_probe import compiled_template
 import _pietto_results_product as probe
+from pietto._project import project_job_delivery as delivery
 from pietto._project import project_result_binding as p
 from pietto._project import project_result_contract as c
 from pietto._project import project_result_contract_correspondence as runtime
@@ -644,12 +645,16 @@ def test_flat_readers_refuse_explicitly_behind_an_admitting_authority(
     monkeypatch.setattr(o, "build_result_contract", lambda *args, **kwargs: bad)
     monkeypatch.setattr(p, "verify_result_contract", lambda *args: None)
     entries["prepare_output"] = lambda: o.prepare_output(artifact)
+    # A saved job's row layout reads its output's contract directly.
+    output = roots[target][4]
+    entries["layout"] = lambda: delivery.layout(replace(output, contract=bad), None)
     for name in (
         "prepare_output",
         "verify_output",
         "producer_columns",
         "bind_producer",
         "verify_producer_binding",
+        "layout",
     ):
         with pytest.raises(c.ResultError, match="NESTED_UNAVAILABLE"):
             entries[name]()
@@ -663,18 +668,96 @@ def compiled(tmp_path_factory):
     return c.build_result_contract(template.artifact.request.verification)
 
 
-def test_compiled_digest_refuses_explicitly_behind_an_admitting_authority(
-    compiled, monkeypatch
-):
+def _compiled_digest(contract, fields, version):
+    """The compiled contract identity recomputed from its written rule."""
+    document = {
+        "fields": fields,
+        "format": "pietto.compiled-result-contract." + version,
+        "multiplicity": ["bag"],
+        "pin": contract.authority.completed.root.expected_pin,
+        "query": {"ref": ["entry", 0]},
+    }
+    text = json.dumps(document, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("ascii")).digest()
+
+
+def test_compiled_digest_names_a_collection_by_the_v2_document(compiled, monkeypatch):
+    """Behind an admitting authority the compiled digest of a nested contract
+    is the v2 document of its leaves; a flat contract keeps its v1 bytes."""
     assert type(compiled.authority) is CompiledSQLPlanVerification
-    assert len(ipc.contract_digest(compiled)) == 32
+    renamed = [0, "renamed", "builtin", "Int", "non_null", None]
+    other = [1, "other", "builtin", "Int", "nullable", None]
+    assert ipc.contract_digest(compiled) == _compiled_digest(
+        compiled, [renamed, other], "v1"
+    )
     bad = _nested_contract(compiled)
     with pytest.raises(c.ResultError, match="FIELD"):
         ipc.contract_digest(bad)
     # The compiled branch reads its verifier from the contract module per call.
     monkeypatch.setattr(c, "verify_result_contract", lambda *args: None)
-    with pytest.raises(c.ResultError, match="NESTED_UNAVAILABLE"):
-        ipc.contract_digest(bad)
+    collection = [1, "other", "collection", "nullable", [renamed]]
+    assert ipc.contract_digest(bad) == _compiled_digest(
+        compiled, [renamed, collection], "v2"
+    )
+    first, second = compiled.shape.fields
+    nested = bad.shape.fields[1]
+
+    def changed(*children, **container):
+        shape = replace(nested.shape, fields=children)
+        field = replace(nested, shape=shape, **container)
+        return replace(bad, shape=c.ResultShape((first, field)))
+
+    text = c.ScalarShape(
+        first.shape.declared, replace(first.shape.canonical, name="Text")
+    )
+    variants = (
+        changed(first),
+        changed(replace(first, label="relabelled")),
+        changed(replace(first, nullability=second.nullability)),
+        changed(replace(first, shape=text)),
+        changed(first, nullability=first.nullability),
+        changed(first, second),
+        changed(second, first),
+    )
+    digests = {ipc.contract_digest(variant) for variant in variants}
+    assert len(digests) == len(variants)
+    with pytest.raises(c.ResultError, match="FIELD"):
+        ipc.contract_digest(changed(nested))
+
+
+def test_a_real_compiled_collection_digest_is_its_v2_document(tmp_path):
+    """S09 opens the compiled authority to a real nested contract: a real
+    bundle's digest is the v2 document of its leaves, with no verifier
+    replaced, on the root it was built on and on the root loaded from it."""
+    import _pietto_sql_nested_collect as collecting
+    from _pietto_plan_nested import sources
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    document = json.loads(collecting.contract())
+    document["sources"] = document["sources"][:1]
+    artifact = collecting.wired_outcome(
+        tmp_path / "closed", sources("closed"), json.dumps(document)
+    ).artifact
+    assert artifact is not None
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    leaf = [0, "id", "builtin", "Int", "non_null", None]
+    other = [1, "other", "builtin", "Int", "nullable", None]
+    for root in (built.root, loaded):
+        contract = c.build_result_contract(emit_compiled(root, ()).request.verification)
+        assert type(contract.authority) is CompiledSQLPlanVerification
+        assert ipc.contract_digest(contract) == _compiled_digest(
+            contract,
+            [leaf, [1, "nested", "collection", "non_null", [leaf, other]]],
+            "v2",
+        )
 
 
 def test_flat_correspondence_refuses_a_v2_document_by_its_format(base, flat):

@@ -118,11 +118,12 @@ def _bound(c, table: str) -> None:
 
 def layout(output, refinement) -> str:
     """The exact typed row shape of one compiled output (Arrow-free)."""
+    from pietto._project.project_result_contract import scalar_fields
     from pietto._project.project_scalar_meaning import TimestampMeaning
 
     contract = output.contract
     fields = []
-    for leaf in contract.shape.fields:
+    for leaf in scalar_fields(contract):
         law = None if leaf.meaning is None else leaf.meaning.law
         fields.append(
             [

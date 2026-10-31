@@ -45,7 +45,8 @@ LEFT JOIN LATERAL (
 - D-S08-8：`build_compiled` 在 `_Export` 之前（主 plan）与 `_LogicalExport` 之前（保留的 single-match owner）对有
   Collect 的 plan 抛 `CompiledError("NESTED_UNAVAILABLE")`；公开为 `compile_query` 的 `RequestRejected` PIE-R1004，在任何
   连接与 driver import 之前，`execute()` 与 `export_bundle` 因此不可达。F-3 已证实：去掉保留 owner 的判定时，带
-  Collect 的保留 owner 在 build 中抛未分类的 `ValueError`（公开为 PIE-R1999）。
+  Collect 的保留 owner 在 build 中抛未分类的 `ValueError`（公开为 PIE-R1999）。S09 起主 plan 的判定在模板闸门，
+  同一个词；保留 owner 一处为 `COMPILED_RETAINED_COLLECT`（[S09](slice-09.md) §6）。
 - D-S08-9：`export_emission_observation` 报 `OUTSIDE_SCHEMA`，`verify_emission_observation` 报 `outside_schema`，
   都在 `_Export` 之前；规则表 R01–R26 不变。
 - S07 的读者拒绝不变：`prepare_output` 报 `ResultError("NESTED_UNAVAILABLE")`，output 视图归 S10（D-S08-7）。
@@ -89,7 +90,7 @@ R27）都使公开序列化报 `PIE-B1008 artifact_correspondence`。
 | --- | --- |
 | `tests/test_sql_nested_relations.py` | S06 的拒绝测试收窄为仍被拒绝的形状（PG 只余读父关系者，MySQL 全部）；P-core 节点与字节测试；真实正例（S06 形状加 `WIRED` 与跨模块来源，SQL 逐字节）、公开 JSON/text、DISTINCT wrapper、F-2、参数次序（bind-safe 与 v2）、物理宽度与节点上限、compile 拒绝、inspection 与 output、真实 artifact 损坏、literal oracle 的 Collect 程序族 |
 | `tests/_pietto_sql_nested_collect.py` | 平面替身、`collect_record`、`WIRED`、`contract`、`wired_outcome`、`oracle_contract` |
-| `tests/test_execution_compiled_families.py` | `build_compiled` 的两处 `NESTED_UNAVAILABLE`（`_pietto_execution_binding.proof_artifact(retained="collect")`） |
+| `tests/test_execution_compiled_families.py` | `_pietto_execution_binding.proof_artifact(retained="collect")`；S09 把用例改写为保留 owner 的 `COMPILED_RETAINED_COLLECT` |
 | `tests/test_harness_sql_emission_portability.py` | 观察的 `OUTSIDE_SCHEMA` |
 | `tests/test_harness_nested_oracles.py`、`tests/_pietto_execution_nested_oracle.py` | D-T1：literal oracle 与它的测试随本片落地；IPC oracle 的部分随 S17，flat harness 随 S21 |
 
@@ -105,6 +106,8 @@ R27）都使公开序列化报 `PIE-B1008 artifact_correspondence`。
   lead 2026-10-30 把 AC-F7 整体移交 [S12](slices.md)（第一个公开执行 Collect 的片），记 D71.10 scope 一次。B3 的封存
   不等 AC-F7，而依赖在确切的 candidate wheel 上跑 D71.11 的权威 rows campaign：它在 PostgreSQL 18.6 真库上执行
   Collect 的嵌套形状（S10 加入、S11 扩充），并按独立字面 oracle 核对。
+- D-S08-8 的判定已由 [S09](slice-09.md) §6 的模板闸门取代：主 plan 的判定在 `verify_template`，保留同一个 detail，
+  保留 owner 一处为 `COMPILED_RETAINED_COLLECT`。
 - slice-07.md 的 output 两行与 slice-02.md 的“S08 preflight”按 D-S08-7 改为 S10，由 S10 的提交修订（F-7、F-8）。
 - 父关系被读时的发射（S16）、Unnest（S13）、Float/Date/Timestamp/UUID 子 leaf 的原生证据（S14/S15）、公开执行（S12）、
   MySQL（Phase77）。

@@ -7654,7 +7654,9 @@ def verify_row_generated_requirements(request, query, generated):
                 for child in collect.children:
                     expected.append(("collect_array", child, "R27", ()))
                 if lateral.wrapper is not None:
-                    order = plan_nested.collect_order(request.plan, collect)
+                    # The terminal's own ORDER, as for a terminal's ordinal; a
+                    # compiled plan has no live ORDER record (S09).
+                    order = lateral.target.producer.order.order
                     expected.append(("collect_ordinal", order.ref, "R27", ()))
                     expected.append(
                         ("read_only_select_bytes", lateral.wrapper, "R23", ())

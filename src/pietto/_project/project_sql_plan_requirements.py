@@ -1581,6 +1581,8 @@ def compiled_requirement_rule(plan, entry, *, generated_scopes):
     if type(plan) is not sql.CompiledSQLPlan or type(entry) is not CompiledDemandEntry:
         raise ValueError("COMPILED_REQUIREMENT_RULE_INPUT")
     family = entry.family
+    if family is F.COLLECTION:
+        return "R27"
     if family is F.FILTER:
         return "R06"
     if family is F.AGGREGATE:
@@ -1758,8 +1760,25 @@ def verify_compiled_requirement_inputs(records):
             "values_column": F.VALUES,
             "definition": F.SOURCE,
             "export": F.EXPORT,
+            "collect": F.COLLECTION,
         }
-        need(expected.get(role) is family, "REQUIREMENT_SUBJECT_FAMILY")
+        # A Collect read's bag and order demands name the read; its container
+        # and child fields demand names its export (Phase71 S09). No compiled
+        # Unnest demand exists before S13.
+        collected = nested.ProjectSQLCollectionDemandKind
+        need(
+            (expected.get(role) is family or (role, family) == ("export", F.COLLECTION))
+            and (
+                family is not F.COLLECTION
+                or demand.get("subkind")
+                in (
+                    (collected.COLLECT_EXPORT.value,)
+                    if role == "export"
+                    else (collected.COLLECT.value, collected.COLLECT_ORDER.value)
+                )
+            ),
+            "REQUIREMENT_SUBJECT_FAMILY",
+        )
     for link in (r for r in records.values() if r.address.kind == "requirement_link"):
         source, target = records[link.get("source")], records[link.get("target")]
         need(

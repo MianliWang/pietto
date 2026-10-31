@@ -443,6 +443,99 @@ def test_all_bindable_tags_a_b_a_current_evidence(tmp_path, target, seed, values
         )
 
 
+def test_a_nested_bundle_lowers_in_a_fresh_source_free_process(tmp_path):
+    """Phase71 S09 (SF6): a captured Top-K Collect bundle, its project gone,
+    lowers to the live bytes and contract in a new process without any test
+    helper, source entry or optional driver."""
+    import json
+    import shutil
+    import subprocess
+    import sys
+
+    import _pietto_sql_nested_collect as collecting
+    from _pietto_plan_nested import sources
+
+    source_path = tmp_path / "build-only-project"
+    artifact = collecting.wired_outcome(
+        source_path, sources("top_k"), collecting.contract()
+    ).artifact
+    assert artifact is not None
+    built = build_compiled(artifact)
+    shutil.rmtree(source_path)
+    bundle = tmp_path / "compiled.json"
+    bundle.write_bytes(built.payload)
+    handoff = tmp_path / "trusted-handoff.json"
+    handoff.write_text(
+        json.dumps(
+            {
+                "pin": built.pin,
+                "producer": built.producer,
+                "compatibility": built.compatibility,
+                "sql": artifact.rendered.sql.decode(),
+            }
+        )
+    )
+    unrelated = tmp_path / "runtime-cwd"
+    unrelated.mkdir()
+    program = r"""
+import sys
+if sys.stdin.read(1) != "g":
+    raise RuntimeError("missing registered launch gate")
+import json
+from pathlib import Path
+from pietto._project.project_compiled_loading import load_compiled
+from pietto._project.project_compiled_lowering import emit_compiled
+from pietto._project.project_result_contract import build_result_contract
+import pietto.parser_api as parser
+from pietto._project import check, model, project_completed_semantics
+
+def forbidden(*args, **kwargs):
+    raise AssertionError("source-language entry used")
+
+parser.parse_source = forbidden
+check.check_project_parse_only = forbidden
+model.build_empty_project_semantic_result = forbidden
+project_completed_semantics.build_project_completed_semantic_result = forbidden
+original_read = Path.read_bytes
+
+def closed_read(path):
+    if path.suffix == ".pietto" or path.name == "pietto.toml":
+        raise AssertionError("query-source read")
+    return original_read(path)
+
+Path.read_bytes = closed_read
+handoff = json.loads(Path(sys.argv[2]).read_text())
+root = load_compiled(Path(sys.argv[1]).read_bytes(), expected_pin=handoff["pin"], accepted_producer=handoff["producer"], accepted_compatibility=tuple(handoff["compatibility"]))
+artifact = emit_compiled(root, ())
+contract = build_result_contract(artifact.request.verification)
+assert not any(name.startswith(("_pietto_", "test_")) for name in sys.modules)
+assert not any(name == "pyarrow" or name.startswith(("adbc_driver", "psycopg", "mysql.connector")) for name in sys.modules)
+print(json.dumps({
+    "same_sql": artifact.rendered.sql.decode() == handoff["sql"],
+    "fields": [[f.label, [c.label for c in getattr(f.shape, "fields", ())]] for f in contract.shape.fields],
+}))
+"""
+    with subprocess.Popen(
+        [sys.executable, "-I", "-B", "-c", program, str(bundle), str(handoff)],
+        cwd=unrelated,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as child:
+        try:
+            stdout, stderr = child.communicate(input="g", timeout=120)
+        except BaseException:
+            child.kill()
+            child.communicate(timeout=10)
+            raise
+        assert child.returncode == 0, stderr[-6000:]
+    assert json.loads(stdout) == {
+        "same_sql": True,
+        "fields": [["id", []], ["recent_orders", ["id", "total"]]],
+    }
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_complete_named_corpus_in_fresh_source_free_process(tmp_path, target):
     """A fresh portability witness reuses the original cases and their oracles.

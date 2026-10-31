@@ -7,6 +7,7 @@ import json
 from pietto._project.project_compiled_schema import (
     Address,
     BLOCK_READ_OPERATORS,
+    COLLECT_OPERATOR,
     CompiledError,
     MAX_RECORDS,
 )
@@ -28,6 +29,8 @@ from pietto._project.project_sql_emission_contract import (
 from pietto._project import project_sql_emission_ast as ast
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_emission_nested as collecting
+from pietto._project import project_sql_emission_results as resulting
 from pietto._project.project_sql_emission_scopes import (
     ScopeDefinition,
     ScopeUse,
@@ -319,6 +322,9 @@ def emit_compiled(root, values, named=None):
                 leaf,
             )
         role, token = record.get("operator")
+        if (role, token) == COLLECT_OPERATOR:
+            # A Collect is only a projection row's own column (S09).
+            raise CompiledError("COMPILED_COLLECT_PLACEMENT")
         if (role, token) in BLOCK_READ_OPERATORS:
             return block_read(address, fact, token, use, producer, alias, join_contexts)
         operands = tuple(
@@ -381,26 +387,7 @@ def emit_compiled(root, values, named=None):
         elif producer_address in inline_units and scopes:
             # The capturing let renders inside this read: its units are built
             # here, innermost first, over the reading body's input row.
-            chain = [producer_address]
-            while True:
-                inputs = tuple(
-                    r.get("producer")
-                    for r in records.values()
-                    if r.address.kind == "use" and r.get("consumer") == chain[-1]
-                )
-                if len(inputs) != 1:
-                    raise CompiledError("COMPILED_INLINE_USE")
-                if inputs[0] not in inline_units:
-                    break
-                chain.append(inputs[0])
-            captures.append((*scopes[-1], described.address))
-            try:
-                for position, unit_address in enumerate(reversed(chain)):
-                    if unit_address in inline_bodies:
-                        raise CompiledError("COMPILED_INLINE_REUSE")
-                    build(position, records[unit_address], inline=True)
-            finally:
-                captures.pop()
+            lateral(producer_address, (*scopes[-1], described.address))
             target = rows.SQLBlockTarget(
                 subject, inline_bodies[producer_address], None, symbol
             )
@@ -422,6 +409,44 @@ def emit_compiled(root, values, named=None):
             operands,
             predicate,
         )
+
+    collects = {c.ref: c for c in plan.collects}
+    collected = {
+        r.get("producer")
+        for r in block_uses.values()
+        if records[r.get("operation")].get("operator") == COLLECT_OPERATOR
+    }
+
+    def collect_column(address, port, position, final):
+        """One Collect read: the parent column and its lateral over the let's
+        realized terminal, which a captured let builds here (Phase71 S09)."""
+        described = block_uses.get(address)
+        item = collects.get(refs[address])
+        if described is None or item is None or not scopes:
+            raise CompiledError("COMPILED_COLLECT_READ")
+        producer_address = described.get("producer")
+        if producer_address in inline_units:
+            lateral(producer_address, (*scopes[-1], described.address))
+            body = inline_bodies[producer_address]
+        elif producer_address in bodies:
+            body = bodies[producer_address]
+        else:
+            raise CompiledError("COMPILED_COLLECT_PRODUCER")
+        subject = CompiledSubject(refs[described.address])
+        target = rows.SQLBlockTarget(
+            subject,
+            body,
+            None,
+            ast.SQLSymbol(0, subject.ref, f"e{described.address.position}"),
+        )
+        column, problem = collecting.realize_collect(
+            item, target, export=port, position=position, final=final, terminal=port
+        )
+        if column is None:
+            # The emission's own drift detail, e.g. COMPILED_COLLECT_CHILDREN_DRIFT.
+            detail = "collect_read" if problem is None else problem[1]
+            raise CompiledError("COMPILED_" + detail.upper())
+        return column
 
     def read_column(address, use, producer, alias):
         value = scalar(address, use, producer, alias)
@@ -701,12 +726,27 @@ def emit_compiled(root, values, named=None):
                 port = plan.ports[port_address]
                 port_record = records[port_address]
                 expression = port_record.get("source")
+                if (
+                    expression.kind == "operation"
+                    and records[expression].get("operator") == COLLECT_OPERATOR
+                ):
+                    output = collect_column(expression, port, position, final)
+                    columns.append(output)
+                    terminals.append(output.column)
+                    continue
+                # A collected terminal's port names its let's field; it renders
+                # as ``c<i>``, as every non-final result column does (S09).
+                label = (
+                    f"c{position}"
+                    if record.address in collected
+                    else port.identity.name
+                )
                 value = scalar(expression, use, producer, alias)
                 column = (
                     replace(
                         value.column,
                         position=position,
-                        name=port.identity.name,
+                        name=label,
                         terminal=port.ref,
                         realization=facts[port_address].realization,
                         scope=None,
@@ -714,7 +754,7 @@ def emit_compiled(root, values, named=None):
                     if type(value) is rows.SQLStageReference
                     else rows.StageColumn(
                         position,
-                        port.identity.name,
+                        label,
                         port.ref,
                         facts[port_address].realization,
                         literal=parameters.LiteralOrigin(value, port, port)
@@ -723,7 +763,7 @@ def emit_compiled(root, values, named=None):
                         else None,
                     )
                 )
-                col_symbol = ast.SQLSymbol(position, port.ref, port.identity.name)
+                col_symbol = ast.SQLSymbol(position, port.ref, label)
                 if type(value) is rows.SQLStageReference:
                     output = ast.RowCarryColumn(
                         position,
@@ -731,7 +771,7 @@ def emit_compiled(root, values, named=None):
                         value.port,
                         value.column,
                         col_symbol,
-                        port.identity.name,
+                        label,
                         column,
                     )
                 else:
@@ -743,7 +783,7 @@ def emit_compiled(root, values, named=None):
                         refs[expression],
                         value,
                         col_symbol,
-                        port.identity.name,
+                        label,
                         column,
                         None,
                     )
@@ -797,6 +837,7 @@ def emit_compiled(root, values, named=None):
                 order_reads=order_reads,
             )
             subject_records.update((ref, None) for ref in extra_subjects)
+            body = nested_result(body, record, produced[producer])
         else:
             body = ast.RowBody(
                 definition,
@@ -811,6 +852,9 @@ def emit_compiled(root, values, named=None):
                 cte_columns,
                 aggregation=aggregation,
                 window=window_stage,
+                laterals=tuple(
+                    c.lateral for c in columns if type(c) is collecting.CollectColumn
+                ),
             )
         scopes.pop()
         if inline:
@@ -823,6 +867,53 @@ def emit_compiled(root, values, named=None):
             )
             for i, c in enumerate(columns)
         )
+
+    def nested_result(body, record, projection):
+        """A result unit as a Collect needs it (Phase71 S09): a collected
+        terminal without DISTINCT carries its ordinal, and a parent's result
+        carries each nested group of its projection whole."""
+        if record.address in collected and body.distinct is None:
+            body = replace(body, ordinal=collecting.ordinal_terminal(body))
+        columns = []
+        for column, address in zip(body.columns, record.get("outputs"), strict=True):
+            index = records[records[records[address].get("source")].get("port")].get(
+                "ordinal"
+            )
+            group = projection.columns[index]
+            if type(group) is not collecting.CollectColumn:
+                columns.append(column)
+                continue
+            names = collecting.field_names(group.lateral)
+            position = column.ordinal
+            labels = (
+                column.label,
+                *(
+                    names
+                    if body.final
+                    else (f"c{position}_{j}" for j in range(len(names)))
+                ),
+            )
+            columns.append(
+                resulting.ResultGroupColumn(
+                    position,
+                    column.export,
+                    column.projection_port,
+                    column.read,
+                    column.output,
+                    column.stages,
+                    column.symbol,
+                    column.label,
+                    column.column,
+                    group,
+                    tuple(
+                        (stage, label, subject)
+                        for (_, stage, subject), label in zip(
+                            group.carriers, labels, strict=True
+                        )
+                    ),
+                )
+            )
+        return replace(body, columns=tuple(columns))
 
     for index, record in enumerate(units):
         if record.get("layout")[-1] != index:

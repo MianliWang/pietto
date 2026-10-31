@@ -18,8 +18,9 @@ FORMAT = "pietto.compiled-execution.v1"
 PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``;
 # 3/3: typed ``values`` relation records (Phase70 S06; one bump per batch);
-# 4/4: expression_block_use records (Phase70 S08).
-VERSIONS = (5, 1, 5, 1)  # 5/5: capture and table_function records (batch 4)
+# 4/4: expression_block_use records (Phase70 S08); 5/5: capture and
+# table_function records (Phase70 batch 4).
+VERSIONS = (6, 1, 6, 1)  # 6/6: Collect reads, collection logicals, unnest (S09)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
 MAX_VALUES = 1 << 20
@@ -196,6 +197,11 @@ FIELDS = {
     # A zero-input table-function input: ``function`` is its closed identity,
     # ``arguments`` its three fixed Int scalars; its one field is its binding.
     "table_function": ("owner", "function", "arguments", "fields", "outputs", "layout"),
+    # Reserved and refused until Phase71 S13 (COMPILED_UNNEST_UNAVAILABLE): the
+    # Unnest occurrence ``position`` of the declaration ``owner`` expands the
+    # nested ``source`` port of its JOIN's left input into ``fields`` (field
+    # records in child order) and ``outputs``. It is no relation yet.
+    "unnest": ("owner", "position", "source", "fields", "outputs", "layout"),
     "request": ("owner", "use", "scope", "unit", "path", "hop", "pairs"),
     "match_use": ("owner", "position", "boundaries", "path"),
     "match_path": ("steps",),
@@ -606,6 +612,10 @@ BLOCK_READ_OPERATORS = (
     ("relation_membership", "in"),
     ("relation_membership", "not_in"),
 )
+# A Collect reads a let's whole ordered result unit as one collection value; it
+# has no scalar value or column, so it is no BLOCK_READ_OPERATORS member and
+# each of their readers decides about it on its own.
+COLLECT_OPERATOR = ("collect", "collect")
 
 
 def scalar_read_port(records, operation):
