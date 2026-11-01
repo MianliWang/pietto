@@ -81,7 +81,7 @@ def expected(target, case, variant):
             else oracle.row_result_rows(target, empty=variant.startswith("empty"))
         )
     elif case in {"W_join_shapes", "W_join_values", "V_join_full"}:
-        rows = oracle.join_rows(variant)
+        rows = oracle.join_rows(variant, target)
     elif (case, variant) in oracle.MIGRATED_JOIN_ROWS:
         rows = oracle.MIGRATED_JOIN_ROWS[case, variant]
     elif case in emission.AGGREGATE_CASES:

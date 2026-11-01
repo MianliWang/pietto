@@ -1593,3 +1593,52 @@ def test_a_window_of_a_join_relation_computed_column_emits(tmp_path, target):
         (column["label"], column["logical_type"]["name"], column["nullable"])
         for column in published["columns"]
     ] == [("id", "Int", False), ("last", "Int", True), ("previous", "Int", True)]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "expression",
+    (
+        "coalesce(r.key, lhs.id)",
+        "lhs.id if r.key is None else r.key",
+        "lhs.id in (1, 2)",
+        "Float(lhs.id)",
+        "1 <= lhs.id <= 9",
+    ),
+)
+def test_join_scalar_projection_uses_existing_row_expression_contract(
+    tmp_path, target, expression
+):
+    outcome = emit(
+        tmp_path, target, kinds_body("left", select=f"        value = {expression}\n")
+    )
+    doc = public(outcome)
+    assert doc["status"] == "VERIFIED"
+    assert [column["label"] for column in doc["columns"]] == ["value"]
+    assert " LEFT JOIN " in doc["sql"]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("site", ("on", "let", "where"))
+def test_join_scalar_projection_does_not_open_other_sites(tmp_path, target, site):
+    body = kinds_body("left")
+    if site == "on":
+        body = body.replace("on lhs.id == r.id", "on coalesce(r.key, lhs.id) == lhs.id")
+    elif site == "let":
+        body = body.replace(
+            "    select:\n        a = lhs.id",
+            "    let value = coalesce(r.key, lhs.id)\n    select:\n        a = value",
+        )
+    else:
+        body = body.replace(
+            "    select:", "    where coalesce(r.key, lhs.id) == lhs.id\n    select:"
+        )
+    outcome = emit(tmp_path, target, body)
+    doc = public(outcome)
+    assert doc["status"] == "BLOCKED"
+    assert not outcome.diagnostics
+    assert [blocker.detail for blocker in outcome.blockers] == [
+        "scalar_projection_requires_later_slice",
+        *(["match_condition_not_in_row_domain"] if site == "on" else []),
+        "join_shape_not_admitted_in_slice7",
+    ]

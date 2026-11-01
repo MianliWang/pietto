@@ -223,7 +223,9 @@ def resolved_column_realization(
         if (kind, quantifier) == (SetOperationKind.UNION, SetOperationQuantifier.ALL)
         else EQUIVALENCE_TAGS
     )
-    if tag not in allowed:
+    if tag not in allowed and not (
+        kind is SetOperationKind.UNION and tag == "Timestamp"
+    ):
         return None, ("PIE-B1003", "set_row_equivalence_domain_unsupported")
     storage = first.storage
     domain: dict[str, Any] = dict(first.domain)

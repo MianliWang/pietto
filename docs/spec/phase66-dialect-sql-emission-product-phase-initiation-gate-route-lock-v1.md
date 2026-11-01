@@ -657,7 +657,9 @@ generated structural order；相同文字的不同occurrence不去重。
 | BLOCKED | format,status,artifact,blockers,diagnostics,cli_errors | format固定；status为BLOCKED，artifact:null，cli_errors为空；blockers或原ERROR diagnostics至少一项非空；sql/target/request及成功payload字段不存在。 |
 
 只有VERIFIED branch可写artifact文件；failure没有候选AST/SQL/values/ranges/realization payload。
-blocker record恰为`code,reason,subject,location,related`，code/reason对应下面PIE-B1001–PIE-B1008；
+本段记录原Phase66协议；0.1.6之后，所有者批准每个blocker增加必需非空`suggestion`，
+由JSON与text hint共用，旧严格reader需升级；见[当前协议](project-cli-json-v2.md#emit-sql-result)。
+原blocker record恰为`code,reason,subject,location,related`，code/reason对应下面PIE-B1001–PIE-B1008；
 subject是可用的logical source/input/plan occurrence说明或null，location用已有public坐标形状，
 related保留完整有序related locations。原runtime blocker roots保持在runtime product，public
 投影不把名字当重新获取该root的凭证。diagnostics复用既有对象/顺序/public shape。

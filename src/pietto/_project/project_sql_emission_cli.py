@@ -51,10 +51,8 @@ from pietto._project.project_sql_emission import (
     realize_project_sql,
     serialize_project_sql_emission,
 )
-from pietto._project.project_sql_emission_ast import PREMISE_VALUES
 from pietto._project.project_sql_emission_contract import (
     MAX_INPUT_BYTES,
-    RELEASES,
     InputError,
     bounded_listing,
     PreparationFailure,
@@ -305,6 +303,7 @@ def _normalized_failure(
     errors: Sequence[InputError] = (),
     *,
     blockers: tuple[Any, ...] = (),
+    family: str | None = None,
 ) -> EmissionOutcome:
     """Keep every project-emission failure document valid UTF-8."""
     found = tuple(
@@ -363,7 +362,9 @@ def _normalized_failure(
                 )
             )
         )
-    return EmissionOutcome(status, found, blockers=blockers, cli_errors=errors)
+    return EmissionOutcome(
+        status, found, blockers=blockers, cli_errors=errors, family=family
+    )
 
 
 def emit_project(
@@ -585,6 +586,7 @@ def _emit_owner(
                 prepared.diagnostics,
                 prepared.errors,
                 blockers=prepared.blockers,
+                family=prepared.family,
             )
         if prepared.family != dialect:
             return _emission_failure(
@@ -611,6 +613,7 @@ def _emit_owner(
             outcome.diagnostics,
             outcome.cli_errors,
             blockers=outcome.blockers,
+            family=outcome.family,
         )
 
     except RecursionError:
@@ -1179,9 +1182,7 @@ def _render_verified(document: dict[str, Any]) -> str:
 
 
 def _render_failure(document: dict[str, Any], family: str | None = None) -> str:
-    """Present a failure document as labeled text for stderr; with the target
-    family, a blocker an author can resolve in the contract or the source is
-    followed by a hint naming the reviewed value or the remedy."""
+    """Render errors and each blocker's serialized suggestion on stderr."""
 
     lines = [f"{document['format']} {document['status']}"]
     for error in document["cli_errors"]:
@@ -1203,55 +1204,6 @@ def _render_failure(document: dict[str, Any], family: str | None = None) -> str:
         ]
         if family is not None and related:
             lines.append(f"  related: {', '.join(related)}")
-        hint = None if family is None else _blocker_hint(subject["detail"], family)
-        if hint is not None:
-            lines.append(f"  hint: {_escape(hint)}")
+        lines.append(f"  hint: {_escape(blocker['suggestion'])}")
     lines.extend(_diagnostic_line(d) for d in document["diagnostics"])
     return "\n".join(lines) + "\n"
-
-
-def _blocker_hint(detail: str, family: str) -> str | None:
-    """The remedy of one blocker detail, for text output only."""
-
-    for key, values in PREMISE_VALUES.items():
-        premise = _record({"key": key, "scope": "statement", "value": values[family]})
-        if detail == f"{key}_declaration_missing":
-            return f'add {premise} to "environment"'
-        if detail in {f"{key}_declaration_mismatch", f"{key}_mismatch"}:
-            return f"the reviewed {family} value is {premise}"
-    if detail in {
-        "row_domain_matches_declaration_required",
-        "read_only_object_declaration_required",
-    }:
-        key = detail.removesuffix("_declaration_required")
-        premise = _record({"key": key, "scope": "source", "value": True})
-        return f'add {premise} to the source\'s "premises"'
-    if detail == "complete_ordered_source_schema_required":
-        return (
-            'map every field of the source\'s shape once in "fields", in shape'
-            " order; related lists the fields left out or out of order"
-        )
-    if detail == "target_release_not_reviewed":
-        return f'the reviewed {family} release is "{RELEASES[family]}"'
-    if detail == "order":
-        return (
-            "without GROUP BY, a key must be an input field, a restated selected"
-            " expression or a selected let name, of a type that orders"
-        )
-    if detail in {
-        "arithmetic_outside_physical_range",
-        "unary_result_outside_physical_range",
-        "abs_result_outside_physical_range",
-    }:
-        if family == "postgres":
-            return (
-                "every value of this result lies outside a signed 64-bit"
-                " integer, so PostgreSQL's checked bigint operation could only"
-                " fail"
-            )
-        return (
-            "an Int field ranges over its whole storage type; its declared"
-            " int_range does not narrow that, so the result must fit a signed"
-            " 64-bit integer"
-        )
-    return None

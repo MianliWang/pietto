@@ -373,14 +373,20 @@ reason, or private diagnostic metadata.
 
 Project `emit-sql` does not produce this schema. Its output is the closed
 `pietto.sql-emission.v1` tagged union (`VERIFIED`, `INPUT_REJECTED`,
-`BLOCKED`) frozen by the Phase66 route lock and delivered by the
+`BLOCKED`) introduced by the Phase66 route lock and delivered by the
 [Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md),
 or the v2 document below; the `mode: "project"` JSON v2 envelope applies to
 `check` only.
 
 A `BLOCKED` document lists each blocker once, at its first position: a
 blocker equal to an earlier one in code, reason, subject, location and related
-locations is not repeated.
+locations is not repeated. Each blocker additionally has a required nonempty
+UTF-8 `suggestion` string, shared verbatim with its text `hint:`. The owner
+approved this additive failure-document revision after 0.1.6: BLOCKED bytes
+change and older strict readers must be upgraded. VERIFIED documents and
+`cli_errors` gain no field. Existing v1/v2 format names, blocker codes, subjects,
+locations, ordering and first-occurrence deduplication remain unchanged. A batch
+embeds the exact current single-owner document, including these suggestions.
 
 A generated requirement's `evidence` may end with
 `{"overflow": "target_checked_signed64_narrowing"}`. It marks a PostgreSQL
@@ -837,3 +843,17 @@ and trust boundaries are summarized in `docs/project-package.md`.
 - [Pietto project configuration v1](pietto-config-v1.md)
 - [Current projects and packages](../project-package.md)
 - [Project Explain JSON v1](phase58-slice8-project-explain-json-v1.md)
+
+### Additional project emission forms after 0.1.6
+
+JOIN SELECT projections admit the existing row-expression rules for conditional
+expressions, literal-list membership, reviewed casts and scalar calls, and
+inclusive comparison chains. This adds no JOIN kinds, key domains, arbitrary
+ON expressions, or new joined LET/WHERE forms. Their existing diagnostics and
+result nullability rules remain in force.
+
+Timestamp columns with the existing intrinsic civil-microsecond meaning and
+identical physical carriers may participate in UNION ALL and UNION DISTINCT.
+ALL preserves multiplicity; DISTINCT uses the existing Timestamp equality and
+NULL row-equivalence rules. Timestamp INTERSECT/EXCEPT, Date/UUID set carriers,
+and unreviewed coercions remain refused.

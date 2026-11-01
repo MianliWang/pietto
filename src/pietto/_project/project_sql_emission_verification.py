@@ -4050,7 +4050,7 @@ def resolved_set_column_realization(
     (tag,) = tags
     union_all = (kind, quantifier) == (Kind.UNION, Quantifier.ALL)
     if tag not in {"Int", "Bool", "Text", "Decimal"} and not (
-        union_all and tag == "Float"
+        union_all and tag == "Float" or kind is Kind.UNION and tag == "Timestamp"
     ):
         raise ValueError("set comparison domain")
     if not union_all and any(reason is not None for reason in equivalence_reasons):

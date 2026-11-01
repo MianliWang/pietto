@@ -585,6 +585,16 @@ newline, for text, JSON and directory output alike. Exceeding the limit returns
 INPUT_REJECTED / exit 2 with no items or output directory; narrow the selectors.
 The existing per-item limit and calls without `--all` are unchanged.
 
+Every emitted blocker includes an actionable `suggestion`, also rendered as its
+text hint. This is an additive change to failure documents after 0.1.6; older
+strict JSON readers must upgrade. VERIFIED documents gain no suggestion field.
+
+JOIN SELECT supports the already reviewed scalar calls, casts, conditional and
+membership expressions, and comparison chains. Other JOIN expression sites and
+JOIN kinds retain their existing limits. Timestamp UNION ALL/DISTINCT uses the
+existing exact civil-microsecond carrier; Timestamp INTERSECT/EXCEPT and other
+unreviewed set carriers remain refused.
+
 ### Emission contract values
 
 The contract `target` is `{"family": "postgres", "release": "18.6"}` or

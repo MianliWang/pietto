@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from pietto._project.project_sql_emission_ast import CompiledSQLQuery
     from pietto._project.project_sql_plan import CompiledFixedValue
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import json
 from typing import Any, cast
 
@@ -63,10 +63,12 @@ from pietto._project.project_sql_emission_verification import (
     verify_project_sql_emission,
 )
 
+from pietto._project.project_sql_emission_suggestions import blocker_suggestion
+
 __all__: tuple[str, ...] = ()
 FORMAT = "pietto.sql-emission.v1"
 # A VERIFIED template of a query with header parameters; every other document
-# (including every failure) keeps the frozen v1 shape.
+# (including every failure) keeps the v1 format name; blockers carry advice.
 PARAMETERIZED_FORMAT = "pietto.sql-emission.v2"
 REPR_SCALAR_LIMIT = 32
 
@@ -116,6 +118,7 @@ class EmissionOutcome:
     artifact: EmissionArtifact | None = None
     blockers: tuple[Blocker, ...] = ()
     cli_errors: tuple[InputError, ...] = ()
+    family: str | None = None
 
     def __repr__(self) -> str:
         """Summarize this outcome in constant work; no child is formatted."""
@@ -144,6 +147,7 @@ def emit_project_sql(
             request.diagnostics,
             blockers=request.blockers,
             cli_errors=request.errors,
+            family=request.family,
         )
     return realize_project_sql(request)
 
@@ -159,6 +163,10 @@ def realize_project_sql(request):
                 InputError("emission_selector", "Invalid prepared emission roots."),
             ),
         )
+    return replace(_realize_prepared_sql(request), family=request.family)
+
+
+def _realize_prepared_sql(request):
     diagnostics = request.verification.completed.diagnostics
     blockers = emission_blockers(request)
     if blockers:
@@ -296,6 +304,9 @@ def _failure(outcome):
         item = {
             "code": blocker.code,
             "reason": CODES[blocker.code],
+            "suggestion": blocker_suggestion(
+                blocker.code, blocker.detail, outcome.family
+            ),
             "subject": {
                 "reference": _ref(blocker.subject),
                 "detail": blocker.detail,
@@ -1185,6 +1196,7 @@ def serialize_project_sql_emission(outcome: EmissionOutcome) -> bytes:
                 "BLOCKED",
                 outcome.diagnostics,
                 blockers=(Blocker("PIE-B1008", "artifact_correspondence"),),
+                family=outcome.family,
             )
         else:
             data = canonical(_public_document(outcome)) + b"\n"
@@ -1194,6 +1206,7 @@ def serialize_project_sql_emission(outcome: EmissionOutcome) -> bytes:
                 "BLOCKED",
                 outcome.diagnostics,
                 blockers=(Blocker("PIE-B1007", "public_artifact_byte_limit"),),
+                family=outcome.family,
             )
     if (
         outcome.status not in {"INPUT_REJECTED", "BLOCKED"}

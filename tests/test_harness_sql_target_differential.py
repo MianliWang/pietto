@@ -76,7 +76,7 @@ def _oracle_rows(target: str, case: str, variant: str) -> list[Any]:
     if case in {"T_row_direct", "U_row_named"}:
         return cases.row_result_rows(target, empty=variant.startswith("empty"))
     if case in {"W_join_shapes", "W_join_values"}:
-        return cases.join_rows(variant)
+        return cases.join_rows(variant, target)
     if case == CASE:
         return cases.metamorphic_expectation(target, variant)[0]
     if case in probe.AGGREGATE_CASES:

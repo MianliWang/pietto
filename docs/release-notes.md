@@ -24,6 +24,19 @@ with complete JSON artifacts and a manifest installed last. Other platforms
 retain batch stdout. Existing paths are never overwritten, and calls without
 `--all` retain their prior output and behavior.
 
+### JOIN projections, Timestamp UNION and blocker suggestions
+
+- JOIN SELECT projections now accept the existing reviewed scalar calls, casts,
+  conditionals, membership and comparison chains. ON, joined LET/WHERE, JOIN
+  kinds and source/key domains keep their previous limits.
+- Timestamp UNION ALL and UNION DISTINCT preserve the existing exact carrier,
+  civil-microsecond meaning and NULL behavior. No Timestamp INTERSECT/EXCEPT or
+  additional set carrier is enabled.
+- Every blocker gains a nonempty `suggestion` shared with text `hint:`. This
+  changes BLOCKED JSON bytes while retaining the current format names; old
+  strict readers must upgrade. VERIFIED documents and CLI error records gain
+  no field, and batch items remain byte-identical to current single-owner output.
+
 ### Project SQL emission: numeric and temporal operations
 
 - **Narrow Int arithmetic in bigint on PostgreSQL.** `emit-sql --project`

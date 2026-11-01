@@ -400,7 +400,14 @@ def test_every_refused_call_is_blocked_at_its_own_input_in_source_order(
     _, _, document = _emit(tmp_path, target, body)
     assert document["status"] == "BLOCKED"
     assert document["diagnostics"] == []
-    assert document["blockers"] == [
+    assert all(
+        type(blocker.get("suggestion")) is str and blocker["suggestion"].strip()
+        for blocker in document["blockers"]
+    )
+    assert [
+        {key: value for key, value in blocker.items() if key != "suggestion"}
+        for blocker in document["blockers"]
+    ] == [
         {
             "code": code,
             "reason": reason,

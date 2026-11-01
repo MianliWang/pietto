@@ -164,6 +164,8 @@ class PreparationFailure:
     blockers: tuple[Blocker, ...] = ()
     diagnostics: tuple[Any, ...] = ()
 
+    family: str | None = None
+
 
 def _error(
     errors, path, message="Invalid emission contract structure.", *, selector=False
@@ -861,6 +863,8 @@ def prepare_project_sql_emission(
             premises.append(Premise(len(premises), key, bound_scope, canonical(value)))
     if errors:
         return PreparationFailure(errors=tuple(errors), diagnostics=diagnostics)
+    assert target is not None
+    family, release = target["family"], target["release"]
     conflicts = []
     prior: dict[tuple[object, str], list[Premise]] = {}
     for premise in premises:
@@ -891,15 +895,15 @@ def prepare_project_sql_emission(
                 for b in unavailable.blockers
             ),
             diagnostics=diagnostics,
+            family=family,
         )
     assert view is not None
     assert target is not None
     structure = _structure_limit_blocker(verification.plan, premises)
     if structure is not None:
         return PreparationFailure(
-            blockers=(*conflicts, structure), diagnostics=diagnostics
+            blockers=(*conflicts, structure), diagnostics=diagnostics, family=family
         )
-    family, release = target["family"], target["release"]
     try:
         if target_request is None:
             target_request = targets.prepare_project_sql_target_request(

@@ -590,3 +590,46 @@ def test_set_unit_repr_is_bounded():
     for value in (unit, unit.operands[0], unit.columns[0]):
         text = repr(value)
         assert len(text) < 512 and "ProjectSQL" not in text
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("kind,quantifier", FORMS)
+def test_timestamp_set_emission_opens_only_union(tmp_path, target, kind, quantifier):
+    import _pietto_results_product as temporal
+    from pietto._project.project_sql_emission import emit_project_sql
+
+    source = temporal.temporal_source(target, projection=(0, 1)).replace(
+        "table result:", "table a:"
+    )
+    source += (
+        f"query result:\n    {kind} {quantifier}:\n        from a\n        from a\n"
+    )
+    checked = temporal.build_neutral(tmp_path / "project", {"main.pietto": source})
+    contract = json.loads(temporal.temporal_input(target))
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    outcome = emit_project_sql(checked, probe.encoded(contract))
+    doc = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert not outcome.diagnostics
+    if kind != "union":
+        assert outcome.status == "BLOCKED"
+        assert blockers(outcome) == ["set_row_equivalence_domain_unsupported"]
+        return
+    assert outcome.status == "VERIFIED"
+    assert [column["logical_type"]["name"] for column in doc["columns"]] == [
+        "Timestamp",
+        "Timestamp",
+    ]
+    assert [column["nullable"] for column in doc["columns"]] == [False, True]
+    assert f" UNION {quantifier.upper()} " in doc["sql"]
+    assert len(generated(doc, "set_row_equivalence")) == (quantifier == "distinct")
+    damaged = dict(doc, sql=doc["sql"].replace(" UNION ", " INTERSECT "))
+    with pytest.raises(ValueError):
+        probe.decode_public(probe.encoded(damaged))

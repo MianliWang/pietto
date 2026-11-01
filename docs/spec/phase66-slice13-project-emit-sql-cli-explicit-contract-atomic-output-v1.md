@@ -9,6 +9,13 @@ artifact file. It adds no emitter, no operator, no public Python API, no
 database executor and no private observation format. Legacy single-file
 `emit-sql`, CLI JSON v1 and project check JSON v2 are unchanged.
 
+Later owner-approved additions are documented in the
+[current project contract](project-cli-json-v2.md#emit-sql-result): batch `--all`
+is a separate envelope, and every public blocker now includes a nonempty
+`suggestion` shared by JSON and text hints. This changes BLOCKED document bytes;
+strict readers of the original five-field blocker must upgrade. VERIFIED
+single-owner documents are unchanged by the suggestion addition.
+
 ## Command
 
 ```text

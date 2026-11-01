@@ -2607,6 +2607,9 @@ def _reasons(tmp_path: Path, name: str, contract: dict[str, Any]) -> tuple[int, 
 
 
 def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None:
+    from pietto._project.project_sql_emission_suggestions import blocker_suggestion
+
+    aggregate_hint = "  hint: Use the aggregate's reviewed direct argument carrier, or keep it in check/plan; do not coerce its input to force emission.\n"
     contract = _reasons_contract()
     # Every refused aggregate at its own item, in select order, with the
     # reviewed-domain reason; only sum and avg have a proof to supply.
@@ -2614,20 +2617,21 @@ def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None
         1,
         "pietto.sql-emission.v1 BLOCKED\n"
         "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        " count_argument_outside_reviewed_int_domain (main.pietto:16:9)\n"
+        f" count_argument_outside_reviewed_int_domain (main.pietto:16:9)\n{aggregate_hint}"
         "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        " count_distinct_argument_outside_reviewed_int_domain (main.pietto:17:9)\n"
+        f" count_distinct_argument_outside_reviewed_int_domain (main.pietto:17:9)\n{aggregate_hint}"
         "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        " max_argument_outside_reviewed_int_domain (main.pietto:18:9)\n"
+        f" max_argument_outside_reviewed_int_domain (main.pietto:18:9)\n{aggregate_hint}"
         "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        " min_argument_outside_reviewed_int_domain (main.pietto:19:9)\n",
+        f" min_argument_outside_reviewed_int_domain (main.pietto:19:9)\n{aggregate_hint}",
     )
     # A refused group key is at its GROUP BY item.
     assert _reasons(tmp_path, "float_group", contract) == (
         1,
         "pietto.sql-emission.v1 BLOCKED\n"
         "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        " group_key_type_outside_reviewed_comparison_domain (main.pietto:23:14)\n",
+        " group_key_type_outside_reviewed_comparison_domain (main.pietto:23:14)\n"
+        "  hint: Use a reviewed direct projection or grouping/order/set form with matching carriers, or keep this declaration in check/plan; do not widen equality or coerce operands to force emission.\n",
     )
     # A plan-stage refusal is at its clause, not the whole declaration.
     assert _reasons(tmp_path, "renamed", contract) == (
@@ -2648,7 +2652,9 @@ def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None
     # PostgreSQL's checked bigint `qty + 1` is admitted (Q2): only a range
     # wholly outside signed 64 bits stays refused. MySQL computes every Int
     # operation in signed 64 bits and refuses any result not proved to fit.
-    assert emission_cli._blocker_hint("arithmetic_outside_physical_range", "mysql") == (
+    assert blocker_suggestion(
+        "PIE-B1002", "arithmetic_outside_physical_range", "mysql"
+    ) == (
         "an Int field ranges over its whole storage type; its declared"
         " int_range does not narrow that, so the result must fit a signed"
         " 64-bit integer"
@@ -2864,3 +2870,32 @@ def test_wrong_schema_and_empty_root_name_the_next_step(tmp_path: Path) -> None:
                 "path": None,
             }
         ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_each_public_blocker_suggestion_is_the_text_hint(tmp_path, target):
+    root, _ = project(tmp_path, target)
+    contract_path = root / "contract.json"
+    contract = json.loads(contract_path.read_text())
+    contract["environment"] = []
+    contract_path.write_text(json.dumps(contract))
+    code, data, error = run(argv(root, target))
+    assert (code, error) == (1, "")
+    blockers = probe.decode_public(data)["blockers"]
+    assert blockers and all(blocker["suggestion"] for blocker in blockers)
+    code, stdout, text = run(argv(root, target, format="text"))
+    assert (code, stdout) == (1, b"")
+    assert [
+        line.removeprefix("  hint: ")
+        for line in text.splitlines()
+        if line.startswith("  hint: ")
+    ] == [blocker["suggestion"] for blocker in blockers]
+    _, batch, _ = run([*argv(root, target), "--all"])
+    assert probe.encoded(batch_document(batch)["items"][0]["document"]) == data
+
+
+def test_new_semantic_blocker_requires_a_classified_suggestion():
+    from pietto._project.project_sql_emission_suggestions import blocker_suggestion
+
+    with pytest.raises(ValueError, match="unclassified blocker"):
+        blocker_suggestion("PIE-B1003", "future_unreviewed_operation", "postgres")

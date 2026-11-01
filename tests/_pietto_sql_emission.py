@@ -131,7 +131,12 @@ VARIANTS = {
     ),
     "U_row_named": ("named_preserve", "imported_bind", "empty_preserve"),
     "W_join_shapes": ("cross", "inner", "semi", "anti"),
-    "W_join_values": ("left_marker", "right_accumulated", "via_refined"),
+    "W_join_values": (
+        "left_marker",
+        "right_accumulated",
+        "via_refined",
+        "left_scalar_projections",
+    ),
     "V_join_full": ("restricted", "null_keys"),
     "V_row_blocked": (
         "float_arithmetic",
@@ -227,6 +232,8 @@ VARIANTS = {
         "big_int_except_all",
         "bool_union_distinct",
         "float_union_all",
+        "timestamp_union_all",
+        "timestamp_union_distinct",
     ),
     "S_set_nesting": ("left_fold_except", "right_nested_except", "mixed_union_except"),
     "S_set_boundaries": (
@@ -3233,6 +3240,50 @@ def set_body(case, variant):
 
 def set_fixture(target, case, variant):
     """One Slice11 SET witness over the fixed relations or the emission source."""
+    if case == "S_set_domains" and variant in {
+        "timestamp_union_all",
+        "timestamp_union_distinct",
+    }:
+        contract = json.loads(fixture(target)["contract"])
+        source = contract["sources"][0]
+        source["relation"]["name"] = "phase66 timestamp set source"
+        source["fields"] = [
+            {
+                "ordinal": 0,
+                "name": "stamp",
+                "column": "stamp",
+                "representation": {
+                    "storage": {
+                        "kind": "pg_timestamp"
+                        if target == "postgres"
+                        else "my_datetime",
+                        "fractional_seconds": 6,
+                    },
+                    "nullable": True,
+                    "domain": {"kind": "timestamp"},
+                },
+            }
+        ]
+        contract["environment"].append(
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "quoted_exact"
+                if target == "postgres"
+                else "lower_case_table_names=0",
+            }
+        )
+        quantifier = variant.removeprefix("timestamp_union_")
+        header = f'shape Stamp:\n    stamp: Timestamp | None\nsource rows: Stamp = {target}.table("timestamp.set")\n'
+        body = (
+            "table a:\n    from rows\n    select:\n        t = stamp\n"
+            + f"query result:\n    union {quantifier}:\n        from a\n        from a\n"
+        )
+        return {
+            "source": header + body,
+            "contract": encoded(contract).decode(),
+            "policy": "preserve_literals",
+        }
     sources, body = set_body(case, variant)
     if sources and set(sources) <= SET_AGG_SOURCES:
         header = AGGREGATE_HEADER.format(target=target).split("source agg:", 1)[0]
@@ -3409,6 +3460,15 @@ def row_fixture(target, case, variant):
 
 
 JOIN_LABELS = {
+    "left_scalar_projections": (
+        "a",
+        "raw",
+        "coalesced",
+        "conditional",
+        "membership",
+        "floating",
+        "bounded",
+    ),
     "cross": ("a",),
     "inner": ("a",),
     "semi": ("a",),
@@ -3440,6 +3500,20 @@ JOIN_LEFTISH = """table leftish:
         lid = id
 """
 JOIN_BODIES = {
+    "left_scalar_projections": JOIN_ENRICHED
+    + """query result:
+    from rows
+    let r = enriched
+    left join r on rows.id == r.pid
+    select:
+        a = rows.id
+        raw = r.pid
+        coalesced = coalesce(r.pid, rows.id)
+        conditional = rows.id if r.pid is None else r.pid
+        membership = rows.id in (1, 2)
+        floating = Float(rows.id)
+        bounded = 1 <= rows.id <= 9
+""",
     "cross": """query result:
     from rows
     let r = rows
@@ -3716,7 +3790,10 @@ def join_fixture(target, case, variant):
             else "lower_case_table_names=0",
         }
     )
-    if (case, variant) == ("W_join_values", "left_marker"):
+    if case == "W_join_values" and variant in {
+        "left_marker",
+        "left_scalar_projections",
+    }:
         contract["sources"][0]["relation"]["name"] = "phase66 safe int source"
         contract["sources"][0]["fields"][0]["representation"] = {
             "storage": {"kind": "pg_int4" if target == "postgres" else "my_int"},
@@ -10855,7 +10932,9 @@ def _decode_fixed_public(document, limits):
         (tag,) = tags
         union_all = (kind, quantifier) == ("union", "all")
         _need(
-            tag in {"Int", "Bool", "Text", "Decimal"} or (union_all and tag == "Float"),
+            tag in {"Int", "Bool", "Text", "Decimal"}
+            or (union_all and tag == "Float")
+            or (kind == "union" and tag == "Timestamp"),
             "SET comparison domain",
         )
         first = reads[0]["realization"]
@@ -13188,7 +13267,15 @@ def decode_public(data: bytes) -> dict[str, Any]:
                 and type(document["cli_errors"]) is list
             )
             for blocker in _records(document["blockers"]):
-                _keys(blocker, ("code", "reason", "subject", "location", "related"))
+                _keys(
+                    blocker,
+                    ("code", "reason", "subject", "location", "related", "suggestion"),
+                )
+                _need(
+                    type(blocker["suggestion"]) is str
+                    and bool(blocker["suggestion"].strip())
+                )
+                blocker["suggestion"].encode("utf-8")
                 _need(
                     type(blocker["code"]) is str
                     and CODES.get(blocker["code"]) == blocker["reason"]

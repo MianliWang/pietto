@@ -1127,7 +1127,7 @@ def valid_receipts(
                         "W_join_values",
                         "V_join_full",
                     }:
-                        rows = cases.join_rows(record["variant"])
+                        rows = cases.join_rows(record["variant"], target)
                         names = [
                             str(label) for label in probe.JOIN_LABELS[record["variant"]]
                         ]
@@ -2256,7 +2256,9 @@ def test_metamorphic_laws_catch_an_oracle_that_agrees_with_a_wrong_result(
     elif law == "F5":
         join_rows = cases.join_rows
         monkeypatch.setattr(
-            cases, "join_rows", lambda v: wrong if v == variant else join_rows(v)
+            cases,
+            "join_rows",
+            lambda v, t="postgres": wrong if v == variant else join_rows(v, t),
         )
     else:
         monkeypatch.setitem(cases.WINDOW_EXPECTATIONS, window, named)

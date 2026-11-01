@@ -548,6 +548,15 @@ def emission_setup(target):
         )
         timestamp_type, uuid_type = "DATETIME(6)", "BINARY(16)"
         parameters = "?, ?, ?, ?, ?"
+    timestamp_set_name = timestamp_name.replace(
+        "timestamp source", "timestamp set source"
+    )
+    timestamp_set_values = (
+        datetime(1969, 12, 31, 23, 59, 59, 999999),
+        datetime(1969, 12, 31, 23, 59, 59, 999999),
+        None,
+        datetime(1970, 1, 1, 0, 0, 0, 1),
+    )
     rows = (
         (
             BIG,
@@ -617,6 +626,14 @@ def emission_setup(target):
         )
         + tuple(
             (f"INSERT INTO {uuid_name} VALUES ({parameters})", row) for row in uuid_rows
+        )
+        + ((f"CREATE TABLE {timestamp_set_name} (stamp {timestamp_type})", ()),)
+        + tuple(
+            (
+                f"INSERT INTO {timestamp_set_name} VALUES ({'$1' if target == 'postgres' else '?'})",
+                (value,),
+            )
+            for value in timestamp_set_values
         )
         + aggregate_setup(target)
     )
@@ -888,6 +905,11 @@ def emission_setup_parameters(target):
         *timestamp_rows,
         [],
         *uuid_rows,
+        [],
+        [{"kind": "datetime", "value": "1969-12-31T23:59:59.999999"}],
+        [{"kind": "datetime", "value": "1969-12-31T23:59:59.999999"}],
+        [dict(NULL)],
+        [{"kind": "datetime", "value": "1970-01-01T00:00:00.000001"}],
     ]
 
 
@@ -1139,8 +1161,37 @@ def series_expectation(target, variant):
     return [[_int("0"), _int("0")], [_int("1"), _int("1")]], ("n", "id"), [20, 20]
 
 
-def join_rows(variant):
+def join_rows(variant, target="postgres"):
     """The exact typed BAG each authored JOIN publishes, by hand."""
+    if variant == "left_scalar_projections":
+        matched = [
+            _int("5"),
+            _int("5"),
+            _int("5"),
+            _int("5"),
+            _bool(target, False),
+            _float(5.0),
+            _bool(target, True),
+        ]
+        missing = [
+            _int("0"),
+            NULL,
+            _int("0"),
+            _int("0"),
+            _bool(target, False),
+            _float(0.0),
+            _bool(target, False),
+        ]
+        one = [
+            _int("1"),
+            _int("1"),
+            _int("1"),
+            _int("1"),
+            _bool(target, True),
+            _float(1.0),
+            _bool(target, True),
+        ]
+        return [matched] * 4 + [missing, one]
     if variant == "cross":
         # 4 x 4 ordered pairs; each left id appears once per right row.
         return (
@@ -1209,6 +1260,13 @@ def join_rows(variant):
 
 def join_metadata(target, variant):
     """Physical result metadata from each fixture's actual source carriers."""
+    if variant == "left_scalar_projections":
+        # CASE/COALESCE aggregate these signed INT operands without a widening CAST.
+        return (
+            [23, 23, 23, 23, 16, 701, 16]
+            if target == "postgres"
+            else [3, 3, 3, 3, 8, 5, 8]
+        )
     if variant == "left_marker":
         return [
             23 if target == "postgres" else 3,
@@ -1707,6 +1765,21 @@ def set_expectation(target, case, variant):
         labels = ["k", "t"] if variant == "renamed_labels_union_all" else ["v", "t"]
         return rows, labels, [i, text_type], ["Int", "Text"], False
     if case == "S_set_domains":
+        if variant in {"timestamp_union_all", "timestamp_union_distinct"}:
+            before = {"kind": "datetime", "value": "1969-12-31T23:59:59.999999"}
+            after = {"kind": "datetime", "value": "1970-01-01T00:00:00.000001"}
+            values = (
+                [[before]] * 4 + [[dict(NULL)]] * 2 + [[after]] * 2
+                if variant.endswith("_all")
+                else [[before], [dict(NULL)], [after]]
+            )
+            return (
+                values,
+                ["t"],
+                [1114 if target == "postgres" else 12],
+                ["Timestamp"],
+                False,
+            )
         if variant == "text_union_distinct":
             rows = [[_text("trail 😀  ")], [_text("A")], [_text("a ")]]
             return rows, ["t"], [text_type], ["Text"], False
@@ -2035,7 +2108,7 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
             raise ValueError("VALUES typed BAG or metadata mismatch")
         return
     if case_id in {"W_join_shapes", "W_join_values", "V_join_full"}:
-        expected_rows = join_rows(variant_name)
+        expected_rows = join_rows(variant_name, target)
         if Counter(
             json.dumps(row, sort_keys=True) for row in observation["rows"]
         ) != Counter(json.dumps(row, sort_keys=True) for row in expected_rows):
@@ -2046,10 +2119,19 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
             m[1] for m in metadata
         ] != join_metadata(target, variant_name):
             raise ValueError("JOIN positional physical metadata mismatch")
-        if [c["label"] for c in document["columns"]] != list(labels) or any(
-            c["logical_type"]["name"] != "Int" for c in document["columns"]
-        ):
+        logical = (
+            ["Int", "Int", "Int", "Int", "Bool", "Float", "Bool"]
+            if variant_name == "left_scalar_projections"
+            else ["Int"] * len(labels)
+        )
+        if [c["label"] for c in document["columns"]] != list(labels) or [
+            c["logical_type"]["name"] for c in document["columns"]
+        ] != logical:
             raise ValueError("JOIN positional logical metadata mismatch")
+        if variant_name == "left_scalar_projections" and [
+            c["nullable"] for c in document["columns"]
+        ] != [False, True, False, True, False, False, "unknown"]:
+            raise ValueError("JOIN scalar projection nullability mismatch")
         return
     if (case_id, variant_name) in MIGRATED_JOIN_ROWS:
         expected_rows = MIGRATED_JOIN_ROWS[case_id, variant_name]
@@ -2284,6 +2366,7 @@ def check_relations(receipt_cases):
             count % 2 == 0
             for case, variant in (
                 ("S_set_domains", "float_union_all"),
+                ("S_set_domains", "timestamp_union_all"),
                 ("S_set_boundaries", "ordered_operands"),
                 ("S_set_producers", "grouped_union"),
                 ("S_set_producers", "satisfying_union"),
@@ -2294,7 +2377,11 @@ def check_relations(receipt_cases):
         and set(bag("S_set_boundaries", "distinct_operand").values()) == {2},
         "F3 self union distinct": all(
             set(bag("S_set_domains", v).values()) == {1}
-            for v in ("text_union_distinct", "bool_union_distinct")
+            for v in (
+                "text_union_distinct",
+                "bool_union_distinct",
+                "timestamp_union_distinct",
+            )
         ),
         "F3 distinct support": bag("O_result_distinct", "visible_int")
         == _support(left),

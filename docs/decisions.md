@@ -462,3 +462,17 @@ exit 2 with empty items and no output directory. Initial directory output is
 limited to supported Linux capabilities; other platforms retain batch stdout.
 See the [public contract](spec/project-cli-json-v2.md) for errors and completion
 semantics. The Python compile API remains design-only for Phase75.
+
+### Phase71 continuation and parallel work — owner approval, 2026-11-01
+
+The owner added C40/F60/D40 to the independent continuation ledger, setting its
+total caps to **C140/F180/D120**. Existing charges, failed candidates, corrections
+and historical UNKNOWN remain; no category is reset. The balance covers only
+already-authorized Phase71 work and established interludes. Teach, Docker,
+public-design and release boundaries are unchanged.
+
+After B4 recovery and publication, the owner requested maximum safe parallelism
+for the remaining work. Future implementation lanes use isolated worktrees with
+one writer each under D71.09; shared cores stay sequential within a lane. The
+lead alone integrates, seals, commits and pushes. Database checks remain
+serialized under D71.11. The old B4 incident trees are preserved.

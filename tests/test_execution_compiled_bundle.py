@@ -1048,6 +1048,10 @@ query result:
     select:
         id = lhs.id
         flag = Active(lhs, rhs)
+        coalesced = coalesce(rhs.key, lhs.id)
+        conditional = lhs.id if rhs.key is None else rhs.key
+        membership = lhs.id in (1, 2)
+        floating = Float(lhs.id)
 """
     _, outcome = probe.build_case(
         tmp_path_factory.mktemp("modern-compiled-" + target),
@@ -1656,3 +1660,73 @@ def test_compiled_any_value_scope_forgery_is_refused(
     )
     with pytest.raises(wire.CompiledError, match="^COMPILED_" + category + "$"):
         verify_description(forged)
+
+
+@pytest.mark.parametrize("kind", ("conditional", "cast", "membership"))
+def test_join_projection_operations_require_closed_operand_lists(
+    modern_predicate_bundle, kind
+):
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    built, _ = modern_predicate_bundle
+    operation = next(
+        record
+        for record in built.root.description.records
+        if record.address.kind == "operation" and record.get("operator")[0] == kind
+    )
+    operands = operation.get("operands")
+    malformed = (
+        operands[:-1]
+        if kind == "conditional"
+        else (*operands, operands[0])
+        if kind == "cast"
+        else ()
+    )
+    changed = _forged(
+        built.root.description,
+        lambda record: (
+            _set(record, "operands", malformed) if record is operation else record
+        ),
+    )
+    raw = wire.encode(changed)
+    with pytest.raises(wire.CompiledError):
+        prepare_compiled_template(
+            load_compiled(
+                raw,
+                expected_pin=wire.content_pin(raw),
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            )
+        )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("variant", ("timestamp_union_all", "timestamp_union_distinct"))
+def test_timestamp_set_export_keeps_kind_quantifier_and_operand_order(
+    tmp_path, target, variant
+):
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_verification import verify_export
+
+    item = probe.fixture(target, "S_set_domains", variant)
+    _, outcome = probe.build_case(
+        tmp_path / "source", item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    operation = next(
+        r for r in built.root.description.records if r.address.kind == "set"
+    )
+    for field, value in (
+        ("kind", "intersect"),
+        ("quantifier", "distinct" if variant.endswith("_all") else "all"),
+        ("operands", tuple(reversed(operation.get("operands")))),
+    ):
+        changed = _forged(
+            built.root.description,
+            lambda r: _set(r, field, value) if r is operation else r,
+        )
+        with pytest.raises(wire.CompiledError):
+            verify_export(changed, outcome.artifact)

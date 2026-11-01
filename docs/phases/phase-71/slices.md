@@ -3,7 +3,7 @@
 Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#future-roadmap-v6) Future Roadmap v6 中 Phase 71 一行：NestedRelation、Collect、Unnest、flatten、outer/inner grain、nested Arrow），只在 EXPLICIT_MODULES 项目与 PostgreSQL 上提供。
 本路线已由只含文档的路线发布提交 `6e9d7be6` 发布，其自然 exact-head CI `40250919248` attempt 1 的 19 个 job 全部成功：路线锁定，Phase71 开始。
 批次 B1（S01、S02、S03）已发布：S01 `be385507`、S02 `fc5e685c`、S03 `8e0a77d8` 一起 FF push，批次头的自然 exact-head CI `40770576938` 全部 19 个 job 成功；[S01](slice-01.md) 与 [S02](slice-02.md) 记录绑定下一版合成候选 `9511f13563d0`。之后的批次照此规则：只有 FF push 且批次头自然 CI 全部成功才 `COMPLETED / PUBLISHED`，此前都是 candidate。
-`0.1.6` 已从发行提交 `bdb3f567` 发行（tag `v0.1.6`），只含 Phase71 的 B1。批次 B2（S04、S05、S06、S07）建立在该发行提交之上，不属于 `0.1.6`，各片记录见下表的链接；B2 已发布：S04 `0dc5d5c1`、S05 `0da7e40a`、S06 `fb3bc264`、S07 `ee19ee01` 与 `0.1.6` 审计的项目模式小修 `81f0d3b5` 一起 FF push，批次头 `81f0d3b5` 的自然 exact-head CI `41128410841` 全部 19 个 job 成功。批次 B3（S08、S09、S10、S11）同样不属于 `0.1.6`，已在 `81f0d3b5` 上发布：四片提交依次为 `d1048d4e`、`20f02afc`、`21205d65`、`c6ae07ab`，批次头 `c6ae07ab` 的树为 `88e19f85`，自然 exact-head CI `41153438678` attempt 2 的 19 个 job 全部成功。attempt 1 的 artifact 上传 `ECONNRESET` 失败保留；所有者特别批准了整次 attempt 2 重跑，不改变以后失败头以子提交修复的规则。项目 emission interlude 已发布于 `e169cb88`（tree `43efe9fd`），自然 CI `41200621631` attempt 1 全部19/19成功。B4（S12 并入 AC-F7、S13、S17）已在 `9df0003f020c0d5e61fb32e4528cfd20d9125142`（tree `fa5e45c8c794207a360b3a195474e738ac2f49e9`）发布，自然 CI `41272976489` attempt 1 全部19/19成功，S/H/L/K/Q中点复查通过；B5及以后可按既有路线封存。health 为 INSUFFICIENT_EVIDENCE/current WATCH，可比历史0，不据此改调度。
+`0.1.6` 已从发行提交 `bdb3f567` 发行（tag `v0.1.6`），只含 Phase71 的 B1。批次 B2（S04、S05、S06、S07）建立在该发行提交之上，不属于 `0.1.6`，各片记录见下表的链接；B2 已发布：S04 `0dc5d5c1`、S05 `0da7e40a`、S06 `fb3bc264`、S07 `ee19ee01` 与 `0.1.6` 审计的项目模式小修 `81f0d3b5` 一起 FF push，批次头 `81f0d3b5` 的自然 exact-head CI `41128410841` 全部 19 个 job 成功。批次 B3（S08、S09、S10、S11）同样不属于 `0.1.6`，已在 `81f0d3b5` 上发布：四片提交依次为 `d1048d4e`、`20f02afc`、`21205d65`、`c6ae07ab`，批次头 `c6ae07ab` 的树为 `88e19f85`，自然 exact-head CI `41153438678` attempt 2 的 19 个 job 全部成功。attempt 1 的 artifact 上传 `ECONNRESET` 失败保留；所有者特别批准了整次 attempt 2 重跑，不改变以后失败头以子提交修复的规则。项目 emission interlude 已发布于 `e169cb88`（tree `43efe9fd`），自然 CI `41200621631` attempt 1 全部19/19成功。B4（S12 并入 AC-F7、S13、S17）已在 `9df0003f020c0d5e61fb32e4528cfd20d9125142`（tree `fa5e45c8c794207a360b3a195474e738ac2f49e9`）发布，自然 CI `41272976489` attempt 1 全部19/19成功，S/H/L/K/Q中点复查通过；B5及以后可按既有路线封存。health 为 INSUFFICIENT_EVIDENCE/current WATCH，可比历史0，不据此改调度。 batch emission interlude已在 `a6a78c2bde3f84290ee41e8b159f7690a5a593f4`（tree `934c7ca1bc08c138fcc5a4cefa647f781356248c`）发布，自然CI `41285328101` attempt1 全部19/19成功。
 下表是覆盖与依赖基准；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。三层验收 A01–A12、语义契约与支持域见 [brief](brief.md)，外部参考见[外部参考记录](planning-notes.md)，所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
 
 ## 授权与依赖顺序
@@ -119,7 +119,7 @@ S12 完成后的复核必须看到：
 
 只返回 JSON、只构建一个手写 Arrow ListArray、只让 checker 接受，都不算中点纵向完成。中点重跑 S/H/L/K/Q，查看适用的 CI health 与获取整合预留；私有准备可以继续，但 B5 及后续批次必须等 B4 自然 CI 通过且中点复查通过后才能封存或发布；共享假设被推翻时，另行冻结受影响的接口与包并修正计划。
 
-当前续行另有所有者批准的独立累计 C100/F120/D80 账，保留已消费与历史 UNKNOWN；所有者于2026-11-01批准余额延用于全部后续已授权工作，不增加额度、不替换或清零以下原全期账（见[决定记录](../../decisions.md#phase71-bounded-continuation--owner-updates-2026-10-31)）。
+当前续行另有所有者批准的独立累计 C140/F180/D120 账，保留已消费与历史 UNKNOWN；所有者于2026-11-01批准余额延用于全部后续已授权工作，不增加额度、不替换或清零以下原全期账（见[决定记录](../../decisions.md#phase71-bounded-continuation--owner-updates-2026-10-31)）。
 
 ## 修复、资源与验证预算
 

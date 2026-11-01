@@ -155,6 +155,18 @@ def admitted_join_shape(plan) -> bool:
             grouping.ProjectSQLResultReference,
             plan_windows.ProjectSQLWindowReference,
         }
+        and not (
+            type(expression)
+            in {
+                row.ProjectSQLBetween,
+                row.ProjectSQLConditional,
+                row.ProjectSQLMembership,
+                row.ProjectSQLCast,
+                row.ProjectSQLScalarCall,
+            }
+            and type(expression.site) is row.ProjectSQLJoinedSite
+            and expression.site.role is row.ProjectSQLExpressionRole.SELECT
+        )
         for expression in plan.expressions
     ):
         return False

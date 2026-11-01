@@ -443,10 +443,25 @@ def test_all_bindable_tags_a_b_a_current_evidence(tmp_path, target, seed, values
         )
 
 
-def test_a_nested_bundle_lowers_in_a_fresh_source_free_process(tmp_path):
-    """Phase71 S09 (SF6): a captured Top-K Collect bundle, its project gone,
-    lowers to the live bytes and contract in a new process without any test
-    helper, source entry or optional driver."""
+@pytest.mark.parametrize(
+    "target,case,variant",
+    (
+        ("postgres", "collect", "top_k"),
+        *(
+            (target, case, variant)
+            for target in ("postgres", "mysql")
+            for case, variant in (
+                ("W_join_values", "left_scalar_projections"),
+                ("S_set_domains", "timestamp_union_all"),
+                ("S_set_domains", "timestamp_union_distinct"),
+            )
+        ),
+    ),
+)
+def test_compiled_emission_lowers_in_a_fresh_source_free_process(
+    tmp_path, target, case, variant
+):
+    """Actual source-free SQL replay; runtime binding admission is separate."""
     import json
     import shutil
     import subprocess
@@ -456,10 +471,24 @@ def test_a_nested_bundle_lowers_in_a_fresh_source_free_process(tmp_path):
     from _pietto_plan_nested import sources
 
     source_path = tmp_path / "build-only-project"
-    artifact = collecting.wired_outcome(
-        source_path, sources("top_k"), collecting.contract()
-    ).artifact
+    if case == "collect":
+        artifact = collecting.wired_outcome(
+            source_path, sources("top_k"), collecting.contract()
+        ).artifact
+        expected_fields = [["id", []], ["recent_orders", ["id", "total"]]]
+    else:
+        import _pietto_sql_emission as emission
+
+        item = emission.fixture(target, case, variant)
+        _, outcome = emission.build_case(
+            source_path, item["source"], item["contract"], item["policy"]
+        )
+        artifact = outcome.artifact
+        labels = emission.JOIN_LABELS[variant] if case == "W_join_values" else ("t",)
+        expected_fields = [[label, []] for label in labels]
     assert artifact is not None
+    from pietto._project.project_compiled_schema import Scalar, scalar_wire
+
     built = build_compiled(artifact)
     shutil.rmtree(source_path)
     bundle = tmp_path / "compiled.json"
@@ -472,6 +501,11 @@ def test_a_nested_bundle_lowers_in_a_fresh_source_free_process(tmp_path):
                 "producer": built.producer,
                 "compatibility": built.compatibility,
                 "sql": artifact.rendered.sql.decode(),
+                "values": [
+                    scalar_wire(Scalar(value.tag.value, value.value))
+                    for value in artifact.fixed_values
+                ],
+                "flat": case != "collect",
             }
         )
     )
@@ -485,6 +519,7 @@ import json
 from pathlib import Path
 from pietto._project.project_compiled_loading import load_compiled
 from pietto._project.project_compiled_lowering import emit_compiled
+from pietto._project.project_compiled_schema import scalar_read
 from pietto._project.project_result_contract import build_result_contract
 import pietto.parser_api as parser
 from pietto._project import check, model, project_completed_semantics
@@ -506,14 +541,17 @@ def closed_read(path):
 Path.read_bytes = closed_read
 handoff = json.loads(Path(sys.argv[2]).read_text())
 root = load_compiled(Path(sys.argv[1]).read_bytes(), expected_pin=handoff["pin"], accepted_producer=handoff["producer"], accepted_compatibility=tuple(handoff["compatibility"]))
-artifact = emit_compiled(root, ())
+artifact = emit_compiled(root, tuple(scalar_read(value).value for value in handoff["values"]))
 contract = build_result_contract(artifact.request.verification)
 assert not any(name.startswith(("_pietto_", "test_")) for name in sys.modules)
 assert not any(name == "pyarrow" or name.startswith(("adbc_driver", "psycopg", "mysql.connector")) for name in sys.modules)
-print(json.dumps({
+result = {
     "same_sql": artifact.rendered.sql.decode() == handoff["sql"],
     "fields": [[f.label, [c.label for c in getattr(f.shape, "fields", ())]] for f in contract.shape.fields],
-}))
+}
+if handoff["flat"]:
+    result["logical"] = [[f.shape.canonical.name, f.nullability.value] for f in contract.shape.fields]
+print(json.dumps(result))
 """
     with subprocess.Popen(
         [sys.executable, "-I", "-B", "-c", program, str(bundle), str(handoff)],
@@ -530,10 +568,27 @@ print(json.dumps({
             child.communicate(timeout=10)
             raise
         assert child.returncode == 0, stderr[-6000:]
-    assert json.loads(stdout) == {
-        "same_sql": True,
-        "fields": [["id", []], ["recent_orders", ["id", "total"]]],
-    }
+    expected = {"same_sql": True, "fields": expected_fields}
+    if case == "W_join_values":
+        expected["logical"] = [
+            [tag, nullable]
+            for tag, nullable in zip(
+                ("Int", "Int", "Int", "Int", "Bool", "Float", "Bool"),
+                (
+                    "non_null",
+                    "nullable",
+                    "non_null",
+                    "nullable",
+                    "non_null",
+                    "non_null",
+                    "unknown",
+                ),
+                strict=True,
+            )
+        ]
+    elif case == "S_set_domains":
+        expected["logical"] = [["Timestamp", "nullable"]]
+    assert json.loads(stdout) == expected
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))

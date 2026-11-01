@@ -703,6 +703,16 @@ def test_a_blocked_document_lists_each_blocker_once_at_its_first_position():
         repeated,
         ("PIE-B1001", "source_mapping_missing"),
     ]
+    assert "check --project" in document["blockers"][0]["suggestion"]
+    assert "selector" in document["blockers"][1]["suggestion"]
+    for invalid in (None, "", "   ", 7):
+        damaged = json.loads(json.dumps(document))
+        if invalid is None:
+            del damaged["blockers"][0]["suggestion"]
+        else:
+            damaged["blockers"][0]["suggestion"] = invalid
+        with pytest.raises(ValueError):
+            probe.decode_public(probe.encoded(damaged))
 
 
 def test_malformed_root_is_handled_without_traceback(built):
