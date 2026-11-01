@@ -34,6 +34,7 @@ from _pietto_project_path_trust import (
     report_reparse_point,
 )
 import _pietto_sql_emission as probe
+from pietto import _batch_output as batch_output
 from pietto import _output_file as output_file
 from pietto import cli
 from pietto._project import path_trust
@@ -119,6 +120,35 @@ def api_bytes(tmp_path: Path, item: dict[str, Any], policy: str | None = None) -
     return serialize_project_sql_emission(outcome)
 
 
+def batch_argv(root: Path | str, target: str, **extra: str) -> list[str]:
+    arguments = argv(root, target)
+    for option in ("--module", "--kind", "--name"):
+        index = arguments.index(option)
+        del arguments[index : index + 2]
+    arguments.append("--all")
+    for key, value in extra.items():
+        arguments += ["--" + key.replace("_", "-"), value]
+    return arguments
+
+
+def batch_document(data: bytes) -> dict[str, Any]:
+    document = probe.decode_batch_public(data)
+    for index, item in enumerate(document["items"]):
+        assert item["path"] == f"artifacts/{index:06d}.json"
+    return document
+
+
+def batch_project(tmp_path: Path, target: str) -> tuple[Path, dict[str, Any]]:
+    root, item = project(tmp_path, target, name="batch-project")
+    main = root / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "\nquery selected:\n    from rows\n    select:\n        selected_id = id\n",
+        encoding="utf-8",
+    )
+    return root, item
+
+
 def failure(out: bytes) -> dict[str, Any]:
     document = probe.decode_public(out)
     assert document["status"] != "VERIFIED" and document["artifact"] is None
@@ -171,6 +201,428 @@ def test_project_default_json_preserve_is_the_installed_api_artifact(
         argv(root, target, format="json", literal_policy="preserve"),
     ):
         assert run(spelling) == (0, out, "")
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_project_batch_emission_reuses_each_single_document_once(
+    tmp_path: Path, target: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = batch_project(tmp_path, target)
+    calls = 0
+    real_parse = emission_cli.check_project_parse_only
+
+    def counted_parse(path: Path):
+        nonlocal calls
+        calls += 1
+        return real_parse(path)
+
+    monkeypatch.setattr(emission_cli, "check_project_parse_only", counted_parse)
+    code, out, err = run(batch_argv(root, target))
+    assert (code, err, calls) == (0, "", 1)
+    batch = batch_document(out)
+    assert batch["status"] == "VERIFIED" and batch["failure"] is None
+    assert [item["owner"] for item in batch["items"]] == [
+        {"module": "main.pietto", "kind": "table", "name": "result"},
+        {"module": "main.pietto", "kind": "query", "name": "selected"},
+    ]
+    for item in batch["items"]:
+        arguments = argv(root, target, item["owner"]["kind"])
+        for key in ("module", "name"):
+            arguments[arguments.index("--" + key) + 1] = item["owner"][key]
+        single = run(arguments)
+        assert single[0:3:2] == (0, "")
+        assert single[1] == probe.encoded(item["document"])
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_project_batch_output_directory_has_artifacts_before_its_manifest(
+    tmp_path: Path, target: str
+) -> None:
+    root, _ = batch_project(tmp_path, target)
+    output = tmp_path / "batch"
+    code, out, err = run(batch_argv(root, target, output=str(output)))
+    assert (code, err) == (0, "")
+    batch = batch_document(out)
+    assert (output / "manifest.json").read_bytes() == out
+    assert [path.name for path in sorted((output / "artifacts").iterdir())] == [
+        item["path"].removeprefix("artifacts/") for item in batch["items"]
+    ]
+    for item in batch["items"]:
+        assert (output / item["path"]).read_bytes() == probe.encoded(item["document"])
+    code, repeat, err = run(batch_argv(root, target, output=str(output)))
+    assert (code, err) == (2, "")
+    assert batch_document(repeat)["items"] == []
+
+
+def test_project_batch_selector_zero_match_is_input_rejected(tmp_path: Path) -> None:
+    root, _ = batch_project(tmp_path, "postgres")
+    code, out, err = run(batch_argv(root, "postgres", name="missing"))
+    assert (code, err) == (2, "")
+    document = batch_document(out)
+    assert document["status"] == "INPUT_REJECTED" and document["items"] == []
+
+
+@pytest.mark.parametrize("case", ("missing_contract", "unknown_option"))
+def test_project_batch_usage_errors_keep_the_batch_envelope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    root, _ = batch_project(tmp_path, "postgres")
+    arguments = batch_argv(root, "postgres")
+    if case == "missing_contract":
+        position = arguments.index("--emission-contract")
+        del arguments[position : position + 2]
+    else:
+        arguments.append("--not-an-option")
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("usage failures do not read the project")
+
+    monkeypatch.setattr(emission_cli, "check_project_parse_only", forbidden)
+    code, out, err = run(arguments)
+    document = batch_document(out)
+    assert (code, err) == (2, "")
+    assert document["status"] == "INPUT_REJECTED" and document["items"] == []
+    assert document["failure"]["cli_errors"][0]["kind"] == "usage"
+    code, out, err = run([*arguments, "--format", "text"])
+    assert (code, out) == (2, b"")
+    assert err.startswith("usage: pietto emit-sql")
+
+
+def test_batch_help_is_explicit_and_does_not_change_single_help() -> None:
+    code, single, error = run(["emit-sql", "--project", "not-opened", "--help"])
+    assert (code, error) == (0, "")
+    assert b"--all" not in single and b"[--output FILE]" in single
+    code, batch, error = run(["emit-sql", "--project", "not-opened", "--all", "--help"])
+    assert (code, error) == (0, "")
+    assert b"--all" in batch and b"[--output DIR]" in batch
+    assert b"[--module LOGICAL_MODULE]" in batch
+
+
+def test_all_without_project_keeps_the_legacy_emit_route() -> None:
+    code, out, err = run(
+        ["emit-sql", "not-opened.pietto", "--all", "--dialect", "postgres"]
+    )
+    assert (code, out) == (2, b"")
+    assert "unrecognized arguments: --all" in err
+
+
+def test_project_batch_common_semantic_failure_and_text_keep_existing_streams(
+    tmp_path: Path,
+) -> None:
+    root, _ = batch_project(tmp_path, "postgres")
+    main = root / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "\nquery invalid:\n    from result\n    select:\n        missing\n",
+        encoding="utf-8",
+    )
+    code, out, err = run(batch_argv(root, "postgres"))
+    assert (code, err) == (1, "")
+    document = batch_document(out)
+    assert document["status"] == "BLOCKED" and document["items"] == []
+    assert document["failure"]["status"] == "BLOCKED"
+    code, out, err = run(batch_argv(root, "postgres", format="text"))
+    assert code == 1 and out == b""
+    assert err.startswith("pietto.sql-emission.v1 BLOCKED\n")
+
+
+def test_project_batch_keeps_each_owner_outcome_when_one_is_blocked(
+    tmp_path: Path,
+) -> None:
+    root, _ = batch_project(tmp_path, "postgres")
+    main = root / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "\nquery blocked:\n    from result\n    select:\n        record_id\n",
+        encoding="utf-8",
+    )
+    code, out, err = run(batch_argv(root, "postgres"))
+    document = batch_document(out)
+    assert (code, err, document["status"], document["failure"]) == (
+        1,
+        "",
+        "BLOCKED",
+        None,
+    )
+    assert [item["document"]["status"] for item in document["items"]] == [
+        "VERIFIED",
+        "VERIFIED",
+        "BLOCKED",
+    ]
+
+
+def test_project_batch_output_input_drift_removes_its_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = batch_project(tmp_path, "postgres")
+    output = tmp_path / "batch"
+    checks = iter((True, False))
+    monkeypatch.setattr(emission_cli, "_protected_current", lambda _: next(checks))
+    code, out, err = run(batch_argv(root, "postgres", output=str(output)))
+    assert (code, err) == (2, "")
+    document = batch_document(out)
+    assert document["status"] == "INPUT_REJECTED" and document["failure"] is not None
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("presentation", ("json", "text"))
+def test_batch_limit_is_exact_and_refuses_before_directory_creation(
+    tmp_path, monkeypatch, presentation
+):
+    root, _ = batch_project(tmp_path, "postgres")
+    code, baseline, _ = run(batch_argv(root, "postgres"))
+    assert code == 0
+    monkeypatch.setattr(emission_cli, "MAX_BATCH_BYTES", len(baseline))
+    assert run(batch_argv(root, "postgres"))[1] == baseline
+    monkeypatch.setattr(emission_cli, "MAX_BATCH_BYTES", len(baseline) - 1)
+    output = tmp_path / "limited"
+    code, out, err = run(
+        batch_argv(root, "postgres", format=presentation, output=str(output))
+    )
+    assert code == 2 and not output.exists()
+    if presentation == "json":
+        value = batch_document(out)
+        assert value["status"] == "INPUT_REJECTED" and value["items"] == []
+        assert value["failure"]["cli_errors"][0]["kind"] == "batch_output_limit"
+    else:
+        assert out == b"" and "batch_output_limit" in err
+    assert run(argv(root, "postgres"))[0] == 0
+
+
+def test_batch_directory_platform_refuses_without_reading_or_creating(
+    tmp_path, monkeypatch
+):
+    root, _ = batch_project(tmp_path, "postgres")
+    monkeypatch.setattr(batch_output.os, "supports_dir_fd", set())
+    output = tmp_path / "unsupported"
+    code, out, _ = run(batch_argv(root, "postgres", output=str(output)))
+    assert code == 2 and not output.exists()
+    assert (
+        batch_document(out)["failure"]["cli_errors"][0]["kind"]
+        == "batch_output_platform"
+    )
+    assert run(batch_argv(root, "postgres"))[0] == 0
+
+
+@pytest.mark.skipif(
+    not batch_output.supported(), reason="Linux descriptor publication required"
+)
+@pytest.mark.parametrize(
+    "fault",
+    (
+        "root_after_mkdir",
+        "artifacts_swap",
+        "artifact_exists",
+        "manifest_exists",
+        "foreign_cleanup",
+        "restored_mtime",
+        "foreign_hardlink",
+        "before_manifest",
+    ),
+)
+def test_batch_directory_faults_never_modify_foreign_names(
+    tmp_path, monkeypatch, fault
+):
+    root, _ = batch_project(tmp_path, "postgres")
+    output = tmp_path / "batch"
+    parked = tmp_path / "parked"
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    sentinel = foreign / "000000.json"
+    sentinel.write_bytes(b"KEEP")
+    real_mkdir, real_link, real_write = (
+        batch_output.os.mkdir,
+        batch_output.os.link,
+        batch_output._write_new,
+    )
+    fired = False
+
+    def mkdir(name, *args, **kwargs):
+        nonlocal fired
+        result = real_mkdir(name, *args, **kwargs)
+        if (
+            fault == "root_after_mkdir"
+            and name == output.name
+            and kwargs.get("dir_fd") is not None
+            and not fired
+        ):
+            fired = True
+            output.rename(parked)
+            real_mkdir(output, 0o700)
+            (output / "foreign.txt").write_bytes(b"KEEP")
+        return result
+
+    def link(source, name, *args, **kwargs):
+        nonlocal fired
+        if not fired and fault == "artifacts_swap" and name == "000000.json":
+            fired = True
+            (output / "artifacts").rename(parked)
+            (output / "artifacts").symlink_to(foreign, target_is_directory=True)
+        elif not fired and (
+            (fault == "artifact_exists" and name == "000000.json")
+            or (fault == "manifest_exists" and name == "manifest.json")
+        ):
+            fired = True
+            descriptor = os.open(
+                name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+                dir_fd=kwargs["dst_dir_fd"],
+            )
+            try:
+                os.write(descriptor, b"KEEP")
+            finally:
+                os.close(descriptor)
+        return real_link(source, name, *args, **kwargs)
+
+    def write(directory, name, data, before_install, **kwargs):
+        nonlocal fired
+        if fault == "foreign_cleanup" and name == "000001.json":
+            fired = True
+            path = output / "artifacts/000000.json"
+            path.unlink()
+            path.write_bytes(b"KEEP")
+            raise OSError("later write failed")
+        if fault in ("restored_mtime", "foreign_hardlink") and name == "manifest.json":
+            fired = True
+            path = output / "artifacts/000000.json"
+            if fault == "foreign_hardlink":
+                real_link(path, foreign / "linked.json")
+            else:
+                state = path.stat()
+                path.write_bytes(b"X" * state.st_size)
+                os.utime(path, ns=(state.st_atime_ns, state.st_mtime_ns))
+        if fault == "before_manifest" and name == "manifest.json":
+            fired = True
+            assert not (output / name).exists()
+            assert all(
+                path.read_bytes().endswith(b"\n")
+                for path in (output / "artifacts").iterdir()
+            )
+            raise OSError("manifest write failed")
+        return real_write(directory, name, data, before_install, **kwargs)
+
+    if fault in ("restored_mtime", "foreign_hardlink"):
+        original_identity = batch_output._file_identity
+
+        def coarse_identity(state):
+            device, inode, _ctime, mtime, size = original_identity(state)
+            return device, inode, 0, mtime, size
+
+        monkeypatch.setattr(batch_output, "_file_identity", coarse_identity)
+    monkeypatch.setattr(batch_output, "supported", lambda: True)
+    monkeypatch.setattr(batch_output.os, "mkdir", mkdir)
+    monkeypatch.setattr(batch_output.os, "link", link)
+    monkeypatch.setattr(batch_output, "_write_new", write)
+    before = open_descriptors()
+    code, out, _ = run(batch_argv(root, "postgres", output=str(output)))
+    assert open_descriptors() == before
+    assert fired and code == 2
+    assert batch_document(out)["status"] == "INPUT_REJECTED"
+    assert sentinel.read_bytes() == b"KEEP"
+    if fault == "root_after_mkdir":
+        assert sorted(path.name for path in output.iterdir()) == ["foreign.txt"]
+        assert (output / "foreign.txt").read_bytes() == b"KEEP"
+    elif fault in ("artifact_exists", "foreign_cleanup"):
+        assert (output / "artifacts/000000.json").read_bytes() == b"KEEP"
+    elif fault == "manifest_exists":
+        assert (output / "manifest.json").read_bytes() == b"KEEP"
+    elif fault == "restored_mtime":
+        assert (output / "artifacts/000000.json").read_bytes().startswith(b"XXX")
+        assert not (output / "manifest.json").exists()
+    elif fault == "foreign_hardlink":
+        assert (foreign / "linked.json").is_file()
+        assert (output / "artifacts/000000.json").is_file()
+        assert not (output / "manifest.json").exists()
+    else:
+        assert not (output / "manifest.json").exists()
+
+
+@pytest.mark.skipif(
+    not batch_output.supported(), reason="Linux descriptor publication required"
+)
+def test_batch_manifest_is_the_commit_point(tmp_path, monkeypatch):
+    root, _ = batch_project(tmp_path, "postgres")
+    output = tmp_path / "batch"
+    original = batch_output._write_new
+
+    def write(directory, name, data, before_install, **kwargs):
+        result = original(directory, name, data, before_install, **kwargs)
+        if name == "manifest.json":
+            replacement = root / "new-contract.json"
+            replacement.write_bytes((root / "contract.json").read_bytes())
+            os.replace(replacement, root / "contract.json")
+        return result
+
+    monkeypatch.setattr(batch_output, "_write_new", write)
+    before = open_descriptors()
+    code, out, _ = run(batch_argv(root, "postgres", output=str(output)))
+    assert code == 0 and open_descriptors() == before
+    assert (output / "manifest.json").read_bytes() == out
+    for item in batch_document(out)["items"]:
+        assert (output / item["path"]).read_bytes() == probe.encoded(item["document"])
+
+
+@pytest.mark.parametrize("name", ("U1_cross", "U2_inner_true", "U4_left_true"))
+def test_batch_preserves_public_unnest_documents(tmp_path, name):
+    from _pietto_execution_api import write_nested_unnest
+
+    root = write_nested_unnest(tmp_path / "project", name)
+    single_arguments = argv(root, "postgres", kind="query")
+    code, single, error = run(single_arguments)
+    assert (code, error) == (0, "")
+    code, data, error = run([*single_arguments, "--all"])
+    assert (code, error) == (0, "")
+    items = batch_document(data)["items"]
+    assert len(items) == 1 and probe.encoded(items[0]["document"]) == single
+    if batch_output.supported():
+        output = tmp_path / "batch"
+        assert run([*single_arguments, "--all", "--output", str(output)])[0] == 0
+        assert (output / "artifacts/000000.json").read_bytes() == single
+    damaged = json.loads(data)
+    damaged["items"][0]["document"]["request"]["owner"]["name"] = "foreign"
+    with pytest.raises(ValueError):
+        probe.decode_batch_public(probe.encoded(damaged))
+
+
+def test_batch_owner_recursion_keeps_later_owners_and_single_diagnostic(
+    tmp_path, monkeypatch
+):
+    root, _ = batch_project(tmp_path, "postgres")
+    original = emission_cli.build_project_sql_plan
+
+    def exhaust_selected(completed, bundle, owner, **kwargs):
+        if owner.definition.name == "result":
+            raise RecursionError
+        return original(completed, bundle, owner, **kwargs)
+
+    monkeypatch.setattr(emission_cli, "build_project_sql_plan", exhaust_selected)
+    code, single, error = run(argv(root, "postgres"))
+    assert (code, error) == (1, "")
+    code, data, error = run(batch_argv(root, "postgres"))
+    assert (code, error) == (1, "")
+    items = batch_document(data)["items"]
+    assert [item["document"]["status"] for item in items] == ["BLOCKED", "VERIFIED"]
+    assert probe.encoded(items[0]["document"]) == single
+    assert items[0]["document"]["diagnostics"][0]["code"] == "PIE-S2006"
+
+
+def test_strict_batch_reader_rejects_oversize_before_parsing():
+    with pytest.raises(ValueError):
+        probe.decode_batch_public(b" " * (64 * 1024 * 1024 + 1))
+
+
+def test_strict_batch_reader_rejects_a_duplicate_owner(tmp_path: Path) -> None:
+    root, _ = batch_project(tmp_path, "postgres")
+    _, data, _ = run(batch_argv(root, "postgres"))
+    document = batch_document(data)
+    duplicate = dict(document["items"][0])
+    duplicate["path"] = f"artifacts/{len(document['items']):06d}.json"
+    document["items"].append(duplicate)
+    with pytest.raises(ValueError, match="invalid batch public emission document"):
+        probe.decode_batch_public(
+            json.dumps(document, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        )
 
 
 def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
@@ -389,6 +841,15 @@ def test_a_selected_file_name_that_is_not_utf8_rejects_emission(
         "INPUT_REJECTED",
         rejected,
     )
+    code, out, err = run(batch_argv(root, target))
+    batch = batch_document(out)
+    assert (code, err, batch["status"], batch["failure"]) == (
+        2,
+        "",
+        "INPUT_REJECTED",
+        None,
+    )
+    assert [item["document"]["cli_errors"] for item in batch["items"]] == [rejected]
     # A diagnostic located in that file cannot be carried either: the error
     # names the file in its place.
     unnamed = Path(os.fsdecode(os.fsencode(root) + b"/\xff.pietto"))

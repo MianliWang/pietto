@@ -2,16 +2,27 @@
 
 ## Unreleased changes following 0.1.6
 
-- Phase71 B4 candidate: bounded basic-leaf PostgreSQL Collect execution,
+- Phase71 B4: bounded basic-leaf PostgreSQL Collect execution,
   one final-flat CROSS/INNER/LEFT Unnest through source and source-free compiled
   paths, and internal nested IPC. Other routes, wider child types, storage,
   R2 and relay retain their explicit refusals. The version remains 0.1.6;
-  B4 publication and the 0.1.7 release are separate lifecycle decisions.
+  B4 is published on main; the 0.1.7 release needs separate authorization.
 
 
 These changes are on `main` after `0.1.6` and are in no published release
 yet. They do not assign a new version or replace the published 0.1.6 release
 notes.
+
+### Batch project SQL emission
+
+`emit-sql --project ROOT --all` emits every matching top-level table or query,
+with optional exact `--module`, `--kind` and `--name` filters. Each batch item
+contains the same document as its single-owner call. The complete batch JSON
+has a 64 MiB limit; overflow rejects the whole batch with exit 2 and no output
+directory. On supported Linux filesystems, `--output DIR` writes a new directory
+with complete JSON artifacts and a manifest installed last. Other platforms
+retain batch stdout. Existing paths are never overwritten, and calls without
+`--all` retain their prior output and behavior.
 
 ### Project SQL emission: numeric and temporal operations
 

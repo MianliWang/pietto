@@ -3972,6 +3972,8 @@ CLI_ERROR_KINDS = frozenset(
         "source_read",
         "output_path",
         "output_write",
+        "batch_output_limit",
+        "batch_output_platform",
         "emission_contract_read",
         "emission_contract_schema",
         "emission_selector",
@@ -13050,6 +13052,87 @@ def _decode_parameterized_public(document, limits):
             and type(column["label"]) is str
             and bool(column["label"])
         )
+
+
+def decode_batch_public(data: bytes) -> dict[str, Any]:
+    """Strictly decode the additive batch envelope and every contained document."""
+    _need(type(data) is bytes and 0 < len(data) <= 64 * 1024 * 1024)
+    try:
+        document: dict[str, Any] = json.loads(
+            data.decode("utf-8"),
+            object_pairs_hook=_pairs,
+            parse_constant=lambda _: (_ for _ in ()).throw(ValueError("nonfinite")),
+        )
+        _keys(document, ("failure", "format", "items", "status"))
+        _need(
+            document["format"] == "pietto.sql-emission.batch.v1"
+            and document["status"] in {"VERIFIED", "BLOCKED", "INPUT_REJECTED"}
+            and type(document["items"]) is list
+        )
+        failure = document["failure"]
+        _need(failure is None or type(failure) is dict)
+        failure_status = None
+        if failure is not None:
+            failed = decode_public(encoded(failure))
+            failure_status = failed["status"]
+            _need(
+                failure_status != "VERIFIED"
+                and (
+                    not document["items"]
+                    and document["status"] == failure_status
+                    or (
+                        document["items"]
+                        and document["status"] == failure_status == "INPUT_REJECTED"
+                    )
+                )
+            )
+        statuses: list[str] = []
+        owners: set[tuple[str, str, str]] = set()
+        for ordinal, item in enumerate(document["items"]):
+            _keys(item, ("document", "owner", "path"))
+            _keys(item["owner"], ("kind", "module", "name"))
+            _need(
+                item["owner"]["kind"] in {"table", "query"}
+                and all(
+                    type(item["owner"][key]) is str and item["owner"][key]
+                    for key in ("module", "name")
+                )
+                and item["path"] == f"artifacts/{ordinal:06d}.json"
+                and type(item["document"]) is dict
+            )
+            identity = (
+                item["owner"]["module"],
+                item["owner"]["kind"],
+                item["owner"]["name"],
+            )
+            _need(identity not in owners)
+            owners.add(identity)
+            child = decode_public(encoded(item["document"]))
+            statuses.append(child["status"])
+            if child["status"] == "VERIFIED":
+                _need(child["request"]["owner"] == item["owner"])
+        _need(
+            (failure_status is not None and not document["items"])
+            or (
+                failure_status == "INPUT_REJECTED"
+                and bool(statuses)
+                and set(statuses) == {"VERIFIED"}
+            )
+            or (
+                document["status"] == "VERIFIED"
+                and statuses
+                and set(statuses) == {"VERIFIED"}
+            )
+            or (
+                document["status"] == "BLOCKED"
+                and "BLOCKED" in statuses
+                and "INPUT_REJECTED" not in statuses
+            )
+            or (document["status"] == "INPUT_REJECTED" and "INPUT_REJECTED" in statuses)
+        )
+        return document
+    except (KeyError, TypeError, UnicodeDecodeError, ValueError):
+        raise ValueError("invalid batch public emission document") from None
 
 
 def decode_public(data: bytes) -> dict[str, Any]:

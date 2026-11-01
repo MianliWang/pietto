@@ -570,6 +570,21 @@ and the [Slice13 contract](spec/phase66-slice13-project-emit-sql-cli-explicit-co
 `--format text`, the readable presentation goes to stdout and the file still
 holds the JSON document. Only a VERIFIED artifact is written.
 
+`--all` selects all public top-level tables and queries, or the exact AND
+filter supplied by any of `--module`, `--kind`, and `--name`, in project
+authority order. With `--format json`, stdout is `pietto.sql-emission.batch.v1`;
+`--format text` concatenates the existing per-item text/error presentations.
+Every JSON item embeds
+the byte-identical single-owner v1/v2 document. Its `--output DIR` creates a
+new directory only on supported Linux filesystems, writes numbered JSON
+artifacts atomically without replacing existing names, and writes the batch
+`manifest.json` last. Unsupported platforms can still use batch stdout. An
+existing path is refused and a directory without its manifest is incomplete.
+The complete batch JSON is limited to 64 MiB, including its envelope and final
+newline, for text, JSON and directory output alike. Exceeding the limit returns
+INPUT_REJECTED / exit 2 with no items or output directory; narrow the selectors.
+The existing per-item limit and calls without `--all` are unchanged.
+
 ### Emission contract values
 
 The contract `target` is `{"family": "postgres", "release": "18.6"}` or
@@ -717,9 +732,9 @@ supply that proof.
 
 The rules in the previous paragraph postdate the published `0.1.2` (GitHub
 pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those
-distributions; the published `0.1.3`, `0.1.4` and `0.1.5` include them. This
-`0.1.6` candidate is available only when its accepted files appear on its
-versioned release channels. The Date source, temporal and UUID ordering,
+distributions; the published `0.1.3`, `0.1.4` and `0.1.5` include them. The
+`0.1.6` release is published from `bdb3f567` as `v0.1.6` on GitHub and as
+`0.1.6` on PyPI. The Date source, temporal and UUID ordering,
 checked `bigint` and PostgreSQL `sum(Int)` rules follow `0.1.6` and are
 listed under the unreleased changes of the release notes. Git publication and
 natural exact-head CI remain the lifecycle authority.

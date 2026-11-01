@@ -94,6 +94,10 @@ pietto explain --project ROOT --format json
 pietto emit-sql --project ROOT --module LOGICAL_MODULE --kind {table,query} \
     --name NAME --dialect {postgres,mysql} --emission-contract FILE \
     [--literal-policy {preserve,bind-safe}] [--format {text,json}] [--output FILE]
+pietto emit-sql --project ROOT --all --dialect {postgres,mysql} \
+    --emission-contract FILE [--module LOGICAL_MODULE] [--kind {table,query}] \
+    [--name NAME] [--literal-policy {preserve,bind-safe}] [--format {text,json}] \
+    [--output DIR]
 ```
 
 The argument rules are:
@@ -117,13 +121,47 @@ The argument rules are:
 
 Project `emit-sql` is not a JSON v2 command. D66.13 superseded the earlier
 unimplemented proposal of a postgres-only whole-project emit envelope with a
-`project.default_dialect` fallback: the implemented command selects exactly one
-owner, requires an explicit `--dialect` and an explicit `--emission-contract`,
+`project.default_dialect` fallback: `--dialect` and `--emission-contract` stay
+explicit. Without `--all`, the implemented command selects exactly one owner
 and emits the `pietto.sql-emission.v1` artifact documented in the
 [Slice13 contract](phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md),
 or the `pietto.sql-emission.v2` document of a VERIFIED query with header
-parameters ([below](#emit-sql-result)). Its exit codes follow the same classes
-as below.
+parameters ([below](#emit-sql-result)). With `--all`, optional selectors form
+an exact AND filter over public top-level table and query owners in project
+authority order. JSON stdout emits `pietto.sql-emission.batch.v1`: `{format, status,
+items, failure}`, where each item is `{owner, path, document}` and `document`
+is the complete unmodified v1/v2 single-owner document. `failure` is null for
+normal per-owner completion; a preparation or selector error has no items and
+carries that complete single-owner failure document. An output error also has
+no items and carries its single-owner failure document. The batch exit is
+0 only when every item is VERIFIED, 1 when one or more is BLOCKED and none is
+INPUT_REJECTED, and 2 for any INPUT_REJECTED. Its exit codes follow the same
+classes as below. Text mode instead concatenates the existing per-item text
+presentations onto their usual stdout or stderr streams; a global failure uses
+the existing failure presentation. Directory artifacts and manifest remain JSON.
+
+The full canonical batch JSON, including its UTF-8 envelope and final newline,
+is measured against a 64 MiB limit even when text presentation is selected,
+and when directory output is requested.
+Exceeding it returns INPUT_REJECTED, exit 2, empty `items` and the
+`batch_output_limit` CLI error; no output directory is created. Narrow the exact
+selectors to reduce the batch. Existing per-item limits are unchanged. This is
+an output-byte limit, not a process-memory limit.
+
+In batch mode `--output DIR` requires Linux filesystem capabilities for pinned
+directory descriptors and atomic no-replace installation. Unsupported platforms
+return INPUT_REJECTED / exit 2 with `batch_output_platform` before creating DIR;
+batch stdout remains available. DIR must be a new, non-symlink path. The
+command creates it exclusively only when every item is VERIFIED, writes each `artifacts/000000.json` item with
+the same bytes as its single-owner serializer, and writes `manifest.json` last
+with the canonical batch JSON document, identical to stdout when JSON format
+is selected. Input and directory identities are checked before manifest
+installation, which is the completion point. No item failure creates DIR.
+Failure cleanup removes only still-owned paths; ambiguous replacements or an
+interrupted process can leave a directory without `manifest.json`, which
+consumers must treat as incomplete. Existing output paths are never replaced.
+The command does not promise whole-directory atomic visibility or power-loss
+durability; a subsequent stdout failure does not roll back a completed directory.
 
 Project `explain` is not a JSON v2 command either. It reads only a
 `schema_version = 4` package-root project and writes the Project Explain

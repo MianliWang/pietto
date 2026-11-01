@@ -220,6 +220,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
     required = {
         f"{prefix}/__init__.py",
         f"{prefix}/cli.py",
+        f"{prefix}/_batch_output.py",
         f"{prefix}/parser_api.py",
         f"{prefix}/execution/__init__.py",
         f"{prefix}/execution/_access.py",
@@ -1116,7 +1117,7 @@ def _smoke_installed_cli(
     print(
         "[package-smoke] installed CLI verified: --help, check, project check, "
         "single-file and project explain, PostgreSQL byte-exact text, "
-        "MySQL JSON v1 structure, project emit-sql JSON/text/atomic file",
+        "MySQL JSON v1 structure, project emit-sql JSON/text/atomic file and batch directory",
         flush=True,
     )
 
@@ -1183,6 +1184,87 @@ def _smoke_project_emit_sql(
         or any(path.suffix == ".tmp" for path in scratch_dir.iterdir())
     ):
         raise SmokeFailure("installed project emit-sql text/file output is unexpected")
+    batch_arguments = (*PROJECT_EMIT_ARGUMENTS, "--all")
+    batch = _run_installed_cli(
+        cli_path,
+        batch_arguments,
+        scratch_dir=scratch_dir,
+        stage="installed batch emit-sql JSON",
+        environment=environment,
+    )
+    expected_batch = {
+        "format": "pietto.sql-emission.batch.v1",
+        "status": "VERIFIED",
+        "items": [
+            {
+                "owner": document["request"]["owner"],
+                "path": "artifacts/000000.json",
+                "document": document,
+            }
+        ],
+        "failure": None,
+    }
+    expected_bytes = (
+        json.dumps(
+            expected_batch, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        + "\n"
+    ).encode("utf-8")
+    if batch.stderr or batch.stdout != expected_bytes:
+        raise SmokeFailure("installed batch document differs from single-owner bytes")
+    batch_output = subprocess.run(
+        (str(cli_path), *batch_arguments, "--output", "batch"),
+        cwd=scratch_dir,
+        check=False,
+        capture_output=True,
+        env=environment,
+    )
+    batch_directory = scratch_dir / "batch"
+    supported_directory = sys.platform == "linux" and batch_output.returncode == 0
+    if supported_directory:
+        if (
+            batch_output.stderr
+            or batch_output.stdout != batch.stdout
+            or (batch_directory / "manifest.json").read_bytes() != batch.stdout
+            or (batch_directory / "artifacts/000000.json").read_bytes()
+            != as_json.stdout
+            or sorted(
+                path.relative_to(batch_directory).as_posix()
+                for path in batch_directory.rglob("*")
+            )
+            != ["artifacts", "artifacts/000000.json", "manifest.json"]
+        ):
+            raise SmokeFailure("installed batch directory bytes differ")
+        batch_output = subprocess.run(
+            (str(cli_path), *batch_arguments, "--output", "batch"),
+            cwd=scratch_dir,
+            check=False,
+            capture_output=True,
+            env=environment,
+        )
+        if (batch_directory / "manifest.json").read_bytes() != batch.stdout or (
+            batch_directory / "artifacts/000000.json"
+        ).read_bytes() != as_json.stdout:
+            raise SmokeFailure("installed batch replaced existing files")
+    elif batch_directory.exists():
+        raise SmokeFailure("unsupported batch platform created output")
+    try:
+        batch_failure = json.loads(batch_output.stdout)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise SmokeFailure("cannot decode installed batch refusal") from error
+    expected_kind = "output_path" if supported_directory else "batch_output_platform"
+    if (
+        batch_output.returncode != 2
+        or batch_output.stderr
+        or batch_failure.get("status") != "INPUT_REJECTED"
+        or batch_failure.get("items") != []
+        or [
+            error.get("kind")
+            for error in batch_failure.get("failure", {}).get("cli_errors", [])
+        ]
+        != [expected_kind]
+    ):
+        raise SmokeFailure("installed batch refusal is unexpected")
     rejected = subprocess.run(
         (
             str(cli_path),

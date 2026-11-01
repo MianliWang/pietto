@@ -420,7 +420,9 @@ The owner subsequently increased the independent B4/midpoint repair ledger to
 C35/F40/D40, then C50/F60/D40, and explicitly doubled its current categories to
 **C100/F120/D80**. Previously consumed work (including the first emission
 interlude), failed candidates and historical UNKNOWN are retained. The added
-balance is only for B4 and its midpoint; scope, Teach, Docker and release
+balance was initially limited to B4 and its midpoint. On 2026-11-01 the owner
+allowed its remainder to cover all subsequent already-authorized Phase71 work
+and interludes, without increasing the limits. Scope, Teach, Docker and release
 authority do not change. This does not replace or reset the historical D71.10
 phase ledger. After the worktree-isolation incident, the owner authorized a new
 clean worktree and continued work with the lead as the sole writer and other
@@ -443,3 +445,20 @@ IPE and B4 wheels under the required isolation. The independent C100/F120/D80
 budget is unchanged. The B4 resource repair belongs to S12 acceptance; retain
 three slice commits, one fast-forward push and natural exact-head CI before
 the midpoint review. No version, tag, release or PyPI authority is added.
+
+### Batch project emission — owner approvals, 2026-10-31 and 2026-11-01
+
+The owner approved `emit-sql --project --all`, optional exact AND selectors,
+`pietto.sql-emission.batch.v1` with complete single-owner documents, and exit
+codes 0/1/2. Single-owner invocations remain byte-compatible. Directory output
+creates a new directory with atomic no-replace files and installs the manifest
+last; an incomplete directory can remain after interruption. Whole-directory
+atomic visibility and power-loss durability are not promised.
+
+After measured output growth and a directory-replacement defect, the owner
+approved a 64 MiB limit on the full UTF-8 batch JSON (including envelope and
+newline), in every presentation mode. Overflow is a global INPUT_REJECTED /
+exit 2 with empty items and no output directory. Initial directory output is
+limited to supported Linux capabilities; other platforms retain batch stdout.
+See the [public contract](spec/project-cli-json-v2.md) for errors and completion
+semantics. The Python compile API remains design-only for Phase75.

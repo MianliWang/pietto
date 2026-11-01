@@ -13,11 +13,12 @@ import argparse
 import json
 import os
 import stat
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, NoReturn
 
+from pietto import _batch_output
 from pietto._output_file import (
     is_owned_by_another_user,
     is_read_only,
@@ -75,6 +76,14 @@ USAGE = (
     " --emission-contract FILE\n"
     "                       [--literal-policy {preserve,bind-safe}]"
     " [--format {text,json}] [--output FILE]"
+)
+
+BATCH_USAGE = (
+    "usage: pietto emit-sql --project PATH --all --dialect {postgres,mysql}\n"
+    "                       --emission-contract FILE"
+    " [--module LOGICAL_MODULE] [--kind {table,query}] [--name NAME]\n"
+    "                       [--literal-policy {preserve,bind-safe}]"
+    " [--format {text,json}] [--output DIR]\n"
 )
 POLICIES = {
     "preserve": ProjectSQLLiteralPolicy.PRESERVE_LITERALS,
@@ -144,8 +153,9 @@ def _project_root(value: str) -> str:
     return value
 
 
-def _build_parser() -> argparse.ArgumentParser:
-    parser = _Parser(prog="pietto emit-sql", usage=USAGE[7:], allow_abbrev=False)
+def _build_parser(*, batch: bool = False) -> argparse.ArgumentParser:
+    usage = BATCH_USAGE if batch else USAGE
+    parser = _Parser(prog="pietto emit-sql", usage=usage[7:], allow_abbrev=False)
     parser.add_argument("path", nargs="?", help="legacy single-file source (exclusive)")
     parser.add_argument(
         "--project",
@@ -166,10 +176,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--literal-policy", action=_Once, choices=tuple(POLICIES))
     parser.add_argument("--format", action=_Once, choices=("text", "json"))
+    if batch:
+        parser.add_argument(
+            "--all", action="store_true", help="emit every matching project owner"
+        )
+    else:
+        parser.set_defaults(all=False)
     parser.add_argument(
         "--output",
         action=_Once,
-        help="write the JSON artifact (JSON in either --format)",
+        help=(
+            "write JSON artifacts and manifest to a new directory"
+            if batch
+            else "write the JSON artifact (JSON in either --format)"
+        ),
     )
     return parser
 
@@ -178,32 +198,62 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult:
     """Run one project emit-sql invocation, --help included."""
 
     text = text_presentation_requested(arguments)
+    tokens = list(arguments)
+    options = tokens[: tokens.index("--")] if "--" in tokens else tokens
+    batch_requested = any(
+        value == "--all" or value.startswith("--all=") for value in options
+    )
     try:
-        namespace = _build_parser().parse_args(list(arguments))
+        namespace = _build_parser(batch=batch_requested).parse_args(tokens)
     except _UsageError as error:
-        return _usage(str(error), text)
+        return _usage(str(error), text, batch=batch_requested)
     except _Help as help_text:
         return ProjectEmitResult(0, str(help_text).encode("utf-8"), "", False)
     if namespace.path is not None:
-        return _usage("path and --project are mutually exclusive", text)
+        return _usage(
+            "path and --project are mutually exclusive", text, batch=namespace.all
+        )
+    required = (
+        ("--dialect", "--emission-contract")
+        if namespace.all
+        else ("--module", "--kind", "--name", "--dialect", "--emission-contract")
+    )
     missing = [
         option
-        for option in (
-            "--module",
-            "--kind",
-            "--name",
-            "--dialect",
-            "--emission-contract",
-        )
+        for option in required
         if getattr(namespace, option[2:].replace("-", "_")) is None
     ]
     if missing:
         return _usage(
-            "the following arguments are required: " + ", ".join(missing), text
+            "the following arguments are required: " + ", ".join(missing),
+            text,
+            batch=namespace.all,
         )
     text = namespace.format == "text"
     policy = POLICIES[namespace.literal_policy or "preserve"]
     output = None if namespace.output is None else Path(namespace.output)
+    if namespace.all:
+        try:
+            return _run_project_emit_sql_batch(
+                namespace.project,
+                namespace.module,
+                namespace.kind,
+                namespace.name,
+                namespace.dialect,
+                namespace.emission_contract,
+                policy,
+                text,
+                output,
+            )
+        except _BatchLimit:
+            return _batch_rejected(
+                InputError(
+                    "batch_output_limit",
+                    "Batch JSON exceeds the 64 MiB output limit; narrow the exact selectors.",
+                ),
+                text,
+                namespace.dialect,
+            )
 
     def finish(
         outcome: EmissionOutcome,
@@ -249,6 +299,73 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult:
     )
 
 
+def _normalized_failure(
+    status: str,
+    found: tuple[Any, ...],
+    errors: Sequence[InputError] = (),
+    *,
+    blockers: tuple[Any, ...] = (),
+) -> EmissionOutcome:
+    """Keep every project-emission failure document valid UTF-8."""
+    found = tuple(
+        item
+        if all(_utf8(text) for text in (item.message, item.suggestion or ""))
+        else replace(
+            item,
+            message=_escaped(item.message),
+            suggestion=None if item.suggestion is None else _escaped(item.suggestion),
+        )
+        for item in found
+    )
+    errors = tuple(
+        error
+        if _utf8(error.message)
+        else replace(error, message=_escaped(error.message))
+        for error in errors
+    )
+    places = (
+        *(item.location.path for item in found),
+        *(
+            getattr(location, "path", None)
+            for blocker in blockers
+            for location in (blocker.location, *blocker.related)
+        ),
+        *(error.path for error in errors),
+    )
+    located = next(
+        (path for path in places if path is not None and not _utf8(path)), None
+    )
+    if located is not None:
+        status = "INPUT_REJECTED"
+        found = tuple(
+            item
+            for item in found
+            if item.location.path is None or _utf8(item.location.path)
+        )
+        blockers = tuple(
+            blocker
+            for blocker in blockers
+            if all(
+                getattr(location, "path", None) is None or _utf8(location.path)
+                for location in (blocker.location, *blocker.related)
+            )
+        )
+        errors = tuple(
+            dict.fromkeys(
+                (
+                    *(
+                        error
+                        if error.path is None or _utf8(error.path)
+                        else replace(error, path=None)
+                        for error in errors
+                    ),
+                    _unnamed_path(located),
+                )
+            )
+        )
+    return EmissionOutcome(status, found, blockers=blockers, cli_errors=errors)
+
+
 def emit_project(
     project: str | os.PathLike[str],
     module: str,
@@ -265,98 +382,81 @@ def emit_project(
     Python compile entry share it, so the same input reaches the same
     artifact or the same failure document on both.
     """
-    diagnostics: tuple[Any, ...] = ()
-    protected: list[tuple[Path, tuple[int, int]]] = []
-    unnamed: tuple[str, ...] = ()
-
-    def failure(
-        status: str,
-        found: tuple[Any, ...],
-        *errors: InputError,
-        blockers: tuple[Any, ...] = (),
-    ) -> tuple[EmissionOutcome, tuple[tuple[Path, tuple[int, int]], ...]]:
-        # An emission document is UTF-8 text, where a file name that is not
-        # UTF-8 has none. A message naming one shows it escaped, as
-        # project_path does; a diagnostic or blocker located in such a file
-        # is left out, an input error about one has path null, and a
-        # project_path error names the file instead.
-        found = tuple(
-            item
-            if all(_utf8(text) for text in (item.message, item.suggestion or ""))
-            else replace(
-                item,
-                message=_escaped(item.message),
-                suggestion=None
-                if item.suggestion is None
-                else _escaped(item.suggestion),
-            )
-            for item in found
-        )
-        errors = tuple(
-            error
-            if _utf8(error.message)
-            else replace(error, message=_escaped(error.message))
-            for error in errors
-        )
-        places = (
-            *(item.location.path for item in found),
-            *(
-                getattr(location, "path", None)
-                for blocker in blockers
-                for location in (blocker.location, *blocker.related)
+    context, common = _prepare_emission_context(project, contract)
+    if common is not None:
+        return common, ()
+    assert context is not None
+    owners = [
+        owner
+        for owner in context.owners
+        if context.modules[owner.module_position].path == module
+        and owner.identity.declaration_kind.value == kind
+        and owner.definition.name == name
+    ]
+    if not owners:
+        return _emission_failure(
+            "INPUT_REJECTED",
+            context.diagnostics,
+            InputError(
+                "emission_selector",
+                _absent_owner(context.modules, module, kind, context.owners),
             ),
-            *(error.path for error in errors),
-        )
-        located = next(
-            (path for path in places if path is not None and not _utf8(path)), None
-        )
-        if located is not None:
-            status = "INPUT_REJECTED"
-            found = tuple(
-                item
-                for item in found
-                if item.location.path is None or _utf8(item.location.path)
-            )
-            blockers = tuple(
-                blocker
-                for blocker in blockers
-                if all(
-                    getattr(location, "path", None) is None or _utf8(location.path)
-                    for location in (blocker.location, *blocker.related)
-                )
-            )
-            errors = tuple(
-                dict.fromkeys(
-                    (
-                        *(
-                            error
-                            if error.path is None or _utf8(error.path)
-                            else replace(error, path=None)
-                            for error in errors
-                        ),
-                        _unnamed_path(located),
-                    )
-                )
-            )
-        return EmissionOutcome(status, found, blockers=blockers, cli_errors=errors), ()
+        ), ()
+    if len(owners) != 1:
+        return _emission_failure(
+            "INPUT_REJECTED",
+            context.diagnostics,
+            InputError("emission_selector", "Selected owner is absent or ambiguous."),
+        ), ()
+    outcome = _emit_owner(context, owners[0], dialect, policy)
+    return outcome, context.protected if outcome.status == "VERIFIED" else ()
 
-    def rejected(
-        *errors: InputError,
-    ) -> tuple[EmissionOutcome, tuple[tuple[Path, tuple[int, int]], ...]]:
-        return failure("INPUT_REJECTED", diagnostics, *errors)
 
+@dataclass(frozen=True, slots=True)
+class _EmissionContext:
+    completed: ProjectConcreteCompletedSemanticResult
+    bundle: Any
+    modules: tuple[Any, ...]
+    owners: tuple[Any, ...]
+    contract_bytes: bytes
+    protected: tuple[tuple[Path, tuple[int, int]], ...]
+    diagnostics: tuple[Any, ...]
+    unnamed: tuple[str, ...]
+
+
+def _emission_failure(
+    status: str, diagnostics: tuple[Any, ...], *errors: InputError
+) -> EmissionOutcome:
+    return _normalized_failure(status, diagnostics, errors)
+
+
+def _prepare_emission_context(
+    project: str | os.PathLike[str], contract: str
+) -> tuple[_EmissionContext | None, EmissionOutcome | None]:
+    """Prepare one project once for either one owner or a batch."""
     try:
         parsed = check_project_parse_only(Path(project))
     except (OSError, ValueError):
-        return rejected(InputError("project_root", "Project root could not be pinned."))
-    unnamed = tuple(item.path for item in parsed.inputs if not _utf8(item.path))
+        return None, _emission_failure(
+            "INPUT_REJECTED",
+            (),
+            InputError("project_root", "Project root could not be pinned."),
+        )
     diagnostics = parsed.diagnostics
+    unnamed = tuple(item.path for item in parsed.inputs if not _utf8(item.path))
     if parsed.errors:
-        return rejected(
-            *(InputError(e.kind.value, e.message, e.path) for e in parsed.errors)
+        return None, _emission_failure(
+            "INPUT_REJECTED",
+            diagnostics,
+            *(
+                InputError(error.kind.value, error.message, error.path)
+                for error in parsed.errors
+            ),
         )
     if parsed.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
-        return rejected(
+        return None, _emission_failure(
+            "INPUT_REJECTED",
+            diagnostics,
             InputError(
                 "config_schema",
                 "emit-sql --project needs schema_version = 2 (explicit modules);"
@@ -364,60 +464,57 @@ def emit_project(
                 " declare the names a file uses from another file with import"
                 " and export.",
                 "pietto.toml",
-            )
+            ),
         )
-    pinned_root = parsed.pinned_root
-    index = parsed.selected_input_index
+    pinned_root, index = parsed.pinned_root, parsed.selected_input_index
     if pinned_root is None or index is None or parsed.config_path is None:
-        return rejected(
-            InputError("project_resource", "Project trust facts are unavailable.")
+        return None, _emission_failure(
+            "INPUT_REJECTED",
+            diagnostics,
+            InputError("project_resource", "Project trust facts are unavailable."),
         )
     read = _read_contract(pinned_root, contract)
     if isinstance(read, InputError):
-        return rejected(read)
+        return None, _emission_failure("INPUT_REJECTED", diagnostics, read)
     contract_bytes, contract_path, contract_state = read
     try:
         config_stat = os.stat(pinned_root.canonical_path / parsed.config_path.path)
     except OSError:
-        return rejected(
+        return None, _emission_failure(
+            "INPUT_REJECTED",
+            diagnostics,
             InputError(
                 "config_read",
                 "Project configuration identity is unavailable.",
                 parsed.config_path.path,
-            )
+            ),
         )
-    protected.append(
+    protected = [
         (
             pinned_root.canonical_path / parsed.config_path.path,
             (config_stat.st_dev, config_stat.st_ino),
-        )
-    )
-    protected.extend(
-        (
-            entry.canonical_path,
+        ),
+        *(
             (
-                entry.final_target_state.physical_identity.device,
-                entry.final_target_state.physical_identity.inode,
-            ),
-        )
-        for entry in index.entries
-    )
-    protected.append(
+                entry.canonical_path,
+                (
+                    entry.final_target_state.physical_identity.device,
+                    entry.final_target_state.physical_identity.inode,
+                ),
+            )
+            for entry in index.entries
+        ),
         (
             contract_path,
             (
                 contract_state.physical_identity.device,
                 contract_state.physical_identity.inode,
             ),
-        )
-    )
+        ),
+    ]
     if not parsed.ok:
-        return failure("BLOCKED", diagnostics)
-    # Exhausting the recursion limit is PIE-S2006, as in single-file analysis:
-    # over the module that nests deepest while the whole project is completed
-    # and built, then over the selected owner's module, the only one planning
-    # and emission walk.
-    scripts = tuple(parsed_input.script for parsed_input in parsed.parsed_inputs)
+        return None, _normalized_failure("BLOCKED", diagnostics)
+    scripts = tuple(item.script for item in parsed.parsed_inputs)
     try:
         completed = build_project_completed_semantic_result(
             build_empty_project_semantic_result(parsed)
@@ -427,87 +524,344 @@ def emit_project(
             type(completed) is not ProjectConcreteCompletedSemanticResult
             or not completed.ok
         ):
-            return failure("BLOCKED", diagnostics)
+            return None, _normalized_failure("BLOCKED", diagnostics)
+        ir = build_project_query_block_ir(completed)
+        bundle = build_project_query_block_ir_analysis_bundle(
+            verify_project_query_block_ir(ir)
+        )
+    except (TypeError, ValueError):
+        return None, _emission_failure(
+            "INPUT_REJECTED",
+            diagnostics,
+            InputError("emission_selector", "Project planning roots are unavailable."),
+        )
+    except RecursionError:
+        return None, _normalized_failure(
+            "BLOCKED", (recursion_limit_diagnostic(*scripts),)
+        )
+    return _EmissionContext(
+        completed,
+        bundle,
+        tuple(completed.semantic_result.modules),
+        tuple(
+            owner
+            for owner in ir.owners
+            if not owner.block_local and owner.identity.declaration_kind.value in KINDS
+        ),
+        contract_bytes,
+        tuple(protected),
+        diagnostics,
+        unnamed,
+    ), None
+
+
+def _emit_owner(
+    context: _EmissionContext, owner: Any, dialect: str, policy: ProjectSQLLiteralPolicy
+) -> EmissionOutcome:
+    """Run the existing per-owner plan, verification, preparation and realization tail."""
+    try:
         try:
-            ir = build_project_query_block_ir(completed)
-            bundle = build_project_query_block_ir_analysis_bundle(
-                verify_project_query_block_ir(ir)
-            )
-            modules = completed.semantic_result.modules
-            # The same three public owner coordinates the artifact publishes; a
-            # relation let is a block of its declaration, never a selectable owner.
-            selectable = [owner for owner in ir.owners if not owner.block_local]
-            owners = [
-                owner
-                for owner in selectable
-                if modules[owner.module_position].path == module
-                and owner.identity.declaration_kind.value == kind
-                and owner.definition.name == name
-            ]
-            if not owners:
-                return rejected(
-                    InputError(
-                        "emission_selector",
-                        _absent_owner(modules, module, kind, selectable),
-                    )
-                )
-            if len(owners) != 1:
-                return rejected(
-                    InputError(
-                        "emission_selector", "Selected owner is absent or ambiguous."
-                    )
-                )
-            scripts = tuple(
-                parsed_input.script
-                for parsed_input in parsed.parsed_inputs
-                if parsed_input.path == module
-            )
-            plan = build_project_sql_plan(
-                completed, bundle, owners[0], literal_policy=policy
-            )
             checked = verify_project_sql_plan(
-                plan, completed, bundle, owners[0], literal_policy=policy
+                build_project_sql_plan(
+                    context.completed, context.bundle, owner, literal_policy=policy
+                ),
+                context.completed,
+                context.bundle,
+                owner,
+                literal_policy=policy,
             )
         except (TypeError, ValueError):
-            return rejected(
+            return _emission_failure(
+                "INPUT_REJECTED",
+                context.diagnostics,
                 InputError(
                     "emission_selector", "Project planning roots are unavailable."
-                )
+                ),
             )
-        prepared = prepare_project_sql_emission(checked, contract_bytes)
+        prepared = prepare_project_sql_emission(checked, context.contract_bytes)
         if type(prepared) is PreparationFailure:
-            return failure(
+            return _normalized_failure(
                 "INPUT_REJECTED" if prepared.errors else "BLOCKED",
                 prepared.diagnostics,
-                *prepared.errors,
+                prepared.errors,
                 blockers=prepared.blockers,
             )
         if prepared.family != dialect:
-            return rejected(
+            return _emission_failure(
+                "INPUT_REJECTED",
+                context.diagnostics,
                 InputError(
                     "emission_contract_schema",
                     "Emission contract target family conflicts with --dialect.",
                     "target/family",
-                )
+                ),
             )
         try:
             outcome = realize_project_sql(prepared)
         except UnicodeEncodeError:
-            # In place of SQL: the artifact, measured last, names every
-            # selected source in request.sources.
-            if not unnamed:
+            if not context.unnamed:
                 raise
-            return rejected(_unnamed_path(unnamed[0]))
-        if outcome.status != "VERIFIED":
-            return failure(
-                outcome.status,
-                outcome.diagnostics,
-                *outcome.cli_errors,
-                blockers=outcome.blockers,
+            return _emission_failure(
+                "INPUT_REJECTED", context.diagnostics, _unnamed_path(context.unnamed[0])
             )
-        return outcome, tuple(protected)
+        if outcome.status == "VERIFIED":
+            return outcome
+        return _normalized_failure(
+            outcome.status,
+            outcome.diagnostics,
+            outcome.cli_errors,
+            blockers=outcome.blockers,
+        )
+
     except RecursionError:
-        return failure("BLOCKED", (recursion_limit_diagnostic(*scripts),))
+        module = context.modules[owner.module_position]
+        assert module.parsed_input is not None
+        return _normalized_failure(
+            "BLOCKED", (recursion_limit_diagnostic(module.parsed_input.script),)
+        )
+
+
+MAX_BATCH_BYTES = 64 * 1024 * 1024
+
+
+class _BatchLimit(Exception):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class _BatchItem:
+    document: bytes
+    owner: bytes
+    path: bytes
+
+    def parts(self) -> tuple[bytes | memoryview, ...]:
+        assert self.document.endswith(b"\n")
+        return (
+            b'{"document":',
+            memoryview(self.document)[:-1],
+            b',"owner":',
+            self.owner,
+            b',"path":',
+            self.path,
+            b"}",
+        )
+
+
+def _batch_document(
+    status: str, items: Sequence[_BatchItem], failure: dict[str, Any] | None
+) -> bytes:
+    parts: list[bytes | memoryview] = [
+        b'{"failure":',
+        canonical(failure),
+        b',"format":"pietto.sql-emission.batch.v1","items":[',
+    ]
+    for index, item in enumerate(items):
+        if index:
+            parts.append(b",")
+        parts.extend(item.parts())
+    parts.extend((b'],"status":', canonical(status), b"}\n"))
+    if sum(len(part) for part in parts) > MAX_BATCH_BYTES:
+        raise _BatchLimit
+    return b"".join(parts)
+
+
+def _failure_document(outcome: EmissionOutcome) -> dict[str, Any]:
+    document = json.loads(serialize_project_sql_emission(outcome))
+    if type(document) is not dict:
+        raise AssertionError("emission failure document")
+    return document
+
+
+def _batch_status(statuses: set[str]) -> str:
+    if "INPUT_REJECTED" in statuses:
+        return "INPUT_REJECTED"
+    return "BLOCKED" if "BLOCKED" in statuses else "VERIFIED"
+
+
+def _batch_rejected(problem: InputError, text: bool, dialect: str) -> ProjectEmitResult:
+    failure = _failure_document(_emission_failure("INPUT_REJECTED", (), problem))
+    if text:
+        return ProjectEmitResult(2, b"", _render_failure(failure, dialect), False)
+    return ProjectEmitResult(
+        2, _batch_document("INPUT_REJECTED", (), failure), "", False
+    )
+
+
+def _run_project_emit_sql_batch(
+    project: str,
+    module: str | None,
+    kind: str | None,
+    name: str | None,
+    dialect: str,
+    contract: str,
+    policy: ProjectSQLLiteralPolicy,
+    text: bool,
+    output: Path | None,
+) -> ProjectEmitResult:
+    """Emit every selector-matching public owner from one prepared project."""
+    if output is not None:
+        problem = _validate_batch_output(output)
+        if problem is not None:
+            outcome = _emission_failure("INPUT_REJECTED", (), problem)
+            failure = _failure_document(outcome)
+            if text:
+                return ProjectEmitResult(
+                    2, b"", _render_failure(failure, dialect), False
+                )
+            return ProjectEmitResult(
+                2,
+                _batch_document(
+                    outcome.status,
+                    [],
+                    failure,
+                ),
+                "",
+                False,
+            )
+    context, common = _prepare_emission_context(project, contract)
+    if common is not None:
+        failure = _failure_document(common)
+        data = _batch_document(common.status, [], failure)
+        if text:
+            return ProjectEmitResult(
+                EXITS[common.status], b"", _render_failure(failure, dialect), False
+            )
+        return ProjectEmitResult(EXITS[common.status], data, "", False)
+    assert context is not None
+    owners = [
+        owner
+        for owner in context.owners
+        if (module is None or context.modules[owner.module_position].path == module)
+        and (kind is None or owner.identity.declaration_kind.value == kind)
+        and (name is None or owner.definition.name == name)
+    ]
+    if not owners:
+        outcome = _emission_failure(
+            "INPUT_REJECTED",
+            context.diagnostics,
+            InputError(
+                "emission_selector",
+                "No public project owner matches the supplied selectors.",
+            ),
+        )
+        failure = _failure_document(outcome)
+        if text:
+            return ProjectEmitResult(2, b"", _render_failure(failure, dialect), False)
+        return ProjectEmitResult(
+            2, _batch_document(outcome.status, [], failure), "", False
+        )
+    items: list[_BatchItem] = []
+    statuses: set[str] = set()
+    item_bytes = 0
+    for index, owner in enumerate(owners):
+        outcome = _emit_owner(context, owner, dialect, policy)
+        statuses.add(outcome.status)
+        document = serialize_project_sql_emission(outcome)
+        del outcome
+        item = _BatchItem(
+            document,
+            canonical(
+                {
+                    "kind": owner.identity.declaration_kind.value,
+                    "module": context.modules[owner.module_position].path,
+                    "name": owner.definition.name,
+                }
+            ),
+            canonical(f"artifacts/{index:06d}.json"),
+        )
+        item_bytes += sum(len(part) for part in item.parts()) + bool(items)
+        status = _batch_status(statuses)
+        if len(_batch_document(status, (), None)) + item_bytes > MAX_BATCH_BYTES:
+            raise _BatchLimit
+        items.append(item)
+    status = _batch_status(statuses)
+    data = _batch_document(status, items, None)
+    written = False
+    if output is not None and status == "VERIFIED":
+        errors = _publish_batch(
+            output, (item.document for item in items), data, context.protected
+        )
+        if errors:
+            return _batch_rejected(errors[0], text, dialect)
+        written = True
+    if not text:
+        return ProjectEmitResult(EXITS[status], data, "", written)
+    stdout, stderr = [], []
+    for item in items:
+        document_value = json.loads(item.document)
+        if document_value["status"] == "VERIFIED":
+            stdout.append(_render_verified(document_value))
+        else:
+            stderr.append(_render_failure(document_value, dialect))
+    return ProjectEmitResult(
+        EXITS[status], "".join(stdout).encode("utf-8"), "".join(stderr), written
+    )
+
+
+def _validate_batch_output(output: Path) -> InputError | None:
+    if not _batch_output.supported():
+        return InputError(
+            "batch_output_platform",
+            "Safe batch directory output requires supported Linux filesystem capabilities; use stdout instead.",
+        )
+    try:
+        state = os.lstat(output)
+    except FileNotFoundError:
+        state = None
+    except OSError:
+        return InputError("output_write", "Output directory could not be written.")
+    if state is not None:
+        if stat.S_ISLNK(state.st_mode):
+            return InputError(
+                "output_path", "Output directory must not be a symbolic link."
+            )
+        return InputError("output_path", "Output directory must not already exist.")
+    try:
+        if not stat.S_ISDIR(os.stat(output.parent).st_mode):
+            return InputError("output_path", "Output directory does not exist.")
+    except OSError:
+        return InputError("output_path", "Output directory does not exist.")
+    return None
+
+
+def _protected_current(protected: Sequence[tuple[Path, tuple[int, int]]]) -> bool:
+    try:
+        for path, identity in protected:
+            state = os.stat(path)
+            if (state.st_dev, state.st_ino) != identity:
+                return False
+        return True
+    except OSError:
+        return False
+
+
+def _publish_batch(
+    output: Path,
+    artifacts: Iterable[bytes],
+    manifest: bytes,
+    protected: Sequence[tuple[Path, tuple[int, int]]],
+) -> tuple[InputError, ...]:
+    """Publish the complete batch only into descriptor-bound, new owned names."""
+    if not _protected_current(protected):
+        return (
+            InputError(
+                "output_write", "Project inputs changed before output was written."
+            ),
+        )
+    try:
+        _batch_output.publish(
+            output, artifacts, manifest, lambda: _protected_current(protected)
+        )
+    except _batch_output.UnsupportedPlatform:
+        return (
+            InputError(
+                "batch_output_platform",
+                "Safe batch directory output requires supported Linux filesystem capabilities; use stdout instead.",
+            ),
+        )
+    except OSError:
+        return (InputError("output_write", "Output directory could not be written."),)
+    return ()
 
 
 def _utf8(text: str) -> bool:
@@ -559,15 +913,19 @@ def _absent_owner(modules, module: str, kind: str, owners) -> str:
     )
 
 
-def _usage(message: str, text: bool) -> ProjectEmitResult:
+def _usage(message: str, text: bool, *, batch: bool = False) -> ProjectEmitResult:
     if text:
+        usage = BATCH_USAGE if batch else USAGE
         return ProjectEmitResult(
-            2, b"", f"{USAGE}\npietto emit-sql: error: {_escape(message)}\n", False
+            2, b"", f"{usage}\npietto emit-sql: error: {_escape(message)}\n", False
         )
     outcome = EmissionOutcome(
         "INPUT_REJECTED", (), cli_errors=(InputError("usage", message),)
     )
-    return ProjectEmitResult(2, serialize_project_sql_emission(outcome), "", False)
+    data = serialize_project_sql_emission(outcome)
+    if batch:
+        data = _batch_document("INPUT_REJECTED", [], json.loads(data))
+    return ProjectEmitResult(2, data, "", False)
 
 
 def _read_contract(
