@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pietto._project.project_compiled_schema import unnest_field_source
+
 from collections.abc import Iterable
 import contextvars
 import math
@@ -2214,6 +2216,7 @@ def derive_compiled_semantics(root, values, parameters=None):
     ``parameters`` is None for the unbound template; a binding re-derives every
     fact from its exact values."""
     import json
+    from pietto._project.project_sql_emission_contract import canonical
     from pietto._project.model import CompiledProjectInput
     from pietto._project import project_sql_emission_rows as physical
     from pietto._project.project_sql_emission_parameters import literal_representation
@@ -2302,6 +2305,9 @@ def derive_compiled_semantics(root, values, parameters=None):
 
     def dependencies(record) -> tuple[Address, ...]:
         kind, get = record.address.kind, record.get
+        if kind == "field":
+            forwarded = unnest_field_source(records, record)
+            return () if forwarded is None else (forwarded,)
         if kind == "operation" and get("operator") == COLLECT_OPERATOR:
             # A Collect reads its let's whole terminal result unit (S09).
             if get("operands"):
@@ -2411,7 +2417,22 @@ def derive_compiled_semantics(root, values, parameters=None):
                 origin = "field"
                 type_parameters = get("decimal")
                 typed = declared(get("logical"))
-                if physical_required:
+                if operands:
+                    child = facts[operands[0]]
+                    if child.value_type != typed or child.nested is not None:
+                        raise CompiledError("COMPILED_UNNEST_FIELD")
+                    realized = child.realization if physical_required else None
+                    if physical_required:
+                        described = json.loads(get("physical"))
+                        if realized is None or canonical(described) != canonical(
+                            {
+                                "storage": realized.storage,
+                                "nullable": realized.nullable,
+                                "domain": realized.domain,
+                            }
+                        ):
+                            raise CompiledError("COMPILED_UNNEST_FIELD")
+                elif physical_required:
                     described = json.loads(get("physical"))
                     realized = physical.source_realization(
                         physical.Realization(
@@ -3255,6 +3276,7 @@ def derive_compiled_semantics(root, values, parameters=None):
 def verify_compiled_semantics(value):
     """Independently inspect derived facts; never invoke their constructor."""
     import json
+    from pietto._project.project_sql_emission_contract import canonical
     from pietto._project import project_sql_emission_rows as physical
     from pietto._project.project_compiled_schema import Address, scalar_read_port
     from pietto._project.project_compiled_verification import need
@@ -3462,8 +3484,13 @@ def verify_compiled_semantics(value):
             record, actual = records[current], by_address[current]
             kind, get = record.address.kind, record.get
             collect = kind == "operation" and get("operator") == COLLECT_OPERATOR
+            forwarded = (
+                unnest_field_source(records, record) if kind == "field" else None
+            )
             children = (
-                tuple(
+                (() if forwarded is None else (forwarded,))
+                if kind == "field"
+                else tuple(
                     port
                     for port in (scalar_read_port(records, current),)
                     if port is not None
@@ -3541,7 +3568,22 @@ def verify_compiled_semantics(value):
                 typed = ValueType(
                     ResolvedType(name, TypeKind.BUILTIN), EffectiveNullability(nullable)
                 )
-                if physical_required:
+                if inputs:
+                    child = inputs[0]
+                    if child.value_type != typed or child.nested is not None:
+                        raise ValueError("COMPILED_SEMANTIC_UNNEST_FIELD")
+                    realization = child.realization if physical_required else None
+                    if physical_required:
+                        expected = json.loads(get("physical"))
+                        if realization is None or canonical(expected) != canonical(
+                            {
+                                "storage": realization.storage,
+                                "nullable": realization.nullable,
+                                "domain": realization.domain,
+                            }
+                        ):
+                            raise ValueError("COMPILED_SEMANTIC_UNNEST_FIELD")
+                elif physical_required:
                     expected = json.loads(get("physical"))
                     realization = physical.source_realization(
                         Realization(

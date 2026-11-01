@@ -727,6 +727,79 @@ def _nested_record(*, closed, bundle=False):
     )
 
 
+def _unnest_record(name, *, bundle=False):
+    import _pietto_execution_nested_oracle as oracle
+
+    rows = oracle.example(oracle.expected(name, "FULL"))
+    return _ok(
+        {
+            "origin": "bundle" if bundle else "live",
+            "schema": [
+                [label, kind, True]
+                for label, kind in (
+                    ("id", "int64"),
+                    ("v", "int64"),
+                    ("k", "int64"),
+                    ("flag", "bool"),
+                    ("note", "string"),
+                )
+            ],
+            "schema_preopen": {
+                "closed": False,
+                "end": "NOT_STARTED",
+                "loaded": ["pyarrow"],
+            },
+            "rows": rows,
+            "metadata": [
+                [label, oid, None]
+                for label, oid in (
+                    ("id", 20),
+                    ("v", 20),
+                    ("k", 20),
+                    ("flag", 16),
+                    ("note", 25),
+                )
+            ],
+            "preflight": {
+                "identity": [True] * 6,
+                "bounds": [6, 11, [25], 217, 14322, 14322],
+                "replies": [
+                    [
+                        "SELECT current_setting('server_encoding')",
+                        [],
+                        [[0, "current_setting", 25]],
+                        [["UTF8"]],
+                        2,
+                    ],
+                    [
+                        'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."customers" LIMIT $1) AS "__pietto_nested_bound"',
+                        [65],
+                        [[0, "count", 20]],
+                        [[6]],
+                        2,
+                    ],
+                    [
+                        'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."orders" LIMIT $1) AS "__pietto_nested_bound"',
+                        [17],
+                        [[0, "count", 20]],
+                        [[11]],
+                        2,
+                    ],
+                    [
+                        'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("note"),0),$1)),0) FROM "public"."orders"',
+                        [257],
+                        [[0, "coalesce", 23]],
+                        [[25]],
+                        2,
+                    ],
+                ],
+            },
+            "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=len(rows)),
+            **_effects(),
+        }
+    )
+
+
 def postgres_report():
     """A report with the facts a passing postgres family records."""
     example = "\n".join(
@@ -804,6 +877,19 @@ def postgres_report():
                 "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=0),
             }
         ),
+        "unnest_limit": _failure(
+            "PIE-R3004",
+            "POSTGRES_SOURCE_RESOURCE_LIMIT",
+            "ExecutionError",
+            "ROLLBACK_ACK",
+            batches=0,
+            submitted=False,
+        ),
+        "unnest_cross": _unnest_record("U1_cross"),
+        "unnest_inner": _unnest_record("U2_inner_true"),
+        "unnest_left": _unnest_record("U4_left_true"),
+        "unnest_left_on": _unnest_record("U5_left_v_gt_10"),
+        "unnest_bundle": _unnest_record("U4_left_true", bundle=True),
         "nested_captured": _nested_record(closed=False),
         "nested_closed": _nested_record(closed=True),
         "nested_bundle": _nested_record(closed=True, bundle=True),
@@ -995,6 +1081,30 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
 @pytest.mark.parametrize(
     "damage,reason",
     (
+        (_swap_captured_children, "NESTED_CAPTURED"),
+        (
+            lambda r: r["nested_captured"]["result"]["rows"][2]["c"].reverse(),
+            "NESTED_CAPTURED",
+        ),
+        (lambda r: r["unnest_left"]["result"]["rows"].pop(), "UNNEST_ROWS"),
+        (lambda r: r["unnest_cross"]["result"]["rows"][0].pop("note"), "UNNEST_ROWS"),
+        (
+            lambda r: r["unnest_cross"]["result"]["rows"][0].update(extra=None),
+            "UNNEST_ROWS",
+        ),
+        (lambda r: r["unnest_left_on"]["result"]["rows"].pop(), "UNNEST_ROWS"),
+        (lambda r: r["unnest_bundle"]["result"].update(origin="live"), "UNNEST_ORIGIN"),
+        (
+            lambda r: r["unnest_cross"]["result"]["metadata"][3].__setitem__(1, 20),
+            "UNNEST_METADATA",
+        ),
+        (
+            lambda r: r["unnest_inner"]["result"]["preflight"]["bounds"].__setitem__(
+                1, 10
+            ),
+            "UNNEST_PREFLIGHT_BOUNDS",
+        ),
+        (lambda r: r["unnest_limit"]["result"].update(submitted=True), "UNNEST_LIMIT"),
         (lambda r: r.update(format="other"), "ENVELOPE"),
         (lambda r: r.update(family="other"), "ENVELOPE"),
         (lambda r: r["install"].pop("execute-postgres"), "INSTALL"),
@@ -1034,11 +1144,6 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
                 0
             ].__setitem__(2, 20),
             "NESTED_PREFLIGHT_REPLY",
-        ),
-        (_swap_captured_children, "NESTED_CAPTURED"),
-        (
-            lambda r: r["nested_captured"]["result"]["rows"][2]["c"].reverse(),
-            "NESTED_CAPTURED",
         ),
         (
             lambda r: r["nested_closed"]["result"]["rows"][0]["c"].pop(),

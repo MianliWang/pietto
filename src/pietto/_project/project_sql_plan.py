@@ -5366,6 +5366,25 @@ class CompiledSQLCollect:
     captures: tuple[CompiledIRReference, ...]
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class CompiledSQLUnnest:
+    """One reconstructed S13 private Unnest relation.
+
+    The compiled record retains only the child relation and exact collection
+    port.  Its JOIN and final flat outputs are independently recovered by the
+    compiled plan verifier and lowering owner.
+    """
+
+    ref: CompiledIRReference
+    owner: CompiledIRReference
+    position: int
+    source: CompiledIRReference
+    fields: tuple[CompiledIRReference, ...]
+    outputs: tuple[CompiledIRReference, ...]
+    layout: tuple = field(repr=False)
+    collect: CompiledIRReference
+
+
 def compiled_collects(records, refs):
     """The Collect reads of a compiled description, in operation order."""
     from pietto._project.project_compiled_schema import (
@@ -5417,6 +5436,40 @@ def compiled_collects(records, refs):
     return tuple(result)
 
 
+def compiled_unnests(records, refs):
+    """Read the v6 private Unnest records without choosing a JOIN by name."""
+    from pietto._project.project_compiled_schema import CompiledError, collection_source
+
+    result = []
+    for record in records.values():
+        if record.address.kind != "unnest":
+            continue
+        owner, position, source, fields, outputs, layout = record.values
+        if not (
+            type(position) is int
+            and type(fields) is tuple
+            and type(outputs) is tuple
+            and type(layout) is tuple
+        ):
+            raise CompiledError("COMPILED_PLAN_UNNEST")
+        collect = collection_source(records, source)
+        if collect is None:
+            raise CompiledError("COMPILED_PLAN_UNNEST")
+        result.append(
+            CompiledSQLUnnest(
+                refs[record.address],
+                refs[owner],
+                position,
+                refs[source],
+                tuple(refs[value] for value in fields),
+                tuple(refs[value] for value in outputs),
+                layout,
+                refs[collect.address],
+            )
+        )
+    return tuple(result)
+
+
 @dataclass(frozen=True, slots=True, eq=False)
 class CompiledSQLPlan:
     ir: CompiledQueryBlockIR = field(repr=False)
@@ -5445,6 +5498,7 @@ class CompiledSQLPlan:
     semantic_references: Mapping = field(default_factory=dict, repr=False)
     parameters: tuple = ()
     collects: tuple[CompiledSQLCollect, ...] = ()
+    unnests: tuple[CompiledSQLUnnest, ...] = ()
 
 
 def build_compiled_sql_plan(ir):
@@ -5713,4 +5767,5 @@ def build_compiled_sql_plan(ir):
         semantic_references=compiled_semantic_references(ir.scope, records),
         parameters=tuple(query_parameters.values()),
         collects=compiled_collects(records, refs),
+        unnests=compiled_unnests(records, refs),
     )

@@ -7317,6 +7317,7 @@ def _verify_compiled_sql_plan(plan):
             "PLAN_AGGREGATE_RISK",
         )
     _verify_compiled_collects(plan)
+    _verify_compiled_unnests(plan)
     return CompiledSQLPlanVerification(plan, ir.completed, ir.selected.owner)
 
 
@@ -7380,6 +7381,85 @@ def _verify_compiled_collects(plan):
                 a is refs[b] for a, b in zip(collect.captures, captures, strict=True)
             ),
             "PLAN_COLLECT",
+        )
+
+
+def _verify_compiled_unnests(plan):
+    """Rebind each S13 private Unnest to its one JOIN and collection port."""
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_sql_plan import CompiledSQLUnnest
+
+    records, refs = plan.ir.completed.root.records, plan.references
+    described = tuple(r for r in records.values() if r.address.kind == "unnest")
+    need(
+        type(plan.unnests) is tuple and len(plan.unnests) == len(described),
+        "PLAN_UNNEST_INVENTORY",
+    )
+    for image, record in zip(plan.unnests, described, strict=True):
+        owner, position, source, fields, outputs, layout = record.values
+        joins = tuple(
+            r
+            for r in records.values()
+            if r.address.kind == "join"
+            and type(layout) is tuple
+            and len(layout) == 5
+            and layout[2] == r.address
+        )
+        right = None if not joins else records[joins[0].get("inputs")[1]]
+        from pietto._project.project_compiled_schema import collection_source
+
+        source_record = records.get(source)
+        source_operation = collection_source(records, source)
+        internal = (
+            ()
+            if not joins
+            else tuple(
+                r
+                for r in records.values()
+                if r.address.kind == "port"
+                and r.get("owner") == joins[0].address
+                and r.get("source") == source
+            )
+        )
+        need(
+            type(image) is CompiledSQLUnnest
+            and image.ref is refs[record.address]
+            and image.owner is refs[owner]
+            and image.position == position
+            and image.source is refs[source]
+            and image.fields == tuple(refs[value] for value in fields)
+            and image.outputs == tuple(refs[value] for value in outputs)
+            and image.layout == layout
+            and type(position) is int
+            and len(fields) == len(outputs) > 0
+            and type(layout) is tuple
+            and len(layout) == 5
+            and type(layout[0]) is str
+            and type(layout[1]) is tuple
+            and layout[3:] == (1, None)
+            and len(layout[1]) == len(fields)
+            and source_record is not None
+            and source_record.get("logical") == ("collection", "non_null")
+            and source_operation is not None
+            and source_operation.get("operator") == ("collect", "collect")
+            and image.collect is refs[source_operation.address]
+            and len(joins) == 1
+            and right is not None
+            and right.get("producer") == record.address
+            and right.get("ordinal") == 1
+            and right.get("ports") == tuple(outputs)
+            and len(internal) == 1
+            and internal[0].address
+            == joins[0].get("outputs")[
+                records[joins[0].get("inputs")[0]].get("ports").index(source)
+            ]
+            and all(
+                records[field].get("source") == record.address
+                and records[output].get("owner") == record.address
+                and records[output].get("source") == field
+                for field, output in zip(fields, outputs, strict=True)
+            ),
+            "PLAN_UNNEST",
         )
 
 

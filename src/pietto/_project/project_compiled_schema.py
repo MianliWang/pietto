@@ -780,6 +780,59 @@ def unit_captured_reads(records, unit):
     return tuple(found)
 
 
+def collection_source(records, port):
+    """The Collect operation carried by a port, or no such closed lineage."""
+    seen = set()
+    while port not in seen:
+        seen.add(port)
+        record = records.get(port)
+        if record is None:
+            return None
+        kind = record.address.kind
+        if kind == "operation" and record.get("operator") == COLLECT_OPERATOR:
+            return record
+        if kind == "port":
+            port = record.get("source")
+        elif kind == "read":
+            port = record.get("port")
+        elif kind == "join_value":
+            port = record.get("input")
+        else:
+            return None
+    return None
+
+
+def unnest_child_ports(records, record):
+    collect = collection_source(records, record.get("source"))
+    if collect is None:
+        raise CompiledError("COMPILED_UNNEST_COLLECT")
+    uses = tuple(
+        r
+        for r in records.values()
+        if r.address.kind == "expression_block_use"
+        and r.get("operation") == collect.address
+    )
+    if len(uses) != 1:
+        raise CompiledError("COMPILED_UNNEST_COLLECT")
+    return tuple(
+        r.address
+        for r in records.values()
+        if r.address.kind == "port" and r.get("owner") == uses[0].get("producer")
+    )
+
+
+def unnest_field_source(records, record):
+    """An Unnest field forwards one exact collected child occurrence."""
+    owner = records[record.get("source")]
+    if owner.address.kind != "unnest":
+        return None
+    children = unnest_child_ports(records, owner)
+    ordinal = record.get("ordinal")
+    if type(ordinal) is not int or not 0 <= ordinal < len(children):
+        raise CompiledError("COMPILED_UNNEST_FIELD")
+    return children[ordinal]
+
+
 def selected_relations(records, entry):
     """Current execution closure; retained request roots are checked separately.
 
@@ -789,9 +842,12 @@ def selected_relations(records, entry):
     incoming, reads = {}, {}
     for record in records.values():
         if record.address.kind == "use":
-            incoming.setdefault(record.get("consumer"), []).append(
-                record.get("producer")
-            )
+            producer = record.get("producer")
+            # S13's private Unnest has no relation/CTE identity.  Its exact
+            # collection dependency is the paired left JOIN input, so the
+            # right-use marker must not enter the relation closure as a node.
+            if type(producer) is not Address or producer.kind != "unnest":
+                incoming.setdefault(record.get("consumer"), []).append(producer)
         elif record.address.kind == "expression_block_use":
             reads.setdefault(record.get("consumer"), []).append(record)
     reached, pending = set(), [entry.get("terminal")]

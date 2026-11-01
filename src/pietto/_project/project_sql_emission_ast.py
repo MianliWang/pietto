@@ -23,6 +23,7 @@ from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_nested as collecting
+from pietto._project import project_sql_emission_unnest as unnesting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_plan_windows as plan_windows
@@ -527,6 +528,7 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
                     value.semantic.query_let.span,
                 )
                 for value in plan.unnests
+                if not collecting.unnest_admitted(plan, value, request.family)
             ),
         ),
         key=lambda blocker: (
@@ -1325,6 +1327,7 @@ def definition_blocks(request):
     """Group actual blocks by definition in retained definition and stage order."""
     plan = request.plan
     sources = {source.ref for source in plan.sources}
+    pseudo = {value.definition for value in plan.unnests}
     grouped: dict[Any, list[Any]] = {}
     for block in plan.blocks:
         grouped.setdefault(block.definition, []).append(block)
@@ -1339,7 +1342,7 @@ def definition_blocks(request):
             ),
         )
         for definition in request.layout.definitions
-        if definition.original.ref not in sources
+        if definition.original.ref not in sources | pseudo
     )
 
 
@@ -1414,6 +1417,8 @@ def _stage_read(request, scan, position, port):
         )
         if len(matches) != 1:
             return None
+        if type(matches[0]) is unnesting.WithheldPort:
+            return None
         return replace(matches[0].column, position=position, name=matches[0].label)
     assert type(scan) is RowStageUse
     column = scan.body.columns[position].column
@@ -1432,6 +1437,7 @@ def _join_input(
     join_ports,
     *,
     inline=None,
+    unnest=None,
 ):
     """One JOIN input relation and the exact pre-match column it publishes.
 
@@ -1541,6 +1547,15 @@ def _join_input(
     columns = []
     for position, port_ref in enumerate(original.ports):
         port = join_ports[port_ref]
+        if unnest is not None and original.ordinal == 0 and port_ref is unnest.source:
+            read, problem = unnesting.nested_read(
+                producer.columns[position], position=position, port=port, scope=alias
+            )
+            if read is None:
+                assert problem is not None
+                return None, problem
+            columns.append(read)
+            continue
         realization, problem = joining.port_realization(
             port, reads[position], outer=False
         )
@@ -1583,8 +1598,89 @@ def _join_body(
     ``lateral`` realizes a right input that executes a capturing let over the
     realized left input (LATERAL); it returns (None, None) for any other input.
     """
+    unnests = tuple(value for value in request.plan.unnests if value.join is join.ref)
+    if len(unnests) > 1:
+        return None, ("PIE-B1001", "unnest_join_ambiguity", join.ref, None)
+    unnest = unnests[0] if unnests else None
     inputs = []
     for reference in join.inputs:
+        if unnest is not None and reference is unnest.input:
+            if not inputs:
+                return None, ("PIE-B1001", "unnest_without_left_input", reference, None)
+            original = join_inputs[reference]
+            use = uses_by_ref.get(original.binding_use)
+            if use is None or use.original.consumer is not join.definition:
+                return None, (
+                    "PIE-B1001",
+                    "unnest_input_use_not_bound",
+                    reference,
+                    None,
+                )
+            left = inputs[0]
+            positions = tuple(
+                index for index, port in enumerate(left.ports) if port is unnest.source
+            )
+            if len(positions) != 1:
+                return None, (
+                    "PIE-B1001",
+                    "unnest_source_not_in_left_input",
+                    unnest.ref,
+                    None,
+                )
+            if type(left.columns[positions[0]]) is not unnesting.NestedRead:
+                return None, ("PIE-B1001", "unnest_source_not_nested", unnest.ref, None)
+            terminals = tuple(binding.terminal.ref for binding in use.bindings)
+            producer, problem = unnesting.realize_unnest(
+                unnest, left, kind=join.kind, terminals=terminals
+            )
+            if producer is None:
+                assert problem is not None
+                return None, problem
+            if any(
+                column.column.realization.tag not in {"Int", "Bool", "Text"}
+                or (
+                    column.column.realization.tag == "Text"
+                    and (
+                        column.column.realization.domain.get("kind") != "text"
+                        or type(column.column.realization.domain.get("max_characters"))
+                        is not int
+                        or column.column.realization.domain["max_characters"] <= 0
+                    )
+                )
+                for column in producer.columns
+            ):
+                return None, (
+                    "PIE-B1003",
+                    "unnest_child_leaf_not_admitted",
+                    unnest.ref,
+                    None,
+                )
+            alias = SQLSymbol(0, original.ref, f"m{original.ref.position}")
+            columns = []
+            for reference, element in zip(
+                original.ports, producer.columns, strict=True
+            ):
+                realization, problem = joining.port_realization(
+                    join_ports[reference], element.column, outer=False
+                )
+                if realization is None:
+                    assert problem is not None
+                    return None, (*problem, reference, None)
+                columns.append(
+                    replace(element.column, realization=realization, scope=alias)
+                )
+            inputs.append(
+                joining.JoinInput(
+                    original,
+                    original.ordinal,
+                    use,
+                    producer,
+                    alias,
+                    tuple(columns),
+                    tuple(original.ports),
+                )
+            )
+            continue
         inline = None
         if lateral is not None and inputs:
             inline, problem = lateral(reference, inputs[0])
@@ -1601,6 +1697,7 @@ def _join_body(
             join_inputs,
             join_ports,
             inline=inline,
+            unnest=unnest,
         )
         if value is None:
             return None, problem
@@ -1707,6 +1804,16 @@ def _join_body(
     for position, reference in enumerate(join.outputs):
         port = join_ports[reference]
         read = ordered[position]
+        if type(read) is unnesting.NestedRead:
+            if unnest is None or port.source is not read.port.ref:
+                return None, (
+                    "PIE-B1001",
+                    "unnest_withheld_port_drift",
+                    reference,
+                    None,
+                )
+            columns.append(unnesting.WithheldPort(position, port))
+            continue
         realization, problem = joining.port_realization(
             port, read, outer=True, proved=carriers[position] in rejected
         )
@@ -1745,6 +1852,7 @@ def _join_body(
             tuple(
                 SQLSymbol(i, item.port.ref, item.label)
                 for i, item in enumerate(columns)
+                if type(item) is not unnesting.WithheldPort
             ),
             membership,
             None if membership is None else join.ref,
@@ -1755,6 +1863,11 @@ def _join_body(
 
 def _join_node_count(unit) -> int:
     total = 4 + 3 * len(unit.columns) + 2 * len(unit.equalities)
+    total += sum(
+        unnesting.node_count(item.producer)
+        for item in unit.inputs
+        if type(item.producer) is unnesting.UnnestRows
+    )
     if unit.membership is not None:
         total += 3
     if unit.predicate is not None:
@@ -2023,13 +2136,23 @@ def realize_rows(request):
             incoming = []
             for position, port in enumerate(block.inputs):
                 read = _stage_read(request, scan, position, port)
-                if read is None:
+                if read is None and not (
+                    type(scan) is RowJoinUse
+                    and block.kind.value == "projection"
+                    and any(
+                        type(column) is unnesting.WithheldPort
+                        and column.port.ref is scan.tail.ports[position]
+                        for column in scan.body.columns
+                    )
+                ):
                     add("PIE-B1001", "stage_input_not_bound", port)
                     return None
                 incoming.append(read)
             columns: list[Any] = []
             available = {
-                port: read for port, read in zip(block.inputs, incoming, strict=True)
+                port: read
+                for port, read in zip(block.inputs, incoming, strict=True)
+                if read is not None
             }
             # Row values may also read whole blocks through this definition's
             # own expression block uses; stage columns never include them. An

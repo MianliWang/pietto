@@ -490,6 +490,7 @@ def check_nested_preflight(value: Any) -> None:
     )
     replies = value.get("replies")
     need(type(replies) is list and len(replies) == 4, "NESTED_PREFLIGHT_REPLIES")
+    assert type(replies) is list
     expected = (
         (
             "SELECT current_setting('server_encoding')",
@@ -615,6 +616,114 @@ def check_nested(record: Any, *, closed: bool, bundle: bool = False) -> None:
     check_effects(value, "NESTED")
 
 
+def check_unnest(record: Any, name: str, *, bundle: bool = False) -> None:
+    import _pietto_execution_nested_oracle as oracle
+
+    value = result(record, "UNNEST")
+    need(
+        value.get("schema")
+        == [
+            [label, kind, True]
+            for label, kind in (
+                ("id", "int64"),
+                ("v", "int64"),
+                ("k", "int64"),
+                ("flag", "bool"),
+                ("note", "string"),
+            )
+        ],
+        "UNNEST_SCHEMA",
+    )
+    need(
+        value.get("schema_preopen")
+        == {"closed": False, "end": "NOT_STARTED", "loaded": ["pyarrow"]},
+        "UNNEST_SCHEMA_PREOPEN",
+    )
+    expected = oracle.expected(name, "FULL")
+    raw_rows = value.get("rows")
+    need(type(raw_rows) is list, "UNNEST_ROWS")
+    labels = [field[0] for field in value["schema"]]
+    # Canonical report JSON sorts object keys; observed Arrow schema owns ordinals.
+    rows = []
+    for row in raw_rows:
+        need(type(row) is dict and set(row) == set(labels), "UNNEST_ROWS")
+        rows.append({label: row[label] for label in labels})
+    need(not oracle.check(rows, expected), "UNNEST_ROWS")
+    count = sum(segment.take for segment in expected)
+    outcome = outcome_of(value, "UNNEST")
+    need(
+        (
+            outcome.get("end"),
+            outcome.get("transaction"),
+            outcome.get("cleanup"),
+            outcome.get("rows"),
+        )
+        == ("COMPLETE", "COMMIT_ACK", "CLOSED", count),
+        "UNNEST_END",
+    )
+    need(value.get("origin") == ("bundle" if bundle else "live"), "UNNEST_ORIGIN")
+    need(
+        value.get("metadata")
+        == [
+            [label, oid, None]
+            for label, oid in (
+                ("id", 20),
+                ("v", 20),
+                ("k", 20),
+                ("flag", 16),
+                ("note", 25),
+            )
+        ],
+        "UNNEST_METADATA",
+    )
+    receipt = value.get("preflight")
+    need(
+        type(receipt) is dict and receipt.get("identity") == [True] * 6,
+        "UNNEST_PREFLIGHT_IDENTITY",
+    )
+    # Literal FULL seed: six parents, eleven physical children and 25 UTF-8 bytes.
+    need(
+        receipt.get("bounds") == [6, 11, [25], 217, 14322, 14322],
+        "UNNEST_PREFLIGHT_BOUNDS",
+    )
+    replies = receipt.get("replies")
+    expected_reads = [
+        [
+            "SELECT current_setting('server_encoding')",
+            [],
+            [[0, "current_setting", 25]],
+            [["UTF8"]],
+            2,
+        ],
+        [
+            'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."customers" LIMIT $1) AS "__pietto_nested_bound"',
+            [65],
+            [[0, "count", 20]],
+            [[6]],
+            2,
+        ],
+        [
+            'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."orders" LIMIT $1) AS "__pietto_nested_bound"',
+            [17],
+            [[0, "count", 20]],
+            [[11]],
+            2,
+        ],
+        [
+            'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("note"),0),$1)),0) FROM "public"."orders"',
+            [257],
+            [[0, "coalesce", 23]],
+            [[25]],
+            2,
+        ],
+    ]
+    need(
+        json.dumps(replies, allow_nan=False) == json.dumps(expected_reads),
+        "UNNEST_PREFLIGHT_REPLIES",
+    )
+    check_effects(value, "UNNEST")
+
+
 def check_steps(steps: Any) -> None:
     """One bundle loaded once without its source, then each step on it: the
     reader with values 1, 3 and 1 again, a refused role, the revoked and
@@ -702,6 +811,36 @@ def check_postgres(report: Any) -> Any:
         (empty_outcome["end"], empty_outcome["transaction"], empty_outcome["rows"])
         == ("COMPLETE", "COMMIT_ACK", 0),
         "EMPTY_RESULT",
+    )
+    for key, name in (
+        ("unnest_cross", "U1_cross"),
+        ("unnest_inner", "U2_inner_true"),
+        ("unnest_left", "U4_left_true"),
+        ("unnest_left_on", "U5_left_v_gt_10"),
+        ("unnest_bundle", "U4_left_true"),
+    ):
+        check_unnest(report.get(key), name, bundle=key == "unnest_bundle")
+    unnest_limit = result(report.get("unnest_limit"), "UNNEST_LIMIT")
+    unnest_outcome = outcome_of(unnest_limit, "UNNEST_LIMIT")
+    need(
+        (
+            unnest_limit.get("code"),
+            unnest_limit.get("detail"),
+            unnest_limit.get("submitted"),
+        )
+        == ("PIE-R3004", "POSTGRES_SOURCE_RESOURCE_LIMIT", False),
+        "UNNEST_LIMIT",
+    )
+    need(
+        (
+            unnest_outcome.get("end"),
+            unnest_outcome.get("transaction"),
+            unnest_outcome.get("cleanup"),
+            unnest_outcome.get("rows"),
+            unnest_outcome.get("batches"),
+        )
+        == ("FAILED", "ROLLBACK_ACK", "CLOSED", 0, 0),
+        "UNNEST_LIMIT_END",
     )
     check_nested(report.get("nested_captured"), closed=False)
     check_nested(report.get("nested_closed"), closed=True)

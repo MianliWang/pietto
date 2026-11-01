@@ -577,3 +577,123 @@ def test_r2_refuses_a_collection_before_its_other_shape_checks(
     for call in calls:
         assert _rejected(call) == ("PIE-R1004", "PUBLIC_R2_COLLECTION")
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ("U1_cross", "U4_left_true"))
+def test_actual_flat_unnest_retains_pre_effect_collection_refusals(
+    tmp_path, monkeypatch, name
+):
+    from pietto._project import project_execution_postgres as pg
+
+    project = api.write_nested_unnest(tmp_path / "project", name)
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    assert nested.collection_operations(_records(query)) == {"collect", "unnest"}
+    touched = []
+
+    def forbidden(*args, **kwargs):
+        touched.append(True)
+        raise AssertionError("effect before collection refusal")
+
+    monkeypatch.setattr(pg, "_connect", forbidden)
+    monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
+    monkeypatch.setattr(relay, "_sink_target", forbidden)
+    arguments = _postgres()
+    arguments["premise"] = execution.PostgresDeploymentPremise(("public", "pg_catalog"))
+    handle = execution.execute(query, **arguments)
+    connection, qualification = object(), object()
+    values = iter(("UTF8", 6, 11, 25))
+    calls = []
+
+    def read(sql, arguments):
+        calls.append((sql, arguments))
+        oid = 25 if not arguments else 23 if "octet_length" in sql else 20
+        return nested.CollectionReply(
+            connection, sql, arguments, ((0, "bound", oid),), ((next(values),),), 2
+        )
+
+    try:
+        receipt = nested.run_collection_preflight(
+            handle._owner.request,
+            read,
+            connection=connection,
+            qualification=qualification,
+            profile=("snapshot",),
+        )
+        assert receipt is not None
+        assert (
+            receipt.parents,
+            receipt.children,
+            receipt.row_bytes,
+            receipt.total_bytes,
+        ) == (6, 11, 217, 14322)
+        nested.verify_collection_preflight(
+            handle._owner.request,
+            receipt,
+            connection=connection,
+            qualification=qualification,
+            profile=("snapshot",),
+        )
+        assert len(calls) == 4
+    finally:
+        handle.close()
+    before = set(sys.modules)
+    assert _rejected(
+        lambda: execution.execute(query, **{**arguments, "route": "postgres_adbc"})
+    ) == ("PIE-R1003", "COLLECTION_ROUTE")
+    assert _rejected(
+        lambda: execution.execute(query, **{**arguments, "route": "mysql_rows"})
+    ) == ("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
+    workspace = _workspace(tmp_path)
+    assert _rejected(
+        lambda: execution.save(
+            workspace, query, operation=execution.new_operation(), **arguments
+        )
+    ) == ("PIE-R1004", "COLLECTION_ENTRY")
+    assert _rejected(
+        lambda: execution.relay_live(
+            workspace,
+            query,
+            operation=execution.new_operation(),
+            **arguments,
+            sink_root=None,
+            expected_sink_identity="snk-" + "0" * 32,
+            sink_namespace="relay",
+            sink_epoch=1,
+            sink_retention="retention",
+            sink_budget_bytes=private_workspace.DEFAULT_BUDGET,
+        )
+    ) == ("PIE-R1004", "COLLECTION_ENTRY")
+    inputs = tuple(
+        execution.R2SourceInput(
+            source.namespace,
+            source.name,
+            "provider",
+            "v1",
+            "r1",
+            source.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for source in query._template.artifact.request.sources
+    )
+    assert _rejected(
+        lambda: execution.save_recoverable(
+            workspace,
+            query=query,
+            source_requirements=inputs,
+            operation=execution.new_operation(),
+            limits=execution.ExecutionLimits(),
+            **arguments,
+        )
+    ) == ("PIE-R1004", "PUBLIC_R2_COLLECTION")
+    assert touched == [] and _new_drivers(before) == []

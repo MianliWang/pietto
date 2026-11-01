@@ -27,6 +27,7 @@ from pietto._project.project_compiled_schema import (
     Scalar,
     VERSIONS,
     declaration_values,
+    json_value,
     row_bindings,
     predicate_binding_position,
     predicate_identity,
@@ -167,6 +168,41 @@ def _declares(records, parent, let) -> bool:
     )
 
 
+def _hidden_unnest_port(records, port) -> bool:
+    """The one logical collection slot withheld by its exact Unnest JOIN."""
+    if port.address.kind != "port" or not _collection(port.get("logical")):
+        return False
+    join = records.get(port.get("owner"))
+    if join is None or join.address.kind != "join" or len(join.get("inputs")) != 2:
+        return False
+    matches = tuple(
+        r
+        for r in records.values()
+        if r.address.kind == "unnest"
+        and type(r.get("layout")) is tuple
+        and len(r.get("layout")) == 5
+        and r.get("layout")[2] == join.address
+    )
+    if len(matches) != 1:
+        return False
+    (unnest,) = matches
+    left, right = (records[a] for a in join.get("inputs"))
+    source = unnest.get("source")
+    positions = tuple(i for i, value in enumerate(left.get("ports")) if value == source)
+    return (
+        len(positions) == 1
+        and port.get("source") == source
+        and records[source].get("owner") == left.get("producer")
+        and port.get("logical") == records[source].get("logical")
+        and port.get("ordinal") == positions[0]
+        and join.get("outputs")[positions[0]] == port.address
+        and left.get("ordinal") == 0
+        and right.get("ordinal") == 1
+        and right.get("producer") == unnest.address
+        and right.get("ports") == unnest.get("outputs")
+    )
+
+
 def _verify_collections(records) -> None:
     """Where a collection value may stand (Phase71 S09).
 
@@ -207,6 +243,8 @@ def _verify_collections(records) -> None:
             carried, unit = source.get("logical"), "row"
         elif source.address.kind == "read" and source.get("port") in ports:
             carried, unit = records[source.get("port")].get("logical"), "result"
+        elif source.address in ports and _hidden_unnest_port(records, record):
+            carried, unit = source.get("logical"), "join"
         if carried is not None or record.address in ports:
             need(
                 record.get("logical") == carried and record.get("owner").kind == unit,
@@ -249,10 +287,203 @@ def _verify_collections(records) -> None:
                     or r.address.kind in ("entry", "output", "read")
                     or r.address.kind == "use"
                     and r.get("producer") == owner
+                    or r.address.kind == "unnest"
+                    and r.get("source") == address
+                    or r.address.kind == "port"
+                    and r.get("source") == address
+                    and _hidden_unnest_port(records, r)
                     for r in referrers
                 ),
                 "COLLECTION_READ",
             )
+
+
+def _verify_unnests(records, entry, family) -> None:
+    """Admit the one compiled PostgreSQL Collect-to-Unnest bridge.
+
+    ``unnest`` is not a relation record.  Its layout names the JOIN consuming
+    its right input; the trailing layout ``None`` keeps it out of CTE/unit
+    scheduling and the back-reference is never a producer edge.
+    """
+    unnests = tuple(r for r in records.values() if r.address.kind == "unnest")
+    if not unnests:
+        return
+    need(family == "postgres" and len(unnests) == 1, "UNNEST_ROUTE")
+    (unnest,) = unnests
+
+    def described(address):
+        return records[address]
+
+    owner = described(unnest.get("owner"))
+    source = described(unnest.get("source"))
+    source_logical = source.get("logical")
+    fields = tuple(described(address) for address in unnest.get("fields"))
+    outputs = tuple(described(address) for address in unnest.get("outputs"))
+    layout = unnest.get("layout")
+    need(
+        owner.address.kind == "declaration"
+        and owner.get("namespace") == "relation"
+        and owner.get("kind") == "query"
+        and type(unnest.get("position")) is int
+        and unnest.get("position") >= 0
+        and source.address.kind == "port"
+        and type(source_logical) is tuple
+        and source_logical[:1] == ("collection",)
+        and bool(fields)
+        and len(fields) == len(outputs) <= MAX_FIELDS
+        and len({field.address for field in fields}) == len(fields)
+        and len({output.address for output in outputs}) == len(outputs),
+        "UNNEST",
+    )
+    need(
+        type(layout) is tuple
+        and len(layout) == 5
+        and type(layout[0]) is str
+        and bool(layout[0])
+        and type(layout[1]) is tuple
+        and all(type(label) is str and bool(label) for label in layout[1])
+        and len(layout[1]) == len(outputs)
+        and type(layout[2]) is Address
+        and layout[3:] == (1, None),
+        "UNNEST_LAYOUT",
+    )
+    join = described(layout[2])
+    uses = tuple(
+        record
+        for record in records.values()
+        if record.address.kind == "use" and record.get("producer") == unnest.address
+    )
+    need(
+        join.address.kind == "join"
+        and all(
+            records[join.get("owner")].get(key) == owner.get(key)
+            for key in (
+                "module",
+                "module_position",
+                "position",
+                "namespace",
+                "kind",
+                "let",
+            )
+        )
+        and join.get("kind") in ("cross", "inner", "left"),
+        "UNNEST_JOIN",
+    )
+    left, right = (described(address) for address in join.get("inputs"))
+    need(
+        left.get("ordinal") == 0
+        and right.get("ordinal") == 1
+        and source.address in left.get("ports")
+        and source.get("owner") == left.get("producer")
+        and uses == (right,)
+        and tuple(output.address for output in outputs) == right.get("ports")
+        and layout[0] == join.get("layout")[2][1]
+        and tuple(output.get("label") for output in outputs) == layout[1],
+        "UNNEST_JOIN_INPUT",
+    )
+
+    from pietto._project.project_compiled_schema import (
+        collection_source,
+        unnest_child_ports,
+    )
+
+    collect = collection_source(records, source.address)
+    collections = tuple(
+        record
+        for record in records.values()
+        if record.address.kind == "operation"
+        and record.get("operator") == COLLECT_OPERATOR
+    )
+    if collect is None:
+        raise CompiledError("COMPILED_UNNEST_COLLECT")
+    need(
+        collections == (collect,) and source_logical == collect.get("logical"),
+        "UNNEST_COLLECT",
+    )
+    parent = records[left.get("producer")]
+    parent_owner = records[parent.get("owner")]
+    join_owner = records[join.get("owner")]
+    collect_uses = tuple(
+        record
+        for record in records.values()
+        if record.address.kind == "expression_block_use"
+        and record.get("operation") == collect.address
+    )
+    need(
+        tuple(record for record in records.values() if record.address.kind == "join")
+        == (join,)
+        and join.get("owner") == entry.get("declaration")
+        and all(
+            parent_owner.get(key) == join_owner.get(key)
+            for key in ("module", "module_position")
+        )
+        and len(collect_uses) == 1
+        and records[collect_uses[0].get("consumer")].get("owner")
+        == parent_owner.address
+        and not any(record.address.kind == "parameter" for record in records.values())
+        and not any(
+            record.address.kind == "result"
+            and record.get("owner") == join_owner.address
+            for record in records.values()
+        )
+        and all(
+            record.get("stage") == "projection" and record.get("predicate") is None
+            for record in records.values()
+            if record.address.kind == "row"
+            and record.get("owner") == join_owner.address
+        )
+        and not any(
+            records[record.get("consumer")].get("owner") == join_owner.address
+            for record in records.values()
+            if record.address.kind == "expression_block_use"
+        ),
+        "UNNEST_DOMAIN",
+    )
+    # Collection placement already permits only the parent projection and its
+    # result carry. Authored aliases are absent from this semantic wire form.
+    children = unnest_child_ports(records, unnest)
+    need(len(children) == len(fields), "UNNEST_CHILDREN")
+    for index, (field, output) in enumerate(zip(fields, outputs, strict=True)):
+        logical, output_logical = field.get("logical"), output.get("logical")
+        need(
+            field.address.kind == "field"
+            and type(logical) is tuple
+            and len(logical) == 2
+            and logical[0] in ("Int", "Bool", "Text")
+            and logical[1] in ("non_null", "nullable")
+            and output.get("owner") == unnest.address
+            and output.get("ordinal") == index
+            and output.get("source") == field.address
+            and type(output_logical) is tuple
+            and len(output_logical) == 2
+            and output_logical == logical
+            and field.get("source") == unnest.address
+            and field.get("ordinal") == index
+            and logical == records[children[index]].get("logical"),
+            "UNNEST_FIELD",
+        )
+        if logical[0] == "Text":
+            encoded = field.get("physical")
+            need(type(encoded) is str, "UNNEST_TEXT")
+            physical = json_value(encoded.encode("utf-8"))
+            domain = physical.get("domain") if type(physical) is dict else None
+            width = domain.get("max_characters") if type(domain) is dict else None
+            need(
+                type(domain) is dict
+                and domain.get("kind") == "text"
+                and type(width) is int
+                and width > 0,
+                "UNNEST_TEXT",
+            )
+    # The left nested port survives in the JOIN's positional output only.  A
+    # final public output would reopen the nested result route, which is S16.
+    need(
+        not any(
+            records[address].get("logical")[:1] == ("collection",)
+            for address in entry.get("exports")
+        ),
+        "UNNEST_FINAL_OUTPUT",
+    )
 
 
 def _references(value):
@@ -334,9 +565,6 @@ def verify_description(value: Description) -> None:
         )
         for record in member[1]:
             need(type(record) is Record and type(record.address) is Address, "RECORD")
-            # A reserved Unnest (S13) is refused wherever and however often it
-            # appears, before any of its fields is read.
-            need(record.address.kind != "unnest", "UNNEST_UNAVAILABLE")
             address = record.address
             need(
                 address.kind in MEMBER_KINDS[expected]
@@ -565,7 +793,9 @@ def verify_description(value: Description) -> None:
                 "SOURCE_UNIQUE",
             )
         elif kind == "field":
-            holder = ref(get("source"), {"source", "values", "table_function"})
+            holder = ref(
+                get("source"), {"source", "values", "table_function", "unnest"}
+            )
             need(type(get("ordinal")) is int and get("ordinal") >= 0, "FIELD")
             need(type(get("label")) is str, "FIELD")
             physical_mapping = get("physical") is not None
@@ -645,7 +875,7 @@ def verify_description(value: Description) -> None:
                 "FIELD_REPRESENTATION",
             )
         elif kind == "port":
-            ref(get("owner"), RELATIONS)
+            owner = ref(get("owner"), RELATIONS | {"unnest"})
             need(
                 type(get("ordinal")) is int
                 and get("ordinal") >= 0
@@ -653,11 +883,18 @@ def verify_description(value: Description) -> None:
                 "PORT",
             )
             ref(get("source"), VALUES | {"field", "port"})
+            if owner.address.kind == "unnest":
+                need(get("source").kind == "field", "UNNEST_PORT")
         elif kind == "use":
-            ref(get("consumer"), RELATIONS)
-            ref(get("producer"), RELATIONS)
+            consumer = ref(get("consumer"), RELATIONS)
+            producer = ref(get("producer"), RELATIONS | {"unnest"})
             need(type(get("ordinal")) is int and get("ordinal") >= 0, "USE")
             refs(get("ports"), {"port"})
+            if producer.address.kind == "unnest":
+                need(
+                    consumer.address.kind == "join" and get("ordinal") == 1,
+                    "UNNEST_USE",
+                )
         elif kind == "expression_block_use":
             operation = ref(get("operation"), {"operation"})
             consumer = ref(get("consumer"), RELATIONS - {"source"})
@@ -1104,6 +1341,12 @@ def verify_description(value: Description) -> None:
             )
             need(len(outputs) == len(expected), "JOIN_OUTPUTS")
             for index, (port, pair) in enumerate(zip(outputs, expected, strict=True)):
+                if _hidden_unnest_port(records, port):
+                    need(
+                        pair == (uses[0].address, port.get("source")),
+                        "UNNEST_HIDDEN_PAIR",
+                    )
+                    continue
                 column_value = ref(port.get("source"), {"join_value"})
                 read = ref(column_value.get("input"), {"read"})
                 need(
@@ -1258,6 +1501,11 @@ def verify_description(value: Description) -> None:
             )
         elif kind == "table_function":
             _verify_table_function_record(record, ref, refs, family)
+        elif kind == "unnest":
+            ref(get("owner"), {"declaration"})
+            ref(get("source"), {"port"})
+            refs(get("fields"), {"field"})
+            refs(get("outputs"), {"port"})
         elif kind == "window":
             ref(get("owner"), {"declaration"})
             ref(get("input"), RELATIONS)
@@ -1583,6 +1831,7 @@ def verify_description(value: Description) -> None:
                 "COLLECT_LOGICAL",
             )
     _verify_collections(records)
+    _verify_unnests(records, entry, family)
     bound_literals = {
         r.get("literal"): records[r.get("site")]
         for r in records.values()
@@ -1720,7 +1969,9 @@ def verify_description(value: Description) -> None:
     incoming = {a: [] for a in records if a.kind in RELATIONS}
     for record in records.values():
         if record.address.kind == "use":
-            incoming[record.get("consumer")].append(record.get("producer"))
+            producer = record.get("producer")
+            if producer.kind != "unnest":
+                incoming[record.get("consumer")].append(producer)
     reads = {a: [] for a in incoming}
     for record in records.values():
         if record.address.kind == "expression_block_use":
@@ -2744,7 +2995,10 @@ def _verify_compiled_contract(
 def verify_export(description, artifact, *, guarded=None, refinement=None):
     """Read the original complete inventory, without calling the exporter."""
     from pietto._project.project_execution_binding_verification import inspect
-    from pietto._project.project_sql_emission_contract import BoundSource
+    from pietto._project.project_sql_emission_contract import (
+        BoundSource,
+        canonical as encode_canonical,
+    )
     from pietto._project import project_sql_emission_ast as sql
     from pietto._project import project_sql_emission_parameters as parameters
     from pietto._project import project_sql_emission_rows as rows
@@ -2755,6 +3009,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
     from pietto._project import project_sql_emission_values as valuing
     from pietto._project import project_sql_emission_joins as joining
     from pietto._project import project_sql_emission_nested as collecting
+    from pietto._project import project_sql_emission_unnest as unnesting
 
     view = inspect(artifact, guarded)
     verify_description(description)
@@ -3247,7 +3502,8 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             positions = tuple(
                 i
                 for i, c in enumerate(producer.columns)
-                if c.column.terminal is actual.terminal
+                if type(c) is not unnesting.WithheldPort
+                and c.column.terminal is actual.terminal
             )
             need(
                 len(positions) == 1
@@ -3584,6 +3840,53 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 producer = item.producer
                 if position and sql.inline_body(producer):
                     check_lateral(a, item, unit.inputs[0], *contexts[0][1:])
+                if type(producer) is unnesting.UnnestRows:
+                    candidates = tuple(
+                        r
+                        for r in records.values()
+                        if r.address.kind == "unnest"
+                        and r.get("layout")[2] == record.address
+                    )
+                    need(position == 1 and len(candidates) == 1, "EXPORT_UNNEST")
+                    raw = candidates[0]
+                    need(
+                        raw.get("position") == producer.unnest.ref.position
+                        and len(raw.get("fields")) == len(producer.columns),
+                        "EXPORT_UNNEST",
+                    )
+                    for ordinal, (field_address, port_address, child) in enumerate(
+                        zip(
+                            raw.get("fields"),
+                            raw.get("outputs"),
+                            producer.columns,
+                            strict=True,
+                        )
+                    ):
+                        field, port = records[field_address], records[port_address]
+                        realization = child.column.realization
+                        logical = (
+                            realization.tag,
+                            "nullable" if realization.nullable is True else "non_null",
+                        )
+                        need(
+                            field.get("source") == raw.address
+                            and field.get("ordinal") == ordinal
+                            and field.get("logical") == logical
+                            and port.get("logical") == logical
+                            and port.get("owner") == raw.address
+                            and port.get("source") == field_address
+                            and port.get("ordinal") == ordinal
+                            and field.get("physical")
+                            == encode_canonical(
+                                {
+                                    "storage": realization.storage,
+                                    "nullable": realization.nullable,
+                                    "domain": realization.domain,
+                                }
+                            ).decode(),
+                            "EXPORT_UNNEST_FIELD",
+                        )
+                    unit_map[id(producer)] = raw.address
                 expected = source_map.get(id(producer), unit_map.get(id(producer)))
                 need(
                     use_record.get("producer") == expected
@@ -3615,6 +3918,13 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 )
             for a, column in zip(record.get("outputs"), unit.columns, strict=True):
                 port = records[a]
+                if type(column) is unnesting.WithheldPort:
+                    need(
+                        _hidden_unnest_port(records, port)
+                        and port.get("ordinal") == column.position,
+                        "EXPORT_UNNEST_HIDDEN",
+                    )
+                    continue
                 value = records[port.get("source")]
                 matches = tuple(
                     (p, u) for symbol, p, u in contexts if symbol is column.scope
@@ -4434,7 +4744,9 @@ def _verify_compiled_emission(artifact, request):
     )
     # An inline let's units have no unit position: they are checked at the
     # read that renders them, over the reading body's input row.
-    inline_units = {a for a, i in positions.items() if i is None}
+    inline_units = {
+        a for a, i in positions.items() if i is None and a.kind in RELATIONS
+    }
     need(len(query.bodies) == len(units), "EMISSION_UNITS")
     observed_bodies = {}
     used_parameters = []
@@ -4444,7 +4756,14 @@ def _verify_compiled_emission(artifact, request):
     lexical_any = {}
 
     def column_name(body, index):
-        # A CTE column is read by its generated name, an inline column by label.
+        from pietto._project.project_sql_emission_joins import JoinBody
+        from pietto._project.project_sql_emission_unnest import WithheldPort
+
+        # A JOIN keeps logical slots even when one collection slot is hidden.
+        if type(body) is JoinBody:
+            column = body.columns[index]
+            need(type(column) is not WithheldPort, "UNNEST_WITHHELD_READ")
+            return column.label
         if body.cte_columns:
             return body.cte_columns[index].name
         return body.columns[index].label
@@ -4563,7 +4882,7 @@ def _verify_compiled_emission(artifact, request):
             if join_contexts is not None:
                 use = record.get("use")
                 need(use in join_contexts, "EMISSION_MATCH_USE")
-                producer, scope = join_contexts[use]
+                producer, scope, _columns = join_contexts[use]
                 need(
                     actual.scope is scope and actual.column.scope is scope,
                     "EMISSION_MATCH_SCOPE",
@@ -4587,6 +4906,13 @@ def _verify_compiled_emission(artifact, request):
                     actual.column.field is field and actual.column.name == field.column,
                     "EMISSION_SOURCE_READ",
                 )
+            elif producer.kind == "unnest":
+                from pietto._project.project_sql_emission_verification import _same_read
+
+                if join_contexts is None:
+                    raise CompiledError("COMPILED_EMISSION_UNNEST_READ_SCOPE")
+                expected = join_contexts[use][2][port.get("ordinal")]
+                need(_same_read(actual.column, expected), "EMISSION_UNNEST_READ")
             else:
                 body = observed_bodies[producer]
                 index = port.get("ordinal")
@@ -4971,7 +5297,7 @@ def _verify_compiled_emission(artifact, request):
             )
             if record.get("predicate") is not None:
                 contexts = {
-                    a: (records[a].get("producer"), item.symbol)
+                    a: (records[a].get("producer"), item.symbol, item.columns)
                     for a, item in zip(record.get("inputs"), body.inputs, strict=True)
                 }
                 scalar(body.predicate, record.get("predicate"), None, None, contexts)
@@ -6117,9 +6443,24 @@ def verify_compiled_join_unit(body, record, request, produced, sources, bindings
     from pietto._project import project_sql_emission_joins as joining
     from pietto.ast_nodes import AuthoredJoinKind
 
+    from pietto._project.project_sql_emission_rows import StageColumn
+
     plan = request.plan
     records, refs = plan.ir.completed.root.records, plan.references
     facts = {f.address: f for f in plan.ir.completed.facts}
+    unnests = tuple(
+        item
+        for item in getattr(plan, "unnests", ())
+        if type(item.layout) is tuple
+        and len(item.layout) == 5
+        and item.layout[2] == record.address
+    )
+    need(len(unnests) <= 1, "UNNEST_INVENTORY")
+    if unnests:
+        _verify_compiled_unnest_join_unit(
+            body, record, request, produced, sources, bindings, unnests[0]
+        )
+        return
     name, labels, aliases, final, index = record.get("layout")
     need(
         type(body) is joining.JoinBody
@@ -6158,6 +6499,8 @@ def verify_compiled_join_unit(body, record, request, produced, sources, bindings
         for i, (column, port) in enumerate(
             zip(item.columns, use.get("ports"), strict=True)
         ):
+            if not isinstance(column, StageColumn):
+                raise CompiledError("COMPILED_JOIN_SCALAR_INPUT")
             need(
                 column.terminal is refs[port]
                 and column.realization is facts[port].realization
@@ -6285,6 +6628,225 @@ def verify_compiled_join_unit(body, record, request, produced, sources, bindings
         )
 
 
+def _verify_compiled_unnest_join_unit(
+    body, record, request, produced, sources, bindings, item
+):
+    """Re-derive S13's private right input without making it a relation node."""
+    from pietto._project import project_sql_emission_joins as joining
+    from pietto._project import project_sql_emission_nested as collecting
+    from pietto._project import project_sql_emission_results as resulting
+    from pietto._project import project_sql_emission_unnest as unnesting
+    from pietto.ast_nodes import AuthoredJoinKind
+    from pietto._project.project_sql_emission_verification import _same_read
+    from dataclasses import replace
+
+    from pietto._project.project_sql_emission_rows import StageColumn
+
+    plan = request.plan
+    records, refs = plan.ir.completed.root.records, plan.references
+    facts = {fact.address: fact for fact in plan.ir.completed.facts}
+    from pietto._project.project_sql_emission_contract import canonical
+
+    name, labels, aliases, final, index = record.get("layout")
+    left_use, right_use = record.get("inputs")
+    left_record, right_record = records[left_use], records[right_use]
+    left, right = body.inputs
+    source_at = tuple(
+        i
+        for i, binding in enumerate(bindings[left_use].bindings)
+        if binding.canonical.ref is item.source
+    )
+    raw = records[Address(item.ref.kind, item.ref.position)]
+    fields = raw.get("fields")
+    outputs = raw.get("outputs")
+    need(
+        type(body) is joining.JoinBody
+        and type(body.join) is joining.CompiledJoinSubject
+        and body.join.ref is refs[record.address]
+        and body.index == index
+        and body.join.kind is AuthoredJoinKind(record.get("kind"))
+        and body.join.kind in unnesting.KINDS
+        and final is False
+        and body.symbol.name == name
+        and body.symbol.binding is body.join.ref
+        and len(body.inputs) == 2
+        and (left_use, right_use) == record.get("inputs")
+        and left_record.get("ordinal") == 0
+        and right_record.get("ordinal") == 1
+        and right_record.get("producer") == raw.address
+        and right_record.get("ports") == outputs
+        and type(left) is joining.JoinInput
+        and type(right) is joining.JoinInput
+        and left.original.ref is refs[left_use]
+        and right.original.ref is refs[right_use]
+        and left.ordinal == 0
+        and right.ordinal == 1
+        and left.use is bindings[left_use]
+        and right.use is bindings[right_use]
+        and left.symbol.name == aliases[0]
+        and right.symbol.name == aliases[1]
+        and left.symbol.binding is refs[left_use]
+        and right.symbol.binding is refs[right_use]
+        and left.ports
+        == tuple(binding.input_port.ref for binding in bindings[left_use].bindings)
+        and right.ports
+        == tuple(binding.input_port.ref for binding in bindings[right_use].bindings)
+        and right.source is None
+        and len(source_at) == 1
+        and len(fields) == len(outputs) == len(right.columns) > 0,
+        "UNNEST_JOIN_UNIT",
+    )
+    left_producer = left_record.get("producer")
+    need(
+        left.producer is sources.get(left_producer, produced.get(left_producer))
+        and left.source is (refs[left_producer] if left_producer in sources else None)
+        and len(left.columns) == len(left_record.get("ports")),
+        "UNNEST_LEFT_INPUT",
+    )
+    source_position = source_at[0]
+    nested = cast(unnesting.NestedRead, left.columns[source_position])
+    need(
+        type(nested) is unnesting.NestedRead
+        and nested.position == source_position
+        and nested.port is plan.ports[raw.get("source")]
+        and nested.scope is left.symbol
+        and len(nested.arrays) == len(right.columns),
+        "UNNEST_NESTED_READ",
+    )
+    group = nested.group
+    if type(group) is resulting.ResultGroupColumn:
+        group = group.group
+    need(
+        type(group) is collecting.CollectColumn
+        and any(collect.ref is group.collect.ref for collect in plan.collects),
+        "UNNEST_COLLECT_SOURCE",
+    )
+    need(
+        type(right.producer) is unnesting.UnnestRows
+        and right.producer.unnest is item
+        and right.producer.scope is left.symbol
+        and right.producer.arrays == nested.arrays,
+        "UNNEST_ROWS",
+    )
+    for ordinal, (field, output, column, child) in enumerate(
+        zip(fields, outputs, right.columns, right.producer.columns, strict=True)
+    ):
+        field_record, output_record = records[field], records[output]
+        if not isinstance(column, StageColumn):
+            raise CompiledError("COMPILED_UNNEST_CHILD")
+        need(
+            type(child) is unnesting.UnnestColumn
+            and child.position == ordinal
+            and _same_read(
+                child.column,
+                replace(
+                    group.lateral.target.producer.columns[ordinal].column,
+                    position=ordinal,
+                    name=f"c{ordinal}",
+                    terminal=bindings[right_use].bindings[ordinal].terminal.ref,
+                    scope=None,
+                ),
+            )
+            and _same_read(column, replace(child.column, scope=right.symbol))
+            and column.terminal is bindings[right_use].bindings[ordinal].terminal.ref
+            and field_record.get("label") == column.name
+            and output_record.get("label") == column.name
+            and column.realization.tag == field_record.get("logical")[0]
+            and output_record.get("source") == field
+            and output_record.get("logical")
+            == (
+                column.realization.tag,
+                "nullable" if column.realization.nullable is True else "non_null",
+            )
+            and field_record.get("physical")
+            == canonical(
+                {
+                    "storage": column.realization.storage,
+                    "nullable": column.realization.nullable,
+                    "domain": column.realization.domain,
+                }
+            ).decode("utf-8"),
+            "UNNEST_CHILD",
+        )
+    need(
+        not body.equalities
+        and (body.predicate is None) is (record.get("predicate") is None)
+        and body.join.on
+        is (None if record.get("predicate") is None else refs[record.get("predicate")])
+        and body.membership is None
+        and body.sentinel is None,
+        "UNNEST_JOIN_CONDITION",
+    )
+    rejected = joining.null_rejected_ports(body.join, (), body.predicate)
+    need(len(body.columns) == len(record.get("outputs")), "UNNEST_JOIN_COLUMNS")
+    published = []
+    for position, (address, column) in enumerate(
+        zip(record.get("outputs"), body.columns, strict=True)
+    ):
+        port = plan.ports[address]
+        if position == source_position:
+            need(
+                type(column) is unnesting.WithheldPort
+                and column.position == position
+                and column.port is port
+                and records[address].get("source") == raw.get("source")
+                and _hidden_unnest_port(records, records[address]),
+                "UNNEST_WITHHELD",
+            )
+            continue
+        current = (
+            left.columns[position]
+            if position < len(left.columns)
+            else right.columns[position - len(left.columns)]
+        )
+        carrier = (
+            bindings[left_use].bindings[position].input_port
+            if position < len(left.ports)
+            else bindings[right_use].bindings[position - len(left.ports)].input_port
+        )
+        fact = facts[address]
+        if not isinstance(current, StageColumn):
+            raise CompiledError("COMPILED_UNNEST_SCALAR_OUTPUT")
+        expected, problem = joining.resolved_port_realization(
+            fact.realization.tag,
+            fact.realization.nullable,
+            current.realization,
+            outer=True,
+            proved=carrier.ref in rejected,
+        )
+        need(
+            type(column) is joining.JoinColumn
+            and column.position == position
+            and column.port is port
+            and column.match is carrier
+            and column.scope
+            is (left.symbol if position < len(left.ports) else right.symbol)
+            and column.read is current
+            and column.label == port.identity.name
+            and column.symbol.binding is port.ref
+            and column.symbol.name == column.label
+            and column.column.terminal is port.ref
+            and column.column.scope is None
+            and column.column.realization is fact.realization
+            and expected is not None
+            and problem is None
+            and (expected.tag, expected.storage, expected.nullable, expected.domain)
+            == (
+                fact.realization.tag,
+                fact.realization.storage,
+                fact.realization.nullable,
+                fact.realization.domain,
+            ),
+            "UNNEST_JOIN_COLUMN",
+        )
+        published.append(column)
+    need(
+        tuple(symbol.name for symbol in body.cte_columns)
+        == tuple(column.label for column in published),
+        "UNNEST_CTE_COLUMNS",
+    )
+
+
 def verify_requirement_export(records, artifact, check_declaration):
     """Read the complete original producer graph, independently of export maps."""
     from pietto._project import project_sql_emission_parameters as parameters
@@ -6335,7 +6897,21 @@ def verify_requirement_export(records, artifact, check_declaration):
             ),
             "EXPORT_REQUIREMENT_ENTRY",
         )
-        if actual.family.value == "collection":
+        if (
+            actual.family.value == "collection"
+            and actual.subject.kind.value == "unnest"
+        ):
+            anchors = tuple(
+                r.address
+                for r in records.values()
+                if r.address.kind == "unnest"
+                and r.get("position") == actual.subject.position
+            )
+            need(
+                len(anchors) == 1 and described.get("anchors") == anchors,
+                "EXPORT_REQUIREMENT_UNNEST_ANCHOR",
+            )
+        elif actual.family.value == "collection":
             # A Collect read's demands anchor its Collect operation; its export's
             # demand anchors the port that operation is the source of and the
             # parent's result port carrying that one.
@@ -6995,6 +7571,37 @@ def verify_logical_export(description, checked, references):
     for definition in plan.bindings.definitions:
         if definition.ref in terminals:
             continue
+        unnests = tuple(
+            value for value in plan.unnests if value.definition is definition.ref
+        )
+        if unnests:
+            need(len(unnests) == 1, "RETAINED_UNNEST")
+            original = unnests[0]
+            matches = tuple(
+                r
+                for r in records.values()
+                if r.address.kind == "unnest"
+                and r.get("layout")[2] == references[original.join]
+                and r.get("position") == original.ref.position
+            )
+            need(len(matches) == 1, "RETAINED_UNNEST")
+            record = matches[0]
+            owner(record.get("owner"), definition.entry.owner)
+            described_outputs = outputs(record)
+            need(
+                len(definition.exports) == len(described_outputs),
+                "RETAINED_UNNEST_OUTPUTS",
+            )
+            for original_port, described in zip(
+                definition.exports, described_outputs, strict=True
+            ):
+                need(
+                    described.get("logical") == logical(original_port.field),
+                    "RETAINED_UNNEST_OUTPUT",
+                )
+                ports[original_port.ref] = described.address
+            terminals[definition.ref] = record.address
+            continue
         # A capturing let is FROM, WHERE and SELECT rows only, all inline.
         inline = definition.ref in captured_definitions
         need(
@@ -7104,6 +7711,13 @@ def verify_logical_export(description, checked, references):
                     described.get("logical") == logical(original.field),
                     "RETAINED_JOIN_OUTPUT",
                 )
+                if _hidden_unnest_port(records, described):
+                    need(
+                        described.get("source") == ports[original.source],
+                        "RETAINED_UNNEST_HIDDEN",
+                    )
+                    ports[ref] = described.address
+                    continue
                 value = records[described.get("source")]
                 need(
                     value.address.kind == "join_value"

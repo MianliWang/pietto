@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pietto._project.project_sql_emission_unnest import NestedRead
 
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_emission_rows as rows
@@ -61,7 +64,7 @@ class JoinInput:
     use: Any
     producer: Any
     symbol: Any
-    columns: tuple[rows.StageColumn, ...]
+    columns: tuple[rows.StageColumn | NestedRead, ...]
     ports: tuple[Any, ...]
     source: Any = None
     """The plan source definition this input scans, when it reaches one."""

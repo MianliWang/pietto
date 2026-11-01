@@ -591,6 +591,8 @@ def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
     sets = {body.definition for body in plan.set_bodies} | {
         body.definition for body in plan.values_bodies
     }
+    # An Unnest is realized by its exact JOIN input, not a separate stage body.
+    sets |= {value.definition for value in plan.unnests}
     named = tuple(
         item
         for item in plan.bindings.definitions

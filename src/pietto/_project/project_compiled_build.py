@@ -39,6 +39,7 @@ from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_nested as collecting
+from pietto._project import project_sql_emission_unnest as unnesting
 
 __all__: tuple[str, ...] = ()
 
@@ -375,7 +376,8 @@ class _Export:
             indexes = tuple(
                 i
                 for i, c in enumerate(producer.columns)
-                if c.column.terminal is read.terminal
+                if getattr(c, "column", None) is not None
+                and c.column.terminal is read.terminal
             )
         if len(indexes) != 1:
             raise CompiledError("COMPILED_EXPORT_READ")
@@ -969,10 +971,87 @@ class _Export:
             layout,
         )
 
+    def unnest_unit(self, unit, join):
+        """Export an S13 Unnest right input as one private relation record."""
+        from pietto._project.project_sql_emission_contract import canonical
+
+        left, right = unit.inputs
+        producer = right.producer
+        if type(producer) is not unnesting.UnnestRows:
+            return None
+        item = producer.unnest
+        positions = tuple(i for i, port in enumerate(left.ports) if port is item.source)
+        definitions = tuple(
+            definition
+            for definition in self.request.plan.bindings.definitions
+            if definition.ref is item.definition
+        )
+        owner = None if len(definitions) != 1 else definitions[0].entry.owner
+        if (
+            owner is None
+            or type(item.ref.position) is not int
+            or len(positions) != 1
+            or len(producer.columns) != len(producer.arrays) > 0
+        ):
+            raise CompiledError("COMPILED_EXPORT_UNNEST")
+        source = self.producer_ports(left.producer)[positions[0]]
+        address = self.reserve("unnest")
+        self.units[id(producer)] = address
+        self.anchor(item.ref, address)
+        fields, outputs = [], []
+        for ordinal, child in enumerate(producer.columns):
+            column = child.column
+            realization = column.realization
+            logical = (
+                realization.tag,
+                "nullable" if realization.nullable is True else "non_null",
+            )
+            physical = canonical(
+                {
+                    "storage": realization.storage,
+                    "nullable": realization.nullable,
+                    "domain": realization.domain,
+                }
+            ).decode("utf-8")
+            field = self.add(
+                "field",
+                address,
+                ordinal,
+                column.name,
+                f"c{ordinal}",
+                logical,
+                physical,
+                None,
+                None,
+            )
+            fields.append(field)
+            outputs.append(
+                self.add("port", address, ordinal, column.name, field, logical)
+            )
+        self.unit_ports[id(producer)] = tuple(outputs)
+        return self.finish(
+            address,
+            self.declaration(owner),
+            item.ref.position,
+            source,
+            tuple(fields),
+            tuple(outputs),
+            # No CTE of its own: the final None keeps generic relation-layout
+            # readers from treating the right-input ordinal as a unit position.
+            (
+                right.symbol.name,
+                tuple(c.column.name for c in producer.columns),
+                join,
+                1,
+                None,
+            ),
+        )
+
     def join_unit(self, unit, position):
         address = self.reserve("join")
         self.units[id(unit)] = address
         self.join_refs[id(unit.join.ref)] = address
+        self.unnest_unit(unit, address)
         definitions = tuple(
             d
             for d in self.request.plan.bindings.definitions
@@ -1013,6 +1092,26 @@ class _Export:
         )
         ports = []
         for column in unit.columns:
+            if type(column) is unnesting.WithheldPort:
+                positions = tuple(
+                    i
+                    for i, port in enumerate(unit.inputs[0].ports)
+                    if port is unit.inputs[1].producer.unnest.source
+                )
+                if len(positions) != 1:
+                    raise CompiledError("COMPILED_EXPORT_UNNEST")
+                source = self.producer_ports(unit.inputs[0].producer)[positions[0]]
+                ports.append(
+                    self.add(
+                        "port",
+                        address,
+                        column.position,
+                        f"c{column.position}",
+                        source,
+                        self.records[source].get("logical"),
+                    )
+                )
+                continue
             matches = tuple(
                 (p, u) for symbol, p, u in contexts if symbol is column.scope
             )

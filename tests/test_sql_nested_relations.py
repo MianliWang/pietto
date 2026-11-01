@@ -84,9 +84,25 @@ def _project(tmp_path, shape, dialect):
     )
     root = project(tmp_path / f"{shape}-{dialect}", files)
     module = "parent.pietto" if shape.endswith("imported") else "main.pietto"
-    (root / "contract.json").write_text(
-        emission_contract(target, module), encoding="utf-8"
-    )
+    contract = json.loads(emission_contract(target, module))
+    if shape in ("unnest_language", "unnest_inner_nullable"):
+        source_name = "orders" if shape == "unnest_language" else "rows"
+        contract["sources"] = [
+            item
+            for item in contract["sources"]
+            if item["selector"]["name"] == source_name
+        ]
+    if shape.startswith("unnest"):
+        contract["environment"].append(
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "quoted_exact"
+                if target == "postgres"
+                else "lower_case_table_names=0",
+            }
+        )
+    (root / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
     return root
 
 
@@ -268,8 +284,26 @@ REFUSALS = {
 }
 
 
-@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
-@pytest.mark.parametrize("shape", REFUSALS)
+POSTGRES_UNNEST_ADMITTED = (
+    "unnest_cross",
+    "unnest_inner",
+    "unnest_left",
+    "unnest_left_on_parent",
+    "unnest_left_on_match",
+    "unnest_language",
+    "unnest_inner_nullable",
+)
+
+
+@pytest.mark.parametrize(
+    ("shape", "dialect"),
+    tuple((shape, "mysql") for shape in REFUSALS)
+    + tuple(
+        (shape, "postgres")
+        for shape in REFUSALS
+        if shape not in POSTGRES_UNNEST_ADMITTED
+    ),
+)
 def test_a_checked_unnest_program_is_blocked_at_each_let(
     tmp_path, capsys, shape, dialect, monkeypatch
 ):
@@ -336,7 +370,7 @@ def test_a_checked_unnest_program_is_blocked_at_each_let(
 def test_compile_query_refuses_an_unnest_program_with_the_command_document(
     tmp_path, capsys, dialect
 ):
-    root = _project(tmp_path, "unnest_left", dialect)
+    root = _project(tmp_path, "unnest_two_bodies", dialect)
     _, out, _ = _emit(root, dialect, capsys, "--format", "json")
 
     with pytest.raises(execution.CompileRejected) as error:
@@ -351,6 +385,36 @@ def test_compile_query_refuses_an_unnest_program_with_the_command_document(
     assert error.value.status == "BLOCKED"
     assert json.loads(error.value.emission) == json.loads(out)
     assert "unnest_not_admitted_on_target" in out
+
+
+@pytest.mark.parametrize("shape", (*POSTGRES_UNNEST_ADMITTED, "parent_order_limit"))
+def test_a_direct_unnest_cli_and_public_compile_share_the_verified_artifact(
+    tmp_path, capsys, shape
+):
+    root = _project(
+        tmp_path, "unnest_cross" if shape == "parent_order_limit" else shape, "postgres"
+    )
+    if shape == "parent_order_limit":
+        path = root / "main.pietto"
+        path.write_text(
+            path.read_text().replace(
+                "query result:\n", "    order by id\n    limit 3\nquery result:\n", 1
+            )
+        )
+    code, out, _ = _emit(root, "postgres", capsys, "--format", "json")
+    assert code == 0
+    document = json.loads(out)
+    assert document["status"] == "VERIFIED"
+    assert "JOIN LATERAL ROWS FROM" in document["sql"]
+    query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    assert query.emission == out.encode()
 
 
 # A Timestamp JOIN port beside a CROSS JOIN fails the scalar meaning admission;

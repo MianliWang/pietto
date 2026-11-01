@@ -5167,7 +5167,8 @@ def _verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
     from pietto._project.project_completed_semantics import (
         CompiledCompletedSemanticResult,
     )
-    from pietto._project.project_compiled_verification import RELATIONS, need
+    from pietto._project.project_compiled_verification import need
+    from pietto._project.project_query_block_ir import compiled_operator_records
     from pietto._project.model import ProjectRowField, ProjectResolvedTypeKind
 
     need(type(root) is CompiledQueryBlockIR, "IR_ROOT")
@@ -5186,7 +5187,7 @@ def _verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
             and reference.position == address.position,
             "IR_REFERENCE",
         )
-    expected = tuple(r for r in records.values() if r.address.kind in RELATIONS)
+    expected = compiled_operator_records(records)
     need(
         type(root.operators) is tuple and len(root.operators) == len(expected),
         "IR_OPERATOR_INVENTORY",
@@ -5208,10 +5209,14 @@ def _verify_compiled_query_block_ir(root: CompiledQueryBlockIR):
             and actual.kind == record.address.kind,
             "IR_OPERATOR",
         )
-        inputs = tuple(
-            root.references[r.get("producer")]
-            for r in records.values()
-            if r.address.kind == "use" and r.get("consumer") == record.address
+        inputs = (
+            (root.references[records[record.get("source")].get("owner")],)
+            if record.address.kind == "unnest"
+            else tuple(
+                root.references[r.get("producer")]
+                for r in records.values()
+                if r.address.kind == "use" and r.get("consumer") == record.address
+            )
         )
         need(
             type(actual.inputs) is tuple
@@ -5643,9 +5648,14 @@ def verify_compiled_property_laws(root):
         elif kind == "join":
             keys, fds = compiled_join_property_signatures(root, operator, built)
             verify_compiled_join_grain(root, operator, built)
-        elif kind in ("values", "table_function"):
+        elif kind in ("values", "table_function", "unnest"):
+            expected_inputs = (
+                (root.references[records[record.get("source")].get("owner")],)
+                if kind == "unnest"
+                else ()
+            )
             need(
-                operator.inputs == ()
+                operator.inputs == expected_inputs
                 and _class_signatures(actual)
                 == tuple((i,) for i in range(len(actual.fields)))
                 and actual.grain.state is ProjectGrainBasisState.UNKNOWN

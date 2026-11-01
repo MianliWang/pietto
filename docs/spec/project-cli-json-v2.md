@@ -453,6 +453,17 @@ the nested field, so a document without one is byte for byte unchanged:
   `ordinal_window`, `ordinal_column`, `distinct_wrapper_open` and
   `distinct_wrapper_close`.
 
+For the admitted PostgreSQL Unnest shape, the final `columns` remain scalar.
+One right `LATERAL ROWS FROM` zips one `pg_catalog.unnest` per child array in
+child-field order; the left collection's count/array slot is withheld from the
+JOIN's physical SELECT and CTE header. Logical JOIN positions and requirement
+identities retain that slot. The two original Unnest `collection` demands use
+`R27`; generic JOIN/output and LEFT null-extension requirements keep their
+existing rules. The corresponding range roles are `unnest_rows_open`,
+`unnest_function`, `unnest_scope`, `unnest_array`, `unnest_function_close`,
+`unnest_rows_close`, `unnest_columns_open`, `unnest_column`, and
+`unnest_columns_close`. They add no document field or format version.
+
 In `--format text` the nested field is one record line of the `columns`
 block, like any other column.
 

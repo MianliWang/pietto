@@ -4625,6 +4625,7 @@ def _named_range_provenance(document, descriptors):
         "capture": ["capture"],
         # Phase71 S08: one record per Collect read.
         "collect": ["collect"],
+        "unnest": ["unnest"],
     }
     associations = {
         "authored_cause",
@@ -5503,7 +5504,8 @@ def _decode_row_denominators(
                 lateral["collect"],
                 lateral["export"],
             )
-        ],
+        ]
+        + [entry["ref"] for entry in walk.get("unnests", ()) for _ in range(2)],
         "COLLECTION demands do not match the emitted Collect reads",
     )
     _need(
@@ -6144,6 +6146,7 @@ def _decode_fixed_public(document, limits):
     # Phase71 S08: each parsed Collect lateral, in emission order, and the
     # nested carrier and ordinal columns the CTE header being parsed declared.
     row_collects: list[dict[str, Any]] = []
+    row_unnests: list[dict[str, Any]] = []
     ROW_OPERATORS = {
         " + ": "+",
         " - ": "-",
@@ -11888,9 +11891,104 @@ def _decode_fixed_public(document, limits):
 
     join_aliases: set[str] = set()
 
+    def unnest_relation(left):
+        """Rebuild the one S13 right input from its already parsed left group."""
+        _need(
+            family == "postgres" and not row_unnests and left is not None,
+            "Unnest route",
+        )
+        assert left is not None
+        groups = [
+            (i, column["group"])
+            for i, column in enumerate(left["columns"])
+            if column.get("group")
+        ]
+        _need(len(groups) == 1, "one Unnest collection source")
+        group_position, group = groups[0]
+        event, _ = take("syntax", "unnest_rows_open", "LATERAL ROWS FROM (")
+        input_ref = event["subject"]
+        _need(input_ref["kind"] == "join_input", "Unnest input subject")
+        unnest_ref = ref("unnest", 0)
+        source_ref = None
+        children = group["lateral"]["terminal"]["outgoing"]
+        arrays = group["carriers"][1:]
+        _need(bool(children) and len(arrays) == len(children), "Unnest array width")
+        for i, (array, child) in enumerate(zip(arrays, children, strict=True)):
+            if i:
+                take("syntax", "separator", ", ", unnest_ref)
+            take("syntax", "unnest_function", "pg_catalog.unnest(", unnest_ref)
+            scoped, _ = take("identifier", "unnest_scope", left["alias"])
+            if source_ref is None:
+                source_ref = scoped["subject"]
+            assert source_ref is not None
+            _need(
+                scoped["subject"] == source_ref and source_ref["kind"] == "join_port",
+                "Unnest source port",
+            )
+            take("syntax", "qualifier", ".", source_ref)
+            take("identifier", "unnest_array", array["name"], source_ref)
+            take("syntax", "unnest_function_close", ")", unnest_ref)
+            realization = child["realization"]
+            _need(realization["tag"] in {"Int", "Bool", "Text"}, "Unnest basic leaf")
+            if realization["tag"] == "Text":
+                _need(
+                    realization["domain"].get("kind") == "text"
+                    and type(realization["domain"].get("max_characters")) is int
+                    and realization["domain"]["max_characters"] > 0,
+                    "Unnest finite Text",
+                )
+        take("syntax", "unnest_rows_close", ")", input_ref)
+        take("syntax", "join_alias", " AS ", input_ref)
+        _, alias = take(
+            "identifier", "join_scope", f"m{input_ref['position']}", input_ref
+        )
+        _need(alias not in join_aliases, "Unnest alias collision")
+        join_aliases.add(alias)
+        take("syntax", "unnest_columns_open", " (", input_ref)
+        columns, exports = [], []
+        for i, child in enumerate(children):
+            if i:
+                take("syntax", "separator", ", ", input_ref)
+            event, _ = take("identifier", "unnest_column", f"c{i}", ref("export", i))
+            exports.append(event["subject"])
+            columns.append(
+                {
+                    **child,
+                    "name": f"c{i}",
+                    "terminal": event["subject"],
+                    "nulled": False,
+                }
+            )
+        take("syntax", "unnest_columns_close", ")", input_ref)
+        descriptor = {
+            "ref": unnest_ref,
+            "definition": next_row_definition(),
+            "source": source_ref,
+            "group_position": group_position,
+            "exports": exports,
+            "group": group,
+        }
+        row_unnests.append(descriptor)
+        return {
+            "kind": "unnest",
+            "input": input_ref,
+            "alias": alias,
+            "columns": columns,
+            "description": None,
+            "index": None,
+            "body": None,
+            "unnest": descriptor,
+        }
+
     def join_relation(expected_kind, lateral_frame=None):
         """One JOIN input relation, its capture-free alias and pre-match columns."""
         role = peek()
+        if role == "unnest_rows_open":
+            _need(
+                expected_kind == "right" and lateral_frame is not None,
+                "Unnest must be the right input",
+            )
+            return unnest_relation(lateral_frame)
         if role == "join_namespace":
             relation = lexical[cursor][0]["subject"]
             item, index = bind_scan(relation)
@@ -12099,7 +12197,7 @@ def _decode_fixed_public(document, limits):
                 )
         return proved
 
-    def join_select(join_ref, header):
+    def join_select(join_ref, header, header_names):
         """One JOIN occurrence's own generated SELECT, independently reconciled."""
         take("syntax", "select", "SELECT ", join_ref)
         parsed = []
@@ -12118,7 +12216,10 @@ def _decode_fixed_public(document, limits):
             _need(qualifier["subject"] == port, "published port qualifier")
             _, label = take("identifier", "label", None, port)
             _need(separator is None or separator["subject"] == port, "separator")
-            _need(label == f"c{len(parsed)}", "published JOIN column label")
+            _need(
+                re.fullmatch(r"c[0-9]+", label) is not None,
+                "published JOIN column label",
+            )
             parsed.append(
                 {
                     "alias": alias,
@@ -12174,10 +12275,41 @@ def _decode_fixed_public(document, limits):
         nulls = () if membership is not None else JOIN_NULLS[kind]
         rejected = join_null_rejected(kind, inputs, equalities, predicate)
         widths = (len(left["columns"]), len(right["columns"]))
-        published = len(left["columns"]) if membership is not None else len(carriers)
-        _need(len(parsed) == published, "published JOIN port arity")
+        hidden = (
+            right["unnest"]["group_position"] if right["kind"] == "unnest" else None
+        )
+        positions = [
+            i
+            for i in range(
+                len(left["columns"]) if membership is not None else len(carriers)
+            )
+            if i != hidden
+        ]
+        _need(
+            len(parsed) == len(positions)
+            and [item["label"] for item in parsed] == [f"c{i}" for i in positions]
+            and header_names == [item["label"] for item in parsed],
+            "published JOIN port arity/names",
+        )
+        base = None
+        if hidden is not None:
+            _need(
+                kind in {"cross", "inner", "left"} and membership is None,
+                "Unnest JOIN kind",
+            )
+            source_ref = right["unnest"]["source"]
+            base = source_ref["position"] - hidden
+            _need(
+                base >= 0
+                and all(
+                    item["match"] == ref("join_port", base + i)
+                    and item["port"] == ref("join_port", base + len(carriers) + i)
+                    for i, item in zip(positions, parsed, strict=True)
+                ),
+                "Unnest match/output identity",
+            )
         outgoing, columns = [], []
-        for position, item in enumerate(parsed):
+        for position, item in zip(positions, parsed, strict=True):
             side = 0 if position < widths[0] else 1
             carrier = carriers[position]
             _need(
@@ -12224,8 +12356,25 @@ def _decode_fixed_public(document, limits):
             ),
             "each published port carries its own distinct pre-match port",
         )
+        logical_outputs = list(columns)
+        if hidden is not None:
+            assert base is not None
+            logical_outputs.insert(
+                hidden,
+                {
+                    "port": ref("join_port", base + len(carriers) + hidden),
+                    "nulled": False,
+                },
+            )
         join_generated(
-            join_ref, kind, membership, inputs, equalities, predicate, columns, scopes
+            join_ref,
+            kind,
+            membership,
+            inputs,
+            equalities,
+            predicate,
+            logical_outputs,
+            scopes,
         )
         body = {
             "block": join_ref,
@@ -12364,6 +12513,7 @@ def _decode_fixed_public(document, limits):
             _need(separator is None or separator["subject"] == block, "CTE separator")
             take("syntax", "cte_columns_open", " (", block)
             header = []
+            header_names = []
             header_carriers: dict[int, list[Any]] = {}
             header_ordinal = None
             while True:
@@ -12371,7 +12521,13 @@ def _decode_fixed_public(document, limits):
                 if header:
                     terminal_separator, _ = take("syntax", "terminal_separator", ", ")
                 token, text = take("identifier", "terminal_column")
-                _need(text == f"c{len(header)}", "declared terminal name")
+                _need(
+                    text == f"c{len(header)}"
+                    if block["kind"] != "join"
+                    else re.fullmatch(r"c[0-9]+", text) is not None,
+                    "declared terminal name",
+                )
+                header_names.append(text)
                 _need(
                     token["subject"]["kind"]
                     in {"stage_port", "result_port", "join_port"},
@@ -12419,7 +12575,7 @@ def _decode_fixed_public(document, limits):
                 for terminal in header
             )
             row_ctes[name] = (
-                join_select(block, header)
+                join_select(block, header, header_names)
                 if block["kind"] == "join"
                 else result_select(block, False, header)
                 if block["kind"] == "result_boundary"
@@ -12578,6 +12734,7 @@ def _decode_fixed_public(document, limits):
                 "scalar_nodes": scalar_nodes + result_nodes[0],
                 "ctes": row_ctes,
                 "collects": row_collects,
+                "unnests": row_unnests,
             },
         )
         return

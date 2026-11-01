@@ -64,6 +64,7 @@ from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_nested as nested
+from pietto._project import project_sql_emission_unnest as unnesting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project import project_sql_plan_windows as plan_windows
@@ -3135,6 +3136,7 @@ def _join_reads(
     ports,
     *,
     inline=None,
+    unnest=None,
 ):
     """Independently rebuild one JOIN input's pre-match columns and alias;
     ``inline`` is the verified capturing let a LATERAL right input executes."""
@@ -3205,6 +3207,9 @@ def _join_reads(
             )
     columns = []
     for position, reference in enumerate(original.ports):
+        if unnest is not None and original.ordinal == 0 and reference is unnest.source:
+            columns.append(None)
+            continue
         realization, problem = joining.port_realization(
             ports[reference], reads[position], outer=False
         )
@@ -3235,6 +3240,12 @@ def _verify_join_unit(request, unit, join, index, context, state):
         context["ports"],
         context["equalities"],
     )
+    unnests = tuple(value for value in plan.unnests if value.join is join.ref)
+    if len(unnests) > 1:
+        raise ValueError("unnest inventory")
+    unnest = unnests[0] if unnests else None
+    if unnest is not None and _unnest_problems(request, unit, unnest):
+        raise ValueError("unnest correspondence")
     state["nodes"] += joining_node_count(unit)
     available: dict[Any, Any] = {}
     if len(unit.inputs) != 2 or len(join.inputs) != 2:
@@ -3258,16 +3269,54 @@ def _verify_join_unit(request, unit, join, index, context, state):
             if ordinal and "lateral" in context
             else None
         )
-        alias, producer, use, columns, source_ref = _join_reads(
-            request,
-            original,
-            context["uses_by_ref"],
-            context["source_refs"],
-            context["produced"],
-            context["by_join"],
-            ports,
-            inline=inline,
-        )
+        if unnest is not None and ordinal == 1:
+            use = context["uses_by_ref"].get(original.binding_use)
+            if use is None or use.original.producer is not unnest.definition:
+                raise ValueError("unnest binding use")
+            alias = ast.SQLSymbol(0, original.ref, f"m{original.ref.position}")
+            producer, source_ref = item.producer, None
+            nested_read: Any = unit.inputs[0].columns[
+                unit.inputs[0].ports.index(unnest.source)
+            ]
+            if type(nested_read) is not unnesting.NestedRead:
+                raise ValueError("unnest nested input")
+            group = nested_read.group
+            if type(group) is resulting.ResultGroupColumn:
+                group = group.group
+            children = tuple(
+                column.column for column in group.lateral.target.producer.columns
+            )
+            columns = []
+            for position, (reference_port, child, binding) in enumerate(
+                zip(original.ports, children, use.bindings, strict=True)
+            ):
+                element = replace(
+                    child,
+                    position=position,
+                    name=f"c{position}",
+                    terminal=binding.terminal.ref,
+                    scope=None,
+                )
+                if not _same_read(item.producer.columns[position].column, element):
+                    raise ValueError("unnest element column")
+                realization, problem = joining.port_realization(
+                    ports[reference_port], element, outer=False
+                )
+                if realization is None:
+                    raise ValueError("unnest pre-match realization")
+                columns.append(replace(element, scope=alias, realization=realization))
+        else:
+            alias, producer, use, columns, source_ref = _join_reads(
+                request,
+                original,
+                context["uses_by_ref"],
+                context["source_refs"],
+                context["produced"],
+                context["by_join"],
+                ports,
+                inline=inline,
+                unnest=unnest,
+            )
         if (
             item.symbol.name != alias.name
             or item.symbol.binding is not original.ref
@@ -3276,7 +3325,11 @@ def _verify_join_unit(request, unit, join, index, context, state):
             or item.source is not source_ref
             or len(item.columns) != len(columns)
             or any(
-                not _same_read(actual, expected)
+                (
+                    type(actual) is not unnesting.NestedRead
+                    if expected is None
+                    else not _same_read(actual, expected)
+                )
                 for actual, expected in zip(item.columns, columns, strict=True)
             )
             or any(column.scope is not item.symbol for column in item.columns)
@@ -3363,9 +3416,16 @@ def _verify_join_unit(request, unit, join, index, context, state):
         zip(join.outputs, unit.columns, strict=True)
     ):
         port = ports[reference]
+        if type(column) is unnesting.WithheldPort:
+            if unnest is None or type(carriers[position]) is not unnesting.NestedRead:
+                raise ValueError("unexpected withheld join output")
+            continue
+        scalar = carriers[position]
+        if not isinstance(scalar, rows.StageColumn):
+            raise ValueError("non-scalar published JOIN output")
         realization, problem = joining.port_realization(
             port,
-            carriers[position],
+            scalar,
             outer=True,
             proved=match_refs[position] in rejected,
         )
@@ -3392,13 +3452,16 @@ def _verify_join_unit(request, unit, join, index, context, state):
         ):
             raise ValueError("join output column")
         state["symbols"].append(column.symbol)
-    if len(unit.cte_columns) != len(unit.columns):
+    published = tuple(
+        column for column in unit.columns if type(column) is not unnesting.WithheldPort
+    )
+    if len(unit.cte_columns) != len(published):
         raise ValueError("join cte columns")
     for position, (symbol, column) in enumerate(
-        zip(unit.cte_columns, unit.columns, strict=True)
+        zip(unit.cte_columns, published, strict=True)
     ):
         if (
-            symbol.position != position
+            symbol.position != column.position
             or symbol.binding is not column.port.ref
             or symbol.name != column.label
         ):
@@ -3409,6 +3472,11 @@ def _verify_join_unit(request, unit, join, index, context, state):
 def joining_node_count(unit) -> int:
     """This unit's own structural nodes; its condition is counted by the walk."""
     total = 4 + 3 * len(unit.columns) + 2 * len(unit.equalities)
+    total += sum(
+        4 + 4 * len(item.producer.arrays)
+        for item in unit.inputs
+        if type(item.producer) is unnesting.UnnestRows
+    )
     if unit.membership is not None:
         total += 3
     return total
@@ -4753,6 +4821,177 @@ def _collect_group_problems(request, body, column) -> tuple[str, ...]:
         return ("collect_structure",)
 
 
+def _unnest_problems(request, unit, unnest) -> tuple[str, ...]:
+    """Every rule one Unnest JOIN body breaks, in a fixed order.
+
+    ``unnest`` is the plan's own Unnest record, given by the caller and never
+    taken from the nodes. The JOIN, its inputs and ports come from the plan;
+    array names, element columns and withheld ports are re-derived from the
+    left input's realized producer. The builder is never called. Empty when
+    the body corresponds.
+    """
+    try:
+        plan = request.plan
+        issues = []
+        if request.family != "postgres":
+            issues.append("unnest_target")
+        joins = tuple(join for join in plan.joins if join.ref is unnest.join)
+        if (
+            len(joins) != 1
+            or unit.join is not joins[0]
+            or unit.join.kind not in unnesting.KINDS
+            or unit.join.rows is not joining.EXPECTED_ROWS[unit.join.kind]
+            or unit.membership is not None
+        ):
+            return (*issues, "unnest_join")
+        join = joins[0]
+        inputs = {item.ref: item for item in plan.join_inputs}
+        ports = {item.ref: item for item in plan.join_ports}
+        left, right = unit.inputs
+        rows_from = right.producer
+        if (
+            not _same(tuple(join.inputs), (left.original.ref, right.original.ref))
+            or right.original.ref is not unnest.input
+            or inputs.get(unnest.input) is not right.original
+            or right.original.ordinal != 1
+            or type(rows_from) is not unnesting.UnnestRows
+            or rows_from.unnest is not unnest
+        ):
+            return (*issues, "unnest_input")
+        # The arrays are qualified by the JOIN's own left input alone.
+        if rows_from.scope is not left.symbol:
+            issues.append("unnest_scope")
+        producer = left.producer
+        at = tuple(i for i, port in enumerate(left.ports) if port is unnest.source)
+        source = ports.get(unnest.source)
+        read = left.columns[at[0]] if len(at) == 1 else None
+        group = getattr(read, "group", None)
+        collected = group.group if type(group) is resulting.ResultGroupColumn else group
+        if (
+            len(at) != 1
+            or source is None
+            or source.kind is not ProjectSQLJoinPortKind.MATCH
+            or source.input is not left.original.ref
+            or type(read) is not unnesting.NestedRead
+            or read.position != at[0]
+            or read.port is not source
+            or read.scope is not left.symbol
+            or type(collected) is not nested.CollectColumn
+            or producer.columns[at[0]] is not group
+            or collected.collect.ref is not unnest.collect
+        ):
+            return (*issues, "unnest_source")
+        position = at[0]
+        width = len(collected.lateral.arrays)
+        # Exactly one group's arrays, in child order: the producer's header
+        # names them after the group's count column, c<i>_<j>.
+        header = len(producer.cte_columns) == len(producer.columns)
+        name = producer.cte_columns[position].name if header else None
+        expected = tuple(f"{name}_{j}" for j in range(width))
+        if (
+            not header
+            or read.count != name
+            or tuple(read.arrays) != expected
+            or tuple(rows_from.arrays) != expected
+        ):
+            issues.append("unnest_arrays")
+        elements = rows_from.columns
+        if (
+            not width
+            or len(elements) != width
+            or len(right.columns) != width
+            or len(right.ports) != width
+            or len(right.use.bindings) != width
+            or any(
+                element.position != j
+                or element.column.position != j
+                or element.column.name != f"c{j}"
+                or element.column.terminal is not right.use.bindings[j].terminal.ref
+                or right.columns[j].name != f"c{j}"
+                or right.columns[j].terminal is not element.column.terminal
+                or right.columns[j].scope is not right.symbol
+                for j, element in enumerate(elements)
+            )
+        ):
+            return (*issues, "unnest_columns")
+        # Each element keeps its child terminal's realization (its JOIN output
+        # gains NULL only by the JOIN kind). The right input reads it as any
+        # JOIN input reads its producer: by the pre-match port law, which keeps
+        # no binding mark or deferred obligation.
+        children = tuple(
+            column.column.realization
+            for column in collected.lateral.target.producer.columns
+        )
+
+        def pre_match(j, element):
+            expected, _ = joining.port_realization(
+                ports[right.ports[j]], element.column, outer=False
+            )
+            return expected is not None and _same_realization(
+                right.columns[j].realization, expected
+            )
+
+        if (
+            len(children) != width
+            or len(read.children) != width
+            or any(
+                not _same_realization(element.column.realization, child)
+                or not pre_match(j, element)
+                or not _same_realization(read.children[j], child)
+                for j, (element, child) in enumerate(
+                    zip(elements, children, strict=True)
+                )
+            )
+        ):
+            issues.append("unnest_realization")
+        split = len(left.ports)
+        if not _same(tuple(unnest.outputs), tuple(join.outputs[split:])) or any(
+            ports[output].kind is not ProjectSQLJoinPortKind.OUTPUT
+            or ports[output].source is not right.ports[j]
+            for j, output in enumerate(unnest.outputs)
+        ):
+            issues.append("unnest_outputs")
+        # Every nested port of the left producer is withheld from this JOIN on;
+        # every other port is published under its plan position's label.
+        withheld = {
+            i
+            for i in range(split)
+            if type(producer.columns[i])
+            in (nested.CollectColumn, resulting.ResultGroupColumn)
+        }
+        published = tuple(
+            column
+            for column in unit.columns
+            if type(column) is not unnesting.WithheldPort
+        )
+        if (
+            len(unit.columns) != len(join.outputs)
+            or len(join.outputs) != split + width
+            or any(
+                (type(column) is unnesting.WithheldPort) != (i in withheld)
+                or column.position != i
+                or column.port is not ports[join.outputs[i]]
+                or (
+                    type(column) is not unnesting.WithheldPort
+                    and (
+                        type(column) is not joining.JoinColumn
+                        or column.label != f"c{i}"
+                    )
+                )
+                for i, column in enumerate(unit.columns)
+            )
+            or len(unit.cte_columns) != len(published)
+            or any(
+                symbol.name != column.label or symbol.binding is not column.port.ref
+                for symbol, column in zip(unit.cte_columns, published)
+            )
+        ):
+            issues.append("unnest_withheld")
+        return tuple(issues)
+    except (AttributeError, TypeError, ValueError, IndexError, KeyError):
+        return ("unnest_structure",)
+
+
 def verify_row_query(request, query, *, _guarded=None):
     """Independent stage schedule, scope, column and expression correspondence."""
     try:
@@ -5064,8 +5303,28 @@ def verify_row_query(request, query, *, _guarded=None):
             columns = dict(
                 zip(block.inputs, _row_reads(request, scan, block), strict=True)
             )
-            if any(column is None for column in columns.values()):
-                return False
+            missing = {
+                reference for reference, column in columns.items() if column is None
+            }
+            if missing:
+                if type(scan) is not RowJoinUse or block.kind.value != "projection":
+                    return False
+                withheld = {
+                    reference
+                    for position, reference in enumerate(block.inputs)
+                    if any(
+                        type(column) is unnesting.WithheldPort
+                        and column.port.ref is scan.tail.ports[position]
+                        for column in scan.body.columns
+                    )
+                }
+                if missing != withheld:
+                    return False
+                columns = {
+                    reference: column
+                    for reference, column in columns.items()
+                    if column is not None
+                }
             scopes = _block_scopes(request, definition, produced, source_refs, inline)
             for block_use in plan.expression_block_uses:
                 if (
@@ -5607,7 +5866,11 @@ def _row_reads(request, scan, block):
             if len(matches) != 1:
                 return [None]
             reads.append(
-                replace(matches[0].column, position=position, name=matches[0].label)
+                None
+                if type(matches[0]) is unnesting.WithheldPort
+                else replace(
+                    matches[0].column, position=position, name=matches[0].label
+                )
             )
             continue
         assert type(scan) is RowStageUse
@@ -7266,9 +7529,65 @@ def verify_row_bytes(query, rendered):
                     )
                 take("syntax", "values_columns_close", reference, ")")
 
+        def unnest_rows(item):
+            # One single-argument schema-qualified call per array, in one
+            # LATERAL ROWS FROM, then one column alias per element column.
+            reference = item.original.ref
+            producer = item.producer
+            unnest = producer.unnest
+            if (
+                request.family != "postgres"
+                or not producer.arrays
+                or len(producer.arrays) != len(producer.columns)
+            ):
+                raise ValueError("Unnest rows shape")
+            take("syntax", "unnest_rows_open", reference, "LATERAL ROWS FROM (")
+            for index, array in enumerate(producer.arrays):
+                if index:
+                    take("syntax", "separator", unnest.ref, ", ")
+                take("syntax", "unnest_function", unnest.ref, "pg_catalog.unnest(")
+                take(
+                    "identifier",
+                    "unnest_scope",
+                    unnest.source,
+                    producer.scope.name,
+                    identifier=True,
+                )
+                take("syntax", "qualifier", unnest.source, ".")
+                take(
+                    "identifier", "unnest_array", unnest.source, array, identifier=True
+                )
+                take("syntax", "unnest_function_close", unnest.ref, ")")
+            take("syntax", "unnest_rows_close", reference, ")")
+            take("syntax", "join_alias", reference, " AS ")
+            take(
+                "identifier",
+                "join_scope",
+                reference,
+                item.symbol.name,
+                identifier=True,
+            )
+            take("syntax", "unnest_columns_open", reference, " (")
+            for index, column in enumerate(producer.columns):
+                if column.position != index or column.column.name != f"c{index}":
+                    raise ValueError("Unnest column alias")
+                if index:
+                    take("syntax", "separator", reference, ", ")
+                take(
+                    "identifier",
+                    "unnest_column",
+                    column.column.terminal,
+                    column.column.name,
+                    identifier=True,
+                )
+            take("syntax", "unnest_columns_close", reference, ")")
+
         def join_relation(item):
             reference = item.original.ref
             producer = item.producer
+            if type(producer) is unnesting.UnnestRows:
+                unnest_rows(item)
+                return
             if type(producer) is BoundSource:
                 relation = item.source
                 take(
@@ -7363,10 +7682,23 @@ def verify_row_bytes(query, rendered):
         def join_select(unit):
             reference = unit.join.ref
             left, right = unit.inputs
+            # An Unnest is only the right input of a CROSS, INNER or LEFT JOIN.
+            if type(left.producer) is unnesting.UnnestRows or (
+                type(right.producer) is unnesting.UnnestRows
+                and (
+                    unit.join.kind not in unnesting.KINDS or unit.membership is not None
+                )
+            ):
+                raise ValueError("Unnest JOIN shape")
             take("syntax", "select", reference, "SELECT ")
-            for position, column in enumerate(unit.columns):
-                if position:
+            written = 0
+            for column in unit.columns:
+                # A withheld nested port has no SELECT item.
+                if type(column) is unnesting.WithheldPort:
+                    continue
+                if written:
                     take("syntax", "separator", column.port.ref, ", ")
+                written += 1
                 take(
                     "identifier",
                     "join_column_scope",

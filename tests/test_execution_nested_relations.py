@@ -216,7 +216,7 @@ def test_collect_is_no_scalar_block_read():
     "place", (("structure", True), ("structure", False), ("outputs", False))
 )
 @pytest.mark.parametrize("count", (1, 2))
-def test_a_reserved_unnest_record_decodes_and_is_refused(built, place, count):
+def test_an_unbound_unnest_record_decodes_and_is_refused(built, place, count):
     build = built["postgres"]
     description = build.root.description
     records = _records(description)
@@ -242,8 +242,9 @@ def test_a_reserved_unnest_record_decodes_and_is_refused(built, place, count):
     assert not any(
         a.kind == "unnest" for a in selected_relations(reserved, reserved[forged.query])
     )
-    assert _refused(forged) == "COMPILED_UNNEST_UNAVAILABLE"
-    with pytest.raises(CompiledError, match="^COMPILED_UNNEST_UNAVAILABLE$"):
+    category = "COMPILED_RECORD_ORDER" if member == "outputs" else "COMPILED_UNNEST"
+    assert _refused(forged).startswith(category)
+    with pytest.raises(CompiledError, match="^" + category):
         _load(build, raw)
     before = set(sys.modules)
     with pytest.raises(execution.RequestRejected) as caught:
@@ -253,10 +254,9 @@ def test_a_reserved_unnest_record_decodes_and_is_refused(built, place, count):
             accepted_producer=build.producer,
             accepted_compatibility=build.compatibility[4],
         )
-    assert (caught.value.code, caught.value.detail) == (
-        "PIE-R1008",
-        "COMPILED_UNNEST_UNAVAILABLE",
-    )
+    assert caught.value.code == "PIE-R1008"
+    assert isinstance(caught.value.detail, str)
+    assert caught.value.detail.startswith(category)
     assert caught.value.attempt is None and caught.value.outcome is None
     assert not {m for m in set(sys.modules) - before if m.split(".")[0] in DRIVERS}
 
@@ -523,7 +523,9 @@ def _emitted(directory, files, document, policy="preserve"):
         "contract.json",
         POLICIES[policy],
     )
-    assert outcome.status == "VERIFIED" and outcome.artifact is not None, outcome
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None, [
+        (blocker.code, blocker.detail) for blocker in outcome.blockers
+    ]
     return outcome.artifact
 
 
@@ -563,6 +565,162 @@ def _real(factory, shape):
         loaded = _loaded(build)
         _REAL[shape] = (artifact, build, loaded, emit_compiled(loaded, ()))
     return _REAL[shape]
+
+
+_UNNEST_REAL: dict[str, tuple] = {}
+
+
+def _unnest_real(tmp_path, name):
+    """One U1/U2/U4 literal program through build, load and compiled lowering."""
+    if name not in _UNNEST_REAL:
+        item = oracle.program(name)
+        text = "".join(value for _, value in item.files)
+        document = json.loads(collecting.oracle_contract())
+        document["sources"] = [
+            source
+            for source in document["sources"]
+            if f"from {source['selector']['name']}" in text
+        ]
+        artifact = _emitted(tmp_path / name, dict(item.files), document)
+        build = build_compiled(artifact)
+        loaded = _loaded(build)
+        _UNNEST_REAL[name] = (artifact, build, loaded, emit_compiled(loaded, ()))
+    return _UNNEST_REAL[name]
+
+
+def _unnest_damage(description, change):
+    records = _records(description)
+    (unnest,) = (
+        record for record in records.values() if record.address.kind == "unnest"
+    )
+    owner, _position, source, fields, outputs, layout = unnest.values
+    join = records[layout[2]]
+    left, right = (records[address] for address in join.get("inputs"))
+    if change == "owner":
+        foreign = next(
+            record.address
+            for record in records.values()
+            if record.address.kind == "declaration" and record.address != owner
+        )
+        return _changed(description, _set(unnest, owner=foreign))
+    if change == "source":
+        foreign = next(port for port in left.get("ports") if port != source)
+        return _changed(description, _set(unnest, source=foreign))
+    if change == "fields":
+        return _changed(description, _set(unnest, fields=tuple(reversed(fields))))
+    if change == "logical":
+        field = records[fields[0]]
+        return _changed(description, _set(field, logical=("Float", "non_null")))
+    if change == "outputs":
+        return _changed(description, _set(unnest, outputs=tuple(reversed(outputs))))
+    if change == "layout":
+        return _changed(description, _set(unnest, layout=(*layout[:3], 0, None)))
+    if change == "wrong_left":
+        return _changed(description, _set(join, inputs=(right.address, left.address)))
+    if change == "wrong_join":
+        return _changed(
+            description,
+            _set(unnest, layout=(layout[0], layout[1], left.address, *layout[3:])),
+        )
+    assert change == "coordinated_children"
+    pairs = tuple(zip(fields, outputs, strict=True))[::-1]
+    changed = [
+        _set(
+            unnest,
+            fields=tuple(field for field, _ in pairs),
+            outputs=tuple(output for _, output in pairs),
+        ),
+        _set(right, ports=tuple(output for _, output in pairs)),
+    ]
+    for ordinal, (field, output) in enumerate(pairs):
+        changed.append(_set(records[output], ordinal=ordinal, source=field))
+    return _changed(description, *changed)
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "U1_cross",
+        "U2_inner_true",
+        "U3_inner_v_gt_10",
+        "U4_left_true",
+        "U5_left_v_gt_10",
+    ),
+)
+def test_literal_unnest_bundle_lowers_source_free(tmp_path, monkeypatch, name):
+    """S13 keeps a flat public result while rebuilding its private right input."""
+    artifact, build, _loaded_root, _lowered = _unnest_real(tmp_path, name)
+    import pietto.parser_api as parser
+    from pietto._project import check, model, project_completed_semantics
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("source-language entry reached from a bundle")
+
+    monkeypatch.setattr(parser, "parse_source", forbidden)
+    monkeypatch.setattr(check, "check_project_parse_only", forbidden)
+    monkeypatch.setattr(model, "build_empty_project_semantic_result", forbidden)
+    monkeypatch.setattr(
+        project_completed_semantics,
+        "build_project_completed_semantic_result",
+        forbidden,
+    )
+    loaded = _loaded(build)
+    lowered = emit_compiled(loaded, ())
+    assert lowered.rendered.sql == artifact.rendered.sql
+    assert not any(
+        type(field.shape) is NestedShape for field in _contract_of(lowered).shape.fields
+    )
+    assert len(lowered.request.plan.unnests) == 1
+    verify_compiled_sql_plan(lowered.request.plan)
+
+
+@pytest.mark.parametrize(
+    "change",
+    (
+        "owner",
+        "source",
+        "fields",
+        "logical",
+        "outputs",
+        "layout",
+        "wrong_left",
+        "wrong_join",
+        "coordinated_children",
+    ),
+)
+def test_damaged_literal_unnest_bundle_is_refused_before_lowering(tmp_path, change):
+    """Every v6 Unnest identity component is independently fail-closed."""
+    _artifact, build, _loaded_root, _lowered = _unnest_real(tmp_path, "U1_cross")
+    raw = encode(_unnest_damage(build.root.description, change))
+    with pytest.raises(CompiledError):
+        _load(build, raw)
+
+
+@pytest.mark.parametrize("change", ("parent_module", "consumer_filter", "extra_join"))
+def test_compiled_unnest_domain_rejects_later_combinations(tmp_path, change):
+    from pietto._project.project_compiled_verification import _verify_unnests
+
+    _artifact, build, _loaded_root, _lowered = _unnest_real(tmp_path, "U1_cross")
+    records = _records(build.root.description)
+    entry = records[build.root.description.query]
+    join = next(record for record in records.values() if record.address.kind == "join")
+    if change == "parent_module":
+        left = records[join.get("inputs")[0]]
+        parent = records[left.get("producer")]
+        owner = records[parent.get("owner")]
+        records[owner.address] = _set(owner, module="other.pietto", module_position=1)
+    elif change == "consumer_filter":
+        row = next(
+            record
+            for record in records.values()
+            if record.address.kind == "row" and record.get("owner") == join.get("owner")
+        )
+        records[row.address] = _set(row, stage="where")
+    else:
+        address = Address("join", join.address.position + 1)
+        records[address] = Record(address, join.values)
+    with pytest.raises(CompiledError, match="^COMPILED_UNNEST_DOMAIN$"):
+        _verify_unnests(records, entry, "postgres")
 
 
 def _units(query):

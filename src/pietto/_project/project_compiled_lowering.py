@@ -283,6 +283,8 @@ def emit_compiled(root, values, named=None):
                 column = columns_by_ref[producer][port.get("ordinal")]
             if record.get("use") != use or port.get("owner") != producer:
                 raise CompiledError("COMPILED_READ_SCOPE")
+            if type(column) is not rows.StageColumn:
+                raise CompiledError("COMPILED_UNNEST_WITHHELD")
             binding = use_bindings[use].bindings[port.get("ordinal")]
             return rows.SQLStageReference(
                 original, binding.input_port.ref, column, fact.realization, scope=symbol
@@ -507,12 +509,179 @@ def emit_compiled(root, values, named=None):
         finally:
             captures.pop()
 
+    def unnest_join(record, images, predicate, item):
+        """Build S13's one private lateral Unnest JOIN from compiled records."""
+        from pietto.ast_nodes import AuthoredJoinKind
+        from pietto._project import project_sql_emission_joins as joining
+        from pietto._project import project_sql_emission_unnest as unnesting
+
+        if len(images) != 2 or record.get("equalities"):
+            raise CompiledError("COMPILED_UNNEST_JOIN")
+        kind = AuthoredJoinKind(record.get("kind"))
+        if kind not in unnesting.KINDS:
+            raise CompiledError("COMPILED_UNNEST_KIND")
+        left_address, right_address = record.get("inputs")
+        left_image, right_image = images
+        left = joining.JoinInput(
+            joining.CompiledJoinPart(refs[left_address]),
+            0,
+            left_image[4],
+            left_image[0],
+            left_image[2],
+            left_image[3],
+            tuple(binding.input_port.ref for binding in left_image[4].bindings),
+            left_image[1],
+        )
+        source_at = tuple(
+            i
+            for i, binding in enumerate(left.use.bindings)
+            if binding.canonical.ref is item.source
+        )
+        ports = {port.ref: port for port in plan.ports.values()}
+        source = ports.get(item.source)
+        if len(source_at) != 1 or source is None:
+            raise CompiledError("COMPILED_UNNEST_SOURCE")
+        position = source_at[0]
+        read, problem = unnesting.nested_read(
+            left.producer.columns[position],
+            position=position,
+            port=source,
+            scope=left.symbol,
+        )
+        if read is None:
+            raise CompiledError("COMPILED_UNNEST_READ") from None
+        left = replace(
+            left,
+            columns=tuple(
+                read if i == position else column
+                for i, column in enumerate(left.columns)
+            ),
+        )
+        producer = right_image[0]
+        if type(producer) is not unnesting.UnnestRows or producer.unnest is not item:
+            raise CompiledError("COMPILED_UNNEST_REALIZATION")
+        if any(
+            column.column.realization.tag not in {"Int", "Bool", "Text"}
+            or (
+                column.column.realization.tag == "Text"
+                and (
+                    column.column.realization.domain.get("kind") != "text"
+                    or type(column.column.realization.domain.get("max_characters"))
+                    is not int
+                    or column.column.realization.domain["max_characters"] <= 0
+                )
+            )
+            for column in producer.columns
+        ):
+            raise CompiledError("COMPILED_UNNEST_LEAF")
+        right = joining.JoinInput(
+            joining.CompiledJoinPart(refs[right_address]),
+            1,
+            right_image[4],
+            producer,
+            right_image[2],
+            right_image[3],
+            tuple(binding.input_port.ref for binding in right_image[4].bindings),
+        )
+        subject = joining.CompiledJoinSubject(
+            refs[record.address],
+            kind,
+            None if record.get("predicate") is None else refs[record.get("predicate")],
+        )
+        rejected = joining.null_rejected_ports(subject, (), predicate)
+        ordered = (*left.columns, *right.columns)
+        carriers = tuple(
+            binding.input_port for binding in (*left.use.bindings, *right.use.bindings)
+        )
+        columns = []
+        for position, address in enumerate(record.get("outputs")):
+            port = plan.ports[address]
+            actual = ordered[position]
+            if type(actual) is unnesting.NestedRead:
+                columns.append(unnesting.WithheldPort(position, port))
+                continue
+            if not isinstance(actual, rows.StageColumn):
+                raise CompiledError("COMPILED_UNNEST_SCALAR")
+            expected, problem = joining.resolved_port_realization(
+                facts[address].value_type.resolved_type.name,
+                joining.NULLABILITY[facts[address].value_type.nullability],
+                actual.realization,
+                outer=True,
+                proved=carriers[position].ref in rejected,
+            )
+            if (
+                expected is None
+                or problem is not None
+                or (
+                    expected.tag,
+                    expected.storage,
+                    expected.nullable,
+                    expected.domain,
+                )
+                != (
+                    facts[address].realization.tag,
+                    facts[address].realization.storage,
+                    facts[address].realization.nullable,
+                    facts[address].realization.domain,
+                )
+            ):
+                raise CompiledError("COMPILED_UNNEST_OUTPUT")
+            terminal = replace(
+                actual,
+                position=position,
+                name=port.identity.name,
+                terminal=port.ref,
+                realization=facts[address].realization,
+                scope=None,
+            )
+            columns.append(
+                joining.JoinColumn(
+                    position,
+                    port,
+                    carriers[position],
+                    f"c{position}",
+                    ast.SQLSymbol(position, port.ref, f"c{position}"),
+                    terminal,
+                    left.symbol if position < len(left.ports) else right.symbol,
+                    actual,
+                )
+            )
+        published = tuple(
+            column for column in columns if type(column) is not unnesting.WithheldPort
+        )
+        return joining.JoinBody(
+            subject,
+            index,
+            (left, right),
+            (),
+            predicate,
+            tuple(columns),
+            ast.SQLSymbol(index, subject.ref, record.get("layout")[0]),
+            tuple(
+                ast.SQLSymbol(i, column.port.ref, column.label)
+                for i, column in enumerate(published)
+            ),
+            None,
+            None,
+        )
+
     def build(index, record, inline=False):
         if record.address.kind == "join":
+            from pietto.ast_nodes import AuthoredJoinKind
             from pietto._project.project_sql_emission_joins import (
                 build_compiled_unit as build_join,
             )
 
+            unnests = tuple(
+                item
+                for item in getattr(plan, "unnests", ())
+                if type(item.layout) is tuple
+                and len(item.layout) == 5
+                and item.layout[2] == record.address
+            )
+            if len(unnests) > 1:
+                raise CompiledError("COMPILED_UNNEST_INVENTORY")
+            unnest = unnests[0] if unnests else None
             images, contexts = [], {}
             for ordinal, use_address in enumerate(record.get("inputs")):
                 producer_address = records[use_address].get("producer")
@@ -527,9 +696,13 @@ def emit_compiled(root, values, named=None):
                     if ordinal != 1 or left not in contexts:
                         raise CompiledError("COMPILED_LATERAL_INPUT")
                     lateral(producer_address, (left, *contexts[left][:2], use_address))
-                reads = tuple(
-                    replace(c, scope=symbol) for c in columns_by_ref[producer_address]
-                )
+                if unnest is not None and ordinal == 1:
+                    reads = ()
+                else:
+                    reads = tuple(
+                        replace(c, scope=symbol)
+                        for c in columns_by_ref[producer_address]
+                    )
                 source = source_by_ref.get(producer_address)
                 images.append(
                     (
@@ -537,7 +710,9 @@ def emit_compiled(root, values, named=None):
                         if source is not None
                         else inline_bodies[producer_address]
                         if producer_address in inline_units
-                        else bodies[producer_address],
+                        else bodies[producer_address]
+                        if unnest is None or ordinal != 1
+                        else None,
                         refs[producer_address] if source is not None else None,
                         symbol,
                         reads,
@@ -545,16 +720,110 @@ def emit_compiled(root, values, named=None):
                     )
                 )
                 contexts[use_address] = (producer_address, symbol, reads)
+                if unnest is not None and ordinal == 1:
+                    # The Unnest's own columns are reconstructed from the left
+                    # collection below before an ON predicate reads them.
+                    left_image = images[0]
+                    from pietto._project import project_sql_emission_joins as joining
+                    from pietto._project import project_sql_emission_unnest as unnesting
+
+                    left = joining.JoinInput(
+                        joining.CompiledJoinPart(refs[record.get("inputs")[0]]),
+                        0,
+                        left_image[4],
+                        left_image[0],
+                        left_image[2],
+                        left_image[3],
+                        tuple(
+                            binding.input_port.ref for binding in left_image[4].bindings
+                        ),
+                        left_image[1],
+                    )
+                    at = next(
+                        (
+                            i
+                            for i, binding in enumerate(left.use.bindings)
+                            if binding.canonical.ref is unnest.source
+                        ),
+                        None,
+                    )
+                    if at is None:
+                        raise CompiledError("COMPILED_UNNEST_SOURCE")
+                    local = replace(unnest, source=left.ports[at])
+                    source_port = next(
+                        (
+                            port
+                            for port in plan.ports.values()
+                            if port.ref is unnest.source
+                        ),
+                        None,
+                    )
+                    if source_port is None:
+                        raise CompiledError("COMPILED_UNNEST_SOURCE")
+                    read, problem = unnesting.nested_read(
+                        left.producer.columns[at],
+                        position=at,
+                        port=source_port,
+                        scope=left.symbol,
+                    )
+                    if read is None:
+                        raise CompiledError("COMPILED_UNNEST_READ") from None
+                    left = replace(
+                        left,
+                        columns=tuple(
+                            read if i == at else column
+                            for i, column in enumerate(left.columns)
+                        ),
+                    )
+                    producer, problem = unnesting.realize_unnest(
+                        local,
+                        left,
+                        kind=AuthoredJoinKind(record.get("kind")),
+                        terminals=tuple(
+                            binding.terminal.ref
+                            for binding in use_bindings[use_address].bindings
+                        ),
+                    )
+                    if producer is None:
+                        raise CompiledError("COMPILED_UNNEST_REALIZATION") from None
+                    producer = replace(producer, unnest=unnest)
+                    images[-1] = (
+                        producer,
+                        None,
+                        symbol,
+                        tuple(
+                            replace(column.column, scope=symbol)
+                            for column in producer.columns
+                        ),
+                        use_bindings[use_address],
+                    )
+                    contexts[use_address] = (
+                        producer_address,
+                        symbol,
+                        tuple(
+                            replace(column.column, scope=symbol)
+                            for column in producer.columns
+                        ),
+                    )
             predicate = (
                 None
                 if record.get("predicate") is None
                 else scalar(record.get("predicate"), None, None, "", contexts)
             )
-            body = build_join(plan, record, tuple(images), predicate)
+            body = (
+                build_join(plan, record, tuple(images), predicate)
+                if unnest is None
+                else unnest_join(record, tuple(images), predicate, unnest)
+            )
             bodies[record.address] = body
+            names = iter(body.cte_columns)
+            from pietto._project import project_sql_emission_unnest as unnesting
+
             columns_by_ref[record.address] = tuple(
-                replace(c.column, name=body.cte_columns[i].name)
-                for i, c in enumerate(body.columns)
+                None
+                if type(column) is unnesting.WithheldPort
+                else replace(column.column, name=next(names).name)
+                for column in body.columns
             )
             return
         if record.address.kind in ("values", "table_function"):

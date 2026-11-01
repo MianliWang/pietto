@@ -163,7 +163,7 @@ access = pe.PostgresAccess(config.get("host", "127.0.0.1"), config["port"],
     config.get("database", "phase66"), config.get("user", "pietto_reader"),
     password, config.get("sslmode", "require"))
 premise = pe.PostgresDeploymentPremise(schemas=("public", "pg_catalog")
-    if case.startswith("nested_") else ("fixture", "pg_catalog"))
+    if case.startswith(("nested_", "unnest_")) else ("fixture", "pg_catalog"))
 limits = pe.ExecutionLimits(**config.get("limits", {}))
 def attempt(**changes):
     arguments = dict(route="postgres_rows", access=access, premise=premise,
@@ -254,7 +254,7 @@ elif case == "rows":
                 rows.extend(pa.record_batch(batch).to_pylist())
     result.update(rows=sorted([r["id"], r["label"]] for r in rows),
         outcome=facts(handle.outcome), after=effects())
-elif case == "nested_rows":
+elif case in ("nested_rows", "unnest_rows"):
     import pyarrow as pa
 
     rows = []
@@ -271,6 +271,9 @@ elif case == "nested_rows":
                 rows.extend(pa.record_batch(batch).to_pylist())
     result.update(rows=rows, preflight=collection_preflight(),
         outcome=facts(handle.outcome), after=effects())
+    if case == "unnest_rows":
+        result["metadata"] = handle._owner.actual_metadata
+
 elif case == "nested_stopped":
     import pyarrow as pa
 
@@ -288,7 +291,7 @@ elif case == "nested_cancelled":
             pass
     except pe.AttemptFailed as error:
         result.update(refusal(error))
-elif case == "nested_refused":
+elif case in ("nested_refused", "unnest_refused"):
     import pyarrow as pa
 
     result["schema"] = [[field.name, str(field.type), field.nullable] for field in pa.schema(handle)]
@@ -302,6 +305,8 @@ elif case == "nested_refused":
             result["opened"] = True
     except pe.AttemptFailed as error:
         result.update(refusal(error))
+    if case == "unnest_refused":
+        result["submitted"] = handle._owner._submitted
 elif case == "early_stop":
     result["before"] = effects()
     with handle:
@@ -1119,7 +1124,11 @@ def statements(passwords):
     replaced), an out-of-domain relation, the reader without a server-side
     statement limit, and one role per refused authentication method (md5
     hashed as md5). The reader's password is set as `\\password` sets it."""
-    from _pietto_execution_api import example_blocks, setup_blocks
+    from _pietto_execution_api import (
+        example_blocks,
+        setup_blocks,
+        unnest_setup_statements,
+    )
     from _pietto_execution_api import statements as documented
 
     wide = ",".join(f"({i},'{label}')" for i, label in WIDE_ROWS)
@@ -1128,6 +1137,7 @@ def statements(passwords):
     assert len(database) == 1, role
     return (
         *documented(example_blocks()["sql"]),
+        *unnest_setup_statements(),
         "CREATE TABLE public.rows (id int8 NOT NULL)",
         "INSERT INTO public.rows VALUES (0),(2),(5),(5),(7)",
         "CREATE TABLE public.kids (parent int8 NOT NULL, seq int8 NOT NULL,"
@@ -1141,6 +1151,7 @@ def statements(passwords):
         "INSERT INTO fixture.items_wide VALUES " + wide,
         *(s.replace(" DATABASE app ", " DATABASE phase66 ") for s in role),
         "GRANT SELECT ON fixture.items_wide TO pietto_reader",
+        "GRANT SELECT ON public.customers, public.orders TO pietto_reader",
         "GRANT SELECT ON TABLE public.rows, public.kids TO pietto_reader",
         # Only Pietto's own statement limit applies to the reader's sessions.
         "ALTER ROLE pietto_reader SET statement_timeout = 0",
@@ -1335,7 +1346,11 @@ def manual_cancel(python, cwd, config, manager, quiet):
 
 def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
     import _pietto_target_conformance_resources as resources_module
-    from _pietto_execution_api import write_example, write_nested_collect
+    from _pietto_execution_api import (
+        write_example,
+        write_nested_collect,
+        write_nested_unnest,
+    )
 
     directory.mkdir(mode=0o700)
     started = time.monotonic()
@@ -1376,6 +1391,16 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
     wide = write_example(work / "wide", relation="items_wide")
     nested_captured = write_nested_collect(work / "nested", closed=False)
     nested_closed = write_nested_collect(work / "nested", closed=True)
+    unnest_projects = {
+        name: write_nested_unnest(work / name, program)
+        for name, program in (
+            ("unnest_cross", "U1_cross"),
+            ("unnest_inner", "U2_inner_true"),
+            ("unnest_left", "U4_left_true"),
+            ("unnest_left_on", "U5_left_v_gt_10"),
+            ("unnest_bundle", "U4_left_true"),
+        )
+    }
     pins = json.loads((ROOT / "tests/phase66_target_pins.json").read_text())
     (directory / "resources").mkdir()
     resources = resources_module.Resources(
@@ -1413,6 +1438,32 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             "name": "result",
             "contract": "contract.json",
         }
+        for name, project_path in unnest_projects.items():
+            report[name] = case(
+                python,
+                work,
+                {
+                    **reader,
+                    "case": "unnest_rows",
+                    "project": str(project_path),
+                    "query": nested,
+                    "load_bundle": name == "unnest_bundle",
+                    "remove_project": name == "unnest_bundle",
+                },
+                extra=quiet,
+            )
+        report["unnest_limit"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "unnest_refused",
+                "project": str(unnest_projects["unnest_cross"]),
+                "query": nested,
+                "limits": {"max_rows": 64},
+            },
+            extra=quiet,
+        )
         report["nested_captured"] = case(
             python,
             work,

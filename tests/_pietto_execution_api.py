@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import ctypes
+import json
 import os
 from pathlib import Path
 import re
@@ -122,6 +123,64 @@ def write_nested_collect(directory, *, closed=False):
     output = nested.collected(product, project, closed=closed)
     (project / "contract.json").write_bytes(output.artifact.request.accepted_bytes)
     return project
+
+
+def write_nested_unnest(directory, name):
+    """A literal-oracle S13 project, with only its actual physical sources."""
+    import _pietto_execution_nested_oracle as oracle
+    import _pietto_sql_nested_collect as collecting
+
+    program = oracle.program(name)
+    project = Path(directory)
+    project.mkdir(parents=True)
+    for name, contents in program.files:
+        (project / name).write_text(contents, encoding="utf-8")
+    text = "".join(contents for _, contents in program.files)
+    contract = json.loads(collecting.oracle_contract())
+    contract["sources"] = [
+        source
+        for source in contract["sources"]
+        if f"from {source['selector']['name']}" in text
+    ]
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return project
+
+
+def unnest_setup_statements():
+    """Populate the independent basic-leaf FULL seed in the owned PG fixture."""
+    import _pietto_execution_nested_oracle as oracle
+
+    def value(item):
+        if item is None:
+            return "NULL"
+        if type(item) is bool:
+            return "TRUE" if item else "FALSE"
+        if type(item) is int:
+            return str(item)
+        if type(item) is str:
+            return "'" + item.replace("'", "''") + "'"
+        raise ValueError("Unnest native fixture leaf")
+
+    result = []
+    tables = oracle.seed("FULL", oracle.DEFAULT_LEAVES)
+    for name in ("customers", "orders"):
+        table = tables[name]
+        columns = [
+            f'"{column.name}" '
+            + {"Int": "int8", "Bool": "boolean", "Text": 'text COLLATE "C"'}[
+                column.kind
+            ]
+            + ("" if column.nullable else " NOT NULL")
+            for column in table.columns
+        ]
+        result.append(f'CREATE TABLE public."{name}" (' + ",".join(columns) + ")")
+        result.append(
+            f'INSERT INTO public."{name}" VALUES '
+            + ",".join(
+                "(" + ",".join(value(cell) for cell in row) + ")" for row in table.rows
+            )
+        )
+    return tuple(result)
 
 
 # psycopg 3.3.5 hands every connection string, password included, to its

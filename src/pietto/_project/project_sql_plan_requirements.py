@@ -1761,10 +1761,11 @@ def verify_compiled_requirement_inputs(records):
             "definition": F.SOURCE,
             "export": F.EXPORT,
             "collect": F.COLLECTION,
+            "unnest": F.COLLECTION,
         }
         # A Collect read's bag and order demands name the read; its container
-        # and child fields demand names its export (Phase71 S09). No compiled
-        # Unnest demand exists before S13.
+        # and child fields demand names its export. S13's two Unnest demands
+        # retain their exact Unnest occurrence.
         collected = nested.ProjectSQLCollectionDemandKind
         need(
             (expected.get(role) is family or (role, family) == ("export", F.COLLECTION))
@@ -1774,6 +1775,8 @@ def verify_compiled_requirement_inputs(records):
                 in (
                     (collected.COLLECT_EXPORT.value,)
                     if role == "export"
+                    else (collected.UNNEST_ROWS.value, collected.UNNEST_SOURCE.value)
+                    if role == "unnest"
                     else (collected.COLLECT.value, collected.COLLECT_ORDER.value)
                 )
             ),

@@ -5255,6 +5255,26 @@ class CompiledQueryBlockIR:
     grain_origin: object = field(repr=False)
 
 
+def compiled_operator_records(records):
+    """Unnest is a semantic input immediately before its consuming JOIN."""
+    from pietto._project.project_compiled_verification import RELATIONS
+    from pietto._project.project_compiled_schema import CompiledError
+
+    unnests = tuple(r for r in records.values() if r.address.kind == "unnest")
+    by_join = {record.get("layout")[2]: record for record in unnests}
+    if len(by_join) != len(unnests):
+        raise CompiledError("COMPILED_IR_UNNEST")
+    result = []
+    for record in records.values():
+        if record.address.kind in RELATIONS:
+            if record.address in by_join:
+                result.append(by_join.pop(record.address))
+            result.append(record)
+    if by_join:
+        raise CompiledError("COMPILED_IR_UNNEST")
+    return tuple(result)
+
+
 def build_compiled_query_block_ir(completed):
     """Construct the explicit resolved-input branch, with fresh scoped references."""
     from types import MappingProxyType
@@ -5262,7 +5282,6 @@ def build_compiled_query_block_ir(completed):
         CompiledCompletedSemanticResult,
     )
     from pietto._project.project_compiled_schema import CompiledError
-    from pietto._project.project_compiled_verification import RELATIONS
     from pietto._project.model import ProjectResolvedType, ProjectResolvedTypeKind
 
     if type(completed) is not CompiledCompletedSemanticResult:
@@ -5279,19 +5298,23 @@ def build_compiled_query_block_ir(completed):
         root=completed.root, scope=scope, references=references
     )
     operators, by_address = [], {}
-    for address, record in records.items():
-        if address.kind not in RELATIONS:
-            continue
+    for record in compiled_operator_records(records):
+        address = record.address
         owner_address = (
             record.get("declaration")
             if address.kind == "source"
             else record.get("owner")
         )
-        inputs = tuple(
-            references[r.get("producer")]
-            for r in records.values()
-            if r.address.kind == "use" and r.get("consumer") == address
+        input_addresses = (
+            (records[record.get("source")].get("owner"),)
+            if address.kind == "unnest"
+            else tuple(
+                r.get("producer")
+                for r in records.values()
+                if r.address.kind == "use" and r.get("consumer") == address
+            )
         )
+        inputs = tuple(references[item] for item in input_addresses)
         ports = tuple(
             r
             for r in records.values()
@@ -5330,9 +5353,7 @@ def build_compiled_query_block_ir(completed):
         from pietto._project.project_compiled_schema import MAX_EDGES, MAX_RECORDS
 
         parents = tuple(
-            by_address[r.get("producer")].properties.relational
-            for r in records.values()
-            if r.address.kind == "use" and r.get("consumer") == address
+            by_address[item].properties.relational for item in input_addresses
         )
         key_count = sum(len(parent.keys) for parent in parents)
         if address.kind == "join" and len(parents) == 2:
@@ -5470,7 +5491,7 @@ def compiled_relational_properties(
             witness=record,
         )
         return properties(classes, retained, _key_fds(output, classes, retained), grain)
-    if kind in ("values", "table_function"):
+    if kind in ("values", "table_function", "unnest"):
         # Fixed literal or generated rows carry no row identity: no key, FD or
         # grain claim.
         classes = _singleton_classes(output, fields)

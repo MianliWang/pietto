@@ -193,17 +193,6 @@ def _domain(request) -> CollectionDomain | None:
             _resource()
         return matches[0]
 
-    def bound_for(port):
-        matches = tuple(
-            (source, item)
-            for source in sources
-            for item in source.fields
-            if item.field is port.field
-        )
-        if len(matches) != 1:
-            _resource()
-        return matches[0]
-
     columns = output.columns
     if type(columns) is not tuple:
         _resource()
@@ -240,47 +229,109 @@ def _domain(request) -> CollectionDomain | None:
         unnest_layout = getattr(unnest_record, "layout", ())
         if not all(type(item) is OutputColumn for item in columns):
             _resource()
-        child_exports = tuple(getattr(unnest_record, "outputs", ()))
-        child_ports = tuple(
-            port for port in plan.all_exports if port.ref in collect.children
+        from pietto._project.project_sql_emission_joins import JoinBody, JoinColumn
+        from pietto._project.project_sql_emission_unnest import UnnestRows, NestedRead
+        from pietto._project.project_sql_emission_ast import (
+            RowValueColumn,
+            RowCarryColumn,
         )
-        parent_ports = tuple(
-            port for port in plan.all_exports if port.ref is collect.export
+        from pietto._project.project_sql_emission_results import ResultColumn
+        from pietto._project.project_sql_emission_rows import (
+            SQLStageReference,
+            StageColumn,
         )
-        child_bindings = tuple(bound_for(port) for port in child_ports)
-        parent_bindings = tuple(bound_for(port) for port in parent_ports)
+
+        joins = tuple(unit for unit in output.units if type(unit) is JoinBody)
+        if len(joins) != 1:
+            _resource()
+        (join,) = joins
+        left, right = join.inputs
         if (
-            len(parent_bindings) != 1
-            or len(child_ports) != len(collect.children)
-            or tuple(port.ref for port in child_ports) != collect.children
-            or len(child_bindings) != len(child_exports)
-            or getattr(unnest_record, "collect", None) is not collect.ref
-            or len(getattr(plan, "joins", ())) != 1
-            or getattr(plan.joins[0], "ref", None)
-            is not getattr(unnest_record, "join", None)
+            type(right.producer) is not UnnestRows
+            or right.producer.unnest is not unnest_record
         ):
             _resource()
-        ((parent_source, parent_field),) = parent_bindings
-        child_source = child_bindings[0][0]
-        child_fields = tuple(field for _source, field in child_bindings)
-        child_tags = tuple(
-            port.field.evidence.resolved_type.name for port in child_ports
+        nested_reads = tuple(item for item in left.columns if type(item) is NestedRead)
+        scalar_parents = tuple(
+            item for item in left.columns if type(item) is StageColumn
         )
-        row_fields = tuple(column.source_field for column in columns)
-        row_tags = tuple(column.realization.tag for column in columns)
-        if (
-            parent_field.field.resolved_type.name != "Int"
-            or not child_fields
-            or any(tag not in CHILD_KINDS for tag in child_tags)
-            or any(field is None for field in row_fields)
-            or any(tag not in CHILD_KINDS for tag in row_tags)
-            or any(source is not child_source for source, _field in child_bindings)
-            or any(
-                source_of(field) not in (parent_source, child_source)
-                for field in row_fields
-            )
+        if len(nested_reads) != 1 or len(scalar_parents) != 1 or len(left.columns) != 2:
+            _resource()
+        group = nested_reads[0].group
+        if type(group) is ResultGroupColumn:
+            group = group.group
+        if type(group) is not CollectColumn or group.collect is not collect:
+            _resource()
+        parent_read = scalar_parents[0]
+        if parent_read.realization.tag != "Int" or parent_read.field is None:
+            _resource()
+        parent_source = source_of(parent_read.field)
+        child_columns = tuple(
+            item.column for item in group.lateral.target.producer.columns
+        )
+        if not child_columns or len(child_columns) != len(right.producer.columns):
+            _resource()
+        child_fields = tuple(item.field for item in child_columns)
+        child_tags = tuple(item.realization.tag for item in child_columns)
+        if any(field is None for field in child_fields) or any(
+            tag not in CHILD_KINDS for tag in child_tags
         ):
             _resource()
+        child_source = source_of(child_fields[0])
+        if any(source_of(field) is not child_source for field in child_fields):
+            _resource()
+        if any(
+            element.column.field is not field
+            for element, field in zip(right.producer.columns, child_fields, strict=True)
+        ):
+            _resource()
+
+        def joined_origin(column):
+            seen = set()
+            while id(column) not in seen:
+                seen.add(id(column))
+                if type(column) is JoinColumn:
+                    if any(column is item for item in join.columns):
+                        return column
+                    _resource()
+                if type(column) is RowValueColumn:
+                    if type(column.value) is not SQLStageReference:
+                        _resource()
+                    reference = column.value.column.terminal
+                elif type(column) in (RowCarryColumn, ResultColumn):
+                    reference = column.read.terminal
+                else:
+                    _resource()
+                candidates = tuple(
+                    item
+                    for unit in output.units
+                    for item in unit.columns
+                    if getattr(getattr(item, "column", None), "terminal", None)
+                    is reference
+                )
+                if len(candidates) != 1:
+                    _resource()
+                column = candidates[0]
+            _resource()
+
+        row_fields, row_tags = [], []
+        for output_column in columns:
+            origin = joined_origin(output_column.original)
+            if (
+                output_column.source_field is not origin.column.field
+                or output_column.realization.tag != origin.column.realization.tag
+                or output_column.realization.nullable
+                != origin.column.realization.nullable
+            ):
+                _resource()
+            field = output_column.source_field
+            if field is None or source_of(field) not in (parent_source, child_source):
+                _resource()
+            row_fields.append(field)
+            row_tags.append(output_column.realization.tag)
+        if not row_fields or any(tag not in CHILD_KINDS for tag in row_tags):
+            _resource()
+        row_fields, row_tags = tuple(row_fields), tuple(row_tags)
         unnest = True
     if not unnest:
         if type(parent) is not OutputColumn:

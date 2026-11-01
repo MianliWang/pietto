@@ -28,6 +28,7 @@ from pietto._project.project_sql_emission_aggregation import (
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_nested as nested
+from pietto._project import project_sql_emission_unnest as unnesting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
 from pietto._project.project_sql_emission_contract import BoundSource
@@ -1546,11 +1547,40 @@ def render_row_sql(query: SQLRowQuery | CompiledSQLQuery) -> RenderedSQL:
     return w.rendered(query)
 
 
+def _unnest_rows(w: _Writer, item) -> None:
+    """One Unnest right input: one call per array of the left group, zipped by
+    position, then its alias and one column alias per child."""
+    reference = item.original.ref
+    producer = item.producer
+    unnest = producer.unnest
+    w.emit("LATERAL ROWS FROM (", "syntax", "unnest_rows_open", reference)
+    for index, array in enumerate(producer.arrays):
+        if index:
+            w.emit(", ", "syntax", "separator", unnest.ref)
+        w.emit(unnesting.FUNCTION + "(", "syntax", "unnest_function", unnest.ref)
+        w.identifier(producer.scope.name, "unnest_scope", unnest.source)
+        w.emit(".", "syntax", "qualifier", unnest.source)
+        w.identifier(array, "unnest_array", unnest.source)
+        w.emit(")", "syntax", "unnest_function_close", unnest.ref)
+    w.emit(")", "syntax", "unnest_rows_close", reference)
+    w.emit(" AS ", "syntax", "join_alias", reference)
+    w.identifier(item.symbol.name, "join_scope", reference)
+    w.emit(" (", "syntax", "unnest_columns_open", reference)
+    for index, column in enumerate(producer.columns):
+        if index:
+            w.emit(", ", "syntax", "separator", reference)
+        w.identifier(column.column.name, "unnest_column", column.column.terminal)
+    w.emit(")", "syntax", "unnest_columns_close", reference)
+
+
 def _join_relation(w: _Writer, item) -> None:
     """One JOIN input relation reference, then its generated capture-free alias;
     a capturing let is its own LATERAL derived relation."""
     reference = item.original.ref
     producer = item.producer
+    if type(producer) is unnesting.UnnestRows:
+        _unnest_rows(w, item)
+        return
     if type(producer) is BoundSource:
         relation = item.source
         w.identifier(producer.namespace, "join_namespace", relation)
@@ -1595,13 +1625,18 @@ def _join_condition(w: _Writer, unit) -> None:
 
 
 def _join_select(w: _Writer, unit) -> None:
-    """One JOIN occurrence's own SELECT: explicit ordered published ports."""
+    """One JOIN occurrence's own SELECT: explicit ordered published ports; a
+    withheld nested port has no SELECT item."""
     reference = unit.join.ref
     left, right = unit.inputs
     w.emit("SELECT ", "syntax", "select", reference)
-    for position, column in enumerate(unit.columns):
-        if position:
+    written = 0
+    for column in unit.columns:
+        if type(column) is unnesting.WithheldPort:
+            continue
+        if written:
             w.emit(", ", "syntax", "separator", column.port.ref)
+        written += 1
         w.identifier(column.scope.name, "join_column_scope", column.match.ref)
         w.emit(".", "syntax", "join_column_qualifier", column.port.ref)
         w.identifier(column.read.name, "join_column", column.read.terminal)

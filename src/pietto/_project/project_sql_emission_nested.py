@@ -92,6 +92,88 @@ class CollectColumn:
     column: rows.StageColumn
 
 
+def _unnest_admitted(plan, unnest, family) -> bool:
+    """The one S13 route consumes one exact Collect port into flat scalar rows."""
+    from pietto._project.project_sql_plan_nested import collect_of
+
+    if family != "postgres" or len(plan.unnests) != 1 or len(plan.collects) != 1:
+        return False
+    collects = tuple(value for value in plan.collects if value.ref is unnest.collect)
+    joins = tuple(value for value in plan.joins if value.ref is unnest.join)
+    inputs = {value.ref: value for value in plan.join_inputs}
+    ports = {value.ref: value for value in plan.join_ports}
+    if len(collects) != 1 or len(joins) != 1:
+        return False
+    collect, join = collects[0], joins[0]
+    definitions = {value.ref: value.entry.owner for value in plan.bindings.definitions}
+    parent = next(
+        value.definition for value in plan.blocks if value.ref is collect.block
+    )
+    consumer = definitions[join.definition]
+    target = unnest.semantic.source_target
+    if (
+        len(plan.joins) != 1
+        or consumer is not plan.scope.selected_owner
+        or definitions[parent].identity.module_path != consumer.identity.module_path
+        or target is None
+        or target.imported_binding is not None
+        or unnest.semantic.source_binding_name != target.local_name
+        or plan.parameters
+        or any(
+            boundary.definition is join.definition
+            for boundary in plan.result_boundaries
+        )
+        or any(
+            block.kind.value != "projection"
+            for block in plan.blocks
+            if block.definition is join.definition
+        )
+    ):
+        return False
+    left = inputs.get(join.inputs[0]) if len(join.inputs) == 2 else None
+    right = inputs.get(join.inputs[1]) if len(join.inputs) == 2 else None
+    source = ports.get(unnest.source)
+    if (
+        left is None
+        or right is None
+        or source is None
+        or left.producer is not parent
+        or left.predecessor is not None
+    ):
+        return False
+    nested = tuple(
+        reference
+        for reference in left.ports
+        if ports.get(reference) is not None
+        and ports[reference].field.evidence.resolved_type.nested is not None
+    )
+    leaves = tuple(unnest.semantic.nested_type.element_fields)
+    return (
+        collect_of(plan, unnest.source) is collect
+        and unnest.input is right.ref
+        and source.input is left.ref
+        and nested == (unnest.source,)
+        and tuple(unnest.outputs) == tuple(join.outputs[len(left.ports) :])
+        and len(unnest.outputs) == len(leaves) > 0
+        and all(
+            field.field.resolved_type.kind.name == "BUILTIN"
+            and field.field.resolved_type.name in {"Int", "Bool", "Text"}
+            for field in leaves
+        )
+        and all(
+            port.field.evidence.resolved_type.nested is None for port in plan.exports
+        )
+    )
+
+
+def unnest_admitted(plan, unnest, family) -> bool:
+    """S13 admits no name-based or carrying variant of Unnest."""
+    try:
+        return _unnest_admitted(plan, unnest, family)
+    except (AttributeError, KeyError, StopIteration, TypeError, ValueError):
+        return False
+
+
 def collect_admitted(plan, collect, family) -> bool:
     """D-S08-4: PostgreSQL emits a Collect read of the selected table or query.
 
@@ -105,10 +187,12 @@ def collect_admitted(plan, collect, family) -> bool:
         for definition in plan.bindings.definitions
         if len(blocks) == 1 and definition.ref is blocks[0].definition
     )
-    return (
-        family == "postgres"
-        and len(owners) == 1
-        and owners[0] is plan.scope.selected_owner
+    return family == "postgres" and (
+        (len(owners) == 1 and owners[0] is plan.scope.selected_owner)
+        or any(
+            value.collect is collect.ref and unnest_admitted(plan, value, family)
+            for value in plan.unnests
+        )
     )
 
 
