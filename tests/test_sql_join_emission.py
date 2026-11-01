@@ -1675,7 +1675,16 @@ EMITTED_JOINS = {
             "FROM `shop`.`orders` AS `orders`\n"
             "INNER JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`"
         ),
-        None,
+        (
+            "SELECT\n"
+            '    "orders"."id" AS "oid",\n'
+            '    CAST(SUM(CAST("orders"."amount" AS pg_catalog.int8)) '
+            'OVER (PARTITION BY "c"."id" ORDER BY "orders"."id" ASC) '
+            'AS pg_catalog.int8) AS "running",\n'
+            '    COUNT(*) OVER (PARTITION BY "c"."id") AS "n"\n'
+            'FROM "shop"."orders" AS "orders"\n'
+            'INNER JOIN "shop"."customers" AS "c" ON "orders"."customer_id" = "c"."id"'
+        ),
     ),
     "date-trunc": (
         "query q:\n"

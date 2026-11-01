@@ -163,7 +163,7 @@ def test_direct_renderers_support_count_field_and_preserve_existing_aggregates()
         render_expression_sql(
             _aggregate("sum", INT_NULLABLE, _field("amount", INT_NON_NULL))
         )
-        == 'SUM("amount")'
+        == 'CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8)'
     )
     assert (
         render_mysql_expression(

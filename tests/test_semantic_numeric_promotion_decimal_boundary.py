@@ -275,7 +275,7 @@ def test_postgres_and_private_mysql_sql_for_accepted_expressions_is_stable() -> 
                 '"price" + "discount" AS "decimal_total"',
                 '"price" - "discount" AS "decimal_delta"',
                 '"amount" % "tax" AS "modulo"',
-                'SUM(("amount" + 1)) AS "literal_total"',
+                'CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) AS "literal_total"',
                 'AVG(("score" * 2)) AS "literal_average"',
                 'SUM(("price" + "discount")) AS "decimal_total"',
                 'AVG(("price" - "discount")) AS "decimal_average"',

@@ -187,7 +187,10 @@ def test_native_window_clause_uses_grouped_inputs_and_exact_clause_order() -> No
     result = emit_postgres_sql(script_ir)
     assert result.diagnostics == ()
     sql = result.artifacts[0].sql
-    assert '"ordered" AS (ORDER BY SUM("value") DESC)' in sql
+    assert (
+        '"ordered" AS (ORDER BY CAST(SUM(CAST("value" AS pg_catalog.int8)) AS pg_catalog.int8) DESC)'
+        in sql
+    )
     assert sql.index("\nHAVING\n") < sql.index("\nWINDOW\n")
     assert sql.index("\nWINDOW\n") < sql.index("\nORDER BY\n")
     assert sql.index("\nORDER BY\n") < sql.index("\nLIMIT 5")

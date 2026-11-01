@@ -384,7 +384,7 @@ def test_direct_aggregate_inside_satisfying_remains_semantic_error() -> None:
         (
             "postgres",
             "total = sum(amount + tax)",
-            'SELECT\n    SUM(("amount" + "tax")) AS "total"\nFROM "orders"',
+            'SELECT\n    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total"\nFROM "orders"',
         ),
         (
             "postgres",

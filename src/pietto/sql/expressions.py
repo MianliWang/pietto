@@ -599,6 +599,7 @@ def render_aggregate_window_call_sql(
             arguments=expression.arguments,
         ),
         allow_grouped_aggregate=True,
+        defer_int_sum_result_cast=True,
     )
     if over_sql is None:
         components = render_window_components_sql(
@@ -609,7 +610,10 @@ def render_aggregate_window_call_sql(
         over_sql = f"({' '.join(components)})"
     if type(over_sql) is not str or not over_sql:
         raise ValueError("PostgreSQL aggregate window OVER SQL must be nonempty")
-    return f"{aggregate_sql} OVER {over_sql}"
+    sql = f"{aggregate_sql} OVER {over_sql}"
+    if _is_checked_int_sum(expression):
+        return f"CAST({sql} AS pg_catalog.int8)"
+    return sql
 
 
 def render_window_components_sql(
@@ -740,6 +744,7 @@ def _render_aggregate_call(
     expression: AggregateCallIR,
     *,
     allow_grouped_aggregate: bool = False,
+    defer_int_sum_result_cast: bool = False,
 ) -> str:
     if expression.function == "string_agg":
         sql = _render_string_agg(expression)
@@ -767,6 +772,7 @@ def _render_aggregate_call(
             expression,
             function_name=function_name,
             allow_grouped_aggregate=allow_grouped_aggregate,
+            defer_int_sum_result_cast=defer_int_sum_result_cast,
         )
     if not aggregate_call_contract(
         expression.function,
@@ -883,6 +889,7 @@ def _render_numeric_aggregate(
     *,
     function_name: str,
     allow_grouped_aggregate: bool = False,
+    defer_int_sum_result_cast: bool = False,
 ) -> str:
     if len(expression.arguments) != 1:
         raise ValueError(
@@ -917,7 +924,21 @@ def _render_numeric_aggregate(
     if expression.function == "avg" and argument_type == "Int":
         # PostgreSQL AVG of an integer is an exact decimal; Pietto says Float.
         argument_sql = f"CAST({argument_sql} AS double precision)"
+    if expression.function == "sum" and argument_type == "Int":
+        argument_sql = f"CAST({argument_sql} AS pg_catalog.int8)"
+        sql = f"{function_name}({argument_sql})"
+        if not defer_int_sum_result_cast:
+            return f"CAST({sql} AS pg_catalog.int8)"
+        return sql
     return f"{function_name}({argument_sql})"
+
+
+def _is_checked_int_sum(expression: AggregateWindowCallIR) -> bool:
+    return (
+        expression.function == "sum"
+        and len(expression.arguments) == 1
+        and _builtin_type_name(expression.arguments[0]) == "Int"
+    )
 
 
 def _numeric_aggregate_argument_type(

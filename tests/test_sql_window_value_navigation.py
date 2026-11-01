@@ -528,6 +528,10 @@ def test_grouped_frame_value_reads_the_selected_aggregate_call(
             assert picked.arguments[0] == total
             emitted = emitter(lowered.ir)
             value = aggregate_sql.format(q=q, double=double)
+            if aggregate == "sum(quantity)" and connector == "postgres.table":
+                value = (
+                    'CAST(SUM(CAST("quantity" AS pg_catalog.int8)) AS pg_catalog.int8)'
+                )
             assert emitted.diagnostics == ()
             assert [artifact.sql for artifact in emitted.artifacts] == [
                 "SELECT\n"

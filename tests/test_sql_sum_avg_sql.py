@@ -28,7 +28,7 @@ from pietto.ir import (
     build_ir,
 )
 from pietto.ir.model import StaticValue
-from pietto.parser_api import parse_file
+from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.expressions import render_expression_sql
@@ -118,7 +118,7 @@ def test_direct_backend_sum_avg_sql_matches_reviewed_golden(
                 'AVG(CAST(("amount" + 1) AS double precision))',
                 'AVG("score")',
                 'AVG("price")',
-                'SUM("amount")',
+                'CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8)',
             ),
         ),
         (
@@ -133,7 +133,7 @@ def test_direct_backend_sum_avg_sql_matches_reviewed_golden(
         ),
     ],
 )
-def test_avg_int_casts_its_argument_to_the_float_it_is_typed(
+def test_numeric_aggregate_casts_match_their_logical_types(
     render: Callable[[ExpressionIR], str],
     expected: tuple[str, ...],
 ) -> None:
@@ -157,6 +157,37 @@ def test_avg_int_casts_its_argument_to_the_float_it_is_typed(
         render(_aggregate("avg", decimal_type, _field("price", DECIMAL_NON_NULL))),
         render(_aggregate("sum", INT_NULLABLE, amount)),
     ) == expected
+
+
+def test_postgres_int_sum_is_checked_in_global_grouped_and_having_sql() -> None:
+    parsed = parse_source("""shape Row:
+    bucket: Int
+    value: Int
+source rows: Row = postgres.table("rows")
+table global_stats:
+    from rows
+    select:
+        total = sum(value)
+table grouped_stats:
+    from rows
+    group by bucket
+    select:
+        bucket
+        total = sum(value)
+    having:
+        total > 0
+""")
+    assert parsed.ast is not None
+    lowered = build_ir(parsed.ast, analyze(parsed.ast).model)
+    assert lowered.ir is not None, lowered.diagnostics
+
+    artifacts = emit_postgres_sql(lowered.ir).artifacts
+    checked_sum = 'CAST(SUM(CAST("value" AS pg_catalog.int8)) AS pg_catalog.int8)'
+
+    assert len(artifacts) == 2
+    assert artifacts[0].sql.count(checked_sum) == 1
+    assert artifacts[1].sql.count(checked_sum) == 2
+    assert f"HAVING\n    {checked_sum} > 0" in artifacts[1].sql
 
 
 @pytest.mark.parametrize(

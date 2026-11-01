@@ -146,7 +146,8 @@ documentation does not supersede that evidence.
 | Project-emission interlude | `COMPLETED / PUBLISHED`; The first project-emission interlude is published at `e169cb88f17d54234a96fc275766cb0995a2be37` (tree `43efe9fd355213b74b3061a51c3356abd9004303`); natural exact-head CI `41200621631` attempt 1 accepted all 19 jobs. |
 | Phase71 batch B4 | `COMPLETED / PUBLISHED`; B4 (S12 with AC-F7, S13 and S17) is published at `9df0003f020c0d5e61fb32e4528cfd20d9125142` (tree `fa5e45c8c794207a360b3a195474e738ac2f49e9`); natural exact-head CI `41272976489` attempt 1 accepted all 19 jobs. The midpoint S/H/L/K/Q review passed. Its CI health has insufficient comparable history and a WATCH screen, so it authorizes no scheduler changes. |
 | Batch project emission | `COMPLETED / PUBLISHED`; The batch-emission interlude is published at `a6a78c2bde3f84290ee41e8b159f7690a5a593f4` (tree `934c7ca1bc08c138fcc5a4cefa647f781356248c`); natural exact-head CI `41285328101` attempt 1 accepted all 19 jobs. |
-| Next | The owner-approved second project-emission interlude, then B5 (S14–S16) under the existing route. B4 natural CI and midpoint prerequisites are satisfied. The `0.1.7` version, tag and release need their own authorization |
+| Second project-emission interlude | `COMPLETED / PUBLISHED`; published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. |
+| Next | B5 (S14–S16) under the existing route. B4 natural CI and midpoint prerequisites are satisfied. The `0.1.7` version, tag and release need their own authorization |
 
 ## Phase67 当前路线
 

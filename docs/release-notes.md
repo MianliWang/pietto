@@ -71,23 +71,20 @@ retain batch stdout. Existing paths are never overwritten, and calls without
   meaning (MySQL keeps `PIE-B1003` for these `min`/`max`). Timestamp, Date and
   UUID values may partition a window; UUID ordering follows below. `min`/`max`
   of a UUID stays refused, and a Timestamp never compares with a Date.
-- **Exact `sum(Int)` on PostgreSQL.** `emit-sql --project` now emits a
-  PostgreSQL `sum` of a direct `Int` input as
-  `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)` instead of
-  `PIE-B1004` (`sum_int_aggregate_range_proof_missing`): the sum accumulates
-  exactly, and its result is a nullable `Int` with storage `pg_int8` over the
-  whole signed 64-bit range. A sum outside that range is never returned as a
-  wrong value: the statement may be refused at run time with SQLSTATE 22003
-  (`bigint out of range`), and whether and when that happens depends on the
-  execution plan (a LIMIT may stop before the value is computed; a group that
-  a later filter drops may still raise it). The aggregate's generated R13
-  requirement carries the new evidence
+- **Exact `sum(Int)` on PostgreSQL.** Both single-file `emit-sql` and
+  `emit-sql --project` emit PostgreSQL `sum(Int)` as
+  `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`. In project mode
+  this replaces `PIE-B1004` (`sum_int_aggregate_range_proof_missing`): the sum
+  accumulates exactly, and its result is a nullable `Int` with storage
+  `pg_int8` over the whole signed 64-bit range. A sum outside that range,
+  including one over a physical `bigint` input, is never returned as a wrong
+  value: PostgreSQL may report SQLSTATE 22003 (`bigint out of range`) while
+  planning or running the statement, with no timing guarantee. Project
+  emission's generated R13 requirement carries the new evidence
   `{"overflow": "target_checked_signed64_narrowing"}`. This revises Phase66
-  R13, which admitted no final aggregate CAST, and differs from single-file
-  `emit-sql`, whose bare `SUM(x)` returns an exact `numeric` for a `bigint`
-  column that may leave signed 64 bits. MySQL keeps `PIE-B1004`, as its
-  `CAST(DECIMAL AS SIGNED)` would clamp such a sum; a `Decimal` or `Float`
-  `sum` or `avg` keeps its own `PIE-B1004` on both targets.
+  R13, which admitted no final aggregate CAST. Project MySQL keeps `PIE-B1004`,
+  as its `CAST(DECIMAL AS SIGNED)` would clamp such a sum; single-file MySQL,
+  and `Decimal` or `Float` `sum` or `avg`, are unchanged.
 - **Checked bigint arithmetic on PostgreSQL.** An `Int` sign, `+`, `-`, `*`
   or `abs` over `bigint` operands whose exact range leaves signed 64 bits but
   meets them, such as `qty + 1`, `-qty` or `abs(qty)` over a `pg_int8` field,

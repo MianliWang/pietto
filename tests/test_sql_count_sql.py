@@ -287,7 +287,7 @@ def test_supported_aggregate_ir_shapes_render_without_changing_count_sql() -> No
         render_expression_sql(
             _aggregate("sum", INT_NULLABLE, _field("amount", INT_NON_NULL))
         )
-        == 'SUM("amount")'
+        == 'CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8)'
     )
     assert (
         render_mysql_expression(

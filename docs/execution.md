@@ -852,7 +852,10 @@ The values:
   checked `bigint` operators refuse a value outside signed 64 bits, so the
   attempt may fail after connecting, with `PIE-R3003` and SQLSTATE 22003,
   while PostgreSQL plans or runs the statement, and never returns a wrong
-  value. A result wholly outside signed 64 bits, as that of `-2**63` under
+  value. PostgreSQL SQL emitted for single-file and project `sum(Int)` uses
+  the same checked `int8` boundary: a physical `bigint` sum outside signed 64
+  bits may likewise report SQLSTATE 22003, with no promise of when it does.
+  A result wholly outside signed 64 bits, as that of `-2**63` under
   the minus, is still refused.
 
 ## Parameters

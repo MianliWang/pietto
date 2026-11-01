@@ -730,10 +730,10 @@ operands to constants, such as `(9223372036854775807 if True else 0) + 1`,
 or through a bound slot or parameter value: the statement then fails even
 over no rows, or with the operation in a branch no row takes. A range wholly
 outside signed 64 bits, such as that of a constant, stays `PIE-B1002`, as
-such an operation could only fail. This `sum` spelling differs from
-single-file `emit-sql`, which writes a bare `SUM(x)`: PostgreSQL then returns
-an exact `numeric` for a `bigint` column, which may leave signed 64 bits where
-project SQL fails with 22003. MySQL keeps `sum(Int)` BLOCKED with `PIE-B1004`,
+such an operation could only fail. Single-file PostgreSQL `emit-sql` uses the
+same checked `sum(Int)` spelling, so a sum of a `bigint` column outside signed
+64 bits also fails with 22003 rather than returning an out-of-range `numeric`.
+MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`.
 Decimal `sum`/`avg` and Float `sum`/`avg` remain fail-closed without their

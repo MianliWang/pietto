@@ -894,16 +894,20 @@ def test_grouped_window_sql_is_same_level_without_subquery_or_alias_operands(
         _grouped_source(dialect=dialect, windows_first=windows_first), dialect
     )
     quote = '"' if dialect == "postgresql" else "`"
+    sum_amount = f"SUM({quote}amount{quote})"
+    if dialect == "postgresql":
+        sum_amount = (
+            f"CAST(SUM(CAST({quote}amount{quote} AS pg_catalog.int8)) "
+            "AS pg_catalog.int8)"
+        )
     assert "SELECT\n" in sql
     assert sql.count("SELECT") == 1
     assert "WITH " not in sql and "(SELECT" not in sql
     assert (
-        f"RANK() OVER (PARTITION BY {quote}category{quote} "
-        f"ORDER BY SUM({quote}amount{quote}) DESC)"
+        f"RANK() OVER (PARTITION BY {quote}category{quote} ORDER BY {sum_amount} DESC)"
     ) in sql
     assert (
-        f"LAG(SUM({quote}amount{quote}), 0, SUM({quote}amount{quote})) "
-        f"OVER (ORDER BY SUM({quote}amount{quote}) ASC)"
+        f"LAG({sum_amount}, 0, {sum_amount}) OVER (ORDER BY {sum_amount} ASC)"
     ) in sql
     over_clauses = tuple(
         fragment.partition(") AS ")[0]

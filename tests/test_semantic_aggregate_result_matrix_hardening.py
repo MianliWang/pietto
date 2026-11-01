@@ -354,7 +354,7 @@ def test_postgres_and_private_mysql_sql_matrix_is_stable() -> None:
                 'AVG("price") AS "average_price"',
                 'MIN("price") AS "smallest_price"',
                 'MAX("price") AS "largest_price"',
-                'SUM(("amount" + "tax")) AS "total_expr"',
+                'CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total_expr"',
                 'AVG(("price" - "discount")) AS "decimal_average_expr"',
             ),
         ),

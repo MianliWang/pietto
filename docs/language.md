@@ -2791,15 +2791,15 @@ unary `-` is and fits exactly where `-` fits: where `-id` is PIE-B1002
 `-` it reads no query header parameter (PIE-S2355); `abs` of a `Float` or
 `Decimal` keeps its argument's carrier. It also admits `avg(Int)` for a direct
 Int input with `int_range` evidence, casting that input to the target Float
-carrier before aggregation. Empty and all-NULL inputs remain NULL. Project SQL
-emission (`emit-sql --project`) on PostgreSQL emits `sum(Int)` of a direct
-Int input as `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the
+carrier before aggregation. Empty and all-NULL inputs remain NULL. PostgreSQL
+single-file and project SQL emission emit `sum(Int)` as
+`CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the
 sum accumulates exactly and its result is a nullable `Int` over the whole
 signed 64-bit range, and a sum outside that range is the run-time error
-SQLSTATE 22003, never a wrong value, by the same rule. MySQL reports
+SQLSTATE 22003, never a wrong value, by the same rule. Project SQL on MySQL reports
 `sum(Int)` BLOCKED with `PIE-B1004` (`sum_int_aggregate_range_proof_missing`),
 as `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, although
-`check --project` accepts it and single-file `emit-sql` emits `SUM`; Decimal
+`check --project` accepts it and single-file MySQL `emit-sql` emits `SUM`; Decimal
 `sum`/`avg` require
 an exact aggregate range/scale and division proof, and Float `sum`/`avg`
 require a finite-result proof. A source range, free JSON declaration, renderer
@@ -2835,19 +2835,15 @@ with PIE-B1000.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
 
-Single-file `emit-sql` renders `sum` without a cast, and `avg` without one
-except over `Int`, so each result column has the type the target gives that
-aggregate. Over `Float` it is a floating-point type and over `Decimal` it is
-PostgreSQL `numeric` or MySQL DECIMAL, as the Pietto types say. `sum(Int)` is
-an `Int`, a whole number, returned in the target's exact type: PostgreSQL
-`bigint` for a `smallint` or `integer` column and `numeric` for a `bigint`
-column, and MySQL DECIMAL. These `numeric` and DECIMAL sums are exact and can
-leave the signed 64-bit range. Project SQL emission spells PostgreSQL
-`sum(Int)` differently (see above): its result is a signed 64-bit `bigint`,
-so a sum of a `bigint` column outside that range, which single-file SQL
-returns exactly as `numeric`, fails with SQLSTATE 22003 there, and a sum of a
-`smallint` or `integer` column is accumulated exactly instead of in an
-unchecked `bigint`. `avg(Int)` is a `Float` average on both
+Single-file `emit-sql` renders `sum` without a cast except for PostgreSQL
+`sum(Int)`, which emits the checked `int8` input and result casts above. Its
+result is a nullable signed-64-bit `Int`; a sum outside that range, including
+one over a physical `bigint` column, fails with SQLSTATE 22003 rather than
+returning an exact out-of-range `numeric`. PostgreSQL may raise that error
+while planning or execution; Pietto makes no error-timing guarantee. `sum`
+over `Float` or `Decimal` remains target-native, and MySQL `sum(Int)` remains
+its target-native DECIMAL form. `avg` remains without a cast except over
+`Int`. `avg(Int)` is a `Float` average on both
 targets: as in project SQL, its argument is cast before averaging (PostgreSQL
 `AVG(CAST(x AS double precision))`, MySQL `AVG(CAST(x AS DOUBLE))`), so the
 target returns a binary64 average instead of its own decimal one.
@@ -2991,8 +2987,8 @@ PIE-S2333, whose message may identify repeating JOINs and available unique-key
 or group-key remedies. The selected SQL/compiled aggregate path still refuses
 Bool arguments: typed semantic facts for `count(predicate(...))` do not by
 themselves establish emission or source-free execution capability. ANY does not
-widen that domain. Project `sum(Int)` follows the checked `bigint` rule
-described above on PostgreSQL and stays PIE-B1004 on MySQL.
+widen that domain. Project and single-file PostgreSQL `sum(Int)` follow the
+checked `bigint` rule described above; project MySQL stays PIE-B1004.
 
 ```pietto
 shape Customer:

@@ -105,7 +105,7 @@ query result:
 
 POSTGRES_NATIVE_SQL = """SELECT
     "category" AS "group_name",
-    SUM("value") AS "total",
+    CAST(SUM(CAST("value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",
     ROW_NUMBER() OVER "child" AS "ranking",
     FIRST_VALUE("category") OVER ("child" RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS) AS "first",
     NTH_VALUE("category", 2) OVER ("child" RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS) AS "nth",
@@ -114,9 +114,9 @@ FROM "rows"
 GROUP BY
     "category"
 HAVING
-    SUM("value") > 0
+    CAST(SUM(CAST("value" AS pg_catalog.int8)) AS pg_catalog.int8) > 0
 WINDOW
-    "base" AS (PARTITION BY "category" ORDER BY SUM("value") DESC),
+    "base" AS (PARTITION BY "category" ORDER BY CAST(SUM(CAST("value" AS pg_catalog.int8)) AS pg_catalog.int8) DESC),
     "child" AS ("base")
 ORDER BY
     "ranking" ASC

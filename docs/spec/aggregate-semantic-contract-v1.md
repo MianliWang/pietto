@@ -121,6 +121,15 @@ Future aggregate typing should start from this logical contract:
 `count()` over empty input returns `0`, so it is non-null. `sum` and `avg`
 over empty input are conservatively nullable.
 
+PostgreSQL single-file and project SQL emit `sum(Int)` as
+`CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`. This preserves
+empty and all-NULL results as NULL, accumulates exactly in PostgreSQL's
+`numeric` aggregate carrier, and makes an out-of-range signed-64
+result—including a physical `bigint` sum—fail with
+SQLSTATE 22003 rather than return a wrong value. PostgreSQL may raise that
+error while planning or execution; its timing is not a Pietto guarantee.
+MySQL `sum(Int)`, and Float/Decimal `sum` or `avg`, are unchanged.
+
 Decimal exists in Pietto's built-in type catalog, but Decimal aggregate
 semantics are out of scope for this future MVP. PostgreSQL and MySQL concrete
 return types may differ, especially for numeric widening and average return

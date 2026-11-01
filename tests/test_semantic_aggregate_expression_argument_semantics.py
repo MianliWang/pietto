@@ -705,7 +705,7 @@ def test_direct_aggregate_inside_satisfying_still_uses_s2308() -> None:
         (
             "postgres",
             "postgres.table",
-            'SELECT\n    SUM(("amount" + "tax")) AS "total"\nFROM "orders"',
+            'SELECT\n    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total"\nFROM "orders"',
         ),
         (
             "mysql",

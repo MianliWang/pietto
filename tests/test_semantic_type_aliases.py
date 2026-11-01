@@ -300,6 +300,16 @@ def test_alias_operands_and_aggregate_arguments_emit_the_base_typed_sql(
     semantic, script_ir = compiled(True)
     sql = emitter(script_ir)
     q = quote
+
+    def int_sum(expression: str) -> str:
+        if connector == "postgres.table":
+            return (
+                f"CAST(SUM(CAST({expression} AS pg_catalog.int8)) AS pg_catalog.int8)"
+            )
+        return f"SUM({expression})"
+
+    ages = int_sum(f"({q}age{q} + 1)")
+    older_ages = int_sum(f"({q}age{q} + 5)")
     assert sql.diagnostics == ()
     assert [artifact.sql for artifact in sql.artifacts] == [
         "SELECT\n"
@@ -321,14 +331,14 @@ def test_alias_operands_and_aggregate_arguments_emit_the_base_typed_sql(
         f"    AVG({q}fee{q}) AS {q}mean{q},\n"
         f"    MAX({q}amount{q}) AS {q}top{q},\n"
         f"    MIN({q}age{q}) AS {q}low{q},\n"
-        f"    SUM(({q}age{q} + 1)) AS {q}ages{q}\n"
+        f"    {ages} AS {q}ages{q}\n"
         f"FROM {q}orders{q}",
         "SELECT\n"
         f"    {q}region{q} AS {q}region{q},\n"
-        f"    RANK() OVER (ORDER BY SUM(({q}age{q} + 1)) DESC) AS {q}r{q},\n"
+        f"    RANK() OVER (ORDER BY {ages} DESC) AS {q}r{q},\n"
         f"    SUM({q}amount{q}) AS {q}total{q},\n"
-        f"    SUM(({q}age{q} + 1)) AS {q}ages{q},\n"
-        f"    SUM(({q}age{q} + 5)) AS {q}older_ages{q},\n"
+        f"    {ages} AS {q}ages{q},\n"
+        f"    {older_ages} AS {q}older_ages{q},\n"
         f"    COUNT(DISTINCT {q}age{q}) AS {q}distinct_ages{q}\n"
         f"FROM {q}orders{q}\n"
         "GROUP BY\n"

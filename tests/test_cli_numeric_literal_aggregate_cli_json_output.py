@@ -34,16 +34,16 @@ SOURCE_SHAPE = (
 POSTGRES_SQL = (
     "SELECT\n"
     '    "region" AS "region",\n'
-    '    SUM(("amount" + 1)) AS "total",\n'
+    '    CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",\n'
     '    AVG(("score" * 2)) AS "average"\n'
     'FROM "orders"\n'
     "GROUP BY\n"
     '    "region"\n'
     "HAVING\n"
-    '    SUM(("amount" + 1)) > 1000\n'
+    '    CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) > 1000\n'
     "ORDER BY\n"
     '    AVG(("score" * 2)) DESC,\n'
-    '    SUM(("amount" + 1)) ASC\n'
+    '    CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) ASC\n'
     "LIMIT 10"
 )
 
@@ -88,7 +88,7 @@ def test_check_accepts_numeric_literal_aggregate_arguments(
             "postgres",
             "postgres.table",
             POSTGRES_SQL,
-            'SUM(("amount" + 1))',
+            'CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8)',
             'AVG(("score" * 2))',
         ),
         (

@@ -114,7 +114,7 @@ def test_grouped_order_by_aliased_group_key_renders_underlying_field(
         (
             "total = sum(amount)",
             "total desc",
-            'SUM("amount") DESC',
+            'CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8) DESC',
             "SUM(`amount`) DESC",
             "total",
         ),
@@ -128,7 +128,7 @@ def test_grouped_order_by_aliased_group_key_renders_underlying_field(
         (
             "total = sum(amount + tax)",
             "total desc",
-            'SUM(("amount" + "tax")) DESC',
+            'CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) DESC',
             "SUM((`amount` + `tax`)) DESC",
             "total",
         ),
@@ -176,14 +176,14 @@ def test_grouped_order_by_aggregate_outputs_render_underlying_expressions(
             emit_postgres_sql,
             "SELECT\n"
             '    "region" AS "region",\n'
-            '    SUM(("amount" + "tax")) AS "total"\n'
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total"\n'
             'FROM "orders"\n'
             "GROUP BY\n"
             '    "region"\n'
             "HAVING\n"
-            '    SUM(("amount" + "tax")) > 1000\n'
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) > 1000\n'
             "ORDER BY\n"
-            '    SUM(("amount" + "tax")) DESC,\n'
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) DESC,\n'
             '    "region" ASC\n'
             "LIMIT 10",
         ),

@@ -111,22 +111,22 @@ BASE_SHAPE = (
     [
         (
             "total = sum(amount + 1)",
-            'SUM(("amount" + 1))',
+            'CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8)',
             "SUM((`amount` + 1))",
         ),
         (
             "total = sum(1 + amount)",
-            'SUM((1 + "amount"))',
+            'CAST(SUM(CAST((1 + "amount") AS pg_catalog.int8)) AS pg_catalog.int8)',
             "SUM((1 + `amount`))",
         ),
         (
             "total = sum(amount - 1)",
-            'SUM(("amount" - 1))',
+            'CAST(SUM(CAST(("amount" - 1) AS pg_catalog.int8)) AS pg_catalog.int8)',
             "SUM((`amount` - 1))",
         ),
         (
             "total = sum(amount * 2)",
-            'SUM(("amount" * 2))',
+            'CAST(SUM(CAST(("amount" * 2) AS pg_catalog.int8)) AS pg_catalog.int8)',
             "SUM((`amount` * 2))",
         ),
         (
@@ -168,7 +168,7 @@ def test_direct_renderers_render_qualified_and_unary_literal_aggregate_arguments
 
     assert (
         render_expression_sql(projections["qualified"].expression)
-        == 'SUM(("orders"."amount" + 1))'
+        == 'CAST(SUM(CAST(("orders"."amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8)'
     )
     assert (
         render_mysql_expression(projections["qualified"].expression)
@@ -176,7 +176,7 @@ def test_direct_renderers_render_qualified_and_unary_literal_aggregate_arguments
     )
     assert (
         render_expression_sql(projections["unary_total"].expression)
-        == 'SUM(((+"orders"."amount") + 1))'
+        == 'CAST(SUM(CAST(((+"orders"."amount") + 1) AS pg_catalog.int8)) AS pg_catalog.int8)'
     )
     assert (
         render_mysql_expression(projections["unary_total"].expression)
@@ -199,10 +199,10 @@ def test_direct_renderers_render_qualified_and_unary_literal_aggregate_arguments
             "postgres.table",
             emit_postgres_sql,
             "SELECT\n"
-            '    SUM(("amount" + 1)) AS "plus_total",\n'
-            '    SUM((1 + "amount")) AS "left_literal_total",\n'
-            '    SUM(("amount" - 1)) AS "minus_total",\n'
-            '    SUM(("amount" * 2)) AS "multiplied_total",\n'
+            '    CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) AS "plus_total",\n'
+            '    CAST(SUM(CAST((1 + "amount") AS pg_catalog.int8)) AS pg_catalog.int8) AS "left_literal_total",\n'
+            '    CAST(SUM(CAST(("amount" - 1) AS pg_catalog.int8)) AS pg_catalog.int8) AS "minus_total",\n'
+            '    CAST(SUM(CAST(("amount" * 2) AS pg_catalog.int8)) AS pg_catalog.int8) AS "multiplied_total",\n'
             '    AVG(("score" * 2)) AS "weighted_average",\n'
             '    AVG(("score" + 1.5)) AS "adjusted_average"\n'
             'FROM "orders"',
@@ -253,16 +253,16 @@ def test_backends_emit_no_group_numeric_literal_aggregate_sql(
             emit_postgres_sql,
             "SELECT\n"
             '    "region" AS "region",\n'
-            '    SUM(("amount" + 1)) AS "total",\n'
+            '    CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",\n'
             '    AVG(("score" * 2)) AS "average"\n'
             'FROM "orders"\n'
             "GROUP BY\n"
             '    "region"\n'
             "HAVING\n"
-            '    SUM(("amount" + 1)) > 1000\n'
+            '    CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) > 1000\n'
             "ORDER BY\n"
             '    AVG(("score" * 2)) DESC,\n'
-            '    SUM(("amount" + 1)) ASC\n'
+            '    CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) ASC\n'
             "LIMIT 10",
         ),
         (
@@ -321,7 +321,7 @@ def test_grouped_satisfying_order_by_and_limit_render_numeric_literal_aggregates
             "postgres.table",
             emit_postgres_sql,
             "SELECT\n"
-            '    SUM(("amount" + "tax")) AS "total",\n'
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",\n'
             '    AVG(("score" * "weight")) AS "weighted",\n'
             '    SUM(("price" + "discount")) AS "decimal_total",\n'
             '    AVG(("price" - "discount")) AS "decimal_average"\n'

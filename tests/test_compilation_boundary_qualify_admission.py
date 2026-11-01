@@ -271,7 +271,10 @@ query ranked:
     emitted = emit_postgres_sql(lowered.ir)
     assert not emitted.diagnostics
     sql = emitted.artifacts[-1].sql
-    assert 'SUM("amount") AS "__pietto_qualify_0"' in sql
+    assert (
+        'CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8) '
+        'AS "__pietto_qualify_0"'
+    ) in sql
     assert 'ORDER BY\n    "__pietto_qualify_0" DESC' in sql
 
 
@@ -456,10 +459,15 @@ def test_qualify_without_group_by_reads_the_aggregate_outputs(dialect: str) -> N
         lowered.ir
     )
     assert not emitted.diagnostics
+    total_sql = (
+        'CAST(SUM(CAST("price" AS pg_catalog.int8)) AS pg_catalog.int8)'
+        if dialect == "postgres"
+        else 'SUM("price")'
+    )
     assert tuple(artifact.sql for artifact in emitted.artifacts) == (
         _quoted(
             'SELECT\n    "total",\n    "n",\n    "low",\n    "high"\nFROM (\nSELECT\n'
-            '    SUM("price") AS "total",\n    COUNT(*) AS "n",\n'
+            f'    {total_sql} AS "total",\n    COUNT(*) AS "n",\n'
             '    MIN("price") AS "low",\n    MAX("price") AS "high"\nFROM "items"\n'
             ') AS "__pietto_qualify"\nWHERE\n    ("total" > 5) AND ("n" > 1)',
             dialect,
@@ -484,10 +492,15 @@ def test_grouped_qualify_reads_group_keys_and_selected_outputs(dialect: str) -> 
         lowered.ir
     )
     assert not emitted.diagnostics
+    total_sql = (
+        'CAST(SUM(CAST("price" AS pg_catalog.int8)) AS pg_catalog.int8)'
+        if dialect == "postgres"
+        else 'SUM("price")'
+    )
     assert tuple(artifact.sql for artifact in emitted.artifacts) == (
         _quoted(
             'SELECT\n    "cat",\n    "total",\n    "rk"\nFROM (\nSELECT\n'
-            '    "cat" AS "cat",\n    SUM("price") AS "total",\n'
+            f'    "cat" AS "cat",\n    {total_sql} AS "total",\n'
             '    RANK() OVER (ORDER BY "cat" DESC) AS "rk",\n'
             '    "items"."cat" AS "__pietto_qualify_0"\nFROM "items" AS "items"\n'
             'GROUP BY\n    "cat"\n) AS "__pietto_qualify"\nWHERE\n'

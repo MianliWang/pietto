@@ -251,7 +251,14 @@ def test_projection_alias_is_not_an_order_by_name_scope() -> None:
 
 @pytest.mark.parametrize(
     ("output", "postgres_key", "mysql_key"),
-    [("count()", "COUNT(*)", "COUNT(*)"), ("sum(id)", 'SUM("id")', "SUM(`id`)")],
+    [
+        ("count()", "COUNT(*)", "COUNT(*)"),
+        (
+            "sum(id)",
+            'CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8)',
+            "SUM(`id`)",
+        ),
+    ],
     ids=("count", "sum"),
 )
 def test_aggregate_output_key_orders_with_or_without_group_by(
@@ -621,8 +628,10 @@ def test_mysql_qualifies_a_captured_field_inside_an_order_key() -> None:
     assert [artifact.sql for artifact in postgres.artifacts] == [
         'SELECT\n    "id" AS "id",\n    "id" AS "created_at"\nFROM "users"\n'
         'ORDER BY\n    "created_at" + 1 DESC,\n    lower("email") ASC',
-        'SELECT\n    "email" AS "email",\n    SUM("created_at") AS "created_at"\n'
-        'FROM "users"\nGROUP BY\n    "email"\nORDER BY\n    SUM("created_at") DESC',
+        'SELECT\n    "email" AS "email",\n'
+        '    CAST(SUM(CAST("created_at" AS pg_catalog.int8)) AS pg_catalog.int8) AS "created_at"\n'
+        'FROM "users"\nGROUP BY\n    "email"\nORDER BY\n'
+        '    CAST(SUM(CAST("created_at" AS pg_catalog.int8)) AS pg_catalog.int8) DESC',
     ]
     # Before: MySQL emitted `created_at` + 1 and SUM(`created_at`), names that
     # MySQL documents it looks up among the SELECT aliases first.

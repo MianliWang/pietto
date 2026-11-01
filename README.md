@@ -138,7 +138,7 @@ SELECT
     "customers"."id" AS "customer_id",
     "customers"."name" AS "name",
     COUNT("order"."id") AS "order_count",
-    SUM("order"."amount") AS "total_amount"
+    CAST(SUM(CAST("order"."amount" AS pg_catalog.int8)) AS pg_catalog.int8) AS "total_amount"
 FROM "shop"."customers" AS "customers"
 LEFT JOIN "shop"."orders" AS "order" ON "order"."customer_id" = "customers"."id"
 GROUP BY

@@ -286,7 +286,7 @@ def test_no_group_aggregate_typeclass_matrix_semantic_ir_and_sql_are_locked() ->
                 'COUNT(DISTINCT lower(trim("status"))) AS "unique_normalized"',
                 'SUM("price") AS "total_price"',
                 'AVG("price") AS "average_price"',
-                'SUM(("amount" + 1)) AS "total_literal_expr"',
+                'CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) AS "total_literal_expr"',
                 'AVG(("price" - "discount")) AS "decimal_average_expr"',
                 'SUM(("price" + "amount")) AS "decimal_int_total_expr"',
                 'MIN("created_at") AS "first_created_at"',

@@ -79,8 +79,8 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
                 ],
                 ["previous", "lag", "named_direct", 0, None, "respect_nulls", None],
             ],
-            ["e87b1294b483f3ab42473a1e05cbe908fb0559849af5e53cd336a9d7ef2ffacb"],
-            "fd6534e9f93c0546ed325ed854a311642e2a4cfcbf6110fbdc592fd9698696b1",
+            ["8cc7eb9989d75d6f766795d2adc95820922ed7dc9e64139514adba55cfe1be70"],
+            "5e239937180f8716e5335ce2473650af79ca9cb532e580dd497303e93dd47f5b",
         ],
         [
             "mysql_native",
@@ -427,8 +427,8 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
         [
             "postgres",
             0,
-            "354e40f887f7d554da32f2ad20d1ad0c79431c1b777e6fa34a6f0b712d27c5d0",
-            628,
+            "863ddc39169079eaef65e49a16bbe59d4a758e7ffd3278c705230046d62be4fc",
+            778,
             "",
         ],
         [
@@ -439,8 +439,8 @@ EXPECTED_COMMON_MANIFEST: dict[str, object] = {
             "",
         ],
     ],
-    "observation_sha256": "34103e5bdb549fb8135d8dc14d653bdec390849bfb9dbfbf8e173115aed2307a",
-    "observation_size": 50373,
+    "observation_sha256": "d3fbcf5005e277a2456f17b4d91c116cec504171ccce29296d6f530547d10973",
+    "observation_size": 50673,
 }
 
 

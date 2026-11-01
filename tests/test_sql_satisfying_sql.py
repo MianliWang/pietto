@@ -100,12 +100,12 @@ SOURCE_PREFIX = (
             emit_postgres_sql,
             "SELECT\n"
             '    "region" AS "r",\n'
-            '    SUM("amount") AS "total_amount"\n'
+            '    CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8) AS "total_amount"\n'
             'FROM "orders"\n'
             "GROUP BY\n"
             '    "region"\n'
             "HAVING\n"
-            '    SUM("amount") > 1000',
+            '    CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8) > 1000',
         ),
         (
             "mysql.table",
@@ -328,7 +328,10 @@ def test_source_satisfying_having_uses_underlying_expressions_not_aliases(
     captured = capsys.readouterr()
     assert captured.err == ""
     having = _having_clause(captured.out)
-    assert 'SUM("amount") > 1000' in having
+    assert (
+        'CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8) > 1000'
+        in having
+    )
     assert "\"region\" <> 'test'" in having
     assert '"total_amount"' not in having
     assert '"r"' not in having
@@ -760,12 +763,12 @@ def _expected_postgres_satisfying_sql() -> str:
     return (
         "SELECT\n"
         '    "region" AS "region",\n'
-        '    SUM("amount") AS "total_amount"\n'
+        '    CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8) AS "total_amount"\n'
         'FROM "orders"\n'
         "GROUP BY\n"
         '    "region"\n'
         "HAVING\n"
-        '    SUM("amount") > 1000'
+        '    CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8) > 1000'
     )
 
 

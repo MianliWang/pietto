@@ -1240,17 +1240,25 @@ its existing NAT network and verified cold-cache image acquisition.
 The local profile requires the pinned image already in Docker's cache and
 uses `--pull=never`. Its sole internal network and the container's IPv4/IPv6
 route tables are recorded and checked; an active default route is refused.
-The container stays on CPUs 0–7. Docker does not publish a loopback port for
-this internal network on the integration host, so the resource owner uses the
-installed `socat` tool to forward an owned, bounded loopback listener to that
-container's verified private IPv4 endpoint. It neither parses nor terminates
-TLS. The listener and at most 16 active forwarding children are closed and
-reaped before the owned container/network are removed. Missing tools, missing
-cache, identity drift or cleanup failure cannot become offline evidence.
+The container stays on CPUs 0–7. The default bridge uses the installed `socat`
+tool to forward an owned, bounded loopback listener to the verified private
+IPv4 endpoint; it neither parses nor terminates TLS. Docker Desktop cannot
+publish from this internal-only network, so the withdrawn `published-loopback`
+proposal is not a supported transport. The owner-approved Desktop option is
+instead `PIETTO_NATIVE_OFFLINE_TRANSPORT=exec-stdio`, usable only with
+`PIETTO_NATIVE_OFFLINE=1` and PostgreSQL. It opens an owned host listener on
+`127.0.0.1`; each client starts the fixed, non-TTY Docker exec command in the
+same verified container, where `/bin/bash` connects only to its
+`127.0.0.1:5432` and relays raw bytes. There is no published port, host network,
+extra image/container, mount, download, arbitrary host shell, DSN or credential
+argv/logging. The listener and no more than sixteen owned Docker CLI children
+are closed and reaped before the container/network cleanup. Missing tools,
+missing cache, identity drift or cleanup failure cannot become offline evidence.
 
 The target receipt and API offline journal readers rederive the image, sole
-network, routes, private target, local listener and cleanup chain. A NAT receipt
-continues to mean the default CI profile; it is never evidence for this local
-exception. Earlier IPE/B4 functional observations remain recorded with their
-original identities, while their former offline description is superseded by
-the explicit owner-approved isolation recovery and fresh qualified witnesses.
+network, routes, selected transport, owned container, fixed exec-command
+identity, local listener and cleanup chain. A NAT receipt continues to mean the
+default CI profile; it is never evidence for this local exception. Earlier
+IPE/B4 functional observations remain recorded with their original identities,
+while their former offline description is superseded by the explicit
+owner-approved isolation recovery and fresh qualified witnesses.

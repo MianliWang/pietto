@@ -105,7 +105,7 @@ BASE_SHAPE = (
     [
         (
             "total = sum(amount + tax)",
-            'SUM(("amount" + "tax"))',
+            'CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8)',
             "SUM((`amount` + `tax`))",
         ),
         (
@@ -184,7 +184,7 @@ def test_direct_renderers_preserve_qualified_expression_argument_leaves() -> Non
 
     assert (
         render_expression_sql(projections["total"].expression)
-        == 'SUM(("orders"."amount" + "orders"."tax"))'
+        == 'CAST(SUM(CAST(("orders"."amount" + "orders"."tax") AS pg_catalog.int8)) AS pg_catalog.int8)'
     )
     assert (
         render_mysql_expression(projections["total"].expression)
@@ -220,7 +220,7 @@ def test_direct_renderers_preserve_qualified_expression_argument_leaves() -> Non
         ),
         (
             "sum_field",
-            'SUM("amount")',
+            'CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8)',
             "SUM(`amount`)",
         ),
         (
@@ -258,7 +258,7 @@ def test_direct_field_aggregate_renderer_sql_remains_byte_exact(
             "postgres.table",
             emit_postgres_sql,
             "SELECT\n"
-            '    SUM(("amount" + "tax")) AS "total",\n'
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",\n'
             '    AVG(("score" * "weight")) AS "weighted",\n'
             '    SUM(("price" + "price")) AS "decimal_total",\n'
             '    AVG(("price" - "price")) AS "decimal_average",\n'
@@ -309,7 +309,7 @@ def test_backends_emit_no_group_aggregate_expression_argument_sql(
             emit_postgres_sql,
             "SELECT\n"
             '    "region" AS "region",\n'
-            '    SUM(("amount" + "tax")) AS "total",\n'
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",\n'
             '    COUNT(DISTINCT lower(trim("status"))) AS "normalized"\n'
             'FROM "orders"\n'
             "GROUP BY\n"
@@ -358,12 +358,12 @@ def test_backends_emit_grouped_aggregate_expression_argument_sql(
             emit_postgres_sql,
             "SELECT\n"
             '    "region" AS "region",\n'
-            '    SUM(("amount" + "tax")) AS "total"\n'
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total"\n'
             'FROM "orders"\n'
             "GROUP BY\n"
             '    "region"\n'
             "HAVING\n"
-            '    SUM(("amount" + "tax")) > 1000',
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) > 1000',
             '"total" > 1000',
         ),
         (
@@ -411,7 +411,7 @@ def test_grouped_satisfying_uses_underlying_aggregate_expression_not_alias(
             "postgres.table",
             emit_postgres_sql,
             "SELECT\n"
-            '    SUM(("orders"."amount" + "orders"."tax")) AS "total",\n'
+            '    CAST(SUM(CAST(("orders"."amount" + "orders"."tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",\n'
             '    COUNT(DISTINCT lower("orders"."status")) AS "normalized"\n'
             'FROM "physical_orders" AS "orders"',
         ),
@@ -453,7 +453,7 @@ def test_backends_preserve_source_aliases_for_qualified_expression_leaves(
             "postgres",
             "postgres.table",
             "total = sum(amount + tax)",
-            'SELECT\n    SUM(("amount" + "tax")) AS "total"\nFROM "orders"',
+            'SELECT\n    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total"\nFROM "orders"',
         ),
         (
             "postgres",
@@ -507,7 +507,7 @@ def test_cli_text_emits_supported_expression_argument_sql(
             "postgres",
             "postgres.table",
             "total = sum(amount + tax)",
-            'SELECT\n    SUM(("amount" + "tax")) AS "total"\nFROM "orders"',
+            'SELECT\n    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total"\nFROM "orders"',
         ),
         (
             "postgres",

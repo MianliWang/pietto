@@ -34,14 +34,14 @@ SOURCE_SHAPE = (
 POSTGRES_SQL = (
     "SELECT\n"
     '    "region" AS "region",\n'
-    '    SUM(("amount" + "tax")) AS "total"\n'
+    '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total"\n'
     'FROM "orders"\n'
     "GROUP BY\n"
     '    "region"\n'
     "HAVING\n"
-    '    SUM(("amount" + "tax")) > 1000\n'
+    '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) > 1000\n'
     "ORDER BY\n"
-    '    SUM(("amount" + "tax")) DESC,\n'
+    '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) DESC,\n'
     '    "region" ASC\n'
     "LIMIT 10"
 )

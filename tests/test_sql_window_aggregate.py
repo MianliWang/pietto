@@ -40,7 +40,7 @@ table totals:
     assert postgres_lowered.ir is not None
     postgres = emit_postgres_sql(postgres_lowered.ir)
     assert (
-        'SUM("id") OVER (ORDER BY "id" ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS)'
+        'CAST(SUM(CAST("id" AS pg_catalog.int8)) OVER (ORDER BY "id" ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS) AS pg_catalog.int8)'
         in postgres.artifacts[0].sql
     )
 
@@ -61,7 +61,10 @@ table totals:
     lowered = build_ir(parsed.ast, analyze(parsed.ast).model)
     assert lowered.ir is not None, lowered.diagnostics
     sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
-    assert 'SUM("value") OVER "recent"' in sql
+    assert (
+        'CAST(SUM(CAST("value" AS pg_catalog.int8)) OVER "recent" AS pg_catalog.int8)'
+        in sql
+    )
     assert '"recent" AS (PARTITION BY "account" ORDER BY "id" ASC)' in sql
 
 
@@ -99,7 +102,7 @@ table totals:
     assert lowered.ir is not None
     sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
     assert (
-        'SUM("id") OVER (ORDER BY "id" ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS)'
+        'CAST(SUM(CAST("id" AS pg_catalog.int8)) OVER (ORDER BY "id" ASC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS) AS pg_catalog.int8)'
         in sql
     )
     assert "WINDOW" not in sql
@@ -304,15 +307,30 @@ table grouped:
     lowered = build_ir(parsed.ast, analyze(parsed.ast).model)
     assert lowered.ir is not None
     sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
-    assert 'SUM(SUM("id")) OVER (ORDER BY SUM("id") ASC) AS "summed"' in sql
     assert (
-        'AVG(CAST(SUM("id") AS double precision)) OVER (ORDER BY SUM("id") ASC) AS "averaged"'
+        'CAST(SUM(CAST(CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) AS pg_catalog.int8)) OVER (ORDER BY CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) ASC) AS pg_catalog.int8) AS "summed"'
         in sql
     )
-    assert 'COUNT(SUM("id")) OVER (ORDER BY SUM("id") ASC) AS "counted"' in sql
-    assert 'MIN(SUM("id")) OVER (ORDER BY SUM("id") ASC) AS "smallest"' in sql
-    assert 'MAX(SUM("id")) OVER (ORDER BY SUM("id") ASC) AS "largest"' in sql
-    assert 'SUM((SUM("id") + 1)) OVER (ORDER BY SUM("id") ASC) AS "adjusted"' in sql
+    assert (
+        'AVG(CAST(CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) AS double precision)) OVER (ORDER BY CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) ASC) AS "averaged"'
+        in sql
+    )
+    assert (
+        'COUNT(CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8)) OVER (ORDER BY CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) ASC) AS "counted"'
+        in sql
+    )
+    assert (
+        'MIN(CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8)) OVER (ORDER BY CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) ASC) AS "smallest"'
+        in sql
+    )
+    assert (
+        'MAX(CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8)) OVER (ORDER BY CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) ASC) AS "largest"'
+        in sql
+    )
+    assert (
+        'CAST(SUM(CAST((CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) + 1) AS pg_catalog.int8)) OVER (ORDER BY CAST(SUM(CAST("id" AS pg_catalog.int8)) AS pg_catalog.int8) ASC) AS pg_catalog.int8) AS "adjusted"'
+        in sql
+    )
 
 
 def test_postgres_recursively_carries_grouped_outputs_into_count_transforms():
@@ -353,7 +371,10 @@ table grouped:
     lowered = build_ir(parsed.ast, analyze(parsed.ast).model)
     assert lowered.ir is not None
     sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
-    assert 'SUM(COUNT(DISTINCT "id")) OVER (ORDER BY COUNT(DISTINCT "id") ASC)' in sql
+    assert (
+        'CAST(SUM(CAST(COUNT(DISTINCT "id") AS pg_catalog.int8)) OVER (ORDER BY COUNT(DISTINCT "id") ASC) AS pg_catalog.int8)'
+        in sql
+    )
 
 
 def test_postgres_qualify_windows_read_completed_grouped_outputs():
@@ -379,12 +400,18 @@ query result:
     lowered = build_ir(parsed.ast, analyze(parsed.ast).model)
     assert lowered.ir is not None
     sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
-    assert 'SUM(SUM("value")) OVER (ORDER BY "peer_key" ASC)' in sql
     assert (
-        'FIRST_VALUE(SUM("value")) OVER (ORDER BY "peer_key" ASC ROWS CURRENT ROW EXCLUDE NO OTHERS)'
+        'CAST(SUM(CAST(CAST(SUM(CAST("value" AS pg_catalog.int8)) AS pg_catalog.int8) AS pg_catalog.int8)) OVER (ORDER BY "peer_key" ASC) AS pg_catalog.int8)'
         in sql
     )
-    assert 'SUM((SUM("value") + 1)) OVER (ORDER BY "peer_key" ASC)' in sql
+    assert (
+        'FIRST_VALUE(CAST(SUM(CAST("value" AS pg_catalog.int8)) AS pg_catalog.int8)) OVER (ORDER BY "peer_key" ASC ROWS CURRENT ROW EXCLUDE NO OTHERS)'
+        in sql
+    )
+    assert (
+        'CAST(SUM(CAST((CAST(SUM(CAST("value" AS pg_catalog.int8)) AS pg_catalog.int8) + 1) AS pg_catalog.int8)) OVER (ORDER BY "peer_key" ASC) AS pg_catalog.int8)'
+        in sql
+    )
     assert 'ORDER BY\n    "__pietto_qualify_3" DESC\nLIMIT 2' in sql
 
 
@@ -442,7 +469,10 @@ query result:
     assert counted.arguments[0].arguments[0].field.input == 0
 
     sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
-    assert 'SUM(SUM("right"."amount")) OVER (ORDER BY "rows"."label" ASC)' in sql
+    assert (
+        'CAST(SUM(CAST(CAST(SUM(CAST("right"."amount" AS pg_catalog.int8)) AS pg_catalog.int8) AS pg_catalog.int8)) OVER (ORDER BY "rows"."label" ASC) AS pg_catalog.int8)'
+        in sql
+    )
     assert 'COUNT(length("rows"."label")) OVER (ORDER BY "rows"."label" ASC)' in sql
 
 
@@ -489,7 +519,7 @@ table totals:
     assert lowered.ir is not None
     sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
     assert (
-        'SUM("id") OVER ("base" GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS)'
+        'CAST(SUM(CAST("id" AS pg_catalog.int8)) OVER ("base" GROUPS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS) AS pg_catalog.int8)'
         in sql
     )
     assert '"base" AS (ORDER BY "id" ASC)' in sql

@@ -406,6 +406,10 @@ lead 2026-10-28 问是否提高 D71.09“至多 3 个隔离 worker（加一个�
 - 项目 emission 的 Q2 受检 bigint 规则明确允许 PostgreSQL 在规划期或执行期
   报 SQLSTATE 22003，包括空表和未取分支；保证不返回回绕错值，不保证报错时机。
   这修正了旧设计中“静态区间拒绝能排除所有规划期错误”的前提。
+- 所有者于 2026-11-01 批准把同一受检规则用于 single-file PostgreSQL
+  `sum(Int)`：输入显式转 `pg_catalog.int8`，`SUM` 后再显式转 `pg_catalog.int8`；
+  全局、分组、HAVING 与 aggregate window 都适用，physical `bigint` 的越界也为
+  SQLSTATE 22003，且不承诺报错时机。MySQL、Float/Decimal `SUM`/`AVG` 不变。
 - 所有者批准批量 `emit-sql --all` 的设计与目录方案 A：只新建目录，逐文件原子写，
   manifest 最后写；崩溃可留下无 manifest 的不完整目录。单产物字节保持不变，
   公开 Python compile API 本次只设计，留待 Phase75。
@@ -476,3 +480,24 @@ for the remaining work. Future implementation lanes use isolated worktrees with
 one writer each under D71.09; shared cores stay sequential within a lane. The
 lead alone integrates, seals, commits and pushes. Database checks remain
 serialized under D71.11. The old B4 incident trees are preserved.
+
+
+The owner subsequently raised the independent continuation caps to
+**C300/F400/D300** on 2026-11-01. All existing charges, failed evidence and
+historical UNKNOWN remain; internal worker reservations do not add capacity.
+The separately approved single-file PostgreSQL Int SUM repair uses this balance
+and the existing D71.11/Gate 2/natural-CI controls. No version, tag, release or
+PyPI authority is added.
+
+### D71 Desktop offline transport A2
+
+The unpublished A1 `published-loopback` proposal is unsupported: Docker Desktop
+does not create published-port mappings for the required internal-only network.
+The direct owner approved A2 instead: with `PIETTO_NATIVE_OFFLINE=1`, explicit
+PostgreSQL-only `PIETTO_NATIVE_OFFLINE_TRANSPORT=exec-stdio` starts a fixed
+non-TTY Docker exec stdin/stdout bridge into the same verified pinned container's
+`127.0.0.1:5432`. It retains the sole internal network, no-default-route proof,
+CPU 0–7, cache-only image, single-container and cleanup boundaries, and records
+the exact transport, owned container, fixed command identity, listener and
+child-reaping lifecycle. No publish, host networking, extra image/container,
+mount, download, arbitrary command, release or CI-default change is approved.

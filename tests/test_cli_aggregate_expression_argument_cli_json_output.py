@@ -39,7 +39,7 @@ NO_GROUP_SELECT_BODY = (
 )
 POSTGRES_NO_GROUP_SQL = (
     "SELECT\n"
-    '    SUM(("amount" + "tax")) AS "total",\n'
+    '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",\n'
     '    AVG(("score" * "weight")) AS "weighted",\n'
     '    COUNT(DISTINCT lower("status")) AS "normalized",\n'
     '    COUNT(DISTINCT lower(trim("status"))) AS "normalized_trimmed"\n'
@@ -56,7 +56,7 @@ MYSQL_NO_GROUP_SQL = (
 POSTGRES_GROUPED_SQL = (
     "SELECT\n"
     '    "region" AS "region",\n'
-    '    SUM(("amount" + "tax")) AS "total",\n'
+    '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total",\n'
     '    COUNT(DISTINCT lower(trim("status"))) AS "normalized"\n'
     'FROM "orders"\n'
     "GROUP BY\n"
@@ -72,7 +72,7 @@ MYSQL_GROUPED_SQL = (
     "    `region`"
 )
 POSTGRES_TOTAL_HAVING_SQL = POSTGRES_GROUPED_SQL + (
-    '\nHAVING\n    SUM(("amount" + "tax")) > 1000'
+    '\nHAVING\n    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) > 1000'
 )
 MYSQL_TOTAL_HAVING_SQL = MYSQL_GROUPED_SQL + (
     "\nHAVING\n    SUM((`amount` + `tax`)) > 1000"

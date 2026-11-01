@@ -93,7 +93,7 @@ def test_ir_lowers_satisfying_aggregate_row_let_to_selected_aggregate_expression
         (
             SOURCE_PREFIX,
             "postgres",
-            '    SUM(("amount" + "tax")) > 10',
+            '    CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) > 10',
             ('"gross"', '"total"', "WITH ", "FROM (SELECT"),
         ),
         (

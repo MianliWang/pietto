@@ -102,7 +102,7 @@ def test_grouped_sum_avg_row_let_arguments_are_semantically_accepted() -> None:
             SOURCE_PREFIX,
             "postgres",
             (
-                'SUM(("amount" + "tax")) AS "total"',
+                'CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total"',
                 'AVG(CAST((("amount" + "tax") - "discount") AS double precision)) '
                 'AS "average_net"',
             ),
