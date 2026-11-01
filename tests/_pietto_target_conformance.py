@@ -32,6 +32,7 @@ from _pietto_target_conformance_resources import (
     deadline,
     error_fact,
     loopback_port,
+    verify_offline_evidence,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,7 +46,11 @@ MAX_RECEIPT = 34 * 1024 * 1024
 HELPERS = tuple(
     Path(__file__).with_name("_pietto_target_conformance" + suffix + ".py")
     for suffix in ("", "_resources", "_observation", "_cases")
-) + (Path(__file__).with_name("_pietto_mysql_native_prepared.py"),)
+) + (
+    Path(__file__).with_name("_pietto_mysql_native_prepared.py"),
+    # Phase71 S08: the literal oracle states the expected Collect values.
+    Path(__file__).with_name("_pietto_execution_nested_oracle.py"),
+)
 EMISSION_PROBE = Path(__file__).with_name("_pietto_sql_emission.py")
 NATIVE_PREREQUISITE = (
     "A_legacy",
@@ -661,6 +666,13 @@ def verify_emission_generation(value, target, expected):
                 "name": "result",
             }:
                 raise ValueError("public selected owner changed")
+        elif status == "BLOCKED" and record["id"] == "L_relation_collect":
+            # D-S08-4: MySQL refuses each Collect read once, in source order.
+            reads = fixture["source"].count(" = collect ")
+            if [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] != [
+                ("PIE-B1003", "collect_not_admitted_on_target")
+            ] * reads or not reads:
+                raise ValueError("wrong Collect refusal taxonomy")
         elif status == "BLOCKED":
             code = (
                 "PIE-B1003"
@@ -1286,6 +1298,7 @@ def _verify_receipt(
         + cases.aggregate_setup_parameters(target)
         + [[], [], []]
         + [[] for _ in cases.row_domain_setup(target)]
+        + cases.collect_setup_parameters(target)
         + [[] for _ in setup_sql[len(cases.setup(target)) :]]
     )
     for observation, parameters in zip(receipt["setup"], fixture_params, strict=True):
@@ -1398,24 +1411,28 @@ def _verify_receipt(
         for event in receipt["resources"]
         if event.get("event") == "container_start_observed"
     ]
+    offline = verify_offline_evidence(
+        receipt["resources"], target, pins["targets"][target]
+    )
     if (
         len(network_observations) != 1
         or len(port_observations) != 1
         or network_observations[0].get("id") != cleanup["network_id"]
         or network_observations[0].get("driver") != "bridge"
-        or network_observations[0].get("internal") is not False
+        or network_observations[0].get("internal") is not offline
         or network_observations[0]
         .get("options", {})
         .get("com.docker.network.bridge.gateway_mode_ipv4")
-        != "nat"
+        != (None if offline else "nat")
         or port_observations[0].get("id") != cleanup["container_id"]
         or port_observations[0].get("image") != runtime_image
         or port_observations[0].get("running") is not True
     ):
         raise ValueError("isolated network/port observation mismatch")
-    loopback_port(
-        port_observations[0]["ports"], "5432" if target == "postgres" else "3306"
-    )
+    if not offline:
+        loopback_port(
+            port_observations[0]["ports"], "5432" if target == "postgres" else "3306"
+        )
     for kind in ("container", "network"):
         value = cleanup.get(kind + "_id")
         if type(value) is not str or re.fullmatch(r"[0-9a-f]{64}", value) is None:

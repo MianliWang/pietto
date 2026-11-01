@@ -28,6 +28,12 @@ class ObserverFailure(ValueError):
 
 
 def scalar(value: object) -> dict[str, Any]:
+    if type(value) is list:
+        # Receipt v3 'array' cell (D-S08-11): one PostgreSQL array of scalar
+        # cells, one layer only; a NULL array is the 'null' cell.
+        if any(type(item) is list for item in value):
+            raise ObserverFailure("UNSUPPORTED_VALUE_TYPE")
+        return {"kind": "array", "items": [scalar(item) for item in value]}
     if value is None:
         return {"kind": "null"}
     if type(value) is bool:

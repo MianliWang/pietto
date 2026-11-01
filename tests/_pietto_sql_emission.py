@@ -14,6 +14,20 @@ from tempfile import TemporaryDirectory
 from typing import Any, cast
 
 CONFIG = 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+COLLECT_VARIANTS = (
+    "closed",
+    "captured",
+    "topk",
+    "ties",
+    "hidden_nullable_key",
+    "siblings",
+    "distinct_let",
+    "grouped_let",
+    "parent_order_limit",
+    "text_quoting",
+    "int4_child",
+    "decimal_child",
+)
 VARIANTS = {
     "G_emission_table_bag": ("bag",),
     # Pre-Slice16 corrective closure: C06 physical row domains (inheritance,
@@ -56,6 +70,10 @@ VARIANTS = {
     # Phase70 S15: PostgreSQL generate_series alone and joined with the
     # published relation; MySQL has no table function in this phase.
     "Q_table_function_series": ("ascending", "joined"),
+    # Phase71 S08 (AC-F7, delivered by S12): PostgreSQL Collect reads of the
+    # selected query, each one LEFT JOIN LATERAL count-and-arrays carrier;
+    # MySQL refuses every Collect read (PIE-B1003).
+    "L_relation_collect": COLLECT_VARIANTS,
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -483,6 +501,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return scalar_fixture(target, variant)
     if case == "L_relation_membership":
         return membership_fixture(target, variant)
+    if case == "L_relation_collect":
+        return collect_fixture(target, variant)
     if case == "Q_table_function_series":
         return series_fixture(target, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
@@ -2331,6 +2351,225 @@ def membership_fixture(target, variant):
     return item
 
 
+COLLECT_HEADER = """shape Customer:
+    id: Int
+    name: Text
+shape Order:
+    id: Int
+    customer_id: Int | None
+    v: Int | None
+    k: Int | None
+    note: Text | None
+    price: Decimal(9, 2) | None
+    small: Int | None
+shape Payment:
+    id: Int
+    customer_id: Int | None
+source customers: Customer = {target}.table("customers")
+source orders: Order = {target}.table("orders")
+source payments: Payment = {target}.table("payments")
+"""
+
+
+def _captured_let(name, table, select, order, limit=None):
+    """One let of `table` rows whose customer is the parent row."""
+    lines = [
+        f"    let {name}:",
+        "        capture customers",
+        f"        from {table}",
+        f"        where {table}.customer_id == customers.id",
+        "        select:",
+        *(f"            {item}" for item in select),
+        "        order by:",
+        *(f"            {item}" for item in order),
+    ]
+    return "\n".join([*lines, *([f"        limit {limit}"] if limit else [])]) + "\n"
+
+
+def _closed_let(name, select, order, *, limit=None, distinct=False, group=None):
+    lines = [f"    let {name}:", "        from orders"]
+    if group:
+        lines += ["        group by:", f"            {group}"]
+    lines += [
+        "        select distinct:" if distinct else "        select:",
+        *(f"            {item}" for item in select),
+        "        order by:",
+        *(f"            {item}" for item in order),
+    ]
+    return "\n".join([*lines, *([f"        limit {limit}"] if limit else [])]) + "\n"
+
+
+def _collect_query(lets, fields, tail=""):
+    return (
+        "query result:\n"
+        + "".join(lets)
+        + "    from customers\n    select:\n        id\n"
+        + "".join(f"        {field} = collect {field}\n" for field in fields)
+        + tail
+    )
+
+
+COLLECT_BODIES = {
+    "closed": _collect_query([_closed_let("bag", ["v"], ["v"])], ["bag"]),
+    "captured": _collect_query(
+        [_captured_let("kids", "orders", ["v"], ["v desc"])], ["kids"]
+    ),
+    "topk": _collect_query(
+        [_captured_let("top", "orders", ["v"], ["v desc"], limit=2)], ["top"]
+    ),
+    "ties": _collect_query(
+        [_closed_let("tied", ["id", "k"], ["k"], limit=3)], ["tied"]
+    ),
+    "hidden_nullable_key": _collect_query(
+        [
+            _closed_let("up", ["id"], ["k", "id"], limit=3),
+            _closed_let("down", ["id"], ["k desc", "id"], limit=3),
+        ],
+        ["up", "down"],
+    ),
+    "siblings": _collect_query(
+        [
+            _captured_let("items", "orders", ["id"], ["id"]),
+            _captured_let("paid", "payments", ["id"], ["id"]),
+        ],
+        ["items", "paid"],
+    ),
+    "distinct_let": _collect_query(
+        [_closed_let("values", ["v"], ["v desc"], distinct=True)], ["values"]
+    ),
+    "grouped_let": _collect_query(
+        [
+            _closed_let(
+                "totals",
+                ["customer_id", "n = count()"],
+                ["n desc", "customer_id"],
+                group="customer_id",
+            )
+        ],
+        ["totals"],
+    ),
+    "parent_order_limit": _collect_query(
+        [_captured_let("kids", "orders", ["v"], ["v desc"])],
+        ["kids"],
+        "    order by:\n        customers.id desc\n    limit 2\n",
+    ),
+    "text_quoting": _collect_query(
+        [_captured_let("notes", "orders", ["note"], ["id"])], ["notes"]
+    ),
+    "int4_child": _collect_query(
+        [_captured_let("smalls", "orders", ["small"], ["id"])], ["smalls"]
+    ),
+    "decimal_child": _collect_query(
+        [_captured_let("prices", "orders", ["price"], ["id"])], ["prices"]
+    ),
+}
+# (name, column, logical) of every declared field, in declaration order.
+COLLECT_SOURCES = {
+    "customers": (("id", "Int", False), ("name", "Text", False)),
+    "orders": (
+        ("id", "Int", False),
+        ("customer_id", "Int", True),
+        ("v", "Int", True),
+        ("k", "Int", True),
+        ("note", "Text", True),
+        ("price", "Decimal", True),
+        ("small", "Int4", True),
+    ),
+    "payments": (("id", "Int", False), ("customer_id", "Int", True)),
+}
+
+
+def collect_relation(name):
+    """The physical relation name of one Collect source."""
+    return f"phase71 collect {name}"
+
+
+def collect_fixture(target, variant):
+    """A parent `customers` row per output row and Collect reads of `orders`
+    and `payments` rows. Every relation and column is declared exactly; only
+    PostgreSQL admits a Collect read, so MySQL reports one refusal per read."""
+    _need(variant in COLLECT_VARIANTS, "unknown collect variant")
+    postgres = target == "postgres"
+    text = {
+        "storage": {"kind": "pg_text"}
+        if postgres
+        else {"kind": "my_varchar", "length": 64},
+        "domain": {
+            "kind": "text",
+            "max_characters": 64,
+            "encoding": "UTF8" if postgres else "utf8mb4",
+            "collation": "C" if postgres else "utf8mb4_0900_bin",
+            "padding": "NO PAD",
+        },
+    }
+
+    def integer(bits):
+        kinds = {64: ("pg_int8", "my_bigint"), 32: ("pg_int4", "my_int")}[bits]
+        return {
+            "storage": {"kind": kinds[0] if postgres else kinds[1]},
+            "domain": {
+                "kind": "int_range",
+                "min": str(-(2 ** (bits - 1))),
+                "max": str(2 ** (bits - 1) - 1),
+            },
+        }
+
+    leaves = {
+        "Int": integer(64),
+        "Int4": integer(32),
+        "Text": text,
+        "Decimal": {
+            "storage": {
+                "kind": "pg_numeric" if postgres else "my_decimal",
+                "precision": 9,
+                "scale": 2,
+            },
+            "domain": {"kind": "decimal", "precision": 9, "scale": 2},
+        },
+    }
+    contract = json.loads(fixture(target)["contract"])
+    contract["sources"] = [
+        {
+            "selector": {"module": "main.pietto", "kind": "source", "name": name},
+            "relation": {
+                "namespace": "public" if postgres else "phase66",
+                "name": collect_relation(name),
+            },
+            "scan": "relation_rows",
+            "fields": [
+                {
+                    "ordinal": i,
+                    "name": column,
+                    "column": column,
+                    "representation": {
+                        "storage": leaves[leaf]["storage"],
+                        "nullable": nullable,
+                        "domain": leaves[leaf]["domain"],
+                    },
+                }
+                for i, (column, leaf, nullable) in enumerate(fields)
+            ],
+            "premises": [
+                {"key": key, "scope": "source", "value": True}
+                for key in ("row_domain_matches", "read_only_object")
+            ],
+        }
+        for name, fields in COLLECT_SOURCES.items()
+    ]
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact" if postgres else "lower_case_table_names=0",
+        }
+    )
+    return {
+        "source": COLLECT_HEADER.format(target=target) + COLLECT_BODIES[variant],
+        "contract": encoded(contract).decode(),
+        "policy": "preserve_literals",
+    }
+
+
 SERIES_BODIES = {
     "ascending": """query result:
     from generate_series(1, 3, 1) as n
@@ -3625,6 +3864,11 @@ PER_TARGET_STATUS = {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
     },
+    # D-S08-4: Collect is PostgreSQL only; MySQL refuses every Collect read.
+    **{
+        ("L_relation_collect", variant): {"postgres": "VERIFIED", "mysql": "BLOCKED"}
+        for variant in COLLECT_VARIANTS
+    },
 }
 
 
@@ -4379,6 +4623,8 @@ def _named_range_provenance(document, descriptors):
         "expression_block_use": ["expression_block_use"],
         # Phase70 S10: one capture record per capture line.
         "capture": ["capture"],
+        # Phase71 S08: one record per Collect read.
+        "collect": ["collect"],
     }
     associations = {
         "authored_cause",
@@ -5068,7 +5314,10 @@ def _decode_row_denominators(
         for i, (item, _) in enumerate(occurrences)
     ]
     expected = [*walk["scopes"], *walk["generated"]]
-    if len(bodies) > 1:
+    # A statement with a WITH clause names its generated scopes. An inline let
+    # (a captured let a Collect read collects) is a body without one.
+    generated_scopes = bool(walk["ctes"])
+    if generated_scopes:
         expected.append(("nonrecursive_with_bytes", None, "R23", [], None))
     originals, actual = [], []
     for requirement in document["requirements"]:
@@ -5211,7 +5460,6 @@ def _decode_row_denominators(
     for key in walk["ports"]:
         port = json.loads(key)
         _need(port["position"] in stage_positions, "a read port has no stage demand")
-    generated_scopes = len(bodies) > 1
     for item in originals:
         kind, subject = item["kind"], item["subject"]
         if kind == "filter":
@@ -5232,9 +5480,32 @@ def _decode_row_denominators(
             rule = RESULT_DEMAND_RULES.get(subject["kind"], "R02")
         elif kind == "set":
             rule = SET_DEMAND_RULE
+        elif kind == "collection":
+            rule = "R27"
         else:
             rule = "R02"
         _need(item["rule"] == rule, "original requirement rule")
+    # Phase71 S08: each Collect read keeps S06's three COLLECTION demands (its
+    # read twice, then its nested export), in read order, and only those.
+    collects = walk.get("collects", [])
+    _need(
+        [lateral["collect"] for lateral in collects]
+        == [{"kind": "collect", "position": i} for i in range(len(collects))],
+        "Collect reads are emitted in read order",
+    )
+    _need(
+        [item["subject"] for item in families.get("collection", ())]
+        == [
+            subject
+            for lateral in collects
+            for subject in (
+                lateral["collect"],
+                lateral["collect"],
+                lateral["export"],
+            )
+        ],
+        "COLLECTION demands do not match the emitted Collect reads",
+    )
     _need(
         3 * len(bodies)
         + 2 * sum(len(body["columns"]) for body in bodies)
@@ -5274,7 +5545,12 @@ def _decode_fixed_public(document, limits):
         r.get("denominator") == "generated" and r.get("kind") == "exists"
         for r in document["requirements"]
     )
-    if not joined and not setted and not captured and not existence:
+    # Phase71 S08: a Collect read scans its collected let beside its parent.
+    collected = any(
+        r.get("denominator") == "generated" and r.get("kind") == "collect_lateral"
+        for r in document["requirements"]
+    )
+    if not (joined or setted or captured or existence or collected):
         _need(
             len(scan_occurrences) == 1 or valued and len(scan_occurrences) <= 1,
             "one physical scan without a JOIN",
@@ -5336,16 +5612,16 @@ def _decode_fixed_public(document, limits):
         item for item in document["requirements"] if item["denominator"] == "generated"
     ]
     for index, requirement in enumerate(generated_requirements[:-1]):
-        following = generated_requirements[index + 1]
+        next_requirement = generated_requirements[index + 1]
         if (
             requirement["kind"] == "membership"
             and requirement["subject"]["kind"] == "expression"
-            and following["kind"] == "reference"
-            and following["subject"]["kind"] == "expression"
+            and next_requirement["kind"] == "reference"
+            and next_requirement["subject"]["kind"] == "expression"
         ):
-            membership_constant_refs[requirement["subject"]["position"]] = following[
-                "subject"
-            ]
+            membership_constant_refs[requirement["subject"]["position"]] = (
+                next_requirement["subject"]
+            )
 
     def ref(kind, position):
         return {"kind": kind, "position": position}
@@ -5432,6 +5708,13 @@ def _decode_fixed_public(document, limits):
 
     def peek():
         return lexical[cursor][0]["role"] if cursor < len(lexical) else None
+
+    def following(*roles):
+        """Whether the next tokens have exactly these roles."""
+        return all(
+            cursor + i < len(lexical) and lexical[cursor + i][0]["role"] == role
+            for i, role in enumerate(roles)
+        )
 
     used = 0
     scalar_nodes = 0
@@ -5858,6 +6141,9 @@ def _decode_fixed_public(document, limits):
     # and the definitions of the inline lets a reading body renders.
     capture_frames: list[dict[str, Any]] = []
     inline_owners: list[Any] = []
+    # Phase71 S08: each parsed Collect lateral, in emission order, and the
+    # nested carrier and ordinal columns the CTE header being parsed declared.
+    row_collects: list[dict[str, Any]] = []
     ROW_OPERATORS = {
         " + ": "+",
         " - ": "-",
@@ -5996,6 +6282,390 @@ def _decode_fixed_public(document, limits):
         if projection_frame is not None:
             _need(capture_frames.pop() is projection_frame)
         return body, inline
+
+    def ordinal_parse():
+        """Phase71 S08: ``ROW_NUMBER() OVER (ORDER BY <keys>) AS <name>``, one
+        collected terminal's private sequence; its keys are checked against the
+        ORDER they restate by the caller."""
+        token, _ = take("syntax", "ordinal_window", "ROW_NUMBER() OVER (ORDER BY ")
+        order = token["subject"]
+        _need(order["kind"] == "relation_order", "ordinal ORDER subject kind")
+        keys = []
+        while True:
+            separator = None
+            if keys:
+                separator, _ = take("syntax", "order_separator", ", ")
+            scope_token, scope = take("identifier", "order_scope")
+            qualifier, _ = take("syntax", "order_qualifier", ".")
+            item = qualifier["subject"]
+            _need(
+                item["kind"] == "order_item"
+                and (separator is None or separator["subject"] == item),
+                "ordinal key subject",
+            )
+            column_token, name = take("identifier", "order_column")
+            direction_token, direction = take("syntax", "order_direction")
+            _need(
+                direction in {" ASC", " DESC"} and direction_token["subject"] == item,
+                "ordinal key direction",
+            )
+            keys.append(
+                {
+                    "item": item,
+                    "port": scope_token["subject"],
+                    "scope": scope,
+                    "name": name,
+                    "terminal": column_token["subject"],
+                    "direction": direction.strip().lower(),
+                }
+            )
+            if peek() != "order_separator":
+                break
+        take("syntax", "ordinal_window", ")", order)
+        take("syntax", "alias", " AS ", order)
+        _, name = take("identifier", "ordinal_column", None, order)
+        _need(
+            all(key["scope"] == keys[0]["scope"] for key in keys),
+            "one ordinal reads one scope",
+        )
+        return {"order": order, "keys": keys, "scope": keys[0]["scope"], "name": name}
+
+    def ordinal_restates(ordinal, terminal, scope, columns):
+        """The ordinal keys are exactly the terminal's ORDER items, in order,
+        read through ``scope`` by the column names ``columns`` gives them."""
+        items = terminal["order_items"]
+        return (
+            terminal["order_ref"] is not None
+            and ordinal["order"] == terminal["order_ref"]
+            and ordinal["scope"] == scope
+            and len(ordinal["keys"]) == len(items)
+            and all(
+                (key["item"], key["port"], key["terminal"], key["direction"])
+                == (
+                    entry["item"],
+                    entry["port"],
+                    entry["read"]["terminal"],
+                    entry["direction"],
+                )
+                and key["name"] == columns(entry)
+                for key, entry in zip(ordinal["keys"], items, strict=True)
+            )
+        )
+
+    def collect_lateral(alias, incoming):
+        """Phase71 S08: one Collect read, ``LEFT JOIN LATERAL (SELECT COUNT(*)
+        AS "n", ARRAY_AGG(e.c<j> ORDER BY e.c<V>) AS "a<j>", ... FROM <terminal>
+        AS e) AS g ON TRUE``, after the FROM of its parent body. The terminal is
+        the collected let's ordered result body: a CTE, or a captured let's
+        inline chain reading the parent row; a DISTINCT terminal is wrapped by
+        its ordinal. Returns the lateral and its requirements, in order."""
+        _need(family == "postgres", "a Collect read is PostgreSQL only")
+        collect = lexical[cursor][0]["subject"]
+        _need(collect["kind"] == "collect", "Collect lateral subject kind")
+        take("syntax", "collect_lateral_open", " LEFT JOIN LATERAL (", collect)
+        take("syntax", "select", "SELECT ", collect)
+        take("syntax", "collect_count", "COUNT(*)", collect)
+        take("syntax", "alias", " AS ", collect)
+        take("identifier", "label", "n", collect)
+        arrays = []
+        while peek() == "separator":
+            separator, _ = take("syntax", "separator", ", ")
+            child = separator["subject"]
+            _need(child["kind"] == "export", "Collect child subject kind")
+            take("syntax", "collect_array", "ARRAY_AGG(", child)
+            use_token, scope = take("identifier", "collect_reference")
+            use = use_token["subject"]
+            _need(
+                use["kind"] == "expression_block_use"
+                and scope == f"e{use['position']}",
+                "Collect read scope",
+            )
+            take("syntax", "qualifier", ".", child)
+            _, read = take("identifier", "collect_array", None, child)
+            take("syntax", "collect_array_order", " ORDER BY ", child)
+            take("identifier", "collect_reference", scope, use)
+            take("syntax", "qualifier", ".", child)
+            _, sequence = take("identifier", "ordinal_column", None, child)
+            take("syntax", "collect_array", ")", child)
+            take("syntax", "alias", " AS ", child)
+            take("identifier", "label", f"a{len(arrays)}", child)
+            arrays.append(
+                {"child": child, "read": read, "sequence": sequence, "use": use}
+            )
+        _need(bool(arrays), "a Collect read has at least one child field")
+        use = arrays[0]["use"]
+        n = use["position"]
+        _need(
+            all(a["use"] == use for a in arrays)
+            and len({encoded(a["child"]) for a in arrays}) == len(arrays),
+            "one Collect read reads one terminal",
+        )
+        take("syntax", "from", " FROM ", collect)
+        mark = len(row_generated)
+        wrapper = None
+        if peek() == "distinct_wrapper_open":
+            take("syntax", "distinct_wrapper_open", "(", collect)
+            take("syntax", "select", "SELECT ", collect)
+            wrapped = []
+            for position, entry in enumerate(arrays):
+                if position:
+                    take("syntax", "separator", ", ", entry["child"])
+                take("identifier", "result_carry_scope", f"d{n}", entry["child"])
+                take("syntax", "result_carry_qualifier", ".", entry["child"])
+                _, source = take(
+                    "identifier", "result_carry_column", None, entry["child"]
+                )
+                take("syntax", "alias", " AS ", entry["child"])
+                take("identifier", "label", entry["read"], entry["child"])
+                wrapped.append(source)
+            separator, _ = take("syntax", "separator", ", ")
+            wrapper = {"sources": wrapped, "ordinal": ordinal_parse()}
+            _need(
+                separator["subject"] == wrapper["ordinal"]["order"],
+                "wrapper ordinal separator",
+            )
+            take("syntax", "from", " FROM ", collect)
+        producer = lexical[cursor][0]["subject"]
+        _need(producer["kind"] == "result_boundary", "a Collect read reads a result")
+        inline = peek() == "inline_open"
+        if inline:
+            # A captured let is the derived relation of its own read; its
+            # captured fields read this parent row.
+            frame = {"alias": alias, "incoming": incoming}
+            capture_frames.append(frame)
+            take("syntax", "inline_open", "(", producer)
+            terminal = result_select(producer, False, None, inline=True)
+            take("syntax", "inline_close", ")", producer)
+            _need(capture_frames.pop() is frame)
+        else:
+            _, name = take("identifier", "collect_reference", None, producer)
+            terminal = row_ctes.get(name)
+            _need(terminal is not None, "a Collect read names a complete terminal")
+        assert terminal is not None
+        inline_generated = row_generated[mark:]
+        del row_generated[mark:]
+        if wrapper is not None:
+            take("syntax", "alias", " AS ", collect)
+            take("identifier", "result_scope", f"d{n}", collect)
+            take("syntax", "distinct_wrapper_close", ")", collect)
+        take("syntax", "alias", " AS ", use)
+        take("identifier", "collect_reference", f"e{n}", use)
+        take("syntax", "collect_lateral_close", ") AS ", collect)
+        take("identifier", "collect_scope", f"g{n}", collect)
+        take("syntax", "collect_on_true", " ON TRUE", collect)
+        visible = terminal["outgoing"]
+        names = [column["name"] for column in visible]
+        _need(
+            terminal["block"] == producer
+            and terminal.get("result") is True
+            and terminal["projection"]
+            and not terminal["final"]
+            and terminal["order_ref"] is not None
+            and len(arrays) == len(visible)
+            and [a["child"] for a in arrays]
+            == [c["export"] for c in terminal["columns"]]
+            and all(column.get("group") is None for column in visible),
+            "a Collect read reads every column of one ordered closed terminal",
+        )
+        width = len(arrays)
+        if wrapper is None:
+            _need(
+                terminal["distinct"] is None
+                and terminal["ordinal"] is not None
+                and [a["read"] for a in arrays] == names
+                and all(a["sequence"] == f"c{width}" for a in arrays),
+                "a Collect read orders by its terminal's own ordinal",
+            )
+        else:
+
+            def visible_name(entry):
+                matches = [
+                    i
+                    for i, read in enumerate(terminal["visible_inputs"])
+                    if read is entry["read"]
+                ]
+                _need(len(matches) == 1, "a DISTINCT ORDER key is one visible column")
+                return names[matches[0]]
+
+            _need(
+                terminal["distinct"] is not None
+                and terminal["ordinal"] is None
+                and wrapper["sources"] == names
+                and [a["read"] for a in arrays] == [f"c{j}" for j in range(width)]
+                and wrapper["ordinal"]["name"] == f"c{width}"
+                and all(a["sequence"] == f"c{width}" for a in arrays)
+                and ordinal_restates(
+                    wrapper["ordinal"], terminal, f"d{n}", visible_name
+                ),
+                "a DISTINCT terminal is wrapped by exactly its ordinal",
+            )
+        requirements = [
+            ("collect_lateral", collect, "R27", "naming", None),
+            ("collect_count", None, "R27", [], None),
+            *(("collect_array", a["child"], "R27", [], None) for a in arrays),
+        ]
+        if wrapper is not None:
+            requirements.append(
+                ("collect_ordinal", wrapper["ordinal"]["order"], "R27", [], None)
+            )
+            requirements.append(("read_only_select_bytes", None, "R23", [], None))
+        if inline:
+            requirements.extend(inline_generated)
+        else:
+            _need(not inline_generated, "a named Collect terminal adds no body")
+        requirements.append(("read_only_select_bytes", None, "R23", [], None))
+        lateral = {
+            "collect": collect,
+            "use": use,
+            "arrays": arrays,
+            "terminal": terminal,
+            "wrapper": wrapper is not None,
+            "requirements": requirements,
+        }
+        row_collects.append(lateral)
+        return lateral
+
+    def carrier_group(scope_role, scope_subject, final, position):
+        """Phase71 S08: one nested group's 1+F physical columns read through one
+        scope: the count under the field's label, then each child's array."""
+        carriers = []
+        scope = None
+        while True:
+            separator = None
+            if carriers:
+                separator, _ = take("syntax", "separator", ", ")
+            scope_token, alias = take("identifier", scope_role)
+            _need(
+                scope_token["subject"] == scope_subject
+                and (scope is None or alias == scope),
+                "one nested group reads one scope",
+            )
+            scope = alias
+            qualifier, _ = take("syntax", "qualifier", ".")
+            subject = qualifier["subject"]
+            _need(
+                subject["kind"] == "export"
+                and (separator is None or separator["subject"] == subject),
+                "nested carrier subject",
+            )
+            _, name = take("identifier", "collect_carrier_column", None, subject)
+            take("syntax", "alias", " AS ", subject)
+            _, label = take("identifier", "label", None, subject)
+            carriers.append({"subject": subject, "name": name, "label": label})
+            if not (
+                following("separator", scope_role, "qualifier")
+                and lexical[cursor + 1][0]["subject"] == scope_subject
+            ):
+                break
+        _need(
+            len({encoded(c["subject"]) for c in carriers}) == len(carriers)
+            and len(carriers) > 1,
+            "a nested group is a count and at least one array",
+        )
+        _need(
+            final
+            or [c["label"] for c in carriers]
+            == [
+                f"c{position}",
+                *(f"c{position}_{j}" for j in range(len(carriers) - 1)),
+            ],
+            "nested carrier labels",
+        )
+        return {
+            "export": carriers[0]["subject"],
+            "label": carriers[0]["label"],
+            "scope": scope,
+            "carriers": carriers,
+        }
+
+    def result_group(final, position):
+        """A result body's carried nested group, read by its projection port."""
+        port = lexical[cursor][0]["subject"]
+        _need(port["kind"] == "result_port", "nested result port kind")
+        group = carrier_group("result_carry_scope", port, final, position)
+        return {
+            **group,
+            "port": port,
+            "name": group["carriers"][0]["name"],
+            "alias": group["scope"],
+        }
+
+    def collect_output(position, item, lateral, published=None):
+        """Independently rebuild one published nested column (Q1 option (a)):
+        a ``collection`` of the terminal's child fields carried by its count
+        and one array per child (``pg_column_arrays_v1``)."""
+        _need(position < len(document["columns"]), "published column denominator")
+        if published is None:
+            published = document["columns"][position]
+        published_columns = document["columns"]
+        physical = position + 1
+        for earlier in published_columns[:position]:
+            element = earlier["logical_type"].get("element")
+            physical += 0 if element is None else len(element)
+        terminal = lateral["terminal"]
+        carriers = item["carriers"]
+        _need(
+            len(carriers) == 1 + len(lateral["arrays"])
+            and [c["subject"] for c in carriers[1:]]
+            == [a["child"] for a in lateral["arrays"]]
+            and carriers[0]["subject"] == item["export"],
+            "nested output carriers",
+        )
+        elements, fields = [], []
+        for j, (carrier, column) in enumerate(
+            zip(carriers[1:], terminal["outgoing"], strict=True)
+        ):
+            realization = column["realization"]
+            _need(type(realization["nullable"]) is bool, "child nullability")
+            elements.append(
+                {
+                    "ordinal": j,
+                    "label": carrier["label"],
+                    "logical_type": {
+                        "kind": "builtin",
+                        "name": realization["tag"],
+                        "parameters": {
+                            "precision": realization["domain"]["precision"],
+                            "scale": realization["domain"]["scale"],
+                        }
+                        if realization["tag"] == "Decimal"
+                        else None,
+                    },
+                    "nullable": realization["nullable"],
+                }
+            )
+            fields.append(
+                {
+                    "role": "field",
+                    "child": j,
+                    "storage": realization["storage"],
+                    "sql_symbol": physical + 1 + j,
+                }
+            )
+        expected = {
+            "ordinal": position,
+            "label": carriers[0]["label"],
+            "logical_type": {
+                "kind": "collection",
+                "name": None,
+                "parameters": None,
+                "element": elements,
+            },
+            "nullable": False,
+            "representation": {
+                "carrier": "pg_column_arrays_v1",
+                "columns": [{"role": "count", "sql_symbol": physical}, *fields],
+            },
+            "correspondence": {
+                "collect": lateral["collect"],
+                "use": lateral["use"],
+                "producer": terminal["definition"],
+                "children": [a["child"] for a in lateral["arrays"]],
+                "export": item["export"],
+                "sql_symbol": position + 1,
+            },
+        }
+        _need(encoded(published) == encoded(expected), "nested output published")
 
     def row_parse(block, port_kind="stage_port", repeated=False):
         """Parse one admitted value; a matching scope reads pre-match JOIN ports."""
@@ -8355,6 +9025,42 @@ def _decode_fixed_public(document, limits):
     row_definition_count = [0]
     source_definition_positions = {position for position, _ in scan_definitions}
 
+    root_first: list[Any] = [None]
+
+    def root_first_body():
+        """The lexical start of the selected definition's first body: the last
+        top-level body that opens a definition of its own rather than reading
+        an earlier stage, a JOIN unit or a result of its definition."""
+        if root_first[0] is None:
+            if not lexical or lexical[0][0]["role"] != "with":
+                starts = [(0, lexical[0][0]["subject"] if lexical else None)]
+            else:
+                starts = [
+                    (i + 1, token["subject"])
+                    for i, (token, _) in enumerate(lexical)
+                    if token["role"] in ("cte_body_open", "with_body")
+                ]
+            fresh = []
+            for start, block in starts:
+                if block is None or block["kind"] in ("result_boundary", "join"):
+                    continue
+                if block["kind"] != "select_block":
+                    fresh.append(start)
+                    continue
+                depth = 0
+                for j in range(start, len(lexical) - 1):
+                    role = lexical[j][0]["role"]
+                    if role == "inline_open":
+                        depth += 1
+                    elif role == "inline_close":
+                        depth -= 1
+                    elif depth == 0 and role == "from":
+                        if lexical[j + 1][0]["role"] != "stage_reference":
+                            fresh.append(start)
+                        break
+            root_first[0] = fresh[-1] if fresh else -1
+        return root_first[0]
+
     def next_row_definition():
         while row_definition_count[0] in source_definition_positions:
             row_definition_count[0] += 1
@@ -8674,6 +9380,7 @@ def _decode_fixed_public(document, limits):
         An inline body (Phase70 S10) is a let with capture lines nested in its
         reading body's existence read; it is never a CTE.
         """
+        body_start = cursor
         take("syntax", "select", "SELECT ", block)
         parsed = []
         windows_seen: list[dict[str, Any]] = []
@@ -8682,6 +9389,27 @@ def _decode_fixed_public(document, limits):
             separator = None
             if parsed:
                 separator, _ = take("syntax", "separator", ", ")
+            if peek() == "collect_scope":
+                # Phase71 S08: one Collect read's count and arrays, read from
+                # its lateral, which follows this body's FROM.
+                collect = lexical[cursor][0]["subject"]
+                _need(collect["kind"] == "collect", "nested group subject kind")
+                group = carrier_group("collect_scope", collect, final, len(parsed))
+                _need(
+                    separator is None or separator["subject"] == group["export"],
+                    "separator",
+                )
+                parsed.append(
+                    {
+                        "node": {"kind": "collect", "collect": collect, "group": group},
+                        "export": group["export"],
+                        "label": group["label"],
+                        "helper": False,
+                    }
+                )
+                if peek() != "separator":
+                    break
+                continue
             carrier = CARRIER_ROLES.get(peek() or "")
             if carrier is not None:
                 kind, scope_role, qualifier_role, column_role = carrier
@@ -8849,16 +9577,51 @@ def _decode_fixed_public(document, limits):
                 ),
                 len(lexical),
             )
+            # Phase71 S08: a Collect read is a read of the selected definition
+            # (D-S08-4), which is planned last; each captured let it collects
+            # is planned before it, at its first body, wherever it is read.
+            collect_end = body_end if body_start != root_first_body() else len(lexical)
             inline_owners.extend(
                 next_row_definition()
-                for i in range(cursor, body_end - 1)
-                if lexical[i][0]["role"] in ("exists_from", "scalar_from", "in_from")
-                and lexical[i + 1][0]["role"] == "inline_open"
+                for i in range(cursor, len(lexical) - 1)
+                if lexical[i + 1][0]["role"] == "inline_open"
+                and (
+                    i < body_end - 1
+                    and lexical[i][0]["role"]
+                    in ("exists_from", "scalar_from", "in_from")
+                    or i < collect_end - 1
+                    and lexical[i][0]["role"] == "from"
+                    and lexical[i][0]["subject"]["kind"] == "collect"
+                )
             )
             owner = next_row_definition()
         row_block[0] = block
+        laterals = []
+        while peek() == "collect_lateral_open":
+            _need(not inline, "a Collect read's parent row")
+            laterals.append(collect_lateral(alias, incoming))
+            row_block[0] = block
+        groups = [item["node"] for item in parsed if item["node"]["kind"] == "collect"]
+        _need(
+            [node["collect"] for node in groups]
+            == [lateral["collect"] for lateral in laterals],
+            "each nested group reads its own lateral, in order",
+        )
+        for node, lateral in zip(groups, laterals, strict=True):
+            carriers = node["group"]["carriers"]
+            _need(
+                node["group"]["scope"] == f"g{lateral['use']['position']}"
+                and [c["name"] for c in carriers]
+                == ["n", *(f"a{j}" for j in range(len(lateral["arrays"])))]
+                and [c["subject"] for c in carriers[1:]]
+                == [a["child"] for a in lateral["arrays"]],
+                "a nested group reads exactly its lateral's count and arrays",
+            )
+            node["lateral"] = lateral
+            lateral["export"] = node["group"]["export"]
         determinants = []
         if peek() == "group_by":
+            _need(not laterals, "a Collect read is never grouped")
             token, _ = take("syntax", "group_by", " GROUP BY ")
             _need(token["subject"]["kind"] == "aggregation", "grouping owner kind")
             while True:
@@ -8982,6 +9745,7 @@ def _decode_fixed_public(document, limits):
                     None,
                 )
             )
+        carriers_header = {}
         for position, item in enumerate(parsed):
             node, export, label = item["node"], item["export"], item["label"]
             _need(final or label == f"c{position}", "stage column label")
@@ -8990,6 +9754,60 @@ def _decode_fixed_public(document, limits):
                 if projection_body
                 else export
             )
+            if node["kind"] == "collect":
+                _need(projection_body, "a nested group is a projection column")
+                lateral = node["lateral"]
+                requirements = list(lateral["requirements"])
+                requirements[1] = ("collect_count", export, "R27", [], None)
+                row_generated.extend(requirements)
+                if cte_terminals is not None:
+                    _need(cte_terminals[position] == terminal, "declared terminal")
+                carriers = node["group"]["carriers"]
+                if final:
+                    collect_output(
+                        position, {"export": export, "carriers": carriers}, lateral
+                    )
+                else:
+                    carriers_header[position] = [c["subject"] for c in carriers[1:]]
+                    deferred.append(("collect", position, lateral))
+                group = {
+                    "collect": node["collect"],
+                    "lateral": lateral,
+                    "carriers": [
+                        {"subject": c["subject"], "name": c["label"]} for c in carriers
+                    ],
+                }
+                # A nested group is no scalar projection of its body.
+                outgoing.append(
+                    {
+                        "name": f"c{position}",
+                        "terminal": terminal,
+                        "source_port": None,
+                        "realization": None,
+                        "field": None,
+                        "literal": None,
+                        "origin": None,
+                        "helper": False,
+                        "strict": False,
+                        "proof": False,
+                        "group": group,
+                    }
+                )
+                columns.append(
+                    {
+                        "label": label,
+                        "export": export,
+                        "terminal": terminal,
+                        "realization": None,
+                        "field": None,
+                        "literal": None,
+                        "root": None,
+                        "position": position,
+                        "origin": None,
+                        "group": group,
+                    }
+                )
+                continue
             origin = None
             if node["kind"] in CARRIED_KINDS:
                 if node["kind"] == "carry" and not item["helper"]:
@@ -9489,9 +10307,14 @@ def _decode_fixed_public(document, limits):
             "header": cte_terminals,
             "deferred": deferred,
             "helpers": helpers,
+            "carriers": carriers_header,
         }
         row_bodies.append(body)
-        _need(len(columns) <= limits["columns"])
+        _need(
+            sum(len(c["group"]["carriers"]) if c.get("group") else 1 for c in columns)
+            <= limits["columns"],
+            "physical body width",
+        )
         return body
 
     def result_select(block, final, cte_terminals, inline=False):
@@ -9516,6 +10339,17 @@ def _decode_fixed_public(document, limits):
             separator = None
             if parsed:
                 separator, _ = take("syntax", "separator", ", ")
+            if following("result_carry_scope", "qualifier"):
+                # Phase71 S08: a carried nested group, its count then arrays.
+                group = result_group(final, len(parsed))
+                _need(
+                    separator is None or separator["subject"] == group["export"],
+                    "separator",
+                )
+                parsed.append(group)
+                if peek() != "separator" or following("separator", "ordinal_window"):
+                    break
+                continue
             scope_token, carry_alias = take("identifier", "result_carry_scope")
             projection_port = scope_token["subject"]
             _need(projection_port["kind"] == "result_port", "result carry port kind")
@@ -9541,8 +10375,14 @@ def _decode_fixed_public(document, limits):
                     "alias": carry_alias,
                 }
             )
-            if peek() != "separator":
+            if peek() != "separator" or following("separator", "ordinal_window"):
                 break
+        ordinal = None
+        if following("separator", "ordinal_window"):
+            # Phase71 S08: a collected terminal's private ordinal column.
+            separator, _ = take("syntax", "separator", ", ")
+            ordinal = ordinal_parse()
+            _need(separator["subject"] == ordinal["order"], "ordinal separator")
         from_token, _ = take("syntax", "from", " FROM ")
         producer = from_token["subject"]
         _need(producer["kind"] == "select_block", "result producer kind")
@@ -9576,9 +10416,21 @@ def _decode_fixed_public(document, limits):
                 item["alias"] == alias
                 and item["name"] == column["name"]
                 and item["port"] == column["terminal"]
+                and (item.get("carriers") is None) == (column.get("group") is None)
+                and (
+                    item.get("carriers") is None
+                    or [c["name"] for c in item["carriers"]]
+                    == [c["name"] for c in column["group"]["carriers"]]
+                    and [c["subject"] for c in item["carriers"]]
+                    == [c["subject"] for c in column["group"]["carriers"]]
+                )
                 for item, column in zip(parsed, visible, strict=True)
             ),
             "the result tuple is exactly the visible projection, in order",
+        )
+        _need(
+            distinct is None or all(c.get("group") is None for c in visible),
+            "a DISTINCT body never compares a nested group",
         )
         width = len(incoming)
         encoding = [i for i in statements if premises[i]["key"] == "client_encoding"]
@@ -9616,11 +10468,14 @@ def _decode_fixed_public(document, limits):
                 _need(len(matches) == 1, "an ORDER key is one established column")
                 read = matches[0]
                 _need(
-                    read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal")
-                    or _temporal_carrier(read["realization"], family)
-                    or family == "postgres"
-                    and read["realization"]["tag"] == "UUID"
-                    and read["realization"]["storage"] == {"kind": "pg_uuid"},
+                    read.get("group") is None
+                    and (
+                        read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal")
+                        or _temporal_carrier(read["realization"], family)
+                        or family == "postgres"
+                        and read["realization"]["tag"] == "UUID"
+                        and read["realization"]["storage"] == {"kind": "pg_uuid"},
+                    ),
                     "relation ORDER comparison domain",
                 )
                 _need(
@@ -9654,6 +10509,19 @@ def _decode_fixed_public(document, limits):
             _, text = take("literal", "limit_value", None, limit_ref)
             _need(re.fullmatch(r"0|[1-9][0-9]*", text) is not None, "LIMIT spelling")
             limit = {"limit": limit_ref, "value": int(text)}
+        if ordinal is not None:
+            _need(
+                distinct is None
+                and not final
+                and ordinal["name"] == f"c{len(parsed)}"
+                and ordinal_restates(
+                    ordinal,
+                    {"order_ref": order_ref, "order_items": order_items},
+                    alias,
+                    lambda entry: entry["read"]["name"],
+                ),
+                "a collected terminal's ordinal restates its ORDER",
+            )
         # Independent result-port accounting: every boundary consumes its inputs
         # and re-publishes the visible outputs; the terminal is the last output.
         cursor_position = row_counts["result"]
@@ -9800,6 +10668,8 @@ def _decode_fixed_public(document, limits):
             row_generated.append(
                 ("result_terminal_column", terminal, "R03", "naming", None)
             )
+        if ordinal is not None:
+            row_generated.append(("collect_ordinal", order_ref, "R27", [], None))
         row_generated.append(("read_only_select_bytes", None, "R23", [], None))
         result_nodes[0] += (
             (0 if distinct is None else 1)
@@ -9807,8 +10677,68 @@ def _decode_fixed_public(document, limits):
             + (0 if limit is None else 1)
         )
         outgoing, columns = [], []
+        carriers = {}
         for position, (item, column) in enumerate(zip(parsed, visible, strict=True)):
             terminal = terminals[position]
+            if column.get("group") is not None:
+                group = column["group"]
+                if final:
+                    _need(position < len(document["columns"]), "published columns")
+                    published = document["columns"][position]
+                    correspondence = dict(published["correspondence"])
+                    origin = correspondence.pop("result_origin", None)
+                    _keys(origin, ("terminal", "projection_port", "stages"))
+                    _need(
+                        origin["terminal"] == terminal
+                        and origin["projection_port"] == item["port"]
+                        and origin["stages"]
+                        == [
+                            {
+                                "kind": stage["kind"],
+                                "boundary": stage["boundary"],
+                                "input_port": stage["inputs"][position],
+                                "output_port": stage["outputs"][position],
+                                "quotient_field": None,
+                            }
+                            for stage in stages
+                        ],
+                        "nested result origin",
+                    )
+                    collect_output(
+                        position,
+                        item,
+                        group["lateral"],
+                        {**published, "correspondence": correspondence},
+                    )
+                else:
+                    carriers[position] = [c["subject"] for c in item["carriers"][1:]]
+                renamed = {
+                    **group,
+                    "carriers": [{**c, "name": c["label"]} for c in item["carriers"]],
+                }
+                outgoing.append(
+                    {
+                        **column,
+                        "name": f"c{position}",
+                        "terminal": terminal,
+                        "group": renamed,
+                    }
+                )
+                columns.append(
+                    {
+                        "label": item["label"],
+                        "export": item["export"],
+                        "terminal": terminal,
+                        "realization": None,
+                        "field": None,
+                        "literal": None,
+                        "root": None,
+                        "position": position,
+                        "origin": None,
+                        "group": renamed,
+                    }
+                )
+                continue
             if final:
                 _need(position < len(document["columns"]), "published columns")
                 published = document["columns"][position]
@@ -9896,8 +10826,21 @@ def _decode_fixed_public(document, limits):
             "deferred": [],
             "helpers": 0,
             "result": True,
+            # Phase71 S08: what a Collect read of this terminal re-derives.
+            "distinct": distinct,
+            "order_ref": order_ref,
+            "order_items": order_items,
+            "visible_inputs": visible,
+            "ordinal": None if ordinal is None else ordinal["order"],
+            "carriers": carriers,
         }
         row_bodies.append(body)
+        _need(
+            sum(len(c["group"]["carriers"]) if c.get("group") else 1 for c in columns)
+            + (ordinal is not None)
+            <= limits["columns"],
+            "physical result width",
+        )
         return body
 
     def set_realization(kind, quantifier, reads):
@@ -11421,6 +12364,8 @@ def _decode_fixed_public(document, limits):
             _need(separator is None or separator["subject"] == block, "CTE separator")
             take("syntax", "cte_columns_open", " (", block)
             header = []
+            header_carriers: dict[int, list[Any]] = {}
+            header_ordinal = None
             while True:
                 terminal_separator = None
                 if header:
@@ -11439,6 +12384,32 @@ def _decode_fixed_public(document, limits):
                 )
                 _need(token["subject"] not in header, "duplicate declared terminal")
                 header.append(token["subject"])
+                # Phase71 S08: a nested group's array columns follow its count,
+                # and a collected terminal's ordinal closes the header.
+                carriers = []
+                while following("terminal_separator", "collect_carrier_column"):
+                    carrier_separator, _ = take("syntax", "terminal_separator", ", ")
+                    carrier, carrier_name = take("identifier", "collect_carrier_column")
+                    _need(
+                        carrier_name == f"c{len(header) - 1}_{len(carriers)}"
+                        and carrier_separator["subject"] == carrier["subject"]
+                        and carrier["subject"]["kind"] == "export",
+                        "declared nested carrier column",
+                    )
+                    carriers.append(carrier["subject"])
+                if carriers:
+                    header_carriers[len(header) - 1] = carriers
+                if following("terminal_separator", "ordinal_column"):
+                    ordinal_separator, _ = take("syntax", "terminal_separator", ", ")
+                    ordinal, ordinal_name = take("identifier", "ordinal_column")
+                    _need(
+                        ordinal_name == f"c{len(header)}"
+                        and ordinal_separator["subject"] == ordinal["subject"]
+                        and ordinal["subject"]["kind"] == "relation_order",
+                        "declared collect ordinal column",
+                    )
+                    header_ordinal = ordinal["subject"]
+                    break
                 if peek() != "terminal_separator":
                     break
             take("syntax", "cte_body_open", ") AS (", block)
@@ -11457,6 +12428,11 @@ def _decode_fixed_public(document, limits):
                 else values_select(block, False, header)
                 if block["kind"] == "values_body"
                 else row_select(block, False, header)
+            )
+            _need(
+                row_ctes[name].get("carriers", {}) == header_carriers
+                and row_ctes[name].get("ordinal") == header_ordinal,
+                "a CTE header declares exactly its body's nested and ordinal columns",
             )
             take("syntax", "cte_body_close", ")", block)
             if peek() != "cte_separator":
@@ -11601,6 +12577,7 @@ def _decode_fixed_public(document, limits):
                 "fixed": fixed,
                 "scalar_nodes": scalar_nodes + result_nodes[0],
                 "ctes": row_ctes,
+                "collects": row_collects,
             },
         )
         return

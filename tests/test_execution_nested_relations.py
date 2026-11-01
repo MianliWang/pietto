@@ -1056,39 +1056,42 @@ def test_compiled_facts_ir_and_plan_carry_the_collect_explicitly(tmp_path_factor
         scalar_fields(_contract_of(lowered))
 
 
-def test_the_public_face_still_refuses_a_nested_query_before_connecting(
+def test_public_nested_queries_and_bundles_prepare_without_connecting(
     tmp_path_factory, tmp_path
 ):
-    """AC-S09-11: the template gate (S12 opens it) refuses a nested query and
-    a privately built nested bundle with PIE-R1004 before any connection."""
+    """S12 opens templates; execution route/leaf/source admission remains separate."""
     _, build, _, _ = _real(tmp_path_factory, "top_k")
     before = set(sys.modules)
-    with pytest.raises(execution.RequestRejected) as loaded:
-        execution.load_bundle(
-            build.payload,
-            expected_pin=build.pin,
-            accepted_producer=build.producer,
-            accepted_compatibility=build.compatibility[4],
-        )
+    loaded = execution.load_bundle(
+        build.payload,
+        expected_pin=build.pin,
+        accepted_producer=build.producer,
+        accepted_compatibility=build.compatibility[4],
+    )
     root = project(tmp_path / "public", _files("top_k"))
     (root / "contract.json").write_text(
         json.dumps(_contract(REAL["top_k"])), encoding="utf-8"
     )
-    with pytest.raises(execution.RequestRejected) as compiled:
-        execution.compile_query(
-            root,
-            module="main.pietto",
-            kind="query",
-            name="result",
-            dialect="postgres",
-            emission_contract="contract.json",
+    compiled = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    assert (compiled.origin, loaded.origin) == ("live", "bundle")
+    for query in (compiled, loaded):
+        handle = execution.execute(
+            query,
+            route="postgres_rows",
+            access=execution.PostgresAccess("127.0.0.1", 9, "phase66", "u", "pw"),
+            premise=execution.PostgresDeploymentPremise(("public", "pg_catalog")),
         )
-    for caught in (loaded, compiled):
-        assert (caught.value.code, caught.value.detail) == (
-            "PIE-R1004",
-            "NESTED_UNAVAILABLE",
-        )
-        assert caught.value.attempt is None and caught.value.outcome is None
+        try:
+            assert handle.outcome.end == "NOT_STARTED"
+        finally:
+            handle.close()
     assert not {m for m in set(sys.modules) - before if m.split(".")[0] in DRIVERS}
 
 

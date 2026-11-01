@@ -385,3 +385,15 @@ seal→exact stage→ordinary commit→normal ff push→natural exact-head attem
 内部只读审查不是third-party review；真实legacy/control SQL不证明新ProjectSQLPlan lowering。
 成功后Phase65 COMPLETED、Phase66 ACTIVE、Slice2 COMPLETED/PUBLISHED、Slice3 NEXT/NOT
 IMPLEMENTED、Slices4–16 NOT IMPLEMENTED、N66=16。不开始Slice3，不宣称全部Phase66 exits。
+
+## Explicit D71 local offline profile
+
+The default facility behavior above remains the CI contract. The separately
+approved `PIETTO_NATIVE_OFFLINE=1` profile is cache-only, uses `--pull=never`,
+and creates one internal bridge without published ports. It verifies sole
+network membership and no active default IPv4/IPv6 route. On the integration
+host an owned loopback `socat` bridge reaches only the inspected container's
+private endpoint; connection consumers retain their existing loopback API and
+TLS behavior. Offline request, tool version, network/route observations, bridge
+endpoints and closure are part of the resource journal and are independently
+checked. This profile never silently falls back to NAT or image downloads.

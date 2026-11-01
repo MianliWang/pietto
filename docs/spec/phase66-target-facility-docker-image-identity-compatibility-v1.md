@@ -130,3 +130,7 @@ target, missing resource, receipt corruption, target results and metadata,
 native transport, TLS, privilege, recovery and the strict aggregate — are all
 retained, and two receipt corruption cases are added for a renamed contract and
 for an unbound container image.
+
+The D71 local offline profile preserves both image identity contracts, but a
+missing cache entry is a refusal rather than permission to pull. Container
+creation also uses `--pull=never`; the ordinary CI cold-cache path is unchanged.

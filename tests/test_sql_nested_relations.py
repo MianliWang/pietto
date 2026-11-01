@@ -12,6 +12,7 @@ statement is written out.
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import replace
 import json
 from pathlib import Path
@@ -22,6 +23,7 @@ from typing import Any
 import pytest
 
 import _pietto_execution_nested_oracle as oracle
+import _pietto_sql_emission as probe
 import _pietto_sql_nested_collect as collecting
 from _pietto_plan_nested import (
     HEAD,
@@ -1495,6 +1497,8 @@ def test_postgres_emits_each_collect_read_of_the_selected_query(
     assert not any(sentinel in document for sentinel in SENTINELS)
     columns = json.loads(document)["columns"]
     assert [c["logical_type"]["kind"] for c in columns].count("collection") == reads
+    # The strict data-only decoder re-derives every nested shape from bytes.
+    assert probe.decode_public(document.encode()) == json.loads(document)
 
 
 def test_the_public_document_describes_a_nested_column_and_its_rules(
@@ -1506,6 +1510,7 @@ def test_the_public_document_describes_a_nested_column_and_its_rules(
     document = json.loads(out)
     assert (code, document["status"]) == (0, "VERIFIED")
     assert document["format"] == "pietto.sql-emission.v1"
+    assert probe.decode_public(out.encode()) == document
     flat, nested_column = document["columns"]
     assert flat["logical_type"]["kind"] == "builtin"
     assert flat["correspondence"]["sql_symbol"] == 1
@@ -1640,6 +1645,7 @@ def test_a_flat_column_after_a_nested_field_keeps_its_logical_sql_symbol(
     outcome = collecting.wired_outcome(tmp_path / "p", files, collecting.contract())
     assert outcome.status == "VERIFIED", outcome.blockers
     document = json.loads(serialize_project_sql_emission(outcome))
+    assert probe.decode_public(serialize_project_sql_emission(outcome)) == document
     # The JSON v2 rule: every correspondence.sql_symbol is logical, and a flat
     # column's statement column adds the F of each nested field before it.
     statement, offset = [], 0
@@ -1673,6 +1679,7 @@ def test_a_distinct_let_is_wrapped_by_its_ordinal_at_the_read(
     (root / "contract.json").write_text(collecting.contract(), encoding="utf-8")
     _, out, _ = _emit(root, "postgres", capsys, "--format", "json")
     document = json.loads(out)
+    assert probe.decode_public(out.encode()) == document
     roles = [item["role"] for item in document["ranges"]]
     assert roles.count("distinct_wrapper_open") == roles.count("distinct_wrapper_close")
     assert roles.count("distinct_wrapper_open") == 1
@@ -1765,6 +1772,7 @@ def test_a_collected_lets_native_occurrences_follow_the_rendered_order(
     )
     emitted = json.loads(out)
     assert emitted["status"] == "VERIFIED"
+    assert probe.decode_public(out.encode()) == emitted
     sql = emitted["sql"]
     # H10: the let's own literals render inside the lateral, after the
     # parent's SELECT list, and are numbered there.
@@ -1793,6 +1801,7 @@ def test_a_collected_let_reads_header_parameters_in_rendered_order(
     _, out, _ = _emit(root, "postgres", capsys, "--format", "json")
     emitted = json.loads(out)
     assert emitted["format"] == "pietto.sql-emission.v2"
+    assert probe.decode_public(out.encode()) == emitted
     sql = emitted["sql"]
     # floor (parameter 1) is read twice before the lateral, cutoff inside it.
     assert _placeholders(sql) == [1, 1, 2]
@@ -1860,26 +1869,15 @@ def test_physical_columns_and_lateral_nodes_count_against_the_limits(
         assert outcome.status == status
 
 
-def test_executing_a_collect_read_is_refused_before_any_connection(
+def test_emitting_a_collect_does_not_load_execution_drivers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = project(tmp_path / "compile", sources("top_k"))
     (root / "contract.json").write_text(collecting.contract(), encoding="utf-8")
-    code, _, _ = _emit(root, "postgres", capsys, "--format", "json")
-    assert code == 0
     drivers = ("psycopg", "mysql.connector", "adbc_driver_manager")
     before = set(sys.modules)
-    with pytest.raises(execution.RequestRejected) as error:
-        execution.compile_query(
-            root,
-            module="main.pietto",
-            kind="query",
-            name="result",
-            dialect="postgres",
-            emission_contract="contract.json",
-        )
-    assert error.value.code == "PIE-R1004"
-    assert error.value.detail == "NESTED_UNAVAILABLE"
+    code, _, _ = _emit(root, "postgres", capsys, "--format", "json")
+    assert code == 0
     assert not any(name.startswith(drivers) for name in set(sys.modules) - before)
 
 
@@ -2030,6 +2028,7 @@ def test_every_literal_oracle_collect_program_emits_on_postgres(
     code, out, _ = _emit(root, "postgres", capsys, "--format", "json")
     document = json.loads(out)
     assert (code, document["status"]) == (0, "VERIFIED"), document["blockers"]
+    assert probe.decode_public(out.encode()) == document
     spec = program.spec
     assert isinstance(spec, oracle.Collect)
     lets = spec.lets
@@ -2041,3 +2040,243 @@ def test_every_literal_oracle_collect_program_emits_on_postgres(
     assert [
         [e["label"] for e in c["logical_type"]["element"]] for c in nested_columns
     ] == [[*let.select, *(("n",) if let.group is not None else ())] for let in lets]
+
+
+# -- The strict public decoder learns the nested shapes (AC-F7, D-S08-11) -----
+
+
+def _collect_document(tmp_path: Path, variant: str) -> dict[str, Any]:
+    """One L_relation_collect variant's VERIFIED PostgreSQL document."""
+    item = probe.fixture("postgres", "L_relation_collect", variant)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    raw = serialize_project_sql_emission(outcome)
+    document = json.loads(raw)
+    assert probe.decode_public(raw) == document
+    return document
+
+
+def _sql(old: str, new: str, count: int = 1):
+    """A same-length SQL edit, so every range still tiles the bytes."""
+    assert len(old.encode()) == len(new.encode())
+
+    def change(document):
+        assert document["sql"].count(old) >= count
+        document["sql"] = document["sql"].replace(old, new, count)
+
+    return change
+
+
+def _role(role: str, replacement: str):
+    def change(document):
+        (item,) = [r for r in document["ranges"] if r["role"] == role][:1]
+        item["role"] = replacement
+
+    return change
+
+
+def _nested(change):
+    def mutate(document):
+        (column,) = [
+            c for c in document["columns"] if c["logical_type"]["kind"] == "collection"
+        ]
+        change(column)
+
+    return mutate
+
+
+def _nested_at(index: int, change):
+    def mutate(document):
+        columns = [
+            c for c in document["columns"] if c["logical_type"]["kind"] == "collection"
+        ]
+        change(columns[index])
+
+    return mutate
+
+
+def _foreign_sibling_child(document):
+    columns = [
+        column
+        for column in document["columns"]
+        if column["logical_type"]["kind"] == "collection"
+    ]
+    foreign = columns[0]["correspondence"]["children"][:1]
+    assert columns[1]["correspondence"]["children"] != foreign
+    columns[1]["correspondence"]["children"] = foreign
+
+
+def _without(denominator: str, kind: str, rule: str | None = None):
+    """Drop the first requirement of ``kind``; later ordinals and generated
+    self-subjects are renumbered so only the missing demand is wrong."""
+
+    def change(document):
+        items = document["requirements"]
+        index = next(
+            i
+            for i, r in enumerate(items)
+            if r["denominator"] == denominator
+            and r["kind"] == kind
+            and (rule is None or r["rule"] == rule)
+        )
+        del items[index]
+        ordinal = 0
+        for item in items:
+            if item["denominator"] != denominator:
+                continue
+            if item["subject"] == {"kind": item["kind"], "position": item["ordinal"]}:
+                item["subject"]["position"] = ordinal
+            item["ordinal"] = ordinal
+            ordinal += 1
+
+    return change
+
+
+def _requirement(kind: str, field: str, value: Any):
+    def change(document):
+        item = next(r for r in document["requirements"] if r["kind"] == kind)
+        item[field] = value
+
+    return change
+
+
+def _origin_role(document):
+    item = next(r for r in document["ranges"] if r["subject"]["kind"] == "collect")
+    item["origins"][0]["role"] = "capture"
+
+
+COLLECT_CORRUPTIONS = {
+    # Range subjects, roles and the bytes each role owns.
+    "collect_origin_role": ("captured", _origin_role),
+    "full_lateral": ("closed", _sql(" LEFT JOIN LATERAL (", " FULL JOIN LATERAL (")),
+    "count_column": ("closed", _sql("COUNT(*)", "COUNT(1)")),
+    "array_aggregate": ("closed", _sql("ARRAY_AGG(", "JSONB_AGG(")),
+    "on_true": ("closed", _sql(" ON TRUE", " ON NULL")),
+    "array_order": ("captured", _sql('ORDER BY "e0"."c1")', 'ORDER BY "e0"."c0")')),
+    "ordinal_key": (
+        "closed",
+        _sql('(ORDER BY "t0"."c1" ASC)', '(ORDER BY "t0"."c0" ASC)'),
+    ),
+    "lateral_scope": ("closed", _sql('AS "g0" ON TRUE', 'AS "g1" ON TRUE')),
+    "count_carrier": ("closed", _sql('"g0"."n" AS', '"g0"."a" AS')),
+    "wrapper_scope": ("distinct_let", _sql('"d0"', '"d1"', 3)),
+    "header_ordinal_role": ("closed", _role("ordinal_column", "terminal_column")),
+    "lateral_role": ("closed", _role("collect_on_true", "on")),
+    # The published nested column (Q1 option (a)).
+    "collection_kind": (
+        "closed",
+        _nested(lambda c: c["logical_type"].update(kind="builtin")),
+    ),
+    "element_nullability": (
+        "closed",
+        _nested(lambda c: c["logical_type"]["element"][0].update(nullable=False)),
+    ),
+    "element_label": (
+        "closed",
+        _nested(lambda c: c["logical_type"]["element"][0].update(label="w")),
+    ),
+    "carrier_name": (
+        "closed",
+        _nested(lambda c: c["representation"].update(carrier="pg_column_arrays_v2")),
+    ),
+    "count_symbol": (
+        "closed",
+        _nested(lambda c: c["representation"]["columns"][0].update(sql_symbol=3)),
+    ),
+    "array_storage": (
+        "int4_child",
+        _nested(
+            lambda c: c["representation"]["columns"][1].update(
+                storage={"kind": "pg_int8"}
+            )
+        ),
+    ),
+    "producer": (
+        "closed",
+        _nested(
+            lambda c: c["correspondence"].update(
+                producer={"kind": "definition", "position": 3}
+            )
+        ),
+    ),
+    "children": (
+        "grouped_let",
+        _nested(lambda c: c["correspondence"]["children"].reverse()),
+    ),
+    "nested_nullable": ("closed", _nested(lambda c: c.update(nullable=True))),
+    # R27 and R23 denominators.
+    "collection_rule": ("closed", _requirement("collection", "rule", "R02")),
+    "collection_demand": ("closed", _without("original", "collection")),
+    "lateral_rule": ("closed", _requirement("collect_lateral", "rule", "R23")),
+    "lateral_demand": ("closed", _without("generated", "collect_lateral")),
+    "ordinal_demand": ("closed", _without("generated", "collect_ordinal")),
+    "wrapper_ordinal_demand": (
+        "distinct_let",
+        _without("generated", "collect_ordinal"),
+    ),
+    "array_subject": (
+        "closed",
+        _requirement("collect_array", "subject", {"kind": "export", "position": 1}),
+    ),
+    "lateral_bytes": ("closed", _without("generated", "read_only_select_bytes")),
+    # `siblings` has two collection columns.  Exercise the second one directly;
+    # _nested intentionally only covers single-collection documents.
+    "second_sibling_count": (
+        "siblings",
+        _nested_at(
+            1,
+            lambda c: c["representation"]["columns"][0].update(sql_symbol=0),
+        ),
+    ),
+    "second_sibling_array": (
+        "siblings",
+        _nested_at(
+            1,
+            lambda c: c["representation"]["columns"][1].update(sql_symbol=0),
+        ),
+    ),
+    "second_sibling_correspondence": (
+        "siblings",
+        _foreign_sibling_child,
+    ),
+    "second_sibling_r27": (
+        "siblings",
+        lambda document: next(
+            requirement
+            for requirement in document["requirements"]
+            if requirement["denominator"] == "original"
+            and requirement["kind"] == "collection"
+            and requirement["subject"] == {"kind": "collect", "position": 1}
+        ).update(rule="R02"),
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(COLLECT_CORRUPTIONS))
+def test_the_strict_decoder_refuses_each_nested_corruption(
+    tmp_path: Path, name: str
+) -> None:
+    variant, change = COLLECT_CORRUPTIONS[name]
+    document = _collect_document(tmp_path, variant)
+    corrupted = json.loads(json.dumps(document))
+    change(corrupted)
+    assert corrupted != document
+    with pytest.raises(ValueError):
+        probe.decode_public(probe.encoded(corrupted))
+
+
+def test_the_strict_decoder_reads_every_collect_variant(tmp_path: Path) -> None:
+    # Each AC-F7 variant decodes, and the decoder names every Collect read's
+    # three COLLECTION demands and its generated R27 parts.
+    for variant in probe.COLLECT_VARIANTS:
+        document = _collect_document(tmp_path / variant, variant)
+        reads = document["sql"].count(" LEFT JOIN LATERAL (")
+        rules = Counter(
+            (r["denominator"], r["kind"])
+            for r in document["requirements"]
+            if r["rule"] == "R27"
+        )
+        assert rules[("original", "collection")] == 3 * reads
+        assert rules[("generated", "collect_lateral")] == reads
+        assert rules[("generated", "collect_ordinal")] == reads

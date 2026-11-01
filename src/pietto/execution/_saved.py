@@ -282,6 +282,16 @@ def _checked_request(
     raise RequestRejected(refusal)
 
 
+def _collection_entry(query: Any) -> None:
+    """A collection has no closed saved or relayed consumer yet (S12; save
+    opens in S18). Checked before any workspace, sink or connection."""
+    from pietto._project.project_execution_nested import collection_operations
+
+    root = query._template.artifact.request.verification.completed.root
+    if collection_operations(root.records):
+        _refuse("PIE-R1004", "COLLECTION_ENTRY")
+
+
 def save(
     workspace: WorkspaceRef,
     query: CompiledQuery,
@@ -324,6 +334,7 @@ def save(
         job,
         parameters=parameters,
     )
+    _collection_entry(query)
     refusal = None
     try:
         opened = private_workspace.open_workspace(

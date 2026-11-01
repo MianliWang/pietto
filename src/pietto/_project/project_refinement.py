@@ -287,6 +287,11 @@ def _live_shape(artifact, requirements):
     from pietto._project.project_compiled_schema import Address
 
     records = artifact.request.verification.completed.root.records
+    from pietto._project.project_execution_nested import collection_operations
+
+    if collection_operations(records):
+        # A collected child row has no recovery coordinate in Phase71.
+        raise ValueError("PUBLIC_R2_COLLECTION")
     if _computed_group_key(artifact):
         raise ValueError("PUBLIC_R2_COMPUTED_GROUP_KEY")
     if any(address.kind == "values" for address in records):

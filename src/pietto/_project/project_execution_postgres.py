@@ -278,6 +278,7 @@ class PostgresExecution:
         self._profile_cursor: Any = None
         self._catalog_replies = []
         self._catalog_bytes = 0
+        self._collection_preflight = None
         self.requirements = (
             self.refined_request.refinement.sources
             if self.refined_request is not None
@@ -415,6 +416,52 @@ class PostgresExecution:
     def _catalog_read(self, sql, arguments):
         return self._profile_read(sql, arguments)
 
+    def _collection_preflight_read(self, sql, arguments):
+        """One fixed S12 preflight scalar inside this owned transaction."""
+        from pietto._project.project_execution_nested import CollectionReply
+
+        if type(sql) is not str or type(arguments) is not tuple:
+            raise ExecutionError("POSTGRES_SOURCE_CATALOG_ARGUMENT")
+        self._checkpoint()
+        self._check_connection()
+        cursor = self._owned_connection.cursor()
+        primary = None
+        try:
+            cursor.execute(sql, arguments)
+            description = cursor.description
+            if description is None:
+                raise ExecutionError("POSTGRES_SOURCE_CATALOG_SCHEMA")
+            metadata = tuple(
+                (index, column.name, column.type_code)
+                for index, column in enumerate(description)
+            )
+            rows = tuple(tuple(row) for row in cursor.fetchmany(2))
+            if len(rows) != 1 or cursor.fetchone() is not None:
+                raise ExecutionError("POSTGRES_SOURCE_RESOURCE_LIMIT")
+            result = cursor.pgresult
+            if result is None or int(result.status) != 2:
+                raise ExecutionError("POSTGRES_SOURCE_CATALOG_TERMINAL")
+            self._check_connection()
+            self._checkpoint()
+            return CollectionReply(
+                self._owned_connection,
+                sql,
+                arguments,
+                metadata,
+                rows,
+                int(result.status),
+            )
+        except BaseException as error:
+            primary = error
+            raise
+        finally:
+            try:
+                cursor.close()
+            except BaseException as error:
+                self._cleanup_errors.append(failure(error, "preflight_cursor_close"))
+                if primary is None:
+                    raise
+
     def _refresh_profile(self, *, finalizing=False):
         from pietto._project.project_execution_postgres_adbc_native import CONTEXT_SQL
 
@@ -507,6 +554,24 @@ class PostgresExecution:
             ):
                 raise ExecutionError("POSTGRES_SOURCE_QUALIFICATION_IDENTITY")
             self._qualification.verify(self)
+            from pietto._project.project_execution_nested import (
+                request_collection_operations,
+                verify_collection_preflight,
+            )
+
+            if request_collection_operations(self.request):
+                receipt = self._collection_preflight
+                if receipt is None:
+                    raise ExecutionError("POSTGRES_SOURCE_RESOURCE_LIMIT") from None
+                verify_collection_preflight(
+                    self.request,
+                    receipt,
+                    connection=self._owned_connection,
+                    qualification=self._qualification,
+                    profile=self._profile_context,
+                )
+            elif self._collection_preflight is not None:
+                raise ExecutionError("POSTGRES_SOURCE_RESOURCE_LIMIT")
 
     def _remaining(self):
         if self._started is None:
@@ -577,6 +642,19 @@ class PostgresExecution:
                 qualification = qualify_sources(self)
                 verify_temporal_uuid_catalog(qualification)
                 self._refresh_profile()
+                from pietto._project.project_execution_nested import (
+                    run_collection_preflight,
+                )
+
+                receipt = run_collection_preflight(
+                    self.request,
+                    self._collection_preflight_read,
+                    connection=self._owned_connection,
+                    qualification=self._qualification,
+                    profile=self._profile_context,
+                )
+                if receipt is not None:
+                    self._collection_preflight = receipt
             if self.request.source_requirement is not None:
                 self.source_admission = admit_postgres_source(
                     connection,

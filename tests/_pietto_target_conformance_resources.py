@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+from ipaddress import IPv4Address
 import json
 import os
 from pathlib import Path
 import re
 import secrets
 import signal
+import shutil
+import socket
+import threading
 import stat
 import subprocess
 import time
@@ -111,6 +115,68 @@ def loopback_port(ports: dict[str, Any], port: str) -> int:
     return int(bindings[0]["HostPort"])
 
 
+def verify_no_default_route(ipv4: object, ipv6: object) -> None:
+    """Parse bounded kernel route tables; reject an active default route."""
+    if type(ipv4) is not str or type(ipv6) is not str:
+        raise ValueError("offline route observation type")
+    lines = ipv4.splitlines()
+    if (
+        not lines
+        or lines[0].split()
+        != [
+            "Iface",
+            "Destination",
+            "Gateway",
+            "Flags",
+            "RefCnt",
+            "Use",
+            "Metric",
+            "Mask",
+            "MTU",
+            "Window",
+            "IRTT",
+        ]
+        or len(lines) > 256
+        or len(ipv6.splitlines()) > 256
+    ):
+        raise ValueError("offline route observation shape")
+    for line in lines[1:]:
+        fields = line.split()
+        if len(fields) != 11 or any(
+            re.fullmatch(r"[0-9A-Fa-f]{1,8}", fields[i]) is None for i in (1, 2, 3, 7)
+        ):
+            raise ValueError("offline IPv4 route shape")
+        flags = int(fields[3], 16)
+        if (
+            int(fields[1], 16) == int(fields[7], 16) == 0
+            and flags & 1
+            and not flags & 0x200
+        ):
+            raise ValueError("offline IPv4 default route")
+    for line in ipv6.splitlines():
+        fields = line.split()
+        if (
+            len(fields) != 10
+            or any(
+                re.fullmatch(r"[0-9a-fA-F]{32}", fields[i]) is None for i in (0, 2, 4)
+            )
+            or any(re.fullmatch(r"[0-9a-fA-F]{2}", fields[i]) is None for i in (1, 3))
+            or any(
+                re.fullmatch(r"[0-9a-fA-F]{8}", fields[i]) is None for i in (5, 6, 7, 8)
+            )
+        ):
+            raise ValueError("offline IPv6 route shape")
+        if int(fields[1], 16) > 128 or int(fields[3], 16) > 128:
+            raise ValueError("offline IPv6 prefix length")
+        flags = int(fields[8], 16)
+        if (
+            int(fields[0], 16) == int(fields[1], 16) == 0
+            and flags & 1
+            and not flags & 0x200
+        ):
+            raise ValueError("offline IPv6 default route")
+
+
 def image_identity(observed: dict[str, Any], pin: dict[str, Any]) -> dict[str, Any]:
     """Select the identity contract the active Docker image store actually exposes.
 
@@ -153,8 +219,211 @@ def image_identity(observed: dict[str, Any], pin: dict[str, Any]) -> dict[str, A
     }
 
 
+def verify_offline_evidence(events: Any, target: str, pin: dict[str, Any]) -> bool:
+    """Independently bind the optional local-offline journal to its owned resources."""
+    if type(events) is not list or any(type(event) is not dict for event in events):
+        raise ValueError("offline event collection")
+    requested = [event for event in events if event.get("event") == "offline_requested"]
+    if not requested:
+        if any(event.get("event", "").startswith("offline_") for event in events):
+            raise ValueError("offline request missing")
+        return False
+
+    def one(name):
+        found = [event for event in events if event.get("event") == name]
+        if len(found) != 1:
+            raise ValueError("offline event inventory: " + name)
+        return found[0]
+
+    request = one("offline_requested")
+    network = one("network_observed")["observation"]
+    start = one("container_start_observed")
+    proof = one("offline_network_verified")
+    bridge = one("offline_bridge_started")
+    closed = one("offline_bridge_closed")
+    cleanup = one("cleanup_complete")["result"]
+    reference = pin["repository"] + "@" + pin["platform_digest"]
+    cached = one("image_cached")
+    image = one("image_verified")
+    if (
+        request.get("cache_only") is not True
+        or not Path(request.get("bridge_tool", "")).is_absolute()
+        or type(request.get("bridge_version")) is not list
+        or not request["bridge_version"]
+        or any(
+            type(value) is not str or not value for value in request["bridge_version"]
+        )
+        or any(
+            event.get("event") in ("image_pull_start", "image_pulled")
+            for event in events
+        )
+        or cached.get("reference") != reference
+        or image.get("reference") != reference
+    ):
+        raise ValueError("offline cache/tool evidence")
+    observed = {
+        "id": image.get("runtime_image_id"),
+        "os": image.get("os"),
+        "architecture": image.get("architecture"),
+        "descriptor": None
+        if image.get("contract") == "classic"
+        else {"digest": image.get("descriptor_digest")},
+    }
+    identity = image_identity(observed, pin)
+    if (
+        image.get("contract") != identity["contract"]
+        or image.get("descriptor_digest") != identity["descriptor_digest"]
+    ):
+        raise ValueError("offline image identity")
+    nid, cid = cleanup.get("network_id"), cleanup.get("container_id")
+    if any(
+        type(value) is not str or re.fullmatch(r"[0-9a-f]{64}", value) is None
+        for value in (nid, cid)
+    ):
+        raise ValueError("offline resource identifiers")
+    for kind, identifier in (("network", nid), ("container", cid)):
+        acquired, removed = one(kind + "_acquired"), one(kind + "_removed")
+        if (
+            acquired.get("id") != identifier
+            or removed.get("id") != identifier
+            or events.index(acquired) >= events.index(removed)
+            or events.index(removed) >= events.index(one("cleanup_complete"))
+        ):
+            raise ValueError("offline owned resource lifecycle")
+    topology = proof.get("topology", {})
+    networks = topology.get("networks", {})
+    if (
+        network.get("id") != nid
+        or network.get("internal") is not True
+        or network.get("driver") != "bridge"
+        or network.get("options", {}).get("com.docker.network.bridge.gateway_mode_ipv4")
+        is not None
+        or proof.get("network_id") != nid
+        or proof.get("container_id") != cid
+        or topology.get("mode") != nid
+        or topology.get("cpus") != "0-7"
+        or set(networks) != {network.get("name")}
+        or networks[network["name"]].get("NetworkID") != nid
+        or start.get("id") != cid
+        or start.get("image") != identity["runtime_image_id"]
+        or start.get("running") is not True
+        or any(start.get("ports", {}).values())
+        or cleanup.get("status") != "success"
+        or cleanup.get("failures") != []
+        or cleanup.get("absent") != {"container": True, "network": True}
+    ):
+        raise ValueError("offline network identity")
+    endpoint = proof.get("endpoint", {})
+    ip = IPv4Address(networks[network["name"]].get("IPAddress"))
+    if (
+        not ip.is_private
+        or ip.is_loopback
+        or ip.is_unspecified
+        or ip.is_multicast
+        or endpoint != {"host": str(ip), "port": 5432 if target == "postgres" else 3306}
+        or bridge.get("target") != endpoint
+        or bridge.get("container_id") != cid
+        or bridge.get("network_id") != nid
+    ):
+        raise ValueError("offline endpoint identity")
+    local = bridge.get("endpoint", {})
+    if (
+        local.get("host") != "127.0.0.1"
+        or type(local.get("port")) is not int
+        or not 0 < local["port"] < 65536
+        or closed.get("endpoint") != local
+        or one("container_started").get("port") != local["port"]
+    ):
+        raise ValueError("offline loopback identity")
+    verify_no_default_route(proof.get("ipv4_routes"), proof.get("ipv6_routes"))
+    order = [
+        events.index(one(name))
+        for name in (
+            "offline_requested",
+            "network_observed",
+            "offline_bridge_started",
+            "offline_network_verified",
+            "container_started",
+            "offline_bridge_closed",
+            "cleanup_complete",
+        )
+    ]
+    if order != sorted(set(order)):
+        raise ValueError("offline lifecycle order")
+    return True
+
+
+class _LoopbackBridge:
+    """Owned host-local transport into an isolated container, without TLS termination."""
+
+    def __init__(self, host: str, port: int, program: str):
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.listener.settimeout(0.2)
+        self.port = self.listener.getsockname()[1]
+        self.target = f"TCP4:{host}:{port},connect-timeout=5"
+        self.program = program
+        self.stop = threading.Event()
+        self.children: list[subprocess.Popen] = []
+        self.failure: BaseException | None = None
+        self.thread = threading.Thread(
+            target=self.serve, daemon=True, name="pietto-offline-bridge"
+        )
+        self.thread.start()
+
+    def serve(self):
+        try:
+            while not self.stop.is_set():
+                try:
+                    client, _address = self.listener.accept()
+                except TimeoutError:
+                    continue
+                with client:
+                    if self.stop.is_set():
+                        break
+                    self.children = [
+                        child for child in self.children if child.poll() is None
+                    ]
+                    if len(self.children) >= 16:
+                        continue
+                    self.children.append(
+                        subprocess.Popen(
+                            [self.program, "STDIO", self.target],
+                            stdin=client.fileno(),
+                            stdout=client.fileno(),
+                            stderr=subprocess.DEVNULL,
+                            env=clean_environment(),
+                        )
+                    )
+        except BaseException as error:
+            if not self.stop.is_set():
+                self.failure = error
+
+    def close(self):
+        self.stop.set()
+        self.listener.close()
+        self.thread.join(2)
+        if self.thread.is_alive():
+            raise TimeoutError("offline bridge thread did not stop")
+        for child in self.children:
+            if child.poll() is None:
+                child.terminate()
+        end = time.monotonic() + 5
+        for child in self.children:
+            try:
+                child.wait(timeout=max(0.001, end - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait(timeout=1)
+        if self.failure is not None:
+            raise RuntimeError("offline bridge failed") from None
+
+
 class Resources:
     def __init__(self, target: str, pin: dict[str, Any], directory: Path):
+        mode = os.environ.get("PIETTO_NATIVE_OFFLINE", "0")
+        if mode not in ("0", "1"):
+            raise ValueError("invalid native offline mode")
+        self.offline = mode == "1"
         self.target, self.pin, self.directory = target, pin, directory
         self.nonce = uuid.uuid4().hex
         self.name = "pietto-p66-" + self.nonce
@@ -163,7 +432,9 @@ class Resources:
         self.container_id: str | None = None
         self.manager: Any = None
         self.query: Any = None
+        self.host = "127.0.0.1"
         self.port = 0
+        self._bridge: _LoopbackBridge | None = None
         self.connect_attempts = 0
         self.startup_started = 0.0
         self._passwords = (secrets.token_hex(24), secrets.token_hex(24))
@@ -276,6 +547,8 @@ class Resources:
         except RuntimeError as error:
             if str(error) != "Docker image inspect unknown or missing":
                 raise
+            if self.offline:
+                raise RuntimeError("offline image cache miss") from None
             self.event("image_pull_start", image=image)
             self.docker(
                 "image",
@@ -312,18 +585,37 @@ class Resources:
         }
         self.event("endpoint_verified", **self.endpoint_observation)
         image = self.pin["repository"] + "@" + self.pin["platform_digest"]
+        program = None
+        if self.offline:
+            program = shutil.which("socat")
+            if program is None:
+                raise RuntimeError(
+                    "offline mode requires the installed socat host tool"
+                )
+            version = subprocess.run(
+                [program, "-V"], check=True, capture_output=True, text=True, timeout=5
+            ).stdout.splitlines()[:2]
+            self.event(
+                "offline_requested",
+                cache_only=True,
+                bridge_tool=program,
+                bridge_version=version,
+            )
         self.acquire_image(image)
         label = "pietto.phase66.invocation=" + self.nonce
         self.event("network_create_intent", name=self.network_name, nonce=self.nonce)
         self.uncertain.append("network")
-        # Internal networks omit the gateway endpoint needed for published ports.
+        options = (
+            ("--internal",)
+            if self.offline
+            else ("--opt", "com.docker.network.bridge.gateway_mode_ipv4=nat")
+        )
         self.network_id = self.docker(
             "network",
             "create",
             "--driver",
             "bridge",
-            "--opt",
-            "com.docker.network.bridge.gateway_mode_ipv4=nat",
+            *options,
             "--label",
             label,
             self.network_name,
@@ -333,12 +625,12 @@ class Resources:
         self.event("network_observed", observation=network)
         if (
             not self.owned("network", network)
-            or network.get("internal") is not False
+            or network.get("internal") is not self.offline
             or network.get("driver") != "bridge"
             or network.get("options", {}).get(
                 "com.docker.network.bridge.gateway_mode_ipv4"
             )
-            != "nat"
+            != (None if self.offline else "nat")
         ):
             raise ValueError("network identity mismatch")
         self.uncertain.remove("network")
@@ -367,8 +659,7 @@ class Resources:
             label,
             "--network",
             self.network_id,
-            "--publish",
-            "127.0.0.1::" + port,
+            *(("--publish", "127.0.0.1::" + port) if not self.offline else ()),
             "--memory",
             "1g",
             "--cpus",
@@ -377,6 +668,8 @@ class Resources:
             "128",
             "--no-healthcheck",
         ]
+        if self.offline:
+            args[2:2] = ["--pull=never", "--cpuset-cpus", "0-7"]
         data_path = (
             "/var/lib/postgresql" if self.target == "postgres" else "/var/lib/mysql"
         )
@@ -425,7 +718,63 @@ class Resources:
             running=observed["running"],
             ports=observed["ports"],
         )
-        self.port = loopback_port(observed["ports"], port)
+        if self.offline:
+            topology = json.loads(
+                self.docker(
+                    "container",
+                    "inspect",
+                    self.container_id,
+                    "--format",
+                    '{"mode":{{json .HostConfig.NetworkMode}},"networks":{{json .NetworkSettings.Networks}},"cpus":{{json .HostConfig.CpusetCpus}}}',
+                )
+            )
+            if (
+                topology.get("mode") != self.network_id
+                or topology.get("cpus") != "0-7"
+                or set(topology.get("networks", {})) != {self.network_name}
+                or topology["networks"][self.network_name].get("NetworkID")
+                != self.network_id
+            ):
+                raise ValueError("offline network membership mismatch")
+            ipv4 = self.docker(
+                "container", "exec", self.container_id, "cat", "/proc/net/route"
+            )
+            ipv6 = self.docker(
+                "container", "exec", self.container_id, "cat", "/proc/net/ipv6_route"
+            )
+            verify_no_default_route(ipv4, ipv6)
+            address = topology["networks"][self.network_name].get("IPAddress")
+            ip = IPv4Address(address)
+            if (
+                not ip.is_private
+                or ip.is_loopback
+                or ip.is_unspecified
+                or ip.is_multicast
+            ):
+                raise ValueError("offline owned endpoint mismatch")
+            target_host, target_port = str(ip), int(port)
+            if program is None:
+                raise RuntimeError("offline bridge tool missing")
+            self._bridge = _LoopbackBridge(target_host, target_port, program)
+            self.host, self.port = "127.0.0.1", self._bridge.port
+            self.event(
+                "offline_bridge_started",
+                endpoint={"host": self.host, "port": self.port},
+                target={"host": target_host, "port": target_port},
+                container_id=self.container_id,
+                network_id=self.network_id,
+            )
+            self.event(
+                "offline_network_verified",
+                container_id=self.container_id,
+                network_id=self.network_id,
+                topology=topology,
+                ipv4_routes=ipv4,
+                ipv6_routes=ipv6,
+                endpoint={"host": target_host, "port": target_port},
+            )
+        else:
+            self.port = loopback_port(observed["ports"], port)
         self.event("container_started", id=self.container_id, port=self.port)
         for attempt, checkpoint in enumerate(CONNECT_CHECKPOINTS, 1):
             time.sleep(max(0, checkpoint - (time.monotonic() - started)))
@@ -524,7 +873,7 @@ class Resources:
             if psycopg.pq.__impl__ != "binary":
                 raise ValueError("wrong Psycopg implementation")
             return psycopg.connect(
-                host="127.0.0.1",
+                host=self.host,
                 port=self.port,
                 dbname="phase66",
                 user=user,
@@ -540,7 +889,7 @@ class Resources:
         import mysql.connector
 
         connection = mysql.connector.connect(
-            host="127.0.0.1",
+            host=self.host,
             port=self.port,
             database="phase66",
             user=user,
@@ -605,6 +954,15 @@ class Resources:
                     )
                 except Exception as error:
                     failures.append(error_fact(error, name + ".close"))
+        if self._bridge is not None:
+            try:
+                self._bridge.close()
+                self.event(
+                    "offline_bridge_closed",
+                    endpoint={"host": self.host, "port": self.port},
+                )
+            except Exception as error:
+                failures.append(error_fact(error, "offline_bridge.close"))
         for kind in ("container", "network"):
             resource_id = getattr(self, kind + "_id")
             try:

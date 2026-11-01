@@ -107,6 +107,23 @@ def write_join_witness(directory, target, body):
     return project
 
 
+def write_nested_collect(directory, *, closed=False):
+    """Write one real S12 Collect project and its exact emission document.
+
+    The product fixture owns the source/contract construction.  This harness
+    only keeps the resulting project bytes so the installed wheel compiles the
+    same public live query that the PostgreSQL probe later executes.
+    """
+    import _pietto_results_nested as nested
+    import _pietto_results_product as product
+
+    project = Path(directory) / ("nested-closed" if closed else "nested-captured")
+    project.parent.mkdir(parents=True, exist_ok=True)
+    output = nested.collected(product, project, closed=closed)
+    (project / "contract.json").write_bytes(output.artifact.request.accepted_bytes)
+    return project
+
+
 # psycopg 3.3.5 hands every connection string, password included, to its
 # selected implementation's `Conninfo.parse`; this copy records each one.
 PSYCOPG_C = """

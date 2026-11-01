@@ -577,6 +577,7 @@ def _outcome(
     primary=None,
     cancel=(False, False, False),
     cleanup_failures=(),
+    batches=1,
 ):
     ack = transaction in ("COMMIT_ACK", "ROLLBACK_ACK")
     return {
@@ -587,7 +588,7 @@ def _outcome(
         "cleanup": cleanup,
         "remote": "TRANSACTION_ACK" if ack else "REMOTE_QUIESCENCE_UNCONFIRMED",
         "rows": rows,
-        "batches": 1,
+        "batches": batches,
         "primary": primary,
         "cleanup_failures": [list(value) for value in cleanup_failures],
         "cancel": list(cancel),
@@ -614,6 +615,7 @@ def _failure(
                 transaction,
                 cleanup,
                 primary=[code, detail, extra.pop("phase", "check"), sqlstate, cause],
+                batches=extra.pop("batches", 1),
             ),
             **extra,
         }
@@ -648,6 +650,81 @@ def _step(name, attempt, *, rows=None, code=None, sqlstate=None, end="COMPLETE")
             code=code, detail=None, sqlstate=sqlstate, shown=False, chained=False
         )
     return record
+
+
+def _nested_preflight():
+    return {
+        "identity": [True] * 6,
+        "bounds": [5, 8, [5], 625, 3125, 3125],
+        "replies": [
+            [
+                "SELECT current_setting('server_encoding')",
+                [],
+                [[0, "current_setting", 25]],
+                [["UTF8"]],
+                2,
+            ],
+            [
+                'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."rows" LIMIT $1) AS "__pietto_nested_bound"',
+                [65],
+                [[0, "count", 20]],
+                [[5]],
+                2,
+            ],
+            [
+                'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."kids" LIMIT $1) AS "__pietto_nested_bound"',
+                [17],
+                [[0, "count", 20]],
+                [[8]],
+                2,
+            ],
+            [
+                'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("t"),0),$1)),0) FROM "public"."kids"',
+                [257],
+                [[0, "coalesce", 23]],
+                [[5]],
+                2,
+            ],
+        ],
+    }
+
+
+def _nested_rows(closed):
+    children = copy.deepcopy(check.NESTED_CHILDREN)
+    if closed:
+        children = [children[index] for index in (0, 2, 3, 7, 1, 4, 5, 6)]
+        return [
+            {"renamed": value, "c": copy.deepcopy(children)}
+            for value in (0, 2, 5, 5, 7)
+        ]
+    by_parent = {
+        0: children[:2],
+        2: children[2:3],
+        5: children[3:7],
+        7: [],
+    }
+    return [
+        {"renamed": value, "c": copy.deepcopy(by_parent[value])}
+        for value in (0, 2, 5, 5, 7)
+    ]
+
+
+def _nested_record(*, closed, bundle=False):
+    return _ok(
+        {
+            "origin": "bundle" if bundle else "live",
+            "schema": copy.deepcopy(check.NESTED_SCHEMA),
+            "schema_preopen": {
+                "closed": False,
+                "end": "NOT_STARTED",
+                "loaded": ["pyarrow"],
+            },
+            "rows": _nested_rows(closed),
+            "preflight": _nested_preflight(),
+            "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=5),
+            **_effects(),
+        }
+    )
 
 
 def postgres_report():
@@ -727,6 +804,58 @@ def postgres_report():
                 "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=0),
             }
         ),
+        "nested_captured": _nested_record(closed=False),
+        "nested_closed": _nested_record(closed=True),
+        "nested_bundle": _nested_record(closed=True, bundle=True),
+        "nested_stopped": _ok(
+            {
+                "schema": copy.deepcopy(check.NESTED_SCHEMA),
+                "first_rows": 1,
+                "preflight": _nested_preflight(),
+                "outcome": _outcome("STOPPED_EARLY", "ROLLBACK_ACK", rows=1),
+                **_effects(),
+            }
+        ),
+        "nested_cancelled": _ok(
+            {
+                "cancel_return": True,
+                "code": "PIE-R3009",
+                "detail": None,
+                "shown": False,
+                "chained": False,
+                "outcome": _outcome(
+                    "CANCELLED",
+                    "NOT_STARTED",
+                    rows=0,
+                    cancel=(True, False, False),
+                    primary=["PIE-R3009", None, None, None, None],
+                ),
+            }
+        ),
+        "nested_refused": _failure(
+            "PIE-R3004",
+            "POSTGRES_SOURCE_RESOURCE_LIMIT",
+            "ExecutionError",
+            "ROLLBACK_ACK",
+            batches=0,
+        )
+        | {
+            "result": _failure(
+                "PIE-R3004",
+                "POSTGRES_SOURCE_RESOURCE_LIMIT",
+                "ExecutionError",
+                "ROLLBACK_ACK",
+                batches=0,
+            )["result"]
+            | {
+                "schema": copy.deepcopy(check.NESTED_SCHEMA),
+                "schema_preopen": {
+                    "closed": False,
+                    "end": "NOT_STARTED",
+                    "loaded": ["pyarrow"],
+                },
+            }
+        },
         "early_stop": _ok(
             {
                 "first_rows": 1,
@@ -851,11 +980,16 @@ def postgres_report():
     }
 
 
+def _swap_captured_children(report):
+    rows = report["nested_captured"]["result"]["rows"]
+    rows[0]["c"], rows[1]["c"] = rows[1]["c"], rows[0]["c"]
+
+
 def test_the_checker_accepts_the_postgres_oracle_facts():
-    assert check.check(postgres_report()) == {
-        "family": "postgres",
-        "verdict": "ACCEPTED",
-    }
+    report = postgres_report()
+    expected = {"family": "postgres", "verdict": "ACCEPTED"}
+    assert check.check(report) == expected
+    assert check.check(json.loads(json.dumps(report, sort_keys=True))) == expected
 
 
 @pytest.mark.parametrize(
@@ -879,6 +1013,40 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
         (
             lambda r: r["schema_empty"]["result"].update(rows=[[2, "two"]]),
             "EMPTY_RESULT",
+        ),
+        (
+            lambda r: r["nested_captured"]["result"]["preflight"][
+                "identity"
+            ].__setitem__(0, False),
+            "NESTED_PREFLIGHT_IDENTITY",
+        ),
+        (
+            lambda r: r["nested_captured"]["result"]["preflight"]["replies"][
+                1
+            ].__setitem__(
+                0,
+                'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."other" LIMIT $1) AS "__pietto_nested_bound"',
+            ),
+            "NESTED_PREFLIGHT_REPLY",
+        ),
+        (
+            lambda r: r["nested_captured"]["result"]["preflight"]["replies"][3][2][
+                0
+            ].__setitem__(2, 20),
+            "NESTED_PREFLIGHT_REPLY",
+        ),
+        (_swap_captured_children, "NESTED_CAPTURED"),
+        (
+            lambda r: r["nested_captured"]["result"]["rows"][2]["c"].reverse(),
+            "NESTED_CAPTURED",
+        ),
+        (
+            lambda r: r["nested_closed"]["result"]["rows"][0]["c"].pop(),
+            "NESTED_CLOSED",
+        ),
+        (
+            lambda r: r["nested_bundle"]["result"].update(origin="live"),
+            "NESTED_ORIGIN",
         ),
         (
             lambda r: r["native_unlimited"]["result"].update(native_buffered_rows=1),

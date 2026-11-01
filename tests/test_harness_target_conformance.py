@@ -13,6 +13,7 @@ import zipfile
 
 import pytest
 
+import _pietto_execution_nested_oracle as nested
 import _pietto_target_conformance as facility
 import _pietto_target_conformance_cases as cases
 import _pietto_target_conformance_observation as observation
@@ -338,6 +339,15 @@ def _observation(
         else "mysql.connector.cursor.MySQLCursor",
         "native": None,
     }
+
+
+def _collect_labels(layout):
+    """The positional result labels of a Collect parent row."""
+    return [
+        name
+        for label, children in layout
+        for name in ((label,) if children is None else (label, *children))
+    ]
 
 
 def _native_control_data(target):
@@ -1162,6 +1172,12 @@ def valid_receipts(
                             target, record["variant"]
                         )
                         names = list(labels)
+                    elif case_id == "L_relation_collect":
+                        segments, layout, types = cases.collect_expectation(
+                            record["variant"]
+                        )
+                        rows = cases.collect_cells(nested.example(segments), layout)
+                        names = _collect_labels(layout)
                     elif case_id == "G_scan_row_domains":
                         rows, labels, types, _ = cases.row_domain_expectation(
                             target, record["variant"]
@@ -1378,6 +1394,11 @@ def valid_receipts(
             result[target]["setup"][index]["prepared"] = target == "postgres" or bool(
                 params
             )
+        collect_base = len(cases.setup(target)) - len(cases.collect_setup(target))
+        for index, params in enumerate(
+            cases.collect_setup_parameters(target), collect_base
+        ):
+            result[target]["setup"][index]["parameters"] = params
         if target == "mysql":
 
             def migrate(value, *, transaction_control=False):
@@ -2292,3 +2313,330 @@ def test_the_series_case_is_submitted_and_checked_against_its_own_oracle(
     with pytest.raises(ValueError, match="series BAG or metadata mismatch"):
         cases.check_case(case, "postgres", receipt["generation"])
     reject_receipt(receipt, valid_receipts, "postgres")
+
+
+# -- Phase71 S08 AC-F7: L_relation_collect and the receipt v3 'array' cell ----
+
+
+@pytest.fixture(scope="module")
+def collect_documents(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> dict[str, dict[str, Any]]:
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+
+    probe = facility.emission
+    documents = {}
+    for variant in probe.COLLECT_VARIANTS:
+        item = probe.fixture("postgres", "L_relation_collect", variant)
+        _, outcome = probe.build_case(
+            tmp_path_factory.mktemp("collect"),
+            item["source"],
+            item["contract"],
+            item["policy"],
+        )
+        documents[variant] = probe.decode_public(
+            serialize_project_sql_emission(outcome)
+        )
+    return documents
+
+
+def _collect_observation(document, variant, rows=None):
+    """A synthetic PostgreSQL submission of one variant: the oracle's own
+    example realization unless ``rows`` replaces it."""
+    segments, layout, types = cases.collect_expectation(variant)
+    if rows is None:
+        rows = cases.collect_cells(nested.example(segments), layout)
+    value = _observation(
+        "postgres", document["sql"], rows, _collect_labels(layout), types
+    )
+    value["prepared"] = True
+    return value
+
+
+def _cells(*values):
+    return [observation.scalar(value) for value in values]
+
+
+def _group(*values):
+    """One nested group's count and single array (or NULL when empty)."""
+    return [
+        observation.scalar(len(values)),
+        observation.scalar(list(values)) if values else {"kind": "null"},
+    ]
+
+
+def _damage_captured_empty(rows):
+    rows[2][1:] = _group(None)  # `[]` read as one all-NULL child
+
+
+def _damage_captured_null_child(rows):
+    rows[3][1:] = _group()  # `[{v: None}]` read as `[]`
+
+
+def _damage_captured_parent(rows):
+    del rows[2]  # a CROSS JOIN LATERAL drops the parent without children
+
+
+def _damage_captured_empty_array(rows):
+    rows[2][2] = {"kind": "array", "items": []}  # COALESCE-like empty array
+
+
+def _damage_captured_count(rows):
+    rows[4][1] = observation.scalar(2)
+
+
+def _damage_siblings_product(rows):
+    # Joining the siblings before collecting: 3 x 2 rows in each array.
+    rows[4][1:] = [
+        *_group(13, 13, 14, 14, 15, 15),
+        *_group(50, 51, 50, 51, 50, 51),
+    ]
+
+
+def _damage_ties_outside(rows):
+    rows[0][2]["items"][2] = observation.scalar(15)
+    rows[0][3]["items"][2] = observation.scalar(3)
+
+
+def _damage_ties_order(rows):
+    for array in rows[0][2:]:
+        array["items"][0], array["items"][2] = array["items"][2], array["items"][0]
+
+
+def _damage_closed_duplicate(rows):
+    rows[0][1:] = _group(5, 6, 7, 8, 9, None)
+
+
+def _damage_grouped_alignment(rows):
+    rows[0][2]["items"].reverse()
+
+
+def _damage_text_null_string(rows):
+    rows[3][2]["items"][0] = {"kind": "null"}
+
+
+def _damage_text_empty_string(rows):
+    rows[0][2]["items"][1] = {"kind": "null"}
+
+
+def _damage_decimal_scale(rows):
+    rows[0][2]["items"][0] = {"kind": "decimal", "value": "1.1"}
+
+
+def _damage_hidden_nulls_first(rows):
+    rows[0][1:3] = _group(11, 12, 16)
+
+
+def _damage_parent_limit(rows):
+    rows[1][0] = observation.scalar(1)
+    rows[1][1:] = _group(7, 7)
+
+
+def _damage_distinct_duplicate(rows):
+    rows[0][1:] = _group(None, 9, 8, 7, 7, 6, 5)
+
+
+def _damage_topk_extra(rows):
+    rows[4][1:] = _group(9, 8, 5)
+
+
+COLLECT_DAMAGES = {
+    "captured_empty_as_null_child": ("captured", _damage_captured_empty),
+    "captured_null_child_as_empty": ("captured", _damage_captured_null_child),
+    "captured_parent_dropped": ("captured", _damage_captured_parent),
+    "captured_empty_array_not_null": ("captured", _damage_captured_empty_array),
+    "captured_count_not_aligned": ("captured", _damage_captured_count),
+    "siblings_joined_before_collecting": ("siblings", _damage_siblings_product),
+    "ties_member_outside_boundary": ("ties", _damage_ties_outside),
+    "ties_keys_not_monotone": ("ties", _damage_ties_order),
+    "closed_duplicate_lost": ("closed", _damage_closed_duplicate),
+    "grouped_arrays_misaligned": ("grouped_let", _damage_grouped_alignment),
+    "text_null_string_as_null": ("text_quoting", _damage_text_null_string),
+    "text_empty_string_as_null": ("text_quoting", _damage_text_empty_string),
+    "decimal_scale_lost": ("decimal_child", _damage_decimal_scale),
+    "hidden_key_nulls_first": ("hidden_nullable_key", _damage_hidden_nulls_first),
+    "parent_limit_wrong_parent": ("parent_order_limit", _damage_parent_limit),
+    "distinct_duplicate_kept": ("distinct_let", _damage_distinct_duplicate),
+    "topk_limit_ignored": ("topk", _damage_topk_extra),
+}
+
+
+def test_each_collect_variant_passes_its_own_independent_oracle(
+    collect_documents: dict[str, dict[str, Any]],
+) -> None:
+    assert tuple(collect_documents) == facility.emission.COLLECT_VARIANTS
+    for variant, document in collect_documents.items():
+        cases.check_collect_case(
+            _collect_observation(document, variant), document, variant
+        )
+
+
+@pytest.mark.parametrize("name", sorted(COLLECT_DAMAGES))
+def test_the_collect_oracle_refuses_a_wrong_result(
+    collect_documents: dict[str, dict[str, Any]], name: str
+) -> None:
+    variant, damage = COLLECT_DAMAGES[name]
+    document = collect_documents[variant]
+    good = _collect_observation(document, variant)
+    rows = deepcopy(good["rows"])
+    damage(rows)
+    assert rows != good["rows"]
+    with pytest.raises(ValueError):
+        cases.check_collect_case(
+            _collect_observation(document, variant, rows), document, variant
+        )
+
+
+@pytest.mark.parametrize(
+    ("variant", "column", "oid"),
+    (
+        ("int4_child", 3, 1016),
+        ("decimal_child", 3, 1016),
+        ("text_quoting", 3, 25),
+        ("closed", 2, 1016),
+    ),
+)
+def test_the_collect_oracle_refuses_a_wrong_physical_or_label_metadata(
+    collect_documents: dict[str, dict[str, Any]], variant: str, column: int, oid: int
+) -> None:
+    document = collect_documents[variant]
+    value = _collect_observation(document, variant)
+    value["metadata"][column - 1][1] = oid
+    with pytest.raises(ValueError, match="physical metadata"):
+        cases.check_collect_case(value, document, variant)
+    value = _collect_observation(document, variant)
+    value["metadata"][-1][0] = "renamed"
+    with pytest.raises(ValueError, match="physical metadata"):
+        cases.check_collect_case(value, document, variant)
+
+
+def test_closed_let_parents_may_hold_different_boundary_members(
+    collect_documents: dict[str, dict[str, Any]],
+) -> None:
+    # F-4: a closed let is not promised one evaluation, so at a LIMIT boundary
+    # tie each parent may keep a different member; the oracle judges each one.
+    document = collect_documents["ties"]
+    value = _collect_observation(document, "ties")
+    members = [[cell["value"] for cell in row[2]["items"]] for row in value["rows"]]
+    assert all(items[:2] in (["12", "16"], ["16", "12"]) for items in members)
+    for row, boundary in zip(value["rows"], ("10", "13", "14", "10", "13")):
+        row[2]["items"][2] = {"kind": "int", "value": boundary}
+        row[3]["items"][2] = {"kind": "int", "value": "2"}
+    cases.check_collect_case(value, document, "ties")
+
+
+def test_the_collect_oracle_is_stated_from_the_authored_rows() -> None:
+    # Hand-stated values of the authored rows, independent of the oracle's
+    # code and of any SQL: the captured parents' bags, `[]` beside one child
+    # whose field is None, and sibling reads of 3 and 2 rows, not 6.
+    def example(variant):
+        segments, layout, _ = cases.collect_expectation(variant)
+        return [
+            {label: row[label] for label, _ in layout}
+            for row in nested.example(segments)
+        ]
+
+    assert [
+        (row["id"], [child["v"] for child in row["kids"]])
+        for row in example("captured")
+    ] == [(1, [7, 7]), (1, [7, 7]), (2, []), (3, [None]), (4, [9, 8, 5])]
+    assert [
+        (row["id"], len(row["items"]), len(row["paid"])) for row in example("siblings")
+    ] == [(1, 2, 1), (1, 2, 1), (2, 0, 0), (3, 1, 0), (4, 3, 2)]
+    assert {
+        tuple(sorted((c["v"] is None, c["v"] or 0) for c in row["bag"]))
+        for row in example("closed")
+    } == {
+        (
+            (False, 5),
+            (False, 6),
+            (False, 7),
+            (False, 7),
+            (False, 8),
+            (False, 9),
+            (True, 0),
+        )
+    }
+    assert [row["id"] for row in example("parent_order_limit")] == [4, 3]
+    assert [[c["note"] for c in row["notes"]] for row in example("text_quoting")] == [
+        [',{}"\\', ""],
+        [',{}"\\', ""],
+        [],
+        ["NULL"],
+        ["雪 é 😀", None, "x"],
+    ]
+    # The rows the oracle reads are the rows the fixture manager loads.
+    loaded = [params for _, params in cases.collect_setup("postgres") if params]
+    assert loaded == [row for rows in cases.COLLECT_ROWS.values() for row in rows]
+    assert cases.collect_setup("mysql") == ()
+    # Neither the oracle nor the expectation imports the compiler.
+    for path in (
+        Path(nested.__file__),
+        Path(cases.__file__),
+    ):
+        imported = REPOSITORY_FACTS.python(path).imported_modules
+        assert not any(module.split(".")[0] == "pietto" for module in imported)
+
+
+def test_mysql_refuses_each_collect_read_of_every_variant(tmp_path: Path) -> None:
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+
+    probe = facility.emission
+    for variant in probe.COLLECT_VARIANTS:
+        item = probe.fixture("mysql", "L_relation_collect", variant)
+        _, outcome = probe.build_case(
+            tmp_path / variant, item["source"], item["contract"], item["policy"]
+        )
+        document = probe.decode_public(serialize_project_sql_emission(outcome))
+        reads = item["source"].count(" = collect ")
+        assert (
+            probe.expected_status("L_relation_collect", variant, "mysql")
+            == (document["status"])
+        )
+        assert [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] == [
+            ("PIE-B1003", "collect_not_admitted_on_target")
+        ] * reads
+
+
+def test_the_array_cell_is_one_closed_layer_of_scalar_cells() -> None:
+    assert observation.scalar([7, None, "a"]) == {
+        "kind": "array",
+        "items": [
+            {"kind": "int", "value": "7"},
+            {"kind": "null"},
+            {"kind": "text", "value": "a"},
+        ],
+    }
+    assert observation.scalar([]) == {"kind": "array", "items": []}
+    with pytest.raises(observation.ObserverFailure, match="UNSUPPORTED_VALUE_TYPE"):
+        observation.scalar([[1]])
+    for cell in (
+        {"kind": "null"},
+        {"kind": "array", "items": []},
+        {"kind": "array", "items": [{"kind": "null"}, {"kind": "int", "value": "1"}]},
+        {"kind": "decimal", "value": "1.10"},
+    ):
+        cases.check_cell(cell)
+    for cell in (
+        {"kind": "array", "items": [{"kind": "array", "items": []}]},
+        {"kind": "array"},
+        {"kind": "array", "items": "1"},
+        {"kind": "array", "items": [], "value": "x"},
+        {"kind": "list", "items": []},
+        {"kind": "int", "value": 1},
+        {"kind": "bool", "value": "true"},
+        {"kind": "null", "value": None},
+        ["int", "1"],
+    ):
+        with pytest.raises(ValueError):
+            cases.check_cell(cell)
+
+
+def test_a_receipt_row_with_an_unknown_cell_is_incomplete() -> None:
+    value = _observation(
+        "postgres", "SELECT 1", [[{"kind": "array", "items": []}]], ["v"], [1016]
+    )
+    cases.check_complete(value)
+    value["rows"][0][0] = {"kind": "set", "items": []}
+    with pytest.raises(ValueError, match="cell"):
+        cases.check_complete(value)

@@ -364,3 +364,89 @@ def test_r1_projects_conflicting_operation_and_missing_saved_chunk(
         if opened is not None:
             opened.close()
         case.close()
+
+
+def test_saved_reads_refuse_a_collection_before_any_consumer_state(
+    tmp_path, monkeypatch
+):
+    """S12 G-read (removed by S19): a stored template whose records hold a
+    collection is refused after its trust and stored output are verified and
+    before the checkpoint is read, the publisher claimed or a consumer
+    registered. One seam stands in for the S09 collect records; unseamed, the
+    unstarted generation reports its missing capture at the checkpoint."""
+    import _pietto_execution_jobs_probe as workspace_probe
+    from _pietto_jobs_public_cases import unstarted_saved_generation
+    from pietto._project import project_execution_nested as nested
+    from pietto._project import project_job_replay as replay
+    from pietto._project import project_job_store as store
+    from pietto.execution import _saved_read as saved_read
+
+    case = unstarted_saved_generation(tmp_path)
+    if case is None:
+        pytest.skip("hosted storage refuses the v7 workspace this read needs")
+    _template, built = workspace_probe.compiled_template(tmp_path / "trust")
+    claimed = []
+
+    def forbidden(*arguments, **keywords):
+        claimed.append(arguments)
+        raise AssertionError("SAVED_READ_CONSUMER_STATE")
+
+    # The public reads reach these through the modules observed here.
+    assert (saved_read.store, saved_read.replay) == (store, replay)
+    monkeypatch.setattr(store, "claim_publisher", forbidden)
+    monkeypatch.setattr(replay, "register_consumer", forbidden)
+    common: dict[str, Any] = dict(
+        job=case.job,
+        generation=case.generation,
+        checkpoint="ckp-" + "0" * 32,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility[-1],
+        values=(1,),
+        extent=0,
+        purpose="public-r1",
+        route="postgres_rows",
+        batch_rows=2,
+        seconds=60,
+    )
+    calls = (
+        lambda: execution.open_saved_read(
+            case.reference,
+            **common,
+            consumer=execution.new_consumer_identity(),
+            register_operation=execution.new_operation(),
+            open_operation=execution.new_operation(),
+        ),
+        lambda: execution.release_saved_read(
+            case.reference,
+            **common,
+            consumer=execution.new_consumer_identity(),
+            operation=execution.new_operation(),
+        ),
+        lambda: execution.verified_export(
+            case.reference, **common, scope="complete_capture"
+        ),
+    )
+
+    def refusals():
+        details = []
+        for call in calls:
+            with pytest.raises(execution.RequestRejected) as refused:
+                call()
+            details.append((refused.value.code, refused.value.detail))
+        return details
+
+    try:
+        assert refusals() == [("PIE-R1009", "CAPTURE_UNKNOWN")] * 3
+        monkeypatch.setattr(
+            nested, "collection_operations", lambda records: frozenset({"collect"})
+        )
+        assert refusals() == [("PIE-R1009", "SAVED_READ_COLLECTION")] * 3
+        assert claimed == []
+        consumers = private_workspace.read(
+            case.workspace,
+            lambda c: c.execute("SELECT COUNT(*) FROM consumer").fetchone()[0],
+        )
+        assert consumers == 0
+    finally:
+        case.close()

@@ -16,7 +16,7 @@ from pietto.execution._errors import (
     sink_failure,
     workspace_failure,
 )
-from pietto.execution._saved import _checked_request
+from pietto.execution._saved import _checked_request, _collection_entry
 from pietto.execution._workspace import WorkspaceRef, _reply, operation_result
 
 __all__ = ["RelayCloseHandle", "RelayReply", "relay_live"]
@@ -188,6 +188,7 @@ def relay_live(
         None,
         parameters=parameters,
     )
+    _collection_entry(query)
     sink = _sink_target(
         sink_root,
         expected_sink_identity,

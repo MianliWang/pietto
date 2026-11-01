@@ -409,6 +409,9 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
     if view.request.family != family:
         raise ExecutionError("EXECUTION_TARGET")
     verify_result_contract(request.contract, view.request.verification)
+    from pietto._project.project_execution_nested import admit_nested_shape
+
+    admit_nested_shape(request.contract)
     # Inspect the entire verified inventory before restricting the S03 producer
     # shape. No winning obligation or hidden/filter-based exemption is allowed.
     if guarded is None and any(
@@ -452,6 +455,9 @@ def _verify_execution_structure(request, *, guarded=None) -> None:
 
 def _verify_compiled_premise(request):
     """The route's own deployment premise of a compiled request."""
+    from pietto._project.project_execution_nested import admit_collection_route
+
+    admit_collection_route(request)
     if type(request.access) is MySQLAccess:
         if (
             request.postgres_deployment is not None

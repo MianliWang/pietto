@@ -90,7 +90,7 @@ def hba():
 
 
 WORKER = r"""
-import gc, json, os, sys, threading, time, warnings
+import gc, json, os, shutil, sys, threading, time, warnings
 from pathlib import Path
 config = json.loads(sys.stdin.readline())
 for entry in reversed(config.get("path", ())):
@@ -148,17 +148,22 @@ def rejected(call):
         return [error.code, error.detail, password in str(error) + repr(error),
             error.__cause__ is not None or error.__context__ is not None]
     return None
-query = pe.compile_query(config["project"], module="main.pietto", kind="table",
-    name="active_items", dialect="postgres", emission_contract="contract.json",
+query_fact = config.get("query", {})
+query = pe.compile_query(config["project"], module=query_fact.get("module", "main.pietto"),
+    kind=query_fact.get("kind", "table"), name=query_fact.get("name", "active_items"),
+    dialect="postgres", emission_contract=query_fact.get("contract", "contract.json"),
     literal_policy=config.get("policy", "preserve"))
 if config.get("load_bundle"):
     exported = pe.export_bundle(query)
     query = pe.load_bundle(exported.payload, **records(exported))
+if config.get("remove_project"):
+    shutil.rmtree(config["project"])
 result["origin"] = query.origin
 access = pe.PostgresAccess(config.get("host", "127.0.0.1"), config["port"],
     config.get("database", "phase66"), config.get("user", "pietto_reader"),
     password, config.get("sslmode", "require"))
-premise = pe.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
+premise = pe.PostgresDeploymentPremise(schemas=("public", "pg_catalog")
+    if case.startswith("nested_") else ("fixture", "pg_catalog"))
 limits = pe.ExecutionLimits(**config.get("limits", {}))
 def attempt(**changes):
     arguments = dict(route="postgres_rows", access=access, premise=premise,
@@ -169,6 +174,30 @@ def attempt(**changes):
     return pe.execute(query, **arguments)
 handle = attempt()
 result["unopened"] = [loaded(), handle.outcome.end, password in repr(handle)]
+def collection_preflight():
+    # Private native receipt only; it is never a public execution API.
+    owner = handle._owner
+    receipt = getattr(owner, "_collection_preflight", None)
+    if receipt is None:
+        return None
+    replies = tuple(receipt.replies)
+    return {
+        "identity": [
+            receipt.request is owner.request,
+            receipt.output is owner.request.output,
+            receipt.connection is owner._owned_connection,
+            receipt.qualification is owner._qualification,
+            receipt.profile == owner._profile_context,
+            all(reply.connection is receipt.connection for reply in replies),
+        ],
+        "bounds": [receipt.parents, receipt.children, list(receipt.text_bytes),
+            receipt.row_bytes, receipt.batch_bytes, receipt.total_bytes],
+        "replies": [
+            [reply.sql, list(reply.arguments), list(reply.metadata),
+             [list(row) for row in reply.rows], reply.status]
+            for reply in replies
+        ],
+    }
 if case == "schema_refused":
     try:
         handle.__arrow_c_schema__()
@@ -225,6 +254,54 @@ elif case == "rows":
                 rows.extend(pa.record_batch(batch).to_pylist())
     result.update(rows=sorted([r["id"], r["label"]] for r in rows),
         outcome=facts(handle.outcome), after=effects())
+elif case == "nested_rows":
+    import pyarrow as pa
+
+    rows = []
+    result["before"] = effects()
+    result["schema"] = [[field.name, str(field.type), field.nullable] for field in pa.schema(handle)]
+    result["schema_preopen"] = {
+        "closed": handle.closed,
+        "end": handle.outcome.end,
+        "loaded": loaded(),
+    }
+    with handle:
+        for batch in handle:
+            with batch:
+                rows.extend(pa.record_batch(batch).to_pylist())
+    result.update(rows=rows, preflight=collection_preflight(),
+        outcome=facts(handle.outcome), after=effects())
+elif case == "nested_stopped":
+    import pyarrow as pa
+
+    result["before"] = effects()
+    result["schema"] = [[field.name, str(field.type), field.nullable] for field in pa.schema(handle)]
+    with handle:
+        first = next(handle)
+        result["first_rows"] = first.num_rows
+        first.close()
+    result.update(preflight=collection_preflight(), outcome=facts(handle.outcome), after=effects())
+elif case == "nested_cancelled":
+    result["cancel_return"] = handle.cancel() is None
+    try:
+        with handle:
+            pass
+    except pe.AttemptFailed as error:
+        result.update(refusal(error))
+elif case == "nested_refused":
+    import pyarrow as pa
+
+    result["schema"] = [[field.name, str(field.type), field.nullable] for field in pa.schema(handle)]
+    result["schema_preopen"] = {
+        "closed": handle.closed,
+        "end": handle.outcome.end,
+        "loaded": loaded(),
+    }
+    try:
+        with handle:
+            result["opened"] = True
+    except pe.AttemptFailed as error:
+        result.update(refusal(error))
 elif case == "early_stop":
     result["before"] = effects()
     with handle:
@@ -1051,10 +1128,20 @@ def statements(passwords):
     assert len(database) == 1, role
     return (
         *documented(example_blocks()["sql"]),
+        "CREATE TABLE public.rows (id int8 NOT NULL)",
+        "INSERT INTO public.rows VALUES (0),(2),(5),(5),(7)",
+        "CREATE TABLE public.kids (parent int8 NOT NULL, seq int8 NOT NULL,"
+        " i int8 NOT NULL, b boolean, t text)",
+        "INSERT INTO public.kids VALUES "
+        "(0,1,7,true,'a'),(0,2,7,true,'a'),(2,1,5,NULL,NULL),"
+        "(5,1,-9223372036854775808,false,',{}\"\\'),"
+        "(5,2,9223372036854775807,true,''),(5,2,0,false,'NULL'),"
+        "(5,3,4,false,'é'),(99,1,1,true,'x')",
         'CREATE TABLE fixture.items_wide (item_id int8 NOT NULL, item_label text COLLATE "C" NOT NULL)',
         "INSERT INTO fixture.items_wide VALUES " + wide,
         *(s.replace(" DATABASE app ", " DATABASE phase66 ") for s in role),
         "GRANT SELECT ON fixture.items_wide TO pietto_reader",
+        "GRANT SELECT ON TABLE public.rows, public.kids TO pietto_reader",
         # Only Pietto's own statement limit applies to the reader's sessions.
         "ALTER ROLE pietto_reader SET statement_timeout = 0",
         "CREATE ROLE pietto_trust LOGIN",
@@ -1248,7 +1335,7 @@ def manual_cancel(python, cwd, config, manager, quiet):
 
 def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
     import _pietto_target_conformance_resources as resources_module
-    from _pietto_execution_api import write_example
+    from _pietto_execution_api import write_example, write_nested_collect
 
     directory.mkdir(mode=0o700)
     started = time.monotonic()
@@ -1287,6 +1374,8 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
         encoding="utf-8",
     )
     wide = write_example(work / "wide", relation="items_wide")
+    nested_captured = write_nested_collect(work / "nested", closed=False)
+    nested_closed = write_nested_collect(work / "nested", closed=True)
     pins = json.loads((ROOT / "tests/phase66_target_pins.json").read_text())
     (directory / "resources").mkdir()
     resources = resources_module.Resources(
@@ -1316,6 +1405,81 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             python,
             work,
             {**reader, "case": "rows", "policy": "bind-safe", "values": [100]},
+            extra=quiet,
+        )
+        nested = {
+            "module": "main.pietto",
+            "kind": "query",
+            "name": "result",
+            "contract": "contract.json",
+        }
+        report["nested_captured"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "nested_rows",
+                "project": str(nested_captured),
+                "query": nested,
+            },
+            extra=quiet,
+        )
+        report["nested_closed"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "nested_rows",
+                "project": str(nested_closed),
+                "query": nested,
+            },
+            extra=quiet,
+        )
+        report["nested_stopped"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "nested_stopped",
+                "project": str(nested_captured),
+                "query": nested,
+            },
+            extra=quiet,
+        )
+        report["nested_cancelled"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "nested_cancelled",
+                "project": str(nested_captured),
+                "query": nested,
+            },
+            extra=quiet,
+        )
+        report["nested_refused"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "nested_refused",
+                "project": str(nested_captured),
+                "query": nested,
+                "limits": {"batch_bytes": 64},
+            },
+            extra=quiet,
+        )
+        report["nested_bundle"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "nested_rows",
+                "project": str(nested_closed),
+                "query": nested,
+                "load_bundle": True,
+                "remove_project": True,
+            },
             extra=quiet,
         )
         report["early_stop"] = case(
@@ -1434,6 +1598,8 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
         )
     finally:
         report["cleanup"] = resources.cleanup()
+        if resources.offline:
+            report["offline_resources"] = resources.events
     report["seconds"] = time.monotonic() - started
     return finish(directory, report)
 
@@ -1928,6 +2094,8 @@ def postgres_adbc_native(directory, *, wheel, interpreter, house_root=None, cach
             report["ambient"][name] = record
     finally:
         report["cleanup"] = resources.cleanup()
+        if resources.offline:
+            report["offline_resources"] = resources.events
     report["seconds"] = time.monotonic() - started
     return finish(directory, report)
 

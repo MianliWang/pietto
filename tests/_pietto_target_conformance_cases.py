@@ -101,6 +101,7 @@ def setup(target: str) -> tuple[tuple[str, tuple[object, ...]], ...]:
         + emission_setup(target)
         + native_setup(target)
         + row_domain_setup(target)
+        + collect_setup(target)
     )
 
 
@@ -212,6 +213,316 @@ def row_domain_expectation(target, variant):
             False,
         )
     raise ValueError("unknown row-domain variant")
+
+
+# Phase71 S08 (AC-F7): the Collect relations, authored once. Each parent row
+# is one `customers` row; `orders` and `payments` rows belong to the customer
+# their `customer_id` names. Every expected value below comes from these rows
+# and the hand-written COLLECT_SPECS, never from Pietto's SQL.
+COLLECT_ROWS = {
+    "customers": ((1, "A"), (1, "A"), (2, "B"), (3, "C"), (4, "D")),
+    # id, customer_id, v, k (hidden NULLABLE key), note, price, small (int4)
+    "orders": (
+        (10, 1, 7, 2, ',{}"\\', Decimal("1.10"), 1),
+        (11, 1, 7, None, "", Decimal("12.30"), 2),
+        (12, 3, None, 1, "NULL", None, None),
+        (13, 4, 9, 2, "雪 é 😀", Decimal("-0.01"), -2147483648),
+        (14, 4, 8, 2, None, Decimal("0.00"), 2147483647),
+        (15, 4, 5, 3, "x", Decimal("9999999.99"), 0),
+        (16, None, 6, 1, "orphan", Decimal("-9999999.99"), -1),
+    ),
+    "payments": ((50, 4), (51, 4), (52, 1), (53, None)),
+}
+# (column, PostgreSQL type, leaf type, nullable) in declaration order.
+COLLECT_COLUMNS = {
+    "customers": (("id", "BIGINT", "Int", False), ("name", "TEXT", "Text", False)),
+    "orders": (
+        ("id", "BIGINT", "Int", False),
+        ("customer_id", "BIGINT", "Int", True),
+        ("v", "BIGINT", "Int", True),
+        ("k", "BIGINT", "Int", True),
+        ("note", 'TEXT COLLATE "C"', "Text", True),
+        ("price", "NUMERIC(9,2)", "Decimal(9, 2)", True),
+        ("small", "INTEGER", "Int", True),
+    ),
+    "payments": (
+        ("id", "BIGINT", "Int", False),
+        ("customer_id", "BIGINT", "Int", True),
+    ),
+}
+# PostgreSQL array type OIDs of each child column, and of the parent columns.
+COLLECT_ARRAY_OIDS = {"BIGINT": 1016, "INTEGER": 1007, "TEXT": 1009, "NUMERIC": 1231}
+
+
+def collect_setup(target):
+    """PostgreSQL only: MySQL refuses every Collect read, so nothing is loaded."""
+    if target != "postgres":
+        return ()
+    statements: list[tuple[str, tuple[object, ...]]] = []
+    for name, columns in COLLECT_COLUMNS.items():
+        relation = '"' + emission.collect_relation(name) + '"'
+        statements.append(
+            (
+                f"CREATE TABLE {relation} ("
+                + ", ".join(
+                    f'"{column}" {kind}' + ("" if nullable else " NOT NULL")
+                    for column, kind, _, nullable in columns
+                )
+                + ")",
+                (),
+            )
+        )
+        markers = ", ".join(f"${i + 1}" for i in range(len(columns)))
+        statements.extend(
+            (f"INSERT INTO {relation} VALUES ({markers})", row)
+            for row in COLLECT_ROWS[name]
+        )
+    return tuple(statements)
+
+
+def collect_setup_parameters(target):
+    """Independent expected parameters of collect_setup, in loading order."""
+    if target != "postgres":
+        return []
+
+    def cell(value):
+        if value is None:
+            return dict(NULL)
+        if type(value) is int:
+            return _integer(str(value))
+        if type(value) is str:
+            return _text(value)
+        return _decimal(str(value))
+
+    result: list[list[Any]] = []
+    for name in COLLECT_COLUMNS:
+        result.append([])
+        result.extend([cell(value) for value in row] for row in COLLECT_ROWS[name])
+    return result
+
+
+def collect_specs():
+    """Each variant's program, restated by hand as the literal oracle's model:
+    the lets it collects (closed or capturing the parent customer) and the
+    parent's own ORDER and LIMIT."""
+    import _pietto_execution_nested_oracle as model
+
+    Let, Collect = model.Let, model.Collect
+    asc, desc = False, True
+    return {
+        "closed": Collect((Let("bag", "orders", ("v",), (("v", asc),), False),)),
+        "captured": Collect((Let("kids", "orders", ("v",), (("v", desc),)),)),
+        "topk": Collect((Let("top", "orders", ("v",), (("v", desc),), limit=2),)),
+        "ties": Collect(
+            (Let("tied", "orders", ("id", "k"), (("k", asc),), False, limit=3),)
+        ),
+        "hidden_nullable_key": Collect(
+            (
+                Let("up", "orders", ("id",), (("k", asc), ("id", asc)), False, 3),
+                Let("down", "orders", ("id",), (("k", desc), ("id", asc)), False, 3),
+            )
+        ),
+        "siblings": Collect(
+            (
+                Let("items", "orders", ("id",), (("id", asc),)),
+                Let("paid", "payments", ("id",), (("id", asc),)),
+            )
+        ),
+        "distinct_let": Collect(
+            (Let("values", "orders", ("v",), (("v", desc),), False, distinct=True),)
+        ),
+        "grouped_let": Collect(
+            (
+                Let(
+                    "totals",
+                    "orders",
+                    ("customer_id",),
+                    (("n", desc), ("customer_id", asc)),
+                    False,
+                    group="customer_id",
+                ),
+            )
+        ),
+        "parent_order_limit": Collect(
+            (Let("kids", "orders", ("v",), (("v", desc),)),), (("id", desc),), 2
+        ),
+        "text_quoting": Collect((Let("notes", "orders", ("note",), (("id", asc),)),)),
+        "int4_child": Collect((Let("smalls", "orders", ("small",), (("id", asc),)),)),
+        "decimal_child": Collect(
+            (Let("prices", "orders", ("price",), (("id", asc),)),)
+        ),
+    }
+
+
+def collect_tables():
+    """The authored rows as the literal oracle's typed tables."""
+    import _pietto_execution_nested_oracle as model
+
+    return {
+        name: model.Table(
+            emission.collect_relation(name),
+            name,
+            tuple(
+                model.Column(column, leaf, nullable)
+                for column, _, leaf, nullable in COLLECT_COLUMNS[name]
+            ),
+            COLLECT_ROWS[name],
+        )
+        for name in COLLECT_COLUMNS
+    }
+
+
+def collect_expectation(variant):
+    """(expected parent segments, layout, physical type OIDs) of one variant.
+
+    ``layout`` is the parent output: ``("id", None)``, then per Collect read
+    ``(field label, child labels)``; the physical columns are the parent id,
+    then each read's count and one array per child."""
+    import _pietto_execution_nested_oracle as model
+
+    spec = collect_specs()[variant]
+    tables = collect_tables()
+    types = {
+        (name, column): kind.split("(")[0].split(" ")[0]
+        for name, columns in COLLECT_COLUMNS.items()
+        for column, kind, _, _ in columns
+    }
+    layout: list[tuple[str, Any]] = [("id", None)]
+    physical = [20]
+    for let in spec.lets:
+        children = (*let.select, *(("n",) if let.group is not None else ()))
+        layout.append((let.name, children))
+        physical.append(20)
+        physical.extend(
+            COLLECT_ARRAY_OIDS[types.get((let.table, child), "BIGINT")]
+            for child in children
+        )
+    return model.evaluate(spec, tables), layout, physical
+
+
+def _collect_leaf(cell):
+    """One typed scalar cell as its value; anything else fails closed."""
+    kind = cell.get("kind") if type(cell) is dict else None
+    if kind == "null" and set(cell) == {"kind"}:
+        return None
+    if set(cell) != {"kind", "value"}:
+        raise ValueError("collect leaf cell")
+    if kind == "int" and type(cell["value"]) is str:
+        return int(cell["value"])
+    if kind == "text" and type(cell["value"]) is str:
+        return cell["value"]
+    if kind == "decimal" and type(cell["value"]) is str:
+        return Decimal(cell["value"])
+    if kind == "bool" and type(cell["value"]) is bool:
+        return cell["value"]
+    raise ValueError("collect leaf cell kind")
+
+
+def collect_records(rows, layout):
+    """The observed parent rows as records: each Collect read's count and
+    arrays are one list of child records. A count of 0 has every array NULL;
+    a count of n has every array of exactly n items, so `[]` and one child
+    whose fields are all None stay different."""
+    records = []
+    width = sum(1 if children is None else 1 + len(children) for _, children in layout)
+    for row in rows:
+        if type(row) is not list or len(row) != width:
+            raise ValueError("collect row width")
+        cells, record = iter(row), {}
+        for label, children in layout:
+            if children is None:
+                record[label] = _collect_leaf(next(cells))
+                continue
+            count = next(cells)
+            arrays: list[Any] = [next(cells) for _ in children]
+            if (
+                type(count) is not dict
+                or count.get("kind") != "int"
+                or set(count) != {"kind", "value"}
+            ):
+                raise ValueError("collect count cell")
+            n = int(count["value"])
+            if n == 0:
+                if any(array != NULL for array in arrays):
+                    raise ValueError("an empty collection has NULL arrays")
+                record[label] = []
+                continue
+            if any(
+                type(array) is not dict
+                or set(array) != {"kind", "items"}
+                or array["kind"] != "array"
+                or type(array["items"]) is not list
+                or len(array["items"]) != n
+                for array in arrays
+            ):
+                raise ValueError("collect arrays are aligned with their count")
+            record[label] = [
+                {
+                    child: _collect_leaf(array["items"][i])
+                    for child, array in zip(children, arrays, strict=True)
+                }
+                for i in range(n)
+            ]
+        records.append(record)
+    return records
+
+
+def collect_cells(records, layout):
+    """The physical row of each parent record (synthetic observations)."""
+    from _pietto_target_conformance_observation import scalar
+
+    rows = []
+    for record in records:
+        row = []
+        for label, children in layout:
+            if children is None:
+                row.append(scalar(record[label]))
+                continue
+            value = record[label]
+            row.append(_integer(str(len(value))))
+            row.extend(
+                {"kind": "array", "items": [scalar(item[c]) for item in value]}
+                if value
+                else dict(NULL)
+                for c in children
+            )
+        rows.append(row)
+    return rows
+
+
+def check_collect_case(observation, document, variant):
+    """The independent Collect oracle for one VERIFIED PostgreSQL submission:
+    positional labels and array type OIDs, each published nested column, and
+    the parent rows against the hand-stated program over the authored rows
+    (tie groups unordered, each parent judged on its own: F-4)."""
+    import _pietto_execution_nested_oracle as model
+
+    expected, layout, physical = collect_expectation(variant)
+    labels = [
+        name
+        for label, children in layout
+        for name in ((label,) if children is None else (label, *children))
+    ]
+    metadata = observation["metadata"]
+    if [m[0] for m in metadata] != labels or [m[1] for m in metadata] != physical:
+        raise ValueError("collect positional physical metadata mismatch")
+    if [
+        (
+            c["label"],
+            c["logical_type"]["kind"],
+            None
+            if c["logical_type"]["kind"] != "collection"
+            else tuple(e["label"] for e in c["logical_type"]["element"]),
+        )
+        for c in document["columns"]
+    ] != [
+        (label, "builtin" if children is None else "collection", children)
+        for label, children in layout
+    ]:
+        raise ValueError("collect positional logical metadata mismatch")
+    reasons = model.check(collect_records(observation["rows"], layout), expected)
+    if reasons:
+        raise ValueError("collect rows mismatch: " + "; ".join(reasons[:3]))
 
 
 def emission_setup(target):
@@ -1698,6 +2009,9 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         ):
             raise ValueError("three-valued positional logical metadata mismatch")
         return
+    if case_id == "L_relation_collect":
+        check_collect_case(observation, document, variant_name)
+        return
     if case_id == "Q_table_function_series":
         expected_rows, labels, types = series_expectation(target, variant_name)
         if (
@@ -2294,6 +2608,33 @@ def expected_rows(case: str) -> list[list[dict[str, str]]]:
     raise ValueError("no row oracle for case")
 
 
+SCALAR_CELL_KINDS = frozenset(
+    {"bool", "int", "text", "bytes", "datetime", "uuid", "float", "decimal"}
+)
+
+
+def check_cell(cell: Any, *, array: bool = True) -> None:
+    """Receipt v3's closed cell vocabulary: a scalar cell, the null cell, or
+    (D-S08-11) one 'array' cell whose items are scalar or null cells."""
+    if type(cell) is not dict:
+        raise ValueError("malformed result cell")
+    kind = cell.get("kind")
+    if kind == "null" and set(cell) == {"kind"}:
+        return
+    if array and kind == "array" and set(cell) == {"kind", "items"}:
+        if type(cell["items"]) is not list:
+            raise ValueError("malformed array cell")
+        for item in cell["items"]:
+            check_cell(item, array=False)
+        return
+    if (
+        kind not in SCALAR_CELL_KINDS
+        or set(cell) != {"kind", "value"}
+        or type(cell["value"]) is not (bool if kind == "bool" else str)
+    ):
+        raise ValueError("unknown or malformed result cell")
+
+
 def check_complete(observation: dict[str, Any]) -> None:
     keys = {
         "sql",
@@ -2342,6 +2683,9 @@ def check_complete(observation: dict[str, Any]) -> None:
             or any(len(row) != len(metadata) for row in observation["rows"])
         ):
             raise ValueError("incomplete positional metadata")
+        for row in observation["rows"]:
+            for cell in row:
+                check_cell(cell)
     elif observation["fetch"] == "not_applicable" and (
         observation["metadata"] is not None or observation["rows"] != []
     ):

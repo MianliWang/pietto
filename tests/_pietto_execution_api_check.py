@@ -13,12 +13,27 @@ from __future__ import annotations
 
 import ast
 from collections import Counter
+import json
 from typing import Any, cast
 
 FORMAT = "pietto.execution-api-witness.v1"
 # fixture.items rows with id > 1, as a bag: the documented query's oracle.
 ROWS = [[2, "two"], [2, "two"], [3, "three"], [5, "five"]]
 DEMO_SCHEMA = [["id", "int64", False], ["label", "string", False]]
+NESTED_SCHEMA = [
+    ["renamed", "int64", False],
+    ["c", "list<item: struct<i: int64 not null, b: bool, t: string> not null>", False],
+]
+NESTED_CHILDREN = [
+    {"i": 7, "b": True, "t": "a"},
+    {"i": 7, "b": True, "t": "a"},
+    {"i": 5, "b": None, "t": None},
+    {"i": -9223372036854775808, "b": False, "t": ',{}"\\'},
+    {"i": 9223372036854775807, "b": True, "t": ""},
+    {"i": 0, "b": False, "t": "NULL"},
+    {"i": 4, "b": False, "t": "é"},
+    {"i": 1, "b": True, "t": "x"},
+]
 AMBIENT = (
     "PGHOST",
     "PGPASSWORD",
@@ -460,6 +475,146 @@ def completed(record: Any, rows: Any, reason: str) -> None:
     )
 
 
+def check_nested_preflight(value: Any) -> None:
+    """Independently match the fixed fixture's native source-bound receipt."""
+    need(
+        type(value) is dict and value.get("identity") == [True] * 6,
+        "NESTED_PREFLIGHT_IDENTITY",
+    )
+    # Five parents, eight physical children, Text <= 5 UTF-8 bytes: each
+    # carrier DataRow <= 625 bytes and the five-row batch/total <= 3125.
+    need(
+        json.dumps(value.get("bounds"), allow_nan=False)
+        == json.dumps([5, 8, [5], 625, 3125, 3125]),
+        "NESTED_PREFLIGHT_BOUNDS",
+    )
+    replies = value.get("replies")
+    need(type(replies) is list and len(replies) == 4, "NESTED_PREFLIGHT_REPLIES")
+    expected = (
+        (
+            "SELECT current_setting('server_encoding')",
+            [],
+            "current_setting",
+            25,
+            "UTF8",
+        ),
+        (
+            'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."rows" LIMIT $1) AS "__pietto_nested_bound"',
+            [65],
+            "count",
+            20,
+            5,
+        ),
+        (
+            'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."kids" LIMIT $1) AS "__pietto_nested_bound"',
+            [17],
+            "count",
+            20,
+            8,
+        ),
+        (
+            'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("t"),0),$1)),0) FROM "public"."kids"',
+            [257],
+            "coalesce",
+            23,
+            5,
+        ),
+    )
+    for reply, (sql, arguments, label, oid, scalar) in zip(
+        replies, expected, strict=True
+    ):
+        need(type(reply) is list and len(reply) == 5, "NESTED_PREFLIGHT_REPLIES")
+        wanted = [sql, arguments, [[0, label, oid]], [[scalar]], 2]
+        need(
+            json.dumps(reply, allow_nan=False) == json.dumps(wanted),
+            "NESTED_PREFLIGHT_REPLY",
+        )
+
+
+def check_nested(record: Any, *, closed: bool, bundle: bool = False) -> None:
+    value = result(record, "NESTED")
+    need(value.get("schema") == NESTED_SCHEMA, "NESTED_SCHEMA")
+    preopen = value.get("schema_preopen") or {}
+    need(
+        preopen.get("closed") is False
+        and preopen.get("end") == "NOT_STARTED"
+        and preopen.get("loaded") == ["pyarrow"],
+        "NESTED_SCHEMA_PREOPEN",
+    )
+    rows = value.get("rows")
+    need(type(rows) is list and len(rows) == 5, "NESTED_PARENT_ROWS")
+    nested_rows = cast(list[dict[str, Any]], rows)
+    need(
+        all(
+            type(row) is dict
+            and set(row) == {"renamed", "c"}
+            and type(row["c"]) is list
+            for row in nested_rows
+        ),
+        "NESTED_ROWS",
+    )
+    need(
+        all(type(row["renamed"]) is int for row in nested_rows), "NESTED_PARENT_VALUES"
+    )
+    parents = Counter(row["renamed"] for row in nested_rows)
+    need(parents == Counter({0: 1, 2: 1, 5: 2, 7: 1}), "NESTED_PARENT_VALUES")
+    import _pietto_execution_nested_oracle as oracle
+
+    def tie(*indexes):
+        return oracle.Segment(
+            tuple(NESTED_CHILDREN[index] for index in indexes), len(indexes)
+        )
+
+    # Native fixture seq groups; ties permit permutations, never another parent.
+    closed_groups = (tie(0, 2, 3, 7), tie(1, 4, 5), tie(6))
+    captured_groups = {
+        0: (tie(0), tie(1)),
+        2: (tie(2),),
+        5: (tie(3), tie(4, 5), tie(6)),
+        7: (),
+    }
+    for row in nested_rows:
+        children = row["c"]
+        need(
+            all(
+                type(child) is dict and set(child) == {"i", "b", "t"}
+                for child in children
+            ),
+            "NESTED_ROWS",
+        )
+        ordered = [{key: child[key] for key in ("i", "b", "t")} for child in children]
+        expected = closed_groups if closed else captured_groups[row["renamed"]]
+        need(
+            not oracle.check(ordered, expected),
+            "NESTED_CLOSED" if closed else "NESTED_CAPTURED",
+        )
+    if not closed:
+        by_parent = [row for row in nested_rows if row["renamed"] == 7]
+        need(len(by_parent) == 1 and by_parent[0]["c"] == [], "NESTED_EMPTY")
+        need(
+            any(
+                child["b"] is None and child["t"] is None
+                for row in nested_rows
+                for child in row["c"]
+            ),
+            "NESTED_NULLABLE",
+        )
+    outcome = outcome_of(value, "NESTED")
+    need(
+        (
+            outcome.get("end"),
+            outcome.get("transaction"),
+            outcome.get("cleanup"),
+            outcome.get("rows"),
+        )
+        == ("COMPLETE", "COMMIT_ACK", "CLOSED", 5),
+        "NESTED_END",
+    )
+    need(value.get("origin") == ("bundle" if bundle else "live"), "NESTED_ORIGIN")
+    check_nested_preflight(value.get("preflight"))
+    check_effects(value, "NESTED")
+
+
 def check_steps(steps: Any) -> None:
     """One bundle loaded once without its source, then each step on it: the
     reader with values 1, 3 and 1 again, a refused role, the revoked and
@@ -547,6 +702,56 @@ def check_postgres(report: Any) -> Any:
         (empty_outcome["end"], empty_outcome["transaction"], empty_outcome["rows"])
         == ("COMPLETE", "COMMIT_ACK", 0),
         "EMPTY_RESULT",
+    )
+    check_nested(report.get("nested_captured"), closed=False)
+    check_nested(report.get("nested_closed"), closed=True)
+    check_nested(report.get("nested_bundle"), closed=True, bundle=True)
+    nested_stopped = result(report.get("nested_stopped"), "NESTED_STOPPED")
+    need(nested_stopped.get("schema") == NESTED_SCHEMA, "NESTED_STOPPED_SCHEMA")
+    nested_stop_outcome = outcome_of(nested_stopped, "NESTED_STOPPED")
+    need(
+        nested_stopped.get("first_rows") > 0
+        and (
+            nested_stop_outcome.get("end"),
+            nested_stop_outcome.get("transaction"),
+            nested_stop_outcome.get("primary"),
+        )
+        == ("STOPPED_EARLY", "ROLLBACK_ACK", None),
+        "NESTED_STOPPED",
+    )
+    check_effects(nested_stopped, "NESTED_STOPPED")
+    nested_cancelled = result(report.get("nested_cancelled"), "NESTED_CANCEL")
+    nested_cancel_outcome = outcome_of(nested_cancelled, "NESTED_CANCEL")
+    need(
+        nested_cancelled.get("cancel_return") is True
+        and (nested_cancelled.get("code"), nested_cancelled.get("detail"))
+        == ("PIE-R3009", None)
+        and nested_cancelled.get("shown") is False
+        and nested_cancelled.get("chained") is False
+        and (
+            nested_cancel_outcome.get("end"),
+            nested_cancel_outcome.get("transaction"),
+            nested_cancel_outcome.get("cancel"),
+        )
+        == ("CANCELLED", "NOT_STARTED", [True, False, False]),
+        "NESTED_CANCEL",
+    )
+    nested_refused = result(report.get("nested_refused"), "NESTED_BOUND")
+    nested_refusal_outcome = outcome_of(nested_refused, "NESTED_BOUND")
+    need(
+        nested_refused.get("schema") == NESTED_SCHEMA
+        and nested_refused.get("opened") is not True
+        and (nested_refused.get("code"), nested_refused.get("detail"))
+        == ("PIE-R3004", "POSTGRES_SOURCE_RESOURCE_LIMIT")
+        and nested_refused.get("shown") is False
+        and nested_refused.get("chained") is False
+        and (
+            nested_refusal_outcome.get("end"),
+            nested_refusal_outcome.get("rows"),
+            nested_refusal_outcome.get("batches"),
+        )
+        == ("FAILED", 0, 0),
+        "NESTED_BOUND",
     )
     early = result(report.get("early_stop"), "EARLY_STOP")
     outcome = outcome_of(early, "EARLY_STOP")
@@ -1036,6 +1241,18 @@ def check(report: Any) -> Any:
         "ENVELOPE",
     )
     family = cast(str, family)
+    if "offline_resources" in report:
+        from pathlib import Path
+        from _pietto_target_conformance_resources import verify_offline_evidence
+
+        target = "mysql" if family == "mysql" else "postgres"
+        pin = json.loads(
+            Path(__file__).with_name("phase66_target_pins.json").read_text()
+        )["targets"][target]
+        need(
+            verify_offline_evidence(report["offline_resources"], target, pin),
+            "OFFLINE_RESOURCES",
+        )
     return {
         "consumer": check_consumer,
         "mysql": check_mysql,

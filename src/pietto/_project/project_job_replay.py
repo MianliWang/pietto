@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import os
 import time
-from typing import Any
+from typing import Any, cast
 import weakref
 
 from pietto._project import project_job_chunks as chunks
@@ -169,6 +169,12 @@ def accept_saved_read(
         raise JobStoreError("ACCEPTANCE_ROUTE")
     restated(template, binding, values, parameters)
     output = verified_stored_output(workspace, job, generation, binding, route)
+    from pietto._project.project_execution_nested import collection_operations
+
+    root = cast(Any, template.artifact.request.verification.completed).root
+    if collection_operations(root.records):
+        # S12: no nested saved read, verified export or replay before S19.
+        raise JobStoreError("SAVED_READ_COLLECTION")
     snapshot = checkpoint_snapshot(workspace, job, generation, checkpoint=checkpoint)
     if (snapshot.contract, snapshot.scheme) != (output.contract, output.scheme):
         raise JobStoreError("READER_SNAPSHOT")

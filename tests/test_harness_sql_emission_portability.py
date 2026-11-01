@@ -305,10 +305,13 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
             )
             continue
         observed = portable.export_emission_observation(artifact, artifact.request)
-        if artifact.request.plan.parameters or artifact.request.plan.values_bodies:
-            # The closed observation schema has no query parameter and no typed
-            # VALUES body; such an artifact stays outside it rather than being
-            # approximated.
+        if (
+            artifact.request.plan.parameters
+            or artifact.request.plan.values_bodies
+            or artifact.request.plan.collects
+        ):
+            # The closed observation schema has no parameters, typed VALUES,
+            # or Collect groups; these artifacts stay outside it.
             assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
             continue
         if observed.status is not portable.ObservationStatus.OK:

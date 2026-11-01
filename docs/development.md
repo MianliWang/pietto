@@ -409,6 +409,25 @@ are documented in the [current corrective disposition](spec/phase66-pre-slice16-
 Changed production or authenticated probe bytes require fresh full target receipts; old
 successful receipts remain historical evidence, not proof of the supplement.
 
+Phase71 adds the case `L_relation_collect` (S08 AC-F7, delivered by S12): twelve Collect
+programs (`closed`, `captured`, `topk`, `ties`, `hidden_nullable_key`, `siblings`,
+`distinct_let`, `grouped_let`, `parent_order_limit`, `text_quoting`, `int4_child`,
+`decimal_child`) over three relations that `cases.collect_setup` loads on PostgreSQL only.
+PostgreSQL emits and executes each one; MySQL refuses each Collect read with one
+`PIE-B1003 collect_not_admitted_on_target`, so no MySQL relation is loaded and no MySQL
+query is submitted. Each PostgreSQL result is checked against the literal oracle
+(`_pietto_execution_nested_oracle`), which states the expected values from the authored
+rows and a hand-written model of each program, never from Pietto's SQL. Tied rows have no
+compared order, a LIMIT boundary tie accepts any member of the right size, and each
+parent row of a closed let is judged on its own. The strict public decoder reads every
+nested range, column, `R27` demand and lateral `R23` requirement and refuses any other
+shape. Receipt v3 keeps its format: the observer writes a PostgreSQL array as one closed
+`{"kind": "array", "items": [...]}` cell of scalar or null cells (a NULL array is the
+`null` cell), and the strict reader refuses any other cell. The target denominator is 72
+cases and 235 public documents per target (229 API-generated and 6 console documents):
+PostgreSQL 201 VERIFIED, 25 BLOCKED and 3 INPUT_REJECTED; MySQL 182 VERIFIED, 44 BLOCKED
+and 3 INPUT_REJECTED. The variants need a fresh full PostgreSQL 18.6 target run (D71.11).
+
 
 ## Local runtime OOM protection
 
