@@ -702,17 +702,23 @@ def zero_length_child(root):
     binding = a.bind_arrow(producer)
     list_type = binding.schema.field("c").type
     empty = pa.array([], type=list_type.value_type)
-    for name, offsets in (("absent", None), ("zero_size", pa.py_buffer(b""))):
+    for name, offsets in (
+        ("absent", None),
+        ("zero_size", pa.py_buffer(b"")),
+        ("nonzero_first", pa.py_buffer((5).to_bytes(4, "little", signed=True))),
+    ):
         column = pa.Array.from_buffers(list_type, 0, [None, offsets], children=[empty])
         batch = pa.RecordBatch.from_arrays(
             [pa.array([], type=pa.int64()), column], schema=binding.schema
         )
         observed[name] = outcome(
             lambda: observed.__setitem__(
-                name + "_usage",
-                list(a._checked_batch_usage(batch, binding, producer)),
+                name + "_usage", list(a._checked_batch_usage(batch, binding, producer))
             )
         )
+    observed["nonzero_first_retains_raw_offsets"] = (
+        observed.pop("nonzero_first_usage")[1] > observed["absent_usage"][1]
+    )
     print(json.dumps(observed, sort_keys=True))
 
 
@@ -947,13 +953,17 @@ def guards(real, p):
         ),
         owned.closed,
     ]
-    # S11 refuses nested IPC before the contract digest until S17.
-    observed["encode_ipc"] = outcome(
-        lambda: ipc.encode_ipc(binding, source(), expected_rows=5)
-    )
-    observed["open_ipc"] = outcome(
-        lambda: ipc.open_ipc(binding, p.ipc_envelope(b"x", 5), expected_rows=5)
-    )
+    frame = ipc.encode_ipc(binding, source(), expected_rows=5)
+    stream = ipc.open_ipc(binding, frame, expected_rows=5)
+    values = pa.RecordBatchReader.from_stream(stream).read_all().to_pylist()
+    stream.close()
+    completion = ipc.verify_ipc_completion(stream)
+    observed["ipc_roundtrip"] = [
+        values == batch.to_pylist(),
+        completion.rows,
+        completion.batches,
+        stream.state,
+    ]
     managed = interop.build_managed_batch(binding, ROWS)
     imported = pa.record_batch(managed)
     observed["build_managed_batch"] = dict(
@@ -1196,6 +1206,8 @@ EXPECTED: dict[str, Any] = {
                 "absent_usage": [8, 4],
                 "zero_size": "ACCEPTED",
                 "zero_size_usage": [8, 4],
+                "nonzero_first": "ACCEPTED",
+                "nonzero_first_retains_raw_offsets": True,
             },
         ),
         authority="FIELD",
@@ -1208,8 +1220,7 @@ EXPECTED: dict[str, Any] = {
         import_stream="ACCEPTED",
         # _Source is not a RecordBatchReader; owned ingress still closes it.
         owned_ingress=["READER_SOURCE", True],
-        encode_ipc="NESTED_UNAVAILABLE",
-        open_ipc="NESTED_UNAVAILABLE",
+        ipc_roundtrip=[True, 5, 1, "CLOSED"],
         build_managed_batch=dict(
             policy="owned_copy", usage=230, schema=True, values=True
         ),

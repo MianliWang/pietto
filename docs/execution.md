@@ -1112,6 +1112,42 @@ refused by it.
 | The bundle bytes | Nothing for a query already loaded; it keeps what it loaded. | Changed bytes under the old pin: `PIE-R1007` (`PIE-R1008` when the change breaks the bracket nesting that is checked before hashing). |
 | The project's source files or contract | Nothing for a query already compiled: it is a snapshot, and the edits take effect with the next `compile_query`. | A new export has another producer and pin; records of two exports mixed together are refused (`PIE-R1007`, `PIE-R1008`). |
 
+## Bounded Collect and Unnest
+
+`compile_query` and `load_bundle` prepare the admitted PostgreSQL collection
+shapes without connecting. `execute(..., route="postgres_rows")` supports a
+single Collect with Int, Bool, or finite Text children, and one CROSS, INNER,
+or LEFT Unnest of that collection with a flat final result. The public live
+path uses the compiled graph, as does a loaded source-free bundle.
+
+This first execution domain has one parent Int field and one child collection,
+with direct field projections over qualified physical roots, filters, ordering
+and limits. After source qualification and before submitting the main SQL, the
+attempt checks `server_encoding = UTF8`, bounded physical-root counts and actual
+Text octet lengths. It uses the same owned read-only REPEATABLE READ or
+SERIALIZABLE transaction snapshot for preflight and the main statement. The
+parent root is at most 64 rows, the global child root at most 16 rows, and each
+Text field at most 256 UTF-8 bytes. An unknown or unsupported bound is refused;
+no protective LIMIT is added to the authored query. A declared Text size alone
+is not a runtime size guarantee.
+
+Preflight bounds every emitted DataRow field, the batch and total bytes, and
+child occurrences. `batch_rows` and `max_rows` count top-level result rows:
+parents for a nested result, and expanded flat rows after Unnest. The Unnest
+bound is the parent count times the global child count (at least one for LEFT),
+so a query can be refused even when its actual filtered result would fit.
+These are result-transport bounds, not a bound on server executor memory or all
+protocol, driver, or Arrow allocation costs. Delivery retains its own limits;
+a parent collection is never split across batches.
+
+ADBC, MySQL, guarded/refined execution and unsupported child leaves remain
+refused before a connection. Collect/Unnest operations remain refused by
+`save`, R2 and relay before workspace or sink effects, even when Unnest makes
+the final result flat. Saved replay/R1 and verified export do not open nested
+storage yet. Nested IPC is an internal checked transport; it is not a public
+IPC or storage API. Float/Decimal children, temporal/UUID children, and wider
+composition retain their later Phase71 owners.
+
 ## Results
 
 Each `ResultBatch` has the query's result schema: one uniquely labelled field

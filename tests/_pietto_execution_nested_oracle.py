@@ -3,7 +3,7 @@
 Seeds, a closed program family rendered as ``schema_version = 2`` project
 sources, pure-Python expected values, a tie-aware type-exact comparator and
 damage controls. No pietto, driver or Arrow import: expected values come from
-the seed literals alone (D71.03, D71.04; the brief's semantic contract).
+the seed literals alone (D71.03, D71.04; brief section 6).
 
 Semantics kept here, independently of the compiler:
 - a captured let whose correlation key is NULL yields ``[]``; an ON or WHERE

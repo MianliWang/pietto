@@ -2,6 +2,13 @@
 
 ## Unreleased changes following 0.1.6
 
+- Phase71 B4 candidate: bounded basic-leaf PostgreSQL Collect execution,
+  one final-flat CROSS/INNER/LEFT Unnest through source and source-free compiled
+  paths, and internal nested IPC. Other routes, wider child types, storage,
+  R2 and relay retain their explicit refusals. The version remains 0.1.6;
+  B4 publication and the 0.1.7 release are separate lifecycle decisions.
+
+
 These changes are on `main` after `0.1.6` and are in no published release
 yet. They do not assign a new version or replace the published 0.1.6 release
 notes.
@@ -229,10 +236,9 @@ notes.
 
 ## Corrections and MySQL parity public alpha release notes — 0.1.6
 
-**Status:** These notes cover the `0.1.6` public-alpha candidate. A release is
-established only when the accepted wheel and sdist are available from both the
-versioned GitHub pre-release and PyPI channels; this document neither creates
-those channels nor substitutes for their byte verification.
+**Status:** `0.1.6` was published from `bdb3f567` (tag `v0.1.6`) on the
+versioned GitHub pre-release and PyPI channels. These historical release notes
+neither publish a successor nor substitute for channel byte verification.
 
 `0.1.6` retires no source spelling of `0.1.5`. It corrects single-file SQL and
 checking, brings single-file MySQL `emit-sql` close to PostgreSQL for JOINs,

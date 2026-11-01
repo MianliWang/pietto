@@ -45,6 +45,13 @@ HELPERS = (
     "_pietto_results_conformance",
     "_pietto_results_nested",
     "_pietto_results_nested_interop",
+    # Dependency order: the literal oracle imports the observation helper.
+    "_pietto_target_conformance_observation",
+    "_pietto_execution_nested_oracle",
+    "_pietto_plan_nested",
+    "_pietto_sql_nested_collect",
+    "_pietto_results_nested_ipc_oracle",
+    "_pietto_results_nested_ipc",
 )
 RECEIPT_HELPERS = (
     "_pietto_target_conformance_observation",

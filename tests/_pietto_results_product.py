@@ -57,6 +57,10 @@ def _leaves(producer) -> tuple[ProducerFieldBinding, ...]:
     return producer.fields
 
 
+def _nested_ipc():
+    return _helper("_pietto_results_nested_ipc")
+
+
 FORMAT = "pietto.result-product.v1"
 PIN = "26.0.0"
 BIG = 9007199254740993
@@ -184,6 +188,7 @@ CASES += (
     + _whole().GROUPS
     + _nested().GROUPS
     + _nested_interop().GROUPS
+    + _nested_ipc().GROUPS
 )
 
 
@@ -549,6 +554,9 @@ def run_cases(root):
     results.update(_nested().run(sys.modules[__name__], root / "nested", results))
     results.update(
         _nested_interop().run(sys.modules[__name__], root / "nested_interop", results)
+    )
+    results.update(
+        _nested_ipc().run(sys.modules[__name__], root / "nested_ipc", results)
     )
     assert set(results) == set(CASES)
     return results
@@ -11181,6 +11189,7 @@ def verify_report(value, context, inputs):
     _whole().verify(cases, sys.modules[__name__])
     _nested().verify(cases, sys.modules[__name__])
     _nested_interop().verify(cases, sys.modules[__name__])
+    _nested_ipc().verify(cases, sys.modules[__name__])
     origins = value["origins"]
     prefix = Path(value["prefix"])
     required = {"pietto._project." + name for name in PRODUCTS} | {
@@ -11589,6 +11598,7 @@ def reject_report_damage(value, context, inputs):
         + _nested().damage()
         + _nested_interop().damage()
     )
+    mutations += _nested_ipc().damage()
     for mutate in mutations:
         bad = json.loads(json.dumps(value))
         mutate(bad)

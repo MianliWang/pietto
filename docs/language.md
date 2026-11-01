@@ -1821,9 +1821,12 @@ On PostgreSQL, `emit-sql --project` writes each Collect read of the selected
 table or query as one LEFT JOIN LATERAL aggregate: a count column with the
 field's label, then one array column per child field with the child's label, in
 child order. An empty collection is a count of 0 with every array column NULL;
-a child row whose fields are all None is a count of 1. A query that reads such
-a relation from another relation, and MySQL, report PIE-B1003; executing a
-Collect read is not available yet (PIE-R1004).
+a child row whose fields are all None is a count of 1. A general reader of a relation carrying a collection, and MySQL, still report
+PIE-B1003. PostgreSQL also admits one Collect source port expanded by one CROSS,
+INNER, or LEFT Unnest JOIN whose final exports are flat; its child leaves are
+Int, Bool, or finite Text. The collection's physical columns are withheld from
+the JOIN's output. The bounded `postgres_rows` execution of these shapes is
+specified under [bounded collections](execution.md#bounded-collect-and-unnest).
 
 ### Query header parameters in explicit-module projects
 

@@ -764,6 +764,42 @@ def verify_batch(batch, binding, producer, *, limits=BatchLimits()) -> None:
     _checked_batch_usage(batch, binding, producer, limits=limits)
 
 
+def _empty_array(pa, kind):
+    """The owned canonical empty array used before Arrow validates zero lists."""
+    if pa.types.is_struct(kind):
+        return pa.Array.from_buffers(
+            kind, 0, [None], children=[_empty_array(pa, field.type) for field in kind]
+        )
+    offsets = pa.py_buffer(bytes(4))
+    if pa.types.is_list(kind):
+        return pa.Array.from_buffers(
+            kind, 0, [None, offsets], children=[_empty_array(pa, kind.value_type)]
+        )
+    data = pa.py_buffer(b"")
+    buffers = [None, offsets, data] if pa.types.is_string(kind) else [None, data]
+    return pa.Array.from_buffers(kind, 0, buffers)
+
+
+def _validated_batch(batch, binding, producer):
+    """Replace only zero-length nested arrays before PyArrow validates buffers.
+
+    PyArrow 26 reads an absent or zero-byte list offsets buffer as memory while
+    validating a zero-row array. Such a list has no observable container or
+    child segment, so normalize it to the canonical empty array. Non-empty
+    arrays always retain their supplied buffers for full validation.
+    """
+    pa = _arrow()
+    columns = list(batch.columns)
+    changed = False
+    for index, bound in enumerate(producer.fields):
+        if _children(bound) is not None and not len(columns[index]):
+            columns[index] = _empty_array(pa, binding.schema[index].type)
+            changed = True
+    return (
+        pa.RecordBatch.from_arrays(columns, schema=batch.schema) if changed else batch
+    )
+
+
 def _checked_batch_usage(batch, binding, producer, *, limits=BatchLimits()):
     return _checked_batch_counts(batch, binding, producer, limits=limits)[:2]
 
@@ -793,12 +829,13 @@ def _checked_batch_counts(batch, binding, producer, *, limits=BatchLimits()):
     if retained_bytes > min(limits.bytes, 8 * 1024 * 1024):
         raise ResultError("LIMIT")
     try:
-        batch.validate(full=True)
+        checked = _validated_batch(batch, binding, producer)
+        checked.validate(full=True)
         widths = _text_widths(producer, binding.text_offset_widths)
         child_rows = 0
         for i, bound in enumerate(producer.fields):
             text_size = 0
-            column = batch.column(i)
+            column = checked.column(i)
             children = _children(bound)
             if children is not None:
                 charge, count = _nested_usage(

@@ -428,6 +428,14 @@ cases and 235 public documents per target (229 API-generated and 6 console docum
 PostgreSQL 201 VERIFIED, 25 BLOCKED and 3 INPUT_REJECTED; MySQL 182 VERIFIED, 44 BLOCKED
 and 3 INPUT_REJECTED. The variants need a fresh full PostgreSQL 18.6 target run (D71.11).
 
+The S13 final-flat Unnest domain is additionally exercised by the existing
+PostgreSQL execution-API native family: CROSS, INNER, LEFT, a source-free LEFT
+bundle, and conservative preflight refusal before main SQL. Those cases use
+the independent basic-leaf literal oracle and scalar PostgreSQL metadata;
+they do not stand in for this complete target manifest or for the Collect
+carrier/IPC consumers. A synthetic receipt-checker unit result is never native
+execution evidence.
+
 
 ## Local runtime OOM protection
 
@@ -1221,3 +1229,28 @@ database-free facts against the checkout and the native steps against a
 stand-in owner bound to the real public signatures. Each target's worker stops
 after 3,600 seconds; on the batch-3 table, one campaign per target, run side by
 side, took about 19 minutes for PostgreSQL (both routes) and 13 for MySQL.
+
+### D71 local native offline profile
+
+The owner-approved local exception uses `PIETTO_NATIVE_OFFLINE=1` with the
+existing `UV_PYTHON=3.13.13`, offline dependency cache, whole-campaign `flock`,
+one PostgreSQL container, and two-hour ceiling. The default CI profile remains
+its existing NAT network and verified cold-cache image acquisition.
+
+The local profile requires the pinned image already in Docker's cache and
+uses `--pull=never`. Its sole internal network and the container's IPv4/IPv6
+route tables are recorded and checked; an active default route is refused.
+The container stays on CPUs 0–7. Docker does not publish a loopback port for
+this internal network on the integration host, so the resource owner uses the
+installed `socat` tool to forward an owned, bounded loopback listener to that
+container's verified private IPv4 endpoint. It neither parses nor terminates
+TLS. The listener and at most 16 active forwarding children are closed and
+reaped before the owned container/network are removed. Missing tools, missing
+cache, identity drift or cleanup failure cannot become offline evidence.
+
+The target receipt and API offline journal readers rederive the image, sole
+network, routes, private target, local listener and cleanup chain. A NAT receipt
+continues to mean the default CI profile; it is never evidence for this local
+exception. Earlier IPE/B4 functional observations remain recorded with their
+original identities, while their former offline description is superseded by
+the explicit owner-approved isolation recovery and fresh qualified witnesses.

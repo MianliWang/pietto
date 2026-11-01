@@ -12,7 +12,6 @@ from weakref import ref
 from pietto._project import project_arrow_result as arrow
 from pietto._project import project_result_ingress as ingress
 from pietto._project import project_result_reader as reader
-from pietto._project.project_result_binding import ProducerNestedBinding
 from pietto._project.project_result_contract import (
     NestedShape,
     ResultError,
@@ -25,6 +24,7 @@ __all__: tuple[str, ...] = ()
 _HEADER = struct.Struct(">12sQQQ32s32s")
 _MAGIC = b"PIETTO-IPC1\x00"
 _MAX_BYTES = 96 * 1024 * 1024
+_MAX_METADATA_ENTRIES = 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,9 +54,6 @@ def _extent(expected_rows, limits):
 
 def _contract_digest(binding):
     ingress.interop._capture(binding)
-    # Nested IPC framing opens in S17, which removes this refusal (S02, D71.05).
-    if any(type(b) is ProducerNestedBinding for b in binding.producer.fields):
-        raise ResultError("NESTED_UNAVAILABLE")
     return contract_digest(binding.producer.contract)
 
 
@@ -270,7 +267,7 @@ def open_ipc(
     claims, payload = _frame(frame, expected_rows, reader_limits, ipc_limits)
     if _contract_digest(binding) != claims[4]:
         raise ResultError("IPC_CONTRACT")
-    source = _open_reader(payload)
+    source = _open_reader(payload, reader_limits.max_batches)
     managed = ingress._ingest_reader(
         binding, source, expected_rows, reader_limits, None, owned=True
     )
@@ -383,8 +380,9 @@ def verify_ipc_completion(session):
     return completion
 
 
-def _open_reader(payload):
+def _open_reader(payload, max_batches):
     pa = arrow._arrow()
+    _admit_payload(pa, payload, max_batches)
     try:
         opened = pa.ipc.open_stream(payload)
     except Exception as exc:
@@ -403,3 +401,74 @@ def _open_reader(payload):
         if not isinstance(primary, Exception):
             raise
         raise ResultError("IPC_READ") from primary
+
+
+def _admit_payload(pa, payload, max_batches):
+    """Refuse compressed or dictionary-encoded IPC before any body is decoded.
+
+    Inspect-only: this walks Arrow's own message framing and leaves framing
+    damage to the reader, which stops at the same message, so no message this
+    walk has not seen is ever decoded or decompressed. Pietto writes neither.
+    The walk ends where the reader must: the schema, ``max_batches`` batches
+    and the one more the reader decodes before ``LIMIT``.
+    """
+    try:
+        messages = pa.ipc.MessageReader.open_stream(pa.py_buffer(payload))
+    except Exception:
+        return
+    for _ in range(max_batches + 2):
+        try:
+            message = messages.read_next_message()
+        except Exception:  # StopIteration at the end, or framing damage
+            return
+        if message.type == "dictionary" or (
+            message.type == "record batch" and _compressed(message.metadata)
+        ):
+            raise ResultError("IPC_ENCODING")
+
+
+def _compressed(metadata):
+    """Whether a RecordBatch Message flatbuffer names a body compression.
+
+    Arrow decompresses on ``RecordBatch.compression`` and, for a V4 Message,
+    on Arrow 0.17's ``ARROW:experimental_compression`` key in
+    ``Message.custom_metadata``; that key is refused whatever codec it names.
+    """
+    data = memoryview(metadata)
+
+    def read(form, at):
+        # Explicit bounds: struct reads a negative offset from the end.
+        if not 0 <= at <= len(data) - struct.calcsize(form):
+            raise ResultError("IPC_READ")
+        return struct.unpack_from(form, data, at)[0]
+
+    def field(table, slot):
+        vtable = table - read("<i", table)
+        if read("<H", vtable) < 6 + 2 * slot:
+            return None
+        offset = read("<H", vtable + 4 + 2 * slot)
+        return table + offset if offset else None
+
+    def target(at):
+        return at + read("<I", at)
+
+    def text(at):  # a flatbuffer string: its length, then its bytes
+        return read(f"<{read('<I', at)}s", at + 4)
+
+    message = target(0)
+    header = field(message, 2)  # Message.header
+    if header is not None and field(target(header), 3) is not None:
+        return True  # RecordBatch.compression
+    version, entries = field(message, 0), field(message, 4)
+    if version is None or read("<h", version) != 3 or entries is None:
+        return False  # not MetadataVersion.V4, or no Message.custom_metadata
+    vector = target(entries)
+    count = read("<I", vector)
+    end = vector + 4 + 4 * count
+    if count > _MAX_METADATA_ENTRIES or end > len(data):
+        raise ResultError("IPC_READ")
+    for at in range(vector + 4, end, 4):
+        key = field(target(at), 0)  # KeyValue.key
+        if key is not None and text(target(key)) == b"ARROW:experimental_compression":
+            return True
+    return False

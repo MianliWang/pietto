@@ -412,3 +412,34 @@ lead 2026-10-28 问是否提高 D71.09“至多 3 个隔离 worker（加一个�
 - 在保留历史计数及 UNKNOWN 的前提下，仅第一个项目 emission interlude、B4 与
   中点复查增加独立 causal 20 / focused 30 / diagnostic 40 余额，逐次记账，接近即停。
   这不重置旧账，不增加 scope、Teach、Docker 或发行权限；D71.09 的批次发布规则不变。
+
+
+## Phase71 bounded continuation — owner updates (2026-10-31)
+
+The owner subsequently increased the independent B4/midpoint repair ledger to
+C35/F40/D40, then C50/F60/D40, and explicitly doubled its current categories to
+**C100/F120/D80**. Previously consumed work (including the first emission
+interlude), failed candidates and historical UNKNOWN are retained. The added
+balance is only for B4 and its midpoint; scope, Teach, Docker and release
+authority do not change. This does not replace or reset the historical D71.10
+phase ledger. After the worktree-isolation incident, the owner authorized a new
+clean worktree and continued work with the lead as the sole writer and other
+agents restricted to read-only review.
+
+The owner also approved the separate second emission interlude's nonempty
+`blocker.suggestion` in existing v1/v2 BLOCKED documents, shared with text hints;
+all strict readers and compatibility documentation must be updated. VERIFIED
+documents do not gain that field. This decision is not a claim that the second
+interlude has been implemented or published.
+
+### D71 native isolation recovery — owner approval, 2026-10-31
+
+The owner approved recovery option A after the existing local receipts were
+found to record NAT/internal=false. Preserve those functional observations and
+the published IPE history without claiming that they established offline
+isolation. Add the explicit local offline profile described in Development,
+retain the default CI acquisition/network policy, and revalidate the original
+IPE and B4 wheels under the required isolation. The independent C100/F120/D80
+budget is unchanged. The B4 resource repair belongs to S12 acceptance; retain
+three slice commits, one fast-forward push and natural exact-head CI before
+the midpoint review. No version, tag, release or PyPI authority is added.

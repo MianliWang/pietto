@@ -93,16 +93,7 @@ def _buffer(pa, buffer, lease):
 
 def _empty(pa, kind):
     """The canonical owned empty array of a nested-column type at any depth."""
-    if pa.types.is_struct(kind):
-        children = [_empty(pa, field.type) for field in kind]
-        return pa.Array.from_buffers(kind, 0, [None], children=children)
-    offsets = pa.py_buffer(bytes(4))
-    if pa.types.is_list(kind):
-        children = [_empty(pa, kind.value_type)]
-        return pa.Array.from_buffers(kind, 0, [None, offsets], children=children)
-    data = pa.py_buffer(b"")
-    buffers = [None, offsets, data] if pa.types.is_string(kind) else [None, data]
-    return pa.Array.from_buffers(kind, 0, buffers)
+    return a._empty_array(pa, kind)
 
 
 def _nested(pa, array, kind, lease):

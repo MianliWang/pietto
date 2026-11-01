@@ -989,33 +989,36 @@ def ipc_closed(n, fx, real, p):
     binding = a.bind_arrow(real["ibt"])
     batch = a.build_owned_batch(binding, n.ROWS)
 
-    def source():
-        return pa.RecordBatchReader.from_batches(binding.schema, [batch])
+    def source(batches=(batch,)):
+        return pa.RecordBatchReader.from_batches(binding.schema, batches)
 
-    envelope = p.ipc_envelope(b"x", 5)
-    with observers(everything) as calls:
-        observed["encode_ipc"] = [
-            n.outcome(lambda: ipc.encode_ipc(binding, source(), expected_rows=5)),
-            list(calls),
-        ]
-        observed["open_ipc"] = [
-            n.outcome(lambda: ipc.open_ipc(binding, envelope, expected_rows=5)),
-            list(calls),
-        ]
-    # The real source-root digest (S07-B) admits the nested contract, so the
-    # refusal is the only closure: without it, real nested IPC round-trips.
-    observed["digest"] = len(ipc.contract_digest(binding.producer.contract))
-
-    def bypassed(target):
-        interop._capture(target)
-        return ipc.contract_digest(target.producer.contract)
-
-    with patch.object(ipc, "_contract_digest", bypassed):
-        data = ipc.encode_ipc(binding, source(), expected_rows=5)
-        stream = ipc.open_ipc(binding, data, expected_rows=5)
+    def roundtrip(batches, expected):
+        frame = ipc.encode_ipc(binding, source(batches), expected_rows=len(expected))
+        stream = ipc.open_ipc(binding, frame, expected_rows=len(expected))
         values = pa.RecordBatchReader.from_stream(stream).read_all().to_pylist()
         stream.close()
-    observed["without_refusal"] = dict(frame=len(data), values=values == VALUES)
+        completion = ipc.verify_ipc_completion(stream)
+        return [
+            values == expected,
+            completion.rows,
+            completion.batches,
+            stream.state,
+        ]
+
+    # These are real nested source-root round trips. The rebatch and offset
+    # inputs retain the S10/S11 owned-ingress paths rather than bypassing them.
+    observed["roundtrips"] = {
+        "single": roundtrip((batch,), VALUES),
+        "rebatch": roundtrip(
+            (batch.slice(0, 2), batch.slice(2, 0), batch.slice(2)), VALUES
+        ),
+        "empty": roundtrip((batch.slice(0, 0),), []),
+        "offset": roundtrip(
+            (_shapes(pa, binding)["offsets"],),
+            _shapes(pa, binding)["offsets"].to_pylist(),
+        ),
+    }
+    observed["digest"] = len(ipc.contract_digest(binding.producer.contract))
     observed["exports"] = [
         list(module.__all__) for module in (interop, a, r, ingress, ipc)
     ]
@@ -1326,10 +1329,13 @@ EXPECTED: dict[str, Any] = {
                 "_ingest_reader",
             )
         },
-        encode_ipc=["NESTED_UNAVAILABLE", []],
-        open_ipc=["NESTED_UNAVAILABLE", []],
+        roundtrips={
+            "single": [True, 5, 1, "CLOSED"],
+            "rebatch": [True, 5, 3, "CLOSED"],
+            "empty": [True, 0, 1, "CLOSED"],
+            "offset": [True, 2, 1, "CLOSED"],
+        },
         digest=32,
-        without_refusal=dict(frame=1052, values=True),
         exports=[[], [], [], [], []],
     ),
 }
@@ -1359,7 +1365,7 @@ def damage():
             3, 1
         ),
         lambda v: v["cases"][GROUPS[4]]["slice"]["buffers"].__setitem__(1, ""),
-        lambda v: v["cases"][GROUPS[5]]["encode_ipc"].__setitem__(0, "ACCEPTED"),
+        lambda v: v["cases"][GROUPS[5]]["roundtrips"]["offset"].__setitem__(0, False),
     )
 
 

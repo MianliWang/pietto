@@ -1,4 +1,4 @@
-"""Independent nested oracles: typed literal expectations.
+"""Independent nested oracles: typed literal expectations and the IPC case catalog.
 
 Expected values below are written by hand from the seed literals, never read
 back from the oracle under test.
@@ -22,6 +22,7 @@ from uuid import UUID
 import pytest
 
 import _pietto_execution_nested_oracle as oracle
+import _pietto_results_nested_ipc_oracle as ipc
 from pietto._project.check import check_project_parse_only
 
 # Pure test helpers: no storage, native, Arrow, generated, golden or package premise.
@@ -90,7 +91,9 @@ def test_literal_oracle_evaluates_every_program_without_pietto_or_arrow(tmp_path
     assert modules == "['pietto', 'pyarrow']"
 
 
-@pytest.mark.parametrize("helper", ["_pietto_execution_nested_oracle"])
+@pytest.mark.parametrize(
+    "helper", ["_pietto_execution_nested_oracle", "_pietto_results_nested_ipc_oracle"]
+)
 def test_helpers_never_import_pyarrow_on_import(tmp_path, helper):
     env = {**os.environ, "PYTHONPATH": str(TESTS), "PYTHONDONTWRITEBYTECODE": "1"}
     done = subprocess.run(
@@ -407,3 +410,79 @@ def test_canonical_documents_do_not_depend_on_the_hash_seed(tmp_path):
         for leaves in (oracle.DEFAULT_LEAVES, oracle.LEAVES)
     ]
     assert first.split() == here
+
+
+def test_ipc_catalog_is_arrow_free_closed_and_complete(tmp_path):
+    out = _isolated(
+        "import _pietto_results_nested_ipc_oracle as ipc, _pietto_execution_nested_oracle as o\n"
+        "for leaves in (o.DEFAULT_LEAVES, o.LEAVES):\n"
+        "    print(*[case.name for case in ipc.catalog(leaves)])\n",
+        tmp_path,
+    )
+    assert out.splitlines() == [
+        " ".join(case.name for case in ipc.catalog(leaves))
+        for leaves in (oracle.DEFAULT_LEAVES, oracle.LEAVES)
+    ]
+    for leaves in (oracle.DEFAULT_LEAVES, oracle.LEAVES):
+        cases = ipc.catalog(leaves)
+        assert len({case.name for case in cases}) == len(cases)
+        assert {case.family for case in cases} == set(ipc.FAMILIES)
+        assert {case.binding for case in cases} == set(ipc.BINDINGS)
+        for case in cases:
+            assert case.expect in ipc.CATEGORIES
+            assert case.framing in ipc.FRAMINGS and case.binding in ipc.BINDINGS
+            batch_rule = case.expect == "REFUSE_BATCH" and case.child_process is None
+            assert bool(case.problems) == batch_rule, case.name
+            assert (case.values is not None) == (case.expect == "ACCEPT"), case.name
+            assert (case.framing == "unreframed") == (case.frame_cut > 0)
+            assert not case.discriminates or case.expect == "ACCEPT"
+        assert all(case.bounded for case in cases if case.name != "child_rows_over_cap")
+        null_cases = {c.name: c for c in cases if c.name.startswith("null_container")}
+        assert {
+            n: (c.binding, c.expect, c.problems) for n, c in null_cases.items()
+        } == {
+            "null_container_in_nonnull_field": (
+                "nested",
+                "REFUSE_BATCH",
+                ("recent: null in a non-nullable field",),
+            ),
+            "null_container_nonempty_segment": (
+                "nested_nullable",
+                "REFUSE_BATCH",
+                ("recent[0]: null container owns children",),
+            ),
+            "null_container_empty_segment": ("nested_nullable", "ACCEPT", ()),
+        }
+        control = null_cases["null_container_empty_segment"].values
+        assert control is not None and control[2]["recent"] is None
+    with pytest.raises(ValueError):
+        ipc.catalog(("Int", "Bool"))
+    over = {c.name: c for c in ipc.catalog()}["child_rows_over_cap"]
+    assert (over.rows, over.batches, over.bounded) == (16, 16, False)
+    rows = ipc.canonical_rows(oracle.DEFAULT_LEAVES)
+    assert [row["id"] for row in rows] == [1, 1, 2, 3, 4, None]
+    assert rows[4]["paid"] == [{"v": None}] and rows[2]["paid"] == []
+    assert rows[3]["paid"] == [{"v": 400}, {"v": 400}]
+    assert any(child["note"] == oracle.SENTINEL for child in rows[3]["recent"])
+
+
+def test_ipc_byte_operators_on_synthetic_bytes():
+    data = b"head" + ipc.int32s([0, 3, 6]) + b"tail" + ipc.EOS
+    assert ipc.int32s([1, -1]) == b"\x01\x00\x00\x00\xff\xff\xff\xff"
+    assert ipc.truncate(data, 4) == b"head"
+    for end in (len(data), -1, 4.0):
+        with pytest.raises(ValueError):
+            ipc.truncate(data, end)  # type: ignore[arg-type]
+    patched = ipc.patch_unique(data, ipc.int32s([0, 3, 6]), ipc.int32s([1, 3, 6]))
+    assert patched == data.replace(b"\x00\x00\x00\x00\x03", b"\x01\x00\x00\x00\x03")
+    for pattern, replacement in (
+        (b"absent", b"xxxxxx"),  # no match
+        (b"\x00\x00\x00\x00", b"\x01\x00\x00\x00"),  # several matches
+        (b"head", b"hd"),  # size changes
+        (b"head", b"head"),  # no change
+    ):
+        with pytest.raises(ValueError):
+            ipc.patch_unique(data, pattern, replacement)
+    assert ipc.strip_eos(data) == data[:-8]
+    with pytest.raises(ValueError):
+        ipc.strip_eos(data[:-1])

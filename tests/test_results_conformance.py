@@ -14,9 +14,21 @@ def test_current_manifest_and_transitive_helpers_are_closed():
     assert len(product.CASES) == len(set(product.CASES))
     assert product.CASES[110:120] == whole.GROUPS
     assert product.CASES[120:127] == product._nested().GROUPS
+    assert product.CASES[127:] == (
+        product._nested_interop().GROUPS + product._nested_ipc().GROUPS
+    )
     assert len(whole.damage()) == 10
     integration = product._integration()
-    for name in ("_pietto_results_conformance", "_pietto_results_nested"):
+    for name in (
+        "_pietto_results_conformance",
+        "_pietto_results_nested",
+        "_pietto_results_nested_interop",
+        "_pietto_execution_nested_oracle",
+        "_pietto_plan_nested",
+        "_pietto_sql_nested_collect",
+        "_pietto_results_nested_ipc_oracle",
+        "_pietto_results_nested_ipc",
+    ):
         assert name in integration.HELPERS
         for closure in (product.input_closure, integration.input_closure):
             entries = closure(Path(__file__).resolve().parents[1])
