@@ -1518,3 +1518,75 @@ def test_the_compiled_descriptor_equals_the_live_one(tmp_path):
 
     assert descriptor(output) == descriptor(live)
     assert compiled.rendered.sql == live.artifact.rendered.sql
+
+
+@pytest.mark.parametrize(
+    "leaves",
+    (
+        ("Int", "Bool", "Text"),
+        ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"),
+    ),
+)
+def test_parent_order_limit_rebases_only_the_count_carrier(tmp_path, leaves):
+    import _pietto_execution_api as api
+    from pietto._project.project_sql_emission_cli import emit_project, POLICIES
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    project = api.write_nested_unnest(
+        tmp_path / "source", "C7_parent_order_limit", leaves
+    )
+    outcome, _ = emit_project(
+        project,
+        "main.pietto",
+        "query",
+        "result",
+        "postgres",
+        "contract.json",
+        POLICIES["preserve"],
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    artifact = outcome.artifact
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    compiled = emit_compiled(loaded, ())
+    assert compiled.rendered.sql == artifact.rendered.sql
+    for current in (artifact, compiled):
+        output = o.prepare_output(current)
+        column = output.columns[1]
+        group = o._group(column.original)
+        assert group is not None
+        assert column.original.carriers[0][2] is column.field.port.ref
+        assert all(
+            carrier[2] is child
+            for carrier, child in zip(
+                column.original.carriers[1:], group.collect.children, strict=True
+            )
+        )
+        assert all(
+            child.export is field.port
+            for child, field in zip(
+                column.children, column.field.shape.fields, strict=True
+            )
+        )
+        bind_stored_output(output, "postgres_rows")
+    # The formerly accepted projection subject is invalid at the final boundary.
+    body = compiled.ast.bodies[-1]
+    original = body.columns[1]
+    group = o._group(original)
+    assert group is not None and group.export.ref is not original.export.ref
+    old_count = (*original.carriers[0][:2], group.export.ref)
+    bad_column = replace(original, carriers=(old_count, *original.carriers[1:]))
+    bad_body = replace(body, columns=(body.columns[0], bad_column))
+    bad = replace(
+        compiled,
+        ast=replace(compiled.ast, units=(*compiled.ast.units[:-1], bad_body)),
+    )
+    with pytest.raises(ValueError):
+        o.prepare_output(bad)

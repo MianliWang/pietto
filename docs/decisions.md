@@ -482,11 +482,17 @@ environment operation and validation; other agents are read-only. Commands
 assert the actual worktree and import origins. The earlier main environment
 incident remains recorded; this recovery does not grant release authority.
 
-After B4 recovery and publication, the owner requested maximum safe parallelism
-for the remaining work. Future implementation lanes use isolated worktrees with
-one writer each under D71.09; shared cores stay sequential within a lane. The
-lead alone integrates, seals, commits and pushes. Database checks remain
-serialized under D71.11. The old B4 incident trees are preserved.
+The owner's later request for more parallelism retains that recovery boundary:
+read-only investigations and reviews run in parallel; the lead alone writes,
+manages environments, validates, integrates and publishes. Independent checks
+may overlap within CPU 0–11, with Gate 2 on 0–7 and other work on 8–11.
+Database checks remain serialized under D71.11. Earlier incident trees remain.
+
+On 2026-11-02 the owner added only F100, bringing the independent caps to
+**C300/F500/D300**. The balance still covers all later authorized Phase71 work
+and established interludes; historical charges and UNKNOWN remain. Near the
+new ceiling the lead stops again. This adds no scope, public-design, Teach,
+Docker or release authority.
 
 
 The owner subsequently raised the independent continuation caps to

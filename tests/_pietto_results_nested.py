@@ -635,7 +635,7 @@ def construction_refusals(real):
     return observed
 
 
-def accounting(real):
+def accounting(real, root):
     pa = importlib.import_module("pyarrow")
     from pietto._project import project_arrow_result as a
     from pietto._project.project_result_binding import ProducerNestedBinding
@@ -701,6 +701,37 @@ def accounting(real):
             category,
             sorted(probe.used & ALLOCATORS),
         ]
+    import _pietto_sql_emission as emission
+    from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_execution_reader import bind_postgres_output
+
+    item = emission.fixture("postgres", "L_relation_collect", "siblings")
+    _, emitted = emission.build_case(
+        root, item["source"], item["contract"], item["policy"]
+    )
+    assert emitted.artifact is not None
+    output = prepare_output(emitted.artifact)
+    siblings = a.bind_arrow(bind_postgres_output(output, metadata(output)))
+    upper = ((7, ((1, 2),), ((11, 12, 13),)), (8, ((3,),), ((14, 15),)))
+    lower = (upper[:1], ((7, ((1,),), ((11,),)),), ((7, ((),), ((),)),))
+    batch, usage = a._build_owned_batch_with_usage(siblings, upper)
+    limits = a.BatchLimits(bytes=usage[0])
+    observed["siblings"] = {
+        "rows": batch.to_pylist(),
+        "usage": list(usage),
+        "at_limit": outcome(
+            lambda: a.build_owned_batch(siblings, upper, limits=limits)
+        ),
+        "lower_usage": [
+            list(a._build_owned_batch_with_usage(siblings, rows, limits=limits)[1])
+            for rows in lower
+        ],
+        "one_less": outcome(
+            lambda: a.build_owned_batch(
+                siblings, upper, limits=a.BatchLimits(bytes=usage[0] - 1)
+            )
+        ),
+    }
     observed["arrow"] = pa.__version__
     return observed
 
@@ -1102,7 +1133,7 @@ def run(p, root, cases):
         GROUPS[1]: binding_equality(real),
         GROUPS[2]: owned_values(fx, real),
         GROUPS[3]: construction_refusals(real),
-        GROUPS[4]: accounting(real),
+        GROUPS[4]: accounting(real, root / "accounting-siblings"),
         GROUPS[5]: verification(fx, real, root),
         GROUPS[6]: guards(real, p),
         GROUPS[7]: extended_scalar_leaves(p, root / "extended-leaves"),
@@ -1256,6 +1287,22 @@ EXPECTED: dict[str, Any] = {
         "control": ["ACCEPTED", ["ListArray", "RecordBatch", "StructArray", "array"]],
     },
     GROUPS[4]: dict(
+        # P=2, child counts 3/5, all three leaves int64: 17+39+55;
+        # retained buffers: 16+(12+24)+(12+40). Smaller P/C retain the same cap.
+        siblings=dict(
+            rows=[
+                {
+                    "id": 7,
+                    "items": [{"id": 1}, {"id": 2}],
+                    "paid": [{"id": 11}, {"id": 12}, {"id": 13}],
+                },
+                {"id": 8, "items": [{"id": 3}], "paid": [{"id": 14}, {"id": 15}]},
+            ],
+            usage=[111, 104],
+            at_limit="ACCEPTED",
+            lower_usage=[[71, 64], [47, 40], [27, 24]],
+            one_less="LIMIT",
+        ),
         # S12 edge: P=64, C=1,024, T=262,144 (DESIGN p8 measured the same R).
         s12_edge=[283928, 275336],
         empty_children=[792, 776],
@@ -1420,6 +1467,7 @@ def damage():
         ),
         lambda v: v["cases"][GROUPS[3]]["int_range"][1].append("array"),
         lambda v: v["cases"][GROUPS[4]]["child_cap"].update(over="ACCEPTED"),
+        lambda v: v["cases"][GROUPS[4]]["siblings"]["usage"].__setitem__(0, 110),
         lambda v: v["cases"][GROUPS[5]]["zero_length"].update(returncode=-11),
         lambda v: v["cases"][GROUPS[6]].update(manage_batch="raw:ValueError"),
         lambda v: v["cases"][GROUPS[7]]["float_decimal"].update(

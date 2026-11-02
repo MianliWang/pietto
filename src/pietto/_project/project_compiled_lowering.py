@@ -1283,9 +1283,13 @@ def emit_compiled(root, values, named=None):
                     column.column,
                     origin,
                     tuple(
-                        (stage, label, subject)
-                        for (_, stage, subject), label in zip(
-                            group.carriers, labels, strict=True
+                        (
+                            stage,
+                            label,
+                            column.export.ref if carrier_index == 0 else subject,
+                        )
+                        for carrier_index, ((_, stage, subject), label) in enumerate(
+                            zip(group.carriers, labels, strict=True)
                         )
                     ),
                 )

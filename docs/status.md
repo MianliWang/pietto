@@ -149,7 +149,8 @@ documentation does not supersede that evidence.
 | Second project-emission interlude | `COMPLETED / PUBLISHED`; published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. |
 | Single-file checked Int SUM repair | `COMPLETED / PUBLISHED`; The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs. |
 | Phase71 batch B5 | `COMPLETED / PUBLISHED`; B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs. |
-| Next | B6 (S18/S19) is a private integrated candidate awaiting complete native checks, Gate 2 and publication. B4 natural CI and midpoint prerequisites are satisfied. The `0.1.7` version, tag and release need their own authorization |
+| Phase71 batch B6 | `COMPLETED / PUBLISHED`; B6 (S18/S19) is published at `b9a50b23fc19c9ac096224b8449a1d6387dee2a8` (tree `54bd20a86acf7ba8ecb3205649c4fa46d1718e36`); natural exact-head CI `41420591084` attempt 1 accepted all 19 jobs. |
+| Next | B7 (S20/S21) is an integrated candidate awaiting native consumer closure, Gate 2 and publication. The `0.1.7` version, tag and release need their own authorization |
 
 ## Phase67 当前路线
 

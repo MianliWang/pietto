@@ -171,7 +171,7 @@ def check_worker_inputs(report, config):
     }
 
 
-def check_native(record):
+def check_native(record, *, temporal_sources=()):
     if "post_close_rows" in record:
         need(
             exact(record["rows"], record["post_close_rows"]), "POST_CLOSE_BATCH_VALUES"
@@ -296,6 +296,7 @@ def check_native(record):
         tuple(context),
         tuple(premise["schemas"]),
         native_reply(raw),
+        temporal_sources=temporal_sources,
     )
     need(exact(paths, q["paths"]), "COMPLETE_SECURITY_PATHS")
 
@@ -372,7 +373,7 @@ def check_pages(record, query, *, guards=None, complete=True):
 
 
 def check_attempt(record, config, artifact, output, *, program=None, case=None):
-    check_native(record)
+    check_native(record, temporal_sources=artifact.request.sources)
     roots = [[s.namespace, s.name] for s in artifact.request.sources]
     need(
         exact(roots, record["premise"]["roots"])
@@ -816,9 +817,16 @@ def check_controls(records, *, legacy=False):
                 )
             else:
                 need(
-                    o["cancel_requested"]
+                    not o["cancel_requested"]
                     and not o["cancel_sent"]
-                    and events[-1]["result"]["late"],
+                    and not o["cancel_observed"]
+                    and events[-1]["result"]
+                    == {
+                        "requested": False,
+                        "sent": False,
+                        "observed": False,
+                        "late": True,
+                    },
                     "LATE_CANCEL",
                 )
         elif kind == "late_read_close_error":

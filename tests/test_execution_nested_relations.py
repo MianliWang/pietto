@@ -1318,11 +1318,12 @@ def test_compiled_facts_ir_and_plan_carry_the_collect_explicitly(tmp_path_factor
         scalar_fields(_contract_of(lowered))
 
 
+@pytest.mark.parametrize("shape", ("top_k", "ordered_parent"))
 def test_public_nested_queries_and_bundles_prepare_without_connecting(
-    tmp_path_factory, tmp_path
+    tmp_path_factory, tmp_path, shape
 ):
     """S12 opens templates; execution route/leaf/source admission remains separate."""
-    _, build, _, _ = _real(tmp_path_factory, "top_k")
+    _, build, _, _ = _real(tmp_path_factory, shape)
     before = set(sys.modules)
     loaded = execution.load_bundle(
         build.payload,
@@ -1330,9 +1331,9 @@ def test_public_nested_queries_and_bundles_prepare_without_connecting(
         accepted_producer=build.producer,
         accepted_compatibility=build.compatibility[4],
     )
-    root = project(tmp_path / "public", _files("top_k"))
+    root = project(tmp_path / "public", _files(shape))
     (root / "contract.json").write_text(
-        json.dumps(_contract(REAL["top_k"])), encoding="utf-8"
+        json.dumps(_contract(REAL[shape])), encoding="utf-8"
     )
     compiled = execution.compile_query(
         root,

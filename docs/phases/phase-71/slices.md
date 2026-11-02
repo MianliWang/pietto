@@ -10,6 +10,8 @@ The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a
 
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
 
+B6 (S18/S19) is published at `b9a50b23fc19c9ac096224b8449a1d6387dee2a8` (tree `54bd20a86acf7ba8ecb3205649c4fa46d1718e36`); natural exact-head CI `41420591084` attempt 1 accepted all 19 jobs.
+
 ## 授权与依赖顺序
 
 所有者授权（D71.09）：
@@ -62,7 +64,7 @@ B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree 
 | S17 | 完整嵌套合同的 IPC framing、截断/错 schema、rebatch/offset 与兼容拒绝 | A07, A08, A10 | S07, S09, S10, S11 | 必做 |
 | [S18](slice-18.md) | 普通保存、完整顶层 occurrence/chunk/checkpoint 与既有 publication 资格；优先复用 v7 工作区 | A08, A10 | S12, S14, S15, S17 | 必做 |
 | [S19](slice-19.md) | 新进程断源 R1 与独立 `verified_export`，含 trust/schema、重分批与只读导出无控制写入 | A08, A10 | S18 | 必做 |
-| S20 | 全类型与组合的资源、错误、关闭/取消和拒绝复核，覆盖 live/saved、R1/export 及未支持的路线/R2/sink/relay | A09, A10, A11 | S12, S13, S14, S15, S16, S18, S19 | 必做 |
+| [S20](slice-20.md) | 全类型与组合的资源、错误、关闭/取消和拒绝复核，覆盖 live/saved、R1/export 及未支持的路线/R2/sink/relay | A09, A10, A11 | S12, S13, S14, S15, S16, S18, S19 | 必做 |
 | S21 | 独立差分/metamorphic/损坏语料、旧平面全回归与所有必做公开消费者的串联核对 | A01–A11 | S14, S15, S16, S18, S19, S20 | 必做 |
 | S22 | 阶段末获取成本与直接读者复核、覆盖保持与适用 CI health（十个最慢节点的有界 profile 复核）；只修复已确认且属于本期的缺陷 | A11, A12 | S21 | 必做 |
 | S23 | 干净安装、候选 package/示例/help/支持矩阵与准确版本策略；准备 `0.1.7` 发行决策材料（不发行） | A06, A07, A08, A10, A11, A12 | S22 | 必做 |
@@ -123,7 +125,7 @@ S12 完成后的复核必须看到：
 
 只返回 JSON、只构建一个手写 Arrow ListArray、只让 checker 接受，都不算中点纵向完成。中点重跑 S/H/L/K/Q，查看适用的 CI health 与获取整合预留；私有准备可以继续，但 B5 及后续批次必须等 B4 自然 CI 通过且中点复查通过后才能封存或发布；共享假设被推翻时，另行冻结受影响的接口与包并修正计划。
 
-当前续行另有所有者批准的独立累计 C140/F180/D120 账，保留已消费与历史 UNKNOWN；所有者于2026-11-01批准余额延用于全部后续已授权工作，不增加额度、不替换或清零以下原全期账（见[决定记录](../../decisions.md#phase71-bounded-continuation--owner-updates-2026-10-31)）。
+当前续行另有所有者于2026-11-02批准的独立累计 C300/F500/D300 账，保留已消费与历史 UNKNOWN；所有者于2026-11-01批准余额延用于全部后续已授权工作，不增加额度、不替换或清零以下原全期账（见[决定记录](../../decisions.md#phase71-bounded-continuation--owner-updates-2026-10-31)）。
 
 ## 修复、资源与验证预算
 

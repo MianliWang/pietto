@@ -915,10 +915,15 @@ def build_result_body(
                 *parts,
                 nested.original_group(group),
                 tuple(
-                    (stage, carrier_label, subject)
-                    for (_, stage, subject), carrier_label in zip(
-                        group.carriers, labels, strict=True
+                    (
+                        stage,
+                        carrier_label,
+                        export.ref if carrier_index == 0 else subject,
                     )
+                    for carrier_index, (
+                        (_, stage, subject),
+                        carrier_label,
+                    ) in enumerate(zip(group.carriers, labels, strict=True))
                 ),
             )
         )

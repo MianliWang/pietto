@@ -5978,9 +5978,13 @@ def verify_compiled_result_unit(
                 and column.expression is None
                 and column.carriers
                 == tuple(
-                    (carried, label, subject)
-                    for (_, carried, subject), label in zip(
-                        source_group.carriers, labels, strict=True
+                    (
+                        carried,
+                        label,
+                        plan.ports[address].ref if carrier_index == 0 else subject,
+                    )
+                    for carrier_index, ((_, carried, subject), label) in enumerate(
+                        zip(source_group.carriers, labels, strict=True)
                     )
                 ),
                 "RESULT_GROUP",
