@@ -283,8 +283,7 @@ def _checked_request(
 
 
 def _collection_entry(query: Any) -> None:
-    """A collection has no closed saved or relayed consumer yet (S12; save
-    opens in S18). Checked before any workspace, sink or connection."""
+    """Refuse collection routes that S18 does not open, before their effects."""
     from pietto._project.project_execution_nested import collection_operations
 
     root = query._template.artifact.request.verification.completed.root
@@ -334,7 +333,6 @@ def save(
         job,
         parameters=parameters,
     )
-    _collection_entry(query)
     refusal = None
     try:
         opened = private_workspace.open_workspace(

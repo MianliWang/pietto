@@ -383,6 +383,7 @@ def describe_compiled_binding(binding, *, route):
     from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
     from pietto._project.project_compiled_schema import Address, selected_relations
     from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_result_contract import NestedShape, ScalarShape
     from pietto._project.project_scalar_meaning import TimestampMeaning, UUIDMeaning
 
     verify_binding(binding)
@@ -422,6 +423,22 @@ def describe_compiled_binding(binding, *, route):
             return ("uuid", law.byte_order, law.byte_width)
         raise BindingError("COMPILED_DESCRIPTION_MEANING")
 
+    def field_description(field):
+        if type(field.shape) is ScalarShape:
+            return field.shape.canonical.name, field.nullability.value, meaning(field)
+        if type(field.shape) is not NestedShape or any(
+            type(child.shape) is not ScalarShape for child in field.shape.fields
+        ):
+            raise BindingError("COMPILED_DESCRIPTION_SHAPE")
+        return (
+            "collection",
+            field.nullability.value,
+            tuple(
+                (child.ordinal, child.label, *field_description(child))
+                for child in field.shape.fields
+            ),
+        )
+
     active = selected_relations(records, entry)
     header = tuple(r for r in records.values() if r.address.kind == "parameter")
     placeholders = {}
@@ -449,9 +466,7 @@ def describe_compiled_binding(binding, *, route):
                 f.ordinal,
                 f.label,
                 address,
-                f.shape.canonical.name,
-                f.nullability.value,
-                meaning(f),
+                *field_description(f),
             )
             for f, address in zip(
                 output.contract.shape.fields, entry.get("exports"), strict=True

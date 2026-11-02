@@ -169,6 +169,79 @@ def test_typed_vectors_round_trip_a_b_a_with_fresh_bindings(built, tmp_path, see
         reopened.close()
 
 
+def test_nested_generation_description_preserves_order_meaning_and_bundle_identity(
+    tmp_path,
+):
+    import shutil
+
+    import _pietto_execution_api as api
+    import _pietto_execution_nested_oracle as oracle
+    import pietto.execution as execution
+    from pietto._project.project_compiled_schema import Address
+
+    project = api.write_nested_unnest(tmp_path / "source", "C1_closed", oracle.LEAVES)
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+        literal_policy="preserve",
+    )
+    bundle = execution.export_bundle(query)
+    shutil.rmtree(project)
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    descriptions = []
+    for current in (query, loaded):
+        binding = bind_values(current._template, ())
+        description = describe_compiled_binding(binding, route="postgres_rows")
+        root = current._template.artifact.request.verification.completed.root
+        exports = root.records[root.description.query].get("exports")
+        assert all(type(address) is Address for address in exports)
+        assert tuple(item[:3] for item in description.outputs) == (
+            (0, "id", exports[0]),
+            (1, "all_orders", exports[1]),
+        )
+        assert description.outputs[0][3:] == ("Int", "nullable", None)
+        assert description.outputs[1][3:] == (
+            "collection",
+            "non_null",
+            (
+                (0, "id", "Int", "non_null", None),
+                (1, "v", "Int", "nullable", None),
+                (2, "k", "Int", "nullable", None),
+                (3, "flag", "Bool", "nullable", None),
+                (4, "note", "Text", "nullable", None),
+                (5, "ratio", "Float", "nullable", None),
+                (6, "price", "Decimal", "nullable", None),
+                (7, "ship_day", "Date", "nullable", None),
+                (
+                    8,
+                    "seen_at",
+                    "Timestamp",
+                    "nullable",
+                    (
+                        "timestamp",
+                        "proleptic_gregorian",
+                        "microsecond",
+                        "absent",
+                        (1000, 1, 1, 0, 0, 0, 0),
+                        (9999, 12, 31, 23, 59, 59, 499999),
+                    ),
+                ),
+                (9, "token", "UUID", "nullable", ("uuid", "big_endian", 16)),
+            ),
+        )
+        descriptions.append(s._description(binding, "postgres_rows"))
+    assert descriptions[0] == descriptions[1]
+
+
 def test_signed_zero_and_bool_int_are_distinct_vectors(built, workspace):
     if workspace is None:
         return

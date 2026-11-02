@@ -671,7 +671,7 @@ def test_aliased_parent_edges_and_repeated_nested_outputs_are_not_deduplicated(
             )
 
 
-def test_save_and_relay_refuse_a_collection_before_workspace_or_sink(
+def test_save_opens_a_collection_while_relay_stays_refused(
     query, tmp_path, monkeypatch
 ):
     opened, sinks = [], []
@@ -713,13 +713,13 @@ def test_save_and_relay_refuse_a_collection_before_workspace_or_sink(
     assert _rejected(relay_live) == ("PIE-R1001", "REFERENCE_SINK_ROOT")
     assert len(sinks) == 1
     _collect(monkeypatch)
-    assert _rejected(save) == ("PIE-R1004", "COLLECTION_ENTRY")
+    assert _rejected(save)[0] == "PIE-R1009"
     assert _rejected(lambda: save("postgres_adbc")) == (
         "PIE-R1003",
         "COLLECTION_ROUTE",
     )
     assert _rejected(relay_live) == ("PIE-R1004", "COLLECTION_ENTRY")
-    assert (len(opened), len(sinks)) == (1, 1)
+    assert (len(opened), len(sinks)) == (2, 1)
     assert list(tmp_path.iterdir()) == []
 
 
@@ -792,7 +792,7 @@ def test_r2_refuses_a_collection_before_its_other_shape_checks(
 
 
 @pytest.mark.parametrize("name", ("U1_cross", "U4_left_true"))
-def test_actual_flat_unnest_retains_pre_effect_collection_refusals(
+def test_actual_flat_unnest_opens_save_but_keeps_other_collection_refusals(
     tmp_path, monkeypatch, name
 ):
     from pietto._project import project_execution_postgres as pg
@@ -863,11 +863,14 @@ def test_actual_flat_unnest_retains_pre_effect_collection_refusals(
         lambda: execution.execute(query, **{**arguments, "route": "mysql_rows"})
     ) == ("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
     workspace = _workspace(tmp_path)
-    assert _rejected(
-        lambda: execution.save(
-            workspace, query, operation=execution.new_operation(), **arguments
-        )
-    ) == ("PIE-R1004", "COLLECTION_ENTRY")
+    assert (
+        _rejected(
+            lambda: execution.save(
+                workspace, query, operation=execution.new_operation(), **arguments
+            )
+        )[0]
+        == "PIE-R1009"
+    )
     assert _rejected(
         lambda: execution.relay_live(
             workspace,
@@ -908,4 +911,4 @@ def test_actual_flat_unnest_retains_pre_effect_collection_refusals(
             **arguments,
         )
     ) == ("PIE-R1004", "PUBLIC_R2_COLLECTION")
-    assert touched == [] and _new_drivers(before) == []
+    assert touched == [True] and _new_drivers(before) == []
