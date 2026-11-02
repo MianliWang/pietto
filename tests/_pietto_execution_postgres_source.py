@@ -22,6 +22,8 @@ def catalog():
         "UTF8",
         "pg_catalog",
         "UTC",
+        "1",
+        "ISO, MDY",
         "on",
         "127.0.0.1",
         5432,

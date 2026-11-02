@@ -139,7 +139,7 @@ def _connect(request):
         sslcertmode="disable",
         passfile="/dev/null",
         connect_timeout=max(2, min(10, math.ceil(request.limits.seconds))),
-        options=f"-c statement_timeout={max(1, min(10000, math.ceil(request.limits.seconds * 1000)))} -c client_encoding=UTF8 -c search_path=pg_catalog"
+        options=f"-c statement_timeout={max(1, min(10000, math.ceil(request.limits.seconds * 1000)))} -c client_encoding=UTF8 -c search_path=pg_catalog -c extra_float_digits=1 -c DateStyle=ISO,MDY"
         + (
             " -c timezone=UTC -c standard_conforming_strings=on"
             if request.route == "postgres_rows"
@@ -466,7 +466,7 @@ class PostgresExecution:
         from pietto._project.project_execution_postgres_adbc_native import CONTEXT_SQL
 
         _, rows, reply = self._profile_read(CONTEXT_SQL, finalizing=finalizing)
-        if len(rows) != 1 or len(rows[0]) != 17:
+        if len(rows) != 1 or len(rows[0]) != 19:
             raise ExecutionError("POSTGRES_SOURCE_NATIVE_CONTEXT")
         context = rows[0]
         strength = (
@@ -480,7 +480,8 @@ class PostgresExecution:
             or type(context[7]) is not str
             or not context[7].isascii()
             or not context[7].isdigit()
-            or context[8:14] != (strength, "on", "UTF8", "pg_catalog", "UTC", "on")
+            or context[8:16]
+            != (strength, "on", "UTF8", "pg_catalog", "UTC", "1", "ISO, MDY", "on")
         ):
             raise ExecutionError("POSTGRES_SOURCE_NATIVE_CONTEXT")
         if (

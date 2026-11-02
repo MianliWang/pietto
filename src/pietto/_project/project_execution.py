@@ -941,8 +941,8 @@ def verify_compiled_owner(owner):
 # Fresh fields of each route's native context row: PG/ADBC backend pid,
 # transaction id, server address, port and postmaster start; MySQL connection id.
 _FRESH_CONTEXT = {
-    "postgres_rows": (6, 7, 14, 15, 16),
-    "postgres_adbc": (6, 7, 14, 15, 16),
+    "postgres_rows": (6, 7, 16, 17, 18),
+    "postgres_adbc": (6, 7, 16, 17, 18),
     "mysql_rows": (3,),
 }
 

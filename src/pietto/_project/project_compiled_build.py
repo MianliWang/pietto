@@ -1013,6 +1013,9 @@ class _Export:
                     "domain": realization.domain,
                 }
             ).decode("utf-8")
+            source_field = column.field
+            if source_field is None:
+                raise CompiledError("COMPILED_EXPORT_UNNEST")
             field = self.add(
                 "field",
                 address,
@@ -1021,8 +1024,10 @@ class _Export:
                 f"c{ordinal}",
                 logical,
                 physical,
-                None,
-                None,
+                None
+                if source_field.decimal is None
+                else (source_field.decimal.precision, source_field.decimal.scale),
+                self.source_meaning(source_field),
             )
             fields.append(field)
             outputs.append(
@@ -2190,6 +2195,15 @@ class _LogicalExport(_Export):
                     field,
                     self.checked.completed.semantic_result.module_type_source_resolutions,
                 )
+                if decimal is None and logical[0] == "Decimal":
+                    matches = tuple(
+                        bound
+                        for source in self.checked.sources
+                        for bound in source.fields
+                        if bound.field is field
+                    )
+                    if len(matches) == 1:
+                        decimal = matches[0].decimal
                 described = self.add(
                     "field",
                     address,

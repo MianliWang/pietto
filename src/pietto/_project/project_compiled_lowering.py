@@ -561,7 +561,17 @@ def emit_compiled(root, values, named=None):
         if type(producer) is not unnesting.UnnestRows or producer.unnest is not item:
             raise CompiledError("COMPILED_UNNEST_REALIZATION")
         if any(
-            column.column.realization.tag not in {"Int", "Bool", "Text"}
+            column.column.realization.tag
+            not in {
+                "Int",
+                "Bool",
+                "Text",
+                "Float",
+                "Decimal",
+                "Date",
+                "Timestamp",
+                "UUID",
+            }
             or (
                 column.column.realization.tag == "Text"
                 and (

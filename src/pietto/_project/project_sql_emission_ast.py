@@ -1637,7 +1637,17 @@ def _join_body(
                 assert problem is not None
                 return None, problem
             if any(
-                column.column.realization.tag not in {"Int", "Bool", "Text"}
+                column.column.realization.tag
+                not in {
+                    "Int",
+                    "Bool",
+                    "Text",
+                    "Float",
+                    "Decimal",
+                    "Date",
+                    "Timestamp",
+                    "UUID",
+                }
                 or (
                     column.column.realization.tag == "Text"
                     and (

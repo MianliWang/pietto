@@ -98,13 +98,22 @@ def check_small_pg(
                 "SOURCE_QUALIFICATION",
             )
             need(
-                q["context"] == result["context"] and len(q["context"]) == 17,
+                q["context"] == result["context"] and len(q["context"]) == 19,
                 "CONTEXT_CORRESPONDENCE",
             )
             need(
                 q["context"][0] == 180006
-                and q["context"][8:14]
-                == ["repeatable read", "on", "UTF8", "pg_catalog", "UTC", "on"],
+                and q["context"][8:16]
+                == [
+                    "repeatable read",
+                    "on",
+                    "UTF8",
+                    "pg_catalog",
+                    "UTC",
+                    "1",
+                    "ISO, MDY",
+                    "on",
+                ],
                 "CONTEXT_PROFILE",
             )
             for reply in q["replies"]:
@@ -483,9 +492,9 @@ def check_pg_owned_catalog(record: dict[str, Any]):
 
     context = tuples(record["context"])
     need(
-        len(context) == 17
+        len(context) == 19
         and context[8] in ("repeatable read", "serializable")
-        and context[9:14] == ("on", "UTF8", "pg_catalog", "UTC", "on"),
+        and context[9:16] == ("on", "UTF8", "pg_catalog", "UTC", "1", "ISO, MDY", "on"),
         "PG_CONTEXT_PROFILE",
     )
     q = cast(dict[str, Any], record["qualification"])

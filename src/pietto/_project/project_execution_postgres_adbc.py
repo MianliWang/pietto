@@ -733,7 +733,7 @@ class PostgresADBCExecution:
                         )
                         if (
                             len(contexts) != 1
-                            or len(contexts[0]) != 17
+                            or len(contexts[0]) != 19
                             or tuple(map(atom, contexts[0]))
                             != tuple(map(atom, self._initial_context))
                         ):

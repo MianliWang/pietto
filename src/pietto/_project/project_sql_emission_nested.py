@@ -157,7 +157,8 @@ def _unnest_admitted(plan, unnest, family) -> bool:
         and len(unnest.outputs) == len(leaves) > 0
         and all(
             field.field.resolved_type.kind.name == "BUILTIN"
-            and field.field.resolved_type.name in {"Int", "Bool", "Text"}
+            and field.field.resolved_type.name
+            in {"Int", "Bool", "Text", "Float", "Decimal"}
             for field in leaves
         )
         and all(

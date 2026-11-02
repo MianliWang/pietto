@@ -36,17 +36,18 @@ def native_context(owner):
     major, minor = map(int, version.split("."))
     if (
         len(rows) != 1
-        or len(rows[0]) != 17
+        or len(rows[0]) != 19
         or rows[0][0] != major * 10000 + minor
         or rows[0][1:4] != (a.database, a.user, a.user)
         or any(type(v) is not int or v <= 0 for v in rows[0][4:7])
         or type(rows[0][7]) is not str
         or not rows[0][7].isascii()
         or not rows[0][7].isdigit()
-        or rows[0][8:14] != (isolation, "on", "UTF8", "pg_catalog", "UTC", "on")
-        or type(rows[0][14]) is not str
-        or type(rows[0][15]) is not int
-        or not rows[0][16]
+        or rows[0][8:16]
+        != (isolation, "on", "UTF8", "pg_catalog", "UTC", "1", "ISO, MDY", "on")
+        or type(rows[0][16]) is not str
+        or type(rows[0][17]) is not int
+        or not rows[0][18]
     ):
         raise ExecutionError("POSTGRES_ADBC_NATIVE_CONTEXT")
     return rows[0], reply

@@ -23,8 +23,9 @@ if TYPE_CHECKING:
 __all__: tuple[str, ...] = ()
 # D71.07/S02: child rows per batch and per execution; never a caller knob.
 MAX_CHILD_ROWS = 1 << 20
-# Child leaves this phase opens; S14/S15 only widen this allowlist.
-CHILD_KINDS = ("Int", "Bool", "Text")
+# Child leaves admitted by the PostgreSQL array carrier.  The Arrow boundary
+# continues to enforce each leaf's own finite/value/meaning law.
+CHILD_KINDS = ("Int", "Bool", "Text", "Float", "Decimal")
 
 
 @dataclass(frozen=True, slots=True)

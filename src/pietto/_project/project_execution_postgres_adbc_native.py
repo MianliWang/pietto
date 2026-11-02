@@ -26,7 +26,7 @@ DRIVERS = (
     ("pyarrow", "26.0.0", "pyarrow"),
     ("adbc-driver-manager", "1.13.0", "adbc_driver_manager._reader"),
 )
-CONTEXT_SQL = "SELECT current_setting('server_version_num')::integer,current_database()::text,current_user::text,session_user::text,(SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname=current_user),(SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=current_database()),pg_backend_pid(),pg_current_xact_id()::text,current_setting('transaction_isolation'),current_setting('transaction_read_only'),current_setting('client_encoding'),current_setting('search_path'),current_setting('TimeZone'),current_setting('standard_conforming_strings'),inet_server_addr()::text,inet_server_port(),pg_postmaster_start_time()::text"
+CONTEXT_SQL = "SELECT current_setting('server_version_num')::integer,current_database()::text,current_user::text,session_user::text,(SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname=current_user),(SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=current_database()),pg_backend_pid(),pg_current_xact_id()::text,current_setting('transaction_isolation'),current_setting('transaction_read_only'),current_setting('client_encoding'),current_setting('search_path'),current_setting('TimeZone'),current_setting('extra_float_digits'),current_setting('DateStyle'),current_setting('standard_conforming_strings'),inet_server_addr()::text,inet_server_port(),pg_postmaster_start_time()::text"
 # Generated refinement pages run with JIT off for the rest of their transaction.
 JIT_OFF_SQL = "SELECT pg_catalog.set_config('jit','off',true)"
 
@@ -80,7 +80,7 @@ def connect(owner):
         passfile="/dev/null",
         connect_timeout=str(max(2, min(10, math.ceil(owner._remaining())))),
         application_name="pietto_postgres_adbc",
-        options="-c statement_timeout=10000 -c client_encoding=UTF8 -c search_path=pg_catalog -c timezone=UTC -c standard_conforming_strings=on",
+        options="-c statement_timeout=10000 -c client_encoding=UTF8 -c search_path=pg_catalog -c timezone=UTC -c extra_float_digits=1 -c DateStyle=ISO,MDY -c standard_conforming_strings=on",
     )
     uri = "postgresql:///?" + urlencode(settings, quote_via=quote)
     owner._checkpoint()

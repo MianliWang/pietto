@@ -224,7 +224,7 @@ def _decimal_widths(producer, requests):
             widths.append(None)
             continue
         decimal = bound.observation.decimal
-        width = None if decimal is None else 128 if decimal.precision <= 38 else 256
+        width = _decimal_width(decimal)
         if request is not None:
             if (
                 decimal is None
@@ -238,6 +238,10 @@ def _decimal_widths(producer, requests):
             width = request.bits
         widths.append(width)
     return tuple(widths)
+
+
+def _decimal_width(decimal):
+    return None if decimal is None else 128 if decimal.precision <= 38 else 256
 
 
 def _uuid_representations(producer, requests):
@@ -278,9 +282,7 @@ def _arrow_type(pa, bound, width, text_width, decimal_width, uuid_representation
                     [
                         pa.field(
                             child.field.label,
-                            _arrow_type(
-                                pa, child, _child_int_width(child), 32, None, None
-                            ),
+                            _arrow_type(pa, child, *_child_defaults(child)),
                             nullable=child.nullable,
                         )
                         for child in children
@@ -310,13 +312,14 @@ def _arrow_type(pa, bound, width, text_width, decimal_width, uuid_representation
     raise ResultError("PRODUCER_UNSUPPORTED")
 
 
-def _child_int_width(child):
-    if child.field.shape.canonical.name != "Int":
-        return None
-    width = INT_WIDTHS.get(child.observation.storage)
-    if width is None:
+def _child_defaults(child):
+    """The fixed Arrow parameters for a child, which has no adaptation request."""
+    kind = child.field.shape.canonical.name
+    width = INT_WIDTHS.get(child.observation.storage) if kind == "Int" else None
+    decimal = _decimal_width(child.observation.decimal)
+    if (kind == "Int" and width is None) or (kind == "Decimal" and decimal is None):
         raise ResultError("PRODUCER_OBSERVATION")
-    return width
+    return width, 32, decimal, "uuid" if kind == "UUID" else None
 
 
 def _field_labels(producer, requests):
@@ -476,7 +479,6 @@ def _dimensions(fields, rows, limits):
 def _base_charge(binding, rows, limits):
     widths = _text_widths(binding.producer, binding.text_offset_widths)
     decimals = _decimal_widths(binding.producer, binding.decimal_widths)
-    # Keep the inherited eight-byte numeric/Bool/Float admission allowance.
     charge = sum(
         (rows + 7) // 8
         + (
@@ -484,14 +486,7 @@ def _base_charge(binding, rows, limits):
             # are charged by _child_charge once their row count is known.
             4 * (rows + 1)
             if _children(bound) is not None
-            else rows
-            * (
-                decimal_width // 8
-                if decimal_width is not None
-                else 16
-                if bound.field.shape.canonical.name == "UUID"
-                else 8
-            )
+            else rows * _value_bytes(bound, decimal_width)
             if width is None
             else width // 8 * (rows + 1)
         )
@@ -504,13 +499,23 @@ def _base_charge(binding, rows, limits):
     return charge
 
 
+def _value_bytes(bound, decimal_width):
+    if decimal_width is not None:
+        return decimal_width // 8
+    return 16 if bound.field.shape.canonical.name == "UUID" else 8
+
+
 def _child_charge(children, count):
     """Struct validity plus each child leaf over ``count`` referenced child rows;
     Text bytes are charged as they are read (32-bit child offsets)."""
     validity = (count + 7) // 8
     return validity + sum(
         validity
-        + (4 * (count + 1) if child.field.shape.canonical.name == "Text" else 8 * count)
+        + (
+            4 * (count + 1)
+            if child.field.shape.canonical.name == "Text"
+            else count * _value_bytes(child, _child_defaults(child)[2])
+        )
         for child in children
     )
 

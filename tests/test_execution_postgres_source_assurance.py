@@ -300,6 +300,8 @@ def test_a_zero_root_statement_is_qualified_by_its_session_context_alone(
         (8, "read committed"),
         (9, "off"),
         (11, "public"),
+        (13, "0"),
+        (14, "German, DMY"),
     ):
         other = context[:index] + (value,) + context[index + 1 :]
         with pytest.raises(ExecutionError, match="NATIVE_CONTEXT"):
@@ -453,3 +455,62 @@ def test_a_series_qualification_says_its_function_identity_is_fixed_by_emission(
         ("NONE", "NOT_CATALOG_CHECKED", "NONE", "NONE"),
         ("PRESENT", "CHECKED", "NONE", "NONE"),
     ]
+
+
+def test_postgres_source_description_retains_profile_and_omits_fresh_context(
+    monkeypatch,
+):
+    from types import SimpleNamespace
+    from pietto._project import project_execution as execution
+    from pietto._project import project_result_output
+
+    monkeypatch.setattr(execution, "verify_compiled_owner", lambda owner: None)
+    monkeypatch.setattr(project_result_output, "source_read_columns", lambda output: ())
+    verified = SimpleNamespace(verify=lambda owner: None, roots=(), replies=())
+    admissions = SimpleNamespace(
+        verify=lambda connection, sources, columns: None,
+        role="reader",
+        environment=("18.6", "UTF8", "pg_catalog"),
+        observations=(),
+    )
+    context = (
+        180006,
+        "db",
+        "reader",
+        "reader",
+        10,
+        100,
+        200,
+        "42",
+        "repeatable read",
+        "on",
+        "UTF8",
+        "pg_catalog",
+        "UTC",
+        "1",
+        "ISO, MDY",
+        "on",
+        "127.0.0.1",
+        5432,
+        "start",
+    )
+
+    def describe(value):
+        owner = SimpleNamespace(
+            refined_request=SimpleNamespace(
+                refinement=SimpleNamespace(sources=(), output=object())
+            ),
+            source_admissions=admissions,
+            _qualification=verified,
+            _closed=False,
+            _transaction="OPEN",
+            _connection=object(),
+            request=SimpleNamespace(route="postgres_rows", isolation="stable"),
+            _initial_profile_context=value,
+        )
+        return execution.compiled_source_description(owner)
+
+    baseline = describe(context)
+    assert describe(context[:14] + ("ISO, YMD",) + context[15:]) != baseline
+    assert describe(context[:15] + ("off",) + context[16:]) != baseline
+    assert describe(context[:16] + ("127.0.0.2", 5433, "later")) == baseline

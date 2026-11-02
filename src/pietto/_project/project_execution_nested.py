@@ -534,7 +534,22 @@ def _measure(domain, limits, parents, children, text_bytes):
 
     def width(field, tag):
         if tag != "Text":
-            return {"Int": 20, "Bool": 5}[tag]
+            if tag == "Decimal":
+                decimal = field.decimal
+                if (
+                    decimal is None
+                    or type(decimal.precision) is not int
+                    or type(decimal.scale) is not int
+                    or not 1 <= decimal.precision <= 65
+                    or not 0 <= decimal.scale <= min(decimal.precision, 30)
+                ):
+                    _resource()
+                return decimal.precision + 1 + (decimal.scale > 0)
+            return {
+                "Int": 20,
+                "Bool": 5,
+                "Float": 24,
+            }[tag]
         matches = tuple(
             index
             for index, (child, child_tag) in enumerate(

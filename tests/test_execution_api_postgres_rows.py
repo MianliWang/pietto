@@ -1562,7 +1562,8 @@ def _profile(query, clean, connection_access, limits=None):
 
 
 SESSION = (
-    "-c client_encoding=UTF8 -c search_path=pg_catalog -c timezone=UTC"
+    "-c client_encoding=UTF8 -c search_path=pg_catalog"
+    " -c extra_float_digits=1 -c DateStyle=ISO,MDY -c timezone=UTC"
     " -c standard_conforming_strings=on"
 )
 

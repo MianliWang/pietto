@@ -562,12 +562,29 @@ _ORACLE_REPRESENTATIONS = {
             "padding": "NO PAD",
         },
     },
+    "Float": {
+        "storage": {"kind": "pg_float8"},
+        "domain": {"kind": "finite_float", "format": "binary64"},
+    },
+    "Decimal": {
+        "storage": {"kind": "pg_numeric", "precision": 18, "scale": 4},
+        "domain": {"kind": "decimal", "precision": 18, "scale": 4},
+    },
+    "Date": {"storage": {"kind": "pg_date"}, "domain": {"kind": "date"}},
+    "Timestamp": {
+        "storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
+        "domain": {"kind": "timestamp"},
+    },
+    "UUID": {
+        "storage": {"kind": "pg_uuid"},
+        "domain": {"kind": "uuid", "encoding": "standard_bytes"},
+    },
 }
 
 
-def oracle_contract() -> str:
+def oracle_contract(leaves=oracle.DEFAULT_LEAVES) -> str:
     """A PostgreSQL contract for the literal oracle's FULL seed tables."""
-    tables = oracle.seed("FULL")
+    tables = oracle.seed("FULL", leaves)
     return json.dumps(
         {
             "format": "pietto.emission-contract.v1",

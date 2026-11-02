@@ -419,14 +419,14 @@ def test_private_routes_refuse_a_collection_before_their_premise(templates):
         ]
 
 
-def test_child_leaves_outside_the_arrow_domain_are_refused_before_connection(
+def test_all_supported_child_leaves_are_admitted_before_connection(
     leaves,
 ):
     contract = leaves["parent"][0]
     assert _word(lambda: nested.admit_nested_shape(contract)) == "ACCEPTED"
     ibt = nested_cases.nested(leaves, leaves["ibt"]).contract
     assert _word(lambda: nested.admit_nested_shape(ibt)) == "ACCEPTED"
-    for kind in ("Float", "Decimal", "Date", "Timestamp", "UUID"):
+    for kind in ("Float", "Decimal"):
         from pietto._project.project_result_contract import NestedShape, ScalarShape
 
         parent, collection = ibt.shape.fields
@@ -452,11 +452,14 @@ def test_child_leaves_outside_the_arrow_domain_are_refused_before_connection(
                 ),
             ),
         )
-        assert _word(lambda: nested.admit_nested_shape(shape)) == (
-            "ExecutionError:COLLECTION_LEAF"
-        ), kind
-    # S12 opens only its fixed Int/Bool/finite-Text domain; later slices expand it.
-    assert set(CHILD_KINDS) == {"Int", "Bool", "Text"}
+        assert _word(lambda: nested.admit_nested_shape(shape)) == "ACCEPTED", kind
+    assert set(CHILD_KINDS) == {
+        "Int",
+        "Bool",
+        "Text",
+        "Float",
+        "Decimal",
+    }
 
 
 def test_save_and_relay_refuse_a_collection_before_workspace_or_sink(

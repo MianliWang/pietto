@@ -164,7 +164,7 @@ def verify_native_reply(reply, sql, arguments, rows):
         "members": (20, 20, 20, 16, 16, 16),
     }
     expected = (
-        (23, 25, 25, 25, 20, 20, 23, 25, 25, 25, 25, 25, 25, 25, 25, 23, 25)
+        (23, 25, 25, 25, 20, 20, 23, 25, 25, 25, 25, 25, 25, 25, 25, 25, 25, 23, 25)
         if sql == CONTEXT_SQL
         else next((expected_types[k] for k, v in SQL.items() if v == sql), None)
     )
@@ -233,9 +233,9 @@ def verify_catalog(
     )
     verify_native_reply(context_native, CONTEXT_SQL, (), (context,))
     need(
-        len(context) == 17
+        len(context) == 19
         and context[0] == 180006
-        and context[9:14] == ("on", "UTF8", "pg_catalog", "UTC", "on")
+        and context[9:16] == ("on", "UTF8", "pg_catalog", "UTC", "1", "ISO, MDY", "on")
         and context[8] in ("repeatable read", "serializable"),
         "POSTGRES_SOURCE_NATIVE_CONTEXT",
     )

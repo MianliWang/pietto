@@ -103,7 +103,11 @@ IBT = (("i", "Int8", False), ("b", "Bool", True), ("t", "Text", True))
 # PostgreSQL type OIDs, by storage: the int8 count and each child's array.
 COUNT_OID = 20
 ARRAY_OIDS = {"pg_int8": 1016, "pg_int4": 1007, "pg_int2": 1005, "pg_bool": 1000}
-ARRAY_OIDS["pg_text"] = 1009
+ARRAY_OIDS.update(
+    pg_text=1009,
+    pg_float8=1022,
+    pg_numeric=1231,
+)
 Column = namedtuple("Column", "name type_code null_ok")
 ALLOCATORS = frozenset(
     ("array", "Array", "StructArray", "ListArray", "RecordBatch", "py_buffer")
@@ -517,7 +521,6 @@ def binding_equality(real):
     observed["no_requests"] = outcome(
         lambda: a.bind_arrow(producer, **{n: (None, None) for n in requests})
     )
-    # Real collected children the rows reader does not open: refused at binding.
     observed["leaves"] = real["unopened"]
     first, bound = producer.fields
     twice = (bound.children[0], bound.children[0], bound.children[2])
@@ -1082,8 +1085,8 @@ EXPECTED: dict[str, Any] = {
         },
         no_requests="ACCEPTED",
         leaves={
-            kind: "PRODUCER_UNSUPPORTED"
-            for kind in ("Float", "Decimal", "Date", "Timestamp", "UUID")
+            **{kind: "ACCEPTED" for kind in ("Float", "Decimal")},
+            **{kind: "PRODUCER_UNSUPPORTED" for kind in ("Date", "Timestamp", "UUID")},
         },
         duplicate_child="PRODUCER_FIELDS",
     ),

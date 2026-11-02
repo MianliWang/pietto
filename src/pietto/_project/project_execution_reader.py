@@ -20,13 +20,15 @@ __all__: tuple[str, ...] = ()
 
 PG_INTS = {20: "pg_int8", 21: "pg_int2", 23: "pg_int4"}
 # pg_column_arrays_v1 (S02): the count is int8; each child array's OID by the
-# child's storage. S14/S15 widen this table with the child allowlist.
+# child's storage.
 PG_ARRAYS = {
     "pg_int2": 1005,
     "pg_int4": 1007,
     "pg_int8": 1016,
     "pg_bool": 1000,
+    "pg_float8": 1022,
     "pg_text": 1009,
+    "pg_numeric": 1231,
 }
 
 

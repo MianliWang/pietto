@@ -449,7 +449,8 @@ def _verify_unnests(records, entry, family) -> None:
             field.address.kind == "field"
             and type(logical) is tuple
             and len(logical) == 2
-            and logical[0] in ("Int", "Bool", "Text")
+            and logical[0]
+            in ("Int", "Bool", "Text", "Float", "Decimal")
             and logical[1] in ("non_null", "nullable")
             and output.get("owner") == unnest.address
             and output.get("ordinal") == index
