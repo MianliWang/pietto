@@ -9,19 +9,30 @@
 ![Python 3.12 and 3.13](https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB?logo=python&logoColor=white)
 ![Package version 0.1.6](https://img.shields.io/badge/package-0.1.6-6f42c1)
 
-Readable, typed SQL authoring with deterministic compilation.
+Readable, typed SQL authoring with deterministic compilation and fail-closed
+guardrails for hand-written or AI-generated Pietto programs.
 
 Pietto is a small, typed language for writing SQL queries. It reads like
 Python: blocks use `:` and indentation, and `None`, `True` and `False` mean
 what they mean in Python. `pietto check` reports unknown fields, type errors
 and aggregates that a JOIN could count twice before any database sees the
 query, and `pietto emit-sql` writes plain PostgreSQL or MySQL SQL that you run
-with the tools you already use.
+with the tools you already use. This makes Pietto approachable for Python users
+who do not work in SQL every day, while making unsupported or unproven query
+shapes an error instead of guessing SQL. It checks the program, not the intent
+or the data in your database: review the emitted SQL and validate its results
+for your deployment.
 
 **Version 0.1.6, public alpha.** The compiler and the `pietto` command never
 connect to a database; database access is available only from the explicit
 alpha Python API described below. The examples here use the source syntax of
 this version.
+
+A checkout of `main` also contains unreleased project SQL emission and nested
+PostgreSQL result features. They are described in the
+[unreleased changes](https://github.com/MianliWang/pietto/blob/main/docs/release-notes.md#unreleased-changes-following-016)
+and are not included in the PyPI `0.1.6` package. The planned completion release
+is `0.1.7`, which has not been released.
 
 ## Install
 
@@ -229,7 +240,9 @@ lists every command.
   reads, query header parameters, typed VALUES and `generate_series` are
   available in explicit-module projects.
 - Fail-closed compilation: unsupported syntax, meaning or backend capability is
-  a diagnostic, never guessed SQL.
+  a diagnostic, never guessed SQL. This is a guardrail when writing Pietto by
+  hand or from AI-generated code; it does not prove business logic or database
+  contents.
 - An alpha Python API that runs a compiled query through an explicit
   PostgreSQL or MySQL route and returns typed Arrow batches with the attempt's
   factual outcome, plus local saved-result workflows.
