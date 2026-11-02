@@ -1106,9 +1106,307 @@ def check_composed_nested(record, *, outer, grouped=False):
     check_effects(value, "COMPOSED")
 
 
+def check_nested_saved(entry, name):
+    """Three independent processes preserve one complete durable parent stream."""
+    import re
+    import _pietto_execution_nested_oracle as oracle
+
+    def natural(value: Any) -> bool:
+        return type(value) is int and value >= 0
+
+    def digest(value: Any) -> bool:
+        return type(value) is str and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+    def schema_shape(value: Any) -> bool:
+        return type(value) is list and all(
+            type(field) is list
+            and len(field) == 3
+            and type(field[0]) is str
+            and type(field[1]) is str
+            and type(field[2]) is bool
+            for field in value
+        )
+
+    def numeric_rows(value: Any) -> bool:
+        return type(value) is list and all(
+            type(row) is list and all(natural(item) for item in row) for row in value
+        )
+
+    need(
+        type(entry) is dict and set(entry) == {"save", "r1", "export"}, "SAVED_RECORDS"
+    )
+    saved, replayed, exported = (
+        result(entry[k], "SAVED_" + k.upper()) for k in ("save", "r1", "export")
+    )
+    if name == "all_leaves":
+        program = oracle.program("C1_closed", oracle.LEAVES)
+        assert isinstance(program.spec, oracle.Collect)
+        let = program.spec.lets[0]
+        labels = ("id", *_fields(oracle.LEAVES))
+        child = ", ".join(
+            label + ": " + NATIVE_TYPES[label] + (" not null" if label == "id" else "")
+            for label in labels
+        )
+        schema = [
+            ["id", "int64", True],
+            [let.name, "list<item: struct<" + child + "> not null>", False],
+        ]
+        values: Any = _untag(saved.get("rows"))
+        need(
+            type(values) is list
+            and all(
+                type(row) is dict
+                and set(row) == {"id", let.name}
+                and type(row[let.name]) is list
+                for row in values
+            ),
+            "SAVED_ROWS",
+        )
+        ordered = []
+        for row in cast(list[dict[str, Any]], values):
+            need(
+                all(
+                    type(child_row) is dict and set(child_row) == set(labels)
+                    for child_row in row[let.name]
+                ),
+                "SAVED_ROWS",
+            )
+            ordered.append(
+                {
+                    "id": row["id"],
+                    let.name: [
+                        {label: child_row[label] for label in labels}
+                        for child_row in row[let.name]
+                    ],
+                }
+            )
+        expected = oracle.expected("C1_closed", "FULL", oracle.LEAVES)
+        need(not oracle.check(ordered, expected), "SAVED_ROWS")
+        count = sum(segment.take for segment in expected)
+    else:
+        need(name in ("retained", "empty"), "SAVED_CASE")
+        schema, rows, _ = composed_expectation(outer=False)
+        rows = [] if name == "empty" else rows
+        need(
+            type(saved.get("rows")) is list
+            and Counter(json.dumps(row, sort_keys=True) for row in saved["rows"])
+            == Counter(json.dumps(row, sort_keys=True) for row in rows),
+            "SAVED_ROWS",
+        )
+        count = len(rows)
+    need(
+        schema_shape(saved.get("schema"))
+        and saved.get("schema") == schema
+        and saved.get("origin") == "bundle",
+        "SAVED_SCHEMA",
+    )
+    terminal = saved.get("save")
+    need(
+        type(terminal) is list
+        and len(terminal) == 3
+        and terminal[:2] == ["COMPLETED", "RELEASED"]
+        and terminal[2] is True,
+        "SAVED_TERMINAL",
+    )
+    ranges = [[i, min(i + 2, count)] for i in range(0, count, 2)] or [[0, 0]]
+    snapshot = saved.get("snapshot")
+    need(
+        type(snapshot) is dict
+        and natural(snapshot.get("frontier"))
+        and numeric_rows(snapshot.get("committed"))
+        and numeric_rows(snapshot.get("members")),
+        "SAVED_SNAPSHOT",
+    )
+    need(
+        snapshot
+        == {
+            "frontier": count,
+            "committed": ranges,
+            "holes": [],
+            "members": [[start, stop, int(stop > start)] for start, stop in ranges],
+        },
+        "SAVED_SNAPSHOT",
+    )
+    descriptor: Any = saved.get("saved")
+    need(
+        type(descriptor) is dict
+        and set(descriptor)
+        == {
+            "root",
+            "identity",
+            "job",
+            "generation",
+            "checkpoint",
+            "frontier",
+            "pin",
+            "producer",
+            "compatibility",
+            "project",
+        },
+        "SAVED_DESCRIPTOR",
+    )
+    for key, prefix in (
+        ("identity", "ws"),
+        ("job", "job"),
+        ("generation", "gen"),
+        ("checkpoint", "ckp"),
+    ):
+        identity = descriptor[key]
+        need(
+            type(identity) is str
+            and re.fullmatch(prefix + r"-[0-9a-f]{32}", identity) is not None,
+            "SAVED_IDENTITY",
+        )
+    need(
+        natural(descriptor["frontier"])
+        and descriptor["frontier"] == count
+        and all(digest(descriptor[k]) for k in ("pin", "producer", "compatibility")),
+        "SAVED_TRUST",
+    )
+    need(
+        saved.get("bundle")
+        == {key: descriptor[key] for key in ("pin", "producer", "compatibility")},
+        "SAVED_TRUST",
+    )
+    pids = [value.get("pid") for value in (saved, replayed, exported)]
+    need(
+        all(type(pid) is int and pid > 0 for pid in pids) and len(set(pids)) == 3,
+        "SAVED_PROCESSES",
+    )
+    for value in (saved, replayed, exported):
+        need(value.get("project_absent") is True, "SAVED_SOURCE_ABSENT")
+        need(
+            value.get("after", {}).get("threads") == ["MainThread"]
+            and value.get("before", {}).get("files")
+            == value.get("after", {}).get("files")
+            == {"cwd": [], "home": [], "tmp": []},
+            "SAVED_EFFECTS",
+        )
+    for value in (replayed, exported):
+        need(
+            schema_shape(value.get("schema")) if count else value.get("schema") is None,
+            "SAVED_SCHEMA",
+        )
+        need(
+            type(value.get("sizes")) is list
+            and all(natural(size) for size in value["sizes"])
+            and numeric_rows(value.get("spans")),
+            "SAVED_DELIVERY",
+        )
+        need(
+            value.get("drivers") == ["pyarrow"]
+            and value.get("rows") == saved["rows"]
+            and value.get("schema") == (schema if count else None)
+            and value.get("sizes") == [1] * count,
+            "SAVED_DELIVERY",
+        )
+    end = replayed.get("end")
+    need(
+        type(end) is list and len(end) == 3 and natural(end[1]) and natural(end[2]),
+        "SAVED_ACK",
+    )
+    need(
+        replayed.get("spans") == [[i, i + 1] for i in range(count)]
+        and end == ["SAVED_SCOPE_EXHAUSTED", count, count],
+        "SAVED_ACK",
+    )
+    operations = replayed.get("operations")
+    need(
+        type(operations) is list
+        and len(operations) == 2 * count + 3
+        and len(set(operations)) == len(operations)
+        and all(
+            type(v) is str and re.fullmatch(r"op-[0-9a-f]{32}", v) is not None
+            for v in operations
+        ),
+        "SAVED_OPERATIONS",
+    )
+    need(
+        exported.get("spans") == []
+        and exported.get("operations") == []
+        and exported.get("end") == "SCOPE_EXHAUSTED",
+        "SAVED_EXPORT_END",
+    )
+    tables = {
+        "operation",
+        "consumer",
+        "acknowledgement",
+        "replay_session",
+        "runtime_owner",
+        "admission",
+        "admission_settlement",
+    }
+    for value in (replayed, exported):
+        for key in ("before_control", "after_control"):
+            state: Any = value.get(key)
+            need(
+                type(state) is dict
+                and set(state) == {"tables", "files"}
+                and type(state["tables"]) is dict
+                and set(state["tables"]) == tables
+                and type(state["files"]) is dict
+                and bool(state["files"]),
+                "SAVED_CONTROL",
+            )
+            need(
+                all(
+                    type(item) is list
+                    and len(item) == 2
+                    and natural(item[0])
+                    and digest(item[1])
+                    for item in cast(dict[str, Any], state["tables"]).values()
+                ),
+                "SAVED_CONTROL",
+            )
+            for path, item in cast(dict[str, Any], state["files"]).items():
+                need(
+                    type(path) is str
+                    and type(item) is list
+                    and len(item) == 3
+                    and natural(item[0])
+                    and item[0] in (4, 8)
+                    and natural(item[1]),
+                    "SAVED_FILES",
+                )
+                need(
+                    item[2] is None
+                    if item[0] == 4 or path.endswith("-shm")
+                    else digest(item[2]),
+                    "SAVED_FILES",
+                )
+    increments = {
+        "operation": 2 * count + 3,
+        "consumer": 1,
+        "replay_session": 1,
+        "acknowledgement": count,
+    }
+    for table in tables:
+        before = replayed["before_control"]["tables"][table]
+        after = replayed["after_control"]["tables"][table]
+        change = increments.get(table, 0)
+        need(
+            after[0] == before[0] + change
+            and (after[1] != before[1] if change else after == before),
+            "SAVED_DURABLE_ACK",
+        )
+    need(
+        exported["before_control"]
+        == replayed["after_control"]
+        == exported["after_control"],
+        "SAVED_EXPORT_WRITES",
+    )
+
+
 def check_postgres(report: Any) -> Any:
     check_install(report.get("install", {}), ("execute-postgres",))
     check_server(report.get("server") or {})
+    saved = report.get("nested_saved")
+    need(
+        type(saved) is dict and set(saved) == {"retained", "all_leaves", "empty"},
+        "SAVED_CASES",
+    )
+    for name, entry in saved.items():
+        check_nested_saved(entry, name)
     check_example(report.get("example"))
     check_example(report.get("example_loopback"))
     bind = result(report.get("bind_safe"), "BIND_SAFE")

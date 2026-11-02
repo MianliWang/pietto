@@ -8,6 +8,8 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 
 
+B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
+
 ## 授权与依赖顺序
 
 所有者授权（D71.09）：
@@ -59,7 +61,7 @@ The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a
 | [S16](slice-16.md) | 多个并列子表、命名/分组阶段、参数/排序/过滤及 Collect–Unnest 组合，含展开一项后仍保留另一嵌套字段、普通 JOIN 透传与跨模块传递 | A03, A04, A05, A08 | S12, S13 | 必做 |
 | S17 | 完整嵌套合同的 IPC framing、截断/错 schema、rebatch/offset 与兼容拒绝 | A07, A08, A10 | S07, S09, S10, S11 | 必做 |
 | [S18](slice-18.md) | 普通保存、完整顶层 occurrence/chunk/checkpoint 与既有 publication 资格；优先复用 v7 工作区 | A08, A10 | S12, S14, S15, S17 | 必做 |
-| S19 | 新进程断源 R1 与独立 `verified_export`，含 trust/schema、重分批与只读导出无控制写入 | A08, A10 | S18 | 必做 |
+| [S19](slice-19.md) | 新进程断源 R1 与独立 `verified_export`，含 trust/schema、重分批与只读导出无控制写入 | A08, A10 | S18 | 必做 |
 | S20 | 全类型与组合的资源、错误、关闭/取消和拒绝复核，覆盖 live/saved、R1/export 及未支持的路线/R2/sink/relay | A09, A10, A11 | S12, S13, S14, S15, S16, S18, S19 | 必做 |
 | S21 | 独立差分/metamorphic/损坏语料、旧平面全回归与所有必做公开消费者的串联核对 | A01–A11 | S14, S15, S16, S18, S19, S20 | 必做 |
 | S22 | 阶段末获取成本与直接读者复核、覆盖保持与适用 CI health（十个最慢节点的有界 profile 复核）；只修复已确认且属于本期的缺陷 | A11, A12 | S21 | 必做 |

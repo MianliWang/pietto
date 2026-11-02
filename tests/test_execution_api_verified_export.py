@@ -86,6 +86,8 @@ def test_verified_export_checks_the_parameters_type_before_workspace_open(
 ):
     from pietto._project import project_job_workspace as workspace
 
+    export = execution.verified_export
+
     monkeypatch.setattr(
         workspace,
         "open_workspace",
@@ -95,7 +97,7 @@ def test_verified_export_checks_the_parameters_type_before_workspace_open(
     object.__setattr__(reference, "root", "/not-opened")
     object.__setattr__(reference, "identity", "ws-" + "0" * 32)
     with pytest.raises(execution.RequestRejected) as refused:
-        execution.verified_export(
+        export(
             reference,
             job="job-" + "0" * 32,
             generation="gen-" + "0" * 32,
@@ -351,4 +353,78 @@ def test_verified_export_survives_an_exhausted_operation_quota_without_writes(
             assert [batch.num_rows for batch in exported] == [2, 1]
         assert _facts(case) == before
     finally:
+        case.close()
+
+
+@pytest.mark.parametrize("batch_rows", (1, 2, 3))
+def test_verified_export_reads_each_member_once_when_rebatching(
+    tmp_path, monkeypatch, batch_rows
+):
+    case = cases.completed_saved_result(tmp_path, monkeypatch)
+    if case is None:
+        pytest.skip("qualified local storage is unavailable")
+    try:
+        from pietto._project import project_job_capture as capture
+
+        reads, read = [], capture.SnapshotReader.read
+
+        def counted(self, index):
+            reads.append(index)
+            return read(self, index)
+
+        monkeypatch.setattr(capture.SnapshotReader, "read", counted)
+        with _export(case, batch_rows=batch_rows) as exported:
+            for batch in exported:
+                batch.close()
+        assert reads == [0, 1]
+    finally:
+        case.close()
+
+
+@pytest.mark.parametrize("failure", ("expired", "foreign", "reader_closed"))
+def test_verified_export_rechecks_cache_before_a_held_member(
+    tmp_path, monkeypatch, failure
+):
+    case = cases.completed_saved_result(tmp_path, monkeypatch)
+    if case is None:
+        pytest.skip("qualified local storage is unavailable")
+    exported = None
+    try:
+        from pietto._project import project_job_capture as capture
+        from pietto._project import project_job_replay as replay
+
+        reads, read = [], capture.SnapshotReader.read
+
+        def counted(self, index):
+            reads.append(index)
+            return read(self, index)
+
+        monkeypatch.setattr(capture.SnapshotReader, "read", counted)
+        exported = _export(case, batch_rows=1)
+        first = next(exported)
+        first.close()
+        assert reads == [0] and exported._held is not None
+        if failure == "expired":
+            monkeypatch.setattr(
+                replay, "_monotonic", lambda: exported._acceptance._deadline
+            )
+            expected = "ACCEPTANCE_EXPIRED"
+            with pytest.raises(execution.RequestRejected) as refused:
+                next(exported)
+        elif failure == "foreign":
+            expected = "ACCEPTANCE_FOREIGN_PROCESS"
+            with monkeypatch.context() as foreign:
+                foreign.setattr(replay.os, "getpid", lambda: -1)
+                with pytest.raises(execution.RequestRejected) as refused:
+                    next(exported)
+        else:
+            expected = "READER_CLOSED"
+            exported._reader.close()
+            with pytest.raises(execution.RequestRejected) as refused:
+                next(exported)
+        assert (refused.value.code, refused.value.detail) == ("PIE-R1009", expected)
+        assert reads == [0] and exported._held is None
+    finally:
+        if exported is not None:
+            exported.close()
         case.close()

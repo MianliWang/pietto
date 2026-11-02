@@ -1156,10 +1156,16 @@ all protocol, driver or Arrow allocation costs. A parent collection is never
 split across batches.
 
 ADBC, MySQL and guarded/refined nested execution remain refused before a
-connection. Collect/Unnest operations remain refused by `save`, R2 and relay
-before workspace or sink effects, even when the final result is flat. Saved
-replay/R1 and verified export do not open nested storage yet. Nested IPC remains
-an internal checked transport, not a public IPC or storage API.
+connection. Ordinary `save(..., route="postgres_rows")` preserves admitted
+nested results in the existing v7 workspace, including final-flat Unnest.
+Source-free R1 and independent `verified_export` read the fixed saved checkpoint
+with the original nested schema and complete child lists. Checkpoint extents,
+batch row limits and ACKs count top-level parent occurrences; children have no
+separate cursor or ACK. An empty capture retains its schema-bearing EOF member.
+Each exported member is verified before its first returned slice; a zero-row
+export returns no slice, and exhaustion is only the end of its local scope.
+R2/recovery, relay and nested sink effects remain refused. Nested IPC remains an
+internal checked transport, not a public IPC API.
 
 ## Results
 

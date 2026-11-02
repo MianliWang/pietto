@@ -964,6 +964,102 @@ def _composed_record(*, outer, grouped=False):
     )
 
 
+def _saved_native_record(name):
+    if name == "all_leaves":
+        value = _oracle_nested_record(
+            "C1_closed",
+            ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"),
+            bundle=True,
+        )["result"]
+        schema, rows = value["schema"], value["rows"]
+    else:
+        schema, rows, _ = check.composed_expectation(outer=False)
+        rows = [] if name == "empty" else rows
+    count = len(rows)
+    ranges = [[i, min(i + 2, count)] for i in range(0, count, 2)] or [[0, 0]]
+    descriptor = {
+        "root": "/owned/" + name,
+        "identity": "ws-" + "0" * 32,
+        "job": "job-" + "1" * 32,
+        "generation": "gen-" + "2" * 32,
+        "checkpoint": "ckp-" + "3" * 32,
+        "frontier": count,
+        "pin": "0" * 64,
+        "producer": "1" * 64,
+        "compatibility": "2" * 64,
+        "project": "/deleted/" + name,
+    }
+    before = {
+        "tables": {
+            table: [0, "0" * 64]
+            for table in (
+                "operation",
+                "consumer",
+                "acknowledgement",
+                "replay_session",
+                "runtime_owner",
+                "admission",
+                "admission_settlement",
+            )
+        },
+        "files": {"control": [8, 1, "0" * 64]},
+    }
+    after = copy.deepcopy(before)
+    for table, change in {
+        "operation": 2 * count + 3,
+        "consumer": 1,
+        "replay_session": 1,
+        "acknowledgement": count,
+    }.items():
+        if change:
+            after["tables"][table] = [change, "1" * 64]
+    shared = {"project_absent": True, "rows": rows, **_effects()}
+    for key in ("before", "after"):
+        shared[key]["files"] = {"cwd": [], "home": [], "tmp": []}
+    saved = {
+        **copy.deepcopy(shared),
+        "pid": 101,
+        "origin": "bundle",
+        "schema": schema,
+        "save": ["COMPLETED", "RELEASED", True],
+        "bundle": {
+            key: descriptor[key] for key in ("pin", "producer", "compatibility")
+        },
+        "saved": descriptor,
+        "snapshot": {
+            "frontier": count,
+            "committed": ranges,
+            "holes": [],
+            "members": [[a, b, int(b > a)] for a, b in ranges],
+        },
+    }
+    reader = {
+        **copy.deepcopy(shared),
+        "pid": 102,
+        "schema": schema if count else None,
+        "drivers": ["pyarrow"],
+        "sizes": [1] * count,
+        "spans": [[i, i + 1] for i in range(count)],
+        "end": ["SAVED_SCOPE_EXHAUSTED", count, count],
+        "operations": ["op-" + format(i, "032x") for i in range(2 * count + 3)],
+        "before_control": before,
+        "after_control": after,
+    }
+    exported = {
+        **copy.deepcopy(shared),
+        "pid": 103,
+        "schema": schema if count else None,
+        "drivers": ["pyarrow"],
+        "sizes": [1] * count,
+        "spans": [],
+        "end": "SCOPE_EXHAUSTED",
+        "operations": [],
+        "before_control": copy.deepcopy(after),
+        "after_control": copy.deepcopy(after),
+    }
+    return {"save": _ok(saved), "r1": _ok(reader), "export": _ok(exported)}
+
+
 def _oracle_nested_record(name, leaves, *, bundle=False):
     import _pietto_execution_nested_oracle as oracle
 
@@ -1102,6 +1198,10 @@ def postgres_report():
         "unnest_decimal256": _oracle_unnest_record(
             "U1_cross", ("Int", "Decimal"), decimal256=True
         ),
+        "nested_saved": {
+            name: _saved_native_record(name)
+            for name in ("retained", "all_leaves", "empty")
+        },
         "nested_retained_bundle": _composed_record(outer=False),
         "nested_grouped_parameter_bundle": _composed_record(outer=False, grouped=True),
         "nested_outer_null": _composed_record(outer=True),
@@ -3054,3 +3154,71 @@ def test_composed_native_checker_rejects_wrong_parameter_binding():
     record["result"]["binding"]["arguments"] = [0]
     with pytest.raises(check.Rejected, match="COMPOSED_BINDING"):
         check.check_composed_nested(record, outer=False, grouped=True)
+
+
+@pytest.mark.parametrize(
+    "damage",
+    (
+        "child",
+        "duplicate",
+        "ack",
+        "scope",
+        "source",
+        "process",
+        "write",
+        "schema",
+        "empty",
+    ),
+)
+def test_native_saved_checker_rejects_lost_child_or_durable_scope(damage):
+    name = (
+        "empty"
+        if damage == "empty"
+        else "all_leaves"
+        if damage == "child"
+        else "retained"
+    )
+    record = _saved_native_record(name)
+    check.check_nested_saved(record, name)
+    if damage == "child":
+        record["r1"]["result"]["rows"][0][
+            record["save"]["result"]["schema"][1][0]
+        ].pop()
+    elif damage == "duplicate":
+        record["export"]["result"]["rows"].pop()
+    elif damage == "ack":
+        record["r1"]["result"]["end"][-1] += 1
+    elif damage == "scope":
+        record["save"]["result"]["snapshot"]["members"][0][1] += 1
+    elif damage == "source":
+        record["r1"]["result"]["drivers"].append("psycopg")
+    elif damage == "process":
+        record["r1"]["result"]["pid"] = record["save"]["result"]["pid"]
+    elif damage == "write":
+        record["export"]["result"]["after_control"]["tables"]["operation"][0] += 1
+    elif damage == "schema":
+        record["export"]["result"]["schema"][-1][-1] = True
+    else:
+        record["save"]["result"]["snapshot"]["members"] = []
+    with pytest.raises(check.Rejected):
+        check.check_nested_saved(record, name)
+
+
+@pytest.mark.parametrize(
+    "damage", ("counter_bool", "terminal_int", "trust", "durable_ack", "file_bytes")
+)
+def test_native_saved_checker_rejects_typed_or_control_evidence_damage(damage):
+    record = _saved_native_record("empty")
+    check.check_nested_saved(record, "empty")
+    if damage == "counter_bool":
+        record["save"]["result"]["snapshot"]["frontier"] = False
+    elif damage == "terminal_int":
+        record["save"]["result"]["save"][2] = 1
+    elif damage == "trust":
+        record["save"]["result"]["saved"]["pin"] = "f" * 64
+    elif damage == "durable_ack":
+        record["r1"]["result"]["after_control"]["tables"]["consumer"] = [0, "0" * 64]
+    else:
+        record["export"]["result"]["after_control"]["files"]["control"][2] = "f" * 64
+    with pytest.raises(check.Rejected):
+        check.check_nested_saved(record, "empty")

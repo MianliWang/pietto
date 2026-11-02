@@ -90,7 +90,7 @@ def hba():
 
 
 WORKER = r"""
-import gc, json, math, os, shutil, sys, threading, time, warnings
+import gc, hashlib, json, math, os, shutil, sys, threading, time, warnings
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -171,6 +171,76 @@ def tagged(value):
     if type(value) is UUID:
         return {"kind": "uuid", "value": value.hex}
     return value
+def workspace_state(reference):
+    from pietto._project import project_job_workspace as workspace
+    opened = workspace.open_workspace(reference.root, expected_identity=reference.identity)
+    try:
+        def state(connection):
+            result = {}
+            for table in ("operation", "consumer", "acknowledgement", "replay_session", "runtime_owner", "admission", "admission_settlement"):
+                rows = [[{"bytes": v.hex()} if type(v) is bytes else v for v in row]
+                    for row in connection.execute("SELECT * FROM " + table)]
+                encoded = sorted(json.dumps(row, sort_keys=True) for row in rows)
+                result[table] = [len(rows), hashlib.sha256(json.dumps(encoded).encode()).hexdigest()]
+            return result
+        tables = workspace.read(opened, state)
+        files = {}
+        for path in Path(reference.root).rglob("*"):
+            observed = path.lstat()
+            kind = observed.st_mode >> 12
+            # SQLite SHM contains volatile read locks, not durable workspace data.
+            digest = hashlib.sha256(path.read_bytes()).hexdigest() if kind == 8 and not path.name.endswith("-shm") else None
+            files[str(path.relative_to(reference.root))] = [kind, observed.st_size, digest]
+        return {"tables": tables, "files": files}
+    finally:
+        opened.close()
+
+if case in ("nested_saved_r1", "nested_saved_export"):
+    import pyarrow as pa
+    saved = config["saved"]
+    reference = pe.open_workspace(saved["root"], expected_identity=saved["identity"])
+    common = dict(job=saved["job"], generation=saved["generation"], checkpoint=saved["checkpoint"],
+        expected_pin=saved["pin"], accepted_producer=saved["producer"], accepted_compatibility=saved["compatibility"],
+        values=(), extent=saved["frontier"], purpose="nested-native-read", route="postgres_rows", batch_rows=1, seconds=60)
+    rows, spans, sizes, schema, operations = [], [], [], None, []
+    def operation():
+        value = pe.new_operation()
+        operations.append(value)
+        return value
+    result.update(pid=os.getpid(), project_absent=not Path(saved["project"]).exists(),
+        before=effects(), before_control=workspace_state(reference))
+    if case == "nested_saved_r1":
+        opened = pe.open_saved_read(reference, **common, consumer=pe.new_consumer_identity(),
+            register_operation=operation(), open_operation=operation())
+        try:
+            while True:
+                item = opened.next(1, operation=operation())
+                if isinstance(item, pe.SavedReadEnd):
+                    result["end"] = [item.terminal, item.extent, item.acknowledged]
+                    break
+                spans.append([item.start, item.stop])
+                with item.batch:
+                    batch = pa.record_batch(item.batch)
+                    schema = [[f.name, str(f.type), f.nullable] for f in batch.schema]
+                    sizes.append(batch.num_rows)
+                    rows.extend(tagged(batch.to_pylist()))
+                opened.ack(item, operation=operation())
+        finally:
+            opened.close()
+    else:
+        with pe.verified_export(reference, **common, scope="committed_prefix") as opened:
+            for item in opened:
+                with item:
+                    batch = pa.record_batch(item)
+                    schema = [[f.name, str(f.type), f.nullable] for f in batch.schema]
+                    sizes.append(batch.num_rows)
+                    rows.extend(tagged(batch.to_pylist()))
+        result["end"] = "SCOPE_EXHAUSTED"
+    result.update(rows=rows, schema=schema, spans=spans, sizes=sizes, operations=operations,
+        drivers=loaded(), after_control=workspace_state(reference), after=effects())
+    print(json.dumps(result))
+    raise SystemExit(0)
+
 query_fact = config.get("query", {})
 query = pe.compile_query(config["project"], module=query_fact.get("module", "main.pietto"),
     kind=query_fact.get("kind", "table"), name=query_fact.get("name", "active_items"),
@@ -197,6 +267,41 @@ def attempt(**changes):
         arguments["parameters"] = config["parameters"]
     arguments.update(changes)
     return pe.execute(query, **arguments)
+if case == "nested_save":
+    from pietto._project import project_job_capture as capture
+    from pietto._project import project_job_workspace as workspace
+    from pietto._project.project_compiled_schema import VERSIONS
+    result["before"] = effects()
+    reference = pe.create_workspace(config["workspace"], budget_bytes=workspace.MIN_BUDGET)
+    reply = pe.save(reference, query, operation=pe.new_operation(), route="postgres_rows",
+        access=access, premise=premise, limits=limits)
+    result.update(pid=os.getpid(), project_absent=not Path(config["project"]).exists(),
+        save=[reply.terminal, reply.settlement, reply.cleanup is None],
+        bundle=dict(pin=exported.pin, producer=exported.producer, compatibility=exported.compatibility))
+    if reply.cleanup is not None:
+        reply.cleanup.close()
+    opened = workspace.open_workspace(reference.root, expected_identity=reference.identity)
+    try:
+        snapshot = capture.checkpoint_snapshot(opened, reply.job, reply.generation)
+        output = capture.stored_output(opened, reply.job, reply.generation,
+            expected_pin=exported.pin, accepted_producer=exported.producer,
+            accepted_compatibility=(*VERSIONS, exported.compatibility))
+        with capture.SnapshotReader(opened, snapshot, output) as source:
+            chunks = [source.read(i) for i in range(len(snapshot.members))]
+        result["schema"] = [[f.name, str(f.type), f.nullable] for f in chunks[0].table.schema]
+        result["rows"] = tagged([row for chunk in chunks for row in chunk.table.to_pylist()])
+        result["snapshot"] = {"frontier": snapshot.frontier, "committed": snapshot.committed,
+            "holes": snapshot.holes, "members": [[m.start, m.stop, m.batches] for m in snapshot.members]}
+        result["saved"] = dict(root=reference.root, identity=reference.identity, job=reply.job,
+            generation=reply.generation, checkpoint=snapshot.checkpoint, frontier=snapshot.frontier,
+            pin=exported.pin, producer=exported.producer, compatibility=exported.compatibility,
+            project=config["project"])
+    finally:
+        opened.close()
+    result.update(after=effects(), drivers=loaded())
+    print(json.dumps(result))
+    raise SystemExit(0)
+
 handle = attempt()
 result["unopened"] = [loaded(), handle.outcome.end, password in repr(handle)]
 def collection_preflight():
@@ -1475,6 +1580,21 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
         ),
         "nested_outer_null": write_composed_nested(work / "outer-null", outer=True),
     }
+    saved_projects = {
+        "retained": write_composed_nested(work / "saved-retained-source"),
+        "all_leaves": write_nested_unnest(
+            work / "saved-all-leaves-source", "C1_closed", all_leaves
+        ),
+        "empty": write_composed_nested(work / "saved-empty-source"),
+    }
+    empty_source = saved_projects["empty"] / "main.pietto"
+    empty_source.write_text(
+        empty_source.read_text().replace(
+            "    inner join tags on child.id == tags.id\n",
+            "    inner join tags on child.id == tags.id\n    where child.id < 0\n",
+        ),
+        encoding="utf-8",
+    )
     pins = json.loads((ROOT / "tests/phase66_target_pins.json").read_text())
     (directory / "resources").mkdir()
     resources = resources_module.Resources(
@@ -1512,6 +1632,39 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             "name": "result",
             "contract": "contract.json",
         }
+        report["nested_saved"] = {}
+        saved_cwd = work / "saved-cwd"
+        saved_cwd.mkdir()
+        for name, project_path in saved_projects.items():
+            saved_case = case(
+                python,
+                saved_cwd,
+                {
+                    **reader,
+                    "case": "nested_save",
+                    "project": str(project_path),
+                    "query": nested,
+                    "load_bundle": True,
+                    "remove_project": True,
+                    "workspace": str(work / ("saved-workspace-" + name)),
+                    "limits": {"batch_rows": 2},
+                },
+                extra=quiet,
+            )
+            entry = {"save": saved_case}
+            saved = (saved_case.get("result") or {}).get("saved")
+            if saved_case.get("returncode") == 0 and saved is not None:
+                for label, mode in (
+                    ("r1", "nested_saved_r1"),
+                    ("export", "nested_saved_export"),
+                ):
+                    entry[label] = case(
+                        python,
+                        saved_cwd,
+                        {"case": mode, "password": "", "saved": saved},
+                        extra=quiet,
+                    )
+            report["nested_saved"][name] = entry
         for name, project_path in composed_projects.items():
             report[name] = case(
                 python,

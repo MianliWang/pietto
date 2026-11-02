@@ -1596,6 +1596,10 @@ class SnapshotReader:
             if self._lease is not None:
                 self._lease.close()
 
+    def _use(self) -> None:
+        if self._pid != os.getpid() or self._closed:
+            raise JobStoreError("READER_CLOSED")
+
     def read(self, index: int) -> CheckedChunk:
         """Bounded file, exact descriptor correspondence, full IPC value checks."""
         from pietto._project.project_arrow_result import _arrow
@@ -1605,8 +1609,7 @@ class SnapshotReader:
             verify_ipc_completion,
         )
 
-        if self._pid != os.getpid() or self._closed:
-            raise JobStoreError("READER_CLOSED")
+        self._use()
         snapshot, member = self.snapshot, self.snapshot.members[index]
         data = chunks.read_chunk_file(
             self._directory, member.file, member.bytes, member.digest

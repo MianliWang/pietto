@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 from typing import Any
 
 from pietto._project import project_job_workspace as private_workspace
@@ -27,6 +28,7 @@ class VerifiedExport:
     _member: int = 0
     _offset: int = 0
     _closed: bool = False
+    _held: Any = field(default=None, repr=False, compare=False)
 
     def __reduce_ex__(self, protocol):
         raise TypeError("VerifiedExport cannot be pickled or copied")
@@ -45,7 +47,16 @@ class VerifiedExport:
             self.close()
             raise StopIteration
         try:
-            item = self._reader.read(member)
+            from pietto._project import project_job_replay as replay
+
+            replay._accepted(self._acceptance)
+            self._reader._use()
+            held, key = self._held, (os.getpid(), member)
+            if held is None or held[0] != key:
+                object.__setattr__(self, "_held", None)
+                held = (key, self._reader.read(member))
+                object.__setattr__(self, "_held", held)
+            item = held[1]
             batches = item.table.to_batches()
             if len(batches) != 1:
                 raise RuntimeError("VERIFIED_EXPORT_BATCH")
@@ -71,6 +82,7 @@ class VerifiedExport:
             )
             if next_offset == item.stop - item.start:
                 next_member, next_offset = member + 1, 0
+                object.__setattr__(self, "_held", None)
             object.__setattr__(self, "_position", next_position)
             object.__setattr__(self, "_member", next_member)
             object.__setattr__(self, "_offset", next_offset)
@@ -80,6 +92,7 @@ class VerifiedExport:
     def _release(self) -> None:
         if not self._closed:
             object.__setattr__(self, "_closed", True)
+            object.__setattr__(self, "_held", None)
             caught = None
             try:
                 self._reader.close()

@@ -7,18 +7,25 @@
   unchanged; strict readers of nested documents must upgrade. SQL bytes and
   documents without Collect are unaffected by this evidence addition.
 
+- Phase71 B6 opens ordinary PostgreSQL nested saves in the existing v7
+  workspace, source-free R1, and independent read-only `verified_export`.
+  Parent occurrences remain the checkpoint and ACK unit. Rebatching preserves
+  each complete child list; export caches at most one verified member and
+  rechecks acceptance and reader lifetime before each returned slice.
+  R2/recovery, relay, nested sink effects, ADBC and MySQL nested remain refused.
+
 - Phase71 B5 expands PostgreSQL nested children to finite Float, Decimal,
   Date, Timestamp and UUID and preserves parallel collections through named,
   imported and ordinary JOIN stages. One Unnest may retain a sibling collection;
   grouped child producers and parameter filters preserve its values and order.
   Resource bounds count every JOIN edge and retained occurrence. Pietto's own
   PostgreSQL sessions fix and verify `extra_float_digits=1` and `DateStyle=ISO,MDY`.
-  Nested storage, R2, relay, ADBC and MySQL remain refused.
+  R2, relay, ADBC and MySQL nested remain refused.
 
 - Phase71 B4: bounded basic-leaf PostgreSQL Collect execution,
   one final-flat CROSS/INNER/LEFT Unnest through source and source-free compiled
-  paths, and internal nested IPC. Other routes, wider child types, storage,
-  R2 and relay retain their explicit refusals. The version remains 0.1.6;
+  paths, and internal nested IPC. B5 and B6 extend its leaf and saved-result
+  domains as described above; other routes, R2 and relay remain refused. The version remains 0.1.6;
   B4 is published on main; the 0.1.7 release needs separate authorization.
 
 
