@@ -302,12 +302,15 @@ def test_any_refused_access_step_keeps_only_the_owner_bits(
         # An audit hook may refuse an event with any exception, not only OSError.
         raise RuntimeError(f"os.{refused} refused")
 
-    monkeypatch.setattr(os, refused, refuse, raising=False)
-    previous = os.umask(0)
-    try:
-        assert _emit(path, output) == 0
-    finally:
-        os.umask(previous)
+    with monkeypatch.context() as access:
+        access.setattr(os, refused, refuse, raising=False)
+        previous = os.umask(0)
+        try:
+            result = _emit(path, output)
+        finally:
+            os.umask(previous)
+
+    assert result == 0
 
     assert stat.S_IMODE(output.stat().st_mode) == 0o700
     assert output.read_text(encoding="utf-8") == (
