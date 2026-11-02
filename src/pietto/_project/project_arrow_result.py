@@ -446,14 +446,21 @@ def verify_arrow_binding(binding, producer) -> None:
             pa, expected, width, text_width, decimal_width, uuid_policy
         )
         if _children(expected) is not None:
-            # DataType equality ignores the item name and child metadata, and
-            # metadata equality treats {} as none; no level carries metadata.
-            if not actual.equals(
-                pa.field(label, expected_type, nullable=expected.nullable),
-                check_metadata=True,
-            ) or any(
-                level.metadata is not None
-                for level in (actual, actual.type.value_field, *actual.type.value_type)
+            # DataType equality accepts a foreign extension class named uuid.
+            if (
+                _child_classes(pa, actual.type) != _child_classes(pa, expected_type)
+                or not actual.equals(
+                    pa.field(label, expected_type, nullable=expected.nullable),
+                    check_metadata=True,
+                )
+                or any(
+                    level.metadata is not None
+                    for level in (
+                        actual,
+                        actual.type.value_field,
+                        *actual.type.value_type,
+                    )
+                )
             ):
                 raise ResultError("ARROW_BINDING")
             continue
@@ -465,6 +472,15 @@ def verify_arrow_binding(binding, producer) -> None:
             or actual.metadata is not None
         ):
             raise ResultError("ARROW_BINDING")
+
+
+def _child_classes(pa, data_type):
+    if (
+        type(data_type) is not pa.ListType
+        or type(data_type.value_type) is not pa.StructType
+    ):
+        return None
+    return [type(child.type) for child in data_type.value_type]
 
 
 def _dimensions(fields, rows, limits):
@@ -761,6 +777,13 @@ def _verify_schema(schema, binding) -> None:
         for i, bound in enumerate(binding.producer.fields)
     ):
         raise ResultError("ARROW_SCHEMA")
+    if any(
+        _children(bound) is not None
+        and _child_classes(pa, schema[i].type)
+        != _child_classes(pa, binding.schema[i].type)
+        for i, bound in enumerate(binding.producer.fields)
+    ):
+        raise ResultError("ARROW_SCHEMA")
     if not schema.equals(binding.schema, check_metadata=True):
         raise ResultError("ARROW_SCHEMA")
 
@@ -850,29 +873,7 @@ def _checked_batch_counts(batch, binding, producer, *, limits=BatchLimits()):
                 continue
             kind = bound.field.shape.canonical.name
             if kind in ("Timestamp", "UUID"):
-                storage = (
-                    column.storage
-                    if kind == "UUID" and type(column.type) is type(pa.uuid())
-                    else column
-                )
-                if not len(storage):
-                    continue
-                validity, data = storage.buffers()
-                mask = None if validity is None else memoryview(validity)
-                payload = memoryview(data)
-                width = 8 if kind == "Timestamp" else 16
-                for position in range(len(storage)):
-                    offset = storage.offset + position
-                    if mask is not None and not (mask[offset // 8] >> (offset % 8)) & 1:
-                        _value(None, bound, logical=True)
-                        continue
-                    raw = payload[offset * width : (offset + 1) * width]
-                    value = (
-                        int.from_bytes(raw, "little", signed=True)
-                        if kind == "Timestamp"
-                        else bytes(raw)
-                    )
-                    _value(value, bound, logical=True)
+                _raw_values(pa, column, bound)
                 continue
             for scalar in column:
                 value = _value(scalar.as_py(), bound, logical=True)
@@ -886,9 +887,37 @@ def _checked_batch_counts(batch, binding, producer, *, limits=BatchLimits()):
                     charge += size
     except ResultError:
         raise
-    except (ValueError, pa.ArrowException) as exc:
+    except (ValueError, OverflowError, pa.ArrowException) as exc:
         raise ResultError("ARROW_BATCH") from exc
     return charge, retained_bytes, child_rows
+
+
+def _raw_values(pa, array, bound):
+    """Check Timestamp ticks or UUID bytes at the array's own offset."""
+    kind = bound.field.shape.canonical.name
+    storage = (
+        array.storage
+        if kind == "UUID" and type(array.type) is type(pa.uuid())
+        else array
+    )
+    if not len(storage):
+        return
+    validity, data = storage.buffers()
+    mask = None if validity is None else memoryview(validity)
+    payload = memoryview(data)
+    width = 8 if kind == "Timestamp" else 16
+    for position in range(len(storage)):
+        offset = storage.offset + position
+        if mask is not None and not (mask[offset // 8] >> (offset % 8)) & 1:
+            _value(None, bound, logical=True)
+            continue
+        raw = payload[offset * width : (offset + 1) * width]
+        value = (
+            int.from_bytes(raw, "little", signed=True)
+            if kind == "Timestamp"
+            else bytes(raw)
+        )
+        _value(value, bound, logical=True)
 
 
 def _nested_usage(column, bound, children, charge, limit, child_rows):
@@ -924,7 +953,11 @@ def _nested_usage(column, bound, children, charge, limit, child_rows):
         return charge, count
     for k, child in enumerate(children):
         text_size = 0
-        is_text = child.field.shape.canonical.name == "Text"
+        kind = child.field.shape.canonical.name
+        if kind in ("Timestamp", "UUID"):
+            _raw_values(_arrow(), referenced.field(k), child)
+            continue
+        is_text = kind == "Text"
         for value in referenced.field(k).to_pylist():
             value = _value(value, child, logical=True)
             if is_text and value is not None:

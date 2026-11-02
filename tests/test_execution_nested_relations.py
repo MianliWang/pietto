@@ -588,6 +588,51 @@ def _unnest_real(tmp_path, name):
     return _UNNEST_REAL[name]
 
 
+@pytest.mark.parametrize(
+    "leaves",
+    (
+        ("Int", "Float", "Decimal"),
+        ("Int", "Date", "Timestamp", "UUID"),
+    ),
+)
+def test_opened_unnest_leaves_build_load_lower_and_reject_tampering(tmp_path, leaves):
+    item = oracle.program(
+        "U1_cross" if "Decimal" in leaves else "U2_inner_true", leaves
+    )
+    text = "".join(value for _, value in item.files)
+    document = json.loads(collecting.oracle_contract(leaves))
+    document["sources"] = [
+        source
+        for source in document["sources"]
+        if f"from {source['selector']['name']}" in text
+    ]
+    artifact = _emitted(tmp_path / "opened", dict(item.files), document)
+    build = build_compiled(artifact)
+    loaded = _loaded(build)
+    lowered = emit_compiled(loaded, ())
+    assert lowered.rendered.sql == artifact.rendered.sql
+    assert _shape(_contract_of(lowered)) == _shape(_contract_of(artifact))
+    records = _records(build.root.description)
+    (unnest,) = (
+        record for record in records.values() if record.address.kind == "unnest"
+    )
+    fields = tuple(records[address] for address in unnest.get("fields"))
+    if "Decimal" in leaves:
+        (decimal,) = (field for field in fields if field.get("logical")[0] == "Decimal")
+        damages = (_set(decimal, decimal=(38, decimal.get("decimal")[1])),)
+    else:
+        temporal = tuple(
+            field
+            for field in fields
+            if field.get("logical")[0] in {"Timestamp", "UUID"}
+        )
+        assert len(temporal) == 2
+        damages = tuple(_set(field, meaning=None) for field in temporal)
+    for damaged in damages:
+        with pytest.raises(CompiledError):
+            _load(build, encode(_changed(build.root.description, damaged)))
+
+
 def _unnest_damage(description, change):
     records = _records(description)
     (unnest,) = (

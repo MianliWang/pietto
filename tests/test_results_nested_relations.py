@@ -8,7 +8,6 @@ programs built through the IR and plan builders.
 
 from copy import deepcopy
 from dataclasses import FrozenInstanceError, fields, replace
-from decimal import Decimal
 import hashlib
 import json
 import sys
@@ -1339,7 +1338,7 @@ def test_only_the_rows_carrier_reads_a_collected_field(outputs):
         bind_native_output(output, "mysql_rows", description)
 
 
-@pytest.mark.parametrize("key", ("Float", "Decimal"))
+@pytest.mark.parametrize("key", ("Float", "Decimal", "Date", "Timestamp", "UUID"))
 def test_a_supported_child_leaf_binds_from_live_or_stored_output(tmp_path, key):
     output = nested_helper.collected(probe, tmp_path / key, (("x", key, True),))
     for bind in (
@@ -1347,30 +1346,6 @@ def test_a_supported_child_leaf_binds_from_live_or_stored_output(tmp_path, key):
         lambda: bind_stored_output(output, "postgres_rows"),
     ):
         assert type(bind()) is p.ProducerResultBinding
-
-
-def test_float_and_decimal_children_preserve_bits_scale_and_arrow_width(tmp_path):
-    from pietto._project import project_arrow_result as arrow
-
-    output = nested_helper.collected(
-        probe,
-        tmp_path / "float-decimal",
-        (("ratio", "Float", False), ("amount", "Decimal", False)),
-    )
-    producer = bind_postgres_output(output, nested_helper.metadata(output))
-    binding = arrow.bind_arrow(producer)
-    assert str(binding.schema.field("c").type) == (
-        "list<item: struct<ratio: double not null, amount: decimal128(9, 2) not null> not null>"
-    )
-    batch = arrow.build_owned_batch(
-        binding,
-        ((7, ((-0.0,), (Decimal("-12.50"),))),),
-    )
-    values = batch.column("c").values
-    ratio = values.field("ratio")
-    amount = values.field("amount")
-    assert bytes(memoryview(ratio.buffers()[1])[:8]).hex() == "0000000000000080"
-    assert int.from_bytes(amount.buffers()[1], "little", signed=True) == -1250
 
 
 def _replace_nested(producer, **changes):

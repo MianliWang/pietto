@@ -12,11 +12,13 @@ import _pietto_results_conformance as whole
 
 def test_current_manifest_and_transitive_helpers_are_closed():
     assert len(product.CASES) == len(set(product.CASES))
-    assert product.CASES[110:120] == whole.GROUPS
-    assert product.CASES[120:127] == product._nested().GROUPS
-    assert product.CASES[127:] == (
-        product._nested_interop().GROUPS + product._nested_ipc().GROUPS
+    groups = (
+        whole.GROUPS
+        + product._nested().GROUPS
+        + product._nested_interop().GROUPS
+        + product._nested_ipc().GROUPS
     )
+    assert product.CASES[-len(groups) :] == groups
     assert len(whole.damage()) == 10
     integration = product._integration()
     for name in (

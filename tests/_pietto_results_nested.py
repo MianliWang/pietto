@@ -29,6 +29,7 @@ GROUPS = (
     "nested_accounting",
     "nested_verification",
     "nested_guards",
+    "nested_extended_scalar_leaves",
 )
 LOW, HIGH = -(2**63), 2**63 - 1
 SMILE = "\U0001f600" * 3
@@ -75,7 +76,7 @@ LEAVES = {
     "Bool": ("Bool", "pg_bool", {"kind": "bool01"}),
     "Text": ("Text", "pg_text", TEXT),
 }
-# Real children the rows reader does not open yet (S14/S15): authored type,
+# Extended installed-product child descriptors: authored type,
 # storage and domain. A Date child is derived: date_of(<label>_at).
 UNOPENED = {
     "Float": (
@@ -107,6 +108,9 @@ ARRAY_OIDS.update(
     pg_text=1009,
     pg_float8=1022,
     pg_numeric=1231,
+    pg_date=1182,
+    pg_timestamp=1115,
+    pg_uuid=2951,
 )
 Column = namedtuple("Column", "name type_code null_ok")
 ALLOCATORS = frozenset(
@@ -212,6 +216,16 @@ def collected(
     from pietto._project.project_scalar_meaning import acquire_scalar_meaning
     from pietto._project.project_sql_emission import emit_project_sql
 
+    def leaf(key):
+        if key.startswith("Decimal(") and key.endswith(")"):
+            precision, scale = (int(value.strip()) for value in key[8:-1].split(","))
+            return (
+                key,
+                {"kind": "pg_numeric", "precision": precision, "scale": scale},
+                {"kind": "decimal", "precision": precision, "scale": scale},
+            )
+        return LEAVES.get(key) or UNOPENED[key]
+
     # The kid column each child reads: a Date child derives from a Timestamp.
     columns = tuple(
         (f"{label}_at", "Timestamp", nullable)
@@ -220,8 +234,7 @@ def collected(
         for label, key, nullable in children
     )
     text = "shape Kid:\n    parent: Int\n    seq: Int\n" + "".join(
-        f"    {name}: {(LEAVES.get(key) or UNOPENED[key])[0]}"
-        f"{' | None' if nullable else ''}\n"
+        f"    {name}: {leaf(key)[0]}{' | None' if nullable else ''}\n"
         for name, key, nullable in columns
     )
     text += (
@@ -262,8 +275,9 @@ def collected(
     kids["selector"]["name"] = kids["relation"]["name"] = "kids"
 
     def field(ordinal, name, key, nullable):
+        spelling, storage, domain = leaf(key)
         if key in LEAVES:
-            _, storage, domain = LEAVES[key]
+            del spelling
             storage = {"kind": storage}
             if domain["kind"] == "int_range":
                 domain = {
@@ -271,8 +285,6 @@ def collected(
                     "min": str(domain["min"]),
                     "max": str(domain["max"]),
                 }
-        else:
-            _, storage, domain = UNOPENED[key]
         return dict(
             ordinal=ordinal,
             name=name,
@@ -978,6 +990,109 @@ def guards(real, p):
     return observed
 
 
+def extended_scalar_leaves(p, root):
+    """Actual Arrow buffers of the opened leaves, in the existing installed child."""
+    root.mkdir()
+    from datetime import date
+    from decimal import Decimal
+    from uuid import UUID
+    from pietto._project import project_arrow_result as arrow
+    from pietto._project.project_execution_reader import bind_postgres_output
+    from pietto._project.project_result_binding import ProducerNestedBinding
+
+    pa = importlib.import_module("pyarrow")
+    output = collected(
+        p,
+        root / "float-decimal",
+        (
+            ("ratio", "Float", False),
+            ("amount", "Decimal", False),
+        ),
+    )
+    producer = bind_postgres_output(output, metadata(output))
+    binding = arrow.bind_arrow(producer)
+    batch = arrow.build_owned_batch(binding, ((7, ((-0.0,), (Decimal("-12.50"),))),))
+    values = batch.column("c").values
+    result: dict[str, Any] = {
+        "float_decimal": {
+            "type": str(binding.schema.field("c").type),
+            "float_bits": bytes(
+                memoryview(values.field("ratio").buffers()[1])[:8]
+            ).hex(),
+            "decimal_integer": int.from_bytes(
+                values.field("amount").buffers()[1], "little", signed=True
+            ),
+        },
+        "wide": [],
+    }
+    for spelling in ("Decimal(39, 2)", "Decimal(60, 4)"):
+        output = collected(
+            p, root / spelling.replace(", ", "-"), (("amount", spelling, False),)
+        )
+        producer = bind_postgres_output(output, metadata(output))
+        binding = arrow.bind_arrow(producer)
+        batch, usage = arrow._build_owned_batch_with_usage(
+            binding, ((7, ((Decimal("1.00"),),)),)
+        )
+        child_binding = producer.fields[1]
+        assert isinstance(child_binding, ProducerNestedBinding)
+        result["wide"].append(
+            {
+                "spelling": spelling,
+                "type": str(binding.schema.field("c").type.value_type[0].type),
+                "child_charge": arrow._child_charge(child_binding.children, 1),
+                "usage": usage[0],
+                "bit_width": batch.column("c").values.field(0).type.bit_width,
+            }
+        )
+    token = UUID("00112233-4455-6677-8899-aabbccddeeff")
+    output = collected(
+        p,
+        root / "temporal-uuid",
+        (
+            ("day", "Date", False),
+            ("stamp", "Timestamp", False),
+            ("token", "UUID", False),
+        ),
+    )
+    producer = bind_postgres_output(output, metadata(output))
+    binding = arrow.bind_arrow(producer)
+    list_type = binding.schema.field("c").type
+    children = [
+        pa.array([date(2000, 2, 29)] * 6, pa.date32()).slice(1, 5),
+        pa.array(
+            [1 << 62, 0, 951825600000001, 1772937000000000, 1772937000000000, 1 << 62],
+            pa.timestamp("us"),
+        ).slice(1, 5),
+        pa.array(
+            [None, None, token.bytes, token.bytes, token.bytes, None], pa.uuid()
+        ).slice(1, 5),
+    ]
+    struct = pa.StructArray.from_arrays(
+        children, fields=list(list_type.value_type)
+    ).slice(1, 4)
+    listed = pa.ListArray.from_arrays(
+        pa.array([0, 1, 3, 3], pa.int32()), struct, type=list_type
+    )
+    batch = pa.RecordBatch.from_arrays(
+        [pa.array([7], pa.int64()), listed.slice(1, 1)], schema=binding.schema
+    )
+    arrow.verify_batch(batch, binding, producer)
+    result["temporal_uuid"] = {
+        "offsets": [
+            batch.column("c").offset,
+            struct.offset,
+            *(child.offset for child in children),
+        ],
+        "parent": batch.column("renamed").to_pylist(),
+        "values": [
+            [item["day"].isoformat(), item["stamp"].isoformat(), str(item["token"])]
+            for item in batch.column("c")[0].as_py()
+        ],
+    }
+    return result
+
+
 def run(p, root, cases):
     root.mkdir(parents=True, exist_ok=True)
     fx = fixtures(p, root / "fixtures", light=True)
@@ -990,6 +1105,7 @@ def run(p, root, cases):
         GROUPS[4]: accounting(real),
         GROUPS[5]: verification(fx, real, root),
         GROUPS[6]: guards(real, p),
+        GROUPS[7]: extended_scalar_leaves(p, root / "extended-leaves"),
     }
     # Round-trip through JSON first, as the saved report is checked.
     verify({**cases, **json.loads(json.dumps(result))}, p)
@@ -1085,8 +1201,8 @@ EXPECTED: dict[str, Any] = {
         },
         no_requests="ACCEPTED",
         leaves={
-            **{kind: "ACCEPTED" for kind in ("Float", "Decimal")},
-            **{kind: "PRODUCER_UNSUPPORTED" for kind in ("Date", "Timestamp", "UUID")},
+            kind: "ACCEPTED"
+            for kind in ("Float", "Decimal", "Date", "Timestamp", "UUID")
         },
         duplicate_child="PRODUCER_FIELDS",
     ),
@@ -1230,14 +1346,64 @@ EXPECTED: dict[str, Any] = {
     ),
 }
 
+EXPECTED[GROUPS[7]] = {
+    "float_decimal": {
+        "type": "list<item: struct<ratio: double not null, amount: decimal128(9, 2) not null> not null>",
+        "float_bits": "0000000000000080",
+        "decimal_integer": -1250,
+    },
+    "wide": [
+        {
+            "spelling": spelling,
+            "type": physical,
+            "child_charge": 34,
+            "usage": 34,
+            "bit_width": 256,
+        }
+        for spelling, physical in (
+            ("Decimal(39, 2)", "decimal256(39, 2)"),
+            ("Decimal(60, 4)", "decimal256(60, 4)"),
+        )
+    ],
+    "temporal_uuid": {
+        "offsets": [1, 1, 1, 1, 1],
+        "parent": [7],
+        "values": [
+            [
+                "2000-02-29",
+                "2026-03-08T02:30:00",
+                "00112233-4455-6677-8899-aabbccddeeff",
+            ]
+        ]
+        * 2,
+    },
+}
+
 
 def verify(cases, p):
     """Independent literal expectations; no Arrow import or product rebuild."""
     try:
-        for name in GROUPS:
+        for name in GROUPS[:-1]:
             exact(cases[name], EXPECTED[name])
+        verify_extended_scalar_leaves(cases[GROUPS[7]])
     except (KeyError, TypeError) as exc:
         raise ValueError("nested Arrow evidence shape") from exc
+
+
+def verify_extended_scalar_leaves(extended):
+    """Check raw buffer/offset evidence without importing Arrow."""
+    wide = extended["wide"]
+    if type(wide) is not list:
+        raise ValueError("nested wide Decimal charge")
+    for item in wide:
+        if type(item) is not dict:
+            raise ValueError("nested wide Decimal charge")
+        usage = item.get("usage")
+        if type(usage) is not int or usage < 34:
+            raise ValueError("nested wide Decimal charge")
+    # Usage includes parent/list overhead; the scalar child requires 34 bytes.
+    normalized = {**extended, "wide": [{**item, "usage": 34} for item in wide]}
+    exact(normalized, EXPECTED[GROUPS[7]])
 
 
 def damage():
@@ -1256,6 +1422,12 @@ def damage():
         lambda v: v["cases"][GROUPS[4]]["child_cap"].update(over="ACCEPTED"),
         lambda v: v["cases"][GROUPS[5]]["zero_length"].update(returncode=-11),
         lambda v: v["cases"][GROUPS[6]].update(manage_batch="raw:ValueError"),
+        lambda v: v["cases"][GROUPS[7]]["float_decimal"].update(
+            float_bits="0000000000000000"
+        ),
+        lambda v: v["cases"][GROUPS[7]]["wide"][0].update(bit_width=128),
+        lambda v: v["cases"][GROUPS[7]]["wide"][1].update(child_charge=33),
+        lambda v: v["cases"][GROUPS[7]]["temporal_uuid"]["offsets"].__setitem__(0, 0),
     )
 
 

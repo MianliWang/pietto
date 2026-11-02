@@ -514,3 +514,95 @@ def test_postgres_source_description_retains_profile_and_omits_fresh_context(
     assert describe(context[:14] + ("ISO, YMD",) + context[15:]) != baseline
     assert describe(context[:15] + ("off",) + context[16:]) != baseline
     assert describe(context[:16] + ("127.0.0.2", 5433, "later")) == baseline
+
+
+def test_date_source_requires_exact_builtin_io_even_beside_other_columns():
+    context, raw, original = catalog()
+    replies = list(original)
+    attribute_at = next(i for i, r in enumerate(replies) if r.kind == "attributes")
+    attribute = replies[attribute_at]
+    attributes = (*attribute.rows, (2, "day", 1082, 0, "", None))
+    replies[attribute_at] = replace(
+        attribute, rows=attributes, native=replace(attribute.native, rows=attributes)
+    )
+
+    def reply(kind, arguments, rows):
+        return CatalogReply(
+            kind,
+            arguments,
+            rows,
+            NativeReply(SQL[kind].encode(), arguments, rows, "NORMAL"),
+        )
+
+    # Synthetic catalog OIDs; names, signatures and closed native replies are
+    # checked here, while the PG campaign observes the actual catalog OIDs.
+    functions = (
+        (60000, "date_in", "2275", 1082, "s"),
+        (60001, "date_out", "1082", 2275, "s"),
+        (60002, "date_recv", "2281", 1082, "i"),
+        (60003, "date_send", "1082", 17, "i"),
+    )
+    replies.append(
+        reply(
+            "type",
+            (1082,),
+            (
+                (
+                    1082,
+                    "pg_catalog",
+                    "date",
+                    "b",
+                    0,
+                    0,
+                    *(f[0] for f in functions),
+                    False,
+                ),
+            ),
+        )
+    )
+    for oid, name, arguments, output, volatility in functions:
+        replies.append(
+            reply(
+                "function",
+                (oid,),
+                (
+                    (
+                        oid,
+                        "pg_catalog",
+                        name,
+                        "internal",
+                        name,
+                        None,
+                        arguments,
+                        output,
+                        volatility,
+                        False,
+                        "f",
+                        False,
+                        None,
+                        0,
+                        False,
+                    ),
+                ),
+            )
+        )
+    assert verify(tuple(replies), context, raw) == verify(original, context, raw)
+    index = next(
+        i
+        for i, r in enumerate(replies)
+        if r.kind == "function" and r.arguments == (60000,)
+    )
+    for position, value in (
+        (1, "public"),
+        (4, "timestamp_in"),
+        (6, "23"),
+        (7, 20),
+        (14, True),
+    ):
+        damaged = list(replies)
+        current = damaged[index]
+        row = list(current.rows[0])
+        row[position] = value
+        damaged[index] = reply("function", current.arguments, (tuple(row),))
+        with pytest.raises(ExecutionError):
+            verify(tuple(damaged), context, raw)

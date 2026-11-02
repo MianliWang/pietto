@@ -426,7 +426,7 @@ def test_all_supported_child_leaves_are_admitted_before_connection(
     assert _word(lambda: nested.admit_nested_shape(contract)) == "ACCEPTED"
     ibt = nested_cases.nested(leaves, leaves["ibt"]).contract
     assert _word(lambda: nested.admit_nested_shape(ibt)) == "ACCEPTED"
-    for kind in ("Float", "Decimal"):
+    for kind in ("Float", "Decimal", "Date", "Timestamp", "UUID"):
         from pietto._project.project_result_contract import NestedShape, ScalarShape
 
         parent, collection = ibt.shape.fields
@@ -459,7 +459,34 @@ def test_all_supported_child_leaves_are_admitted_before_connection(
         "Text",
         "Float",
         "Decimal",
+        "Date",
+        "Timestamp",
+        "UUID",
     }
+
+
+def test_preflight_uses_exact_opened_leaf_data_row_bounds():
+    fields = tuple(SimpleNamespace(decimal=None) for _ in range(5))
+    fields = (
+        fields[0],
+        SimpleNamespace(decimal=SimpleNamespace(precision=65, scale=30)),
+        *fields[2:],
+    )
+    domain = nested.CollectionDomain(
+        None,
+        None,
+        None,
+        fields,
+        ("Float", "Decimal", "Date", "Timestamp", "UUID"),
+        fields,
+        ("Float", "Decimal", "Date", "Timestamp", "UUID"),
+        False,
+    )
+    limits = ex.ExecutionLimits()
+    assert nested._measure(domain, limits, 1, 2, ()) == (789, 789, 789)
+    bad = replace(domain, child_fields=(fields[0], SimpleNamespace(decimal=None)))
+    with pytest.raises(ex.ExecutionError, match="POSTGRES_SOURCE_RESOURCE_LIMIT"):
+        nested._measure(bad, limits, 1, 2, ())
 
 
 def test_save_and_relay_refuse_a_collection_before_workspace_or_sink(

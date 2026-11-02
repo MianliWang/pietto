@@ -450,7 +450,7 @@ def _verify_unnests(records, entry, family) -> None:
             and type(logical) is tuple
             and len(logical) == 2
             and logical[0]
-            in ("Int", "Bool", "Text", "Float", "Decimal")
+            in ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID")
             and logical[1] in ("non_null", "nullable")
             and output.get("owner") == unnest.address
             and output.get("ordinal") == index

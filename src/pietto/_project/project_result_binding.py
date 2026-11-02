@@ -25,7 +25,7 @@ __all__: tuple[str, ...] = ()
 MAX_CHILD_ROWS = 1 << 20
 # Child leaves admitted by the PostgreSQL array carrier.  The Arrow boundary
 # continues to enforce each leaf's own finite/value/meaning law.
-CHILD_KINDS = ("Int", "Bool", "Text", "Float", "Decimal")
+CHILD_KINDS = ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID")
 
 
 @dataclass(frozen=True, slots=True)

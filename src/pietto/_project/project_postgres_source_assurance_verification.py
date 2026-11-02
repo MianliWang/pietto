@@ -101,6 +101,7 @@ TYPE_PROFILE = {
     701: ("float8", ("float8in", "float8out", "float8recv", "float8send")),
     1042: ("bpchar", ("bpcharin", "bpcharout", "bpcharrecv", "bpcharsend")),
     1043: ("varchar", ("varcharin", "varcharout", "varcharrecv", "varcharsend")),
+    1082: ("date", ("date_in", "date_out", "date_recv", "date_send")),
     1114: (
         "timestamp",
         ("timestamp_in", "timestamp_out", "timestamp_recv", "timestamp_send"),

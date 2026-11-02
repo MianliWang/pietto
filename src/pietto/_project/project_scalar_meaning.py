@@ -315,6 +315,50 @@ def _output_entry(bundle, port):
         add(stage_port.ref, stage_port.source)
     for join_port in plan.join_ports:
         add(join_port.ref, join_port.source)
+    for unnest in plan.unnests:
+        matches = tuple(
+            collect for collect in plan.collects if collect.ref is unnest.collect
+        )
+        definitions = tuple(
+            definition
+            for definition in plan.bindings.definitions
+            if definition.ref is unnest.definition
+        )
+        if len(matches) != 1 or len(definitions) != 1:
+            raise ScalarMeaningError("MEANING_OUTPUT")
+        children = tuple(
+            port
+            for child in matches[0].children
+            for port in plan.all_exports
+            if port.ref is child
+        )
+        outputs = tuple(
+            port
+            for output in unnest.outputs
+            for port in plan.join_ports
+            if port.ref is output
+        )
+        if (
+            not unnest.outputs
+            or not definitions[0].exports
+            or not len(unnest.outputs)
+            == len(definitions[0].exports)
+            == len(matches[0].children)
+            == len(children)
+            == len(outputs)
+            or any(
+                output.field.evidence is not export.field.evidence
+                or export.field.evidence is not child.field.evidence
+                for output, export, child in zip(
+                    outputs, definitions[0].exports, children, strict=True
+                )
+            )
+        ):
+            raise ScalarMeaningError("MEANING_OUTPUT")
+        for export, child in zip(
+            definitions[0].exports, matches[0].children, strict=True
+        ):
+            add(export.ref, child)
     for key in plan.group_keys:
         add(key.ref, key.input)
     for projection in plan.projections:
@@ -404,6 +448,19 @@ def _compiled_output_entry(bundle, port):
         ):
             # MIN and MAX keep the exact value of their one direct argument.
             pending.extend(record.get("arguments")[:1])
+        elif address.kind == "field":
+            from pietto._project.project_compiled_schema import (
+                CompiledError,
+                unnest_field_source,
+            )
+
+            try:
+                source = unnest_field_source(records, record)
+            except (CompiledError, KeyError, TypeError) as exc:
+                raise ScalarMeaningError("MEANING_OUTPUT") from exc
+            if source is None:
+                raise ScalarMeaningError("MEANING_OUTPUT")
+            pending.append(source)
         else:
             raise ScalarMeaningError("MEANING_OUTPUT")
     if len(found) != 1:

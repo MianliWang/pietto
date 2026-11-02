@@ -158,7 +158,7 @@ def _unnest_admitted(plan, unnest, family) -> bool:
         and all(
             field.field.resolved_type.kind.name == "BUILTIN"
             and field.field.resolved_type.name
-            in {"Int", "Bool", "Text", "Float", "Decimal"}
+            in {"Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"}
             for field in leaves
         )
         and all(

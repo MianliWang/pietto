@@ -29,6 +29,9 @@ PG_ARRAYS = {
     "pg_float8": 1022,
     "pg_text": 1009,
     "pg_numeric": 1231,
+    "pg_date": 1182,
+    "pg_timestamp": 1115,
+    "pg_uuid": 2951,
 }
 
 

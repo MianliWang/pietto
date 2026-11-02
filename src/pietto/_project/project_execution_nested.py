@@ -549,6 +549,9 @@ def _measure(domain, limits, parents, children, text_bytes):
                 "Int": 20,
                 "Bool": 5,
                 "Float": 24,
+                "Date": 12,
+                "Timestamp": 28,
+                "UUID": 38,
             }[tag]
         matches = tuple(
             index
