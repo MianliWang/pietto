@@ -5,6 +5,8 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 批次 B1（S01、S02、S03）已发布：S01 `be385507`、S02 `fc5e685c`、S03 `8e0a77d8` 一起 FF push，批次头的自然 exact-head CI `40770576938` 全部 19 个 job 成功；[S01](slice-01.md) 与 [S02](slice-02.md) 记录绑定下一版合成候选 `9511f13563d0`。之后的批次照此规则：只有 FF push 且批次头自然 CI 全部成功才 `COMPLETED / PUBLISHED`，此前都是 candidate。
 `0.1.6` 已从发行提交 `bdb3f567` 发行（tag `v0.1.6`），只含 Phase71 的 B1。批次 B2（S04、S05、S06、S07）建立在该发行提交之上，不属于 `0.1.6`，各片记录见下表的链接；B2 已发布：S04 `0dc5d5c1`、S05 `0da7e40a`、S06 `fb3bc264`、S07 `ee19ee01` 与 `0.1.6` 审计的项目模式小修 `81f0d3b5` 一起 FF push，批次头 `81f0d3b5` 的自然 exact-head CI `41128410841` 全部 19 个 job 成功。批次 B3（S08、S09、S10、S11）同样不属于 `0.1.6`，已在 `81f0d3b5` 上发布：四片提交依次为 `d1048d4e`、`20f02afc`、`21205d65`、`c6ae07ab`，批次头 `c6ae07ab` 的树为 `88e19f85`，自然 exact-head CI `41153438678` attempt 2 的 19 个 job 全部成功。attempt 1 的 artifact 上传 `ECONNRESET` 失败保留；所有者特别批准了整次 attempt 2 重跑，不改变以后失败头以子提交修复的规则。项目 emission interlude 已发布于 `e169cb88`（tree `43efe9fd`），自然 CI `41200621631` attempt 1 全部19/19成功。B4（S12 并入 AC-F7、S13、S17）已在 `9df0003f020c0d5e61fb32e4528cfd20d9125142`（tree `fa5e45c8c794207a360b3a195474e738ac2f49e9`）发布，自然 CI `41272976489` attempt 1 全部19/19成功，S/H/L/K/Q中点复查通过；B5及以后可按既有路线封存。health 为 INSUFFICIENT_EVIDENCE/current WATCH，可比历史0，不据此改调度。 batch emission interlude已在 `a6a78c2bde3f84290ee41e8b159f7690a5a593f4`（tree `934c7ca1bc08c138fcc5a4cefa647f781356248c`）发布，自然CI `41285328101` attempt1 全部19/19成功。
 下表是覆盖与依赖基准；每个 Slice 在自己的 Gate 0/1 展开时绑定精确输入、写集、命令、验收与成本。三层验收 A01–A12、语义契约与支持域见 [brief](brief.md)，外部参考见[外部参考记录](planning-notes.md)，所有者决定见[决定记录](../../decisions.md)的 D71.01–D71.12。
+The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
+
 
 ## 授权与依赖顺序
 
@@ -52,9 +54,9 @@ Phase71 负责嵌套关系与有界嵌套结果（[路线图](../../roadmap.md#f
 | [S11](slice-11.md) | 嵌套 copy/borrow/lease、C data/stream 相关通路、非零 offset、零行与 close 生命周期 | A08, A09 | S10 | 必做 |
 | S12 | **中点**：Int/Bool/有限 Text 的公开最小真实纵向；曝光前完成准入、未闭合消费者的预拒绝与基础失败/cleanup；接收 S08 的 AC-F7（`L_relation_collect` 目标变体、收据 v3 的 `array` cell、`docs/development.md` 的 denominator 段与 D71.11 的 PostgreSQL 运行；D71.10 scope 一次） | A02, A06, A07, A08, A09 | S08, S09, S10, S11 | 必做 / 中点 |
 | S13 | Unnest 的真实 source emission → compiled → 公开 native/bundle；最小纵向只交付最终平面输出，含 presence 与早期拒绝 | A04, A06, A07, A09 | S05, S06, S08, S09 | 必做 |
-| S14 | Float/Decimal 嵌套 leaf 的无损 carrier、bit/scale、SQL 内 Unnest 后的 scalar 语义与独立原值证明 | A04, A06, A08, A09 | S12, S13 | 必做 |
-| S15 | Date/Timestamp/UUID 的有限域、意义、SQL 内 Unnest 后的 scalar 语义与原值证明 | A04, A06, A08, A09 | S12, S13 | 必做 |
-| S16 | 多个并列子表、命名/分组阶段、参数/排序/过滤及 Collect–Unnest 组合，含展开一项后仍保留另一嵌套字段、普通 JOIN 透传与跨模块传递 | A03, A04, A05, A08 | S12, S13 | 必做 |
+| [S14](slice-14.md) | Float/Decimal 嵌套 leaf 的无损 carrier、bit/scale、SQL 内 Unnest 后的 scalar 语义与独立原值证明 | A04, A06, A08, A09 | S12, S13 | 必做 |
+| [S15](slice-15.md) | Date/Timestamp/UUID 的有限域、意义、SQL 内 Unnest 后的 scalar 语义与原值证明 | A04, A06, A08, A09 | S12, S13 | 必做 |
+| [S16](slice-16.md) | 多个并列子表、命名/分组阶段、参数/排序/过滤及 Collect–Unnest 组合，含展开一项后仍保留另一嵌套字段、普通 JOIN 透传与跨模块传递 | A03, A04, A05, A08 | S12, S13 | 必做 |
 | S17 | 完整嵌套合同的 IPC framing、截断/错 schema、rebatch/offset 与兼容拒绝 | A07, A08, A10 | S07, S09, S10, S11 | 必做 |
 | S18 | 普通保存、完整顶层 occurrence/chunk/checkpoint 与既有 publication 资格；优先复用 v7 工作区 | A08, A10 | S12, S14, S15, S17 | 必做 |
 | S19 | 新进程断源 R1 与独立 `verified_export`，含 trust/schema、重分批与只读导出无控制写入 | A08, A10 | S18 | 必做 |

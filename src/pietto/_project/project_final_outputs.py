@@ -57,6 +57,7 @@ from pietto._project.module_resolution import ProjectTypeSourceResolutionSet
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
     ProjectModuleCollectReadFact,
+    ProjectModuleNestedCarryFact,
     ProjectModuleOrderReferenceFact,
     ProjectModuleClauseDependencyFact,
     ProjectModuleFactOccurrenceRole,
@@ -64,11 +65,13 @@ from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleSelectFact,
     ProjectModuleWindowOutputFact,
     _clause_dependency_facts,
+    _expression_reference_facts,
     _computed_group_keys,
     _order_expression_reference_facts,
     _project_symbol_for_resolution,
     _window_output_facts,
     _window_project_targets,
+    nested_collect_origin,
     nested_reference_facts,
     with_nested_references,
 )
@@ -217,17 +220,20 @@ from pietto._project.project_scalar_namespaces import (
     ProjectNonConcreteJoinedLetNamespaces,
     ProjectNonConcreteJoinedNamespaceExpression,
     analyze_project_joined_namespace_expression,
+    resolve_project_joined_namespace_reference,
 )
 from pietto._project.project_scalar_references import (
     ProjectScalarReferenceOccurrence,
     ProjectScalarReferenceResolution,
     ProjectScalarEnvironmentField,
+    _source_field_parts,
 )
 from pietto._project.row_expression_schema import (
     _project_nullability,
     _project_resolved_type,
 )
 from pietto._project.row_expression_type_facts import (
+    admits_nested_carry,
     is_nested_relation_field,
     nested_distinct_diagnostic,
     nested_reference_diagnostic,
@@ -1145,6 +1151,7 @@ type ProjectCompletedOutputSource = (
     | ProjectNoJoinGroupedOutput
     | ProjectModuleWindowOutputFact
     | ProjectModuleCollectReadFact
+    | ProjectModuleNestedCarryFact
 )
 
 
@@ -1216,6 +1223,7 @@ class ProjectCompletedOutputField:
             ProjectNoJoinGroupedOutput,
             ProjectModuleWindowOutputFact,
             ProjectModuleCollectReadFact,
+            ProjectModuleNestedCarryFact,
         }:
             raise TypeError(
                 "Completed field source must be one closed exact authority."
@@ -2971,6 +2979,13 @@ def _validate_completed_field_source(output: ProjectCompletedOutputField) -> Non
             and output.field.nullability is ProjectRowFieldNullability.NON_NULL
             and output.result_role is ProjectRowResultRole.ORDINARY_ROW_VALUE
         )
+    elif type(source) is ProjectModuleNestedCarryFact:
+        valid = (
+            source.owner is output.owner
+            and source.select_fact is output.select_fact
+            and source.output_field is output.field
+            and output.result_role is ProjectRowResultRole.ORDINARY_ROW_VALUE
+        )
     else:
         assert type(source) is ProjectModuleWindowOutputFact
         valid = (
@@ -3325,6 +3340,14 @@ def _completed_field_source_is_rooted(
         else:
             owner = root.owner
         return source.read.read.owner is owner
+    if type(source) is ProjectModuleNestedCarryFact:
+        if isinstance(root, ProjectConcreteJoinedQualify):
+            input_filter = root.window_stage.input_aggregation.input_filter
+            return (
+                source.owner is input_filter.entry.owner
+                and source.namespace is input_filter.namespace
+            )
+        return source.owner is root.owner and source.namespace is None
     if type(root) is ProjectConcreteJoinedQualify:
         stage = root.window_stage
         aggregation = stage.input_aggregation
@@ -3933,6 +3956,143 @@ def _direct_joined_field(
     )
 
 
+def _carry_origin(
+    completion: ProjectCompletion,
+    owner: ProjectDeclarationOccurrence,
+    output_name: str,
+) -> ProjectModuleCollectReadFact | None:
+    """The Collect read whose value one carried output of ``owner`` is."""
+
+    semantic = completion.plan.semantic_facts
+
+    def relations(
+        target: ProjectDeclarationOccurrence,
+    ) -> ProjectModuleRelationSemanticFacts | None:
+        matches = semantic.find_owner(target)
+        return matches[0] if len(matches) == 1 else None
+
+    catalogs = {
+        catalog.module_path: catalog for catalog in semantic.authority.catalogs.catalogs
+    }
+    return nested_collect_origin(
+        _semantic_facts(completion, owner),
+        output_name,
+        relations=relations,
+        modules={
+            item.module.path: (item.resolution_environment, catalogs[item.module.path])
+            for item in semantic.environments
+        },
+    )
+
+
+def _no_join_carry(
+    completion: ProjectCompletion,
+    owner: ProjectDeclarationOccurrence,
+    select_fact: ProjectModuleSelectFact,
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts,
+    output_field: ProjectRowField | None,
+) -> ProjectModuleNestedCarryFact | SelectItem | None:
+    """The exact nested input field carried by one no-JOIN SELECT item."""
+
+    definition = _derived_definition(owner)
+    item = select_fact.item
+    if not admits_nested_carry(
+        item.expression, definition, relation_let=owner.let_position is not None
+    ):
+        return None
+    references = _expression_reference_facts(
+        owner=owner,
+        role=ProjectModuleFactOccurrenceRole.SELECT_VALUE,
+        container_ordinal=select_fact.selected_output_ordinal,
+        expression=item.expression,
+        relation_qualifier=(
+            definition.from_clause.binding_name or definition.from_clause.source_name
+        ),
+        input_schema=input_schema,
+        input_status=ProjectModuleCandidateBucketStatus.CONCRETE,
+        let_scope=let_scope,
+        let_candidates=let_scope.bindings,
+        selected_items=(),
+    )
+    if (
+        len(references) != 1
+        or references[0].status is not ProjectModuleCandidateBucketStatus.CONCRETE
+        or not is_nested_relation_field(references[0].input_field)
+    ):
+        return None
+    assert select_fact.output_name is not None
+    origin = _carry_origin(completion, owner, select_fact.output_name)
+    if origin is None or output_field is None:
+        return item
+    evidence = cast(ProjectRowField, references[0].input_field)
+    return ProjectModuleNestedCarryFact(
+        owner=owner,
+        select_fact=select_fact,
+        reference=references[0],
+        evidence=evidence,
+        output_field=output_field,
+        nullability=evidence.nullability,
+        collect=origin,
+    )
+
+
+def _joined_carry(
+    completion: ProjectCompletion,
+    aggregation: ProjectConcreteJoinedAggregation,
+    select_fact: ProjectModuleSelectFact,
+) -> ProjectModuleNestedCarryFact | ProjectScalarReferenceResolution | None:
+    """The exact nested input field carried by one joined SELECT item."""
+
+    owner = aggregation.input_filter.entry.owner
+    expression = select_fact.item.expression
+    if not admits_nested_carry(
+        expression,
+        _derived_definition(owner),
+        relation_let=owner.let_position is not None,
+    ):
+        return None
+    namespace = aggregation.input_filter.namespace
+    resolution = resolve_project_joined_namespace_reference(
+        namespace,
+        ProjectScalarReferenceOccurrence(
+            environment=namespace.binding_environment.scalar_environment,
+            expression=cast(NameExpr | DottedNameExpr, expression),
+        ),
+    )
+    if (
+        type(resolution) is not ProjectScalarReferenceResolution
+        or resolution.target is None
+        or not is_nested_relation_field(resolution.target.evidence)
+    ):
+        return None
+    assert select_fact.output_name is not None
+    origin = _carry_origin(completion, owner, select_fact.output_name)
+    if origin is None:
+        return resolution
+    nullability = _source_field_parts(resolution.target.source_field)[2]
+    output_field = ProjectRowField(
+        name=select_fact.output_name,
+        resolved_type=resolution.target.evidence.resolved_type,
+        nullability=nullability,
+        field_def=resolution.target.evidence.field_def,
+        provenance=ProjectRowFieldProvenance(
+            kind=ProjectRowFieldProvenanceKind.DIRECT_PROJECTION,
+            location=_source_location(expression),
+        ),
+    )
+    return ProjectModuleNestedCarryFact(
+        owner=owner,
+        select_fact=select_fact,
+        reference=resolution,
+        evidence=resolution.target.evidence,
+        output_field=output_field,
+        nullability=nullability,
+        collect=origin,
+        namespace=namespace,
+    )
+
+
 def _joined_final_fields(
     *,
     completion: ProjectCompletion,
@@ -3996,6 +4156,14 @@ def _joined_final_fields(
             row_field = project_collect_output_field(
                 name, resolved, _source_location(item.expression)
             )
+        elif aggregation.mode is ProjectJoinedAggregationMode.ABSENT and (
+            carried := _joined_carry(completion, aggregation, select_fact)
+        ):
+            if type(carried) is not ProjectModuleNestedCarryFact:
+                blocker = carried if blocker is None else blocker
+                continue
+            source = carried
+            row_field = carried.output_field
         elif aggregation.mode is ProjectJoinedAggregationMode.ABSENT:
             analysis = analyze_project_joined_namespace_expression(
                 aggregation.input_filter.namespace,
@@ -5118,6 +5286,20 @@ def _no_join_final_fields(
             ordering = collect_read_ordering(source)
             if type(ordering) is not ProjectRelationOrdering:
                 return None, source if ordering is None else ordering, ()
+        elif mode is ProjectJoinedAggregationMode.ABSENT and (
+            carried := _no_join_carry(
+                completion,
+                owner,
+                select_fact,
+                input_schema,
+                let_scope,
+                base_schema.fields.get(name),
+            )
+        ):
+            if type(carried) is not ProjectModuleNestedCarryFact:
+                return None, carried, ()
+            source = carried
+            row_field = base_schema.fields.get(name)
         elif mode is ProjectJoinedAggregationMode.ABSENT:
             analysis = (pretyped_expressions or {}).get(item.expression)
             if analysis is None:
@@ -5146,10 +5328,11 @@ def _no_join_final_fields(
                 select_fact=select_fact,
                 field=row_field,
             )
-        # Only a Collect read outputs a value that is not a scalar.
+        # Only a Collect read or carried nested field outputs a non-scalar value.
         if row_field is None or (
             row_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
-            and type(source) is not ProjectModuleCollectReadFact
+            and type(source)
+            not in {ProjectModuleCollectReadFact, ProjectModuleNestedCarryFact}
         ):
             return None, source, ()
         completed.append(
@@ -5624,6 +5807,13 @@ def _validate_distinct_projection(
                 or row_field.nullability is not ProjectRowFieldNullability.NON_NULL
             ):
                 raise ValueError("A Collect output keeps its read's nested type.")
+            continue
+        if type(source) is ProjectModuleNestedCarryFact:
+            if (
+                row_field.resolved_type is not source.evidence.resolved_type
+                or row_field.nullability is not source.nullability
+            ):
+                raise ValueError("A carried output keeps its field's nested type.")
             continue
         if isinstance(root, ProjectConcreteNoJoinReplay) and isinstance(
             source, (ProjectNoJoinScalarExpression, ProjectNoJoinGroupedOutput)
@@ -6393,7 +6583,9 @@ def _complete_no_join_output(
     # diagnostics, as it stops for them. A stage that stops with neither
     # reports the later stages' instead, since a relation with a nested
     # field read reports no PIE-S2333 of its own.
-    nested = nested_reference_facts(definition, input_schema, let_scope)
+    nested = nested_reference_facts(
+        definition, input_schema, let_scope, relation_let=owner.let_position is not None
+    )
     stages = (
         nested.lets,
         nested.where,
@@ -6995,6 +7187,7 @@ def _promoted_scalar_producer(
             ProjectNoJoinScalarExpression,
             ProjectModuleWindowOutputFact,
             ProjectModuleCollectReadFact,
+            ProjectModuleNestedCarryFact,
         }
         if not replay.fields or any(
             type(item.source) not in admitted for item in replay.fields
@@ -7006,9 +7199,13 @@ def _promoted_scalar_producer(
     if root.mode is ProjectJoinedAggregationMode.ABSENT:
         if root.aggregate_readiness is not None:
             return None
-        # A Collect read is an ordinary selected value of such a body.
+        # A Collect read or carried nested field is an ordinary selected value.
         expected: frozenset[type] = frozenset(
-            {ProjectNoJoinScalarExpression, ProjectModuleCollectReadFact}
+            {
+                ProjectNoJoinScalarExpression,
+                ProjectModuleCollectReadFact,
+                ProjectModuleNestedCarryFact,
+            }
         )
     else:
         # A grouped or global result is admitted only with its own successful and

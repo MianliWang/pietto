@@ -1404,6 +1404,16 @@ def _stage_read(request, scan, position, port):
             field=field,
             source_port=link.canonical.ref,
         )
+    if type(scan) in (RowNamedUse, RowStageUse, RowJoinUse):
+        column = scan.body.columns[position]
+        if type(column) in (collecting.CollectColumn, resulting.ResultGroupColumn):
+            ports = tuple(item for item in request.plan.stage_ports if item.ref is port)
+            if len(ports) != 1:
+                return None
+            read, _problem = unnesting.nested_read(
+                column, position=position, port=ports[0], scope=scan.symbol
+            )
+            return read
     if type(scan) is RowNamedUse:
         link = scan.binding.bindings[position]
         column = scan.body.columns[position].column
@@ -1449,7 +1459,7 @@ def _join_input(
     use = None
     producer: Any = None
     source_ref: Any = None
-    reads: list[rows.StageColumn] = []
+    reads: list[rows.StageColumn | unnesting.NestedRead] = []
     if original.binding_use is not None:
         use = uses_by_ref.get(original.binding_use)
         if use is None or use.original.consumer is not join.definition:
@@ -1510,7 +1520,23 @@ def _join_input(
                     None,
                 )
             for position, port_ref in enumerate(original.ports):
-                column = producer.columns[position].column
+                produced = producer.columns[position]
+                if type(produced) in (
+                    collecting.CollectColumn,
+                    resulting.ResultGroupColumn,
+                ):
+                    read, problem = unnesting.nested_read(
+                        produced,
+                        position=position,
+                        port=join_ports[port_ref],
+                        scope=alias,
+                    )
+                    if read is None:
+                        assert problem is not None
+                        return None, problem
+                    reads.append(read)
+                    continue
+                column = produced.column
                 if column.terminal is not use.bindings[position].terminal.ref:
                     return None, (
                         "PIE-B1001",
@@ -1539,26 +1565,63 @@ def _join_input(
                     port_ref,
                     None,
                 )
-            reads.append(
-                replace(
-                    column.column, position=position, name=column.label, scope=alias
+            if type(column) is resulting.ResultGroupColumn:
+                read, problem = unnesting.nested_read(
+                    column, position=position, port=join_ports[port_ref], scope=alias
                 )
-            )
+                if read is None:
+                    return None, problem
+                reads.append(read)
+            elif type(column) is unnesting.WithheldPort:
+                if column.read is None:
+                    return None, (
+                        "PIE-B1001",
+                        "unnest_source_not_nested",
+                        port_ref,
+                        None,
+                    )
+                reads.append(
+                    replace(
+                        column.read,
+                        position=position,
+                        port=join_ports[port_ref],
+                        scope=alias,
+                    )
+                )
+            else:
+                reads.append(
+                    replace(
+                        column.column, position=position, name=column.label, scope=alias
+                    )
+                )
     columns = []
     for position, port_ref in enumerate(original.ports):
         port = join_ports[port_ref]
         if unnest is not None and original.ordinal == 0 and port_ref is unnest.source:
-            read, problem = unnesting.nested_read(
-                producer.columns[position], position=position, port=port, scope=alias
+            read, problem = (
+                (
+                    replace(reads[position], position=position, port=port, scope=alias),
+                    None,
+                )
+                if type(reads[position]) is unnesting.NestedRead
+                else unnesting.nested_read(
+                    producer.columns[position],
+                    position=position,
+                    port=port,
+                    scope=alias,
+                )
             )
             if read is None:
                 assert problem is not None
                 return None, problem
             columns.append(read)
             continue
-        realization, problem = joining.port_realization(
-            port, reads[position], outer=False
-        )
+        if type(reads[position]) is unnesting.NestedRead:
+            columns.append(reads[position])
+            continue
+        read = reads[position]
+        assert isinstance(read, rows.StageColumn)
+        realization, problem = joining.port_realization(port, read, outer=False)
         if realization is None:
             assert problem is not None
             return None, (*problem, port_ref, None)
@@ -1815,14 +1878,51 @@ def _join_body(
         port = join_ports[reference]
         read = ordered[position]
         if type(read) is unnesting.NestedRead:
-            if unnest is None or port.source is not read.port.ref:
+            if (
+                unnest is not None
+                and port.source is not read.port.ref
+                and (unnest.source not in carriers or read.port.ref is unnest.source)
+            ):
                 return None, (
                     "PIE-B1001",
                     "unnest_withheld_port_drift",
                     reference,
                     None,
                 )
-            columns.append(unnesting.WithheldPort(position, port))
+            from pietto._project.project_sql_plan_nested import collect_of
+
+            group = collecting.original_group(read.group)
+            if group is None:
+                return None, ("PIE-B1001", "collect_read_drift", reference, None)
+            try:
+                retained = (
+                    any(
+                        block.definition is join.definition
+                        and block.kind.value != "projection"
+                        for block in request.plan.blocks
+                    )
+                    or any(
+                        value.field.evidence.resolved_type.nested is not None
+                        and collect_of(request.plan, value.ref).ref is group.collect.ref
+                        for value in request.plan.exports
+                    )
+                    or any(
+                        value.collect is group.collect.ref
+                        and value.join is not join.ref
+                        and value.join not in by_join
+                        for value in request.plan.unnests
+                    )
+                )
+            except (AttributeError, ValueError):
+                return None, ("PIE-B1001", "collect_read_drift", reference, None)
+            if retained:
+                columns.append(
+                    collecting.carry_group(
+                        read, export=port, position=position, final=False, terminal=port
+                    )
+                )
+            else:
+                columns.append(unnesting.WithheldPort(position, port, read))
             continue
         realization, problem = joining.port_realization(
             port, read, outer=True, proved=carriers[position] in rejected
@@ -1873,6 +1973,11 @@ def _join_body(
 
 def _join_node_count(unit) -> int:
     total = 4 + 3 * len(unit.columns) + 2 * len(unit.equalities)
+    total += 3 * sum(
+        len(column.carriers) - 1
+        for column in unit.columns
+        if type(column) is resulting.ResultGroupColumn
+    )
     total += sum(
         unnesting.node_count(item.producer)
         for item in unit.inputs
@@ -1905,6 +2010,7 @@ def realize_rows(request):
     join_inputs = {item.ref: item for item in plan.join_inputs}
     join_ports = {port.ref: port for port in plan.join_ports}
     equalities = {item.ref: item for item in plan.relationship_matches}
+    expression_by_ref = {item.ref: item for item in plan.expressions}
     projections: dict[Any, list[Any]] = {}
     for projection in plan.projections:
         projections.setdefault(projection.block, []).append(projection)
@@ -2265,6 +2371,17 @@ def realize_rows(request):
                         if export.source is not block.inputs[position]:
                             add("PIE-B1001", "stage_carry_port_drift", export)
                             return None
+                        if type(read) is unnesting.NestedRead:
+                            built = collecting.carry_group(
+                                read,
+                                export=export,
+                                position=position,
+                                final=False,
+                                terminal=export,
+                            )
+                            columns.append(built)
+                            nodes += 2 * (len(built.carriers) - 1)
+                            continue
                         columns.append(
                             RowCarryColumn(
                                 position,
@@ -2411,6 +2528,37 @@ def realize_rows(request):
                         return None
                     columns.append(built)
                     continue
+                expression = expression_by_ref.get(item.expression)
+                if kind == "projection" and type(expression) in (
+                    row.ProjectSQLReference,
+                    row.ProjectSQLJoinedReference,
+                ):
+                    expression = cast(
+                        row.ProjectSQLReference | row.ProjectSQLJoinedReference,
+                        expression,
+                    )
+                    group_read = readable.get(expression.port)
+                    if type(group_read) is unnesting.NestedRead:
+                        from pietto._project.project_sql_plan_nested import collect_of
+
+                        group = collecting.original_group(group_read.group)
+                        if (
+                            group is None
+                            or collect_of(plan, export.ref).ref is not group.collect.ref
+                        ):
+                            add("PIE-B1001", "collect_read_drift", export.ref)
+                            return None
+                        built = collecting.carry_group(
+                            group_read,
+                            export=export,
+                            position=position,
+                            final=final,
+                            terminal=projection_terminals[position],
+                            expression=expression.ref,
+                        )
+                        columns.append(built)
+                        nodes += 2 * len(built.carriers)
+                        continue
                 value, problem = rows.build_row_value(
                     request,
                     readable,
@@ -3250,7 +3398,7 @@ def _row_body_requirements(request, body, naming):
             )
         )
     for column in body.columns:
-        if type(column) is RowCarryColumn:
+        if type(column) in (RowCarryColumn, resulting.ResultGroupColumn):
             result.append(
                 GeneratedRequirement("carry_projection", column.export.ref, "R05", ())
             )

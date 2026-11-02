@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import ast
 import copy
+from datetime import date, datetime
+from decimal import Decimal
 from dataclasses import replace
 import inspect
 import json
@@ -19,6 +21,7 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import pytest
 
@@ -800,6 +803,201 @@ def _unnest_record(name, *, bundle=False):
     )
 
 
+def _wire(value):
+    if type(value) is list:
+        return [_wire(item) for item in value]
+    if type(value) is dict:
+        return {key: _wire(item) for key, item in value.items()}
+    if type(value) is float:
+        return {"kind": "float", "value": value.hex()}
+    if type(value) is Decimal:
+        parts = value.as_tuple()
+        return {
+            "kind": "decimal",
+            "value": str(value),
+            "tuple": [parts.sign, list(parts.digits), parts.exponent],
+        }
+    if type(value) is datetime:
+        return {"kind": "timestamp", "value": value.isoformat(), "fold": value.fold}
+    if type(value) is date:
+        return {"kind": "date", "value": value.isoformat()}
+    if type(value) is UUID:
+        return {"kind": "uuid", "value": value.hex}
+    return value
+
+
+def _unnest_preflight(leaves, relation="orders"):
+    bounds = check.UNNEST_PREFLIGHT[tuple(leaves)]
+    replies = [
+        [
+            "SELECT current_setting('server_encoding')",
+            [],
+            [[0, "current_setting", 25]],
+            [["UTF8"]],
+            2,
+        ],
+        [
+            'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."customers" LIMIT $1) AS "__pietto_nested_bound"',
+            [65],
+            [[0, "count", 20]],
+            [[6]],
+            2,
+        ],
+        [
+            f'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."{relation}" LIMIT $1) AS "__pietto_nested_bound"',
+            [17],
+            [[0, "count", 20]],
+            [[11]],
+            2,
+        ],
+    ]
+    if "Text" in leaves:
+        replies.append(
+            [
+                f'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("note"),0),$1)),0) FROM "public"."{relation}"',
+                [257],
+                [[0, "coalesce", 23]],
+                [[25]],
+                2,
+            ]
+        )
+    return {"identity": [True] * 6, "bounds": bounds, "replies": replies}
+
+
+def _collect_preflight(leaves):
+    bounds = check.COLLECT_PREFLIGHT[tuple(leaves)]
+    replies = [
+        [
+            "SELECT current_setting('server_encoding')",
+            [],
+            [[0, "current_setting", 25]],
+            [["UTF8"]],
+            2,
+        ],
+        [
+            'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."customers" LIMIT $1) AS "__pietto_nested_bound"',
+            [65],
+            [[0, "count", 20]],
+            [[6]],
+            2,
+        ],
+        [
+            'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."orders" LIMIT $1) AS "__pietto_nested_bound"',
+            [17],
+            [[0, "count", 20]],
+            [[11]],
+            2,
+        ],
+    ]
+    if "Text" in leaves:
+        replies.append(
+            [
+                'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("note"),0),$1)),0) FROM "public"."orders"',
+                [257],
+                [[0, "coalesce", 23]],
+                [[25]],
+                2,
+            ]
+        )
+    return {"identity": [True] * 6, "bounds": bounds, "replies": replies}
+
+
+def _decimal256_rows(rows):
+    if type(rows) is list:
+        return [_decimal256_rows(item) for item in rows]
+    if type(rows) is dict:
+        return {key: _decimal256_rows(item) for key, item in rows.items()}
+    return check.DECIMAL256 if rows == Decimal("99999999999999.9999") else rows
+
+
+def _oracle_unnest_record(name, leaves, *, bundle=False, decimal256=False):
+    import _pietto_execution_nested_oracle as oracle
+
+    labels = ("id", *oracle.child_fields(leaves))
+    rows = oracle.example(oracle.expected(name, "FULL", leaves))
+    if decimal256:
+        rows = _decimal256_rows(rows)
+    assert isinstance(rows, list)
+    schema = [[label, check.NATIVE_TYPES[label], True] for label in labels]
+    if decimal256:
+        schema[labels.index("price")][1] = "decimal256(60, 4)"
+    return _ok(
+        {
+            "origin": "bundle" if bundle else "live",
+            "schema": schema,
+            "schema_preopen": {
+                "closed": False,
+                "end": "NOT_STARTED",
+                "loaded": ["pyarrow"],
+            },
+            "rows": _wire(rows),
+            "metadata": [[label, check.NATIVE_OIDS[label], None] for label in labels],
+            "preflight": _unnest_preflight(
+                leaves, "orders_decimal256" if decimal256 else "orders"
+            ),
+            "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=len(rows)),
+            **_effects(),
+        }
+    )
+
+
+def _composed_record(*, outer, grouped=False):
+    schema, rows, preflight = check.composed_expectation(outer=outer, grouped=grouped)
+    return _ok(
+        {
+            "origin": "live" if outer else "bundle",
+            "schema": schema,
+            "schema_preopen": {
+                "closed": False,
+                "end": "NOT_STARTED",
+                "loaded": ["pyarrow"],
+            },
+            "rows": rows,
+            "preflight": preflight,
+            "binding": {
+                "parameters": [1] if grouped else [],
+                "arguments": [1] if grouped else [],
+            },
+            "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=len(rows)),
+            **_effects(),
+        }
+    )
+
+
+def _oracle_nested_record(name, leaves, *, bundle=False):
+    import _pietto_execution_nested_oracle as oracle
+
+    program = oracle.program(name, leaves)
+    assert isinstance(program.spec, oracle.Collect)
+    let = program.spec.lets[0]
+    child = ", ".join(
+        field
+        + ": "
+        + check.NATIVE_TYPES[field]
+        + (" not null" if field == "id" else "")
+        for field in ("id", *oracle.child_fields(leaves))
+    )
+    rows = oracle.example(oracle.expected(name, "FULL", leaves))
+    return _ok(
+        {
+            "origin": "bundle" if bundle else "live",
+            "schema": [
+                ["id", "int64", True],
+                [let.name, "list<item: struct<" + child + "> not null>", False],
+            ],
+            "schema_preopen": {
+                "closed": False,
+                "end": "NOT_STARTED",
+                "loaded": ["pyarrow"],
+            },
+            "rows": _wire(rows),
+            "preflight": _collect_preflight(leaves),
+            "outcome": _outcome("COMPLETE", "COMMIT_ACK", rows=len(rows)),
+            **_effects(),
+        }
+    )
+
+
 def postgres_report():
     """A report with the facts a passing postgres family records."""
     example = "\n".join(
@@ -890,9 +1088,37 @@ def postgres_report():
         "unnest_left": _unnest_record("U4_left_true"),
         "unnest_left_on": _unnest_record("U5_left_v_gt_10"),
         "unnest_bundle": _unnest_record("U4_left_true", bundle=True),
+        "unnest_float_decimal": _oracle_unnest_record(
+            "U1_cross", ("Int", "Float", "Decimal")
+        ),
+        "unnest_temporal": _oracle_unnest_record(
+            "U2_inner_true", ("Int", "Date", "Timestamp", "UUID")
+        ),
+        "unnest_full_bundle": _oracle_unnest_record(
+            "U4_left_true",
+            ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"),
+            bundle=True,
+        ),
+        "unnest_decimal256": _oracle_unnest_record(
+            "U1_cross", ("Int", "Decimal"), decimal256=True
+        ),
+        "nested_retained_bundle": _composed_record(outer=False),
+        "nested_grouped_parameter_bundle": _composed_record(outer=False, grouped=True),
+        "nested_outer_null": _composed_record(outer=True),
         "nested_captured": _nested_record(closed=False),
         "nested_closed": _nested_record(closed=True),
         "nested_bundle": _nested_record(closed=True, bundle=True),
+        "nested_float_decimal": _oracle_nested_record(
+            "C2_captured", ("Int", "Float", "Decimal")
+        ),
+        "nested_temporal": _oracle_nested_record(
+            "C2_captured", ("Int", "Date", "Timestamp", "UUID")
+        ),
+        "nested_full_bundle": _oracle_nested_record(
+            "C1_closed",
+            ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"),
+            bundle=True,
+        ),
         "nested_stopped": _ok(
             {
                 "schema": copy.deepcopy(check.NESTED_SCHEMA),
@@ -1071,6 +1297,14 @@ def _swap_captured_children(report):
     rows[0]["c"], rows[1]["c"] = rows[1]["c"], rows[0]["c"]
 
 
+def _tagged(report, key, kind):
+    for row in report[key]["result"]["rows"]:
+        for value in row.values():
+            if type(value) is dict and value.get("kind") == kind:
+                return value
+    raise AssertionError("missing tagged native witness value")
+
+
 def test_the_checker_accepts_the_postgres_oracle_facts():
     report = postgres_report()
     expected = {"family": "postgres", "verdict": "ACCEPTED"}
@@ -1103,6 +1337,22 @@ def test_the_checker_accepts_the_postgres_oracle_facts():
                 1, 10
             ),
             "UNNEST_PREFLIGHT_BOUNDS",
+        ),
+        (
+            lambda r: _tagged(r, "unnest_float_decimal", "decimal")[
+                "tuple"
+            ].__setitem__(2, -5),
+            "NATIVE_TAG",
+        ),
+        (
+            lambda r: _tagged(r, "unnest_temporal", "timestamp").update(fold=1),
+            "NATIVE_TAG",
+        ),
+        (
+            lambda r: r["unnest_full_bundle"]["result"]["schema"][6].__setitem__(
+                1, "decimal128(18, 3)"
+            ),
+            "UNNEST_SCHEMA",
         ),
         (lambda r: r["unnest_limit"]["result"].update(submitted=True), "UNNEST_LIMIT"),
         (lambda r: r.update(format="other"), "ENVELOPE"),
@@ -2776,3 +3026,31 @@ def test_s05_campaign_parser_defaults_all_and_rejects_unknown_target(monkeypatch
     with pytest.raises(SystemExit) as error:
         rows_probe.main()
     assert error.value.code == 2
+
+
+@pytest.mark.parametrize(
+    "outer, field",
+    ((False, "rows"), (False, "preflight"), (True, "schema"), (True, "rows")),
+)
+def test_composed_native_checker_rejects_lost_occurrence_or_nullability(outer, field):
+    record = _composed_record(outer=outer)
+    value = record["result"]
+    if field == "rows":
+        if outer:
+            value["rows"][0]["retained"] = []
+        else:
+            value["rows"][0]["retained"].reverse()
+    elif field == "schema":
+        value["schema"][-1][-1] = False
+    else:
+        value["preflight"]["group_counts"][-1] += 1
+    with pytest.raises(ValueError):
+        check.check_composed_nested(record, outer=outer)
+
+
+def test_composed_native_checker_rejects_wrong_parameter_binding():
+    record = _composed_record(outer=False, grouped=True)
+    check.check_composed_nested(record, outer=False, grouped=True)
+    record["result"]["binding"]["arguments"] = [0]
+    with pytest.raises(check.Rejected, match="COMPOSED_BINDING"):
+        check.check_composed_nested(record, outer=False, grouped=True)

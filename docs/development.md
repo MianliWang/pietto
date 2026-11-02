@@ -428,6 +428,22 @@ cases and 235 public documents per target (229 API-generated and 6 console docum
 PostgreSQL 201 VERIFIED, 25 BLOCKED and 3 INPUT_REJECTED; MySQL 182 VERIFIED, 44 BLOCKED
 and 3 INPUT_REJECTED. The variants need a fresh full PostgreSQL 18.6 target run (D71.11).
 
+The retained-collection case `L_retained_collection` adds two PostgreSQL
+programs over three separately authored relations: cross-module Unnest retaining
+a sibling through an ordinary JOIN, and outer JOIN carry with both present and
+absent containers. Its independent oracle compares physical count/array cells,
+BAG multiplicity, logical nullability and exact column/OID correspondence; a NULL
+container is distinct from count 0. MySQL refuses both programs before submission
+(two Collect blockers, plus one Unnest blocker in the expansion variant).
+The current full denominator is 73 cases and 237 public documents per target
+(231 API-generated and 6 console): PostgreSQL 203 VERIFIED, 25 BLOCKED and
+3 INPUT_REJECTED; MySQL 182 VERIFIED, 46 BLOCKED and 3 INPUT_REJECTED.
+
+The execution-API native family additionally exercises all eight child types,
+source-free retained siblings, and a grouped child producer expanded and filtered
+by an actual bound header parameter. Its structural preflight bounds are checked
+independently from actual output rows; the parameter does not reduce those bounds.
+
 The S13 final-flat Unnest domain is additionally exercised by the existing
 PostgreSQL execution-API native family: CROSS, INNER, LEFT, a source-free LEFT
 bundle, and conservative preflight refusal before main SQL. Those cases use

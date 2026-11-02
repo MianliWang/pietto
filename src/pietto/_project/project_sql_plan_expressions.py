@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pietto._project.existence_values import ProjectAnyReference, ProjectAnyValue
 from pietto._project import project_sql_plan_aggregation as aggregation
@@ -46,7 +46,10 @@ from pietto._project.project_scalar_namespaces import (
     ProjectJoinedNamespaceReferenceResolution,
     ProjectJoinedLetReferenceResolution,
 )
-from pietto._project.project_scalar_references import ProjectScalarEnvironmentField
+from pietto._project.project_scalar_references import (
+    ProjectScalarEnvironmentField,
+    ProjectScalarReferenceResolution,
+)
 from pietto._project.project_scalar_bindings import (
     ProjectJoinedScalarBindingEnvironment,
 )
@@ -56,6 +59,7 @@ from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleLetBindingFact,
+    ProjectModuleNestedCarryFact,
     ProjectModuleSelectFact,
     ProjectModuleSelectExpressionFact,
     ProjectModuleWhereFact,
@@ -117,6 +121,7 @@ type ProjectSQLOrdinaryEvidence = (
 )
 type ProjectSQLScalarEvidence = (
     ProjectSQLOrdinaryEvidence
+    | ProjectModuleNestedCarryFact
     | ProjectJoinedLetValue
     | ProjectConcreteJoinedNamespaceExpression
     | ProjectJoinCondition
@@ -174,8 +179,15 @@ class ProjectSQLJoinedSite:
     ordinal: int
     occurrence: LetBinding | WhereClause | SelectItem
     namespace: ProjectJoinedScalarNamespace
-    evidence: ProjectJoinedLetValue | ProjectConcreteJoinedNamespaceExpression
-    references: tuple[ProjectJoinedNamespaceReferenceResolution, ...]
+    evidence: (
+        ProjectJoinedLetValue
+        | ProjectConcreteJoinedNamespaceExpression
+        | ProjectModuleNestedCarryFact
+    )
+    references: tuple[
+        ProjectJoinedNamespaceReferenceResolution | ProjectScalarReferenceResolution,
+        ...,
+    ]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -587,9 +599,17 @@ class ProjectSQLJoinedRowAuthority:
     namespaces: ProjectConcreteJoinedLetNamespaces
     lets: tuple[ProjectJoinedLetValue, ...]
     selections: tuple[ProjectModuleSelectFact, ...]
-    selected_evidence: tuple[ProjectConcreteJoinedNamespaceExpression | None, ...]
+    selected_evidence: tuple[
+        ProjectConcreteJoinedNamespaceExpression | ProjectModuleNestedCarryFact | None,
+        ...,
+    ]
     selected_references: tuple[
-        tuple[ProjectJoinedNamespaceReferenceResolution, ...], ...
+        tuple[
+            ProjectJoinedNamespaceReferenceResolution
+            | ProjectScalarReferenceResolution,
+            ...,
+        ],
+        ...,
     ]
     where: ProjectConcreteJoinedNamespaceExpression | None
     where_references: tuple[ProjectJoinedNamespaceReferenceResolution, ...]
@@ -635,9 +655,27 @@ def row_authority(
         semantic = entry.semantic_entry
         tail = entry.semantic_entry.root.window_stage.input_aggregation.input_filter
         namespaces = tail.joined_semantics.namespaces
-        joined_selected: list[ProjectConcreteJoinedNamespaceExpression | None] = []
+        joined_selected: list[
+            ProjectConcreteJoinedNamespaceExpression
+            | ProjectModuleNestedCarryFact
+            | None
+        ] = []
         for output in semantic.fields:
-            if isinstance(output.source, ProjectConcreteJoinedNamespaceExpression):
+            if isinstance(
+                output.source,
+                (
+                    ProjectConcreteJoinedNamespaceExpression,
+                    ProjectModuleNestedCarryFact,
+                ),
+            ):
+                if isinstance(
+                    output.source, ProjectModuleNestedCarryFact
+                ) and not isinstance(
+                    output.source.reference, ProjectScalarReferenceResolution
+                ):
+                    raise ValueError(
+                        "Joined nested carry lost its namespace resolution."
+                    )
                 joined_selected.append(output.source)
             else:
                 joined_selected.append(None)
@@ -648,7 +686,12 @@ def row_authority(
             selections=tuple(f.select_fact for f in semantic.fields),
             selected_evidence=tuple(joined_selected),
             selected_references=tuple(
-                () if value is None else value.resolutions for value in joined_selected
+                ()
+                if value is None
+                else value.resolutions
+                if isinstance(value, ProjectConcreteJoinedNamespaceExpression)
+                else (cast(ProjectScalarReferenceResolution, value.reference),)
+                for value in joined_selected
             ),
             where=tail.expression_analysis,
             where_references=()
@@ -711,6 +754,8 @@ def input_keys(
 def evidence_types(
     evidence: ProjectSQLScalarEvidence,
 ) -> Mapping[Expression, ValueType]:
+    if isinstance(evidence, ProjectModuleNestedCarryFact):
+        return MappingProxyType({evidence.expression: evidence.value_type})
     if isinstance(
         evidence, (windows.ProjectNoJoinQualify, windows.ProjectConcreteJoinedQualify)
     ):

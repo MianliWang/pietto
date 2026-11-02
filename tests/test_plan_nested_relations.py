@@ -37,6 +37,7 @@ from _pietto_plan_nested import (
     imported_unnest_sources,
     nested_plan,
     nested_roots,
+    retained_unnest_sources,
     sources,
 )
 
@@ -78,6 +79,40 @@ def _nested_port(port):
         port.field.evidence.resolved_type.kind
         is ProjectResolvedTypeKind.NESTED_RELATION
     )
+
+
+@pytest.mark.parametrize(
+    "shape",
+    (
+        "unnest_alias",
+        "unnest_join_binding",
+        "unnest_cross_joined_parent",
+        "unnest_imported",
+    ),
+)
+def test_s16_carry_keeps_one_unique_collect_authority_through_reader_inputs(
+    tmp_path, shape
+):
+    """A renamed, joined, or imported parent still reaches one Collect read.
+
+    The result remains S13's flat Unnest output; this only asserts the
+    existing source-to-plan authority, never a new public nested result shape.
+    """
+
+    plan = _plan(tmp_path, shape)
+    for value in plan.unnests:
+        carried = nested.collect_of(plan, value.source)
+        assert carried.ref is value.collect
+        assert carried.fact.nested_type is not None
+
+
+def test_s16_unnest_keeps_the_parent_nested_export(tmp_path):
+    plan = nested_plan(tmp_path / "retain", retained_unnest_sources()).plan
+    assert isinstance(plan, sql.ProjectSQLPlan)
+    (unnest,) = plan.unnests
+    assert nested.collect_of(plan, unnest.source).ref is unnest.collect
+    (retained,) = [port for port in plan.exports if _nested_port(port)]
+    assert nested.collect_of(plan, retained.ref).ref is not unnest.collect
 
 
 @pytest.mark.parametrize("shape", (*SHAPES, "imported"))

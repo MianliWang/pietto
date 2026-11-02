@@ -9,6 +9,7 @@ are the flat JOIN's own. Every expected statement is written out.
 from __future__ import annotations
 
 from dataclasses import replace
+from collections import Counter
 from copy import deepcopy
 import json
 from pathlib import Path
@@ -765,7 +766,7 @@ def test_unnest_left_public_reader_requires_null_extension(public_unnest_documen
         public.decode_public(json.dumps(document).encode())
 
 
-def test_real_unnest_refuses_an_extra_collection_inventory(tmp_path):
+def test_real_unnest_preserves_each_authored_collection_inventory(tmp_path):
     program = oracle.program("U1_cross")
     files = dict(program.files)
     text = files["main.pietto"]
@@ -782,8 +783,35 @@ def test_real_unnest_refuses_an_extra_collection_inventory(tmp_path):
     outcome = collecting.wired_outcome(
         tmp_path / "extra", files, collecting.oracle_contract()
     )
-    assert outcome.status == "BLOCKED" and outcome.artifact is None
-    assert any(
-        blocker.detail == "unnest_not_admitted_on_target"
-        for blocker in outcome.blockers
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    assert len(outcome.artifact.request.plan.collects) == 2
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+
+    document = public.decode_public(serialize_project_sql_emission(outcome))
+    assert all(
+        column["logical_type"]["kind"] == "builtin" for column in document["columns"]
     )
+    demands = [
+        item
+        for item in document["requirements"]
+        if item["denominator"] == "original" and item["kind"] == "collection"
+    ]
+    laterals = [
+        item
+        for item in document["requirements"]
+        if item["denominator"] == "generated" and item["kind"] == "collect_lateral"
+    ]
+    expected = {}
+    for item in outcome.artifact.request.plan.collects:
+        expected[("collect", item.ref.position)] = 2
+        expected[("export", item.export.position)] = 1
+    for item in outcome.artifact.request.plan.unnests:
+        expected[("unnest", item.ref.position)] = 2
+    assert (
+        Counter(
+            (item["subject"]["kind"], item["subject"]["position"]) for item in demands
+        )
+        == expected
+    )
+    assert len(laterals) == 2
+    assert len({item["evidence"][0]["use"]["position"] for item in laterals}) == 2

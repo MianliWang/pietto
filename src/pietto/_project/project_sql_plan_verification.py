@@ -144,6 +144,7 @@ from pietto._project.project_final_outputs import (
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleClauseDependencyFact,
     ProjectModuleCollectReadFact,
+    ProjectModuleNestedCarryFact,
     ProjectModuleOrderReferenceFact,
     ProjectModuleSelectFact,
     _occurrence_identity,
@@ -1351,6 +1352,14 @@ def _row_site(
             evidence.scope_facts is authority.let_scope
             and evidence.value_type
             is authority.let_scope.value_types.get(occurrence.name)
+        )
+    if isinstance(evidence, ProjectModuleNestedCarryFact):
+        return (
+            evidence.owner is entry.owner
+            and evidence.namespace is None
+            and evidence.select_fact.item is occurrence
+            and len(references) == 1
+            and references[0] is evidence.reference
         )
     return (
         evidence.owner is entry.owner
@@ -3039,6 +3048,10 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 or (
                     value.value_type.kind is not ValueTypeKind.KNOWN
                     and not null_predicate
+                    and not (
+                        isinstance(site.evidence, ProjectModuleNestedCarryFact)
+                        and node is site.evidence.expression
+                    )
                 )
             ):
                 return False
@@ -3924,8 +3937,7 @@ def _row_origins_and_demands(plan):
         + len(plan.values_columns)
     )
     set_count += len(plan.values_bodies) + len(plan.values_columns)
-    # Each Collect read has its own and its export's origin and three demands;
-    # each Unnest its own origin and two demands.
+    carried = len(nested.carried_projections(plan))
     if (
         len(plan.demands)
         != demand_prefix
@@ -3936,6 +3948,7 @@ def _row_origins_and_demands(plan):
         + result_count
         + set_demands
         + 3 * len(plan.collects)
+        + carried
         + 2 * len(plan.unnests)
         + len(plan.bind_uses)
         or len(plan.origins)
@@ -3952,6 +3965,7 @@ def _row_origins_and_demands(plan):
         + set_count
         + set_demands
         + 5 * len(plan.collects)
+        + carried
         + 3 * len(plan.unnests)
         + len(plan.literal_sites)
         + len(plan.literal_slots)
@@ -6099,6 +6113,45 @@ def _nested_origins_and_demands(plan, origin_position, demand_position):
                 return (Issue.ORIGINS,)
             origin_position += 1
             demand_position += 1
+    for projection in nested.carried_projections(plan):
+        try:
+            value = nested.collect_of(plan, projection.export)
+        except ValueError:
+            return (Issue.DEMANDS,)
+        demand, demand_origin = (
+            plan.demands[demand_position],
+            plan.origins[origin_position],
+        )
+        if (
+            type(demand) is not nested.ProjectSQLCollectionDemand
+            or not _ref(demand.ref, plan.scope, K.DEMAND, demand_position)
+            or demand.subject is not projection.export
+            or demand.kind is not D.COLLECT_EXPORT
+            or demand.witness is not value
+            or demand.origin is not demand_origin.ref
+        ):
+            return (Issue.DEMANDS,)
+        if not _origin_matches(
+            demand_origin,
+            (
+                demand.ref,
+                R.DEMAND,
+                P.TYPE_PROOF,
+                projection.site.owner,
+                projection.semantic.item,
+                value,
+                tuple(
+                    origin.ref
+                    for origin in plan.origins
+                    if origin.subject is projection.export and origin.role is R.EXPORT
+                ),
+            ),
+            plan.scope,
+            origin_position,
+        ):
+            return (Issue.ORIGINS,)
+        origin_position += 1
+        demand_position += 1
     joins = {j.ref: j for j in plan.joins}
     for value in plan.unnests:
         condition = joins[value.join].source.condition
@@ -6393,9 +6446,9 @@ def _unnest_structure(plan) -> bool:
 
 
 def _nested_exports(plan) -> bool:
-    """Each nested export is one Collect read's own: no other record projects
-    it, no row expression reads its block use, and no scalar port is one."""
+    """Each nested export is its Collect's own or a verified carry."""
     collected = tuple(value.export for value in plan.collects)
+    carried = nested.carried_projections(plan)
     projected = {
         id(p.export)
         for p in (
@@ -6405,11 +6458,22 @@ def _nested_exports(plan) -> bool:
         )
     }
     collect_uses = {id(value.use) for value in plan.collects}
+    exports = {value.ref: value for value in plan.all_exports}
+    for projection in carried:
+        try:
+            value = nested.collect_of(plan, projection.export)
+        except ValueError:
+            return False
+        if (
+            exports[projection.export].field.evidence.resolved_type.nested
+            is not value.fact.nested_type
+        ):
+            return False
     return (
         len({id(ref) for ref in collected}) == len(collected)
         and not any(id(ref) in projected for ref in collected)
         and {id(p.ref) for p in plan.all_exports if _nested_port(p)}
-        == {id(ref) for ref in collected}
+        == {id(ref) for ref in (*collected, *(p.export for p in carried))}
         and not any(
             id(getattr(value, "use", None)) in collect_uses
             for value in plan.expressions
@@ -7418,7 +7482,15 @@ def _verify_compiled_unnests(plan):
                 for r in records.values()
                 if r.address.kind == "port"
                 and r.get("owner") == joins[0].address
-                and r.get("source") == source
+                and (
+                    r.get("source") == source
+                    or records[r.get("source")].address.kind == "join_value"
+                    and records[r.get("source")].get("owner") == joins[0].address
+                    and records[records[r.get("source")].get("input")].get("port")
+                    == source
+                    and records[records[r.get("source")].get("input")].get("use")
+                    == joins[0].get("inputs")[0]
+                )
             )
         )
         need(
@@ -7439,7 +7511,8 @@ def _verify_compiled_unnests(plan):
             and layout[3:] == (1, None)
             and len(layout[1]) == len(fields)
             and source_record is not None
-            and source_record.get("logical") == ("collection", "non_null")
+            and source_record.get("logical")
+            in (("collection", "non_null"), ("collection", "nullable"))
             and source_operation is not None
             and source_operation.get("operator") == ("collect", "collect")
             and image.collect is refs[source_operation.address]

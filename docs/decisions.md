@@ -475,6 +475,13 @@ and historical UNKNOWN remain; no category is reset. The balance covers only
 already-authorized Phase71 work and established interludes. Teach, Docker,
 public-design and release boundaries are unchanged.
 
+Later on 2026-11-01, the owner raised the independent caps to
+**C300/F400/D300**. Earlier charges and historical UNKNOWN remain. After the
+approved environment-isolation recovery, the lead alone performs every write,
+environment operation and validation; other agents are read-only. Commands
+assert the actual worktree and import origins. The earlier main environment
+incident remains recorded; this recovery does not grant release authority.
+
 After B4 recovery and publication, the owner requested maximum safe parallelism
 for the remaining work. Future implementation lanes use isolated worktrees with
 one writer each under D71.09; shared cores stay sequential within a lane. The
@@ -501,3 +508,15 @@ CPU 0–7, cache-only image, single-container and cleanup boundaries, and record
 the exact transport, owned container, fixed command identity, listener and
 child-reaping lifecycle. No publish, host networking, extra image/container,
 mount, download, arbitrary command, release or CI-default change is approved.
+
+
+### D71 S16 public Collect producer association
+
+On 2026-11-01 the owner approved adding exact `use`, `producer`, `terminal`,
+and ordered `children` associations to generated `collect_lateral` R27
+public evidence. SQL encounter order is not a canonical definition order.
+The v1/v2 format tags remain; Collect documents change bytes and strict readers
+must upgrade. Existing producer-corruption rejection remains required.
+The association is projected from the actual independently verified AST and
+requirements; no private portable schema or external authenticity claim is added.
+The Phase71 budget, root-only execution recovery, and release boundary remain.

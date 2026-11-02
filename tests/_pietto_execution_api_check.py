@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import ast
 from collections import Counter
+from datetime import date, datetime
+from decimal import Decimal
 import json
 from typing import Any, cast
+from uuid import UUID
 
 FORMAT = "pietto.execution-api-witness.v1"
 # fixture.items rows with id > 1, as a bag: the documented query's oracle.
@@ -34,6 +37,69 @@ NESTED_CHILDREN = [
     {"i": 4, "b": False, "t": "é"},
     {"i": 1, "b": True, "t": "x"},
 ]
+NATIVE_TYPES = {
+    "id": "int64",
+    "v": "int64",
+    "k": "int64",
+    "flag": "bool",
+    "note": "string",
+    "ratio": "double",
+    "price": "decimal128(18, 4)",
+    "ship_day": "date32[day]",
+    "seen_at": "timestamp[us]",
+    "token": "extension<arrow.uuid>",
+}
+NATIVE_OIDS = {
+    "id": 20,
+    "v": 20,
+    "k": 20,
+    "flag": 16,
+    "note": 25,
+    "ratio": 701,
+    "price": 1700,
+    "ship_day": 1082,
+    "seen_at": 1114,
+    "token": 2950,
+}
+UNNEST_PREFLIGHT = {
+    ("Int", "Bool", "Text"): [6, 11, [25], 217, 14322, 14322],
+    ("Int", "Float", "Decimal"): [6, 11, [], 245, 16170, 16170],
+    # U1 is parent id, v, k (three 20-char values) plus Decimal(60, 4).
+    # Its escaped widths are 42, 42, 42, 126: 7+3*(4+42)+(4+126)=275;
+    # the S12 expanded-row count is 6*11=66, so batch=total=275*66=18150.
+    ("Int", "Decimal"): [6, 11, [], 275, 18150, 18150],
+    ("Int", "Date", "Timestamp", "UUID"): [6, 11, [], 319, 21054, 21054],
+    ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"): [
+        6,
+        11,
+        [25],
+        491,
+        32406,
+        32406,
+    ],
+}
+COLLECT_PREFLIGHT = {
+    # C2 child fields id/v/k/ratio/price have widths 20/20/20/24/20. With
+    # 11 children, each array is 4+2+10+11*escaped(width); the parent packet
+    # prefix is 7+4+escaped(20)+4+len("11")=59, hence row=2537 and six
+    # parent rows give batch=total=15222.
+    ("Int", "Float", "Decimal"): [6, 11, [], 2537, 15222, 15222],
+    # C2 id/v/k/ship_day/seen_at/token widths are 20/20/20/12/28/38, giving
+    # 59+3*478+302+654+874=3323 and batch=total=19938 for six parent rows.
+    ("Int", "Date", "Timestamp", "UUID"): [6, 11, [], 3323, 19938, 19938],
+    # C1 includes id/v/k/flag/note/ratio/price/ship_day/seen_at/token;
+    # Adds Bool 148, Text 588, Float 566 and Decimal 478 to 3323, yielding
+    # row=5103 and batch=total=30618 for the all-leaf C1 witness.
+    ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"): [
+        6,
+        11,
+        [25],
+        5103,
+        30618,
+        30618,
+    ],
+}
+DECIMAL256 = Decimal("12345678901234567890123456789012345678901234567856.7890")
 AMBIENT = (
     "PGHOST",
     "PGPASSWORD",
@@ -616,78 +682,114 @@ def check_nested(record: Any, *, closed: bool, bundle: bool = False) -> None:
     check_effects(value, "NESTED")
 
 
-def check_unnest(record: Any, name: str, *, bundle: bool = False) -> None:
+def _fields(leaves) -> tuple[str, ...]:
     import _pietto_execution_nested_oracle as oracle
 
-    value = result(record, "UNNEST")
+    return oracle.child_fields(leaves)
+
+
+def _untag(value):
+    if type(value) is list:
+        return [_untag(item) for item in value]
+    if type(value) is not dict:
+        return value
+    tag_keys = set(value)
+    if tag_keys not in (
+        {"kind", "value"},
+        {"fold", "kind", "value"},
+        {"kind", "tuple", "value"},
+    ):
+        return {key: _untag(item) for key, item in value.items()}
+    kind, raw = value["kind"], value["value"]
+    try:
+        if kind == "float" and type(raw) is str and set(value) == {"kind", "value"}:
+            return float.fromhex(raw)
+        if (
+            kind == "decimal"
+            and type(raw) is str
+            and tag_keys == {"kind", "tuple", "value"}
+        ):
+            parts = value["tuple"]
+            decimal = Decimal(raw)
+            if (
+                type(parts) is list
+                and len(parts) == 3
+                and type(parts[0]) is int
+                and type(parts[1]) is list
+                and type(parts[2]) is int
+                and decimal.as_tuple() == (parts[0], tuple(parts[1]), parts[2])
+            ):
+                return decimal
+            raise ValueError
+        if kind == "date" and type(raw) is str and set(value) == {"kind", "value"}:
+            return date.fromisoformat(raw)
+        if (
+            kind == "timestamp"
+            and type(raw) is str
+            and tag_keys == {"fold", "kind", "value"}
+            and value["fold"] == 0
+        ):
+            return datetime.fromisoformat(raw).replace(fold=0)
+        if kind == "uuid" and type(raw) is str and set(value) == {"kind", "value"}:
+            return UUID(hex=raw)
+    except (TypeError, ValueError):
+        pass
+    raise Rejected("NATIVE_TAG")
+
+
+def _unnest_preflight(value: Any, leaves, relation="orders") -> None:
     need(
-        value.get("schema")
-        == [
-            [label, kind, True]
-            for label, kind in (
-                ("id", "int64"),
-                ("v", "int64"),
-                ("k", "int64"),
-                ("flag", "bool"),
-                ("note", "string"),
-            )
-        ],
-        "UNNEST_SCHEMA",
-    )
-    need(
-        value.get("schema_preopen")
-        == {"closed": False, "end": "NOT_STARTED", "loaded": ["pyarrow"]},
-        "UNNEST_SCHEMA_PREOPEN",
-    )
-    expected = oracle.expected(name, "FULL")
-    raw_rows = value.get("rows")
-    need(type(raw_rows) is list, "UNNEST_ROWS")
-    labels = [field[0] for field in value["schema"]]
-    # Canonical report JSON sorts object keys; observed Arrow schema owns ordinals.
-    rows = []
-    for row in raw_rows:
-        need(type(row) is dict and set(row) == set(labels), "UNNEST_ROWS")
-        rows.append({label: row[label] for label in labels})
-    need(not oracle.check(rows, expected), "UNNEST_ROWS")
-    count = sum(segment.take for segment in expected)
-    outcome = outcome_of(value, "UNNEST")
-    need(
-        (
-            outcome.get("end"),
-            outcome.get("transaction"),
-            outcome.get("cleanup"),
-            outcome.get("rows"),
-        )
-        == ("COMPLETE", "COMMIT_ACK", "CLOSED", count),
-        "UNNEST_END",
-    )
-    need(value.get("origin") == ("bundle" if bundle else "live"), "UNNEST_ORIGIN")
-    need(
-        value.get("metadata")
-        == [
-            [label, oid, None]
-            for label, oid in (
-                ("id", 20),
-                ("v", 20),
-                ("k", 20),
-                ("flag", 16),
-                ("note", 25),
-            )
-        ],
-        "UNNEST_METADATA",
-    )
-    receipt = value.get("preflight")
-    need(
-        type(receipt) is dict and receipt.get("identity") == [True] * 6,
+        type(value) is dict and value.get("identity") == [True] * 6,
         "UNNEST_PREFLIGHT_IDENTITY",
     )
-    # Literal FULL seed: six parents, eleven physical children and 25 UTF-8 bytes.
+    bounds = value.get("bounds")
+    need(bounds == UNNEST_PREFLIGHT[tuple(leaves)], "UNNEST_PREFLIGHT_BOUNDS")
+    replies = [
+        [
+            "SELECT current_setting('server_encoding')",
+            [],
+            [[0, "current_setting", 25]],
+            [["UTF8"]],
+            2,
+        ],
+        [
+            'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."customers" LIMIT $1) AS "__pietto_nested_bound"',
+            [65],
+            [[0, "count", 20]],
+            [[6]],
+            2,
+        ],
+        [
+            f'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."{relation}" LIMIT $1) AS "__pietto_nested_bound"',
+            [17],
+            [[0, "count", 20]],
+            [[11]],
+            2,
+        ],
+    ]
+    if "Text" in leaves:
+        replies.append(
+            [
+                f'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("note"),0),$1)),0) FROM "public"."{relation}"',
+                [257],
+                [[0, "coalesce", 23]],
+                [[25]],
+                2,
+            ]
+        )
+    need(value.get("replies") == replies, "UNNEST_PREFLIGHT_REPLIES")
+
+
+def _collect_preflight(value: Any, leaves) -> None:
     need(
-        receipt.get("bounds") == [6, 11, [25], 217, 14322, 14322],
-        "UNNEST_PREFLIGHT_BOUNDS",
+        type(value) is dict and value.get("identity") == [True] * 6,
+        "NESTED_PREFLIGHT_IDENTITY",
     )
-    replies = receipt.get("replies")
-    expected_reads = [
+    need(
+        value.get("bounds") == COLLECT_PREFLIGHT[tuple(leaves)],
+        "NESTED_PREFLIGHT_BOUNDS",
+    )
+    replies = [
         [
             "SELECT current_setting('server_encoding')",
             [],
@@ -709,19 +811,149 @@ def check_unnest(record: Any, name: str, *, bundle: bool = False) -> None:
             [[11]],
             2,
         ],
-        [
-            'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("note"),0),$1)),0) FROM "public"."orders"',
-            [257],
-            [[0, "coalesce", 23]],
-            [[25]],
-            2,
-        ],
     ]
+    if "Text" in leaves:
+        replies.append(
+            [
+                'SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("note"),0),$1)),0) FROM "public"."orders"',
+                [257],
+                [[0, "coalesce", 23]],
+                [[25]],
+                2,
+            ]
+        )
+    need(value.get("replies") == replies, "NESTED_PREFLIGHT_REPLIES")
+
+
+def _replace_decimal256(value):
+    if type(value) is list:
+        return [_replace_decimal256(item) for item in value]
+    if type(value) is dict:
+        return {key: _replace_decimal256(item) for key, item in value.items()}
+    return DECIMAL256 if value == Decimal("99999999999999.9999") else value
+
+
+def check_unnest(
+    record: Any, name: str, leaves=None, *, bundle: bool = False, decimal256=False
+) -> None:
+    import _pietto_execution_nested_oracle as oracle
+
+    leaves = oracle.DEFAULT_LEAVES if leaves is None else oracle.leaves_of(leaves)
+    labels = ("id", *_fields(leaves))
+    value = result(record, "UNNEST")
+    schema = [[label, NATIVE_TYPES[label], True] for label in labels]
+    if decimal256:
+        schema[labels.index("price")][1] = "decimal256(60, 4)"
+    need(value.get("schema") == schema, "UNNEST_SCHEMA")
     need(
-        json.dumps(replies, allow_nan=False) == json.dumps(expected_reads),
-        "UNNEST_PREFLIGHT_REPLIES",
+        value.get("schema_preopen")
+        == {"closed": False, "end": "NOT_STARTED", "loaded": ["pyarrow"]},
+        "UNNEST_SCHEMA_PREOPEN",
+    )
+    raw_rows = value.get("rows")
+    need(type(raw_rows) is list, "UNNEST_ROWS")
+    rows = []
+    for row in raw_rows:
+        need(type(row) is dict and set(row) == set(labels), "UNNEST_ROWS")
+        rows.append({label: _untag(row[label]) for label in labels})
+    expected = oracle.expected(name, "FULL", leaves)
+    if decimal256:
+        expected = tuple(
+            oracle.Segment(
+                tuple(_replace_decimal256(item) for item in segment.candidates),
+                segment.take,
+            )
+            for segment in expected
+        )
+    need(not oracle.check(rows, expected), "UNNEST_ROWS")
+    count = sum(segment.take for segment in expected)
+    outcome = outcome_of(value, "UNNEST")
+    need(
+        (
+            outcome.get("end"),
+            outcome.get("transaction"),
+            outcome.get("cleanup"),
+            outcome.get("rows"),
+        )
+        == ("COMPLETE", "COMMIT_ACK", "CLOSED", count),
+        "UNNEST_END",
+    )
+    need(value.get("origin") == ("bundle" if bundle else "live"), "UNNEST_ORIGIN")
+    need(
+        value.get("metadata")
+        == [[label, NATIVE_OIDS[label], None] for label in labels],
+        "UNNEST_METADATA",
+    )
+    _unnest_preflight(
+        value.get("preflight"),
+        leaves,
+        "orders_decimal256" if decimal256 else "orders",
     )
     check_effects(value, "UNNEST")
+
+
+def check_oracle_nested(
+    record: Any, name: str, leaves, *, bundle: bool = False
+) -> None:
+    import _pietto_execution_nested_oracle as oracle
+
+    leaves = oracle.leaves_of(leaves)
+    program = oracle.program(name, leaves)
+    let = cast(Any, program.spec).lets[0]
+    child = ", ".join(
+        field + ": " + NATIVE_TYPES[field] + (" not null" if field == "id" else "")
+        for field in ("id", *_fields(leaves))
+    )
+    value = result(record, "NESTED_FULL")
+    need(
+        value.get("schema")
+        == [
+            ["id", "int64", True],
+            [let.name, "list<item: struct<" + child + "> not null>", False],
+        ],
+        "NESTED_SCHEMA",
+    )
+    need(
+        value.get("schema_preopen")
+        == {"closed": False, "end": "NOT_STARTED", "loaded": ["pyarrow"]},
+        "NESTED_SCHEMA_PREOPEN",
+    )
+    raw_rows = value.get("rows")
+    need(type(raw_rows) is list, "NESTED_ROWS")
+    assert isinstance(raw_rows, list)
+    child_labels = ("id", *_fields(leaves))
+    rows = []
+    for row in raw_rows:
+        need(type(row) is dict and set(row) == {"id", let.name}, "NESTED_ROWS")
+        children = row[let.name]
+        need(type(children) is list, "NESTED_ROWS")
+        assert isinstance(children, list)
+        ordered = []
+        for child_row in children:
+            need(
+                type(child_row) is dict and set(child_row) == set(child_labels),
+                "NESTED_ROWS",
+            )
+            ordered.append({label: _untag(child_row[label]) for label in child_labels})
+        # JSON object order is not the already-verified Arrow field order.
+        rows.append({"id": _untag(row["id"]), let.name: ordered})
+    expected = oracle.expected(name, "FULL", leaves)
+    need(not oracle.check(rows, expected), "NESTED_ROWS")
+    count = sum(segment.take for segment in expected)
+    outcome = outcome_of(value, "NESTED_FULL")
+    need(
+        (
+            outcome.get("end"),
+            outcome.get("transaction"),
+            outcome.get("cleanup"),
+            outcome.get("rows"),
+        )
+        == ("COMPLETE", "COMMIT_ACK", "CLOSED", count),
+        "NESTED_END",
+    )
+    need(value.get("origin") == ("bundle" if bundle else "live"), "NESTED_ORIGIN")
+    _collect_preflight(value.get("preflight"), leaves)
+    check_effects(value, "NESTED_FULL")
 
 
 def check_steps(steps: Any) -> None:
@@ -778,6 +1010,102 @@ def check_steps(steps: Any) -> None:
     need(after.get("files") == {"cwd": [], "home": [], "tmp": []}, "BUNDLE_STEPS_FILES")
 
 
+def composed_expectation(*, outer, grouped=False):
+    schema = (
+        [["id", "int64", False]]
+        if outer
+        else [[name, "int64", False] for name in ("parent_id", "child_id", "tag_id")]
+    )
+    schema.append(
+        ["retained", "list<item: struct<id: int64 not null> not null>", outer]
+    )
+    rows = (
+        [{"id": 7, "retained": None}]
+        if outer
+        else [
+            {
+                "parent_id": parent,
+                "child_id": child,
+                "tag_id": child,
+                "retained": [{"id": 1}, {"id": 2}],
+            }
+            for parent in (1, 2)
+            for child in ((2,) if grouped else (1, 2, 3))
+        ]
+    )
+    prefix = "pietto_s16_outer_" if outer else "pietto_s16_"
+    sources = (
+        [("tags", 1, 65), ("rows", 0, 17), ("orders", 2, 17)]
+        if outer
+        else [("rows", 2, 17), ("tags", 3, 65), ("orders", 4, 17)]
+    )
+    replies = [
+        [
+            "SELECT current_setting('server_encoding')",
+            [],
+            [[0, "current_setting", 25]],
+            [["UTF8"]],
+            2,
+        ]
+    ]
+    replies.extend(
+        [
+            f'SELECT COUNT(*) FROM (SELECT 1 FROM "public"."{prefix}{name}" LIMIT $1) AS "__pietto_nested_bound"',
+            [cap],
+            [[0, "count", 20]],
+            [[count]],
+            2,
+        ]
+        for name, count, cap in sources
+    )
+    preflight = {
+        "identity": [True] * 6,
+        "bounds": [1, 2, [], 65, 65, 65] if outer else [2, 4, [], 241, 5784, 5784],
+        "source_counts": [
+            ["public", prefix + name, count] for name, count, _ in sources
+        ],
+        "group_counts": [2, 0] if outer else [4, 2],
+        "replies": replies,
+    }
+    return schema, rows, preflight
+
+
+def check_composed_nested(record, *, outer, grouped=False):
+    value = result(record, "COMPOSED_NESTED")
+    schema, rows, preflight = composed_expectation(outer=outer, grouped=grouped)
+    need(value.get("schema") == schema, "COMPOSED_SCHEMA")
+    need(
+        type(value.get("rows")) is list
+        and Counter(json.dumps(row, sort_keys=True) for row in value["rows"])
+        == Counter(json.dumps(row, sort_keys=True) for row in rows),
+        "COMPOSED_ROWS",
+    )
+    need(value.get("origin") == ("live" if outer else "bundle"), "COMPOSED_ORIGIN")
+    need(
+        value.get("schema_preopen")
+        == {"closed": False, "end": "NOT_STARTED", "loaded": ["pyarrow"]},
+        "COMPOSED_PREOPEN",
+    )
+    need(value.get("preflight") == preflight, "COMPOSED_PREFLIGHT")
+    need(
+        value.get("binding")
+        == {"parameters": [1] if grouped else [], "arguments": [1] if grouped else []},
+        "COMPOSED_BINDING",
+    )
+    outcome = outcome_of(value, "COMPOSED")
+    need(
+        (
+            outcome.get("end"),
+            outcome.get("transaction"),
+            outcome.get("cleanup"),
+            outcome.get("rows"),
+        )
+        == ("COMPLETE", "COMMIT_ACK", "CLOSED", len(rows)),
+        "COMPOSED_END",
+    )
+    check_effects(value, "COMPOSED")
+
+
 def check_postgres(report: Any) -> Any:
     check_install(report.get("install", {}), ("execute-postgres",))
     check_server(report.get("server") or {})
@@ -820,6 +1148,44 @@ def check_postgres(report: Any) -> Any:
         ("unnest_bundle", "U4_left_true"),
     ):
         check_unnest(report.get(key), name, bundle=key == "unnest_bundle")
+    for key, name, leaves, bundle in (
+        ("unnest_float_decimal", "U1_cross", ("Int", "Float", "Decimal"), False),
+        (
+            "unnest_temporal",
+            "U2_inner_true",
+            ("Int", "Date", "Timestamp", "UUID"),
+            False,
+        ),
+        (
+            "unnest_full_bundle",
+            "U4_left_true",
+            ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"),
+            True,
+        ),
+    ):
+        check_unnest(report.get(key), name, leaves, bundle=bundle)
+    check_unnest(
+        report.get("unnest_decimal256"),
+        "U1_cross",
+        ("Int", "Decimal"),
+        decimal256=True,
+    )
+    for key, name, leaves, bundle in (
+        ("nested_float_decimal", "C2_captured", ("Int", "Float", "Decimal"), False),
+        ("nested_temporal", "C2_captured", ("Int", "Date", "Timestamp", "UUID"), False),
+        (
+            "nested_full_bundle",
+            "C1_closed",
+            ("Int", "Bool", "Text", "Float", "Decimal", "Date", "Timestamp", "UUID"),
+            True,
+        ),
+    ):
+        check_oracle_nested(report.get(key), name, leaves, bundle=bundle)
+    check_composed_nested(report.get("nested_retained_bundle"), outer=False)
+    check_composed_nested(report.get("nested_outer_null"), outer=True)
+    check_composed_nested(
+        report.get("nested_grouped_parameter_bundle"), outer=False, grouped=True
+    )
     unnest_limit = result(report.get("unnest_limit"), "UNNEST_LIMIT")
     unnest_outcome = outcome_of(unnest_limit, "UNNEST_LIMIT")
     need(

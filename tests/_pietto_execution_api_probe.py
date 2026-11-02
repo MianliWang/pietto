@@ -90,8 +90,11 @@ def hba():
 
 
 WORKER = r"""
-import gc, json, os, shutil, sys, threading, time, warnings
+import gc, json, math, os, shutil, sys, threading, time, warnings
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
+from uuid import UUID
 config = json.loads(sys.stdin.readline())
 for entry in reversed(config.get("path", ())):
     sys.path.insert(0, entry)
@@ -148,6 +151,26 @@ def rejected(call):
         return [error.code, error.detail, password in str(error) + repr(error),
             error.__cause__ is not None or error.__context__ is not None]
     return None
+def tagged(value):
+    if type(value) is list:
+        return [tagged(item) for item in value]
+    if type(value) is dict:
+        return {key: tagged(item) for key, item in value.items()}
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise TypeError("non-finite native witness float")
+        return {"kind": "float", "value": value.hex()}
+    if type(value) is Decimal:
+        parts = value.as_tuple()
+        return {"kind": "decimal", "value": str(value),
+            "tuple": [parts.sign, list(parts.digits), parts.exponent]}
+    if type(value) is datetime:
+        return {"kind": "timestamp", "value": value.isoformat(), "fold": value.fold}
+    if type(value) is date:
+        return {"kind": "date", "value": value.isoformat()}
+    if type(value) is UUID:
+        return {"kind": "uuid", "value": value.hex}
+    return value
 query_fact = config.get("query", {})
 query = pe.compile_query(config["project"], module=query_fact.get("module", "main.pietto"),
     kind=query_fact.get("kind", "table"), name=query_fact.get("name", "active_items"),
@@ -170,6 +193,8 @@ def attempt(**changes):
         limits=limits)
     if "values" in config:
         arguments["values"] = tuple(config["values"])
+    if "parameters" in config:
+        arguments["parameters"] = config["parameters"]
     arguments.update(changes)
     return pe.execute(query, **arguments)
 handle = attempt()
@@ -181,7 +206,7 @@ def collection_preflight():
     if receipt is None:
         return None
     replies = tuple(receipt.replies)
-    return {
+    value = {
         "identity": [
             receipt.request is owner.request,
             receipt.output is owner.request.output,
@@ -198,6 +223,11 @@ def collection_preflight():
             for reply in replies
         ],
     }
+    if config.get("composition"):
+        value["source_counts"] = [[source.namespace, source.name, count]
+            for source, count in zip(receipt.domain.count_sources, receipt.source_counts, strict=True)]
+        value["group_counts"] = list(receipt.child_counts)
+    return value
 if case == "schema_refused":
     try:
         handle.__arrow_c_schema__()
@@ -251,7 +281,7 @@ elif case == "rows":
     with handle:
         for batch in handle:
             with batch:
-                rows.extend(pa.record_batch(batch).to_pylist())
+                rows.extend(tagged(pa.record_batch(batch).to_pylist()))
     result.update(rows=sorted([r["id"], r["label"]] for r in rows),
         outcome=facts(handle.outcome), after=effects())
 elif case in ("nested_rows", "unnest_rows"):
@@ -268,9 +298,12 @@ elif case in ("nested_rows", "unnest_rows"):
     with handle:
         for batch in handle:
             with batch:
-                rows.extend(pa.record_batch(batch).to_pylist())
+                rows.extend(tagged(pa.record_batch(batch).to_pylist()))
     result.update(rows=rows, preflight=collection_preflight(),
         outcome=facts(handle.outcome), after=effects())
+    if config.get("composition"):
+        binding = handle._owner.request.binding
+        result["binding"] = {"parameters": list(binding.parameters), "arguments": list(binding.arguments)}
     if case == "unnest_rows":
         result["metadata"] = handle._owner.actual_metadata
 
@@ -1128,6 +1161,7 @@ def statements(passwords):
         example_blocks,
         setup_blocks,
         unnest_setup_statements,
+        composed_setup_statements,
     )
     from _pietto_execution_api import statements as documented
 
@@ -1138,6 +1172,7 @@ def statements(passwords):
     return (
         *documented(example_blocks()["sql"]),
         *unnest_setup_statements(),
+        *composed_setup_statements(),
         "CREATE TABLE public.rows (id int8 NOT NULL)",
         "INSERT INTO public.rows VALUES (0),(2),(5),(5),(7)",
         "CREATE TABLE public.kids (parent int8 NOT NULL, seq int8 NOT NULL,"
@@ -1151,8 +1186,9 @@ def statements(passwords):
         "INSERT INTO fixture.items_wide VALUES " + wide,
         *(s.replace(" DATABASE app ", " DATABASE phase66 ") for s in role),
         "GRANT SELECT ON fixture.items_wide TO pietto_reader",
-        "GRANT SELECT ON public.customers, public.orders TO pietto_reader",
+        "GRANT SELECT ON public.customers, public.orders, public.orders_decimal256 TO pietto_reader",
         "GRANT SELECT ON TABLE public.rows, public.kids TO pietto_reader",
+        "GRANT SELECT ON public.pietto_s16_rows, public.pietto_s16_orders, public.pietto_s16_tags, public.pietto_s16_outer_rows, public.pietto_s16_outer_orders, public.pietto_s16_outer_tags TO pietto_reader",
         # Only Pietto's own statement limit applies to the reader's sessions.
         "ALTER ROLE pietto_reader SET statement_timeout = 0",
         "CREATE ROLE pietto_trust LOGIN",
@@ -1345,11 +1381,14 @@ def manual_cancel(python, cwd, config, manager, quiet):
 
 
 def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
+    import _pietto_execution_nested_oracle as oracle
     import _pietto_target_conformance_resources as resources_module
     from _pietto_execution_api import (
         write_example,
         write_nested_collect,
         write_nested_unnest,
+        write_composed_nested,
+        write_grouped_composed_nested,
     )
 
     directory.mkdir(mode=0o700)
@@ -1401,6 +1440,41 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             ("unnest_bundle", "U4_left_true"),
         )
     }
+    float_decimal = ("Int", "Float", "Decimal")
+    temporal = ("Int", "Date", "Timestamp", "UUID")
+    all_leaves = oracle.LEAVES
+    nested_projects = {
+        "nested_float_decimal": write_nested_unnest(
+            work / "nested-float-decimal", "C2_captured", float_decimal
+        ),
+        "nested_temporal": write_nested_unnest(
+            work / "nested-temporal", "C2_captured", temporal
+        ),
+        "nested_full_bundle": write_nested_unnest(
+            work / "nested-full-bundle", "C1_closed", all_leaves
+        ),
+    }
+    full_unnest_projects = {
+        "unnest_float_decimal": write_nested_unnest(
+            work / "unnest-float-decimal", "U1_cross", float_decimal
+        ),
+        "unnest_temporal": write_nested_unnest(
+            work / "unnest-temporal", "U2_inner_true", temporal
+        ),
+        "unnest_full_bundle": write_nested_unnest(
+            work / "unnest-full-bundle", "U4_left_true", all_leaves
+        ),
+    }
+    decimal256_unnest = write_nested_unnest(
+        work / "unnest-decimal256", "U1_cross", ("Int", "Decimal"), decimal256=True
+    )
+    composed_projects = {
+        "nested_retained_bundle": write_composed_nested(work / "retained-bundle"),
+        "nested_grouped_parameter_bundle": write_grouped_composed_nested(
+            work / "grouped-bundle"
+        ),
+        "nested_outer_null": write_composed_nested(work / "outer-null", outer=True),
+    }
     pins = json.loads((ROOT / "tests/phase66_target_pins.json").read_text())
     (directory / "resources").mkdir()
     resources = resources_module.Resources(
@@ -1438,6 +1512,26 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             "name": "result",
             "contract": "contract.json",
         }
+        for name, project_path in composed_projects.items():
+            report[name] = case(
+                python,
+                work,
+                {
+                    **reader,
+                    "case": "nested_rows",
+                    "project": str(project_path),
+                    "query": nested,
+                    "composition": True,
+                    "load_bundle": name != "nested_outer_null",
+                    "remove_project": name != "nested_outer_null",
+                    **(
+                        {"parameters": {"min_child": 1}}
+                        if name == "nested_grouped_parameter_bundle"
+                        else {}
+                    ),
+                },
+                extra=quiet,
+            )
         for name, project_path in unnest_projects.items():
             report[name] = case(
                 python,
@@ -1452,6 +1546,31 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
                 },
                 extra=quiet,
             )
+        for name, project_path in full_unnest_projects.items():
+            report[name] = case(
+                python,
+                work,
+                {
+                    **reader,
+                    "case": "unnest_rows",
+                    "project": str(project_path),
+                    "query": nested,
+                    "load_bundle": name == "unnest_full_bundle",
+                    "remove_project": name == "unnest_full_bundle",
+                },
+                extra=quiet,
+            )
+        report["unnest_decimal256"] = case(
+            python,
+            work,
+            {
+                **reader,
+                "case": "unnest_rows",
+                "project": str(decimal256_unnest),
+                "query": nested,
+            },
+            extra=quiet,
+        )
         report["unnest_limit"] = case(
             python,
             work,
@@ -1486,6 +1605,20 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             },
             extra=quiet,
         )
+        for name, project_path in nested_projects.items():
+            report[name] = case(
+                python,
+                work,
+                {
+                    **reader,
+                    "case": "nested_rows",
+                    "project": str(project_path),
+                    "query": nested,
+                    "load_bundle": name == "nested_full_bundle",
+                    "remove_project": name == "nested_full_bundle",
+                },
+                extra=quiet,
+            )
         report["nested_stopped"] = case(
             python,
             work,

@@ -74,6 +74,7 @@ VARIANTS = {
     # selected query, each one LEFT JOIN LATERAL count-and-arrays carrier;
     # MySQL refuses every Collect read (PIE-B1003).
     "L_relation_collect": COLLECT_VARIANTS,
+    "L_retained_collection": ("unnest", "outer"),
     "O_named_later": (
         "self_join",
         "union_dag",
@@ -510,6 +511,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         return membership_fixture(target, variant)
     if case == "L_relation_collect":
         return collect_fixture(target, variant)
+    if case == "L_retained_collection":
+        return retained_collection_fixture(target, variant)
     if case == "Q_table_function_series":
         return series_fixture(target, variant)
     if case in {"T_row_direct", "U_row_named", "V_row_blocked"}:
@@ -2491,6 +2494,131 @@ def collect_relation(name):
     return f"phase71 collect {name}"
 
 
+def retained_collection_fixture(target, variant):
+    """Self-contained input for the copied, isolated installed generator."""
+    _need(variant in ("unnest", "outer"), "unknown retained collection variant")
+    parent = f"""shape Row:
+    id: Int
+    other: Int | None
+shape Order:
+    id: Int
+    customer_id: Int
+    total: Int
+    created_at: Int
+source rows: Row = {target}.table("rows")
+source orders: Order = {target}.table("orders")
+query parent:
+    let recent:
+        from orders
+        select:
+            id
+            total
+        order by id
+    let held:
+        from rows
+        select:
+            id
+        order by id
+    from rows
+    select:
+        id
+        nested = collect recent
+        sibling = collect held
+export (
+    query parent,
+)
+"""
+    header = (
+        'from "parent.pietto" import (\n    query parent,\n)\nshape Tag:\n    id: Int\n    other: Int | None\n'
+        + f'source tags: Tag = {target}.table("tags")\n'
+    )
+    body = (
+        """query result:
+    let p = parent
+    from p
+    let child = unnest(p.nested)
+    cross join child
+    inner join tags on child.id == tags.id
+    select:
+        parent_id = p.id
+        child_id = child.id
+        tag_id = tags.id
+        retained = p.sibling
+"""
+        if variant == "unnest"
+        else """query result:
+    let p = parent
+    from tags
+    left join p on tags.id == p.id
+    select:
+        id = tags.id
+        retained = p.sibling
+"""
+    )
+    contract = json.loads(fixture(target)["contract"])
+    contract["sources"] = [
+        {
+            "scan": "relation_rows",
+            "selector": {"module": module, "kind": "source", "name": name},
+            "relation": {
+                "namespace": "public" if target == "postgres" else "phase66",
+                "name": "phase71 retained " + name,
+            },
+            "fields": [
+                {
+                    "ordinal": i,
+                    "name": field,
+                    "column": field,
+                    "representation": {
+                        "storage": {
+                            "kind": "pg_int8" if target == "postgres" else "my_bigint"
+                        },
+                        "nullable": nullable,
+                        "domain": {
+                            "kind": "int_range",
+                            "min": str(-(2**63)),
+                            "max": str(2**63 - 1),
+                        },
+                    },
+                }
+                for i, (field, nullable) in enumerate(fields)
+            ],
+            "premises": [
+                {"key": key, "scope": "source", "value": True}
+                for key in ("row_domain_matches", "read_only_object")
+            ],
+        }
+        for module, name, fields in (
+            ("parent.pietto", "rows", (("id", False), ("other", True))),
+            (
+                "parent.pietto",
+                "orders",
+                (
+                    ("id", False),
+                    ("customer_id", False),
+                    ("total", False),
+                    ("created_at", False),
+                ),
+            ),
+            ("main.pietto", "tags", (("id", False), ("other", True))),
+        )
+    ]
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    return {
+        "source": {"parent.pietto": parent, "main.pietto": header + body},
+        "contract": encoded(contract).decode(),
+        "policy": "preserve_literals",
+    }
+
+
 def collect_fixture(target, variant):
     """A parent `customers` row per output row and Collect reads of `orders`
     and `payments` rows. Every relation and column is declared exactly; only
@@ -3940,6 +4068,10 @@ PER_TARGET_STATUS = {
     ("Q_table_function_series", "joined"): {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
+    },
+    **{
+        ("L_retained_collection", variant): {"postgres": "VERIFIED", "mysql": "BLOCKED"}
+        for variant in ("unnest", "outer")
     },
     # D-S08-4: Collect is PostgreSQL only; MySQL refuses every Collect read.
     **{
@@ -5565,6 +5697,17 @@ def _decode_row_denominators(
         else:
             rule = "R02"
         _need(item["rule"] == rule, "original requirement rule")
+    actual_result_ports = [
+        item["subject"]["position"]
+        for item in families.get("result", ())
+        if item["subject"]["kind"] == "result_port"
+    ]
+    allocated_result_ports = walk["result_ports"]
+    _need(
+        sorted(actual_result_ports) == allocated_result_ports
+        and allocated_result_ports == list(range(len(allocated_result_ports))),
+        "complete result port allocation inventory",
+    )
     # Phase71 S08: each Collect read keeps S06's three COLLECTION demands (its
     # read twice, then its nested export), in read order, and only those.
     collects = walk.get("collects", [])
@@ -5584,6 +5727,7 @@ def _decode_row_denominators(
                 lateral["export"],
             )
         ]
+        + [export for _collect, export in walk.get("carried_collections", ())]
         + [entry["ref"] for entry in walk.get("unnests", ()) for _ in range(2)],
         "COLLECTION demands do not match the emitted Collect reads",
     )
@@ -6225,6 +6369,11 @@ def _decode_fixed_public(document, limits):
     # Phase71 S08: each parsed Collect lateral, in emission order, and the
     # nested carrier and ordinal columns the CTE header being parsed declared.
     row_collects: list[dict[str, Any]] = []
+    carried_collection_exports: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    collect_bindings: dict[str, dict[str, Any]] = {}
+    terminal_producers: dict[str, dict[str, Any]] = {}
+    producer_terminals: dict[str, dict[str, Any]] = {}
+
     row_unnests: list[dict[str, Any]] = []
     ROW_OPERATORS = {
         " + ": "+",
@@ -6581,8 +6730,54 @@ def _decode_fixed_public(document, limits):
                 ),
                 "a DISTINCT terminal is wrapped by exactly its ordinal",
             )
+        claims = [
+            entry["evidence"]
+            for entry in document["requirements"]
+            if entry.get("denominator") == "generated"
+            and entry.get("kind") == "collect_lateral"
+            and entry.get("subject") == collect
+        ]
+        _need(
+            bool(claims)
+            and all(type(value) is list and len(value) == 1 for value in claims),
+            "one Collect binding evidence object per occurrence",
+        )
+        _need(
+            all(value == claims[0] for value in claims),
+            "conflicting Collect binding evidence",
+        )
+        binding = claims[0][0]
+        _keys(binding, ("use", "producer", "terminal", "children"))
+        for key in ("use", "producer", "terminal"):
+            _reference(binding[key])
+        _need(type(binding["children"]) is list, "Collect binding children")
+        for child in binding["children"]:
+            _reference(child)
+        expected_binding = {
+            "use": use,
+            "producer": binding["producer"],
+            "terminal": producer,
+            "children": [a["child"] for a in arrays],
+        }
+        _need(
+            binding == expected_binding
+            and binding["producer"]["kind"] == "definition"
+            and binding["producer"]["position"] not in source_definition_positions,
+            "Collect binding does not describe the actual terminal",
+        )
+        ckey, tkey, pkey = (
+            encoded(value).decode()
+            for value in (collect, producer, binding["producer"])
+        )
+        _need(
+            collect_bindings.setdefault(ckey, binding) == binding
+            and terminal_producers.setdefault(tkey, binding["producer"])
+            == binding["producer"]
+            and producer_terminals.setdefault(pkey, producer) == producer,
+            "Collect producer/terminal binding drift",
+        )
         requirements = [
-            ("collect_lateral", collect, "R27", "naming", None),
+            ("collect_lateral", collect, "R27", "naming", expected_binding),
             ("collect_count", None, "R27", [], None),
             *(("collect_array", a["child"], "R27", [], None) for a in arrays),
         ]
@@ -6599,6 +6794,7 @@ def _decode_fixed_public(document, limits):
         lateral = {
             "collect": collect,
             "use": use,
+            "producer": binding["producer"],
             "arrays": arrays,
             "terminal": terminal,
             "wrapper": wrapper is not None,
@@ -6607,11 +6803,15 @@ def _decode_fixed_public(document, limits):
         row_collects.append(lateral)
         return lateral
 
-    def carrier_group(scope_role, scope_subject, final, position):
+    def carrier_group(
+        scope_role, scope_subject, final, position, *, count_kinds=("export",)
+    ):
         """Phase71 S08: one nested group's 1+F physical columns read through one
         scope: the count under the field's label, then each child's array."""
         carriers = []
         scope = None
+        count_start = lexical[cursor][0]["start"]
+        count_end = None
         while True:
             separator = None
             if carriers:
@@ -6626,11 +6826,13 @@ def _decode_fixed_public(document, limits):
             qualifier, _ = take("syntax", "qualifier", ".")
             subject = qualifier["subject"]
             _need(
-                subject["kind"] == "export"
+                subject["kind"] in (count_kinds if not carriers else ("export",))
                 and (separator is None or separator["subject"] == subject),
                 "nested carrier subject",
             )
-            _, name = take("identifier", "collect_carrier_column", None, subject)
+            token, name = take("identifier", "collect_carrier_column", None, subject)
+            if not carriers:
+                count_end = token["end"]
             take("syntax", "alias", " AS ", subject)
             _, label = take("identifier", "label", None, subject)
             carriers.append({"subject": subject, "name": name, "label": label})
@@ -6654,6 +6856,7 @@ def _decode_fixed_public(document, limits):
             "nested carrier labels",
         )
         return {
+            "count_span": (count_start, count_end),
             "export": carriers[0]["subject"],
             "label": carriers[0]["label"],
             "scope": scope,
@@ -6672,7 +6875,9 @@ def _decode_fixed_public(document, limits):
             "alias": group["scope"],
         }
 
-    def collect_output(position, item, lateral, published=None):
+    def collect_output(
+        position, item, lateral, published=None, *, container_nullable=False
+    ):
         """Independently rebuild one published nested column (Q1 option (a)):
         a ``collection`` of the terminal's child fields carried by its count
         and one array per child (``pg_column_arrays_v1``)."""
@@ -6733,7 +6938,7 @@ def _decode_fixed_public(document, limits):
                 "parameters": None,
                 "element": elements,
             },
-            "nullable": False,
+            "nullable": container_nullable,
             "representation": {
                 "carrier": "pg_column_arrays_v1",
                 "columns": [{"role": "count", "sql_symbol": physical}, *fields],
@@ -6741,7 +6946,7 @@ def _decode_fixed_public(document, limits):
             "correspondence": {
                 "collect": lateral["collect"],
                 "use": lateral["use"],
-                "producer": terminal["definition"],
+                "producer": lateral["producer"],
                 "children": [a["child"] for a in lateral["arrays"]],
                 "export": item["export"],
                 "sql_symbol": position + 1,
@@ -9104,6 +9309,42 @@ def _decode_fixed_public(document, limits):
         )
         return {"aggregation": owner, **origin}
 
+    result_allocations: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    result_owners: dict[int, tuple[str, str]] = {}
+
+    def result_ports(block, role, width, anchor: list[dict[str, Any]] | None = None):
+        key = (encoded(block).decode(), role)
+        if key in result_allocations:
+            prior = result_allocations[key]
+            _need(
+                len(prior) == width and (anchor is None or anchor == prior),
+                "result allocation drift",
+            )
+            return prior
+        if anchor is None:
+            anchor = [
+                ref("result_port", row_counts["result"] + i) for i in range(width)
+            ]
+        _need(
+            type(anchor) is list and len(anchor) == width and width > 0,
+            "result allocation width",
+        )
+        for item in anchor:
+            _reference(item)
+            _need(item["kind"] == "result_port", "result allocation kind")
+        start = anchor[0]["position"]
+        _need(
+            [item["position"] for item in anchor] == list(range(start, start + width))
+            and all(item["position"] not in result_owners for item in anchor),
+            "overlapping result allocation",
+        )
+        result_allocations[key] = anchor
+        for item in anchor:
+            result_owners[item["position"]] = key
+        while row_counts["result"] in result_owners:
+            row_counts["result"] += 1
+        return anchor
+
     row_definition_count = [0]
     source_definition_positions = {position for position, _ in scan_definitions}
 
@@ -9492,6 +9733,56 @@ def _decode_fixed_public(document, limits):
                 if peek() != "separator":
                     break
                 continue
+            if peek() == "result_carry_scope":
+                port = lexical[cursor][0]["subject"]
+                _need(port["kind"] == "stage_port", "nested stage input port")
+                group = carrier_group(
+                    "result_carry_scope",
+                    port,
+                    final,
+                    len(parsed),
+                    count_kinds=("stage_port", "export"),
+                )
+                _need(
+                    separator is None or separator["subject"] == group["export"],
+                    "nested separator",
+                )
+                if group["export"]["kind"] == "export":
+                    begin, end = group["count_span"]
+                    overlays = [
+                        r
+                        for r in _records(document["ranges"])
+                        if r["kind"] == "expression_range"
+                        and r["role"] == "reference"
+                        and (r["start"], r["end"]) == (begin, end)
+                    ]
+                    _need(len(overlays) == 1, "one authored nested reference range")
+                    reference = overlays[0]["subject"]
+                    _reference(reference)
+                    _need(
+                        reference["kind"] == "expression"
+                        and within(cause(reference), cause(block)),
+                        "nested reference expression scope",
+                    )
+                    seen_expressions.add(reference["position"])
+                    expected_ranges.append(("reference", reference, begin, end))
+                parsed.append(
+                    {
+                        "node": {
+                            "kind": "group",
+                            "port": port,
+                            "alias": group["scope"],
+                            "carriers": group["carriers"],
+                        },
+                        "export": group["export"],
+                        "label": group["label"],
+                        "helper": False,
+                    }
+                )
+                row_stage_ports.add(encoded(port).decode())
+                if peek() != "separator":
+                    break
+                continue
             carrier = CARRIER_ROLES.get(peek() or "")
             if carrier is not None:
                 kind, scope_role, qualifier_role, column_role = carrier
@@ -9765,6 +10056,37 @@ def _decode_fixed_public(document, limits):
             row_generated.append(("stage_use", block, "R03", "naming", None))
             for column in scan["body"]["header"]:
                 row_generated.append(("stage_terminal", column, "R03", "naming", None))
+        for item in parsed:
+            node = item["node"]
+            if node["kind"] != "group":
+                continue
+            matches = [
+                column
+                for column in incoming
+                if column.get("group") is not None
+                and not column.get("withheld", False)
+                and [c["name"] for c in column["group"]["carriers"]]
+                == [c["name"] for c in node["carriers"]]
+                and [c["subject"] for c in column["group"]["carriers"][1:]]
+                == [c["subject"] for c in node["carriers"][1:]]
+            ]
+            _need(
+                len(matches) == 1 and node["alias"] == alias, "nested immediate group"
+            )
+            read = matches[0]
+            _need(
+                row_port_reads.setdefault(encoded(node["port"]).decode(), read) is read,
+                "nested stage port binding drift",
+            )
+            item["source_group"] = read["group"]
+            item["source_nulled"] = bool(read.get("nulled", False))
+
+        def is_carry(item):
+            return item["node"]["kind"] == "carry" or (
+                item["node"]["kind"] == "group"
+                and item["export"]["kind"] == "stage_port"
+            )
+
         helpers = sum(1 for item in parsed if item["helper"])
         _need(
             all(item["helper"] for item in parsed[len(parsed) - helpers :])
@@ -9772,12 +10094,15 @@ def _decode_fixed_public(document, limits):
             "hidden ORDER helpers trail the visible columns of a closed stage",
         )
         visible_items = parsed[: len(parsed) - helpers]
-        carries = sum(1 for item in visible_items if item["node"]["kind"] == "carry")
+        carries = sum(is_carry(item) for item in visible_items)
         _need(
-            all(item["node"]["kind"] == "carry" for item in visible_items[:carries]),
+            all(is_carry(item) for item in visible_items[:carries]),
             "carried columns precede computed ones",
         )
-        kinds = [item["node"]["kind"] for item in visible_items]
+        kinds = [
+            "carry" if is_carry(item) else item["node"]["kind"]
+            for item in visible_items
+        ]
         aggregate_body = "group_key" in kinds or "aggregate" in kinds
         result_body = "result" in kinds
         _need(
@@ -9827,15 +10152,85 @@ def _decode_fixed_public(document, limits):
                     None,
                 )
             )
+        projection_terminals = (
+            result_ports(block, "projection", len(parsed), cte_terminals)
+            if projection_body
+            else None
+        )
         carriers_header = {}
         for position, item in enumerate(parsed):
             node, export, label = item["node"], item["export"], item["label"]
             _need(final or label == f"c{position}", "stage column label")
-            terminal = (
-                ref("result_port", row_counts["result"] + position)
-                if projection_body
-                else export
-            )
+            if projection_body:
+                assert projection_terminals is not None
+                terminal = projection_terminals[position]
+            else:
+                terminal = export
+            if node["kind"] == "group":
+                carriers = node["carriers"]
+                group = item["source_group"]
+                _need(
+                    (export["kind"] == "export") is projection_body,
+                    "nested stage output kind",
+                )
+                _need(
+                    cte_terminals is None or cte_terminals[position] == terminal,
+                    "declared nested stage terminal",
+                )
+                row_generated.append(("carry_projection", export, "R05", [], None))
+                if final:
+                    collect_output(
+                        position,
+                        {"export": export, "carriers": carriers},
+                        group["lateral"],
+                        container_nullable=item["source_nulled"],
+                    )
+                else:
+                    carriers_header[position] = [c["subject"] for c in carriers[1:]]
+                renamed = {
+                    **group,
+                    "carriers": [
+                        {"subject": c["subject"], "name": c["label"]} for c in carriers
+                    ],
+                }
+                outgoing.append(
+                    {
+                        "name": f"c{position}",
+                        "terminal": terminal,
+                        "source_port": None,
+                        "realization": None,
+                        "field": None,
+                        "literal": None,
+                        "origin": None,
+                        "helper": False,
+                        "strict": False,
+                        "proof": False,
+                        "nulled": item["source_nulled"],
+                        "group": renamed,
+                    }
+                )
+                columns.append(
+                    {
+                        "label": label,
+                        "export": export,
+                        "terminal": terminal,
+                        "realization": None,
+                        "field": None,
+                        "literal": None,
+                        "root": None,
+                        "position": position,
+                        "origin": None,
+                        "group": renamed,
+                    }
+                )
+                if projection_body:
+                    _need(
+                        encoded(group["collect"]).decode() in collect_bindings,
+                        "carried collection has no actual lateral",
+                    )
+                    carried_collection_exports.append((group["collect"], export))
+                    row_counts["projection"] += 1
+                continue
             if node["kind"] == "collect":
                 _need(projection_body, "a nested group is a projection column")
                 lateral = node["lateral"]
@@ -10375,9 +10770,6 @@ def _decode_fixed_public(document, limits):
                     "satisfying reads only established aggregate stage results",
                 )
         row_generated.append(("read_only_select_bytes", None, "R23", [], None))
-        if projection_body:
-            # Hidden helpers are projection-role result ports, never projections.
-            row_counts["result"] += len(columns)
         body = {
             "block": block,
             "columns": columns,
@@ -10606,7 +10998,28 @@ def _decode_fixed_public(document, limits):
             )
         # Independent result-port accounting: every boundary consumes its inputs
         # and re-publishes the visible outputs; the terminal is the last output.
-        cursor_position = row_counts["result"]
+        stage_count = sum(
+            (distinct is not None, order_ref is not None, limit is not None)
+        )
+        _need(stage_count > 0, "result boundary chain")
+        total_width = width + len(visible) + (stage_count - 1) * 2 * len(visible)
+        anchor = cte_terminals
+        if anchor is None and final:
+            anchor = [
+                column["correspondence"]["result_origin"]["terminal"]
+                for column in document["columns"]
+            ]
+        if anchor is not None:
+            _need(len(anchor) == len(visible), "result terminal width")
+            for port in anchor:
+                _reference(port)
+            cursor_position = anchor[0]["position"] - (total_width - len(visible))
+            _need(cursor_position >= 0, "result boundary span")
+        else:
+            prior = result_allocations.get((encoded(block).decode(), "boundary_inputs"))
+            cursor_position = (
+                row_counts["result"] if prior is None else prior[0]["position"]
+            )
         stages = []
         boundary_position = block["position"]
         for present, kind in (
@@ -10621,6 +11034,9 @@ def _decode_fixed_public(document, limits):
                 ref("result_port", cursor_position + width + i)
                 for i in range(len(visible))
             ]
+            boundary_ref = ref("result_boundary", boundary_position)
+            result_ports(boundary_ref, "boundary_inputs", len(inputs), inputs)
+            result_ports(boundary_ref, "boundary_outputs", len(outputs), outputs)
             stages.append(
                 {
                     "kind": kind,
@@ -10642,9 +11058,8 @@ def _decode_fixed_public(document, limits):
                 "an ORDER key binds an input port of its own boundary",
             )
         terminals = stages[-1]["outputs"]
-        if cte_terminals is not None:
-            _need(cte_terminals == terminals, "declared result terminals")
-        row_counts["result"] = cursor_position
+        if anchor is not None:
+            _need(anchor == terminals, "declared result terminals")
         quotient_base = row_counts["quotient_field"]
         if distinct is not None:
             row_counts["quotient_field"] += len(visible)
@@ -10791,6 +11206,7 @@ def _decode_fixed_public(document, limits):
                         item,
                         group["lateral"],
                         {**published, "correspondence": correspondence},
+                        container_nullable=bool(column.get("nulled", False)),
                     )
                 else:
                     carriers[position] = [c["subject"] for c in item["carriers"][1:]]
@@ -11190,9 +11606,7 @@ def _decode_fixed_public(document, limits):
             "every operand carries the SET-owned labels",
         )
         _need(final or labels == [f"c{i}" for i in range(width)], "SET column labels")
-        base = row_counts["result"]
-        terminals = [ref("result_port", base + i) for i in range(width)]
-        row_counts["result"] += width
+        terminals = result_ports(block, "set", width, cte_terminals)
         column_base = row_counts["set_column"]
         row_counts["set_column"] += width
         if cte_terminals is not None:
@@ -11479,8 +11893,7 @@ def _decode_fixed_public(document, limits):
             function_evidence.get(encoded(block)) == [evidence],
             "published table-function evidence",
         )
-        terminal = ref("result_port", row_counts["result"])
-        row_counts["result"] += 1
+        (terminal,) = result_ports(block, "function", 1, cte_terminals)
         row_counts["values_column"] += 1
         _need(cte_terminals == [terminal], "declared table-function terminal")
         row_generated.append(("table_function", block, "R04", "naming", evidence))
@@ -11680,9 +12093,7 @@ def _decode_fixed_public(document, limits):
                 [c["label"] for c in columns_seen] == [f"c{i}" for i in range(width)],
                 "VALUES CTE column labels",
             )
-        result_base = row_counts["result"]
-        terminals = [ref("result_port", result_base + i) for i in range(width)]
-        row_counts["result"] += width
+        terminals = result_ports(block, "values", width, cte_terminals)
         row_counts["values_column"] += width
         if cte_terminals is not None:
             _need(cte_terminals == terminals, "declared VALUES terminals")
@@ -11979,38 +12390,57 @@ def _decode_fixed_public(document, limits):
             "Unnest route",
         )
         assert left is not None
-        groups = [
-            (i, column["group"])
-            for i, column in enumerate(left["columns"])
-            if column.get("group")
-        ]
-        _need(len(groups) == 1, "one Unnest collection source")
-        group_position, group = groups[0]
         event, _ = take("syntax", "unnest_rows_open", "LATERAL ROWS FROM (")
         input_ref = event["subject"]
         _need(input_ref["kind"] == "join_input", "Unnest input subject")
         unnest_ref = ref("unnest", 0)
         source_ref = None
-        children = group["lateral"]["terminal"]["outgoing"]
-        arrays = group["carriers"][1:]
-        _need(bool(children) and len(arrays) == len(children), "Unnest array width")
-        for i, (array, child) in enumerate(zip(arrays, children, strict=True)):
-            if i:
+        names = []
+        while True:
+            if names:
                 take("syntax", "separator", ", ", unnest_ref)
             take("syntax", "unnest_function", "pg_catalog.unnest(", unnest_ref)
             scoped, _ = take("identifier", "unnest_scope", left["alias"])
             if source_ref is None:
                 source_ref = scoped["subject"]
-            assert source_ref is not None
             _need(
                 scoped["subject"] == source_ref and source_ref["kind"] == "join_port",
                 "Unnest source port",
             )
             take("syntax", "qualifier", ".", source_ref)
-            take("identifier", "unnest_array", array["name"], source_ref)
+            _, name = take("identifier", "unnest_array", subject=source_ref)
+            names.append(name)
             take("syntax", "unnest_function_close", ")", unnest_ref)
+            if peek() != "separator":
+                break
+        groups = [
+            (i, column["group"])
+            for i, column in enumerate(left["columns"])
+            if column.get("group") is not None
+            and not column.get("withheld", False)
+            and [item["name"] for item in column["group"]["carriers"][1:]] == names
+        ]
+        _need(len(groups) == 1, "one exact Unnest collection source")
+        group_position, group = groups[0]
+        children = group["lateral"]["terminal"]["outgoing"]
+        arrays = group["carriers"][1:]
+        _need(bool(children) and len(arrays) == len(children), "Unnest array width")
+        for child in children:
             realization = child["realization"]
-            _need(realization["tag"] in {"Int", "Bool", "Text"}, "Unnest basic leaf")
+            _need(
+                realization["tag"]
+                in {
+                    "Int",
+                    "Bool",
+                    "Text",
+                    "Float",
+                    "Decimal",
+                    "Date",
+                    "Timestamp",
+                    "UUID",
+                },
+                "Unnest child leaf",
+            )
             if realization["tag"] == "Text":
                 _need(
                     realization["domain"].get("kind") == "text"
@@ -12030,7 +12460,8 @@ def _decode_fixed_public(document, limits):
         for i, child in enumerate(children):
             if i:
                 take("syntax", "separator", ", ", input_ref)
-            event, _ = take("identifier", "unnest_column", f"c{i}", ref("export", i))
+            event, _ = take("identifier", "unnest_column", f"c{i}")
+            _need(event["subject"]["kind"] == "export", "Unnest output export kind")
             exports.append(event["subject"])
             columns.append(
                 {
@@ -12040,6 +12471,10 @@ def _decode_fixed_public(document, limits):
                     "nulled": False,
                 }
             )
+        _need(
+            len({encoded(value) for value in exports}) == len(children),
+            "complete unique Unnest output vector",
+        )
         take("syntax", "unnest_columns_close", ")", input_ref)
         descriptor = {
             "ref": unnest_ref,
@@ -12286,6 +12721,37 @@ def _decode_fixed_public(document, limits):
             separator = None
             if parsed:
                 separator, _ = take("syntax", "separator", ", ")
+            if following("join_column_scope", "qualifier"):
+                match = lexical[cursor][0]["subject"]
+                _need(
+                    match["kind"] == "join_port" and len(parsed) < len(header_names),
+                    "JOIN nested input",
+                )
+                position = int(header_names[len(parsed)][1:])
+                group = carrier_group(
+                    "join_column_scope",
+                    match,
+                    False,
+                    position,
+                    count_kinds=("join_port",),
+                )
+                _need(
+                    separator is None or separator["subject"] == group["export"],
+                    "JOIN nested separator",
+                )
+                parsed.append(
+                    {
+                        "kind": "group",
+                        "alias": group["scope"],
+                        "match": match,
+                        "port": group["export"],
+                        "label": group["label"],
+                        "carriers": group["carriers"],
+                    }
+                )
+                if peek() != "separator":
+                    break
+                continue
             scope_token, alias = take("identifier", "join_column_scope")
             match = scope_token["subject"]
             _need(match["kind"] == "join_port", "carried pre-match port kind")
@@ -12303,6 +12769,7 @@ def _decode_fixed_public(document, limits):
             )
             parsed.append(
                 {
+                    "kind": "flat",
                     "alias": alias,
                     "match": match,
                     "name": name,
@@ -12356,43 +12823,84 @@ def _decode_fixed_public(document, limits):
         nulls = () if membership is not None else JOIN_NULLS[kind]
         rejected = join_null_rejected(kind, inputs, equalities, predicate)
         widths = (len(left["columns"]), len(right["columns"]))
-        hidden = (
-            right["unnest"]["group_position"] if right["kind"] == "unnest" else None
-        )
-        positions = [
-            i
-            for i in range(
-                len(left["columns"]) if membership is not None else len(carriers)
-            )
-            if i != hidden
-        ]
+        logical_width = widths[0] if membership is not None else len(carriers)
+        _need(bool(parsed), "nonempty published JOIN")
+        positions = [int(item["label"][1:]) for item in parsed]
         _need(
-            len(parsed) == len(positions)
-            and [item["label"] for item in parsed] == [f"c{i}" for i in positions]
+            positions == sorted(set(positions))
+            and all(0 <= i < logical_width for i in positions)
             and header_names == [item["label"] for item in parsed],
             "published JOIN port arity/names",
         )
-        base = None
-        if hidden is not None:
+        base = parsed[0]["match"]["position"] - positions[0]
+        _need(
+            base >= 0
+            and all(
+                item["match"] == ref("join_port", base + i)
+                and item["port"] == ref("join_port", base + len(carriers) + i)
+                and item["label"] == f"c{i}"
+                for i, item in zip(positions, parsed, strict=True)
+            ),
+            "JOIN match/output identity",
+        )
+        if right["kind"] == "unnest":
+            descriptor = right["unnest"]
             _need(
-                kind in {"cross", "inner", "left"} and membership is None,
-                "Unnest JOIN kind",
+                descriptor["source"]
+                == ref("join_port", base + descriptor["group_position"]),
+                "Unnest exact logical source slot",
             )
-            source_ref = right["unnest"]["source"]
-            base = source_ref["position"] - hidden
-            _need(
-                base >= 0
-                and all(
-                    item["match"] == ref("join_port", base + i)
-                    and item["port"] == ref("join_port", base + len(carriers) + i)
-                    for i, item in zip(positions, parsed, strict=True)
-                ),
-                "Unnest match/output identity",
-            )
+        omitted = set(range(logical_width)) - set(positions)
+        _need(
+            all(carriers[i].get("group") is not None for i in omitted),
+            "only nested JOIN ports may be withheld",
+        )
         outgoing, columns = [], []
         for position, item in zip(positions, parsed, strict=True):
             side = 0 if position < widths[0] else 1
             carrier = carriers[position]
+            _need(
+                not carrier.get("withheld", False), "withheld JOIN input cannot be read"
+            )
+            if item["kind"] == "group":
+                group = carrier.get("group")
+                _need(
+                    group is not None
+                    and item["alias"] == inputs[side]["alias"]
+                    and [c["name"] for c in item["carriers"]]
+                    == [c["name"] for c in group["carriers"]]
+                    and [c["subject"] for c in item["carriers"][1:]]
+                    == [c["subject"] for c in group["carriers"][1:]],
+                    "JOIN carried group source",
+                )
+                assert group is not None
+                nulled = bool(carrier.get("nulled", False)) or side in nulls
+                renamed = {
+                    **group,
+                    "carriers": [
+                        {"subject": c["subject"], "name": c["label"]}
+                        for c in item["carriers"]
+                    ],
+                }
+                outgoing.append(
+                    {
+                        "name": item["label"],
+                        "terminal": item["port"],
+                        "source_port": None,
+                        "realization": None,
+                        "field": None,
+                        "literal": None,
+                        "origin": None,
+                        "helper": False,
+                        "strict": False,
+                        "proof": False,
+                        "nulled": nulled,
+                        "group": renamed,
+                        "withheld": False,
+                    }
+                )
+                columns.append({"port": item["port"], "nulled": nulled})
+                continue
             _need(
                 item["alias"] == inputs[side]["alias"]
                 and item["name"] == carrier["name"]
@@ -12437,15 +12945,23 @@ def _decode_fixed_public(document, limits):
             ),
             "each published port carries its own distinct pre-match port",
         )
-        logical_outputs = list(columns)
-        if hidden is not None:
-            assert base is not None
-            logical_outputs.insert(
-                hidden,
-                {
-                    "port": ref("join_port", base + len(carriers) + hidden),
-                    "nulled": False,
-                },
+        by_position = dict(zip(positions, outgoing, strict=True))
+        logical_outputs, logical_outgoing = [], []
+        for i, carrier in enumerate(carriers[:logical_width]):
+            side = 0 if i < widths[0] else 1
+            port = ref("join_port", base + len(carriers) + i)
+            nulled = bool(carrier.get("nulled", False)) or side in nulls
+            logical_outputs.append({"port": port, "nulled": nulled})
+            logical_outgoing.append(
+                by_position[i]
+                if i in by_position
+                else {
+                    **carrier,
+                    "name": f"c{i}",
+                    "terminal": port,
+                    "withheld": True,
+                    "nulled": nulled,
+                }
             )
         join_generated(
             join_ref,
@@ -12460,7 +12976,7 @@ def _decode_fixed_public(document, limits):
         body = {
             "block": join_ref,
             "columns": columns,
-            "outgoing": outgoing,
+            "outgoing": logical_outgoing,
             "projection": False,
             "final": False,
             "scan": {"kind": "join"},
@@ -12468,9 +12984,21 @@ def _decode_fixed_public(document, limits):
             "join": True,
             "kind": kind,
             "inputs": inputs,
+            "carriers": {
+                i: [c["subject"] for c in item["carriers"][1:]]
+                for i, item in enumerate(parsed)
+                if item["kind"] == "group"
+            },
         }
         row_bodies.append(body)
-        _need(len(columns) <= limits["columns"], "JOIN column limit")
+        _need(
+            sum(
+                len(item["carriers"]) if item["kind"] == "group" else 1
+                for item in parsed
+            )
+            <= limits["columns"],
+            "JOIN physical column limit",
+        )
         return body
 
     def join_generated(
@@ -12628,7 +13156,12 @@ def _decode_fixed_public(document, limits):
                     carrier_separator, _ = take("syntax", "terminal_separator", ", ")
                     carrier, carrier_name = take("identifier", "collect_carrier_column")
                     _need(
-                        carrier_name == f"c{len(header) - 1}_{len(carriers)}"
+                        carrier_name
+                        == (
+                            f"{text}_{len(carriers)}"
+                            if block["kind"] == "join"
+                            else f"c{len(header) - 1}_{len(carriers)}"
+                        )
                         and carrier_separator["subject"] == carrier["subject"]
                         and carrier["subject"]["kind"] == "export",
                         "declared nested carrier column",
@@ -12815,6 +13348,8 @@ def _decode_fixed_public(document, limits):
                 "scalar_nodes": scalar_nodes + result_nodes[0],
                 "ctes": row_ctes,
                 "collects": row_collects,
+                "carried_collections": carried_collection_exports,
+                "result_ports": sorted(result_owners),
                 "unnests": row_unnests,
             },
         )

@@ -567,7 +567,7 @@ def _stage_columns(query, body, slots, *, count=None):
     # A nested group spans 1+F physical columns of the statement's result.
     physical = 0
     for column in body.columns[:count]:
-        if type(column) is collecting.CollectColumn:
+        if type(column) in (collecting.CollectColumn, resulting.ResultGroupColumn):
             result.append(_collect_column(column, physical))
             physical += len(column.carriers)
             continue
@@ -687,6 +687,8 @@ def _collect_column(column, physical):
     """One nested column (Q1 (a)): a `collection` of the collected let's child
     fields, carried as `pg_column_arrays_v1` physical columns from 1-based
     statement column ``physical + 1``: the count, then one array per child."""
+    from pietto._project.model import ProjectRowFieldNullability
+
     collect = column.collect
     children = column.lateral.target.producer.columns
     return {
@@ -706,7 +708,8 @@ def _collect_column(column, physical):
                 for index, child in enumerate(children)
             ],
         },
-        "nullable": False,
+        "nullable": column.export.field.effective_nullability
+        is not ProjectRowFieldNullability.NON_NULL,
         "representation": {
             "carrier": "pg_column_arrays_v1",
             "columns": [
@@ -859,6 +862,62 @@ def _aggregate_column(column, image, realization, slots):
     }
 
 
+def _collect_evidence(artifact):
+    """Project exact Collect bindings already retained by verified R23 subjects."""
+    bindings, occurrences = {}, {}
+    expected = {}
+    for item in artifact.generated_requirements:
+        if item.kind == "collect_lateral":
+            expected[item.subject] = expected.get(item.subject, 0) + 1
+        lateral = item.subject
+        if (
+            item.kind != "read_only_select_bytes"
+            or type(lateral) is not collecting.CollectLateral
+        ):
+            continue
+        collect, target = lateral.collect, lateral.target
+        producer = target.producer
+        if type(producer) is not resulting.RowResultBody:
+            raise ValueError("Collect evidence requires its complete result terminal.")
+        binding = (
+            target.use.ref,
+            producer.definition.original.ref,
+            producer.block.ref,
+            tuple(column.export.ref for column in producer.columns),
+        )
+        if (
+            binding[0] is not collect.use
+            or len(binding[3]) != len(collect.children)
+            or any(
+                actual is not child
+                for actual, child in zip(binding[3], collect.children, strict=True)
+            )
+        ):
+            raise ValueError("Collect evidence lost its exact use or children.")
+        if collect.ref in bindings:
+            prior = bindings[collect.ref]
+            if any(
+                a is not b for a, b in zip(prior[:3], binding[:3], strict=True)
+            ) or any(a is not b for a, b in zip(prior[3], binding[3], strict=True)):
+                raise ValueError("Collect evidence has conflicting occurrences.")
+        else:
+            bindings[collect.ref] = binding
+        occurrences[collect.ref] = occurrences.get(collect.ref, 0) + 1
+    if occurrences != expected:
+        raise ValueError("Collect evidence inventory differs from its requirements.")
+    return {
+        reference: [
+            {
+                "use": _ref(use),
+                "producer": _ref(producer),
+                "terminal": _ref(terminal),
+                "children": [_ref(child) for child in children],
+            }
+        ]
+        for reference, (use, producer, terminal, children) in bindings.items()
+    }
+
+
 def _document(outcome, artifact, request, columns, source_map, slots):
     checked = request.verification
     semantic = checked.completed.semantic_result
@@ -906,6 +965,7 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                 ],
             }
         )
+    collect_evidence = _collect_evidence(artifact)
     for i, item in enumerate(artifact.generated_requirements):
         evidence = []
         if item.kind in {
@@ -956,6 +1016,8 @@ def _document(outcome, artifact, request, columns, source_map, slots):
                 ]
             else:
                 evidence = [{"operator": expression.expression.operator}]
+        elif item.kind == "collect_lateral":
+            evidence = collect_evidence[item.subject]
         elif item.kind == "query_parameter":
             owners = (
                 request.plan.window_arguments

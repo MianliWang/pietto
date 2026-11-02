@@ -432,6 +432,8 @@ def build_compiled_unit(plan, record, images, predicate):
     from dataclasses import replace
     from pietto._project.project_compiled_schema import Address, CompiledError
     from pietto._project.project_sql_emission_ast import SQLSymbol
+    from pietto._project import project_sql_emission_nested as collecting
+    from pietto._project import project_sql_emission_unnest as unnesting
 
     records, refs = plan.ir.completed.root.records, plan.references
     facts = {f.address: f for f in plan.ir.completed.facts}
@@ -511,7 +513,35 @@ def build_compiled_unit(plan, record, images, predicate):
     for position, address in enumerate(record.get("outputs")):
         port = plan.ports[address]
         value = records[records[address].get("source")]
+        if value.address.kind == "port":
+            pairs = tuple(
+                (source, i, binding)
+                for source in (
+                    inputs[:1]
+                    if kind in {AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI}
+                    else inputs
+                )
+                for i, binding in enumerate(source.use.bindings)
+            )
+            if (
+                not 0 <= position < len(pairs)
+                or pairs[position][2].canonical.ref is not refs[value.address]
+            ):
+                raise CompiledError("COMPILED_JOIN_COLUMN")
+            source, at, _binding = pairs[position]
+            actual = source.columns[at]
+            if type(actual) is not unnesting.NestedRead:
+                raise CompiledError("COMPILED_UNNEST_READ")
+            columns.append(unnesting.WithheldPort(position, port, actual))
+            continue
         source, actual, match = read(value.get("input"))
+        if type(actual) is unnesting.NestedRead:
+            columns.append(
+                collecting.carry_group(
+                    actual, export=port, position=position, final=False, terminal=port
+                )
+            )
+            continue
         fact = facts[address]
         expected, problem = resolved_port_realization(
             fact.value_type.resolved_type.name,
@@ -562,7 +592,13 @@ def build_compiled_unit(plan, record, images, predicate):
         SQLSymbol(index, subject.ref, name),
         tuple(
             SQLSymbol(i, c.port.ref, label)
-            for i, (c, label) in enumerate(zip(columns, labels, strict=True))
+            for i, (c, label) in enumerate(
+                zip(
+                    (c for c in columns if type(c) is not unnesting.WithheldPort),
+                    labels,
+                    strict=True,
+                )
+            )
         ),
         MEMBERSHIP.get(kind),
         subject.ref if kind in MEMBERSHIP else None,

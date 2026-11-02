@@ -1,25 +1,17 @@
-"""Phase71 S12 collection admission: one operation predicate, the pre-connection
-route and child-leaf checks.
-
-Every gate reads the compiled operation closure, never only the final output
-shape, so a collection that is unnested again before the output is gated too.
-The child-leaf domain is the S10 result-binding owner's fixed allowlist.
-"""
+"""Bound collection execution from the verified relation graph and output carriers."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from pietto._project.project_execution import ExecutionError
 from pietto._project.project_result_binding import CHILD_KINDS
+from pietto._project.model import ProjectRowFieldNullability
 from pietto._project.project_result_contract import NestedShape, ScalarShape
 
 __all__: tuple[str, ...] = ()
-
-# S09-A's frozen compiled vocabulary (project_compiled_schema COLLECT_OPERATOR
-# and the "unnest" record kind); S12-B imports them once S09 is integrated.
 _COLLECT_OPERATOR = ("collect", "collect")
 _UNNEST = "unnest"
 _PARENT_ROWS = 64
@@ -33,8 +25,6 @@ def _resource() -> NoReturn:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class CollectionReply:
-    """One owned scalar reply used only by S12's source-bound preflight."""
-
     connection: object = field(repr=False)
     sql: str
     arguments: tuple
@@ -44,30 +34,37 @@ class CollectionReply:
 
 
 @dataclass(frozen=True, slots=True, eq=False)
-class CollectionDomain:
-    """The exact one-collection source closure S12 can bound."""
+class CollectionGroup:
+    """One canonical Collect producer, whether or not its carrier is retained."""
 
-    output: object = field(repr=False)
-    parent_source: object = field(repr=False)
-    child_source: object = field(repr=False)
-    child_fields: tuple[object, ...] = field(repr=False)
-    child_tags: tuple[str, ...]
-    row_fields: tuple[object, ...] = field(repr=False)
-    row_tags: tuple[str, ...]
-    unnest: bool
+    collect: Any = field(repr=False)
+    producer: Any = field(repr=False)
+    columns: tuple = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class CollectionDomain:
+    output: Any = field(repr=False)
+    groups: tuple[CollectionGroup, ...] = field(repr=False)
+    parent_sources: tuple = field(repr=False)
+    count_sources: tuple = field(repr=False)
+    child_sources: tuple = field(repr=False)
+    # Every final nested output occurrence has its own index, including aliases.
+    retained: tuple[int, ...]
+    expansions: tuple = field(repr=False)
+    text_fields: tuple = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class CollectionPreflight:
-    request: object = field(repr=False)
-    output: object = field(repr=False)
+    request: Any = field(repr=False)
+    output: Any = field(repr=False)
     connection: object = field(repr=False)
     qualification: object = field(repr=False)
     profile: tuple = field(repr=False)
-    parent_source: object = field(repr=False)
-    child_source: object = field(repr=False)
-    child_fields: tuple[object, ...] = field(repr=False)
-    child_tags: tuple[str, ...]
+    domain: CollectionDomain = field(repr=False)
+    source_counts: tuple[int, ...]
+    child_counts: tuple[int, ...]
     parents: int
     children: int
     text_bytes: tuple[int, ...]
@@ -156,277 +153,167 @@ def admit_nested_shape(contract) -> None:
         raise ExecutionError("COLLECTION_LEAF")
 
 
-def _domain(request) -> CollectionDomain | None:
-    """Re-derive the sole S12 source domain from verified current objects.
+def _inputs(unit):
+    from pietto._project.project_sql_emission_ast import (
+        RowBody,
+        RowJoinUse,
+        RowNamedUse,
+        RowScan,
+        RowStageUse,
+    )
+    from pietto._project.project_sql_emission_contract import BoundSource
+    from pietto._project.project_sql_emission_joins import JoinBody
+    from pietto._project.project_sql_emission_results import RowResultBody, RowResultUse
+    from pietto._project.project_sql_emission_unnest import UnnestRows
 
-    A physical table count only bounds a result when the selected relation
-    closure has no operation that can multiply or manufacture rows.  This is
-    deliberately narrower than the SQL emitter: joins, sets, values, global
-    aggregates, windows and table functions wait for their own bounds.
-    """
+    if type(unit) in (BoundSource, UnnestRows):
+        return ()
+    if type(unit) is JoinBody:
+        return tuple(item.producer for item in unit.inputs)
+    if type(unit) in (RowBody, RowResultBody):
+        if type(unit.scan) is RowScan:
+            return (unit.scan.realization,)
+        if type(unit.scan) in (RowJoinUse, RowNamedUse, RowStageUse, RowResultUse):
+            return (unit.scan.body,)
+    _resource()
+
+
+def _source_occurrences(unit):
+    from pietto._project.project_sql_emission_contract import BoundSource
+
+    active = set()
+
+    def visit(current):
+        if id(current) in active:
+            _resource()
+        if type(current) is BoundSource:
+            return (current,)
+        active.add(id(current))
+        try:
+            return tuple(
+                source for child in _inputs(current) for source in visit(child)
+            )
+        finally:
+            active.remove(id(current))
+
+    return visit(unit)
+
+
+def _domain(request) -> CollectionDomain | None:
     from pietto._project.project_result_output import (
         GeneralOutput,
         NestedOutputColumn,
         OutputColumn,
     )
     from pietto._project.project_sql_emission_nested import CollectColumn
-    from pietto._project.project_sql_emission_results import ResultGroupColumn
-    from pietto._project.project_sql_emission_contract import PreparedEmission
+    from pietto._project.project_sql_emission_joins import JoinBody
+    from pietto._project.project_sql_emission_unnest import UnnestRows
 
-    completed = request.artifact.request.verification.completed
     plan = request.artifact.request.plan
     collects = tuple(plan.collects)
     if not collects:
         return None
-    if len(collects) != 1:
-        _resource()
-    (collect,) = collects
-    output, sources = request.output, request.artifact.request.sources
+    output = request.output
     if type(output) is not GeneralOutput or output.artifact is not request.artifact:
         _resource()
+    found, expansions, active, visited = {}, [], set(), set()
 
-    def source_of(field):
-        matches = tuple(
-            source for source in sources if any(item is field for item in source.fields)
-        )
-        if len(matches) != 1:
+    def visit(unit):
+        if id(unit) in active:
             _resource()
-        return matches[0]
+        if id(unit) in visited:
+            return
+        active.add(id(unit))
+        for child in _inputs(unit):
+            visit(child)
+        if type(unit) is JoinBody and type(unit.inputs[1].producer) is UnnestRows:
+            expansions.append(unit)
+        for column in getattr(unit, "columns", ()):
+            if type(column) is CollectColumn:
+                previous = found.setdefault(column.collect.ref, column)
+                if previous is not column:
+                    _resource()
+                visit(column.lateral.target.producer)
+        active.remove(id(unit))
+        visited.add(id(unit))
 
-    columns = output.columns
-    if type(columns) is not tuple:
+    visit(output.units[-1])
+    if len(found) != len(collects) or any(c.ref not in found for c in collects):
         _resource()
-    unnest = False
-    unnests = ()
-    unnest_layout = ()
-    parent = None
-    children = ()
-    if (
-        len(columns) == 2
-        and type(columns[0]) is OutputColumn
-        and type(columns[1]) is NestedOutputColumn
+    groups = tuple(
+        CollectionGroup(
+            c,
+            found[c.ref].lateral.target.producer,
+            tuple(item.column for item in found[c.ref].lateral.target.producer.columns),
+        )
+        for c in collects
+    )
+    if any(not group.columns for group in groups):
+        _resource()
+    parents = _source_occurrences(output.units[-1])
+    children = tuple(
+        source for group in groups for source in _source_occurrences(group.producer)
+    )
+    sources = tuple(dict.fromkeys((*parents, *children)))
+    if not parents or any(
+        source not in request.artifact.request.sources for source in sources
     ):
-        parent, collection = columns
-        children = collection.children
-        group = collection.original
-        if type(group) is ResultGroupColumn:
-            group = group.group
-        if (
-            type(group) is not CollectColumn
-            or group.collect is not collect
-            or getattr(collection.field.shape, "collect", None) is not collect
-        ):
+        _resource()
+    retained = []
+    scalar_columns = []
+    for column in output.columns:
+        if type(column) is NestedOutputColumn:
+            matches = tuple(
+                i
+                for i, group in enumerate(groups)
+                if group.collect is column.field.shape.collect
+            )
+            if len(matches) != 1:
+                _resource()
+            retained.append(matches[0])
+        elif type(column) is OutputColumn:
+            scalar_columns.append(column.original.column)
+        else:
             _resource()
-        parent_source = source_of(parent.source_field)
-        child_fields = tuple(child.source_field for child in children)
-        child_tags = tuple(child.realization.tag for child in children)
-        row_fields, row_tags = child_fields, child_tags
-    else:
-        unnests = tuple(plan.unnests)
-        if len(unnests) != 1:
+    # Count query acquisition may be shared; every scalar/carrier occurrence is
+    # still charged independently by _measure.
+    text_fields = []
+    for column in (*scalar_columns, *(c for group in groups for c in group.columns)):
+        realization = column.realization
+        if realization is None or realization.tag not in CHILD_KINDS:
             _resource()
-        unnest_record = unnests[0]
-        unnest_layout = getattr(unnest_record, "layout", ())
-        if not all(type(item) is OutputColumn for item in columns):
-            _resource()
-        from pietto._project.project_sql_emission_joins import JoinBody, JoinColumn
-        from pietto._project.project_sql_emission_unnest import UnnestRows, NestedRead
-        from pietto._project.project_sql_emission_ast import (
-            RowValueColumn,
-            RowCarryColumn,
-        )
-        from pietto._project.project_sql_emission_results import ResultColumn
-        from pietto._project.project_sql_emission_rows import (
-            SQLStageReference,
-            StageColumn,
-        )
-
-        joins = tuple(unit for unit in output.units if type(unit) is JoinBody)
-        if len(joins) != 1:
-            _resource()
-        (join,) = joins
-        left, right = join.inputs
-        if (
-            type(right.producer) is not UnnestRows
-            or right.producer.unnest is not unnest_record
-        ):
-            _resource()
-        nested_reads = tuple(item for item in left.columns if type(item) is NestedRead)
-        scalar_parents = tuple(
-            item for item in left.columns if type(item) is StageColumn
-        )
-        if len(nested_reads) != 1 or len(scalar_parents) != 1 or len(left.columns) != 2:
-            _resource()
-        group = nested_reads[0].group
-        if type(group) is ResultGroupColumn:
-            group = group.group
-        if type(group) is not CollectColumn or group.collect is not collect:
-            _resource()
-        parent_read = scalar_parents[0]
-        if parent_read.realization.tag != "Int" or parent_read.field is None:
-            _resource()
-        parent_source = source_of(parent_read.field)
-        child_columns = tuple(
-            item.column for item in group.lateral.target.producer.columns
-        )
-        if not child_columns or len(child_columns) != len(right.producer.columns):
-            _resource()
-        child_fields = tuple(item.field for item in child_columns)
-        child_tags = tuple(item.realization.tag for item in child_columns)
-        if any(field is None for field in child_fields) or any(
-            tag not in CHILD_KINDS for tag in child_tags
-        ):
-            _resource()
-        child_source = source_of(child_fields[0])
-        if any(source_of(field) is not child_source for field in child_fields):
-            _resource()
-        if any(
-            element.column.field is not field
-            for element, field in zip(right.producer.columns, child_fields, strict=True)
-        ):
-            _resource()
-
-        def joined_origin(column):
-            seen = set()
-            while id(column) not in seen:
-                seen.add(id(column))
-                if type(column) is JoinColumn:
-                    if any(column is item for item in join.columns):
-                        return column
+        if realization.tag == "Text":
+            if column.field is None:
+                maximum = realization.domain.get("max_characters")
+                if type(maximum) is not int or not 0 <= maximum <= _TEXT_BYTES // 4:
                     _resource()
-                if type(column) is RowValueColumn:
-                    if type(column.value) is not SQLStageReference:
-                        _resource()
-                    reference = column.value.column.terminal
-                elif type(column) in (RowCarryColumn, ResultColumn):
-                    reference = column.read.terminal
-                else:
-                    _resource()
-                candidates = tuple(
-                    item
-                    for unit in output.units
-                    for item in unit.columns
-                    if getattr(getattr(item, "column", None), "terminal", None)
-                    is reference
+            elif all(column.field is not old for old in text_fields):
+                matches = tuple(
+                    source
+                    for source in sources
+                    if any(column.field is f for f in source.fields)
                 )
-                if len(candidates) != 1:
+                if len(matches) != 1:
                     _resource()
-                column = candidates[0]
-            _resource()
-
-        row_fields, row_tags = [], []
-        for output_column in columns:
-            origin = joined_origin(output_column.original)
-            if (
-                output_column.source_field is not origin.column.field
-                or output_column.realization.tag != origin.column.realization.tag
-                or output_column.realization.nullable
-                != origin.column.realization.nullable
-            ):
-                _resource()
-            field = output_column.source_field
-            if field is None or source_of(field) not in (parent_source, child_source):
-                _resource()
-            row_fields.append(field)
-            row_tags.append(output_column.realization.tag)
-        if not row_fields or any(tag not in CHILD_KINDS for tag in row_tags):
-            _resource()
-        row_fields, row_tags = tuple(row_fields), tuple(row_tags)
-        unnest = True
-    if not unnest:
-        if type(parent) is not OutputColumn:
-            _resource()
+                text_fields.append(column.field)
+    for join in expansions:
         if (
-            parent.realization.tag != "Int"
-            or parent.source_field is None
-            or type(children) is not tuple
-            or not children
-            or any(
-                child.source_field is None or child.realization.tag not in CHILD_KINDS
-                for child in children
+            sum(
+                group.collect.ref is join.inputs[1].producer.unnest.collect
+                for group in groups
             )
-        ):
-            _resource()
-    if not unnest:
-        if type(parent) is not OutputColumn:
-            _resource()
-        parent_field = parent.source_field
-        if parent_field is None:
-            _resource()
-        parent_source = source_of(parent_field)
-        child_fields = tuple(child.source_field for child in children)
-        child_tags = tuple(child.realization.tag for child in children)
-        row_fields, row_tags = child_fields, child_tags
-        child_source = source_of(child_fields[0])
-    child_sources = tuple(source_of(field) for field in child_fields)
-    if any(source is not child_sources[0] for source in child_sources[1:]):
-        _resource()
-    child_source = child_sources[0]
-    if (
-        any(
-            source is not parent_source and source is not child_source
-            for source in sources
-        )
-        or not any(source is parent_source for source in sources)
-        or not any(source is child_source for source in sources)
-    ):
-        _resource()
-    if (
-        any(
-            getattr(plan, name, ())
-            for name in (
-                "joins",
-                "set_bodies",
-                "values_bodies",
-                "aggregations",
-                "windows",
-            )
-        )
-        and not unnest
-    ):
-        _resource()
-    if unnest and any(
-        getattr(plan, name, ())
-        for name in ("set_bodies", "values_bodies", "aggregations", "windows")
-    ):
-        _resource()
-    root = getattr(completed, "root", None)
-    records = getattr(root, "records", None)
-    if root is None or not isinstance(records, Mapping):
-        if root is not None or type(request.artifact.request) is not PreparedEmission:
-            _resource()
-    else:
-        from pietto._project.project_compiled_schema import selected_relations
-
-        entry = records.get(root.description.query)
-        if entry is None:
-            _resource()
-        active = selected_relations(records, entry)
-        join_layout = (
-            unnest_layout[2]
-            if unnest and type(unnest_layout) is tuple and len(unnest_layout) >= 3
-            else None
-        )
-        permitted = frozenset({"source", "row", "result"}) | (
-            frozenset({"join"}) if unnest else frozenset()
-        )
-        if (
-            any(address.kind not in permitted for address in active)
-            or any(
-                address.kind == "join" and address != join_layout for address in active
-            )
-            or any(address.kind == "table_function" for address in active)
+            != 1
         ):
             _resource()
     return CollectionDomain(
         output,
-        parent_source,
-        child_source,
-        child_fields,
-        child_tags,
-        row_fields,
-        row_tags,
-        unnest,
+        groups,
+        parents,
+        sources,
+        children,
+        tuple(retained),
+        tuple(expansions),
+        tuple(text_fields),
     )
 
 
@@ -436,40 +323,46 @@ def _queries(domain, limits):
     def relation(source):
         return identifier(source.namespace) + "." + identifier(source.name)
 
-    parent_cap = min(_PARENT_ROWS, limits.max_rows) + 1
-    child_cap = _CHILD_ROWS + 1
-    if domain.parent_source is domain.child_source:
-        parent_cap = child_cap = min(parent_cap, child_cap)
-    result = [
-        ("SELECT current_setting('server_encoding')", (), 25),
-        (
-            "SELECT COUNT(*) FROM (SELECT 1 FROM "
-            + relation(domain.parent_source)
-            + ' LIMIT $1) AS "__pietto_nested_bound"',
-            (parent_cap,),
-            20,
-        ),
-        (
-            "SELECT COUNT(*) FROM (SELECT 1 FROM "
-            + relation(domain.child_source)
-            + ' LIMIT $1) AS "__pietto_nested_bound"',
-            (child_cap,),
-            20,
-        ),
+    caps = tuple(
+        min(
+            _CHILD_ROWS if source in domain.child_sources else _PARENT_ROWS,
+            min(_PARENT_ROWS, limits.max_rows)
+            if source in domain.parent_sources
+            else _CHILD_ROWS,
+        )
+        + 1
+        for source in domain.count_sources
+    )
+    queries: list[tuple[str, tuple[int, ...], int]] = [
+        ("SELECT current_setting('server_encoding')", (), 25)
     ]
-    for source_field, tag in zip(domain.child_fields, domain.child_tags, strict=True):
-        if tag == "Text":
-            result.append(
-                (
-                    "SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("
-                    + identifier(source_field.column)
-                    + "),0),$1)),0) FROM "
-                    + relation(domain.child_source),
-                    (_TEXT_BYTES + 1,),
-                    23,
-                )
+    for source, cap in zip(domain.count_sources, caps, strict=True):
+        queries.append(
+            (
+                "SELECT COUNT(*) FROM (SELECT 1 FROM "
+                + relation(source)
+                + ' LIMIT $1) AS "__pietto_nested_bound"',
+                (cap,),
+                20,
             )
-    return tuple(result), parent_cap, child_cap
+        )
+    for source_field in domain.text_fields:
+        matches = tuple(
+            s for s in domain.count_sources if any(source_field is f for f in s.fields)
+        )
+        if len(matches) != 1:
+            _resource()
+        queries.append(
+            (
+                "SELECT COALESCE(MAX(LEAST(COALESCE(octet_length("
+                + identifier(source_field.column)
+                + "),0),$1)),0) FROM "
+                + relation(matches[0]),
+                (_TEXT_BYTES + 1,),
+                23,
+            )
+        )
+    return tuple(queries), caps
 
 
 def _value(reply, connection, sql, arguments, oid):
@@ -495,96 +388,211 @@ def _value(reply, connection, sql, arguments, oid):
     return reply.rows[0][0]
 
 
-def _measure(domain, limits, parents, children, text_bytes):
-    if (
-        type(parents) is not int
-        or type(children) is not int
-        or any(
-            type(value) is not int or not 0 <= value <= _TEXT_BYTES
-            for value in text_bytes
-        )
+def _sat_add(left, right, limit):
+    return limit + 1 if left > limit or right > limit - left else left + right
+
+
+def _sat_mul(left, right, limit):
+    if left == 0 or right == 0:
+        return 0
+    return limit + 1 if left > limit // right else left * right
+
+
+def _row_upper_bound(unit, counts, group_bounds, limit):
+    """Memoize node bounds while retaining every JOIN input edge."""
+    from pietto._project.project_sql_emission_contract import BoundSource
+    from pietto._project.project_sql_emission_joins import JoinBody
+    from pietto._project.project_sql_emission_unnest import UnnestRows
+
+    cache, active = {}, set()
+
+    def visit(item):
+        if id(item) in cache:
+            return cache[id(item)]
+        if id(item) in active:
+            _resource()
+        active.add(id(item))
+        if type(item) is BoundSource:
+            if item not in counts:
+                _resource()
+            value = counts[item]
+        elif type(item) is UnnestRows:
+            if item.unnest.collect not in group_bounds:
+                _resource()
+            value = group_bounds[item.unnest.collect]
+        elif type(item) is JoinBody:
+            left, right = (visit(child) for child in _inputs(item))
+            kind = item.join.kind.value
+            if kind in {"cross", "inner"}:
+                value = _sat_mul(left, right, limit)
+            elif kind == "left":
+                value = _sat_mul(left, max(1, right), limit)
+            elif kind == "right":
+                value = _sat_mul(max(1, left), right, limit)
+            elif kind == "full":
+                value = _sat_add(
+                    _sat_add(_sat_mul(left, right, limit), left, limit), right, limit
+                )
+            elif kind in {"semi", "anti"}:
+                value = left
+            else:
+                _resource()
+        else:
+            parents = _inputs(item)
+            if len(parents) != 1:
+                _resource()
+            value = visit(parents[0])
+            aggregation = getattr(item, "aggregation", None)
+            if aggregation is not None:
+                if aggregation.mode == "global":
+                    value = 1
+                elif aggregation.mode != "grouped":
+                    _resource()
+            limited = getattr(item, "limit", None)
+            if limited is not None:
+                if type(limited.value) is not int or limited.value < 0:
+                    _resource()
+                value = min(value, limited.value)
+        if type(value) is not int or value < 0:
+            _resource()
+        value = min(value, limit + 1)
+        active.remove(id(item))
+        cache[id(item)] = value
+        return value
+
+    return visit(unit)
+
+
+def _bounds(domain, limits, values):
+    _, caps = _queries(domain, limits)
+    if len(values) != len(caps) or any(
+        type(n) is not int or not 0 <= n < cap
+        for n, cap in zip(values, caps, strict=True)
     ):
         _resource()
-
-    def saturate(value, limit):
-        return limit + 1 if value > limit else value
-
-    if parents > min(_PARENT_ROWS, limits.max_rows) or children > _CHILD_ROWS:
+    counts = dict(zip(domain.count_sources, values, strict=True))
+    children = tuple(
+        _row_upper_bound(group.producer, counts, {}, _CHILD_ROWS)
+        for group in domain.groups
+    )
+    if any(n > _CHILD_ROWS for n in children):
         _resource()
-    child_total = saturate(parents * children, 1 << 20)
-    if child_total > 1 << 20:
-        _resource()
-    if domain.unnest:
-        prepared = domain.output.artifact.request
-        plan = prepared.plan
-        if hasattr(plan, "joins"):
-            (join,) = plan.joins
-            kind = join.kind.value
-        else:
-            (unnest,) = plan.unnests
-            kind = prepared.verification.completed.root.records[unnest.layout[2]].get(
-                "kind"
-            )
-        per_parent = max(1, children) if kind == "left" else children
-        rows = saturate(parents * per_parent, limits.max_rows)
-        if rows > limits.max_rows:
-            _resource()
-    else:
-        rows = parents
+    return counts, children
 
-    def width(field, tag):
-        if tag != "Text":
-            if tag == "Decimal":
-                decimal = field.decimal
-                if (
-                    decimal is None
-                    or type(decimal.precision) is not int
-                    or type(decimal.scale) is not int
-                    or not 1 <= decimal.precision <= 65
-                    or not 0 <= decimal.scale <= min(decimal.precision, 30)
-                ):
-                    _resource()
-                return decimal.precision + 1 + (decimal.scale > 0)
-            return {
-                "Int": 20,
-                "Bool": 5,
-                "Float": 24,
-                "Date": 12,
-                "Timestamp": 28,
-                "UUID": 38,
-            }[tag]
-        matches = tuple(
-            index
-            for index, (child, child_tag) in enumerate(
-                zip(domain.child_fields, domain.child_tags, strict=True)
-            )
-            if child is field and child_tag == "Text"
+
+def _measure(domain, limits, source_counts, children, text_bytes):
+    from pietto._project.project_result_output import NestedOutputColumn
+
+    counts, actual_children = _bounds(domain, limits, source_counts)
+    if (
+        children != actual_children
+        or len(text_bytes) != len(domain.text_fields)
+        or any(type(n) is not int or not 0 <= n <= _TEXT_BYTES for n in text_bytes)
+    ):
+        _resource()
+    group_bounds = {
+        g.collect.ref: n for g, n in zip(domain.groups, children, strict=True)
+    }
+    rows = _row_upper_bound(
+        domain.output.units[-1], counts, group_bounds, limits.max_rows
+    )
+    child_total = 0
+    for index in domain.retained:
+        child_total = _sat_add(
+            child_total, _sat_mul(rows, children[index], 1 << 20), 1 << 20
         )
-        if len(matches) != 1:
-            _resource()
-        text_index = sum(tag == "Text" for tag in domain.child_tags[: matches[0]])
-        return text_bytes[text_index]
+    for join in domain.expansions:
+        left = _row_upper_bound(
+            join.inputs[0].producer, counts, group_bounds, limits.max_rows
+        )
+        child_total = _sat_add(
+            child_total,
+            _sat_mul(
+                left, group_bounds[join.inputs[1].producer.unnest.collect], 1 << 20
+            ),
+            1 << 20,
+        )
+    if rows > limits.max_rows or child_total > 1 << 20:
+        _resource()
+
+    def width(column):
+        realized = column.realization
+        tag = realized.tag
+        if tag == "Text":
+            if column.field is None:
+                return 4 * realized.domain["max_characters"]
+            matches = tuple(
+                i for i, f in enumerate(domain.text_fields) if f is column.field
+            )
+            if len(matches) != 1:
+                _resource()
+            return text_bytes[matches[0]]
+        if tag == "Decimal":
+            precision, scale = (realized.domain.get(k) for k in ("precision", "scale"))
+            if (
+                type(precision) is not int
+                or type(scale) is not int
+                or not 1 <= precision <= 65
+                or not 0 <= scale <= min(precision, 30)
+            ):
+                _resource()
+            return precision + 1 + (scale > 0)
+        return {
+            "Int": 20,
+            "Bool": 5,
+            "Float": 24,
+            "Date": 12,
+            "Timestamp": 28,
+            "UUID": 38,
+        }[tag]
 
     def escaped(size):
-        return saturate(max(4, 2 * size + 2), limits.batch_bytes)
-
-    def array(size):
-        if children == 0:
-            return 4
-        return saturate(
-            4 + 2 + (children - 1) + children * escaped(size), limits.batch_bytes
+        return max(
+            4, _sat_add(_sat_mul(2, size, limits.batch_bytes), 2, limits.batch_bytes)
         )
 
-    if domain.unnest:
-        row = 7
-        for field, tag in zip(domain.row_fields, domain.row_tags, strict=True):
-            row = saturate(row + 4 + escaped(width(field, tag)), limits.batch_bytes)
-    else:
-        row = 7 + 4 + escaped(20) + 4 + len(str(children))
-        for field, tag in zip(domain.child_fields, domain.child_tags, strict=True):
-            row = saturate(row + array(width(field, tag)), limits.batch_bytes)
-    batch = saturate(min(rows, limits.batch_rows) * row, limits.batch_bytes)
-    total = saturate(rows * row, limits.max_bytes)
+    def array(size, count):
+        return (
+            4
+            if count == 0
+            else _sat_add(
+                5 + count,
+                _sat_mul(count, escaped(size), limits.batch_bytes),
+                limits.batch_bytes,
+            )
+        )
+
+    row, nested_index = 7, 0
+    for column in domain.output.columns:
+        if type(column) is NestedOutputColumn:
+            index = domain.retained[nested_index]
+            nested_index += 1
+            count, group = children[index], domain.groups[index]
+            present = (
+                4
+                + len(str(count))
+                + sum(array(width(child), count) for child in group.columns)
+            )
+            # An unmatched outer JOIN nulls the count and every array carrier.
+            absent = 8 + 4 * len(group.columns)
+            row = _sat_add(
+                row,
+                (
+                    max(present, absent)
+                    if column.field.nullability
+                    is not ProjectRowFieldNullability.NON_NULL
+                    else present
+                ),
+                limits.batch_bytes,
+            )
+        else:
+            row = _sat_add(
+                row,
+                _sat_add(4, escaped(width(column.original.column)), limits.batch_bytes),
+                limits.batch_bytes,
+            )
+    batch = _sat_mul(min(rows, limits.batch_rows), row, limits.batch_bytes)
+    total = _sat_mul(rows, row, limits.max_bytes)
     if (
         row > limits.batch_bytes
         or batch > limits.batch_bytes
@@ -594,51 +602,64 @@ def _measure(domain, limits, parents, children, text_bytes):
     return row, batch, total
 
 
-def run_collection_preflight(
-    request, read, *, connection, qualification, profile
-) -> CollectionPreflight | None:
-    """Read and bind S12's fixed limits in the already-qualified snapshot."""
+def _same_domain(actual, expected):
+    return (
+        type(actual) is CollectionDomain
+        and actual.output is expected.output
+        and actual.parent_sources == expected.parent_sources
+        and actual.count_sources == expected.count_sources
+        and actual.child_sources == expected.child_sources
+        and actual.retained == expected.retained
+        and actual.expansions == expected.expansions
+        and actual.text_fields == expected.text_fields
+        and len(actual.groups) == len(expected.groups)
+        and all(
+            a.collect is b.collect
+            and a.producer is b.producer
+            and a.columns == b.columns
+            for a, b in zip(actual.groups, expected.groups, strict=True)
+        )
+    )
+
+
+def run_collection_preflight(request, read, *, connection, qualification, profile):
     domain = _domain(request)
     if domain is None:
         return None
     if connection is None or qualification is None or type(profile) is not tuple:
         _resource()
-    queries, parent_cap, child_cap = _queries(domain, request.limits)
-    encoding_query, parent_query, child_query, *text_queries = queries
-    replies = []
-    reply = read(encoding_query[0], encoding_query[1])
-    replies.append(reply)
-    if _value(reply, connection, *encoding_query) != "UTF8":
-        raise ExecutionError("POSTGRES_SOURCE_ENCODING")
-    reply = read(parent_query[0], parent_query[1])
-    replies.append(reply)
-    parents = _value(reply, connection, *parent_query)
-    if type(parents) is not int or not 0 <= parents < parent_cap:
-        _resource()
-    reply = read(child_query[0], child_query[1])
-    replies.append(reply)
-    children = _value(reply, connection, *child_query)
-    if type(children) is not int or not 0 <= children < child_cap:
-        _resource()
-    text_bytes = []
-    for query in text_queries:
+    queries, caps = _queries(domain, request.limits)
+    replies, values = [], []
+    for index, query in enumerate(queries):
         reply = read(query[0], query[1])
+        value = _value(reply, connection, *query)
+        if index == 0:
+            if value != "UTF8":
+                raise ExecutionError("POSTGRES_SOURCE_ENCODING")
+        elif index <= len(caps):
+            if type(value) is not int or not 0 <= value < caps[index - 1]:
+                _resource()
+        elif type(value) is not int or not 0 <= value <= _TEXT_BYTES:
+            _resource()
         replies.append(reply)
-        text_bytes.append(_value(reply, connection, *query))
-    text_bytes = tuple(text_bytes)
-    row, batch, total = _measure(domain, request.limits, parents, children, text_bytes)
+        values.append(value)
+    source_counts = tuple(values[1 : 1 + len(caps)])
+    text_bytes = tuple(values[1 + len(caps) :])
+    counts, children = _bounds(domain, request.limits, source_counts)
+    row, batch, total = _measure(
+        domain, request.limits, source_counts, children, text_bytes
+    )
     return CollectionPreflight(
         request,
         domain.output,
         connection,
         qualification,
         profile,
-        domain.parent_source,
-        domain.child_source,
-        domain.child_fields,
-        domain.child_tags,
-        parents,
+        domain,
+        source_counts,
         children,
+        counts[domain.parent_sources[0]],
+        children[0],
         text_bytes,
         row,
         batch,
@@ -649,46 +670,39 @@ def run_collection_preflight(
 
 def verify_collection_preflight(
     request, receipt, *, connection, qualification, profile
-) -> None:
-    """Re-derive the domain, fixed reads and arithmetic before carrier SQL."""
+):
     if receipt is None:
         return
     domain = _domain(request)
     if (
         type(receipt) is not CollectionPreflight
-        or receipt.request is not request
         or domain is None
+        or receipt.request is not request
         or receipt.output is not domain.output
         or receipt.connection is not connection
         or receipt.qualification is not qualification
         or receipt.profile != profile
-        or receipt.parent_source is not domain.parent_source
-        or receipt.child_source is not domain.child_source
-        or receipt.child_fields != domain.child_fields
-        or receipt.child_tags != domain.child_tags
+        or not _same_domain(receipt.domain, domain)
     ):
         _resource()
-    queries, parent_cap, child_cap = _queries(domain, request.limits)
-    if len(receipt.replies) != len(queries):
+    queries, caps = _queries(domain, request.limits)
+    if type(receipt.replies) is not tuple or len(receipt.replies) != len(queries):
         _resource()
     values = tuple(
-        _value(reply, connection, sql, arguments, oid)
-        for reply, (sql, arguments, oid) in zip(receipt.replies, queries, strict=True)
+        _value(reply, connection, *query)
+        for reply, query in zip(receipt.replies, queries, strict=True)
     )
+    source_counts = values[1 : 1 + len(caps)]
+    text_bytes = values[1 + len(caps) :]
+    counts, children = _bounds(domain, request.limits, source_counts)
     if (
         values[0] != "UTF8"
-        or values[1] != receipt.parents
-        or values[2] != receipt.children
-        or values[3:] != receipt.text_bytes
-        or not 0 <= receipt.parents < parent_cap
-        or not 0 <= receipt.children < child_cap
-        or _measure(
-            domain,
-            request.limits,
-            receipt.parents,
-            receipt.children,
-            receipt.text_bytes,
-        )
+        or receipt.source_counts != source_counts
+        or receipt.child_counts != children
+        or receipt.text_bytes != text_bytes
+        or receipt.parents != counts[domain.parent_sources[0]]
+        or receipt.children != children[0]
+        or _measure(domain, request.limits, source_counts, children, text_bytes)
         != (receipt.row_bytes, receipt.batch_bytes, receipt.total_bytes)
     ):
         _resource()

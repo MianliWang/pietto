@@ -666,9 +666,14 @@ def verify_emission_generation(value, target, expected):
                 "name": "result",
             }:
                 raise ValueError("public selected owner changed")
+        elif status == "BLOCKED" and record["id"] == "L_retained_collection":
+            cases.check_retained_refusal(document, record["variant"])
         elif status == "BLOCKED" and record["id"] == "L_relation_collect":
             # D-S08-4: MySQL refuses each Collect read once, in source order.
-            reads = fixture["source"].count(" = collect ")
+            reads = sum(
+                source.count(" = collect ")
+                for source in emission.source_files(fixture["source"]).values()
+            )
             if [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] != [
                 ("PIE-B1003", "collect_not_admitted_on_target")
             ] * reads or not reads:
@@ -1299,6 +1304,7 @@ def _verify_receipt(
         + [[], [], []]
         + [[] for _ in cases.row_domain_setup(target)]
         + cases.collect_setup_parameters(target)
+        + [[] for _ in cases.retained_setup(target)]
         + [[] for _ in setup_sql[len(cases.setup(target)) :]]
     )
     for observation, parameters in zip(receipt["setup"], fixture_params, strict=True):

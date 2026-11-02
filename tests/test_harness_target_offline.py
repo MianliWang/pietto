@@ -438,3 +438,62 @@ def test_exec_stdio_bridge_preserves_binary_bytes_and_reaps_children(monkeypatch
         time.sleep(0.01)
     bridge.close()
     assert children and all(child.poll() is not None for child in children)
+
+
+@pytest.mark.parametrize("offline", (False, True))
+@pytest.mark.ci_workload("general-runtime")
+def test_exec_stdio_retains_scram_authentication_without_changing_ci_defaults(
+    tmp_path, monkeypatch, offline
+):
+    from types import SimpleNamespace
+    import stat
+
+    monkeypatch.setenv("PIETTO_NATIVE_OFFLINE", "1" if offline else "0")
+    if offline:
+        monkeypatch.setenv("PIETTO_NATIVE_OFFLINE_TRANSPORT", "exec-stdio")
+    else:
+        monkeypatch.delenv("PIETTO_NATIVE_OFFLINE_TRANSPORT", raising=False)
+    owned = resources.Resources("postgres", PINS["targets"]["postgres"], tmp_path)
+    monkeypatch.setattr(
+        resources,
+        "Path",
+        lambda path: (
+            SimpleNamespace(
+                exists=lambda: True, stat=lambda: SimpleNamespace(st_mode=stat.S_IFSOCK)
+            )
+            if path == "/var/run/docker.sock"
+            else Path(path)
+        ),
+    )
+    monkeypatch.setattr(owned, "acquire_image", lambda image: None)
+    monkeypatch.setattr(
+        owned,
+        "inspect_resource",
+        lambda kind, identifier: {
+            "id": identifier,
+            "name": owned.network_name,
+            "labels": {"pietto.phase66.invocation": owned.nonce},
+            "internal": offline,
+            "driver": "bridge",
+            "options": {}
+            if offline
+            else {"com.docker.network.bridge.gateway_mode_ipv4": "nat"},
+        },
+    )
+    created = []
+
+    def docker(*args, **kwargs):
+        if args[0] == "version":
+            return json.dumps({"Version": "29.8.0", "Os": "linux", "Arch": "amd64"})
+        if args[:2] == ("network", "create"):
+            return "b" * 64
+        assert args[:2] == ("container", "create")
+        created.append((args, kwargs["extra_env"].get("POSTGRES_INITDB_ARGS")))
+        raise RuntimeError("captured before container creation")
+
+    monkeypatch.setattr(owned, "docker", docker)
+    with pytest.raises(RuntimeError, match="captured before container creation"):
+        owned.acquire()
+    ((arguments, authentication),) = created
+    assert authentication == ("--auth-host=scram-sha-256" if offline else None)
+    assert ("POSTGRES_INITDB_ARGS" in arguments) is offline

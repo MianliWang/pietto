@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import ctypes
+from datetime import date, datetime
+from decimal import Decimal
 import json
 import os
 from pathlib import Path
@@ -20,6 +22,7 @@ import re
 import socket
 import struct
 import threading
+from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / "docs/execution.md"
@@ -28,6 +31,7 @@ GSSENC_REQUEST = 80877104
 # Authentication request codes of the PostgreSQL protocol.
 AUTH = {"trust": 0, "password": 3, "md5": 5, "gss": 7, "sspi": 9}
 IN_OPEN = 0x20
+DECIMAL256 = Decimal("12345678901234567890123456789012345678901234567856.7890")
 
 
 def _blocks(heading, languages):
@@ -125,18 +129,72 @@ def write_nested_collect(directory, *, closed=False):
     return project
 
 
-def write_nested_unnest(directory, name):
+def write_nested_unnest(directory, name, leaves=None, *, decimal256=False):
     """A literal-oracle S13 project, with only its actual physical sources."""
     import _pietto_execution_nested_oracle as oracle
     import _pietto_sql_nested_collect as collecting
 
-    program = oracle.program(name)
+    leaves = oracle.DEFAULT_LEAVES if leaves is None else oracle.leaves_of(leaves)
+    program = oracle.program(name, leaves)
     project = Path(directory)
     project.mkdir(parents=True)
     for name, contents in program.files:
+        if decimal256:
+            contents = contents.replace("Decimal(18, 4)", "Decimal(60, 4)")
+            contents = contents.replace(
+                'postgres.table("orders")', 'postgres.table("orders_decimal256")'
+            )
         (project / name).write_text(contents, encoding="utf-8")
     text = "".join(contents for _, contents in program.files)
     contract = json.loads(collecting.oracle_contract())
+    representations = {
+        "Float": (
+            {"kind": "pg_float8"},
+            {"kind": "finite_float", "format": "binary64"},
+        ),
+        "Decimal": (
+            {"kind": "pg_numeric", "precision": 18, "scale": 4},
+            {"kind": "decimal", "precision": 18, "scale": 4},
+        ),
+        "Date": ({"kind": "pg_date"}, {"kind": "date"}),
+        "Timestamp": (
+            {"kind": "pg_timestamp", "fractional_seconds": 6},
+            {"kind": "timestamp"},
+        ),
+        "UUID": ({"kind": "pg_uuid"}, {"kind": "uuid", "encoding": "standard_bytes"}),
+    }
+    tables = oracle.seed("FULL", leaves)
+    for source in contract["sources"]:
+        table = tables[source["selector"]["name"]]
+        fields = []
+        for ordinal, column in enumerate(table.columns):
+            representation = collecting._ORACLE_REPRESENTATIONS.get(column.kind)
+            if representation is None:
+                storage, domain = representations[column.kind]
+            else:
+                storage, domain = representation["storage"], representation["domain"]
+            fields.append(
+                {
+                    "ordinal": ordinal,
+                    "name": column.name,
+                    "column": column.name,
+                    "representation": {
+                        "storage": storage,
+                        "nullable": column.nullable,
+                        "domain": domain,
+                    },
+                }
+            )
+        source["fields"] = fields
+        if decimal256 and source["selector"]["name"] == "orders":
+            source["relation"]["name"] = "orders_decimal256"
+            for field in source["fields"]:
+                if field["name"] == "price":
+                    field["representation"] = {
+                        "storage": {"kind": "pg_numeric", "precision": 60, "scale": 4},
+                        "nullable": True,
+                        "domain": {"kind": "decimal", "precision": 60, "scale": 4},
+                    }
     contract["sources"] = [
         source
         for source in contract["sources"]
@@ -146,8 +204,86 @@ def write_nested_unnest(directory, name):
     return project
 
 
+def write_composed_nested(directory, *, outer=False):
+    from _pietto_plan_nested import (
+        retained_unnest_sources,
+        retained_outer_sources,
+        retained_unnest_contract,
+    )
+
+    directory = Path(directory)
+    directory.mkdir(parents=True)
+    files = retained_outer_sources() if outer else retained_unnest_sources()
+    for name, text in files.items():
+        (directory / name).write_text(text, encoding="utf-8")
+    (directory / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    contract = retained_unnest_contract()
+    prefix = "pietto_s16_outer_" if outer else "pietto_s16_"
+    for source in contract["sources"]:
+        source["relation"]["name"] = prefix + source["selector"]["name"]
+    (directory / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return directory
+
+
+def write_grouped_composed_nested(directory):
+    directory = write_composed_nested(directory)
+    parent = directory / "parent.pietto"
+    parent.write_text(
+        parent.read_text().replace(
+            "        from orders\n        select:\n            id\n            total\n",
+            "        from orders\n        group by customer_id\n        select:\n            id = customer_id\n            total = sum(total)\n",
+        ),
+        encoding="utf-8",
+    )
+    main = directory / "main.pietto"
+    main.write_text(
+        main.read_text()
+        .replace("query result:", "query result(min_child: Int):")
+        .replace(
+            "    inner join tags on child.id == tags.id\n",
+            "    inner join tags on child.id == tags.id\n    where child.id > min_child\n",
+        ),
+        encoding="utf-8",
+    )
+    contract_path = directory / "contract.json"
+    contract = json.loads(contract_path.read_text())
+    contract["environment"].append(
+        {
+            "key": "parameter_protocol",
+            "scope": "statement",
+            "value": "postgres_extended",
+        }
+    )
+    contract_path.write_text(json.dumps(contract), encoding="utf-8")
+    return directory
+
+
+def composed_setup_statements():
+    statements = []
+    for prefix in ("pietto_s16_", "pietto_s16_outer_"):
+        statements.extend(
+            (
+                f"CREATE TABLE public.{prefix}rows (id bigint NOT NULL, other bigint)",
+                f"CREATE TABLE public.{prefix}orders (id bigint NOT NULL, customer_id bigint NOT NULL, total bigint NOT NULL, created_at bigint NOT NULL)",
+                f"CREATE TABLE public.{prefix}tags (id bigint NOT NULL, other bigint)",
+            )
+        )
+    statements.extend(
+        (
+            "INSERT INTO public.pietto_s16_rows VALUES (1,10),(2,20)",
+            "INSERT INTO public.pietto_s16_orders VALUES (1,1,10,1),(2,1,20,2),(3,2,30,3),(4,2,40,4)",
+            "INSERT INTO public.pietto_s16_tags VALUES (1,NULL),(2,NULL),(3,NULL)",
+            "INSERT INTO public.pietto_s16_outer_orders VALUES (1,1,10,1),(2,1,20,2)",
+            "INSERT INTO public.pietto_s16_outer_tags VALUES (7,NULL)",
+        )
+    )
+    return tuple(statements)
+
+
 def unnest_setup_statements():
-    """Populate the independent basic-leaf FULL seed in the owned PG fixture."""
+    """Populate the complete literal-oracle FULL seed in the owned PG fixture."""
     import _pietto_execution_nested_oracle as oracle
 
     def value(item):
@@ -157,19 +293,37 @@ def unnest_setup_statements():
             return "TRUE" if item else "FALSE"
         if type(item) is int:
             return str(item)
+        if type(item) is float:
+            # Parse the authored float directly, retaining negative zero.
+            return "'" + repr(item) + "'::double precision"
+        if type(item) is Decimal:
+            return str(item)
+        if type(item) is datetime:
+            return "TIMESTAMP '" + item.isoformat(sep=" ") + "'"
+        if type(item) is date:
+            return "DATE '" + item.isoformat() + "'"
+        if type(item) is UUID:
+            return "'" + str(item) + "'::uuid"
         if type(item) is str:
             return "'" + item.replace("'", "''") + "'"
         raise ValueError("Unnest native fixture leaf")
 
     result = []
-    tables = oracle.seed("FULL", oracle.DEFAULT_LEAVES)
+    tables = oracle.seed("FULL", oracle.LEAVES)
     for name in ("customers", "orders"):
         table = tables[name]
         columns = [
             f'"{column.name}" '
-            + {"Int": "int8", "Bool": "boolean", "Text": 'text COLLATE "C"'}[
-                column.kind
-            ]
+            + {
+                "Int": "int8",
+                "Bool": "boolean",
+                "Text": 'text COLLATE "C"',
+                "Float": "double precision",
+                "Decimal": "numeric(18,4)",
+                "Date": "date",
+                "Timestamp": "timestamp(6)",
+                "UUID": "uuid",
+            }[column.kind]
             + ("" if column.nullable else " NOT NULL")
             for column in table.columns
         ]
@@ -180,6 +334,26 @@ def unnest_setup_statements():
                 "(" + ",".join(value(cell) for cell in row) + ")" for row in table.rows
             )
         )
+    decimal_tables = oracle.seed("FULL", ("Int", "Decimal"))
+    orders = decimal_tables["orders"]
+    columns = []
+    for column in orders.columns:
+        kind = (
+            "numeric(60,4)"
+            if column.name == "price"
+            else {"Int": "int8", "Decimal": "numeric(18,4)"}[column.kind]
+        )
+        columns.append(
+            f'"{column.name}" ' + kind + ("" if column.nullable else " NOT NULL")
+        )
+    rows = []
+    for row in orders.rows:
+        values = list(row)
+        if values[0] == 23:
+            values[orders.columns.index(orders.column("price"))] = DECIMAL256
+        rows.append("(" + ",".join(value(cell) for cell in values) + ")")
+    result.append('CREATE TABLE public."orders_decimal256" (' + ",".join(columns) + ")")
+    result.append('INSERT INTO public."orders_decimal256" VALUES ' + ",".join(rows))
     return tuple(result)
 
 

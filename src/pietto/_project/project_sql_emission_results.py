@@ -214,6 +214,27 @@ class ResultGroupColumn:
     column: rows.StageColumn
     group: Any
     carriers: tuple[tuple[str, str, Any], ...]
+    expression: Any = None
+
+    @property
+    def position(self):
+        return self.ordinal
+
+    @property
+    def port(self):
+        return self.output
+
+    @property
+    def scope(self):
+        return self.read.scope
+
+    @property
+    def collect(self):
+        return self.group.collect
+
+    @property
+    def lateral(self):
+        return self.group.lateral
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -621,7 +642,7 @@ def build_result_body(
     groups = {
         column.column: column
         for column in projection.columns
-        if type(column) is nested.CollectColumn
+        if type(column) in (nested.CollectColumn, ResultGroupColumn)
     }
     traces: dict[Any, list[ResultStage]] = {
         port.ref: [] for port in carried if port.canonical is not None
@@ -892,7 +913,7 @@ def build_result_body(
         columns.append(
             ResultGroupColumn(
                 *parts,
-                group,
+                nested.original_group(group),
                 tuple(
                     (stage, carrier_label, subject)
                     for (_, stage, subject), carrier_label in zip(

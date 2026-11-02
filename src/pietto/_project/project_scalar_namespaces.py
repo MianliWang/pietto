@@ -28,6 +28,7 @@ from pietto._project.project_scalar_bindings import (
 )
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.row_expression_type_facts import (
+    admits_nested_carry,
     is_nested_relation_field,
     merge_shape_typed_diagnostics,
     nested_reference_diagnostic,
@@ -796,6 +797,12 @@ def analyze_project_joined_namespace_expression(
         if type(resolution) is ProjectScalarReferenceResolution
         and resolution.target is not None
         and is_nested_relation_field(resolution.target.evidence)
+        and not admits_nested_carry(
+            resolution.reference.expression,
+            cast(TableDef | QueryDef, owner_definition),
+            relation_let=namespace.binding_environment.ledger.owner.let_position
+            is not None,
+        )
     )
     shaped = _shape_value_types(resolutions)
     seed_types = {**value_types, **shaped}

@@ -156,6 +156,30 @@ def test_collect_retains_one_layer_child_occurrences_and_scalar_boundary(
     assert _checked(semantic) == []
 
 
+def test_unnest_retains_the_parent_nested_field(
+    tmp_path: Path,
+) -> None:
+    semantic = _semantic(
+        tmp_path,
+        SOURCE.replace(
+            "nested = collect children",
+            "id\n        nested = collect children",
+        )
+        + """query reader:
+    from parent
+    let child = unnest(parent.nested)
+    cross join child
+    select:
+        id = parent.id
+        note = child.note
+        nested = parent.nested
+""",
+    )
+
+    assert _located(semantic.diagnostics) == []
+    assert _checked(semantic) == []
+
+
 @pytest.mark.parametrize(
     "sibling",
     ["incremented = id + 1", "bad = note + 1"],
@@ -223,24 +247,20 @@ def test_joined_collect_owner_completes_or_reports_its_own_diagnostics(
 def test_a_reader_selecting_a_collect_output_reports_the_nested_field(
     tmp_path: Path,
 ) -> None:
-    # The Collect owner completes (S04), so its reader reads its nested field
-    # and is told only the collecting relation outputs it yet; no fallback.
+    # A named projection carries the exact collection; a later scalar use refuses it.
     semantic = _semantic(
         tmp_path,
         SOURCE + "query reader:\n    from parent\n    select:\n        nested\n",
     )
 
-    assert _checked(semantic) == [("PIE-S2805", 17, 9)]
-    # The refused selection leaves the reader's row unknown, as any SELECT
-    # item with an error of its own does, so a relation reading it follows
-    # its reported error and never reads the nested field again.
-    assert _relation_facts(semantic, "reader").state.status.value == "unknown"
+    assert _checked(semantic) == []
+    assert _relation_facts(semantic, "reader").state.status.value == "concrete"
     downstream = _semantic(
         tmp_path / "down",
         SOURCE + "query reader:\n    from parent\n    select:\n        id = nested\n"
         "query down:\n    from reader\n    where id == 1\n    select:\n        id\n",
     )
-    assert _checked(downstream) == [("PIE-S2805", 17, 14)]
+    assert _checked(downstream) == [("PIE-S2805", 20, 11)]
 
 
 @pytest.mark.parametrize(
@@ -1818,11 +1838,11 @@ NESTED_READS = {
     ),
     "select-direct": (
         _NO_JOIN + "    select:\n        id\n        recent_orders\n",
-        [("PIE-S2805", 26, 9)],
+        [],
     ),
     "select-renamed": (
         _NO_JOIN + "    select:\n        id\n        r = recent_orders\n",
-        [("PIE-S2805", 26, 13)],
+        [],
     ),
     "select-expression": (
         _NO_JOIN + "    select:\n        id\n        x = recent_orders == 1\n",
@@ -1948,7 +1968,7 @@ NESTED_READS = {
     ),
     "join-select-renamed": (
         _JOIN + _SELECT_JOINED + "        r = p.recent_orders\n",
-        [("PIE-S2805", 28, 13)],
+        [],
     ),
     "join-select-expression": (
         _JOIN + _SELECT_JOINED + "        x = p.recent_orders == 1\n",
@@ -2188,12 +2208,12 @@ CLAUSE_ORDER = {
     "select-direct-then-unknown": (
         MATRIX_HEAD,
         _NO_JOIN + "    select:\n        recent_orders\n        zzz\n",
-        [("PIE-S2805", 25, 9), ("PIE-S2102", 26, 9)],
+        [("PIE-S2102", 26, 9)],
     ),
     "select-rename-then-unknown": (
         MATRIX_HEAD,
         _NO_JOIN + _SELECT_ID + "        r = recent_orders\n        z = zzz\n",
-        [("PIE-S2805", 26, 13), ("PIE-S2102", 27, 13)],
+        [("PIE-S2102", 27, 13)],
     ),
     # A window computation stops at its first refused step, as in a single
     # file: what it refuses before the step reading a nested field stays,

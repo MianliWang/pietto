@@ -1178,6 +1178,10 @@ def valid_receipts(
                         )
                         rows = cases.collect_cells(nested.example(segments), layout)
                         names = _collect_labels(layout)
+                    elif case_id == "L_retained_collection":
+                        rows, names, types = cases.retained_expectation(
+                            record["variant"]
+                        )
                     elif case_id == "G_scan_row_domains":
                         rows, labels, types, _ = cases.row_domain_expectation(
                             target, record["variant"]
@@ -1394,7 +1398,11 @@ def valid_receipts(
             result[target]["setup"][index]["prepared"] = target == "postgres" or bool(
                 params
             )
-        collect_base = len(cases.setup(target)) - len(cases.collect_setup(target))
+        collect_base = (
+            len(cases.setup(target))
+            - len(cases.retained_setup(target))
+            - len(cases.collect_setup(target))
+        )
         for index, params in enumerate(
             cases.collect_setup_parameters(target), collect_base
         ):
@@ -2642,3 +2650,61 @@ def test_a_receipt_row_with_an_unknown_cell_is_incomplete() -> None:
     value["rows"][0][0] = {"kind": "set", "items": []}
     with pytest.raises(ValueError, match="cell"):
         cases.check_complete(value)
+
+
+@pytest.mark.parametrize("variant", ("unnest", "outer"))
+def test_retained_collection_native_oracle_and_container_damage(tmp_path, variant):
+    probe = facility.emission
+    item = probe.fixture("postgres", "L_retained_collection", variant)
+    _, outcome = probe.build_case(tmp_path / "pg", item["source"], item["contract"])
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED"
+    rows, names, types = cases.retained_expectation(variant)
+    value = _observation("postgres", document["sql"], deepcopy(rows), names, types)
+    cases.check_retained_collection(value, document, variant)
+    changes = (
+        (
+            lambda r: r[0][-1]["items"].reverse(),
+            lambda r: r.pop(),
+        )
+        if variant == "unnest"
+        else (
+            lambda r: r[1].__setitem__(1, observation.scalar(0)),
+            lambda r: r[1].__setitem__(2, {"kind": "array", "items": []}),
+        )
+    )
+    for change in changes:
+        damaged = deepcopy(value)
+        change(damaged["rows"])
+        with pytest.raises(ValueError):
+            cases.check_retained_collection(damaged, document, variant)
+    item = probe.fixture("mysql", "L_retained_collection", variant)
+    _, refused = probe.build_case(tmp_path / "mysql", item["source"], item["contract"])
+    assert refused.artifact is None
+    cases.check_retained_refusal(
+        probe.decode_public(serialize_project_sql_emission(refused)), variant
+    )
+
+
+def test_retained_fixture_is_available_in_the_isolated_copied_probe(tmp_path):
+    import subprocess
+    import sys
+
+    copied = tmp_path / "emission_probe.py"
+    copied.write_bytes(Path(facility.emission.__file__).read_bytes())
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            'import runpy,sys; m=runpy.run_path(sys.argv[1]); [m["retained_collection_fixture"](t,v) for t in ("postgres","mysql") for v in ("unnest","outer")]',
+            str(copied),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr

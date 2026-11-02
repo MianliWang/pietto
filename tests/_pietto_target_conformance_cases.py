@@ -102,6 +102,7 @@ def setup(target: str) -> tuple[tuple[str, tuple[object, ...]], ...]:
         + native_setup(target)
         + row_domain_setup(target)
         + collect_setup(target)
+        + retained_setup(target)
     )
 
 
@@ -299,6 +300,110 @@ def collect_setup_parameters(target):
         result.append([])
         result.extend([cell(value) for value in row] for row in COLLECT_ROWS[name])
     return result
+
+
+def retained_setup(target):
+    if target != "postgres":
+        return ()
+    return tuple(
+        (sql, ())
+        for sql in (
+            'CREATE TABLE "phase71 retained rows" (id bigint NOT NULL, other bigint)',
+            'INSERT INTO "phase71 retained rows" VALUES (1,NULL),(2,NULL)',
+            'CREATE TABLE "phase71 retained orders" (id bigint NOT NULL, customer_id bigint NOT NULL, total bigint NOT NULL, created_at bigint NOT NULL)',
+            'INSERT INTO "phase71 retained orders" VALUES (10,1,100,1),(11,2,200,2)',
+            'CREATE TABLE "phase71 retained tags" (id bigint NOT NULL, other bigint)',
+            'INSERT INTO "phase71 retained tags" VALUES (1,NULL),(10,NULL),(99,NULL)',
+        )
+    )
+
+
+def retained_expectation(variant):
+    """Literal BAG and physical metadata, independently stated from the seed."""
+    array = {"kind": "array", "items": [_integer("1"), _integer("2")]}
+    if variant == "unnest":
+        rows = [
+            [
+                _integer(str(parent)),
+                _integer("10"),
+                _integer("10"),
+                _integer("2"),
+                array,
+            ]
+            for parent in (1, 2)
+        ]
+        return (
+            rows,
+            ["parent_id", "child_id", "tag_id", "retained", "id"],
+            [20, 20, 20, 20, 1016],
+        )
+    if variant == "outer":
+        rows = [
+            [_integer("1"), _integer("2"), array],
+            [_integer("10"), dict(NULL), dict(NULL)],
+            [_integer("99"), dict(NULL), dict(NULL)],
+        ]
+        return rows, ["id", "retained", "id"], [20, 20, 1016]
+    raise ValueError("unknown retained collection variant")
+
+
+def check_retained_refusal(document, variant):
+    details = ["collect_not_admitted_on_target"] * 2
+    if variant == "unnest":
+        details.append("unnest_not_admitted_on_target")
+    if document["status"] != "BLOCKED" or Counter(
+        (b["code"], b["subject"]["detail"]) for b in document["blockers"]
+    ) != Counter(("PIE-B1003", detail) for detail in details):
+        raise ValueError("retained refusal taxonomy")
+
+
+def check_retained_collection(observation, document, variant):
+    rows, labels, types = retained_expectation(variant)
+    if [m[0] for m in observation["metadata"]] != labels or [
+        m[1] for m in observation["metadata"]
+    ] != types:
+        raise ValueError("retained physical metadata")
+    scalar_labels = (
+        ["id"] if variant == "outer" else ["parent_id", "child_id", "tag_id"]
+    )
+    columns = document["columns"]
+    if [c["label"] for c in columns] != [*scalar_labels, "retained"]:
+        raise ValueError("retained logical labels")
+    integer = {"kind": "builtin", "name": "Int", "parameters": None}
+    if any(c["logical_type"] != integer or c["nullable"] for c in columns[:-1]):
+        raise ValueError("retained scalar metadata")
+    nested = columns[-1]
+    count = len(scalar_labels) + 1
+    if (
+        nested["representation"]
+        != {
+            "carrier": "pg_column_arrays_v1",
+            "columns": [
+                {"role": "count", "sql_symbol": count},
+                {
+                    "role": "field",
+                    "child": 0,
+                    "storage": {"kind": "pg_int8"},
+                    "sql_symbol": count + 1,
+                },
+            ],
+        }
+        or nested["correspondence"]["sql_symbol"] != count
+    ):
+        raise ValueError("retained physical correspondence")
+    if nested["nullable"] is not (variant == "outer") or nested["logical_type"] != {
+        "kind": "collection",
+        "name": None,
+        "parameters": None,
+        "element": [
+            {"ordinal": 0, "label": "id", "logical_type": integer, "nullable": False}
+        ],
+    }:
+        raise ValueError("retained nested metadata")
+    if Counter(
+        json.dumps(row, sort_keys=True) for row in observation["rows"]
+    ) != Counter(json.dumps(row, sort_keys=True) for row in rows):
+        raise ValueError("retained BAG or container value")
 
 
 def collect_specs():
@@ -2084,6 +2189,9 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         return
     if case_id == "L_relation_collect":
         check_collect_case(observation, document, variant_name)
+        return
+    if case_id == "L_retained_collection":
+        check_retained_collection(observation, document, variant_name)
         return
     if case_id == "Q_table_function_series":
         expected_rows, labels, types = series_expectation(target, variant_name)

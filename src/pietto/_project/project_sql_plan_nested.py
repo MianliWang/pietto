@@ -14,6 +14,8 @@ from pietto._project.module_semantic_fact_preservation import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from pietto._project.module_catalog import ProjectDeclarationOccurrence
     from pietto._project.project_completed_semantics import (
         ProjectConcreteCompletedSemanticResult,
@@ -22,6 +24,7 @@ if TYPE_CHECKING:
         ProjectSQLOriginProvenance,
         ProjectSQLPlan,
         ProjectSQLPlanRef,
+        ProjectSQLProjection,
     )
     from pietto._project.project_sql_plan_results import (
         ProjectSQLOrder,
@@ -178,30 +181,98 @@ def collect_limit(
 
 
 def collect_of(plan: ProjectSQLPlan, port: ProjectSQLPlanRef) -> ProjectSQLCollect:
-    """The one Collect read whose nested value ``port`` carries, following
-    only EXPORT, INPUT_PORT (its producer port) and JOIN_PORT (its source)."""
+    """The unique Collect authority reachable from one nested port."""
 
     from pietto._project.project_sql_plan import ProjectSQLPlanRefKind as K
 
-    input_ports = {value.ref: value for value in plan.input_ports}
-    join_ports = {value.ref: value for value in plan.join_ports}
-    current = port
-    for _ in range(len(input_ports) + len(join_ports) + 1):
+    edges = _index(
+        (
+            *((value.ref, value.producer_port) for value in plan.input_ports),
+            *((value.ref, value.source) for value in plan.join_ports),
+            *((value.ref, value.source) for value in plan.stage_ports),
+            *((value.ref, value.source) for value in getattr(plan, "result_ports", ())),
+            *((value.ref, value.port) for value in getattr(plan, "result_exports", ())),
+        )
+    )
+    by_export = _index((value.export, value) for value in plan.collects)
+    by_ref = _index((value.ref, value) for value in plan.collects)
+    projections = _index((value.export, value) for value in plan.projections)
+    projected = _index((value.ref, value) for value in plan.projections)
+    seen: set[ProjectSQLPlanRef] = set()
+    current: ProjectSQLPlanRef | None = port
+    while current is not None:
+        if current in seen:
+            raise ValueError("Port lineage does not end.")
+        seen.add(current)
+        if current.kind is K.COLLECT and (collect := _one(by_ref, current)):
+            return collect
         if current.kind is K.EXPORT:
-            matches = tuple(c for c in plan.collects if c.export is current)
-            if len(matches) != 1:
-                raise ValueError("Port carries no one Collect read.")
-            return matches[0]
-        if current.kind is K.INPUT_PORT and current in input_ports:
-            following = input_ports[current].producer_port
-        elif current.kind is K.JOIN_PORT and current in join_ports:
-            following = join_ports[current].source
+            projection = _one(projections, current)
+            if collect := _one(by_export, current):
+                if projection is not None:
+                    raise ValueError("Port carries no one Collect read.")
+                return collect
+            current = None if projection is None else _carried_source(plan, projection)
+        elif current.kind is K.PROJECTION:
+            projection = _one(projected, current)
+            current = None if projection is None else _carried_source(plan, projection)
+        elif current.kind in {
+            K.INPUT_PORT,
+            K.JOIN_PORT,
+            K.STAGE_PORT,
+            K.RESULT_PORT,
+            K.RESULT_EXPORT,
+        }:
+            current = _one(edges, current)
         else:
-            following = None
-        if following is None:
-            raise ValueError("Port carries no one Collect read.")
-        current = following
-    raise ValueError("Port lineage does not end.")
+            current = None
+    raise ValueError("Port carries no one Collect read.")
+
+
+def _index[T](
+    pairs: Iterable[tuple[ProjectSQLPlanRef, T]],
+) -> dict[ProjectSQLPlanRef, list[T]]:
+    found: dict[ProjectSQLPlanRef, list[T]] = {}
+    for ref, value in pairs:
+        found.setdefault(ref, []).append(value)
+    return found
+
+
+def _one[T](
+    found: dict[ProjectSQLPlanRef, list[T]], ref: ProjectSQLPlanRef
+) -> T | None:
+    values = found.get(ref, [])
+    if len(values) > 1:
+        raise ValueError("Port carries no one Collect read.")
+    return values[0] if values else None
+
+
+def carried_projections(plan: ProjectSQLPlan) -> tuple[ProjectSQLProjection, ...]:
+    """Nested projections, in plan order, whose field is a carried container."""
+
+    exports = {value.ref: value for value in plan.all_exports}
+    return tuple(
+        value
+        for value in plan.projections
+        if value.export in exports
+        and exports[value.export].field.evidence.resolved_type.nested is not None
+    )
+
+
+def _carried_source(
+    plan: ProjectSQLPlan, projection: ProjectSQLProjection
+) -> ProjectSQLPlanRef | None:
+    if projection.source_port is not None or projection.input_port is not None:
+        return projection.source_port or projection.input_port
+    position = projection.expression.position
+    if not 0 <= position < len(plan.expressions):
+        return None
+    expression = plan.expressions[position]
+    return (
+        getattr(expression, "port", None)
+        if expression.ref is projection.expression
+        else None
+    )
 
 
 def origin_parts(

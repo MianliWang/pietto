@@ -465,28 +465,210 @@ def test_all_supported_child_leaves_are_admitted_before_connection(
     }
 
 
-def test_preflight_uses_exact_opened_leaf_data_row_bounds():
-    fields = tuple(SimpleNamespace(decimal=None) for _ in range(5))
-    fields = (
-        fields[0],
-        SimpleNamespace(decimal=SimpleNamespace(precision=65, scale=30)),
-        *fields[2:],
+def _bounded_receipt(output, answers):
+    request = SimpleNamespace(
+        artifact=output.artifact, output=output, limits=ex.ExecutionLimits()
     )
-    domain = nested.CollectionDomain(
-        None,
-        None,
-        None,
-        fields,
-        ("Float", "Decimal", "Date", "Timestamp", "UUID"),
-        fields,
-        ("Float", "Decimal", "Date", "Timestamp", "UUID"),
-        False,
+    connection, qualification = object(), object()
+    values = iter(answers)
+
+    def read(sql, arguments):
+        oid = 25 if not arguments else 23 if "octet_length" in sql else 20
+        return nested.CollectionReply(
+            connection, sql, arguments, ((0, "bound", oid),), ((next(values),),), 2
+        )
+
+    receipt = nested.run_collection_preflight(
+        request,
+        read,
+        connection=connection,
+        qualification=qualification,
+        profile=("snapshot",),
     )
-    limits = ex.ExecutionLimits()
-    assert nested._measure(domain, limits, 1, 2, ()) == (789, 789, 789)
-    bad = replace(domain, child_fields=(fields[0], SimpleNamespace(decimal=None)))
-    with pytest.raises(ex.ExecutionError, match="POSTGRES_SOURCE_RESOURCE_LIMIT"):
-        nested._measure(bad, limits, 1, 2, ())
+    assert receipt is not None
+    nested.verify_collection_preflight(
+        request,
+        receipt,
+        connection=connection,
+        qualification=qualification,
+        profile=("snapshot",),
+    )
+    return request, receipt
+
+
+def test_preflight_uses_exact_opened_leaf_data_row_bounds(tmp_path):
+    output = nested_cases.collected(
+        product,
+        tmp_path / "leaves",
+        children=(
+            ("f", "Float", False),
+            ("d", "Decimal(65,30)", False),
+            ("date", "Date", False),
+            ("ts", "Timestamp", False),
+            ("u", "UUID", False),
+        ),
+    )
+    _request, receipt = _bounded_receipt(output, ("UTF8", 1, 2))
+    assert (receipt.row_bytes, receipt.batch_bytes, receipt.total_bytes) == (
+        789,
+        789,
+        789,
+    )
+
+
+@pytest.mark.parametrize(
+    "variant, counts, expected",
+    (
+        ("siblings", (2, 3, 2), ((3, 2), 288, 576)),
+        ("grouped_let", (2, 3), ((3,), 326, 652)),
+    ),
+)
+def test_preflight_bounds_actual_sibling_and_grouped_producers(
+    tmp_path, variant, counts, expected
+):
+    import _pietto_sql_emission as emission
+    from pietto._project.project_result_output import prepare_output
+
+    case = emission.collect_fixture("postgres", variant)
+    _checked, outcome = emission.build_case(
+        tmp_path / variant, case["source"], case["contract"]
+    )
+    assert outcome.artifact is not None, outcome.status
+    output = prepare_output(outcome.artifact)
+    request, receipt = _bounded_receipt(output, ("UTF8", *counts))
+    assert (receipt.child_counts, receipt.row_bytes, receipt.total_bytes) == expected
+    assert len(receipt.domain.count_sources) == len(counts)
+    for damaged in (
+        replace(
+            receipt, source_counts=receipt.source_counts[1:] + receipt.source_counts[:1]
+        ),
+        replace(receipt, child_counts=tuple(n + 1 for n in receipt.child_counts)),
+        replace(receipt, replies=receipt.replies[:-1]),
+    ):
+        with pytest.raises(ex.ExecutionError, match="POSTGRES_SOURCE_RESOURCE_LIMIT"):
+            nested.verify_collection_preflight(
+                request,
+                damaged,
+                connection=receipt.connection,
+                qualification=receipt.qualification,
+                profile=receipt.profile,
+            )
+
+
+@pytest.mark.parametrize(
+    "outer, answers, row_bytes, total",
+    (
+        (False, (2, 3, 4), 241, 5784),
+        (True, (1, 0, 2), 65, 65),
+    ),
+)
+def test_real_composed_collection_graph_binds_source_and_compiled_bounds(
+    tmp_path, outer, answers, row_bytes, total
+):
+    import json
+    import _pietto_sql_emission as emission
+    from _pietto_plan_nested import (
+        retained_unnest_sources,
+        retained_outer_sources,
+        retained_unnest_contract,
+    )
+    from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_reader import (
+        bind_postgres_output,
+        decode_carrier_rows,
+    )
+
+    files = retained_outer_sources() if outer else retained_unnest_sources()
+    _checked, outcome = emission.build_case(
+        tmp_path / "graph", files, json.dumps(retained_unnest_contract())
+    )
+    assert outcome.artifact is not None, outcome.status
+    build = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        build.payload,
+        expected_pin=build.pin,
+        accepted_producer=build.producer,
+        accepted_compatibility=build.compatibility,
+    )
+    compiled = emit_compiled(loaded, ())
+    for artifact in (outcome.artifact, compiled):
+        output = prepare_output(artifact)
+        request, receipt = _bounded_receipt(output, ("UTF8", *answers))
+        assert (receipt.row_bytes, receipt.total_bytes) == (row_bytes, total)
+        assert len(receipt.source_counts) == 3
+        assert len(receipt.domain.groups) == 2 and len(receipt.domain.retained) == 1
+        if outer:
+            metadata = nested_cases.metadata(output)
+            producer = bind_postgres_output(output, metadata)
+            assert producer.fields[-1].nullable is True
+            decoded, used = decode_carrier_rows(producer, ((7, None, None),), 1 << 20)
+            assert decoded == ((7, None),) and used == 0
+            empty, used = decode_carrier_rows(producer, ((7, 0, None),), 1 << 20)
+            assert empty == ((7, ((),)),) and used == 0
+            with pytest.raises(ValueError, match="EXECUTION_CARRIER"):
+                decode_carrier_rows(producer, ((7, None, []),), 1 << 20)
+        else:
+            assert receipt.child_counts == (4, 2)
+            assert len(receipt.domain.expansions) == 1
+            with pytest.raises(
+                ex.ExecutionError, match="POSTGRES_SOURCE_RESOURCE_LIMIT"
+            ):
+                nested._measure(
+                    receipt.domain,
+                    replace(request.limits, max_rows=23),
+                    receipt.source_counts,
+                    receipt.child_counts,
+                    receipt.text_bytes,
+                )
+
+
+def test_aliased_parent_edges_and_repeated_nested_outputs_are_not_deduplicated(
+    tmp_path,
+):
+    import json
+    import _pietto_sql_emission as emission
+    from _pietto_plan_nested import retained_alias_sources, retained_unnest_contract
+    from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    contract = retained_unnest_contract()
+    contract["sources"] = [
+        item for item in contract["sources"] if item["selector"]["name"] != "tags"
+    ]
+    _checked, outcome = emission.build_case(
+        tmp_path / "aliases", retained_alias_sources(), json.dumps(contract)
+    )
+    assert outcome.artifact is not None, outcome.status
+    build = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        build.payload,
+        expected_pin=build.pin,
+        accepted_producer=build.producer,
+        accepted_compatibility=build.compatibility,
+    )
+    for artifact in (outcome.artifact, emit_compiled(loaded, ())):
+        request, receipt = _bounded_receipt(prepare_output(artifact), ("UTF8", 3, 4))
+        assert [source.name for source in receipt.domain.count_sources] == [
+            "rows",
+            "orders",
+        ]
+        assert [source.name for source in receipt.domain.parent_sources] == [
+            "rows",
+            "rows",
+        ]
+        assert receipt.domain.retained == (1, 1)
+        assert (receipt.row_bytes, receipt.total_bytes) == (377, 3393)
+        with pytest.raises(ex.ExecutionError, match="POSTGRES_SOURCE_RESOURCE_LIMIT"):
+            nested._measure(
+                receipt.domain,
+                replace(request.limits, max_rows=8),
+                receipt.source_counts,
+                receipt.child_counts,
+                receipt.text_bytes,
+            )
 
 
 def test_save_and_relay_refuse_a_collection_before_workspace_or_sink(

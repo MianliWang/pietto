@@ -233,6 +233,25 @@ UNNEST_PARENT = """query parent:
         nested = collect recent
 """
 
+SIBLING_UNNEST_PARENT = """query parent:
+    let recent:
+        from orders
+        select:
+            id
+            total
+        order by id
+    let held:
+        from rows
+        select:
+            id
+        order by id
+    from rows
+    select:
+        id
+        nested = collect recent
+        sibling = collect held
+"""
+
 
 def _expanded(*lines: str) -> str:
     return UNNEST_PARENT + "query result:\n" + "".join(f"    {x}\n" for x in lines)
@@ -404,6 +423,88 @@ def imported_unnest_sources(target: str = "postgres") -> dict[str, str]:
         + "query result:\n    from parent\n    let o = unnest(parent.nested)\n"
         + "    cross join o\n    select:\n        total = o.total\n",
     }
+
+
+def retained_unnest_sources(target: str = "postgres") -> dict[str, str]:
+    """A cross-module renamed parent carried beside its Unnest result."""
+    return {
+        "parent.pietto": HEAD.format(target=target)
+        + SIBLING_UNNEST_PARENT
+        + "export (\n    query parent,\n)\n",
+        "main.pietto": 'from "parent.pietto" import (\n    query parent,\n)\n'
+        + "shape Tag:\n    id: Int\n    other: Int | None\n"
+        + f'source tags: Tag = {target}.table("tags")\n'
+        + "query result:\n"
+        + "    let p = parent\n"
+        + "    from p\n"
+        + "    let child = unnest(p.nested)\n"
+        + "    cross join child\n"
+        + "    inner join tags on child.id == tags.id\n"
+        + "    select:\n"
+        + "        parent_id = p.id\n"
+        + "        child_id = child.id\n"
+        + "        tag_id = tags.id\n"
+        + "        retained = p.sibling\n",
+    }
+
+
+def retained_outer_sources(target: str = "postgres") -> dict[str, str]:
+    files = retained_unnest_sources(target)
+    prefix = files["main.pietto"].split("query result:", 1)[0]
+    files["main.pietto"] = (
+        prefix
+        + """query result:
+    let p = parent
+    from tags
+    left join p on tags.id == p.id
+    select:
+        id = tags.id
+        retained = p.sibling
+"""
+    )
+    return files
+
+
+def retained_alias_sources() -> dict[str, str]:
+    files = retained_unnest_sources()
+    files["main.pietto"] = (
+        files["main.pietto"].split("shape Tag:", 1)[0]
+        + """query result:
+    let a = parent
+    let b = parent
+    from a
+    cross join b
+    select:
+        left_id = a.id
+        right_id = b.id
+        first = a.sibling
+        second = b.sibling
+"""
+    )
+    return files
+
+
+def retained_unnest_contract(target: str = "postgres") -> dict:
+    """The same exact three-source contract for retained-group consumers."""
+    document = json.loads(emission_contract(target, "parent.pietto"))
+    rows = document["sources"][0]
+    document["sources"].append(
+        {
+            **rows,
+            "selector": {**rows["selector"], "module": "main.pietto", "name": "tags"},
+            "relation": {**rows["relation"], "name": "tags"},
+        }
+    )
+    document["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    return document
 
 
 def project(directory: Path, files: dict[str, str]) -> Path:

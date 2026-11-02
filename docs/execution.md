@@ -1118,38 +1118,48 @@ refused by it.
 ## Bounded Collect and Unnest
 
 `compile_query` and `load_bundle` prepare the admitted PostgreSQL collection
-shapes without connecting. `execute(..., route="postgres_rows")` supports a
-single Collect with Int, Bool, or finite Text children, and one CROSS, INNER,
-or LEFT Unnest of that collection with a flat final result. The public live
-path uses the compiled graph, as does a loaded source-free bundle.
+shapes without connecting. `execute(..., route="postgres_rows")` supports
+parallel Collect fields with Int, Bool, finite Text, finite Float, Decimal,
+Date, Timestamp and UUID children. One CROSS, INNER or LEFT Unnest can expand
+one collection while the result retains another collection. Named and imported
+producers, ordinary JOIN carry, scalar filtering and header parameters preserve
+the whole nested field. Grouped child producers are admitted; a collection itself
+is never a scalar grouping, comparison or ordering key. The public live path
+uses the compiled graph, as does a loaded source-free bundle.
 
-This first execution domain has one parent Int field and one child collection,
-with direct field projections over qualified physical roots, filters, ordering
-and limits. After source qualification and before submitting the main SQL, the
-attempt checks `server_encoding = UTF8`, bounded physical-root counts and actual
-Text octet lengths. It uses the same owned read-only REPEATABLE READ or
-SERIALIZABLE transaction snapshot for preflight and the main statement. The
-parent root is at most 64 rows, the global child root at most 16 rows, and each
-Text field at most 256 UTF-8 bytes. An unknown or unsupported bound is refused;
-no protective LIMIT is added to the authored query. A declared Text size alone
-is not a runtime size guarantee.
+Each collection keeps its child's authored ordering, including the documented
+lack of a tie-break guarantee. A missing outer-JOIN container is `None`, distinct
+from an empty `[]`. Float keeps binary64 bits; Decimal keeps its precision and
+scale, using decimal128 or decimal256 as needed. Date stays within
+1000-01-01..9999-12-31, Timestamp is timezone-free civil microseconds, and UUID
+keeps its exact 16 bytes. Pietto's own PostgreSQL sessions set and verify
+`extra_float_digits=1` and `DateStyle=ISO,MDY`, including existing flat requests.
 
-Preflight bounds every emitted DataRow field, the batch and total bytes, and
-child occurrences. `batch_rows` and `max_rows` count top-level result rows:
-parents for a nested result, and expanded flat rows after Unnest. The Unnest
-bound is the parent count times the global child count (at least one for LEFT),
-so a query can be refused even when its actual filtered result would fit.
-These are result-transport bounds, not a bound on server executor memory or all
-protocol, driver, or Arrow allocation costs. Delivery retains its own limits;
-a parent collection is never split across batches.
+After source qualification and before the main SQL, the attempt checks
+`server_encoding = UTF8`, bounded physical-root counts and actual Text octet
+lengths in the same owned read-only REPEATABLE READ or SERIALIZABLE snapshot.
+A physical parent root is at most 64 rows; a root used by a collected child is
+at most 16 rows (the tighter cap applies when one root has both roles). Each
+Text field is at most 256 UTF-8 bytes. Computed Text needs an independently
+bounded representation. An unknown or unsupported bound is refused; no
+protective LIMIT is added to the query. A declared Text size alone is not a
+runtime size guarantee.
 
-ADBC, MySQL, guarded/refined execution and unsupported child leaves remain
-refused before a connection. Collect/Unnest operations remain refused by
-`save`, R2 and relay before workspace or sink effects, even when Unnest makes
-the final result flat. Saved replay/R1 and verified export do not open nested
-storage yet. Nested IPC is an internal checked transport; it is not a public
-IPC or storage API. Float/Decimal children, temporal/UUID children, and wider
-composition retain their later Phase71 owners.
+Preflight bounds every emitted DataRow field, batch/total bytes and retained
+child occurrences. Physical roots are counted once, but each JOIN edge and each
+retained occurrence contributes to the bound. `batch_rows` and `max_rows` count
+top-level result rows, including expansion after Unnest. Outer JOIN bounds also
+account for unmatched rows and absent containers. Filtering need not shrink the
+conservative bound, so a query can be refused even when its actual result would
+fit. These are result-transport bounds, not bounds on server executor memory or
+all protocol, driver or Arrow allocation costs. A parent collection is never
+split across batches.
+
+ADBC, MySQL and guarded/refined nested execution remain refused before a
+connection. Collect/Unnest operations remain refused by `save`, R2 and relay
+before workspace or sink effects, even when the final result is flat. Saved
+replay/R1 and verified export do not open nested storage yet. Nested IPC remains
+an internal checked transport, not a public IPC or storage API.
 
 ## Results
 

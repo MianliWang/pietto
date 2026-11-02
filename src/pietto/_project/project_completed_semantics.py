@@ -2325,10 +2325,14 @@ def derive_compiled_semantics(root, values, parameters=None):
             return get("arguments")
         if kind == "set_value":
             return get("inputs")
-        if kind == "join_value":
+        if kind == "join_value" or (
+            kind == "port"
+            and get("owner").kind == "join"
+            and get("source").kind == "port"
+        ):
             join = records[get("owner")]
             return (
-                get("input"),
+                get("input") if kind == "join_value" else get("source"),
                 *(
                     a
                     for e in join.get("equalities")
@@ -2419,7 +2423,11 @@ def derive_compiled_semantics(root, values, parameters=None):
                 typed = declared(get("logical"))
                 if operands:
                     child = facts[operands[0]]
-                    if child.value_type != typed or child.nested is not None:
+                    if (
+                        child.value_type != typed
+                        or child.nested is not None
+                        or child.parameters != type_parameters
+                    ):
                         raise CompiledError("COMPILED_UNNEST_FIELD")
                     realized = child.realization if physical_required else None
                     if physical_required:
@@ -2632,7 +2640,11 @@ def derive_compiled_semantics(root, values, parameters=None):
                         raise CompiledError("COMPILED_AGGREGATE_DOMAIN")
                 else:
                     realized = None
-            elif kind == "join_value":
+            elif kind == "join_value" or (
+                kind == "port"
+                and get("owner").kind == "join"
+                and get("source").kind == "port"
+            ):
                 from pietto._project.project_sql_plan_joins import (
                     compiled_join_rejections,
                 )
@@ -2641,10 +2653,33 @@ def derive_compiled_semantics(root, values, parameters=None):
                 )
 
                 join = records[get("owner")]
-                read = records[get("input")]
-                incoming = facts[read.address]
-                use = records[read.get("use")]
-                rejected = (use.address, read.get("port")) in compiled_join_rejections(
+                if kind == "join_value":
+                    read = records[get("input")]
+                    incoming = facts[read.address]
+                    use = records[read.get("use")]
+                    input_port = read.get("port")
+                else:
+                    uses = tuple(records[address] for address in join.get("inputs"))
+                    pairs = tuple(
+                        (use, port)
+                        for use in (
+                            uses[:1] if join.get("kind") in ("semi", "anti") else uses
+                        )
+                        for port in use.get("ports")
+                    )
+                    ordinal = get("ordinal")
+                    if (
+                        type(ordinal) is not int
+                        or not 0 <= ordinal < len(pairs)
+                        or pairs[ordinal][1] != get("source")
+                    ):
+                        raise CompiledError("COMPILED_HIDDEN_JOIN_PORT")
+                    use, input_port = pairs[ordinal]
+                    incoming = facts[input_port]
+                    if incoming.nested is None:
+                        raise CompiledError("COMPILED_HIDDEN_JOIN_PORT")
+                    value = incoming.value
+                rejected = (use.address, input_port) in compiled_join_rejections(
                     records, join
                 )
                 from pietto._project.project_current_joins import (
@@ -2673,11 +2708,15 @@ def derive_compiled_semantics(root, values, parameters=None):
                         rejected,
                     ).value
                 )
-                typed = ValueType(incoming.value_type.resolved_type, nullable)
-                if typed != declared(get("logical")):
-                    raise CompiledError("COMPILED_JOIN_NULLABILITY")
                 origin, type_parameters = incoming.origin, incoming.parameters
-                if physical_required:
+                typed = ValueType(incoming.value_type.resolved_type, nullable)
+                if incoming.nested is not None:
+                    if get("logical") != ("collection", nullable.value):
+                        raise CompiledError("COMPILED_JOIN_NULLABILITY")
+                    nested, realized = incoming.nested, None
+                elif typed != declared(get("logical")):
+                    raise CompiledError("COMPILED_JOIN_NULLABILITY")
+                elif physical_required:
                     realized, problem = resolved_port_realization(
                         typed.resolved_type.name,
                         physical.NULLABILITY[nullable],
@@ -3510,10 +3549,14 @@ def verify_compiled_semantics(value):
                 if kind == "read"
                 else ()
             )
-            if kind == "join_value":
+            if kind == "join_value" or (
+                kind == "port"
+                and get("owner").kind == "join"
+                and get("source").kind == "port"
+            ):
                 join = records[get("owner")]
                 children = (
-                    get("input"),
+                    get("input") if kind == "join_value" else get("source"),
                     *(
                         a
                         for e in join.get("equalities")
@@ -3570,7 +3613,11 @@ def verify_compiled_semantics(value):
                 )
                 if inputs:
                     child = inputs[0]
-                    if child.value_type != typed or child.nested is not None:
+                    if (
+                        child.value_type != typed
+                        or child.nested is not None
+                        or child.parameters != type_parameters
+                    ):
                         raise ValueError("COMPILED_SEMANTIC_UNNEST_FIELD")
                     realization = child.realization if physical_required else None
                     if physical_required:
@@ -3796,7 +3843,11 @@ def verify_compiled_semantics(value):
                     )
                 else:
                     realization = None
-            elif kind == "join_value":
+            elif kind == "join_value" or (
+                kind == "port"
+                and get("owner").kind == "join"
+                and get("source").kind == "port"
+            ):
                 from pietto._project.project_sql_plan_joins import (
                     compiled_join_rejections,
                 )
@@ -3805,10 +3856,33 @@ def verify_compiled_semantics(value):
                 )
 
                 join = records[get("owner")]
-                read = records[get("input")]
-                incoming = by_address[read.address]
-                use = records[read.get("use")]
-                rejected = (use.address, read.get("port")) in compiled_join_rejections(
+                if kind == "join_value":
+                    read = records[get("input")]
+                    incoming = by_address[read.address]
+                    use = records[read.get("use")]
+                    input_port = read.get("port")
+                else:
+                    uses = tuple(records[address] for address in join.get("inputs"))
+                    pairs = tuple(
+                        (use, port)
+                        for use in (
+                            uses[:1] if join.get("kind") in ("semi", "anti") else uses
+                        )
+                        for port in use.get("ports")
+                    )
+                    ordinal = get("ordinal")
+                    if (
+                        type(ordinal) is not int
+                        or not 0 <= ordinal < len(pairs)
+                        or pairs[ordinal][1] != get("source")
+                    ):
+                        raise ValueError("COMPILED_SEMANTIC_HIDDEN_JOIN_PORT")
+                    use, input_port = pairs[ordinal]
+                    incoming = by_address[input_port]
+                    if incoming.nested is None:
+                        raise ValueError("COMPILED_SEMANTIC_HIDDEN_JOIN_PORT")
+                    expected_value = incoming.value
+                rejected = (use.address, input_port) in compiled_join_rejections(
                     records, join
                 )
                 from pietto._project.project_current_joins import (
@@ -3837,9 +3911,15 @@ def verify_compiled_semantics(value):
                         rejected,
                     ).value
                 )
-                typed = ValueType(incoming.value_type.resolved_type, nullable)
                 origin, type_parameters = incoming.origin, incoming.parameters
-                if physical_required:
+                typed = ValueType(incoming.value_type.resolved_type, nullable)
+                if incoming.nested is not None:
+                    need(
+                        get("logical") == ("collection", nullable.value),
+                        "SEMANTIC_JOIN_NULLABILITY",
+                    )
+                    nested, realization = incoming.nested, None
+                elif physical_required:
                     realization, problem = resolved_port_realization(
                         typed.resolved_type.name,
                         NULLABILITY[nullable],

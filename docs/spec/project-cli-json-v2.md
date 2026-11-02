@@ -488,7 +488,18 @@ the nested field, so a document without one is byte for byte unchanged:
   element order and container) has rule `R27`. The generated kinds
   `collect_lateral` (subject the Collect read), `collect_count` (the nested
   export), `collect_array` (each child export) and `collect_ordinal` (`r`'s
-  ORDER) also use `R27`, with no evidence. The lateral's aggregate SELECT and a
+  ORDER) also use `R27`. Each `collect_lateral.evidence` contains exactly one
+  object with `use`, `producer`, `terminal`, and ordered `children` typed local
+  references. `use` is the actual expression-block read; `producer` names its
+  definition; `terminal` is the complete result unit actually read by SQL (the
+  unit's `result_boundary` range subject); `children` are its complete ordered
+  exports. The public reader binds that association to the parsed SQL terminal
+  and checks the nested column's producer against it. Repeated occurrences must
+  agree; source definitions cannot be used as collected producers. The other
+  generated R27 kinds retain empty evidence. This additive evidence changes
+  existing Collect JSON bytes while retaining v1/v2 tags; strict readers must
+  upgrade. It does not authenticate externally altered documents or source
+  files. The lateral's aggregate SELECT and a
   `select distinct` let's ordinal wrapper each add a `read_only_select_bytes`
   (`R23`).
 - `ranges` add the roles `collect_lateral_open`, `collect_lateral_close`,

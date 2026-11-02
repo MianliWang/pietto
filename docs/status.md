@@ -147,7 +147,8 @@ documentation does not supersede that evidence.
 | Phase71 batch B4 | `COMPLETED / PUBLISHED`; B4 (S12 with AC-F7, S13 and S17) is published at `9df0003f020c0d5e61fb32e4528cfd20d9125142` (tree `fa5e45c8c794207a360b3a195474e738ac2f49e9`); natural exact-head CI `41272976489` attempt 1 accepted all 19 jobs. The midpoint S/H/L/K/Q review passed. Its CI health has insufficient comparable history and a WATCH screen, so it authorizes no scheduler changes. |
 | Batch project emission | `COMPLETED / PUBLISHED`; The batch-emission interlude is published at `a6a78c2bde3f84290ee41e8b159f7690a5a593f4` (tree `934c7ca1bc08c138fcc5a4cefa647f781356248c`); natural exact-head CI `41285328101` attempt 1 accepted all 19 jobs. |
 | Second project-emission interlude | `COMPLETED / PUBLISHED`; published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. |
-| Next | B5 (S14–S16) under the existing route. B4 natural CI and midpoint prerequisites are satisfied. The `0.1.7` version, tag and release need their own authorization |
+| Single-file checked Int SUM repair | `COMPLETED / PUBLISHED`; The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs. |
+| Next | B5 (S14–S16) is an integrated candidate awaiting its complete native checks, Gate 2 and publication under the existing route. B4 natural CI and midpoint prerequisites are satisfied. The `0.1.7` version, tag and release need their own authorization |
 
 ## Phase67 当前路线
 

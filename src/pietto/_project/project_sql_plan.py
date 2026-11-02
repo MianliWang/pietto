@@ -55,6 +55,7 @@ from pietto._project import project_sql_plan_joins as joining
 from pietto._project.let_scope_facts import ProjectLetScopeFactsStatus
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleLetBindingFact,
+    ProjectModuleNestedCarryFact,
     ProjectModuleWhereReferenceRole,
     ProjectModuleSelectExpressionFact,
     ProjectModuleWhereFact,
@@ -65,6 +66,7 @@ from pietto._project.module_semantic_fact_preservation import (
 from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
 from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
 from pietto._project.model import ProjectRowField
+from pietto._project.row_expression_type_facts import admits_nested_carry
 from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.aggregates import semantic_aggregate_call_name
@@ -733,6 +735,12 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
                     evidence.owner is entry.owner
                     and evidence.scope_facts is authority.let_scope
                 )
+            elif isinstance(evidence, ProjectModuleNestedCarryFact):
+                contextual = (
+                    evidence.owner is entry.owner
+                    and evidence.namespace is None
+                    and references == (evidence.reference,)
+                )
             else:
                 contextual = (
                     evidence.owner is entry.owner
@@ -757,6 +765,7 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
                     or (
                         values[id(n)][1].kind is not ValueTypeKind.KNOWN
                         and not _any_null_predicate(n, evidence)
+                        and not _carried(n, evidence)
                     )
                     for n in nodes
                 )
@@ -921,6 +930,20 @@ def _joined_row_blockers(entry, authority, aggregating=False, block_reads=frozen
             if isinstance(evidence, row.ProjectJoinedLetValue)
             else block_reads,
         )
+        if (
+            kind is ProjectSQLPlanBlockerKind.EXPRESSION_EVIDENCE
+            and isinstance(site, SelectItem)
+            and admits_nested_carry(
+                site.expression,
+                definition,
+                relation_let=entry.owner.let_position is not None,
+            )
+            and len(references) == 1
+            and references[0].target is not None
+            and references[0].target.evidence.resolved_type.kind
+            is ProjectResolvedTypeKind.NESTED_RELATION
+        ):
+            kind = None
         if kind is not None:
             result.append((kind, site))
     return tuple(result)
@@ -975,6 +998,13 @@ def _any_null_predicate(node, evidence):
         type(node) is LiteralExpr
         and node.value is None
         and any(value.predicate is node for value in existence_values(evidence))
+    )
+
+
+def _carried(node, evidence):
+    return (
+        isinstance(evidence, ProjectModuleNestedCarryFact)
+        and node is evidence.expression
     )
 
 
@@ -5147,6 +5177,27 @@ def build_project_sql_plan(
                     origin=demand_origin,
                 )
             )
+    for projection in nested.carried_projections(plan):
+        value = nested.collect_of(plan, projection.export)
+        demand_ref = ref(K.DEMAND)
+        demand_origin = origin(
+            demand_ref,
+            R.DEMAND,
+            P.TYPE_PROOF,
+            projection.site.owner,
+            projection.semantic.item,
+            value,
+            (origin_by_subject[projection.export],),
+        )
+        demands.append(
+            nested.ProjectSQLCollectionDemand(
+                ref=demand_ref,
+                subject=projection.export,
+                kind=nested.ProjectSQLCollectionDemandKind.COLLECT_EXPORT,
+                witness=value,
+                origin=demand_origin,
+            )
+        )
     for value in plan.unnests:
         condition = join_by_ref[value.join].source.condition
         owner, cause = condition.use.owner, condition.use.clause

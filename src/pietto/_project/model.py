@@ -3086,6 +3086,7 @@ def _project_direct_relation_row_schema(
     pretyped_expressions: Mapping[Expression, ProjectNoJoinScalarExpression]
     | None = None,
     collect_types: Mapping[Expression, ProjectResolvedType] | None = None,
+    relation_let: bool = False,
 ) -> _ProjectRelationRowSchemaResult:
     """Project direct fields and supported computed aliases from one input.
 
@@ -3110,6 +3111,7 @@ def _project_direct_relation_row_schema(
         adapt_project_row_expression_schema,
     )
     from pietto._project.row_expression_type_facts import (
+        admits_nested_carry,
         build_project_row_expression_value_types,
         nested_reference_diagnostic,
         project_row_schema_to_semantic_row_schema,
@@ -3416,8 +3418,16 @@ def _project_direct_relation_row_schema(
             is_unknown = True
             unknown_reason = ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
             continue
-        if source_field.resolved_type.kind is ProjectResolvedTypeKind.NESTED_RELATION:
-            diagnostics.append(nested_reference_diagnostic(item.expression, definition))
+        if source_field.resolved_type.kind is (
+            ProjectResolvedTypeKind.NESTED_RELATION
+        ) and not admits_nested_carry(
+            item.expression, definition, relation_let=relation_let
+        ):
+            diagnostics.append(
+                nested_reference_diagnostic(
+                    item.expression, definition, relation_let=relation_let
+                )
+            )
             is_unknown = True
             unknown_reason = unknown_reason or (
                 ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA

@@ -14,6 +14,7 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import (
     AnyExpr,
+    AuthoredJoinKind,
     CapturedFieldExpr,
     CollectRelationExpr,
     DottedNameExpr,
@@ -154,11 +155,101 @@ def nested_reference_text(leaf: Expression) -> str:
     raise TypeError("A nested field reference is a name or a read.")
 
 
+NESTED_CARRY_REFUSALS: Mapping[str, tuple[str, str]] = MappingProxyType(
+    {
+        "relation let": (
+            "cannot be selected in a relation let: select it in the table or query itself.",
+            "Select only the scalar fields you need in the let.",
+        ),
+        "right or full join": (
+            "cannot be selected beside a RIGHT or FULL JOIN: such a JOIN does not carry a collected relation.",
+            "Use a cross, inner or left join to keep the nested field.",
+        ),
+        "grouped": (
+            "cannot be selected in a table or query with GROUP BY or an aggregate: it is no group key and has no aggregate.",
+            "Group in another table or query and join it here.",
+        ),
+        "distinct": (
+            "cannot be part of SELECT DISTINCT: a collected relation has no equality.",
+            "Make the scalar rows distinct in another table or query and join it here.",
+        ),
+        "window": (
+            "cannot be selected beside a window or QUALIFY yet.",
+            "Compute the window in another table or query and join it here.",
+        ),
+    }
+)
+
+
+def is_nested_carry_item(leaf: Expression, definition: TableDef | QueryDef) -> bool:
+    return not inlined_arguments(leaf) and any(
+        item.expression is leaf for item in definition.select_items
+    )
+
+
+def nested_carry_refusal(
+    definition: TableDef | QueryDef, *, relation_let: bool
+) -> str | None:
+    if relation_let:
+        return "relation let"
+    if any(
+        join.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+        for join in definition.join_clauses
+    ):
+        return "right or full join"
+    expressions = [item.expression for item in definition.select_items]
+    if definition.let_clause is not None:
+        expressions.extend(item.expression for item in definition.let_clause.bindings)
+    expressions.extend(
+        join.on_clause.expression
+        for join in definition.join_clauses
+        if join.on_clause is not None
+    )
+    if definition.where_clause is not None:
+        expressions.append(definition.where_clause.expression)
+    if definition.satisfying_clause is not None:
+        expressions.append(definition.satisfying_clause.expression)
+    if definition.order_by_clause is not None:
+        expressions.extend(item.expression for item in definition.order_by_clause.items)
+    if definition.group_by_clause is not None or any(
+        contains_semantic_aggregate(item) for item in expressions
+    ):
+        return "grouped"
+    if definition.distinct_clause is not None:
+        return "distinct"
+    if definition.qualify_clause is not None or any(
+        _contains_window(item) for item in expressions
+    ):
+        return "window"
+    return None
+
+
+def admits_nested_carry(
+    leaf: Expression, definition: TableDef | QueryDef, *, relation_let: bool
+) -> bool:
+    return (
+        type(leaf) in {NameExpr, DottedNameExpr}
+        and is_nested_carry_item(leaf, definition)
+        and nested_carry_refusal(definition, relation_let=relation_let) is None
+    )
+
+
+def _contains_window(expression: Expression) -> bool:
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        if type(node) is WindowExpr:
+            return True
+        pending.extend(child_expressions(node))
+    return False
+
+
 def nested_reference_diagnostic(
     leaf: Expression,
     definition: TableDef | QueryDef,
     *,
     root: Expression | None = None,
+    relation_let: bool = False,
 ) -> Diagnostic:
     """PIE-S2805 for one read of a nested field in ``definition``'s body.
 
@@ -167,6 +258,18 @@ def nested_reference_diagnostic(
     a `def` call inlines as the item, has no value to read.
     """
 
+    if is_nested_carry_item(leaf, definition):
+        refusal = nested_carry_refusal(definition, relation_let=relation_let)
+        if refusal is not None:
+            message, suggestion = NESTED_CARRY_REFUSALS[refusal]
+            return _error(
+                "PIE-S2805",
+                f"Nested relation field {nested_reference_text(leaf)} {message}",
+                leaf,
+                suggestion,
+            )
+        if type(leaf) in {NameExpr, DottedNameExpr}:
+            raise ValueError("A carried nested field has no PIE-S2805.")
     if not inlined_arguments(leaf) and any(
         item.expression is leaf for item in definition.select_items
     ):

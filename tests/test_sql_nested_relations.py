@@ -33,6 +33,9 @@ from _pietto_plan_nested import (
     emission_contract,
     imported_sources,
     imported_unnest_sources,
+    retained_unnest_sources,
+    retained_unnest_contract,
+    retained_outer_sources,
     project,
     sources,
 )
@@ -92,7 +95,18 @@ def _project(tmp_path, shape, dialect):
             for item in contract["sources"]
             if item["selector"]["name"] == source_name
         ]
-    if shape.startswith("unnest"):
+    if shape in ("reader", "exists_reader", "scalar_reader", "imported"):
+        contract["sources"] = [
+            source
+            for source in contract["sources"]
+            if source["selector"]["name"] == "rows"
+        ]
+    if shape.startswith("unnest") or shape in (
+        "reader",
+        "exists_reader",
+        "scalar_reader",
+        "imported",
+    ):
         contract["environment"].append(
             {
                 "key": "identifier_case",
@@ -129,17 +143,12 @@ def _emit(root, dialect, capsys, *extra):
     return code, captured.out, captured.err
 
 
-# PostgreSQL still refuses a Collect read whose parent another relation reads
-# (S16); MySQL refuses every one.
-POSTGRES_REFUSED = ("reader", "exists_reader", "scalar_reader", "imported")
+POSTGRES_READERS = ("reader", "exists_reader", "scalar_reader", "imported")
 
 
 @pytest.mark.parametrize(
     ("shape", "dialect"),
-    (
-        *((shape, "mysql") for shape in (*SHAPES, "imported")),
-        *((shape, "postgres") for shape in POSTGRES_REFUSED),
-    ),
+    (*((shape, "mysql") for shape in (*SHAPES, "imported")),),
 )
 def test_a_checked_collect_program_is_blocked_at_each_read(
     tmp_path, capsys, shape, dialect, monkeypatch
@@ -188,6 +197,149 @@ def test_a_checked_collect_program_is_blocked_at_each_read(
         for path, line, column in READS[shape]
     ]
     assert not any(sentinel in text for sentinel in SENTINELS)
+
+
+@pytest.mark.parametrize("shape", POSTGRES_READERS)
+def test_named_collect_reader_has_one_public_verified_document(tmp_path, capsys, shape):
+    root = _project(tmp_path, shape, "postgres")
+    code, out, _ = _emit(root, "postgres", capsys, "--format", "json")
+    assert code == 0
+    document = json.loads(out)
+    assert document["status"] == "VERIFIED"
+    assert probe.decode_public(out.encode()) == document
+    query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    assert query.emission == out.encode()
+
+
+@pytest.mark.parametrize(
+    "retained, filtered", (("sibling", False), ("nested", False), ("sibling", True))
+)
+def test_retained_group_cli_compiled_and_strict_reader_agree(
+    tmp_path, capsys, retained, filtered
+):
+    files = retained_unnest_sources()
+    files["main.pietto"] = files["main.pietto"].replace(
+        "retained = p.sibling", f"retained = p.{retained}"
+    )
+    if filtered:
+        files["main.pietto"] = files["main.pietto"].replace(
+            "    select:\n", "    where child.id > 0\n    select:\n"
+        )
+    root = project(tmp_path / "retained", files)
+    (root / "contract.json").write_text(
+        json.dumps(retained_unnest_contract()), encoding="utf-8"
+    )
+    code, out, _ = _emit(root, "postgres", capsys, "--format", "json")
+    assert code == 0
+    document = json.loads(out)
+    assert document["status"] == "VERIFIED"
+    assert probe.decode_public(out.encode()) == document
+    query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    assert query.emission == out.encode()
+
+
+def test_outer_join_public_collection_keeps_container_nullability(tmp_path, capsys):
+    root = project(tmp_path / "outer", retained_outer_sources())
+    (root / "contract.json").write_text(
+        json.dumps(retained_unnest_contract()), encoding="utf-8"
+    )
+    code, out, _ = _emit(root, "postgres", capsys, "--format", "json")
+    assert code == 0, out
+    document = json.loads(out)
+    assert document["columns"][-1]["nullable"] is True
+    assert document["columns"][-1]["logical_type"]["element"][0]["nullable"] is False
+    assert probe.decode_public(out.encode()) == document
+    query = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    assert query.emission == out.encode()
+
+
+@pytest.mark.parametrize("damage", ("missing", "duplicate", "foreign", "array_span"))
+def test_carried_collection_reference_range_is_exact(tmp_path, damage):
+    outcome = collecting.wired_outcome(
+        tmp_path / "project",
+        retained_unnest_sources(),
+        json.dumps(retained_unnest_contract()),
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "VERIFIED"
+    assert probe.decode_public(probe.encoded(document)) == document
+    export = document["columns"][-1]["correspondence"]["export"]
+    count = next(
+        r
+        for r in document["ranges"]
+        if r["role"] == "collect_carrier_column"
+        and r["kind"] == "identifier"
+        and r["subject"] == export
+    )
+    matches = [
+        r
+        for r in document["ranges"]
+        if r["kind"] == "expression_range"
+        and r["role"] == "reference"
+        and r["end"] == count["end"]
+    ]
+    assert len(matches) == 1
+    overlay = matches[0]
+    if damage == "missing":
+        document["ranges"].remove(overlay)
+    elif damage == "duplicate":
+        document["ranges"].append(dict(overlay))
+    elif damage == "foreign":
+        overlay["subject"] = {"kind": "expression", "position": 0}
+    else:
+        array = next(
+            r
+            for r in document["ranges"]
+            if r["role"] == "collect_carrier_column" and r["start"] > count["end"]
+        )
+        overlay["end"] = array["end"]
+    with pytest.raises(ValueError):
+        probe.decode_public(probe.encoded(document))
+
+
+def test_carried_group_cannot_drop_its_authored_reference(tmp_path):
+    outcome = collecting.wired_outcome(
+        tmp_path / "project",
+        retained_unnest_sources(),
+        json.dumps(retained_unnest_contract()),
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    units = collecting.units(artifact.ast)
+    parent = units[-1]
+    group = parent.columns[-1]
+    assert type(group) is resulting.ResultGroupColumn and group.expression is not None
+    changed = replace(
+        parent, columns=(*parent.columns[:-1], replace(group, expression=None))
+    )
+    forged = replace(
+        artifact, ast=_rebuilt(artifact.ast, _swap(units, parent, changed))
+    )
+    assert (
+        "plan_ast_correspondence"
+        in verify_project_sql_emission(forged, forged.request).issues
+    )
 
 
 def test_compile_query_refuses_a_collect_program_with_the_command_document(
@@ -284,14 +436,8 @@ REFUSALS = {
 }
 
 
-POSTGRES_UNNEST_ADMITTED = (
-    "unnest_cross",
-    "unnest_inner",
-    "unnest_left",
-    "unnest_left_on_parent",
-    "unnest_left_on_match",
-    "unnest_language",
-    "unnest_inner_nullable",
+POSTGRES_UNNEST_ADMITTED = tuple(
+    shape for shape in REFUSALS if shape != "unnest_two_bodies"
 )
 
 
@@ -319,7 +465,11 @@ def test_a_checked_unnest_program_is_blocked_at_each_let(
     assert code == 1
     assert (document["status"], document["artifact"]) == ("BLOCKED", None)
     assert document["cli_errors"] == [] and document["diagnostics"] == []
-    expected = REFUSALS[shape]
+    expected = [
+        item
+        for item in REFUSALS[shape]
+        if dialect != "postgres" or item[1] != "collect"
+    ]
     if shape == "unnest_beside_series" and dialect == "mysql":
         # The table-function refusal precedes every nested one (D70.05).
         assert document["blockers"][0]["subject"]["detail"] == (
@@ -415,6 +565,7 @@ def test_a_direct_unnest_cli_and_public_compile_share_the_verified_artifact(
         emission_contract="contract.json",
     )
     assert query.emission == out.encode()
+    assert probe.decode_public(out.encode()) == document
 
 
 # A Timestamp JOIN port beside a CROSS JOIN fails the scalar meaning admission;
@@ -467,10 +618,23 @@ def test_a_timestamp_beside_a_cross_join_keeps_the_nested_refusals(
                 "nullable": False,
                 "domain": {"kind": "timestamp"},
             }
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if dialect == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
     (root / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
 
     code, out, _ = _emit(root, dialect, capsys, "--format", "json")
     document = json.loads(out)
+    if (shape, dialect) == ("unnest", "postgres"):
+        assert code == 0 and document["status"] == "VERIFIED"
+        assert probe.decode_public(out.encode()) == document
+        return
     assert code == 1 and document["status"] == "BLOCKED"
     if (shape, dialect) == ("collect", "postgres"):
         assert [
@@ -1502,7 +1666,7 @@ EXPECTED_WIRED = {
 }
 # The staged-capture fixture has its own checked-arithmetic and static
 # range-refusal witness below.
-NESTED_SHAPES = frozenset(SHAPES) - {*POSTGRES_REFUSED, "staged_capture"}
+NESTED_SHAPES = frozenset(SHAPES) - {*POSTGRES_READERS, "staged_capture"}
 
 
 def _wired(tmp_path: Path, shape: str):
@@ -1634,6 +1798,19 @@ def test_the_public_document_describes_a_nested_column_and_its_rules(
         'SELECT "s1"."id" AS "id", "g0"."n" AS "recent_orders", '
         '"g0"."a0" AS "id", "g0"."a1" AS "total" FROM '
     )
+    (binding,) = [
+        item["evidence"]
+        for item in document["requirements"]
+        if item["denominator"] == "generated" and item["kind"] == "collect_lateral"
+    ]
+    assert binding == [
+        {
+            "use": ref("expression_block_use", 0),
+            "producer": ref("definition", 2),
+            "terminal": ref("result_boundary", 0),
+            "children": [ref("export", 0), ref("export", 1)],
+        }
+    ]
     # R27 owns the three COLLECTION demands and every generated Collect part.
     collect_rules = [
         (item["denominator"], item["kind"], item["subject"])
@@ -2000,6 +2177,19 @@ def _corrupted_artifact(artifact, corruption):
             laterals=(swapped.lateral,),
         )
         return replace(artifact, ast=_rebuilt(query, _swap(units, parent, changed)))
+    if corruption == "producer_definition":
+        terminal = lateral.target.producer
+        graft = replace(terminal, definition=parent.definition)
+        moved = replace(
+            column,
+            lateral=replace(lateral, target=replace(lateral.target, producer=graft)),
+        )
+        changed = replace(
+            parent,
+            columns=tuple(moved if c is column else c for c in parent.columns),
+            laterals=(moved.lateral,),
+        )
+        return replace(artifact, ast=_rebuilt(query, _swap(units, parent, changed)))
     if corruption == "ordinal_dropped":
         terminal = lateral.target.producer
         bare = replace(terminal, ordinal=None)
@@ -2049,6 +2239,7 @@ def _corrupted_artifact(artifact, corruption):
 
 ARTIFACT_CORRUPTIONS = {
     "lateral_dropped": ("closed", "plan_ast_correspondence"),
+    "producer_definition": ("closed", "plan_ast_correspondence"),
     "arrays_swapped": ("closed", "plan_ast_correspondence"),
     "ordinal_dropped": ("closed", "plan_ast_correspondence"),
     "group_flattened": ("ordered_parent", "plan_ast_correspondence"),
@@ -2210,7 +2401,50 @@ def _origin_role(document):
     item["origins"][0]["role"] = "capture"
 
 
+def _collect_binding(change):
+    def mutate(document):
+        bindings = [
+            item
+            for item in document["requirements"]
+            if item["denominator"] == "generated" and item["kind"] == "collect_lateral"
+        ]
+        assert len(bindings) == 1
+        change(bindings[0]["evidence"][0])
+
+    return mutate
+
+
 COLLECT_CORRUPTIONS = {
+    "binding_missing": ("closed", _requirement("collect_lateral", "evidence", [])),
+    "binding_extra": ("closed", _collect_binding(lambda b: b.update(extra=True))),
+    "binding_source_producer": (
+        "closed",
+        _collect_binding(
+            lambda b: b.update(producer={"kind": "definition", "position": 0})
+        ),
+    ),
+    "binding_producer": (
+        "closed",
+        _collect_binding(
+            lambda b: b.update(producer={"kind": "definition", "position": 3})
+        ),
+    ),
+    "binding_use": (
+        "closed",
+        _collect_binding(
+            lambda b: b.update(use={"kind": "expression_block_use", "position": 99})
+        ),
+    ),
+    "binding_terminal": (
+        "closed",
+        _collect_binding(
+            lambda b: b.update(terminal={"kind": "result_boundary", "position": 99})
+        ),
+    ),
+    "binding_children": (
+        "grouped_let",
+        _collect_binding(lambda b: b["children"].reverse()),
+    ),
     # Range subjects, roles and the bytes each role owns.
     "collect_origin_role": ("captured", _origin_role),
     "full_lateral": ("closed", _sql(" LEFT JOIN LATERAL (", " FULL JOIN LATERAL (")),

@@ -1077,6 +1077,16 @@ def _row_select(w: _Writer, body) -> None:
             scope = column.lateral.symbol.name
             _carriers(w, column, scope, "collect_scope", column.collect.ref)
             continue
+        if type(column) is resulting.ResultGroupColumn:
+            _carriers(
+                w,
+                column,
+                alias,
+                "result_carry_scope",
+                column.projection_port.ref,
+                expression=column.expression,
+            )
+            continue
         if type(column) is RowCarryColumn:
             w.identifier(alias, "carry_scope", column.input_port)
             w.emit(".", "syntax", "carry_qualifier", column.export.ref)
@@ -1223,14 +1233,17 @@ def _result_select(w: _Writer, body) -> None:
         w.emit(str(body.limit.value), "literal", "limit_value", reference)
 
 
-def _carriers(w: _Writer, column, scope, role, subject) -> None:
+def _carriers(w: _Writer, column, scope, role, subject, *, expression=None) -> None:
     """A nested group's count and arrays, each one physical column of ``scope``."""
     for index, (read, label, carrier) in enumerate(column.carriers):
         if index:
             w.emit(", ", "syntax", "separator", carrier)
+        start = w.offset
         w.identifier(scope, role, subject)
         w.emit(".", "syntax", "qualifier", carrier)
         w.identifier(read, "collect_carrier_column", carrier)
+        if index == 0 and expression is not None:
+            w.enclose("reference", expression, start)
         w.emit(" AS ", "syntax", "alias", carrier)
         w.identifier(label, "label", carrier)
 
@@ -1323,7 +1336,11 @@ def _collect_lateral(w: _Writer, lateral) -> None:
 def _cte_columns(w: _Writer, unit) -> None:
     """One CTE header: each terminal's name, a nested group's array columns
     after its count, and a collected terminal's ordinal last."""
-    columns = unit.columns if len(unit.columns) == len(unit.cte_columns) else ()
+    columns = tuple(
+        column for column in unit.columns if type(column) is not unnesting.WithheldPort
+    )
+    if len(columns) != len(unit.cte_columns):
+        columns = ()
     for position, symbol in enumerate(unit.cte_columns):
         if position:
             w.emit(", ", "syntax", "terminal_separator", symbol.binding)
@@ -1637,6 +1654,15 @@ def _join_select(w: _Writer, unit) -> None:
         if written:
             w.emit(", ", "syntax", "separator", column.port.ref)
         written += 1
+        if type(column) is resulting.ResultGroupColumn:
+            _carriers(
+                w,
+                column,
+                column.scope.name,
+                "join_column_scope",
+                column.projection_port.ref,
+            )
+            continue
         w.identifier(column.scope.name, "join_column_scope", column.match.ref)
         w.emit(".", "syntax", "join_column_qualifier", column.port.ref)
         w.identifier(column.read.name, "join_column", column.read.terminal)

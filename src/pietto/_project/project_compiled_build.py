@@ -624,6 +624,20 @@ class _Export:
 
     def port_of(self, read, producer):
         """The producer port one stage column read carries."""
+        if type(read) is unnesting.NestedRead:
+            if isinstance(producer, BoundSource):
+                raise CompiledError("COMPILED_EXPORT_READ")
+            indexes = tuple(
+                i
+                for i, column in enumerate(producer.columns)
+                if column is read.group
+                or type(column) is unnesting.WithheldPort
+                and column.read is not None
+                and column.read.group is read.group
+            )
+            if len(indexes) != 1 or read.position != indexes[0]:
+                raise CompiledError("COMPILED_EXPORT_READ")
+            return self.producer_ports(producer)[indexes[0]]
         if isinstance(producer, BoundSource):
             indexes = tuple(i for i, f in enumerate(producer.fields) if read.field is f)
         else:
@@ -991,7 +1005,16 @@ class _Export:
             owner is None
             or type(item.ref.position) is not int
             or len(positions) != 1
-            or len(producer.columns) != len(producer.arrays) > 0
+            or not len(producer.columns)
+            == len(producer.arrays)
+            == len(definitions[0].exports)
+            > 0
+            or any(
+                child.column.terminal is not port.ref
+                for child, port in zip(
+                    producer.columns, definitions[0].exports, strict=True
+                )
+            )
         ):
             raise CompiledError("COMPILED_EXPORT_UNNEST")
         source = self.producer_ports(left.producer)[positions[0]]
@@ -1013,9 +1036,6 @@ class _Export:
                     "domain": realization.domain,
                 }
             ).decode("utf-8")
-            source_field = column.field
-            if source_field is None:
-                raise CompiledError("COMPILED_EXPORT_UNNEST")
             field = self.add(
                 "field",
                 address,
@@ -1024,10 +1044,10 @@ class _Export:
                 f"c{ordinal}",
                 logical,
                 physical,
-                None
-                if source_field.decimal is None
-                else (source_field.decimal.precision, source_field.decimal.scale),
-                self.source_meaning(source_field),
+                (realization.storage["precision"], realization.storage["scale"])
+                if realization.tag == "Decimal"
+                else None,
+                realization.tag if realization.tag in ("Timestamp", "UUID") else None,
             )
             fields.append(field)
             outputs.append(
@@ -1099,13 +1119,15 @@ class _Export:
         for column in unit.columns:
             if type(column) is unnesting.WithheldPort:
                 positions = tuple(
-                    i
-                    for i, port in enumerate(unit.inputs[0].ports)
-                    if port is unit.inputs[1].producer.unnest.source
+                    (item.producer, i)
+                    for item in unit.inputs
+                    for i, port in enumerate(item.ports)
+                    if port is column.port.source
                 )
                 if len(positions) != 1:
                     raise CompiledError("COMPILED_EXPORT_UNNEST")
-                source = self.producer_ports(unit.inputs[0].producer)[positions[0]]
+                producer, source_position = positions[0]
+                source = self.producer_ports(producer)[source_position]
                 ports.append(
                     self.add(
                         "port",
@@ -1113,7 +1135,7 @@ class _Export:
                         column.position,
                         f"c{column.position}",
                         source,
-                        self.records[source].get("logical"),
+                        ("collection", column.port.field.effective_nullability.value),
                     )
                 )
                 continue
@@ -1123,12 +1145,18 @@ class _Export:
             if len(matches) != 1:
                 raise CompiledError("COMPILED_EXPORT_JOIN_COLUMN")
             read = self.read(column.read, *matches[0])
-            logical = (
-                column.column.realization.tag,
-                {False: "non_null", True: "nullable", "unknown": "unknown"}[
-                    column.column.realization.nullable
-                ],
-            )
+            if type(column) is results.ResultGroupColumn:
+                nullable = column.port.field.effective_nullability.value
+                if nullable not in ("non_null", "nullable"):
+                    raise CompiledError("COMPILED_EXPORT_JOIN_COLUMN")
+                logical = ("collection", nullable)
+            else:
+                logical = (
+                    column.column.realization.tag,
+                    {False: "non_null", True: "nullable", "unknown": "unknown"}[
+                        column.column.realization.nullable
+                    ],
+                )
             value = self.add("join_value", address, read, logical)
             ports.append(
                 self.add("port", address, column.position, column.label, value, logical)
@@ -1568,6 +1596,21 @@ class _Export:
                     column.window.policy, self.records[value].get("specification")
                 )
             elif type(column) in (results.ResultColumn, results.ResultGroupColumn):
+                if (
+                    type(column) is results.ResultGroupColumn
+                    and type(unit) is sql.RowBody
+                    and unit.block.kind.value == "projection"
+                ):
+                    projections = tuple(
+                        item
+                        for item in self.request.plan.projections
+                        if item.block is unit.block.ref
+                        and item.export is column.export.ref
+                    )
+                    if len(projections) != 1:
+                        raise CompiledError("COMPILED_REQUIREMENT_PROJECTION")
+                    self.anchor(projections[0].ref, port)
+                    self.anchor(projections[0].expression, value)
                 self.anchor(column.projection_port.ref, self.records[value].get("port"))
                 for stage in column.stages:
                     self.anchor(stage.input_port.ref, port)

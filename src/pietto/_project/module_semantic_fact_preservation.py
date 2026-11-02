@@ -103,6 +103,7 @@ from pietto._project.row_expression_type_facts import (
     NESTED_IN_SCALAR_READ,
     build_project_row_expression_value_types,
     is_nested_relation_field,
+    admits_nested_carry,
     nested_distinct_diagnostic,
     nested_reference_diagnostic,
     nested_value_diagnostic,
@@ -1580,6 +1581,62 @@ class ProjectModuleCollectReadFact:
         return ProjectRowFieldNullability.NON_NULL
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectModuleNestedCarryFact:
+    """One admitted SELECT item preserving its exact nested Collect value."""
+
+    owner: ProjectDeclarationOccurrence
+    select_fact: ProjectModuleSelectFact
+    reference: object = field(repr=False, compare=False, hash=False)
+    evidence: ProjectRowField
+    output_field: ProjectRowField
+    nullability: ProjectRowFieldNullability
+    collect: ProjectModuleCollectReadFact = field(repr=False, compare=False, hash=False)
+    namespace: object | None = field(
+        default=None, repr=False, compare=False, hash=False
+    )
+    value_type: ValueType = field(init=False)
+
+    def __post_init__(self) -> None:
+        definition = self.owner.definition
+        expression = self.select_fact.item.expression
+        if (
+            self.select_fact.owner is not self.owner
+            or type(self.output_field) is not ProjectRowField
+            or self.output_field.name != self.select_fact.output_name
+            or self.output_field.resolved_type is not self.evidence.resolved_type
+            or self.output_field.nullability is not self.nullability
+            or type(definition) not in {TableDef, QueryDef}
+            or not admits_nested_carry(
+                expression,
+                cast(_DerivedRelation, definition),
+                relation_let=self.owner.let_position is not None,
+            )
+            or self.evidence.resolved_type.kind
+            is not ProjectResolvedTypeKind.NESTED_RELATION
+            or self.evidence.resolved_type.nested is not self.collect.nested_type
+            or self.nullability
+            not in {
+                ProjectRowFieldNullability.NON_NULL,
+                ProjectRowFieldNullability.NULLABLE,
+            }
+        ):
+            raise ValueError("Nested carry requires one admitted Collect authority.")
+        object.__setattr__(
+            self,
+            "value_type",
+            project_row_field_to_semantic_value_type(self.evidence, self.nullability),
+        )
+
+    @property
+    def expression(self) -> NameExpr | DottedNameExpr:
+        return cast(NameExpr | DottedNameExpr, self.select_fact.item.expression)
+
+    @property
+    def value_types(self) -> Mapping[object, ValueType]:
+        return MappingProxyType({self.expression: self.value_type})
+
+
 class ProjectNestedRelationFactStatus(StrEnum):
     AVAILABLE = "available"
     UNAVAILABLE = "unavailable"
@@ -1895,6 +1952,9 @@ class ProjectModuleRelationSemanticFacts:
     unnest_occurrence: ProjectModuleUnnestOccurrenceFact | None = None
     """The input fact of an Unnest occurrence (D-S05-7), else None."""
 
+    nested_carries: tuple[ProjectModuleNestedCarryFact, ...] = ()
+    """Direct nested projections whose Collect authority is retained by identity."""
+
     @property
     def collect_read_types(self) -> Mapping[Expression, ProjectResolvedType]:
         """The type of each typed Collect read of this owner, by its read."""
@@ -1931,6 +1991,15 @@ class ProjectModuleRelationSemanticFacts:
             raise ValueError("Collect read facts must belong to their owner.")
         if type(self.nested_references) is not ProjectNestedReferenceFacts:
             raise TypeError("Relation semantic facts require exact nested references.")
+        _require_tuple(
+            self.nested_carries, ProjectModuleNestedCarryFact, "Nested carries"
+        )
+        if any(
+            item.owner is not self.owner
+            or not any(item.select_fact is fact for fact in self.select_facts)
+            for item in self.nested_carries
+        ):
+            raise ValueError("Nested carries must belong to their owner's SELECT.")
         let = self.owner.authored_block
         if type(self.captured_value_types) is not MappingProxyType or (
             self.captured_value_types
@@ -3270,6 +3339,10 @@ def _build_project_module_semantic_fact_set(
         environment.module.path: environment
         for environment in relation_resolutions.environments
     }
+    scopes = {
+        path: (environment, catalog_by_path[path])
+        for path, environment in resolution_by_path.items()
+    }
     completed: list[ProjectModuleRelationSemanticFacts] = []
     environments: list[ProjectModuleSemanticFactEnvironment] = []
     relation_pre_window_projections: list[
@@ -3330,7 +3403,12 @@ def _build_project_module_semantic_fact_set(
                     pre_window_state = base_row_fact.state
                 elif type(definition) is UnnestRelationDef:
                     unnest = _unnest_occurrence_fact(
-                        owner, catalog, resolution_environment, completed, pending
+                        owner,
+                        catalog,
+                        resolution_environment,
+                        completed,
+                        scopes,
+                        pending,
                     )
                     if unnest is None:
                         continue
@@ -3420,6 +3498,13 @@ def _build_project_module_semantic_fact_set(
                         ),
                         captures=cast(_CaptureEnvironment, captures),
                     )
+                    carries = _nested_carry_facts(
+                        semantic_fact,
+                        relations=lambda target: _find_exact_owner(completed, target),
+                        modules=scopes,
+                    )
+                    if carries:
+                        semantic_fact = replace(semantic_fact, nested_carries=carries)
                 built_for_module.append(semantic_fact)
                 completed.append(semantic_fact)
                 relation_pre_window_projections.append(
@@ -3433,7 +3518,11 @@ def _build_project_module_semantic_fact_set(
                 if type(base_row_fact.owner.definition) is UnnestRelationDef:
                     # Its producer is never built first: it waits no longer.
                     unnest = _unnest_occurrence_fact(
-                        base_row_fact.owner, catalog, resolution_environment, completed
+                        base_row_fact.owner,
+                        catalog,
+                        resolution_environment,
+                        completed,
+                        scopes,
                     )
                     assert unnest is not None
                     semantic_fact = ProjectModuleRelationSemanticFacts(
@@ -3740,6 +3829,7 @@ def _unnest_occurrence_fact(
     catalog: ProjectModuleCatalog,
     environment: ProjectModuleRelationResolutionEnvironment,
     completed: list[ProjectModuleRelationSemanticFacts],
+    modules: ProjectModuleResolutionScopes,
     pending: list[ProjectModuleRelationRowFact] | None = None,
 ) -> ProjectModuleUnnestOccurrenceFact | None:
     """The input fact of one Unnest occurrence (D-S05-2, D-S05-7), or None
@@ -3824,8 +3914,27 @@ def _unnest_occurrence_fact(
             if read.expression is selection.item.expression
         )
     )
+    carried = (
+        None
+        if produced is None or target is None or selection is None or reads
+        else nested_collect_origin(
+            produced,
+            field_name,
+            relations=lambda owner: _find_exact_owner(completed, owner),
+            modules=modules,
+        )
+    )
     if produced is None or target is None:
         pass
+    elif carried is not None:
+        assert selection is not None
+        collect = carried
+        source_field = ProjectModuleRowFieldIdentity(
+            owner=_occurrence_identity(target.target_occurrence),
+            kind=ProjectModuleRowFieldKind.RELATION_OUTPUT,
+            field_position=selection.selected_output_ordinal,
+            name=field_name,
+        )
     elif reads:
         # A Collect output: typed by its read fact, or its read's own error
         # (PIE-S2803, PIE-S2804) explains it.
@@ -3892,6 +4001,200 @@ def _unnest_occurrence_fact(
         diagnostic=diagnostic,
         awaits_producer_row=awaits_producer_row,
     )
+
+
+def _nested_carry_facts(
+    facts: ProjectModuleRelationSemanticFacts,
+    *,
+    relations: ProjectRelationFactsLookup,
+    modules: ProjectModuleResolutionScopes,
+) -> tuple[ProjectModuleNestedCarryFact, ...]:
+    """Direct nested SELECT carries over one concrete no-JOIN input row."""
+
+    definition = facts.owner.definition
+    if (
+        type(definition) not in {TableDef, QueryDef}
+        or cast(_DerivedRelation, definition).join_clauses
+        or _concrete_relation_schema(facts) is None
+    ):
+        return ()
+    body = cast(_DerivedRelation, definition)
+    carries: list[ProjectModuleNestedCarryFact] = []
+    for selection in facts.select_facts:
+        references = selection.references
+        if (
+            selection.output_name is None
+            or selection.field is None
+            or not admits_nested_carry(
+                selection.item.expression,
+                body,
+                relation_let=facts.owner.let_position is not None,
+            )
+            or len(references) != 1
+            or references[0].status is not ProjectModuleCandidateBucketStatus.CONCRETE
+            or not is_nested_relation_field(references[0].input_field)
+        ):
+            continue
+        origin = nested_collect_origin(
+            facts,
+            selection.output_name,
+            relations=relations,
+            modules=modules,
+        )
+        if origin is not None:
+            evidence = cast(ProjectRowField, references[0].input_field)
+            carries.append(
+                ProjectModuleNestedCarryFact(
+                    owner=facts.owner,
+                    select_fact=selection,
+                    reference=references[0],
+                    evidence=evidence,
+                    output_field=selection.field,
+                    nullability=evidence.nullability,
+                    collect=origin,
+                )
+            )
+    return tuple(carries)
+
+
+type ProjectRelationFactsLookup = Callable[
+    [ProjectDeclarationOccurrence], ProjectModuleRelationSemanticFacts | None
+]
+type ProjectModuleResolutionScopes = Mapping[
+    str, tuple[ProjectModuleRelationResolutionEnvironment, ProjectModuleCatalog]
+]
+
+
+def nested_collect_origin(
+    facts: ProjectModuleRelationSemanticFacts,
+    output_name: str,
+    *,
+    relations: ProjectRelationFactsLookup,
+    modules: ProjectModuleResolutionScopes,
+) -> ProjectModuleCollectReadFact | None:
+    """Resolve one nested output to its unique typed Collect authority."""
+
+    seen: set[int] = set()
+    current: ProjectModuleRelationSemanticFacts | None = facts
+    name = output_name
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        selections = tuple(
+            item for item in current.select_facts if item.output_name == name
+        )
+        if len(selections) != 1:
+            return None
+        expression = selections[0].item.expression
+        if type(expression) is CollectRelationExpr:
+            reads = tuple(
+                read for read in current.collect_reads if read.expression is expression
+            )
+            return (
+                reads[0]
+                if len(reads) == 1 and reads[0].nested_type is not None
+                else None
+            )
+        definition = current.owner.definition
+        if type(definition) not in {TableDef, QueryDef} or not admits_nested_carry(
+            expression,
+            cast(_DerivedRelation, definition),
+            relation_let=current.owner.let_position is not None,
+        ):
+            return None
+        current, name = _carried_input(
+            current, cast(NameExpr | DottedNameExpr, expression), relations, modules
+        )
+    return None
+
+
+def _carried_input(
+    facts: ProjectModuleRelationSemanticFacts,
+    expression: NameExpr | DottedNameExpr,
+    relations: ProjectRelationFactsLookup,
+    modules: ProjectModuleResolutionScopes,
+) -> tuple[ProjectModuleRelationSemanticFacts | None, str]:
+    """Resolve the one input and field a carried nested SELECT reads."""
+
+    owner = facts.owner
+    definition = cast(_DerivedRelation, owner.definition)
+    scope = modules.get(owner.identity.module_path)
+    if isinstance(expression, DottedNameExpr):
+        if len(expression.parts) != 2:
+            return None, ""
+        binding, name = expression.parts
+    else:
+        binding, name = None, expression.name
+    if scope is None:
+        return None, name
+    environment, catalog = scope
+    from_targets = environment.find_from_clause(definition.from_clause)
+    inputs: list[tuple[str, ProjectModuleRelationSemanticFacts | None]] = [
+        (
+            definition.from_clause.binding_name or definition.from_clause.source_name,
+            relations(from_targets[0].target_symbol.target_occurrence)
+            if len(from_targets) == 1
+            else None,
+        )
+    ]
+    for join in definition.join_clauses:
+        unnest = catalog.find_unnest(owner, join)
+        targets = (
+            environment.find_scoped_relation_name(owner, join.target_relation_name)
+            if unnest is None
+            else environment.find_unnest_symbol(unnest)
+        )
+        inputs.append(
+            (
+                join.target_binding_name,
+                relations(targets[0].target_occurrence) if len(targets) == 1 else None,
+            )
+        )
+    if binding is not None:
+        matches = tuple(target for written, target in inputs if written == binding)
+    elif len(inputs) == 1:
+        matches = (inputs[0][1],)
+    else:
+        outputs = tuple(
+            None
+            if target is None
+            else frozenset()
+            if type(target.owner.definition)
+            in {SetRelationDef, ValuesRelationDef, TableFunctionRelationDef}
+            else _relation_output_names(target)
+            for _, target in inputs
+        )
+        if any(names is None for names in outputs):
+            return None, name
+        matches = tuple(
+            target
+            for (_, target), names in zip(inputs, outputs, strict=True)
+            if name in cast(frozenset[str], names)
+        )
+    return (matches[0] if len(matches) == 1 else None), name
+
+
+def _relation_output_names(
+    facts: ProjectModuleRelationSemanticFacts,
+) -> frozenset[str] | None:
+    """Known output names used only to reject an ambiguous bare carry."""
+
+    unnest = facts.unnest_occurrence
+    if unnest is not None:
+        nested = unnest.nested_type
+        return (
+            None
+            if nested is None
+            else frozenset(item.field.name for item in nested.element_fields)
+        )
+    schema = _concrete_relation_schema(facts)
+    if schema is not None:
+        return frozenset(schema.fields)
+    names = tuple(item.output_name for item in facts.select_facts)
+    if type(facts.owner.definition) not in {TableDef, QueryDef} or any(
+        item is None for item in names
+    ):
+        return None
+    return frozenset(cast(tuple[str, ...], names))
 
 
 def unnest_field_diagnostic(
@@ -4536,6 +4839,7 @@ def _build_derived_relation_facts(
             let_scope_facts=let_scope,
             read_types=read_types,
             captured_value_types=captures,
+            relation_let=owner.let_position is not None,
             collect_types={
                 item.expression: resolved
                 for item in collect_reads
@@ -4669,7 +4973,10 @@ def _build_derived_relation_facts(
             scalar_reads=scalar_reads,
             collect_reads=collect_reads,
             nested_references=nested_reference_facts(
-                definition, input_schema, let_scope
+                definition,
+                input_schema,
+                let_scope,
+                relation_let=owner.let_position is not None,
             ),
             captured_value_types=captures,
         ),
@@ -4756,7 +5063,9 @@ def _nonconcrete_relation_facts(
         ),
         scalar_reads=scalar_reads,
         collect_reads=collect_reads,
-        nested_references=nested_reference_facts(definition, None, let_scope),
+        nested_references=nested_reference_facts(
+            definition, None, let_scope, relation_let=owner.let_position is not None
+        ),
         captured_value_types=captures,
     )
 
@@ -5124,6 +5433,8 @@ def nested_reference_facts(
     definition: _DerivedRelation,
     input_schema: ProjectRowSchema | None,
     let_scope: ProjectRelationLetScopeFacts,
+    *,
+    relation_let: bool = False,
 ) -> ProjectNestedReferenceFacts:
     """PIE-S2805 for each read of a nested relation field in one body, by the
     reference facts of a body without JOIN inputs, each with its clause.
@@ -5177,9 +5488,13 @@ def nested_reference_facts(
                     and is_nested_relation_field(input_field)
                     and id(leaf) not in seen
                 ):
+                    if admits_nested_carry(leaf, definition, relation_let=relation_let):
+                        continue
                     seen.add(id(leaf))
                     found.append(
-                        nested_reference_diagnostic(leaf, definition, root=root)
+                        nested_reference_diagnostic(
+                            leaf, definition, root=root, relation_let=relation_let
+                        )
                     )
         return found
 

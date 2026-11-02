@@ -793,6 +793,10 @@ class Resources:
                 "MYSQL_DATABASE": "phase66",
             }
         )
+        if self.offline_transport == "exec-stdio":
+            # The bridge reaches container loopback; retain the required SCRAM
+            # handshake instead of initdb's default loopback trust rule.
+            credentials["POSTGRES_INITDB_ARGS"] = "--auth-host=scram-sha-256"
         args = [
             "container",
             "create",

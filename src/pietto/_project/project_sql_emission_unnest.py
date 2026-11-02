@@ -27,7 +27,6 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from pietto._project import project_sql_emission_nested as nested
-from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_rows as rows
 from pietto.ast_nodes import AuthoredJoinKind
 
@@ -84,11 +83,15 @@ class UnnestRows:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class WithheldPort:
-    """A JOIN body output port with no physical column: a nested port from the
-    Unnest JOIN on. It keeps its port position; no label is allocated."""
+    """A nested JOIN output that cannot be read as a scalar column.
+
+    ``read`` retains the exact Collect group for a later Unnest or nested
+    projection; it is deliberately not a scalar SQL column.
+    """
 
     position: int
     port: Any
+    read: NestedRead | None = None
 
 
 def nested_read(column, *, position, port, scope):
@@ -97,10 +100,8 @@ def nested_read(column, *, position, port, scope):
     ``column`` is the left producer's column there; ``scope`` the left alias.
     Returns ``(NestedRead, None)`` or ``(None, problem)``.
     """
-    group = column
-    if type(group) is resulting.ResultGroupColumn:
-        group = group.group
-    if type(group) is not nested.CollectColumn:
+    group = nested.original_group(column)
+    if group is None:
         return None, ("PIE-B1001", "nested_read_without_group", port.ref, None)
     children = tuple(
         item.column.realization for item in group.lateral.target.producer.columns
@@ -137,13 +138,8 @@ def realize_unnest(unnest, left, *, kind, terminals):
     read = left.columns[at[0]]
     if type(read) is not NestedRead:
         return problem("unnest_source_not_nested")
-    group = read.group
-    if type(group) is resulting.ResultGroupColumn:
-        group = group.group
-    if (
-        type(group) is not nested.CollectColumn
-        or group.collect.ref is not unnest.collect
-    ):
+    group = nested.original_group(read.group)
+    if group is None or group.collect.ref is not unnest.collect:
         return problem("unnest_collect_drift")
     width = len(read.arrays)
     if not width or not (

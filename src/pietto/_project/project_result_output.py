@@ -29,9 +29,8 @@ from pietto._project.project_sql_emission_aggregation import AggregateProjection
 from pietto._project.project_sql_emission_windows import WindowProjectionColumn
 from pietto._project.project_sql_emission_results import (
     ResultColumn,
-    ResultGroupColumn,
 )
-from pietto._project.project_sql_emission_nested import CollectColumn
+from pietto._project.project_sql_emission_nested import original_group
 from pietto._project.project_sql_emission_sets import SetColumn
 from pietto._project.project_sql_emission_values import ValuesOutputColumn
 from pietto._project.project_sql_emission_rows import (
@@ -161,9 +160,7 @@ def _prepare_output(artifact, *, binding=None, guarded=None):
 
 def _group(original):
     """The Collect column a final statement column carries, or None."""
-    if type(original) is ResultGroupColumn:
-        original = original.group
-    return original if type(original) is CollectColumn else None
+    return original_group(original)
 
 
 def _nested_column(original, leaf, terminal):

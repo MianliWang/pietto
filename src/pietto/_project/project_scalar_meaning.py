@@ -259,6 +259,10 @@ def operations_admitted(bundle) -> bool:
                 AuthoredJoinKind.LEFT,
                 AuthoredJoinKind.RIGHT,
             }
+            and not (
+                join.kind is AuthoredJoinKind.CROSS
+                and any(unnest.join is join.ref for unnest in plan.unnests)
+            )
             for join in plan.joins
         ):
             return False

@@ -263,10 +263,17 @@ def emit_compiled(root, values, named=None):
                 or port.get("owner") != outer_producer
             ):
                 raise CompiledError("COMPILED_CAPTURE_SCOPE")
+            column = columns_by_ref[outer_producer][port.get("ordinal")]
+            if (
+                type(column) is not rows.StageColumn
+                or column.realization is None
+                or fact.realization is None
+            ):
+                raise CompiledError("COMPILED_CAPTURE_SCALAR")
             return rows.SQLCapturedReference(
                 original,
                 CompiledSubject(refs[attribution[0][1]]),
-                columns_by_ref[outer_producer][port.get("ordinal")],
+                column,
                 fact.realization,
                 outer_symbol,
             )
@@ -509,6 +516,49 @@ def emit_compiled(root, values, named=None):
         finally:
             captures.pop()
 
+    def input_columns(producer_address, use_address, symbol):
+        """Rebuild each input occurrence, keeping whole-group carriers distinct."""
+        from pietto._project import project_sql_emission_unnest as unnesting
+
+        producer = source_by_ref.get(producer_address)
+        if producer is not None:
+            return tuple(
+                replace(c, scope=symbol) for c in columns_by_ref[producer_address]
+            )
+        producer = (
+            inline_bodies[producer_address]
+            if producer_address in inline_units
+            else bodies[producer_address]
+        )
+        bindings = use_bindings[use_address].bindings
+        result = []
+        for position, (column, binding) in enumerate(
+            zip(producer.columns, bindings, strict=True)
+        ):
+            if type(column) is unnesting.WithheldPort:
+                if column.read is None:
+                    raise CompiledError("COMPILED_UNNEST_READ")
+                result.append(
+                    replace(
+                        column.read,
+                        position=position,
+                        port=binding.input_port,
+                        scope=symbol,
+                    )
+                )
+            elif collecting.original_group(column) is not None:
+                read, problem = unnesting.nested_read(
+                    column, position=position, port=binding.input_port, scope=symbol
+                )
+                if read is None:
+                    raise CompiledError("COMPILED_UNNEST_READ")
+                result.append(read)
+            else:
+                result.append(
+                    replace(columns_by_ref[producer_address][position], scope=symbol)
+                )
+        return tuple(result)
+
     def unnest_join(record, images, predicate, item):
         """Build S13's one private lateral Unnest JOIN from compiled records."""
         from pietto.ast_nodes import AuthoredJoinKind
@@ -545,7 +595,7 @@ def emit_compiled(root, values, named=None):
         read, problem = unnesting.nested_read(
             left.producer.columns[position],
             position=position,
-            port=source,
+            port=left.use.bindings[position].input_port,
             scope=left.symbol,
         )
         if read is None:
@@ -608,7 +658,21 @@ def emit_compiled(root, values, named=None):
             port = plan.ports[address]
             actual = ordered[position]
             if type(actual) is unnesting.NestedRead:
-                columns.append(unnesting.WithheldPort(position, port))
+                source_kind = records[records[address].get("source")].address.kind
+                if source_kind == "port":
+                    columns.append(unnesting.WithheldPort(position, port, actual))
+                elif source_kind == "join_value":
+                    columns.append(
+                        collecting.carry_group(
+                            actual,
+                            export=port,
+                            position=position,
+                            final=False,
+                            terminal=port,
+                        )
+                    )
+                else:
+                    raise CompiledError("COMPILED_UNNEST_READ")
                 continue
             if not isinstance(actual, rows.StageColumn):
                 raise CompiledError("COMPILED_UNNEST_SCALAR")
@@ -709,10 +773,7 @@ def emit_compiled(root, values, named=None):
                 if unnest is not None and ordinal == 1:
                     reads = ()
                 else:
-                    reads = tuple(
-                        replace(c, scope=symbol)
-                        for c in columns_by_ref[producer_address]
-                    )
+                    reads = input_columns(producer_address, use_address, symbol)
                 source = source_by_ref.get(producer_address)
                 images.append(
                     (
@@ -773,7 +834,7 @@ def emit_compiled(root, values, named=None):
                     read, problem = unnesting.nested_read(
                         left.producer.columns[at],
                         position=at,
-                        port=source_port,
+                        port=left.use.bindings[at].input_port,
                         scope=left.symbol,
                     )
                     if read is None:
@@ -1013,6 +1074,42 @@ def emit_compiled(root, values, named=None):
                     columns.append(output)
                     terminals.append(output.column)
                     continue
+                if (
+                    record.address.kind == "row"
+                    and records[expression].address.kind == "read"
+                    and records[port_address].get("logical")[:1] == ("collection",)
+                ):
+                    from pietto._project import project_sql_emission_unnest as unnesting
+
+                    source_address = records[expression].get("port")
+                    source_position = records[source_address].get("ordinal")
+                    producer_body = (
+                        bodies[producer]
+                        if producer in bodies
+                        else inline_bodies[producer]
+                    )
+                    binding = use_bindings[use].bindings[source_position]
+                    read, problem = unnesting.nested_read(
+                        producer_body.columns[source_position],
+                        position=source_position,
+                        port=binding.input_port,
+                        scope=scan_symbol,
+                    )
+                    if read is None:
+                        raise CompiledError("COMPILED_COLLECT_READ")
+                    output = collecting.carry_group(
+                        read,
+                        export=port,
+                        position=position,
+                        final=final,
+                        terminal=port,
+                        expression=refs[expression]
+                        if record.get("stage") == "projection"
+                        else None,
+                    )
+                    columns.append(output)
+                    terminals.append(output.column)
+                    continue
                 # A collected terminal's port names its let's field; it renders
                 # as ``c<i>``, as every non-final result column does (S09).
                 label = (
@@ -1159,10 +1256,11 @@ def emit_compiled(root, values, named=None):
                 "ordinal"
             )
             group = projection.columns[index]
-            if type(group) is not collecting.CollectColumn:
+            origin = collecting.original_group(group)
+            if origin is None:
                 columns.append(column)
                 continue
-            names = collecting.field_names(group.lateral)
+            names = collecting.field_names(origin.lateral)
             position = column.ordinal
             labels = (
                 column.label,
@@ -1183,7 +1281,7 @@ def emit_compiled(root, values, named=None):
                     column.symbol,
                     column.label,
                     column.column,
-                    group,
+                    origin,
                     tuple(
                         (stage, label, subject)
                         for (_, stage, subject), label in zip(

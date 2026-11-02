@@ -19,7 +19,13 @@ import pytest
 import _pietto_execution_nested_oracle as oracle
 import _pietto_sql_emission as emission
 import _pietto_sql_nested_collect as collecting
-from _pietto_plan_nested import HEAD, SHAPES, project
+from _pietto_plan_nested import (
+    HEAD,
+    SHAPES,
+    project,
+    retained_unnest_sources,
+    retained_unnest_contract,
+)
 import pietto.execution as execution
 from pietto._project import project_sql_emission_nested as nested
 from pietto._project.model import ProjectResolvedTypeKind
@@ -34,6 +40,7 @@ from pietto._project.project_compiled_schema import (
     CompiledError,
     Record,
     content_pin,
+    collection_source,
     decode,
     encode,
     selected_relations,
@@ -384,7 +391,7 @@ def test_a_collect_stands_in_its_lets_parent_entry_or_not(built):
         let, **{n: entry.get(n) for n in ("module", "module_position", "position")}
     )
     assert _refused(_changed(description, moved)) == "COMPILED_EXPRESSION_BLOCK_USE"
-    # The reader selects the collection again (S04 PIE-S2805).
+    # A named reader may select the exact collection again (S16).
     (scalar,) = (
         r
         for r in records.values()
@@ -396,7 +403,7 @@ def test_a_collect_stands_in_its_lets_parent_entry_or_not(built):
         _set(selected, logical=COLLECTION),
         _set(_one(records, "output", port=selected.address), logical=COLLECTION),
     )
-    assert _refused(_changed(description, *again)) == "COMPILED_COLLECTION_PORT"
+    verify_description(_changed(description, *again))
 
 
 def test_a_table_function_beside_the_lets_is_no_parent(built):
@@ -459,7 +466,7 @@ def test_only_a_collect_and_its_carriers_have_a_collection_logical(built):
     for category, changes in cases.items():
         for changed in changes:
             assert _refused(_changed(description, changed)) == category, changed
-    # No JOIN value has one, whether or not a Collect stands beside it.
+    # A scalar JOIN input cannot acquire a collection logical.
     flat = built["join"].root.description
     for joined in (flat, _collected(flat)):
         value = _records(joined)[Address("join_value", 0)]
@@ -633,6 +640,32 @@ def test_opened_unnest_leaves_build_load_lower_and_reject_tampering(tmp_path, le
             _load(build, encode(_changed(build.root.description, damaged)))
 
 
+_S16_REAL: dict[tuple[str, bool], tuple] = {}
+
+
+def _s16_real(tmp_path, retained="sibling", filtered=False):
+    key = (retained, filtered)
+    if key not in _S16_REAL:
+        contract = retained_unnest_contract()
+        files = retained_unnest_sources()
+        files["main.pietto"] = files["main.pietto"].replace(
+            "retained = p.sibling", f"retained = p.{retained}"
+        )
+        if filtered:
+            files["main.pietto"] = files["main.pietto"].replace(
+                "    select:\n", "    where child.id > 0\n    select:\n"
+            )
+        artifact = _emitted(
+            tmp_path / "s16",
+            files,
+            contract,
+        )
+        build = build_compiled(artifact)
+        loaded = _loaded(build)
+        _S16_REAL[key] = artifact, build, loaded, emit_compiled(loaded, ())
+    return _S16_REAL[key]
+
+
 def _unnest_damage(description, change):
     records = _records(description)
     (unnest,) = (
@@ -719,6 +752,51 @@ def test_literal_unnest_bundle_lowers_source_free(tmp_path, monkeypatch, name):
     verify_compiled_sql_plan(lowered.request.plan)
 
 
+@pytest.mark.parametrize("retained", ("sibling", "nested"))
+def test_s16_compiled_retained_unnest_lowers_source_free(
+    tmp_path, monkeypatch, retained
+):
+    """A renamed imported parent keeps its Collect authority after source removal."""
+
+    artifact, build, _loaded_root, _lowered = _s16_real(tmp_path, retained)
+    import pietto.parser_api as parser
+    from pietto._project import check, model, project_completed_semantics
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("source-language entry reached from a bundle")
+
+    monkeypatch.setattr(parser, "parse_source", forbidden)
+    monkeypatch.setattr(check, "check_project_parse_only", forbidden)
+    monkeypatch.setattr(model, "build_empty_project_semantic_result", forbidden)
+    monkeypatch.setattr(
+        project_completed_semantics,
+        "build_project_completed_semantic_result",
+        forbidden,
+    )
+    lowered = emit_compiled(_loaded(build), ())
+    plan = lowered.request.plan
+    (unnest,) = plan.unnests
+    assert lowered.rendered.sql == artifact.rendered.sql
+    assert _shape(_contract_of(lowered)) == _shape(_contract_of(artifact))
+    assert unnest.collect in plan.references.values()
+    origin = collection_source(
+        plan.ir.completed.root.records,
+        Address(unnest.source.kind, unnest.source.position),
+    )
+    assert origin is not None and plan.references[origin.address] is unnest.collect
+    verify_compiled_sql_plan(plan)
+
+
+@pytest.mark.parametrize("change", ("source", "wrong_left"))
+def test_s16_compiled_foreign_or_missing_unnest_anchor_is_refused(tmp_path, change):
+    """A substituted collection source is rejected by the existing reader."""
+
+    _artifact, build, _loaded_root, _lowered = _s16_real(tmp_path)
+    raw = encode(_unnest_damage(build.root.description, change))
+    with pytest.raises(CompiledError):
+        _load(build, raw)
+
+
 @pytest.mark.parametrize(
     "change",
     (
@@ -741,31 +819,12 @@ def test_damaged_literal_unnest_bundle_is_refused_before_lowering(tmp_path, chan
         _load(build, raw)
 
 
-@pytest.mark.parametrize("change", ("parent_module", "consumer_filter", "extra_join"))
-def test_compiled_unnest_domain_rejects_later_combinations(tmp_path, change):
-    from pietto._project.project_compiled_verification import _verify_unnests
-
-    _artifact, build, _loaded_root, _lowered = _unnest_real(tmp_path, "U1_cross")
-    records = _records(build.root.description)
-    entry = records[build.root.description.query]
-    join = next(record for record in records.values() if record.address.kind == "join")
-    if change == "parent_module":
-        left = records[join.get("inputs")[0]]
-        parent = records[left.get("producer")]
-        owner = records[parent.get("owner")]
-        records[owner.address] = _set(owner, module="other.pietto", module_position=1)
-    elif change == "consumer_filter":
-        row = next(
-            record
-            for record in records.values()
-            if record.address.kind == "row" and record.get("owner") == join.get("owner")
-        )
-        records[row.address] = _set(row, stage="where")
-    else:
-        address = Address("join", join.address.position + 1)
-        records[address] = Record(address, join.values)
-    with pytest.raises(CompiledError, match="^COMPILED_UNNEST_DOMAIN$"):
-        _verify_unnests(records, entry, "postgres")
+def test_compiled_unnest_filter_after_join_preserves_retained_collection(tmp_path):
+    artifact, build, _loaded_root, lowered = _s16_real(tmp_path, filtered=True)
+    assert lowered.rendered.sql == artifact.rendered.sql
+    assert b"WHERE" in lowered.rendered.sql
+    assert _shape(_contract_of(lowered)) == _shape(_contract_of(artifact))
+    verify_description(build.root.description)
 
 
 def _units(query):
@@ -1329,3 +1388,20 @@ def test_a_nested_bundle_lowers_without_any_source_entry(
     lowered = emit_compiled(_loaded(build), ())
     assert lowered.rendered.sql == artifact.rendered.sql
     assert _shape(_contract_of(lowered)) == _shape(_contract_of(artifact))
+
+
+def test_grouped_parameter_filter_retains_sibling_after_source_free_unnest(tmp_path):
+    from _pietto_execution_api import write_grouped_composed_nested
+
+    root = write_grouped_composed_nested(tmp_path / "authored")
+    files = {path.name: path.read_text() for path in root.glob("*.pietto")}
+    contract = json.loads((root / "contract.json").read_text())
+    artifact = _emitted(tmp_path / "source", files, contract)
+    loaded = _loaded(build_compiled(artifact))
+    for cutoff in (1, 2):
+        lowered = emit_compiled(loaded, (), (cutoff,))
+        assert lowered.rendered.sql == artifact.rendered.sql
+        assert [use.server_index for use in lowered.parameter_uses] == [1]
+        assert _shape(_contract_of(lowered)) == _shape(_contract_of(artifact))
+    assert b"GROUP BY" in artifact.rendered.sql
+    assert b"$1" in artifact.rendered.sql

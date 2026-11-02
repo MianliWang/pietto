@@ -259,14 +259,15 @@ def _compiled_element(plan, port):
     the Collect a nested export carries (through the parent's result unit),
     its let's terminal result unit and that unit's ports, which the rebuilt
     S04 descriptor must name in order."""
-    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_compiled_schema import Address, collection_source
 
     records = plan.ir.completed.root.records
-    current = Address(port.ref.kind, port.ref.position)
-    source = records[records[current].get("source")]
-    if source.address.kind == "read":
-        current = source.get("port")
-    collects = tuple(c for c in plan.collects if c.export is plan.references[current])
+    operation = collection_source(records, Address(port.ref.kind, port.ref.position))
+    collects = tuple(
+        collect
+        for collect in plan.collects
+        if operation is not None and collect.ref is plan.references[operation.address]
+    )
     definitions = tuple(
         d
         for d in plan.definitions

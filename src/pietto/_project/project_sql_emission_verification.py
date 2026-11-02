@@ -1689,7 +1689,7 @@ def _int8_widened(family, value):
     )
 
 
-def _same_read(actual, expected):
+def _same_column_image(actual, expected):
     """Independent field-by-field image of one scan column; identity is not reused."""
     return (
         type(actual) is rows.StageColumn
@@ -1709,7 +1709,20 @@ def _same_read(actual, expected):
         )
         and actual.window is expected.window
         and _same_origin(actual.aggregate, expected.aggregate)
-        and _same_realization(actual.realization, expected.realization)
+    )
+
+
+def _same_read(actual, expected):
+    return _same_column_image(actual, expected) and _same_realization(
+        actual.realization, expected.realization
+    )
+
+
+def _same_group_read(actual, expected):
+    return (
+        _same_column_image(actual, expected)
+        and actual.realization is None
+        and expected.realization is None
     )
 
 
@@ -3126,6 +3139,127 @@ def _verify_row_value(
     return value.realization
 
 
+def _original_collect(column):
+    """The one Collect authority beneath carried whole-group columns."""
+    seen = set()
+    while type(column) is resulting.ResultGroupColumn:
+        if id(column) in seen:
+            return None
+        seen.add(id(column))
+        column = column.group
+    return column if type(column) is nested.CollectColumn else None
+
+
+def _nested_group_read(column, *, position, port, scope):
+    """Independently rebuild a non-scalar JOIN input's exact group read."""
+    group = _original_collect(column)
+    if group is None:
+        return None
+    children = tuple(
+        item.column.realization for item in group.lateral.target.producer.columns
+    )
+    carriers: tuple[Any, ...] = getattr(column, "carriers", ())
+    if len(carriers) != len(children) + 1:
+        return None
+    try:
+        count = carriers[0][1]
+        arrays = tuple(carrier[1] for carrier in carriers[1:])
+    except (IndexError, TypeError):
+        return None
+    if not isinstance(count, str) or any(not isinstance(name, str) for name in arrays):
+        return None
+    return unnesting.NestedRead(position, port, scope, column, count, arrays, children)
+
+
+def _same_nested_read(actual, expected):
+    """Exact independent image of one whole-group JOIN input."""
+    return (
+        type(actual) is unnesting.NestedRead
+        and type(expected) is unnesting.NestedRead
+        and actual.position == expected.position
+        and actual.port is expected.port
+        and (
+            actual.scope is expected.scope
+            or type(actual.scope) is SQLSymbol
+            and type(expected.scope) is SQLSymbol
+            and actual.scope.position == expected.scope.position
+            and actual.scope.name == expected.scope.name
+            and actual.scope.binding is expected.scope.binding
+        )
+        and actual.group is expected.group
+        and actual.count == expected.count
+        and actual.arrays == expected.arrays
+        and len(actual.children) == len(expected.children)
+        and all(
+            _same_realization(left, right)
+            for left, right in zip(actual.children, expected.children, strict=True)
+        )
+    )
+
+
+def _same_carried_group(
+    plan, column, read, export, terminal, position, final, expression=None
+):
+    """Verify a whole-group image from exact plan children and its input."""
+    if type(read) is not unnesting.NestedRead:
+        return False
+    group = _original_collect(read.group)
+    if group is None:
+        return False
+    definitions = tuple(
+        item for item in plan.bindings.definitions if item.ref is group.collect.producer
+    )
+    if len(definitions) != 1:
+        return False
+    children = definitions[0].exports
+    if not _same(tuple(item.ref for item in children), tuple(group.collect.children)):
+        return False
+    label = export.identity.name if final else f"c{position}"
+    labels = (
+        (label, *(item.identity.name for item in children))
+        if final
+        else (label, *(f"c{position}_{i}" for i in range(len(children))))
+    )
+    expected = tuple(
+        zip(
+            (read.count, *read.arrays),
+            labels,
+            (export.ref, *group.collect.children),
+            strict=True,
+        )
+    )
+    source = replace(
+        read.group.column, position=position, name=read.count, scope=read.scope
+    )
+    return (
+        type(column) is resulting.ResultGroupColumn
+        and column.ordinal == position
+        and column.export is export
+        and column.output is terminal
+        and column.projection_port is read.port
+        and column.group is group
+        and column.stages == ()
+        and column.expression is expression
+        and type(column.symbol) is SQLSymbol
+        and (column.symbol.position, column.symbol.name) == (position + 1, label)
+        and column.symbol.binding is export.ref
+        and column.label == label
+        and _same_group_read(column.read, source)
+        and _same_group_read(
+            column.column,
+            replace(source, name=label, terminal=terminal.ref, scope=None),
+        )
+        and len(column.carriers) == len(expected)
+        and all(
+            type(actual) is tuple
+            and len(actual) == 3
+            and actual[:2] == wanted[:2]
+            and actual[2] is wanted[2]
+            for actual, wanted in zip(column.carriers, expected, strict=True)
+        )
+    )
+
+
 def _join_reads(
     request,
     original,
@@ -3186,7 +3320,22 @@ def _join_reads(
             if producer is None:
                 raise ValueError("join input producer")
             for position, reference in enumerate(original.ports):
-                column = producer.columns[position].column
+                produced = producer.columns[position]
+                if type(produced) in (
+                    nested.CollectColumn,
+                    resulting.ResultGroupColumn,
+                ):
+                    read = _nested_group_read(
+                        produced,
+                        position=position,
+                        port=ports[reference],
+                        scope=alias,
+                    )
+                    if read is None:
+                        raise ValueError("join input nested group")
+                    reads.append(read)
+                    continue
+                column = produced.column
                 if column.terminal is not use.bindings[position].terminal.ref:
                     raise ValueError("join input terminal")
                 reads.append(
@@ -3200,15 +3349,43 @@ def _join_reads(
             column = producer.columns[position]
             if column.port.ref is not ports[reference].source:
                 raise ValueError("join predecessor port")
-            reads.append(
-                replace(
-                    column.column, position=position, name=column.label, scope=alias
+            if type(column) is resulting.ResultGroupColumn:
+                read = _nested_group_read(
+                    column, position=position, port=ports[reference], scope=alias
                 )
-            )
+                if read is None:
+                    raise ValueError("join predecessor nested group")
+                reads.append(read)
+            elif type(column) is unnesting.WithheldPort:
+                if column.read is None:
+                    raise ValueError("join predecessor nested source")
+                reads.append(
+                    replace(
+                        column.read,
+                        position=position,
+                        port=ports[reference],
+                        scope=alias,
+                    )
+                )
+            else:
+                reads.append(
+                    replace(
+                        column.column,
+                        position=position,
+                        name=column.label,
+                        scope=alias,
+                    )
+                )
     columns = []
     for position, reference in enumerate(original.ports):
         if unnest is not None and original.ordinal == 0 and reference is unnest.source:
-            columns.append(None)
+            read = reads[position]
+            if type(read) is not unnesting.NestedRead:
+                raise ValueError("unnest nested source")
+            columns.append(read)
+            continue
+        if type(reads[position]) is unnesting.NestedRead:
+            columns.append(reads[position])
             continue
         realization, problem = joining.port_realization(
             ports[reference], reads[position], outer=False
@@ -3326,8 +3503,8 @@ def _verify_join_unit(request, unit, join, index, context, state):
             or len(item.columns) != len(columns)
             or any(
                 (
-                    type(actual) is not unnesting.NestedRead
-                    if expected is None
+                    not _same_nested_read(actual, expected)
+                    if type(expected) is unnesting.NestedRead
                     else not _same_read(actual, expected)
                 )
                 for actual, expected in zip(item.columns, columns, strict=True)
@@ -3416,11 +3593,101 @@ def _verify_join_unit(request, unit, join, index, context, state):
         zip(join.outputs, unit.columns, strict=True)
     ):
         port = ports[reference]
-        if type(column) is unnesting.WithheldPort:
-            if unnest is None or type(carriers[position]) is not unnesting.NestedRead:
-                raise ValueError("unexpected withheld join output")
-            continue
         scalar = carriers[position]
+        if type(scalar) is unnesting.NestedRead:
+            group = _original_collect(scalar.group)
+            if group is None:
+                raise ValueError("nested join source")
+            try:
+                from pietto._project.project_sql_plan_nested import collect_of
+
+                retained = (
+                    any(
+                        block.definition is join.definition
+                        and block.kind.value != "projection"
+                        for block in plan.blocks
+                    )
+                    or any(
+                        value.field.evidence.resolved_type.nested is not None
+                        and collect_of(plan, value.ref).ref is group.collect.ref
+                        for value in plan.exports
+                    )
+                    or any(
+                        value.collect is group.collect.ref
+                        and value.join is not join.ref
+                        and value.join not in context["by_join"]
+                        for value in plan.unnests
+                    )
+                )
+            except (AttributeError, TypeError, ValueError):
+                raise ValueError("nested join retention") from None
+            if not retained:
+                if (
+                    type(column) is not unnesting.WithheldPort
+                    or column.position != position
+                    or column.port is not port
+                    or (
+                        column.read is not None
+                        and not _same_nested_read(column.read, scalar)
+                    )
+                ):
+                    raise ValueError("unexpected withheld join output")
+                continue
+            labels = (
+                f"c{position}",
+                *(f"c{position}_{i}" for i in range(len(scalar.arrays))),
+            )
+            subjects = (port.ref, *group.collect.children)
+            source = replace(
+                scalar.group.column,
+                position=position,
+                name=scalar.count,
+                scope=scalar.scope,
+            )
+            if (
+                type(column) is not resulting.ResultGroupColumn
+                or column.position != position
+                or column.port is not port
+                or column.export is not port
+                or column.projection_port is not scalar.port
+                or not _same_group_read(column.read, source)
+                or column.output is not port
+                or column.label != labels[0]
+                or column.symbol.position != position + 1
+                or column.symbol.binding is not port.ref
+                or column.symbol.name != labels[0]
+                or not _same_group_read(
+                    column.column,
+                    replace(
+                        source,
+                        name=labels[0],
+                        terminal=port.ref,
+                        scope=None,
+                    ),
+                )
+                or column.group is not group
+                or column.expression is not None
+                or len(column.carriers) != len(labels)
+                or any(
+                    actual[0] != read or actual[1] != label or actual[2] is not subject
+                    for actual, read, label, subject in zip(
+                        column.carriers,
+                        (scalar.count, *scalar.arrays),
+                        labels,
+                        subjects,
+                        strict=True,
+                    )
+                )
+                or port.source is not scalar.port.ref
+                or port.kind is not ProjectSQLJoinPortKind.OUTPUT
+                or port.block is not join.ref
+                or port.position != position
+            ):
+                raise ValueError("nested join output")
+            state["symbols"].append(column.symbol)
+            continue
+        if type(column) is unnesting.WithheldPort:
+            raise ValueError("unexpected withheld join output")
         if not isinstance(scalar, rows.StageColumn):
             raise ValueError("non-scalar published JOIN output")
         realization, problem = joining.port_realization(
@@ -3472,6 +3739,11 @@ def _verify_join_unit(request, unit, join, index, context, state):
 def joining_node_count(unit) -> int:
     """This unit's own structural nodes; its condition is counted by the walk."""
     total = 4 + 3 * len(unit.columns) + 2 * len(unit.equalities)
+    total += 3 * sum(
+        len(column.carriers) - 1
+        for column in unit.columns
+        if type(column) is resulting.ResultGroupColumn
+    )
     total += sum(
         4 + 4 * len(item.producer.arrays)
         for item in unit.inputs
@@ -4764,7 +5036,6 @@ def _collect_group_problems(request, body, column) -> tuple[str, ...]:
     try:
         projection = body.scan.body
         position = column.ordinal
-        group = column.group
         exports = body.definition.original.exports
         ports = _result_ports(request.plan)(
             projection.block.ref, resulting.ROLES.PROJECTION
@@ -4774,14 +5045,20 @@ def _collect_group_problems(request, body, column) -> tuple[str, ...]:
             for index, port in enumerate(ports)
             if port.canonical is exports[position]
         )
+        projected = projection.columns[at[0]] if len(at) == 1 else None
+        if projected is None:
+            return ("collect_group",)
+        group = _original_collect(projected)
         if (
             len(at) != 1
             or type(group) is not nested.CollectColumn
+            or type(projected)
+            not in (nested.CollectColumn, resulting.ResultGroupColumn)
             or len(projection.columns) != len(ports)
-            or projection.columns[at[0]] is not group
-            or group.column.terminal is not ports[at[0]].ref
+            or projected.column.terminal is not ports[at[0]].ref
             or column.projection_port is not ports[at[0]]
-            or column.read is not group.column
+            or column.group is not group
+            or column.expression is not None
             or column.export is not exports[position]
             or body.columns[position] is not column
         ):
@@ -4797,6 +5074,17 @@ def _collect_group_problems(request, body, column) -> tuple[str, ...]:
                     *(port.identity.name for port in children),
                 )
             return (f"c{index}", *(f"c{index}_{j}" for j in range(len(children))))
+
+        if not _same_group_read(
+            column.read,
+            replace(
+                projected.column,
+                position=position,
+                name=labels(projection.final, source)[0],
+                scope=column.read.scope,
+            ),
+        ):
+            return ("collect_group",)
 
         expected = tuple(
             zip(
@@ -4866,7 +5154,7 @@ def _unnest_problems(request, unit, unnest) -> tuple[str, ...]:
         source = ports.get(unnest.source)
         read = left.columns[at[0]] if len(at) == 1 else None
         group = getattr(read, "group", None)
-        collected = group.group if type(group) is resulting.ResultGroupColumn else group
+        collected = _original_collect(group)
         if (
             len(at) != 1
             or source is None
@@ -4951,14 +5239,26 @@ def _unnest_problems(request, unit, unnest) -> tuple[str, ...]:
             for j, output in enumerate(unnest.outputs)
         ):
             issues.append("unnest_outputs")
-        # Every nested port of the left producer is withheld from this JOIN on;
-        # every other port is published under its plan position's label.
-        withheld = {
-            i
-            for i in range(split)
-            if type(producer.columns[i])
-            in (nested.CollectColumn, resulting.ResultGroupColumn)
-        }
+        # Only unused nested groups are withheld; selected or later-read
+        # groups retain their whole count/array carrier.
+        from pietto._project.project_sql_plan_nested import collect_of
+
+        nested_positions, carried = set(), set()
+        for i in range(split):
+            group = nested.original_group(producer.columns[i])
+            if group is None:
+                continue
+            nested_positions.add(i)
+            if any(
+                block.definition is join.definition and block.kind.value != "projection"
+                for block in request.plan.blocks
+            ) or any(
+                value.field.evidence.resolved_type.nested is not None
+                and collect_of(request.plan, value.ref).ref is group.collect.ref
+                for value in request.plan.exports
+            ):
+                carried.add(i)
+        withheld = nested_positions - carried
         published = tuple(
             column
             for column in unit.columns
@@ -4974,7 +5274,12 @@ def _unnest_problems(request, unit, unnest) -> tuple[str, ...]:
                 or (
                     type(column) is not unnesting.WithheldPort
                     and (
-                        type(column) is not joining.JoinColumn
+                        type(column)
+                        is not (
+                            resulting.ResultGroupColumn
+                            if i in carried
+                            else joining.JoinColumn
+                        )
                         or column.label != f"c{i}"
                     )
                 )
@@ -5499,6 +5804,16 @@ def verify_row_query(request, query, *, _guarded=None):
                     return False
                 symbols.append(column.symbol)
                 if ordinal < carries:
+                    input_read = columns[block.inputs[ordinal]]
+                    if type(input_read) is unnesting.NestedRead:
+                        if export.source is not block.inputs[
+                            ordinal
+                        ] or not _same_carried_group(
+                            plan, column, input_read, export, export, ordinal, False
+                        ):
+                            return False
+                        state["nodes"] += 2 * (len(column.carriers) - 1)
+                        continue
                     if (
                         type(column) is not RowCarryColumn
                         or column.input_port is not block.inputs[ordinal]
@@ -5587,6 +5902,39 @@ def verify_row_query(request, query, *, _guarded=None):
                         return False
                     # The window stage already counted this result; carrying it
                     # into the visible projection introduces no new node.
+                    continue
+                if type(column) is resulting.ResultGroupColumn:
+                    expressions = tuple(
+                        value
+                        for value in plan.expressions
+                        if value.ref is item.expression
+                    )
+                    if len(expressions) != 1:
+                        return False
+                    (expression,) = expressions
+                    if kind != "projection" or type(expression) not in (
+                        row.ProjectSQLReference,
+                        row.ProjectSQLJoinedReference,
+                    ):
+                        return False
+                    read = columns.get(expression.port)
+                    if (
+                        not _same_carried_group(
+                            plan,
+                            column,
+                            read,
+                            export,
+                            body.terminals[ordinal],
+                            ordinal,
+                            body.final,
+                            expression=expression.ref,
+                        )
+                        or plan_nested.collect_of(plan, export.ref).ref
+                        is not column.collect.ref
+                    ):
+                        return False
+                    state["expressions"].append(expression)
+                    state["nodes"] += 2 * len(column.carriers)
                     continue
                 if (
                     type(column) is not RowValueColumn
@@ -5853,6 +6201,22 @@ def _row_reads(request, scan, block):
             )
             continue
         if type(scan) is RowNamedUse:
+            produced = scan.body.columns[position]
+            if type(produced) in (nested.CollectColumn, resulting.ResultGroupColumn):
+                ports = tuple(
+                    item
+                    for item in request.plan.stage_ports
+                    if item.ref is block.inputs[position]
+                )
+                if len(ports) != 1:
+                    return [None]
+                read = _nested_group_read(
+                    produced, position=position, port=ports[0], scope=scan.symbol
+                )
+                if read is None:
+                    return [None]
+                reads.append(read)
+                continue
             column = scan.body.columns[position].column
             if column.terminal is not scan.binding.bindings[position].terminal.ref:
                 return [None]
@@ -5865,6 +6229,21 @@ def _row_reads(request, scan, block):
             )
             if len(matches) != 1:
                 return [None]
+            if type(matches[0]) is resulting.ResultGroupColumn:
+                ports = tuple(
+                    item
+                    for item in request.plan.stage_ports
+                    if item.ref is block.inputs[position]
+                )
+                if len(ports) != 1:
+                    return [None]
+                read = _nested_group_read(
+                    matches[0], position=position, port=ports[0], scope=scan.symbol
+                )
+                if read is None:
+                    return [None]
+                reads.append(read)
+                continue
             reads.append(
                 None
                 if type(matches[0]) is unnesting.WithheldPort
@@ -5874,6 +6253,22 @@ def _row_reads(request, scan, block):
             )
             continue
         assert type(scan) is RowStageUse
+        produced = scan.body.columns[position]
+        if type(produced) in (nested.CollectColumn, resulting.ResultGroupColumn):
+            ports = tuple(
+                item
+                for item in request.plan.stage_ports
+                if item.ref is block.inputs[position]
+            )
+            if len(ports) != 1:
+                return [None]
+            read = _nested_group_read(
+                produced, position=position, port=ports[0], scope=scan.symbol
+            )
+            if read is None:
+                return [None]
+            reads.append(read)
+            continue
         reads.append(
             replace(
                 scan.body.columns[position].column,
@@ -6654,13 +7049,14 @@ def verify_row_bytes(query, rendered):
                     ("unary" if unary else "anchor", node.original.ref, start, offset)
                 )
 
-        def carriers(column, scope, role, subject):
+        def carriers(column, scope, role, subject, expression=None):
             # A nested group: its count, then each array, all under one scope.
             if len(column.carriers) < 2:
                 raise ValueError("nested group without arrays")
             for index, (read, label, carrier) in enumerate(column.carriers):
                 if index:
                     take("syntax", "separator", carrier, ", ")
+                start = offset
                 take("identifier", role, subject, scope, identifier=True)
                 take("syntax", "qualifier", carrier, ".")
                 take(
@@ -6670,6 +7066,8 @@ def verify_row_bytes(query, rendered):
                     read,
                     identifier=True,
                 )
+                if index == 0 and expression is not None:
+                    spans.append(("reference", expression, start, offset))
                 take("syntax", "alias", carrier, " AS ")
                 take("identifier", "label", carrier, label, identifier=True)
 
@@ -6823,6 +7221,15 @@ def verify_row_bytes(query, rendered):
                         column.lateral.symbol.name,
                         "collect_scope",
                         column.collect.ref,
+                    )
+                    continue
+                if type(column) is resulting.ResultGroupColumn:
+                    carriers(
+                        column,
+                        alias,
+                        "result_carry_scope",
+                        column.projection_port.ref,
+                        expression=column.expression,
                     )
                     continue
                 carrier = {
@@ -7699,6 +8106,14 @@ def verify_row_bytes(query, rendered):
                 if written:
                     take("syntax", "separator", column.port.ref, ", ")
                 written += 1
+                if type(column) is resulting.ResultGroupColumn:
+                    carriers(
+                        column,
+                        column.scope.name,
+                        "join_column_scope",
+                        column.projection_port.ref,
+                    )
+                    continue
                 take(
                     "identifier",
                     "join_column_scope",
@@ -7768,13 +8183,18 @@ def verify_row_bytes(query, rendered):
                     identifier=True,
                 )
                 take("syntax", "cte_columns_open", reference, " (")
+                published = tuple(
+                    column
+                    for column in unit.columns
+                    if type(column) is not unnesting.WithheldPort
+                )
                 groups: dict[int, Any] = {
                     position: column
-                    for position, column in enumerate(unit.columns)
+                    for position, column in enumerate(published)
                     if type(column)
                     in (nested.CollectColumn, resulting.ResultGroupColumn)
                 }
-                if groups and len(unit.columns) != len(unit.cte_columns):
+                if groups and len(published) != len(unit.cte_columns):
                     raise ValueError("nested group header")
                 for position, symbol in enumerate(unit.cte_columns):
                     if position:
@@ -8156,7 +8576,7 @@ def verify_row_generated_requirements(request, query, generated):
                 ("aggregation", body.aggregation.aggregation.ref, "R12", operators)
             )
         for column in body.columns:
-            if type(column) is RowCarryColumn:
+            if type(column) in (RowCarryColumn, resulting.ResultGroupColumn):
                 expected.append(("carry_projection", column.export.ref, "R05", ()))
                 continue
             if type(column) is nested.CollectColumn:
