@@ -1106,6 +1106,129 @@ def check_composed_nested(record, *, outer, grouped=False):
     check_effects(value, "COMPOSED")
 
 
+def _nested_law_rows(value, member, leaves):
+    """Restore JSON object order only after checking the actual Arrow layout."""
+    import _pietto_harness_nested_metamorphic as laws
+    import _pietto_execution_nested_oracle as oracle
+
+    tables = oracle.seed("FULL", leaves)
+    scalars, children = laws._layout(member.spec, tables)
+    non_null_v = (
+        isinstance(member.spec, oracle.Unnest)
+        and member.spec.join == "inner"
+        and member.spec.on == "o.v > 10"
+    )
+    schema = [
+        [label, NATIVE_TYPES[label], not (non_null_v and label == "v")]
+        for label in scalars
+    ]
+    if isinstance(member.spec, oracle.Collect):
+        for let in member.spec.lets:
+            fields = ", ".join(
+                label
+                + ": "
+                + NATIVE_TYPES[label]
+                + ("" if tables[let.table].column(label).nullable else " not null")
+                for label in children[let.name]
+            )
+            schema.append(
+                [let.name, "list<item: struct<" + fields + "> not null>", False]
+            )
+    observed = value.get("schema")
+    need(
+        type(observed) is list
+        and all(
+            type(field) is list and len(field) == 3 and type(field[2]) is bool
+            for field in observed
+        )
+        and observed == schema,
+        "NESTED_LAWS_SCHEMA",
+    )
+    rows = _untag(value.get("rows"))
+    labels = (*scalars, *children)
+    need(type(rows) is list, "NESTED_LAWS_ROWS")
+    ordered = []
+    for row in cast(list[dict[str, Any]], rows):
+        need(type(row) is dict and set(row) == set(labels), "NESTED_LAWS_ROWS")
+        record = {label: row[label] for label in scalars}
+        for label, fields in children.items():
+            child_rows = row[label]
+            need(
+                type(child_rows) is list
+                and all(
+                    type(child) is dict and set(child) == set(fields)
+                    for child in child_rows
+                ),
+                "NESTED_LAWS_ROWS",
+            )
+            record[label] = [
+                {field: child[field] for field in fields}
+                for child in cast(list[dict[str, Any]], child_rows)
+            ]
+        ordered.append(record)
+    return ordered
+
+
+def check_nested_laws(records):
+    import _pietto_harness_nested_metamorphic as laws
+
+    need(
+        type(records) is dict and set(records) == set(laws.NATIVE_LEAVES),
+        "NESTED_LAWS_MATRIX",
+    )
+    pids = []
+    for profile, datasets in cast(dict[str, Any], records).items():
+        need(
+            type(datasets) is dict and set(datasets) == set(laws.NATIVE_DATASETS),
+            "NESTED_LAWS_MATRIX",
+        )
+        leaves = laws.NATIVE_LEAVES[profile]
+        members = {member.name: member for member in laws.corpus(leaves)}
+        found = {origin: {} for origin in ("live", "bundle")}
+        for dataset, programs in cast(dict[str, Any], datasets).items():
+            need(
+                type(programs) is dict
+                and set(programs) == set(laws.NATIVE_PROGRAMS[profile]),
+                "NESTED_LAWS_MATRIX",
+            )
+            for name, origins in cast(dict[str, Any], programs).items():
+                need(
+                    type(origins) is dict and set(origins) == set(found),
+                    "NESTED_LAWS_MATRIX",
+                )
+                for origin, record in cast(dict[str, Any], origins).items():
+                    value = result(record, "NESTED_LAWS_RECORD")
+                    need(
+                        value.get("origin") == origin
+                        and value.get("project_absent") is (origin == "bundle"),
+                        "NESTED_LAWS_ORIGIN",
+                    )
+                    pid = value.get("pid")
+                    need(type(pid) is int and pid > 0, "NESTED_LAWS_PROCESS")
+                    pids.append(pid)
+                    rows = _nested_law_rows(value, members[name], leaves)
+                    outcome = outcome_of(value, "NESTED_LAWS_OUTCOME")
+                    need(
+                        outcome.get("end") == "COMPLETE"
+                        and outcome.get("source") == "EOF"
+                        and outcome.get("transaction") == "COMMIT_ACK"
+                        and outcome.get("cleanup") == "CLOSED"
+                        and outcome.get("primary") is None
+                        and outcome.get("cleanup_failures") == []
+                        and type(outcome.get("rows")) is int
+                        and outcome["rows"] == len(rows),
+                        "NESTED_LAWS_OUTCOME",
+                    )
+                    check_effects(value, "NESTED_LAWS")
+                    found[origin][name, dataset] = rows
+        for actual in found.values():
+            try:
+                laws.native_verdicts(actual, profile)
+            except ValueError:
+                raise Rejected("NESTED_LAWS_VERDICT") from None
+    need(len(set(pids)) == len(pids), "NESTED_LAWS_PROCESS")
+
+
 def check_nested_saved(entry, name):
     """Three independent processes preserve one complete durable parent stream."""
     import re
@@ -1300,6 +1423,29 @@ def check_nested_saved(entry, name):
             and value.get("sizes") == [1] * count,
             "SAVED_DELIVERY",
         )
+    if name == "all_leaves":
+        import _pietto_harness_nested_metamorphic as laws
+
+        member = next(
+            member
+            for member in laws.corpus(oracle.LEAVES)
+            if member.name == "C1_closed"
+        )
+        for value in (saved, replayed, exported):
+            reports = laws.law_verdicts(
+                {("C1_closed", "FULL"): _nested_law_rows(value, member, oracle.LEAVES)},
+                oracle.LEAVES,
+            )
+            need(
+                all(verdict.value != laws.VIOLATED for verdict in reports.values())
+                and {
+                    key[2]
+                    for key, verdict in reports.items()
+                    if verdict.value == laws.HOLDS
+                }
+                >= {"C-CLOSED", "O-SORTED"},
+                "SAVED_LAWS",
+            )
     end = replayed.get("end")
     need(
         type(end) is list and len(end) == 3 and natural(end[1]) and natural(end[2]),
@@ -1398,6 +1544,7 @@ def check_nested_saved(entry, name):
 
 
 def check_postgres(report: Any) -> Any:
+    check_nested_laws(report.get("nested_laws"))
     check_install(report.get("install", {}), ("execute-postgres",))
     check_server(report.get("server") or {})
     saved = report.get("nested_saved")

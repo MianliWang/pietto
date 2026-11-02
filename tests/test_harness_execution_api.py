@@ -1094,6 +1094,72 @@ def _oracle_nested_record(name, leaves, *, bundle=False):
     )
 
 
+def _native_law_records():
+    import _pietto_harness_nested_metamorphic as laws
+    import _pietto_execution_nested_oracle as oracle
+
+    report, pid = {}, 5000
+    for profile, leaves in laws.NATIVE_LEAVES.items():
+        report[profile] = {}
+        realized = laws.realized(leaves)
+        members = {m.name: m for m in laws.corpus(leaves)}
+        tables = oracle.seed("FULL", leaves)
+        for dataset in laws.NATIVE_DATASETS:
+            programs = {}
+            for name in laws.NATIVE_PROGRAMS[profile]:
+                spec = members[name].spec
+                scalars, children = laws._layout(spec, tables)
+                non_null_v = name == "U3_inner_v_gt_10"
+                schema = [
+                    [
+                        label,
+                        check.NATIVE_TYPES[label],
+                        not (non_null_v and label == "v"),
+                    ]
+                    for label in scalars
+                ]
+                if isinstance(spec, oracle.Collect):
+                    for let in spec.lets:
+                        fields = ", ".join(
+                            label
+                            + ": "
+                            + check.NATIVE_TYPES[label]
+                            + (
+                                ""
+                                if tables[let.table].column(label).nullable
+                                else " not null"
+                            )
+                            for label in children[let.name]
+                        )
+                        schema.append(
+                            [
+                                let.name,
+                                "list<item: struct<" + fields + "> not null>",
+                                False,
+                            ]
+                        )
+                rows = realized[name, dataset]
+                origins = {}
+                for origin in ("live", "bundle"):
+                    pid += 1
+                    origins[origin] = _ok(
+                        {
+                            "pid": pid,
+                            "origin": origin,
+                            "project_absent": origin == "bundle",
+                            "rows": _wire(rows),
+                            "schema": copy.deepcopy(schema),
+                            "outcome": _outcome(
+                                "COMPLETE", "COMMIT_ACK", rows=len(rows)
+                            ),
+                            **_effects(),
+                        }
+                    )
+                programs[name] = origins
+            report[profile][dataset] = programs
+    return report
+
+
 def postgres_report():
     """A report with the facts a passing postgres family records."""
     example = "\n".join(
@@ -1198,6 +1264,7 @@ def postgres_report():
         "unnest_decimal256": _oracle_unnest_record(
             "U1_cross", ("Int", "Decimal"), decimal256=True
         ),
+        "nested_laws": _native_law_records(),
         "nested_saved": {
             name: _saved_native_record(name)
             for name in ("retained", "all_leaves", "empty")
@@ -3222,3 +3289,33 @@ def test_native_saved_checker_rejects_typed_or_control_evidence_damage(damage):
         record["export"]["result"]["after_control"]["files"]["control"][2] = "f" * 64
     with pytest.raises(check.Rejected):
         check.check_nested_saved(record, "empty")
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ("missing", "origin", "schema", "duplicate", "outcome", "process", "nullable"),
+)
+def test_native_law_reader_refuses_damaged_actual_records(damage):
+    report = _native_law_records()
+    record = report["nested"]["FULL"]["U4_left_true"]["bundle"]["result"]
+    if damage == "missing":
+        del report["nested"]["MINIMAL"]["C1_closed"]
+    elif damage == "origin":
+        record["project_absent"] = False
+    elif damage == "schema":
+        record["schema"][0][2] = 1
+    elif damage == "duplicate":
+        record["rows"].pop()
+        record["outcome"]["rows"] -= 1
+    elif damage == "outcome":
+        record["outcome"]["rows"] = True
+    elif damage == "nullable":
+        report["nested"]["FULL"]["U3_inner_v_gt_10"]["bundle"]["result"]["schema"][1][
+            2
+        ] = True
+    else:
+        record["pid"] = report["nested"]["FULL"]["U4_left_true"]["live"]["result"][
+            "pid"
+        ]
+    with pytest.raises(check.Rejected, match="NESTED_LAWS"):
+        check.check_nested_laws(report)

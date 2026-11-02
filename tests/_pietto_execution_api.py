@@ -130,22 +130,32 @@ def write_nested_collect(directory, *, closed=False):
 
 
 def write_nested_unnest(directory, name, leaves=None, *, decimal256=False):
-    """A literal-oracle S13 project, with only its actual physical sources."""
+    """A literal-oracle project, with only its actual physical sources."""
+    import _pietto_execution_nested_oracle as oracle
+
+    leaves = oracle.DEFAULT_LEAVES if leaves is None else oracle.leaves_of(leaves)
+    return write_nested_program(
+        directory, oracle.program(name, leaves).files, leaves, decimal256=decimal256
+    )
+
+
+def write_nested_program(
+    directory, files, leaves, *, decimal256=False, relation_prefix=""
+):
+    """Materialize authored files with an exact physical fixture mapping."""
     import _pietto_execution_nested_oracle as oracle
     import _pietto_sql_nested_collect as collecting
 
-    leaves = oracle.DEFAULT_LEAVES if leaves is None else oracle.leaves_of(leaves)
-    program = oracle.program(name, leaves)
     project = Path(directory)
     project.mkdir(parents=True)
-    for name, contents in program.files:
+    for name, contents in files:
         if decimal256:
             contents = contents.replace("Decimal(18, 4)", "Decimal(60, 4)")
             contents = contents.replace(
                 'postgres.table("orders")', 'postgres.table("orders_decimal256")'
             )
         (project / name).write_text(contents, encoding="utf-8")
-    text = "".join(contents for _, contents in program.files)
+    text = "".join(contents for _, contents in files)
     contract = json.loads(collecting.oracle_contract())
     representations = {
         "Float": (
@@ -195,6 +205,8 @@ def write_nested_unnest(directory, name, leaves=None, *, decimal256=False):
                         "nullable": True,
                         "domain": {"kind": "decimal", "precision": 60, "scale": 4},
                     }
+    for source in contract["sources"]:
+        source["relation"]["name"] = relation_prefix + source["relation"]["name"]
     contract["sources"] = [
         source
         for source in contract["sources"]
@@ -282,36 +294,32 @@ def composed_setup_statements():
     return tuple(statements)
 
 
-def unnest_setup_statements():
-    """Populate the complete literal-oracle FULL seed in the owned PG fixture."""
-    import _pietto_execution_nested_oracle as oracle
+def _oracle_sql_value(item):
+    if item is None:
+        return "NULL"
+    if type(item) is bool:
+        return "TRUE" if item else "FALSE"
+    if type(item) is int:
+        return str(item)
+    if type(item) is float:
+        # Parse the authored float directly, retaining negative zero.
+        return "'" + repr(item) + "'::double precision"
+    if type(item) is Decimal:
+        return str(item)
+    if type(item) is datetime:
+        return "TIMESTAMP '" + item.isoformat(sep=" ") + "'"
+    if type(item) is date:
+        return "DATE '" + item.isoformat() + "'"
+    if type(item) is UUID:
+        return "'" + str(item) + "'::uuid"
+    if type(item) is str:
+        return "'" + item.replace("'", "''") + "'"
+    raise ValueError("Unnest native fixture leaf")
 
-    def value(item):
-        if item is None:
-            return "NULL"
-        if type(item) is bool:
-            return "TRUE" if item else "FALSE"
-        if type(item) is int:
-            return str(item)
-        if type(item) is float:
-            # Parse the authored float directly, retaining negative zero.
-            return "'" + repr(item) + "'::double precision"
-        if type(item) is Decimal:
-            return str(item)
-        if type(item) is datetime:
-            return "TIMESTAMP '" + item.isoformat(sep=" ") + "'"
-        if type(item) is date:
-            return "DATE '" + item.isoformat() + "'"
-        if type(item) is UUID:
-            return "'" + str(item) + "'::uuid"
-        if type(item) is str:
-            return "'" + item.replace("'", "''") + "'"
-        raise ValueError("Unnest native fixture leaf")
 
+def _oracle_table_statements(tables, prefix=""):
     result = []
-    tables = oracle.seed("FULL", oracle.LEAVES)
-    for name in ("customers", "orders"):
-        table = tables[name]
+    for name, table in tables.items():
         columns = [
             f'"{column.name}" '
             + {
@@ -327,13 +335,39 @@ def unnest_setup_statements():
             + ("" if column.nullable else " NOT NULL")
             for column in table.columns
         ]
-        result.append(f'CREATE TABLE public."{name}" (' + ",".join(columns) + ")")
         result.append(
-            f'INSERT INTO public."{name}" VALUES '
+            f'CREATE TABLE public."{prefix}{name}" (' + ",".join(columns) + ")"
+        )
+        result.append(
+            f'INSERT INTO public."{prefix}{name}" VALUES '
             + ",".join(
-                "(" + ",".join(value(cell) for cell in row) + ")" for row in table.rows
+                "(" + ",".join(_oracle_sql_value(cell) for cell in row) + ")"
+                for row in table.rows
             )
         )
+    return result
+
+
+def nested_oracle_setup_statements():
+    import _pietto_execution_nested_oracle as oracle
+
+    return tuple(
+        statement
+        for dataset in ("MINIMAL", "FULL")
+        for statement in _oracle_table_statements(
+            oracle.seed(dataset, oracle.LEAVES), "pietto_s21_" + dataset.lower() + "_"
+        )
+    )
+
+
+def unnest_setup_statements():
+    """Populate the complete literal-oracle FULL seed in the owned PG fixture."""
+    import _pietto_execution_nested_oracle as oracle
+
+    tables = oracle.seed("FULL", oracle.LEAVES)
+    result = _oracle_table_statements(
+        {name: tables[name] for name in ("customers", "orders")}
+    )
     decimal_tables = oracle.seed("FULL", ("Int", "Decimal"))
     orders = decimal_tables["orders"]
     columns = []
@@ -351,7 +385,7 @@ def unnest_setup_statements():
         values = list(row)
         if values[0] == 23:
             values[orders.columns.index(orders.column("price"))] = DECIMAL256
-        rows.append("(" + ",".join(value(cell) for cell in values) + ")")
+        rows.append("(" + ",".join(_oracle_sql_value(cell) for cell in values) + ")")
     result.append('CREATE TABLE public."orders_decimal256" (' + ",".join(columns) + ")")
     result.append('INSERT INTO public."orders_decimal256" VALUES ' + ",".join(rows))
     return tuple(result)

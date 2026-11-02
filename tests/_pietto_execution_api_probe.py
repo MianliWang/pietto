@@ -252,6 +252,8 @@ if config.get("load_bundle"):
 if config.get("remove_project"):
     shutil.rmtree(config["project"])
 result["origin"] = query.origin
+if config.get("metamorphic"):
+    result.update(pid=os.getpid(), project_absent=not Path(config["project"]).exists())
 access = pe.PostgresAccess(config.get("host", "127.0.0.1"), config["port"],
     config.get("database", "phase66"), config.get("user", "pietto_reader"),
     password, config.get("sslmode", "require"))
@@ -1267,6 +1269,7 @@ def statements(passwords):
         setup_blocks,
         unnest_setup_statements,
         composed_setup_statements,
+        nested_oracle_setup_statements,
     )
     from _pietto_execution_api import statements as documented
 
@@ -1277,6 +1280,7 @@ def statements(passwords):
     return (
         *documented(example_blocks()["sql"]),
         *unnest_setup_statements(),
+        *nested_oracle_setup_statements(),
         *composed_setup_statements(),
         "CREATE TABLE public.rows (id int8 NOT NULL)",
         "INSERT INTO public.rows VALUES (0),(2),(5),(5),(7)",
@@ -1293,6 +1297,7 @@ def statements(passwords):
         "GRANT SELECT ON fixture.items_wide TO pietto_reader",
         "GRANT SELECT ON public.customers, public.orders, public.orders_decimal256 TO pietto_reader",
         "GRANT SELECT ON TABLE public.rows, public.kids TO pietto_reader",
+        "GRANT SELECT ON public.pietto_s21_minimal_customers, public.pietto_s21_minimal_orders, public.pietto_s21_minimal_payments, public.pietto_s21_full_customers, public.pietto_s21_full_orders, public.pietto_s21_full_payments TO pietto_reader",
         "GRANT SELECT ON public.pietto_s16_rows, public.pietto_s16_orders, public.pietto_s16_tags, public.pietto_s16_outer_rows, public.pietto_s16_outer_orders, public.pietto_s16_outer_tags TO pietto_reader",
         # Only Pietto's own statement limit applies to the reader's sessions.
         "ALTER ROLE pietto_reader SET statement_timeout = 0",
@@ -1487,6 +1492,7 @@ def manual_cancel(python, cwd, config, manager, quiet):
 
 def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
     import _pietto_execution_nested_oracle as oracle
+    import _pietto_harness_nested_metamorphic as metamorphic
     import _pietto_target_conformance_resources as resources_module
     from _pietto_execution_api import (
         write_example,
@@ -1494,6 +1500,7 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
         write_nested_unnest,
         write_composed_nested,
         write_grouped_composed_nested,
+        write_nested_program,
     )
 
     directory.mkdir(mode=0o700)
@@ -1632,6 +1639,37 @@ def postgres(directory, *, wheel, interpreter, house_root=None, cache=None):
             "name": "result",
             "contract": "contract.json",
         }
+        report["nested_laws"] = {}
+        for profile, leaves in metamorphic.NATIVE_LEAVES.items():
+            report["nested_laws"][profile] = {}
+            members = {member.name: member for member in metamorphic.corpus(leaves)}
+            for dataset in metamorphic.NATIVE_DATASETS:
+                programs = {}
+                for name in metamorphic.NATIVE_PROGRAMS[profile]:
+                    project_path = write_nested_program(
+                        work / "metamorphic" / profile / dataset / name,
+                        members[name].files,
+                        leaves,
+                        relation_prefix="pietto_s21_" + dataset.lower() + "_",
+                    )
+                    programs[name] = {
+                        origin: case(
+                            python,
+                            work,
+                            {
+                                **reader,
+                                "case": "nested_rows",
+                                "project": str(project_path),
+                                "query": nested,
+                                "load_bundle": origin == "bundle",
+                                "remove_project": origin == "bundle",
+                                "metamorphic": True,
+                            },
+                            extra=quiet,
+                        )
+                        for origin in ("live", "bundle")
+                    }
+                report["nested_laws"][profile][dataset] = programs
         report["nested_saved"] = {}
         saved_cwd = work / "saved-cwd"
         saved_cwd.mkdir()

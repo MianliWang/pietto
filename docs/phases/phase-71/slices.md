@@ -65,7 +65,7 @@ B6 (S18/S19) is published at `b9a50b23fc19c9ac096224b8449a1d6387dee2a8` (tree `5
 | [S18](slice-18.md) | 普通保存、完整顶层 occurrence/chunk/checkpoint 与既有 publication 资格；优先复用 v7 工作区 | A08, A10 | S12, S14, S15, S17 | 必做 |
 | [S19](slice-19.md) | 新进程断源 R1 与独立 `verified_export`，含 trust/schema、重分批与只读导出无控制写入 | A08, A10 | S18 | 必做 |
 | [S20](slice-20.md) | 全类型与组合的资源、错误、关闭/取消和拒绝复核，覆盖 live/saved、R1/export 及未支持的路线/R2/sink/relay | A09, A10, A11 | S12, S13, S14, S15, S16, S18, S19 | 必做 |
-| S21 | 独立差分/metamorphic/损坏语料、旧平面全回归与所有必做公开消费者的串联核对 | A01–A11 | S14, S15, S16, S18, S19, S20 | 必做 |
+| [S21](slice-21.md) | 独立差分/metamorphic/损坏语料、旧平面全回归与所有必做公开消费者的串联核对 | A01–A11 | S14, S15, S16, S18, S19, S20 | 必做 |
 | S22 | 阶段末获取成本与直接读者复核、覆盖保持与适用 CI health（十个最慢节点的有界 profile 复核）；只修复已确认且属于本期的缺陷 | A11, A12 | S21 | 必做 |
 | S23 | 干净安装、候选 package/示例/help/支持矩阵与准确版本策略；准备 `0.1.7` 发行决策材料（不发行） | A06, A07, A08, A10, A11, A12 | S22 | 必做 |
 | S24 | 仅审计：三层验收对账、最终审计、实际计划偏差、延期 owner 的接收与最晚点、Phase72 可消费的交接 | A01–A12 | S23 | 审计 / 收尾 |
