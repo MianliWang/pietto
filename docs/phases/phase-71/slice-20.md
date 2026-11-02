@@ -1,7 +1,11 @@
 # Phase71 Slice20: nested resource and lifecycle closure
 
-Status: integrated B7 candidate on published B6; native checks, Gate 2 and
-natural CI remain required before completion.
+Status: `COMPLETED / PUBLISHED` in B7. S20 commit
+`c7e7922a832f182185089862e701f32d495e5f62` takes the batch result from head
+`1440878114b5b5a61709ad170202bbf5939634f1` (tree
+`7eaf46704d925d1852c55e0b23f6d6ccaea3f17a`): natural CI `41485998460`,
+attempt 1, all 19 jobs successful. The batch Gate 2 recorded 24,809 passed
+and 41 skipped; its native and installed receipts remain separate evidence.
 
 The public-entry matrix compares each collection-carrying mechanism cell with
 its unseamed flat control. Ordinary PostgreSQL save must reach the same workspace

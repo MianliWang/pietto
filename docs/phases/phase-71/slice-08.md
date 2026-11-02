@@ -1,6 +1,13 @@
 # Phase71 Slice08：PostgreSQL 的 Collect source emission
 
-状态：candidate（批次 B3）。P-core（节点、渲染、纯检查）与 P-wire（接线、准入、需求、公开文档、compiled 前拒绝）
+发布状态：`COMPLETED / PUBLISHED`（main 的 B3 批次）。批次 head
+`c6ae07abe8c481509a9762662644f41c922cdbe4`，tree
+`88e19f85fca1772e6d3ebf48f1bf3f75b1367fe8`；自然 CI `41153438678`
+attempt 2 的 19 个 job 均成功。 attempt 1 的上传失败保留；
+attempt 2 是所有者已批准的单次例外，不改变以后失败头的处理规则。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：candidate（批次 B3）。P-core（节点、渲染、纯检查）与 P-wire（接线、准入、需求、公开文档、compiled 前拒绝）
 都在本片；按 D71.11 在本机 Docker 上跑完整 PostgreSQL 目标清单（含 Collect 新变体与 `array` cell）移交 S12，见 §6。
 决定来源：S08 Gate 1 记录（ARCHITECTURE_DECISION，D-S08-1..13；workflow `wf_f037202f-d24` 的 `s08-gate1`）与所有者
 2026-10-30 对 Q1 的回答 (a)（`owner-answer-20261030-s08-q1.json`）：在现有 emit-sql v1/v2 格式内加性扩展。

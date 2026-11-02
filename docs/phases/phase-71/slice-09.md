@@ -1,6 +1,13 @@
 # Phase71 Slice09：Collect 的 compiled 表示、source-free 契约与 Unnest 保留表示
 
-状态：candidate（批次 B3），定稿。S09-A（闭合描述层：schema 词表、`verify_description` 的 collect、
+发布状态：`COMPLETED / PUBLISHED`（main 的 B3 批次）。批次 head
+`c6ae07abe8c481509a9762662644f41c922cdbe4`，tree
+`88e19f85fca1772e6d3ebf48f1bf3f75b1367fe8`；自然 CI `41153438678`
+attempt 2 的 19 个 job 均成功。 attempt 1 的上传失败保留；
+attempt 2 是所有者已批准的单次例外，不改变以后失败头的处理规则。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：candidate（批次 B3），定稿。S09-A（闭合描述层：schema 词表、`verify_description` 的 collect、
 collection 与 unnest 规则、`output` 记录交叉核对、`layout` 的显式拒绝）与 S09-B（build 导出、`verify_export`
 与 compiled emission 的对应核对、lowering、compiled 语义/IR/plan、compiled 授权下的嵌套合同、模板闸门、真实
 source-free 闭环）同在本片的一笔提交中，建立在 [S08](slice-08.md) 之上；批次 B3 建立在 main 的 `81f0d3b5` 之上，

@@ -2,6 +2,12 @@
 
 ## Unreleased changes following 0.1.6
 
+- Parent ORDER BY/LIMIT now preserves the final parent count-carrier identity
+  of a nested result through both source and compiled paths. The child array
+  identities and emitted SQL stay unchanged. Resource, cancellation and early
+  refusal checks cover the public nested lifecycle; unsupported routes remain
+  refused before their unavailable effects.
+
 - Collect SQL documents now include an exact producer/use/terminal/children
   association in generated `collect_lateral` R27 evidence. The v1/v2 tags stay
   unchanged; strict readers of nested documents must upgrade. SQL bytes and

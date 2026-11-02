@@ -1,6 +1,12 @@
 # Phase71 Slice13: flat Unnest vertical path
 
-状态：candidate，未验证。本记录绑定当前 B4 S13 worktree base
+发布状态：`COMPLETED / PUBLISHED`（main 的 B4 批次）。批次 head
+`9df0003f020c0d5e61fb32e4528cfd20d9125142`，tree
+`fa5e45c8c794207a360b3a195474e738ac2f49e9`；自然 CI `41272976489`
+attempt 1 的 19 个 job 均成功。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：candidate，未验证。本记录绑定当前 B4 S13 worktree base
 `e169cb88f17d54234a96fc275766cb0995a2be37`；它不是 Gate 2 seal、发布记录或
 自然 CI 结果。
 

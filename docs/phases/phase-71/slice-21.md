@@ -1,7 +1,10 @@
 # Phase71 Slice21: independent oracles and connected consumers
 
-Status: integrated B7 candidate. The final native, Gate 2 and natural-CI results
-are separate evidence; pure oracle self-tests do not establish execution.
+Status: `COMPLETED / PUBLISHED` at B7 head
+`1440878114b5b5a61709ad170202bbf5939634f1` (tree
+`7eaf46704d925d1852c55e0b23f6d6ccaea3f17a`). Natural CI `41485998460`,
+attempt 1, accepted all 19 jobs. Native observations, the Gate 2 result
+(24,809 passed and 41 skipped) and natural CI remain separate evidence.
 
 Typed literal expectations and relational metamorphic laws share authored
 programs, schemas and seed inputs. The law evaluator uses its own type-exact

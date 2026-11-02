@@ -1,6 +1,12 @@
 # Phase71 Slice19：嵌套断源读取与只读导出
 
-状态：focused candidate。本片依赖 S18 的真实已保存候选；没有 Gate 2 与自然 CI
+发布状态：`COMPLETED / PUBLISHED`（main 的 B6 批次）。批次 head
+`b9a50b23fc19c9ac096224b8449a1d6387dee2a8`，tree
+`54bd20a86acf7ba8ecb3205649c4fa46d1718e36`；自然 CI `41420591084`
+attempt 1 的 19 个 job 均成功。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：focused candidate。本片依赖 S18 的真实已保存候选；没有 Gate 2 与自然 CI
 闭合前，不宣称 R1 或 `verified_export` 可发布。
 
 S19 打开新进程的 `open_saved_read()` 与独立 `verified_export()`，只读取一个固定

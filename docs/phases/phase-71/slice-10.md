@@ -1,6 +1,13 @@
 # Phase71 Slice10：嵌套结果的 producer/Arrow binding、owned 构造、递归验证与 children/bytes 计量
 
-状态：candidate（批次 B3），S10 定稿（S10-A 与 S10-B，同一笔提交）。D71.11 的 native 运行由封存阶段在确切的 candidate wheel 上进行
+发布状态：`COMPLETED / PUBLISHED`（main 的 B3 批次）。批次 head
+`c6ae07abe8c481509a9762662644f41c922cdbe4`，tree
+`88e19f85fca1772e6d3ebf48f1bf3f75b1367fe8`；自然 CI `41153438678`
+attempt 2 的 19 个 job 均成功。 attempt 1 的上传失败保留；
+attempt 2 是所有者已批准的单次例外，不改变以后失败头的处理规则。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：candidate（批次 B3），S10 定稿（S10-A 与 S10-B，同一笔提交）。D71.11 的 native 运行由封存阶段在确切的 candidate wheel 上进行
 （第 10 节）。
 决定来源：S10 Gate 1 记录（ARCHITECTURE_DECISION，D-S10-1 至 D-S10-12），以及 S08 Gate 1 的 D-S08-7（output 视图与
 carrier descriptor 归 S10）。

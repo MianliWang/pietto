@@ -1,6 +1,13 @@
 # Phase71 Slice11：嵌套 copy/borrow/lease、C data/stream、非零 offset、零行与 close 生命周期
 
-状态：candidate（批次 B3），S11 定稿（S11-A 与 S11-B，同一笔提交，在 B3 中排在 S08、S09、S10 之后）。D71.11 的 native 运行与
+发布状态：`COMPLETED / PUBLISHED`（main 的 B3 批次）。批次 head
+`c6ae07abe8c481509a9762662644f41c922cdbe4`，tree
+`88e19f85fca1772e6d3ebf48f1bf3f75b1367fe8`；自然 CI `41153438678`
+attempt 2 的 19 个 job 均成功。 attempt 1 的上传失败保留；
+attempt 2 是所有者已批准的单次例外，不改变以后失败头的处理规则。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：candidate（批次 B3），S11 定稿（S11-A 与 S11-B，同一笔提交，在 B3 中排在 S08、S09、S10 之后）。D71.11 的 native 运行与
 installed product 的权威运行由封存阶段在确切的 candidate wheel 上进行（第 9 节）。
 决定来源：S11 Gate 1 记录（ARCHITECTURE_DECISION，D-S11-1 至 D-S11-8）。
 本片建立在 [S10](slice-10.md) 之上；批次 B3 建立在 main 的 `81f0d3b5` 之上，其发布规则见[路线](slices.md)，发布之前本片是 candidate。

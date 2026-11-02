@@ -1,6 +1,12 @@
 # Phase71 Slice15: Date, Timestamp and UUID collected leaves
 
-状态：candidate，未验证、未发布。本记录建立于本 lane 的 S14 candidate；不是 Gate 2 seal、原生运行或自然 CI 结论。
+发布状态：`COMPLETED / PUBLISHED`（main 的 B5 批次）。批次 head
+`305ab2c802258c2b3e932ccf236481dfc0e0034e`，tree
+`6e335432490b8c7a64501519376c6dbfa59ec3cd`；自然 CI `41390632023`
+attempt 1 的 19 个 job 均成功。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：candidate，未验证、未发布。本记录建立于本 lane 的 S14 candidate；不是 Gate 2 seal、原生运行或自然 CI 结论。
 
 S15 将 PostgreSQL `postgres_rows` collection carrier 的 child-leaf 域扩展为 `Date`、`Timestamp` 与 `UUID`。运行时
 `CHILD_KINDS`、S13 source emission、compiled verifier 与 compiled lowering 都显式扩展为完整八类 leaf；source-free

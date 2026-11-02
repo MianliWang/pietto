@@ -1,6 +1,12 @@
 # Phase71 Slice17：嵌套 IPC framing、解码前的 payload 准入、截断与错 schema、rebatch/offset 与兼容拒绝
 
-状态：B4 S17 本地候选，parent `e169cb88`（IPE 已发布且自然 CI 通过）。本树重放早期 S17 包，并以当前
+发布状态：`COMPLETED / PUBLISHED`（main 的 B4 批次）。批次 head
+`9df0003f020c0d5e61fb32e4528cfd20d9125142`，tree
+`fa5e45c8c794207a360b3a195474e738ac2f49e9`；自然 CI `41272976489`
+attempt 1 的 19 个 job 均成功。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：B4 S17 本地候选，parent `e169cb88`（IPE 已发布且自然 CI 通过）。本树重放早期 S17 包，并以当前
 S10/S11 的 nested interop、字段顺序 oracle 与 IPC 入口关闭点作语义合并。候选移除了私有嵌套 IPC 拒绝，
 并接入 source-root 的 nested `encode_ipc`/`open_ipc` 往返、compiled v2 digest 和 payload admission；但尚未运行
 focused pytest、Gate 2 或发布。S12/S13 合树后仍须按第 8 节重新验证保存边界和完整 product consumer。

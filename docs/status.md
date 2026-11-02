@@ -150,7 +150,8 @@ documentation does not supersede that evidence.
 | Single-file checked Int SUM repair | `COMPLETED / PUBLISHED`; The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs. |
 | Phase71 batch B5 | `COMPLETED / PUBLISHED`; B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs. |
 | Phase71 batch B6 | `COMPLETED / PUBLISHED`; B6 (S18/S19) is published at `b9a50b23fc19c9ac096224b8449a1d6387dee2a8` (tree `54bd20a86acf7ba8ecb3205649c4fa46d1718e36`); natural exact-head CI `41420591084` attempt 1 accepted all 19 jobs. |
-| Next | B7 (S20/S21) is an integrated candidate awaiting native consumer closure, Gate 2 and publication. The `0.1.7` version, tag and release need their own authorization |
+| Phase71 batch B7 | `COMPLETED / PUBLISHED`; S20/S21 are published at `1440878114b5b5a61709ad170202bbf5939634f1` (tree `7eaf46704d925d1852c55e0b23f6d6ccaea3f17a`); natural exact-head CI `41485998460` attempt 1 accepted all 19 jobs. |
+| Next | B8 (S22/S23) is preparing the acquisition review and release-decision package; B9/S24 follows B8 natural CI. The `0.1.7` version, tag and release need their own authorization |
 
 ## Phase67 当前路线
 

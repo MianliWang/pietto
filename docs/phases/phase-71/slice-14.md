@@ -1,6 +1,12 @@
 # Phase71 Slice14: Float and Decimal collected leaves
 
-状态：candidate，未验证、未发布。本记录在 B4 已发布 tree 上描述 B5 的私有候选；不是 Gate 2 seal、原生运行或自然 CI 结论。
+发布状态：`COMPLETED / PUBLISHED`（main 的 B5 批次）。批次 head
+`305ab2c802258c2b3e932ccf236481dfc0e0034e`，tree
+`6e335432490b8c7a64501519376c6dbfa59ec3cd`；自然 CI `41390632023`
+attempt 1 的 19 个 job 均成功。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：candidate，未验证、未发布。本记录在 B4 已发布 tree 上描述 B5 的私有候选；不是 Gate 2 seal、原生运行或自然 CI 结论。
 
 S14 只扩展 PostgreSQL `postgres_rows` collection carrier 的 child-leaf 域为 `Float` 与 `Decimal`。运行时
 `CHILD_KINDS`、S13 source emission、compiled verifier 与 compiled lowering 各自显式同步这一集合；它们不是仅靠

@@ -1,6 +1,12 @@
 # Phase71 Slice12：Int/Bool/有限 Text 的公开最小真实纵向（连接前准入、未闭合消费者的预拒绝）
 
-状态：S12-B candidate。S12-A 的连接前准入与未闭合消费者门保留；S12-B 加入来源 preflight。
+发布状态：`COMPLETED / PUBLISHED`（main 的 B4 批次）。批次 head
+`9df0003f020c0d5e61fb32e4528cfd20d9125142`，tree
+`fa5e45c8c794207a360b3a195474e738ac2f49e9`；自然 CI `41272976489`
+attempt 1 的 19 个 job 均成功。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：S12-B candidate。S12-A 的连接前准入与未闭合消费者门保留；S12-B 加入来源 preflight。
 决定来源：S12 Gate 1 记录（ARCHITECTURE_DECISION，D-S12-1 至 D-S12-9）。
 本 B4 integration candidate 绑定 parent `e169cb88f17d54234a96fc275766cb0995a2be37`
 （tree `43efe9fd355213b74b3061a51c3356abd9004303`），并纳入 AC-F7。这里没有 focused、原生、Gate 2

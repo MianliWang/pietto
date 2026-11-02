@@ -1,6 +1,12 @@
 # Phase71 Slice16: retained collections through composed queries
 
-状态：candidate，未封存或发布。基线提交 `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29`，树 `da72b5412f4ecb087c508b9bd8204bf811a6e955`；R5 自然 CI `41362408512` attempt 1 全部 19/19 成功。
+发布状态：`COMPLETED / PUBLISHED`（main 的 B5 批次）。批次 head
+`305ab2c802258c2b3e932ccf236481dfc0e0034e`，tree
+`6e335432490b8c7a64501519376c6dbfa59ec3cd`；自然 CI `41390632023`
+attempt 1 的 19 个 job 均成功。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：candidate，未封存或发布。基线提交 `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29`，树 `da72b5412f4ecb087c508b9bd8204bf811a6e955`；R5 自然 CI `41362408512` attempt 1 全部 19/19 成功。
 
 本片按 D71.09 与已有 D71.01–D71.12 决定，完成并列子表、命名/跨模块、普通 JOIN whole-group carry、上游分组和参数过滤，以及展开一项仍保留另一 collection。单个查询仍最多一个 Unnest；collection 不作 scalar operand、group/order key。已有保存/R1/R2/relay 和 ADBC/MySQL nested 停点不变。
 

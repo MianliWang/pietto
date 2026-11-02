@@ -12,6 +12,8 @@ B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree 
 
 B6 (S18/S19) is published at `b9a50b23fc19c9ac096224b8449a1d6387dee2a8` (tree `54bd20a86acf7ba8ecb3205649c4fa46d1718e36`); natural exact-head CI `41420591084` attempt 1 accepted all 19 jobs.
 
+B7 (S20/S21) is published at `1440878114b5b5a61709ad170202bbf5939634f1` (tree `7eaf46704d925d1852c55e0b23f6d6ccaea3f17a`); natural exact-head CI `41485998460` attempt 1 accepted all 19 jobs. B8 remains the acquisition review and release-decision preparation; B9 remains its subsequent independent audit.
+
 ## 授权与依赖顺序
 
 所有者授权（D71.09）：
@@ -66,8 +68,8 @@ B6 (S18/S19) is published at `b9a50b23fc19c9ac096224b8449a1d6387dee2a8` (tree `5
 | [S19](slice-19.md) | 新进程断源 R1 与独立 `verified_export`，含 trust/schema、重分批与只读导出无控制写入 | A08, A10 | S18 | 必做 |
 | [S20](slice-20.md) | 全类型与组合的资源、错误、关闭/取消和拒绝复核，覆盖 live/saved、R1/export 及未支持的路线/R2/sink/relay | A09, A10, A11 | S12, S13, S14, S15, S16, S18, S19 | 必做 |
 | [S21](slice-21.md) | 独立差分/metamorphic/损坏语料、旧平面全回归与所有必做公开消费者的串联核对 | A01–A11 | S14, S15, S16, S18, S19, S20 | 必做 |
-| S22 | 阶段末获取成本与直接读者复核、覆盖保持与适用 CI health（十个最慢节点的有界 profile 复核）；只修复已确认且属于本期的缺陷 | A11, A12 | S21 | 必做 |
-| S23 | 干净安装、候选 package/示例/help/支持矩阵与准确版本策略；准备 `0.1.7` 发行决策材料（不发行） | A06, A07, A08, A10, A11, A12 | S22 | 必做 |
+| [S22](slice-22.md) | 阶段末获取成本与直接读者复核、覆盖保持与适用 CI health（十个最慢节点的有界 profile 复核）；只修复已确认且属于本期的缺陷 | A11, A12 | S21 | 必做 |
+| [S23](slice-23.md) | 干净安装、候选 package/示例/help/支持矩阵与准确版本策略；准备 `0.1.7` 发行决策材料（不发行） | A06, A07, A08, A10, A11, A12 | S22 | 必做 |
 | S24 | 仅审计：三层验收对账、最终审计、实际计划偏差、延期 owner 的接收与最晚点、Phase72 可消费的交接 | A01–A12 | S23 | 审计 / 收尾 |
 
 规划结构：24 个节点、57 条列出的硬依赖边（其中 25 条可由传递推出，按计划 v2 原样保留）、无环、编号即拓扑序；最长路径 18 个节点（S01→S03→S04→S05→S06→S07→S08→S10→S11→S12→S14→S18→S19→S20→S21→S22→S23→S24）；ASAP 最大层宽 3（S14、S15、S16）。容量 25、余量 1，余量不设伪编号、不建账、不自动开始。

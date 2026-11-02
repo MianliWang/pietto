@@ -1,6 +1,12 @@
 # Phase71 Slice18：嵌套普通保存
 
-状态：focused candidate。本片不封存、不发布，且不以 focused 检查替代 Gate 2 或自然 CI。
+发布状态：`COMPLETED / PUBLISHED`（main 的 B6 批次）。批次 head
+`b9a50b23fc19c9ac096224b8449a1d6387dee2a8`，tree
+`54bd20a86acf7ba8ecb3205649c4fa46d1718e36`；自然 CI `41420591084`
+attempt 1 的 19 个 job 均成功。
+以下保留实施时的候选与检查记录；其中的待验证文字属于封存前时点。
+
+封存前记录：focused candidate。本片不封存、不发布，且不以 focused 检查替代 Gate 2 或自然 CI。
 
 S18 只打开已经被 Phase71 私有 producer、结果合同、Arrow binding 与 IPC
 reader 闭合的嵌套 `postgres_rows` 普通保存。它复用
