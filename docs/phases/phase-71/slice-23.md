@@ -1,8 +1,12 @@
 # Phase71 Slice23：候选安装、文档与 0.1.7 发行决策材料
 
-状态：B8 候选。S22 的获取与十项 profile 已完成；本片提供支持矩阵、安装核验与
-发行决策材料。准确的 candidate tree、wheel/sdist hashes、检查结果与 Git 发布事实
-由 B8 Gate 2/Gate 3 外部收据绑定，不能以早期 B7 或维护批次替代。
+状态：`COMPLETED / PUBLISHED`，B8 head `28dc36fdd54b90d406e07a4e82d3c10c2bad5e35`，
+tree `b0b8b21e036356afd82e77a8bf90e13f555aa0ef`，自然CI `41518702589` attempt1、19/19。
+本片交付安装与发行决策材料；发行状态仍为PENDING_RELEASE_DECISION。
+B8 Gate2为24809passed/41skipped、独立收集24850；fresh core/Arrow/CLI、Arrow readiness
+及reader、installed result-product136cases/211origins及reader全部成功。
+候选wheel SHA-256为`0174e6e76fbf646f50cb4bb59476df27ac39e87ef1aa3e342539706d662b79c7`，
+sdist为`0ac1567ab418b8fc3bca801120b06d3e3f21bfc133e841ca365ceccde6b522ee`。
 
 基线是 `6ee4b2b0f35a7eff392755bdaccfff949775cf06`，tree
 `45f11ad0a7ffef413c84b57a7c77ab528e765b22`，自然 main CI `41502915403`
@@ -28,8 +32,8 @@ S21 的 96 个 native law observations、73 个 PG target families 与有限 S09
 
 ## 候选核验与证据层
 
-B8 在自身隔离 worktree、Python 3.13.13 上完成以下核验后才封存；实际结果进入
-Gate 2 收据，发布后的自然 CI 再独立覆盖 Python 3.12/3.13：
+B8 已在自身隔离 worktree、Python 3.13.13 上完成以下核验并封存；实际结果在
+Gate 2 收据，随后自然 CI 独立覆盖 Python 3.12/3.13：
 
 - 从最终候选构建 wheel/sdist，检查 artifact inventory、metadata、console/CLI、
   README quick start、项目发射与 fresh core install。另建 fresh `[arrow]` 环境，
@@ -41,7 +45,7 @@ Gate 2 收据，发布后的自然 CI 再独立覆盖 Python 3.12/3.13：
 - 检查 examples/help、支持与拒绝矩阵、完整 collected nodes，运行一次合格主机的
   权威全量 validator。generated/golden 等辅助检查按实际输入闭包和既定 CI 分工执行。
 - 完整审阅本批 finding set，修复后封存 exact tree；S22/S23 各一个普通提交、一次
-  fast-forward push，只有批次头的自然 CI 成功后才记为 published。S24 之后独立审计。
+  fast-forward push，只有批次头的自然 CI 成功后才记为 published。S24 在此之后独立审计。
 
 本片核对的是当前候选及其使用说明，不把文档评审当执行证明。README 保留 Python
 用户易上手的主线，另说明手写/AI 生成 Pietto 的 fail-closed guardrail；不承诺
@@ -61,7 +65,7 @@ S23 交付的是决策材料，发行状态保持 `PENDING_RELEASE_DECISION`。
 
 ## 仅设计的附件
 
-- [Compile-only Python API](python-compile-api-design-draft.md)：Phase75 才考虑落地，
+- [Compile-only Python API](python-compile-api-design-draft.md)：Phase75 接收后续实施，
   具体入口/结果/错误与资源合同仍待确认。既有
   `pietto.execution.compile_query(...) -> CompiledQuery` 不变，不新增 public exports。
 - [`now()`](now-function-design-draft.md)：UTC statement-snapshot 是待决定提案，

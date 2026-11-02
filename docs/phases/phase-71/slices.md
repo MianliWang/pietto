@@ -12,7 +12,9 @@ B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree 
 
 B6 (S18/S19) is published at `b9a50b23fc19c9ac096224b8449a1d6387dee2a8` (tree `54bd20a86acf7ba8ecb3205649c4fa46d1718e36`); natural exact-head CI `41420591084` attempt 1 accepted all 19 jobs.
 
-B7 (S20/S21) is published at `1440878114b5b5a61709ad170202bbf5939634f1` (tree `7eaf46704d925d1852c55e0b23f6d6ccaea3f17a`); natural exact-head CI `41485998460` attempt 1 accepted all 19 jobs. B8 remains the acquisition review and release-decision preparation; B9 remains its subsequent independent audit.
+B7 (S20/S21) is published at `1440878114b5b5a61709ad170202bbf5939634f1` (tree `7eaf46704d925d1852c55e0b23f6d6ccaea3f17a`); natural exact-head CI `41485998460` attempt 1 accepted all 19 jobs.
+
+B8 (S22/S23) is published at `28dc36fdd54b90d406e07a4e82d3c10c2bad5e35` (tree `b0b8b21e036356afd82e77a8bf90e13f555aa0ef`), natural CI `41518702589` attempt 1, all19jobs successful. [S24](slice-24.md) is the final audit-only candidate; its [closure rule](slice-24.md#closure-rule-and-write-boundary) makes Phase71 complete only after its own ordinary commit and natural CI.
 
 ## 授权与依赖顺序
 
@@ -70,7 +72,7 @@ B7 (S20/S21) is published at `1440878114b5b5a61709ad170202bbf5939634f1` (tree `7
 | [S21](slice-21.md) | 独立差分/metamorphic/损坏语料、旧平面全回归与所有必做公开消费者的串联核对 | A01–A11 | S14, S15, S16, S18, S19, S20 | 必做 |
 | [S22](slice-22.md) | 阶段末获取成本与直接读者复核、覆盖保持与适用 CI health（十个最慢节点的有界 profile 复核）；只修复已确认且属于本期的缺陷 | A11, A12 | S21 | 必做 |
 | [S23](slice-23.md) | 干净安装、候选 package/示例/help/支持矩阵与准确版本策略；准备 `0.1.7` 发行决策材料（不发行） | A06, A07, A08, A10, A11, A12 | S22 | 必做 |
-| S24 | 仅审计：三层验收对账、最终审计、实际计划偏差、延期 owner 的接收与最晚点、Phase72 可消费的交接 | A01–A12 | S23 | 审计 / 收尾 |
+| [S24](slice-24.md) | 仅审计：三层验收对账、最终审计、实际计划偏差、延期 owner 的接收与最晚点、Phase72 可消费的交接 | A01–A12 | S23 | 审计 / 收尾 |
 
 规划结构：24 个节点、57 条列出的硬依赖边（其中 25 条可由传递推出，按计划 v2 原样保留）、无环、编号即拓扑序；最长路径 18 个节点（S01→S03→S04→S05→S06→S07→S08→S10→S11→S12→S14→S18→S19→S20→S21→S22→S23→S24）；ASAP 最大层宽 3（S14、S15、S16）。容量 25、余量 1，余量不设伪编号、不建账、不自动开始。
 
@@ -160,9 +162,9 @@ S12 完成后的复核必须看到：
 
 | 内容 | owner / 最晚决定点 | 回收前提 |
 | --- | --- | --- |
-| 多层 collection | 后续嵌套扩展候选；S24 决定具体挂靠，不占用既有他期编号 | 一层闭环，深度/大小/身份/codec 成本有证据；另行预算 |
-| UNION ALL、普通 RIGHT/FULL 携带嵌套、嵌套窗口值/读取 | 对应核心语义/SQL plan owner 的后续候选；S24 保留 unsupported 或指定接收 owner | 相应类型/来源/lowering 前提成立，单独范围与预算 |
-| 一个 capture let 读另一个 capture let（嵌套相关） | S24 按同一规则指定接收 owner 与最晚点 | 本期一层的事实与拒绝边界 |
+| 多层 collection | NestedRelation semantic owner主责，type/result/compiled会审；首个依赖它的扩展Gate1或设计冻结前，取先发生者；Phase72开局确认仍unsupported，不虚构新phase号 | 一层闭环，深度/大小/身份/codec 成本有证据；另行预算 |
+| UNION ALL、普通 RIGHT/FULL 携带嵌套、嵌套窗口值/读取 | ProjectSQLPlan owner主责，semantic/target/result会审；对应形状首次准入Gate1前；当前unsupported | 相应类型/来源/lowering 前提成立，单独范围与预算 |
+| 一个 capture let 读另一个 capture let（嵌套相关） | scope/capture semantic owner主责，SQLPlan会审；nested correlation首次准入Gate1前；当前unsupported | 本期一层的事实与拒绝边界 |
 | MySQL 嵌套输出 / `JSON_TABLE` | Phase77，该 Phase 开局 | 精确版本能力、空/NULL/顺序与 carrier 保真研究 |
 | PG ADBC 嵌套路线 | Phase76 的 adapter/target 扩展候选，该 Phase 开局确认 | driver 实际 carrier、batch ownership、资源域与值保真 |
 | 数据库原生 array 与 JSON 列 | Phase76（类型部分配合 Phase72），该 Phase 开局 | 本期 carrier 编码与解码证据 |
@@ -175,8 +177,8 @@ S12 完成后的复核必须看到：
 | 嵌套 fuzz 与高强度差分 | Phase81 | 本期语料与 oracle |
 | 嵌套公开格式冻结 | Phase82 | 本期版本标记 |
 | 自动 flatten、去相关、CSE、求值次数 | Phase88/93 | 明确可证明的等价前提与 effects |
-| 子行级恢复、R2、嵌套 sink 效果 | 后续执行/恢复专门契约；S24 给出接收 owner 与最晚点 | 稳定坐标、effect identity 与完整 checkpoint/ACK 模型 |
+| 子行级恢复、R2、嵌套 sink 效果 | execution/recovery owner主责，jobs/result/relay会审；相应入口开放的Gate1/实施前先定durable coordinates、effect identity与ACK；不分配新phase号 | 稳定坐标、effect identity 与完整 checkpoint/ACK 模型 |
 | D-11/D-12 整体恢复 | 现行路线图中 Pietto lead 的后续项 | 不为本期偷偷扩大；挡住必做时只定点提出前置 |
 | 公开发行（`0.1.7`） | 本期候选之外的明确发行续行 | 所有者对确切版本、构建与渠道的授权；不沿用旧发布权限 |
 
-未分配编号的延期必须在 S24 明确接收 owner；当前不虚构一个已经获批的未来 Phase。
+未分配编号的延期已由S24明确主责与决定点。acting lead接收协调/升级及backlog交接责任，恢复后的Claude继续lead交接；layer owner在其Gate1接受具体实施任务。保留Phase88/93既有路由（93在roadmap的tentative owner表中）；不新增phase、能力或预算。

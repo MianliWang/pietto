@@ -1,7 +1,8 @@
 # Phase71 Slice22：获取整合与十个最慢节点复核
 
-状态：获取与 profile 复核已完成，作为 B8 候选进入 S23；B8 的 Gate 2、提交和
-自然 CI 另行封存。本片没有新增产品代码、缓存、调度或测试选择规则。
+状态：`COMPLETED / PUBLISHED`，随B8 head `28dc36fdd54b90d406e07a4e82d3c10c2bad5e35`
+（tree `b0b8b21e036356afd82e77a8bf90e13f555aa0ef`）发布；自然CI `41518702589`
+attempt1、19/19成功。本片没有新增产品代码、缓存、调度或测试选择规则。
 
 ## 实际基线与覆盖
 
@@ -86,3 +87,22 @@ fresh execution，预期拒绝不记为意外失败。所有 finding 均明确 `
 `acquisition-readers-final.json`。observer registry 的导入发生在 cProfile 计时前；
 这不影响给定节点的完成结果，但属于本机归因方法的限制。后续代码/测试/工具链输入
 改变时重新评估适用性；未变节点沿用这次 review。
+
+## B8最终health补充
+
+最终artifact `13176019503`（SHA-256
+`3061dd603a24b6e545edec89a413759bc55ef7effddae38cc026108fa3de6a35`）经严格reader核验。
+最终前十名中九项可沿用上表；新增
+`test_execution_compiled_source_free.py::test_complete_named_corpus_in_fresh_source_free_process[postgres]`
+于S24开始前单独profile：1passed，130.96s，来源为B8 exact head。
+
+该项的1,393个观测段包括631个声明entry/boundary与762个direct-body/ad-hoc-once
+fallback段。实际执行到的verify_description、verify_scope、verify_preparation分别
+497、338、232次；在各观测段内同一参数组最多一次，不推广到更广的未instrumented
+调用或child。其他六个registry body未在parent出现。165个bundle交给一个registered
+fresh child，在移除source后检查source_calls=0及source_ast_constructions=0。
+
+2,146次source-map检查逐次来自construction的__post_init__；高频identity小检查的
+低层参数identity没有另行追踪，不据此断言重复输入。处置为KEEP，保留构造/信任边界，
+不增加cache或性能提升声明。原十项与此补充均保留；最终top10已全部有适用review。
+证据为`profiles-b8-extra/01/`与`b8-final-health-profile-rebind.json`。
