@@ -1,67 +1,280 @@
 # Pietto release notes
 
-## Unreleased changes following 0.1.6
+## Nested results and project emission public alpha release notes — 0.1.7
 
-- Parent ORDER BY/LIMIT now preserves the final parent count-carrier identity
-  of a nested result through both source and compiled paths. The child array
-  identities and emitted SQL stay unchanged. Resource, cancellation and early
-  refusal checks cover the public nested lifecycle; unsupported routes remain
-  refused before their unavailable effects.
+<a id="unreleased-changes-following-016"></a>
+<!-- The id above keeps the links of the 0.1.6 notes below and of docs/phases/phase-71/slice-23.md, written before these notes were released, pointing here. -->
 
-- Collect SQL documents now include an exact producer/use/terminal/children
-  association in generated `collect_lateral` R27 evidence. The v1/v2 tags stay
-  unchanged; strict readers of nested documents must upgrade. SQL bytes and
-  documents without Collect are unaffected by this evidence addition.
+**Status:** These notes cover `0.1.7`, the public alpha prepared from its
+release commit. It is published only when the tag `v0.1.7`, the versioned
+GitHub pre-release and PyPI carry its accepted wheel and sdist; this document
+neither creates those channels nor substitutes for their byte verification.
+As for earlier releases, the compiler and package are covered on CPython 3.12
+and 3.13 for Linux x86-64; other platforms and Python versions are not.
 
-- Phase71 B6 opens ordinary PostgreSQL nested saves in the existing v7
-  workspace, source-free R1, and independent read-only `verified_export`.
-  Parent occurrences remain the checkpoint and ACK unit. Rebatching preserves
-  each complete child list; export caches at most one verified member and
-  rechecks acceptance and reader lifetime before each returned slice.
-  R2/recovery, relay, nested sink effects, ADBC and MySQL nested remain refused.
+`0.1.7` retires no source spelling of `0.1.6`. It completes Phase71: in an
+explicit-module project (`schema_version = 2`), `collect` and `unnest` now
+check, emit PostgreSQL SQL and run through the alpha Python API on
+PostgreSQL. It also widens project SQL emission, adds batch project emission,
+emits PostgreSQL `sum(Int)` with checked casts in single files as in projects,
+and refuses a relation-name qualifier through a `let` alias in a project, as a
+single file does. The Python execution extras keep the pins of `0.1.6`. The
+sections from 0.1.6 down describe published files.
 
-- Phase71 B5 expands PostgreSQL nested children to finite Float, Decimal,
-  Date, Timestamp and UUID and preserves parallel collections through named,
-  imported and ordinary JOIN stages. One Unnest may retain a sibling collection;
-  grouped child producers and parameter filters preserve its values and order.
-  Resource bounds count every JOIN edge and retained occurrence. Pietto's own
-  PostgreSQL sessions fix and verify `extra_float_digits=1` and `DateStyle=ISO,MDY`.
-  R2, relay, ADBC and MySQL nested remain refused.
+### Highlights
 
-- Phase71 B4: bounded basic-leaf PostgreSQL Collect execution,
-  one final-flat CROSS/INNER/LEFT Unnest through source and source-free compiled
-  paths, and internal nested IPC. B5 and B6 extend its leaf and saved-result
-  domains as described above; other routes, R2 and relay remain refused. The version remains 0.1.6;
-  B4 is published on main; the 0.1.7 release needs separate authorization.
+- **Nested PostgreSQL results.** In an explicit-module project,
+  `name = collect r` reads an ordered relation let `r` as one nested value, and
+  `let o = unnest(p.field)` followed by one `cross join o`,
+  `inner join o on ...` or `left join o on ...` (for example `on True`)
+  expands it again.
+  `check --project` types and checks both, and `PIE-S2802` is retired. On
+  PostgreSQL, `emit-sql --project` emits each Collect read as a
+  `LEFT JOIN LATERAL` count-and-arrays aggregate and an admitted Unnest as
+  `LATERAL ROWS FROM` over `pg_catalog.unnest`; MySQL reports `PIE-B1003` for
+  every Collect read and Unnest. Single files, LEGACY_FLAT projects and
+  package modules still report `PIE-S2801`.
+- **Nested results in Python.** `compile_query`, `load_bundle` and
+  `execute(..., route="postgres_rows")` run bounded Collect queries with Int,
+  Bool, finite Text, finite Float, Decimal, Date, Timestamp and UUID children,
+  several collections side by side, and one Unnest that may keep a sibling
+  collection. Ordinary `save`, source-free R1 and `verified_export` keep the
+  complete child lists. `postgres_adbc`, `mysql_rows` and guarded or refined
+  requests refuse nested results before any connection, and R2 and recovery,
+  relay and sink effects refuse them too.
+- **Batch project SQL emission.** `emit-sql --project ROOT --all` emits every
+  matching top-level table or query in one `pietto.sql-emission.batch.v1`
+  document, each item the document of its single-owner call; when every item
+  is VERIFIED, `--output DIR` writes them as files on supported Linux
+  filesystems.
+- **Wider project SQL emission.** On PostgreSQL, narrow Int arithmetic is
+  computed in `bigint`, `bigint` arithmetic and `sum(Int)` use PostgreSQL's
+  checked `bigint`, and UUID values compare and order. `Date` source fields
+  and Timestamp and Date comparisons and ordering are emitted on both targets,
+  and so are JOIN SELECT projections with the reviewed scalar calls, casts and
+  conditionals, and Timestamp UNION ALL and UNION DISTINCT. Every blocker of a
+  BLOCKED `emit-sql --project` document now carries a `suggestion`.
+- **Exact `sum(Int)` in single-file PostgreSQL SQL.** Single-file `emit-sql`
+  writes PostgreSQL `sum(Int)` as
+  `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)` (an aggregate
+  window as `CAST(SUM(CAST(x AS pg_catalog.int8)) OVER (...) AS pg_catalog.int8)`),
+  as project emission does: a sum outside signed 64 bits fails with SQLSTATE
+  22003 instead of returning an exact `numeric`.
+- **Project-mode corrections.** A relation-name qualifier through a `let`
+  alias (`customers.price` after `let c = customers` and `from c`) is refused
+  in a project as in a single file. The import hint of an unknown name is now
+  also the JSON `suggestion`; when no module exports the name, it names the
+  modules that declare it without exporting it, and it never suggests an
+  import that would close an import cycle. `explain --project` names the
+  commands that read schema 1 and 2 projects.
+- **Known limitations and rescheduled work.** The project-mode limits that
+  remain, with fresh timings, are listed under
+  [Known limitations](#known-limitations), and the
+  [Rescheduled](#rescheduled) section gives the home that the owner decided
+  for each debt reviewed for this release and not fixed in it.
 
+### Upgrading from 0.1.6
 
-These changes are on `main` after `0.1.6` and are in no published release
-yet. They do not assign a new version or replace the published 0.1.6 release
-notes.
+- 0.1.7 retires no source spelling, so a 0.1.6 file needs no `pietto migrate`
+  step.
+- In an explicit-module project, a program that reads a relation-name
+  qualifier through a `let` alias, which 0.1.6 accepted, now fails
+  `check --project` and is BLOCKED by `emit-sql --project`: write `c.price`
+  instead of `customers.price` after `let c = customers` and `from c`.
+- `collect` and `unnest` in an explicit-module project, which 0.1.6 refused
+  with `PIE-S2802`, now check, and on PostgreSQL emit; MySQL reports
+  `PIE-B1003` for every Collect read and Unnest, and the new `PIE-S2803` to
+  `PIE-S2807` say why a form is not admitted.
+- Single-file PostgreSQL SQL for `sum(Int)` changes: its result is a nullable
+  signed 64-bit `bigint` for every Int input, and a sum of a `bigint` column
+  outside that range fails with SQLSTATE 22003 instead of returning an exact
+  `numeric`. Single-file MySQL SQL is unchanged.
+- Strict readers of the JSON documents must upgrade: every blocker of a
+  BLOCKED `pietto.sql-emission.v1` document (a failure document is always
+  v1) gains a nonempty `suggestion`; Collect documents add `collection`
+  columns, R27 requirements and `collect_*` range roles; the import hint of
+  PIE-S2002, PIE-S2303, PIE-S2604, PIE-S2301 and PIE-S2103 fills the
+  diagnostic's `suggestion`, which was null; and the batch document is a new
+  format. VERIFIED documents gain no `suggestion` field.
+- Some messages change: PIE-S2370 in every project now names `collect` among
+  the one read of a let with `capture` lines, and the `config_schema` refusal
+  of `explain --project` for a schema 1 or 2 project names the commands to use.
+- Bundles and saved-job records made by 0.1.6 or earlier are refused by the
+  changed code identity; keep their matching old environment.
+- Nested saves add no workspace version: `0.1.7` saves nested results in the
+  v7 workspace format of `0.1.6`. A saved-job record, nested or flat, is
+  usable only under the code identity it names, so `0.1.7` refuses the
+  records that `0.1.6` saved and `0.1.6` refuses those that `0.1.7` saves,
+  nested results included. Pietto supplies no migration or rewrite.
+- Pietto's own PostgreSQL sessions now set and verify `extra_float_digits=1`
+  and `DateStyle=ISO,MDY` on every request, flat ones included.
+- The execution extras install the same driver versions as `0.1.6`.
+- `0.1.7` is a normal version number: once it is published,
+  `pip install -U pietto` upgrades to it, and so do the pins `pietto~=0.1`
+  and `pietto<0.2`.
+
+### Nested relations: checking
+
+- **Phase71 nested-relation spellings are checked.** In an EXPLICIT_MODULES
+  project (`schema_version = 2`), `name = collect let_name` and
+  `let o = unnest(binding.field)` are typed and checked as the next two
+  entries describe; `PIE-S2802`, which 0.1.6 reported at each of them, is
+  retired. Single files, LEGACY_FLAT projects and package modules still
+  report `PIE-S2801`, which says how to make a `schema_version = 2` project.
+- **Collect reads in explicit-module projects.** A relation with a
+  `name = collect r` SELECT item completes like any other: the Collect
+  output is a nested relation that is never None, and its relation stays
+  readable with `from`, a JOIN, `exists` and its scalar columns. Such a
+  project checks.
+  New errors say why a read is not admitted: `PIE-S2803` for a Collect in a
+  grouped SELECT or a relation let, of a source, table or query instead of a
+  relation let of the same body, of a let whose columns are not known before
+  completion, or of a let with a field that is not one of the eight collected
+  leaf types (`Bool`, `Date`, `Decimal`, `Float`, `Int`, `Text`, `Timestamp`
+  and `UUID`), has no known nullability yet (one computed with a binary
+  arithmetic or comparison operator, such as `id + 1`, with `and` or `or`, or
+  with `not`, `-` or `+` over one of those) or is itself collected;
+  `PIE-S2804` for a let without `order by`; and `PIE-S2805` for a read of a
+  nested field that needs a value (a comparison, ordering, grouping, a scalar,
+  `in` or ANY read, `select distinct` or a set operation), or a nested field
+  selected beside a RIGHT or FULL JOIN, a window or QUALIFY, GROUP BY or an
+  aggregate, or in a relation let. As in a `select distinct` relation, a
+  SELECT item that reads a shape-typed field, or a `let` bound to one, makes a
+  relation with a Collect read report `PIE-S2333`.
+  A let with `capture` lines counts `collect` as its one read, so a second
+  read is `PIE-S2370`, whose read-once message now reads ``... can be read
+  only once, by exists, scalar, in, collect or a join in the body of q.`` in
+  every project, including those that use no `collect`.
+- **Unnest binding in explicit-module projects.** `let o = unnest(p.field)`
+  followed by one `cross join o`, `inner join o on ...` or
+  `left join o on ...` (for example `on True`) reads the rows of a nested
+  field that a `collect` SELECT item outputs: `o` has the collected let's
+  fields, and its JOIN reports what any JOIN reports. Such a project checks.
+  New errors say why an Unnest is not admitted: `PIE-S2806` for an argument
+  that is not a nested field of the FROM input or a CROSS, INNER or LEFT JOIN
+  written before the let, and `PIE-S2807` for a RIGHT or FULL JOIN of it, a
+  second JOIN, another read of its name, an Unnest in a relation let, or one
+  beside grouping, aggregates, windows, `select distinct`, `any(...)`, a
+  Collect read, another Unnest or a RIGHT or FULL JOIN that may null-extend
+  its binding.
+
+### Nested relations: SQL emission
+
+- **PostgreSQL Collect emission.** `emit-sql --project --dialect postgres`
+  emits a Collect read (`name = collect r`) of the selected table or
+  query. Each read is one `LEFT JOIN LATERAL` single-row aggregate: `COUNT(*)`
+  under the field's label, then one `ARRAY_AGG` per child field under the
+  child's label, in child order. Every array of a read is ordered by one
+  private `ROW_NUMBER()` over `r`'s own ORDER BY items, so the arrays of one
+  parent row stay aligned; a LIMIT on `r` applies per parent row, and sibling
+  Collect reads are independent laterals. An empty collection is a count of 0
+  with NULL arrays; a child row whose fields are all None counts 1, and a
+  missing outer-JOIN container has a NULL count and NULL arrays.
+- **Collections in later relations.** A table or query that reads such a
+  relation, by name or through an import, may read its scalar columns, test it
+  with `exists`, expand one collection with an Unnest, and keep a collection
+  as an output beside an ordinary JOIN or the Unnest of another collection.
+  Grouped child producers, query parameters and scalar filters keep that
+  collection intact. On PostgreSQL the admitted Unnest is a JOIN whose right
+  side is one `LATERAL ROWS FROM` that zips one `pg_catalog.unnest` per child
+  array in child-field order; the final columns stay scalar, except a retained
+  collection.
+- **JSON documents.** A document (`pietto.sql-emission.v1`, or v2 with header
+  parameters) describes a nested column as `logical_type.kind` `collection`
+  with `element` entries and a `pg_column_arrays_v1` representation that lists
+  the count and array columns by statement position, with `result_origin`
+  added when the relation ends in ORDER BY or LIMIT. Every
+  `correspondence.sql_symbol` stays a logical position, so a flat column after
+  a nested field with F fields is F statement columns further right than its
+  `sql_symbol`. The `collection` requirements and the generated kinds
+  `collect_lateral`, `collect_count`, `collect_array` and `collect_ordinal` use
+  rule R27. Each `collect_lateral.evidence` holds exactly one object with the
+  `use`, `producer`, `terminal` and ordered `children` of the read, which the
+  public reader checks against the parsed SQL; it is consistency evidence, not
+  an authentication of altered documents. SQL ranges add the `collect_*`,
+  `ordinal_*`, `distinct_wrapper_*` and `unnest_*` roles. These additions
+  leave a document without a nested field unchanged. A generated SELECT counts
+  its physical columns against the column limit (`PIE-B1007`).
+- **Refused forms.** MySQL reports `PIE-B1003` (`collect_not_admitted_on_target`
+  or `unnest_not_admitted_on_target`) at each Collect read and Unnest let. A
+  nested UNION, an ordinary RIGHT or FULL JOIN carrying a nested value, and a
+  nested window value stay refused on PostgreSQL too.
+
+### Nested relations: Python execution
+
+- **Bounded Collect and Unnest.** `compile_query` and `load_bundle` prepare
+  the admitted PostgreSQL collection shapes without connecting, and
+  `execute(..., route="postgres_rows")` runs them through the live compiled
+  graph or a loaded source-free bundle. Collect fields may have Int, Bool,
+  finite Text, finite Float, Decimal, Date, Timestamp and UUID children, and
+  one CROSS, INNER or LEFT Unnest can expand one collection while the result
+  keeps another. Named and imported producers, ordinary JOIN carry, scalar
+  filtering, grouped child producers and header parameters keep the whole
+  nested field.
+- **Values.** Each collection keeps its child's authored ordering, without a
+  tie-break guarantee. A missing outer-JOIN container is `None`, distinct from
+  an empty `[]` and from a real child row whose fields are None. Float keeps
+  its binary64 bits; Decimal keeps its precision and scale, in decimal128 or
+  decimal256 as needed; Date stays within 1000-01-01..9999-12-31; Timestamp is
+  timezone-free civil microseconds; UUID keeps its 16 bytes. Pietto's own
+  PostgreSQL sessions set and verify `extra_float_digits=1` and
+  `DateStyle=ISO,MDY`, flat requests included.
+- **Bounds.** Before the main SQL, in the same read-only snapshot, an attempt
+  checks `server_encoding = UTF8`, bounded physical root counts (at most 64
+  rows for a parent root and 16 for a root that a collected child reads) and
+  actual Text lengths (at most 256 UTF-8 bytes). Preflight bounds every
+  emitted field, batch and total bytes and retained child occurrences, counting
+  each JOIN edge and each retained occurrence; an unknown or unsupported bound
+  is refused, and no protective LIMIT is added. `batch_rows` and `max_rows`
+  count top-level rows, the rows that an Unnest expands included, and a
+  parent's collection is never split across batches.
+- **Saves, R1 and export.** Ordinary `save(..., route="postgres_rows")` keeps
+  admitted nested results, final-flat Unnest included, in the existing v7
+  workspace. Source-free R1 and independent read-only `verified_export` read
+  the fixed saved checkpoint with the original nested schema and complete child
+  lists. Parent occurrences are the checkpoint, batch and ACK unit; children
+  have no cursor or ACK of their own, and rebatching keeps each child list
+  whole. Export verifies each member before its first returned slice, caches at
+  most one verified member and rechecks acceptance and reader lifetime before
+  each slice.
+- **Refused routes.** `postgres_adbc`, `mysql_rows` and guarded or refined
+  nested requests are refused before any connection; R2 and recovery, relay
+  and nested sink effects remain refused. Nested IPC is an internal checked
+  transport, not a public IPC API.
 
 ### Batch project SQL emission
 
 `emit-sql --project ROOT --all` emits every matching top-level table or query,
-with optional exact `--module`, `--kind` and `--name` filters. Each batch item
-contains the same document as its single-owner call. The complete batch JSON
-has a 64 MiB limit; overflow rejects the whole batch with exit 2 and no output
-directory. On supported Linux filesystems, `--output DIR` writes a new directory
-with complete JSON artifacts and a manifest installed last. Other platforms
-retain batch stdout. Existing paths are never overwritten, and calls without
-`--all` retain their prior output and behavior.
+with optional exact `--module`, `--kind` and `--name` filters, in one
+`pietto.sql-emission.batch.v1` document. Each batch item contains the same
+document as its single-owner call. The exit status is 0 only when every item is
+VERIFIED, 1 when one or more is BLOCKED and none is INPUT_REJECTED, and 2 for
+any INPUT_REJECTED. The complete batch JSON has a 64 MiB limit; overflow
+rejects the whole batch with exit 2 and no output directory. On supported Linux
+filesystems, `--output DIR` writes a new directory, only when every item is
+VERIFIED, with complete JSON artifacts and a manifest installed last; an
+interrupted run can leave a directory without its manifest, which is
+incomplete. Other platforms retain batch stdout. Existing paths are never
+overwritten, and calls without `--all` retain their prior output and behavior.
+`pietto emit-sql --help` does not list `--all`;
+`pietto emit-sql --project ROOT --all --help` prints the batch usage, and the
+[project guide](project-package.md) and
+[project CLI JSON v2](spec/project-cli-json-v2.md) describe it.
 
 ### JOIN projections, Timestamp UNION and blocker suggestions
 
-- JOIN SELECT projections now accept the existing reviewed scalar calls, casts,
-  conditionals, membership and comparison chains. ON, joined LET/WHERE, JOIN
-  kinds and source/key domains keep their previous limits.
-- Timestamp UNION ALL and UNION DISTINCT preserve the existing exact carrier,
-  civil-microsecond meaning and NULL behavior. No Timestamp INTERSECT/EXCEPT or
-  additional set carrier is enabled.
-- Every blocker gains a nonempty `suggestion` shared with text `hint:`. This
-  changes BLOCKED JSON bytes while retaining the current format names; old
-  strict readers must upgrade. VERIFIED documents and CLI error records gain
-  no field, and batch items remain byte-identical to current single-owner output.
+- In `emit-sql --project`, JOIN SELECT projections now accept the existing
+  reviewed scalar calls, casts, conditionals, membership and comparison
+  chains. ON, joined LET/WHERE, JOIN kinds and source/key domains keep their
+  previous limits.
+- In `emit-sql --project`, Timestamp UNION ALL and UNION DISTINCT preserve the
+  existing exact carrier, civil-microsecond meaning and NULL behavior. No
+  Timestamp INTERSECT/EXCEPT or additional set carrier is enabled.
+- Every blocker of an `emit-sql --project` document gains a nonempty
+  `suggestion` shared with text `hint:`. This changes BLOCKED JSON bytes while
+  retaining the current format names; old strict readers must upgrade.
+  VERIFIED documents and CLI error records gain no field, and batch items
+  remain byte-identical to current single-owner output.
 
 ### Project SQL emission: numeric and temporal operations
 
@@ -105,8 +318,14 @@ retain batch stdout. Existing paths are never overwritten, and calls without
   `pg_int8` over the whole signed 64-bit range. A sum outside that range,
   including one over a physical `bigint` input, is never returned as a wrong
   value: PostgreSQL may report SQLSTATE 22003 (`bigint out of range`) while
-  planning or running the statement, with no timing guarantee. Project
-  emission's generated R13 requirement carries the new evidence
+  planning or running the statement, with no timing guarantee. In single
+  files, where it applies to global, grouped and HAVING aggregates and to
+  aggregate windows (written
+  `CAST(SUM(CAST(x AS pg_catalog.int8)) OVER (...) AS pg_catalog.int8)`), it
+  replaces the bare `SUM(x)`, which returned `bigint` for a `smallint` or
+  `integer` column and an exact `numeric`, possibly outside signed 64 bits,
+  for a `bigint` column. Project emission's generated R13 requirement carries
+  the new evidence
   `{"overflow": "target_checked_signed64_narrowing"}`. This revises Phase66
   R13, which admitted no final aggregate CAST. Project MySQL keeps `PIE-B1004`,
   as its `CAST(DECIMAL AS SIGNED)` would clamp such a sum; single-file MySQL,
@@ -146,80 +365,6 @@ retain batch stdout. Existing paths are never overwritten, and calls without
   `target_checked_signed64_narrowing` only where the rules above produce
   them.
 
-### Checking and diagnostics
-
-- **Phase71 nested-relation spellings are checked.** In an EXPLICIT_MODULES
-  project (`schema_version = 2`), `name = collect let_name` and
-  `let o = unnest(binding.field)` are now typed and checked as the next two
-  entries describe; `PIE-S2802`, which 0.1.6 reported at each of them, is
-  retired. Single files, LEGACY_FLAT projects and package modules still
-  report `PIE-S2801`, which says how to make a `schema_version = 2` project.
-- **Collect reads in explicit-module projects.** A relation with a
-  `name = collect r` SELECT item now completes like any other: the Collect
-  output is a nested relation that is never None, and its relation stays
-  readable with `from`, a JOIN, `exists` and its scalar columns. Such a
-  project checks. On PostgreSQL `emit-sql --project` emits the Collect reads
-  of the selected table or query, as the SQL emission entry below describes.
-  A statement that reads such a relation from another relation, and every
-  statement on MySQL, still report `PIE-B1003`
-  `collect_not_admitted_on_target` at each Collect read.
-  New errors say why a read is not admitted: `PIE-S2803` for a Collect in a
-  grouped SELECT or a relation let, of a source, table or query instead of a
-  relation let of the same body, of a let whose columns are not known before
-  completion, or of a let with a field that is not one of the eight collected
-  leaf types, has no known nullability yet (one computed with a binary
-  arithmetic or comparison operator, such as `id + 1`, with `and` or `or`, or
-  with `not`, `-` or `+` over one of those) or is itself collected;
-  `PIE-S2804` for a let without `order by`; and `PIE-S2805` for any read of a
-  nested field (comparison, ordering, grouping, a scalar, `in` or ANY read,
-  selecting it again, `select distinct` or a set operation). As in a
-  `select distinct` relation, a SELECT item that reads a shape-typed field, or
-  a `let` bound to one, makes a relation with a Collect read report
-  `PIE-S2333`.
-  A let with `capture` lines now counts `collect` as its one read, so a second
-  read is `PIE-S2370`, whose read-once message now reads ``... can be read
-  only once, by exists, scalar, in, collect or a join in the body of q.`` in
-  every project, including those that use no `collect`.
-- **Unnest binding in explicit-module projects.** `let o = unnest(p.field)`
-  followed by one `cross join o`, `inner join o on ...` or `left join o on True`
-  now reads the rows of a nested field that a `collect` SELECT item outputs:
-  `o` has the collected let's fields, and its JOIN reports what any JOIN
-  reports. Such a project checks; `emit-sql --project` reports `PIE-B1003`
-  `unnest_not_admitted_on_target` at each Unnest let, since no target admits
-  its lowering yet. New errors say why an Unnest is not
-  admitted: `PIE-S2806` for an argument that is not a nested field of the FROM
-  input or a CROSS, INNER or LEFT JOIN written before the let, and `PIE-S2807`
-  for a RIGHT or FULL JOIN of it, a second JOIN, another read of its name, an
-  Unnest in a relation let, or one beside grouping, aggregates, windows,
-  `select distinct`, `any(...)`, a Collect read, another Unnest or a RIGHT or
-  FULL JOIN that may null-extend its binding.
-
-### SQL emission
-
-- **PostgreSQL Collect emission.** `emit-sql --project --dialect postgres`
-  now emits a Collect read (`name = collect r`) of the selected table or
-  query. Each read is one `LEFT JOIN LATERAL` single-row aggregate: `COUNT(*)`
-  under the field's label, then one `ARRAY_AGG` per child field under the
-  child's label, in child order. Every array of a read is ordered by one
-  private `ROW_NUMBER()` over `r`'s own ORDER BY items, so the arrays of one
-  parent row stay aligned; a LIMIT on `r` applies per parent row, and sibling
-  Collect reads are independent laterals. An empty collection is a count of 0
-  with NULL arrays; a child row whose fields are all None counts 1. The JSON
-  document (`pietto.sql-emission.v1`, or v2 with header parameters) describes
-  the column as `logical_type.kind` `collection` with `element` entries and a
-  `pg_column_arrays_v1` representation that lists the count and array columns
-  by statement position. Every `correspondence.sql_symbol` stays a logical
-  position, so a flat column after a nested field with F fields is F statement
-  columns further right than its `sql_symbol`. The three `collection` requirements and the new
-  generated kinds `collect_lateral`, `collect_count`, `collect_array` and
-  `collect_ordinal` use rule R27, and SQL ranges add the `collect_*`,
-  `ordinal_*` and `distinct_wrapper_*` roles. Flat documents are byte for byte
-  unchanged. A generated SELECT counts its physical columns against the column
-  limit (`PIE-B1007`). A query that reads such a relation from another
-  relation, an Unnest, and MySQL still report `PIE-B1003`, and `compile_query`
-  refuses a Collect read with `PIE-R1004` `NESTED_UNAVAILABLE` before any
-  connection.
-
 ### Project mode
 
 - **A relation-name qualifier through a `let` alias is refused, as in a
@@ -232,17 +377,8 @@ retain batch stdout. Existing paths are never overwritten, and calls without
   `emit-sql --project`. Rewrite the read with the alias: `c.price`. A query
   with a JOIN, or a read inside `any(...)`, already refused it. At the read
   a project reports what a single file reports, such as PIE-S2102
-  `Unknown field: customers.price`, with these known limitations, which
-  predate this change:
-  - a QUALIFY predicate that reads it outside a window reports PIE-S2332
-    `Unknown QUALIFY reference: customers.price`, as for any unknown name
-    there, where a single file reports PIE-S2102;
-  - after a JOIN a single file adds
-    `; customers names a relation, not a binding: write c.price`, and a
-    project does not;
-  - when a query has several such reads, a project can list a SELECT item's
-    diagnostic before a WHERE test's or a GROUP BY key's, as for any unknown
-    field, where a single file follows the source order.
+  `Unknown field: customers.price`, with the differences for any unknown name
+  that the [known limitations](#known-limitations) below list.
 - **An import hint is also the JSON suggestion, names a declaration that is
   not exported, and never closes a cycle.** The hint that `0.1.6` added to
   PIE-S2002, PIE-S2303, PIE-S2604 and PIE-S2301 when another module exports
@@ -280,6 +416,148 @@ retain batch stdout. Existing paths are never overwritten, and calls without
 
 - The 0.1.6 notes below were corrected after publication: see
   [Corrections after publication](#corrections-after-publication).
+
+### Known limitations
+
+None of these limits produces wrong SQL. The timings were measured on the
+code of this release with CPython 3.13.13 on Linux x86-64; they show how the
+cost grows and are no performance promise.
+
+- **Layered JOIN DAGs are slow to check.** When each relation JOINs the
+  relation before it and the one before that, `check --project` takes about
+  1.7 to 2.7 times as long for every two more layers: about 1.8 s at 16
+  layers, 3.1 s at 18, 7.3 s at 20, 18 s at 22 and 48 s at 24, where a single
+  file of 16 or 18 such layers checks in about 0.3 s. `emit-sql --project` was
+  not timed for this release. The grain that a project keeps for each JOIN
+  still copies the factors of every path to its inputs.
+- **An import cycle is slow to report.** A ring of modules that import each
+  other is reported with one PIE-S2703, but only after the project builds
+  readiness records whose number grows with the cube of the ring's size:
+  `check --project` takes about 2.3 s for 40 modules, 9.4 s and 458 MB for
+  80, and 71 s and 3.1 GB for 160.
+- **Many relations or many JOINs are slow to check.** A project check builds
+  an assessment for every pair of relations: one module with 300 tables
+  checks in about 4.7 s (a single file of them in 0.55 s), and one with 600
+  tables in about 14 s and 378 MB (a single file in 0.8 s); 200 modules of
+  one source, table and query each take about 8.9 s. The JOIN properties of
+  one query grow about with the cube of its JOIN count: one query with 60
+  JOINs checks in about 3.0 s, with 90 JOINs in about 10 s (a single file in
+  0.4 s), and with 120 JOINs in about 32 s and 609 MB.
+- **A bare PIE-S2333 can hide later errors.** Some relations that a single
+  file accepts, or refuses with another code, are still the bare PIE-S2333
+  `Project relation semantic completion is unavailable: <r>` in a project,
+  for example one whose SELECT output is an always-null number such as
+  `o0 = None - 3.0`. The relations that read it report nothing of their own,
+  such as an invalid LIMIT, until it is fixed. The
+  [diagnostics reference](spec/diagnostics.md#semantic-diagnostics) lists
+  these cases.
+- **A cross-module shape error can add a bare PIE-S2333.** A source whose
+  shape, imported from another module, fails for an error inside its
+  declaration other than an unknown type, such as a duplicate field
+  (PIE-S2501), still adds the bare PIE-S2333 at the source beside that
+  error, where a shape in the source's own module reports only the error.
+  So does a source whose field type is an alias, declared in another
+  module, of a name that module imports with a relation kind (PIE-S2705).
+- **A source without a shape is quiet beside some other errors.** In a module
+  that reports some other errors, such as a duplicate shape field (PIE-S2501)
+  or an unknown field (PIE-S2102), a source without a shape gets no
+  PIE-S2333, and so no `(source items has no shape, ...)` advice, until that
+  error is fixed; beside others, such as an invalid LIMIT (PIE-S2307), it
+  still gets it.
+- **An exported duplicate declaration.** A module that declares a source or
+  shape twice and exports it reports PIE-S2704
+  `Ambiguous local export declaration: source s` at the export; a single
+  file, or the module without that export, reports PIE-S2001 at the second
+  declaration.
+- **An import after the target's own import fails.** When the target module
+  re-exports a name whose own import of it fails, or imports a name and
+  exports it with another kind, an import of the name from that module
+  still adds PIE-S2705 (`Imported declaration is unavailable: ...` or
+  `Imported declaration is private or not exported: ...`) beside the
+  target's own error. An import of the very kind and name whose export the
+  target refuses (PIE-S2704) adds nothing.
+- **An unknown name.** A QUALIFY predicate that reads an unknown name outside
+  a window reports PIE-S2332 `Unknown QUALIFY reference: <name>` in a project,
+  where a single file reports PIE-S2102. When a relation name is read through
+  a `let` alias after a JOIN (`customers.price` after `let c = customers`), a
+  single file adds `; customers names a relation, not a binding: write c.price`
+  and a project does not.
+  When a query has several unknown names, a project can list a SELECT item's
+  diagnostic before a WHERE test's or a GROUP BY key's, where a single file
+  follows the source order.
+- **A mixed aggregate JOIN.** A relation with JOIN inputs that mixes an
+  aggregate with another projection reports only PIE-S2312 in a project,
+  with or without ORDER BY. A single file also reports PIE-S2381 when an
+  aggregate may read rows repeated by a JOIN and, with ORDER BY, the
+  PIE-S2380 of an ORDER BY key that reads an input field outside an
+  aggregate. A project relation whose projections are all aggregates still
+  reports that fan-out, as a PIE-S2333 with its cause.
+- **A repeated unknown SELECT item.** A SELECT item of an unknown name
+  written twice, such as `nosuch`, reports PIE-S2102 at both items in a
+  project; a single file reports it at the first, with the PIE-S2305 that
+  both report.
+- **`explain --project` stops at the root package.** When the root package
+  of a schema 4 project fails to load, for example for a syntax error in one
+  of its modules, `explain --project` reports only the root's diagnostics;
+  the errors of its dependencies appear once the root is fixed.
+- **A repeated environment premise.** An emission contract whose
+  `environment` lists one premise twice with the same value is VERIFIED, and
+  the artifact's `target.environment` lists it twice, while a repeated source
+  description is INPUT_REJECTED.
+- **A collection selected without a JOIN.** A table or query that reads a
+  relation with a Collect read and selects its collection, without a JOIN or
+  an Unnest, checks, but `emit-sql --project` reports it BLOCKED with
+  `PIE-B1003` (`expression_evidence_unavailable`) at that SELECT item. Keep the
+  collection in the relation that collects it, or select it beside a JOIN.
+- **Collect ordering by an output name.** Completion does not yet order a
+  collection by a key of `r` that is one name alone naming a SELECT output
+  other than a window's (`order by oid` over `oid = id`); order by the input
+  value (`order by id`) instead, or the table or query reports PIE-S2333.
+- **A non-UTF-8 unrecognized argument to `emit-sql --project`.** With JSON
+  output, an unrecognized argument that holds a byte that is not valid
+  UTF-8 prints `pietto: error: terminal output could not be encoded` on
+  stderr and no `INPUT_REJECTED` usage document (exit `2`);
+  `--format text` prints the usage error.
+- **`--all` is missing from `pietto emit-sql --help`.** That help does not
+  list the batch option; `pietto emit-sql --project ROOT --all --help` prints
+  the batch usage and `--all`.
+- **A swapped argument pair.** A relationship call whose arguments are given
+  in the wrong order, such as `PlacedBy(customers, order)` for
+  `relationship PlacedBy(order: Order, customer: Customer)`, still reports
+  PIE-S2604 at each argument instead of one diagnostic, as since 0.1.5.
+
+### Rescheduled
+
+These items are not fixed in `0.1.7`. By the owner decision of 2026-11-03
+(see the [decision record](decisions.md)), each has the following home; the
+[roadmap](roadmap.md#project-mode-follow-up) records them.
+
+- **A project-mode quality interlude after `0.1.7`**, which may run beside the
+  formatter step, takes: the import-cycle readiness records behind the slow
+  PIE-S2703 (PMS-2); building the pairwise relation assessments only when
+  private inspection asks for them (PMS-3); an incremental JOIN
+  functional-dependency closure (PMS-6); `explain --project` diagnostics of
+  the dependencies after a root failure (EXD-5); a rule for an exactly
+  repeated environment premise (PE-09); the mixed aggregate JOIN diagnostics
+  (F5); and the repeated unknown SELECT item (F7).
+- **A later phase** takes linear analysis of layered JOIN DAGs, which needs an
+  ARCHITECTURE_DECISION on the semantic identity of grain facts.
+- **Phase72 Gate 1 candidates**, which that Gate 1 may accept or not, are:
+  the rest of the D-11 and D-12 restoration that the post-0.1.4 stability
+  repair deferred, that is, sound outer-JOIN aggregates that `check` still
+  refuses with PIE-S2381, such as `min`, `max` or `count_distinct` over a JOIN
+  that may repeat rows, or a LEFT JOIN anti-test `where o.id is None`, and the
+  typed-NULL arithmetic of a project SELECT; the bare PIE-S2333 of a project
+  relation whose SELECT output is an always-null number, which hides the
+  errors of the relations that read it (F2); the `concat` and `stddev`
+  functions, which the owner placed after Phase71 on 2026-10-30; and `now()`,
+  which needs a semantic design first. None of them is available in `0.1.7`:
+  `concat`, `stddev` and `now()` are unknown functions (PIE-S2103).
+
+This decision covers the debts reviewed for this release. The other known
+limitations above are carried over from `0.1.6` or come with the changes of
+this release; no decision has scheduled them yet, and they stay documented
+here until one does.
 
 ## Corrections and MySQL parity public alpha release notes — 0.1.6
 

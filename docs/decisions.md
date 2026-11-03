@@ -526,3 +526,21 @@ must upgrade. Existing producer-corruption rejection remains required.
 The association is projected from the actual independently verified AST and
 requirements; no private portable schema or external authenticity claim is added.
 The Phase71 budget, root-only execution recovery, and release boundary remain.
+
+## 0.1.7 release — owner decisions (2026-11-03)
+
+Phase71 闭合（S24 审计提交 `59b26027`，自然 CI `41543143863` attempt 1 的 19 个 job 全部成功）后，lead 对照旧账核销台账向所有者提了四个问题（发布链一问同时定了停止规则）：台账没有发现阻断 `0.1.7` 的错误结果、信任风险或回归，阻断项只有发行材料本身。所有者每一问都选了 lead 的推荐：
+
+| 项 | 已选规则 |
+| --- | --- |
+| 范围 | 「main原样发」：把 main 的 `59b26027` 原样发行为 `0.1.7`，只改版本与文档，不修代码。发行说明写入新测得的数字，并为每个未修的旧账（PM27，即十月项目模式计划中留到 `0.1.7` 的一组，台账中对应 PMS-2、PMS-3、PMS-6 与分层 JOIN DAG；以及 F5、F7、EXD-5、PE-09）写明改排期。`0.1.7` 因此包含 Phase71 的 S01–S24、两个项目 emission interlude、批量 emit、JOIN 标量投影 / Timestamp UNION / blocker suggestion、单文件受检 Int SUM、`0.1.6` 审计的小修（含 let 别名限定的拒绝）与依赖维护。 |
+| 旧账 | 「0.1.7后开interlude」：`0.1.7` 之后开一个项目模式质量 interlude，接收 PMS-2 的记录重构、PMS-3 的惰性派生、PMS-6、EXD-5、PE-09、F5 与 F7，可与 `pietto fmt` 并行；分层 JOIN DAG 仍是后续 phase 的 ARCHITECTURE_DECISION；D-11/D-12 的恢复与 F2 成为 Phase72 Gate 1 的候选。[路线图](roadmap.md#project-mode-follow-up)与 [0.1.7 发行说明](release-notes.md#rescheduled)记录各项的去处。 |
+| 发布链 | 「整体预先批准」：对发行提交的树做一次权威验证；通过后以所有者的 git 身份做一个普通提交，不加 AI 署名；仅当 `origin/main` 未变时 fast-forward push；自然 CI 全绿后打 tag `v0.1.7`，建 GitHub pre-release 并附 wheel、sdist 与 `SHA256SUMS`（不签名、不做 attestation）；然后把 wheel、sdist 与 PyPI 上传命令交给所有者，由所有者用自己的 token 上传。 |
+| 停止规则 | 任何失败或意外（验证失败、`origin/main` 已移动、CI 失败、出现新的产品语义或兼容性问题）都停下来问所有者；不重试，不 force push。 |
+| 预算 | 「沿用Codex剩余额度」：沿用 Codex 账本原有的上限与已用额度，范围扩展到 `0.1.7` 发行；历史与 UNKNOWN 保留；不扩大 Teach 或 Docker。 |
+
+所有者 2026-10-30 放到 Phase71 之后的 `concat`/`stddev`，以及需要先做语义设计的 `now()`，随 [Phase72 交接](phases/phase-71/phase72-handoff.md)与上面的 D-11/D-12、F2 一起作为同一 Gate 1 的候选。这些候选在该 Gate 1 接受之前都不准入，`0.1.7` 中都不可用。
+
+同日所有者另批准了质量 interlude 的私有准备与 Phase72 开局调研的并行安排；它们在 `0.1.7` 发布之前不推送，操作细节记在私有证据中。
+
+这些回答只覆盖 `0.1.7` 发行与上述并行工作，不是常设授权。`0.1.7` 只有在 tag `v0.1.7`、GitHub pre-release 与 PyPI 上出现所接受的文件之后才算发布；本节本身不发布任何东西。D71.01–D71.12 的其余内容不变。

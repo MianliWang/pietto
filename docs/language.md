@@ -1763,8 +1763,13 @@ value: a reader of the relation may read it with `from` or a JOIN, test it
 with `exists` and read its scalar columns, but any read of the nested field
 itself (in WHERE, JOIN ON, a row `let`, GROUP BY, `having`, a window,
 `qualify`, `order by`, a SELECT expression, `any(...)`, `scalar` or `in`),
-selecting it again in another relation, `select distinct` with a Collect item,
-and a set operation over it are PIE-S2805.
+`select distinct` with a Collect item, and a set operation over it are
+PIE-S2805. A later table or query may select the nested field as it is
+(`n = parent.nested`) beside a CROSS, INNER or LEFT JOIN or the Unnest of
+another collection; selecting it beside a RIGHT or FULL JOIN, a window or
+QUALIFY, GROUP BY or an aggregate, under `select distinct`, or in a relation
+let is PIE-S2805. Selected without a JOIN, it checks, but `emit-sql --project`
+reports it BLOCKED (PIE-B1003 `expression_evidence_unavailable`).
 
 An Unnest expands a nested field into rows: write `from p`, then
 `let o = unnest(p.field)`, then exactly one `cross join o`,
