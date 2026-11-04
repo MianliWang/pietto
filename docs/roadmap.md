@@ -105,26 +105,30 @@ list. The other
 [known limitations of 0.1.7](release-notes.md#known-limitations) have no
 scheduled home yet.
 
-- A project-mode quality interlude after `0.1.7`, which may run beside the
-  `pietto fmt` step and starts only with its own dispatch, takes these items.
+- A project-mode quality interlude after `0.1.7`, which starts only with its
+  own dispatch, takes these items.
   None produces wrong SQL. Its first batch, on `main` after `0.1.7` and listed
   under [Unreleased changes following 0.1.7](release-notes.md#unreleased-changes-following-017),
   closes PMS-3, EXD-5 and PE-09, closes F5 and F7 except their residuals,
-  and does part of PMS-6.
-  - PMS-2, open: an import cycle builds private readiness records whose number
-    grows with the cube of the cycle's size before PIE-S2703 is reported (a
-    160-module cycle takes about 71 s and 3.1 GB). Recording each cycle once
-    changes the private pure document and its differential vectors, an
-    ARCHITECTURE_DECISION; its design keeps both portable self-checks of
-    that document.
+  and does part of PMS-6. The change after it, listed there too, closes
+  PMS-2, the interlude's last item: on 2026-11-04 the owner decided that a
+  separate `0.1.8` release, which needs its own approvals, follows it.
+  - PMS-2, done: before PIE-S2703 is reported, the private module inspection
+    lists a blocked module's cycle members once instead of once for each
+    blocking issue, so for a cycle of N modules from which modules outside it
+    make R relation imports, its readiness records grow as N² + N·R instead
+    of N³ + N²·R. The private pure document keeps both portable self-checks
+    and its marker `pietto.module-inspection.v1`, changed in place; its
+    differential vectors change with it.
   - PMS-3, done: in an explicit-module project, `check --project`,
     `emit-sql --project` and `compile_query` no longer build the private Project IR analysis bundle; relational
     properties take the verified Project IR result directly.
   - PMS-6, partly done: three JOIN functional-dependency helpers no longer
     scan every FD or the whole value-class universe, but every JOIN step
     still images every FD of its inputs, so the cost still grows faster than
-    the JOIN count. Sharing FD structure across JOIN steps is a separate
-    ARCHITECTURE_DECISION, whose design is in progress.
+    the JOIN count. On 2026-11-04 the owner did not adopt the proposed
+    sharing of FD structure across JOIN steps; it stays a later
+    ARCHITECTURE_DECISION.
   - EXD-5, done: `explain --project` lists the dependencies' diagnostics
     after a root module that fails to parse once the root's pin check passes.
   - PE-09, done: an exactly repeated premise stays accepted, and the
@@ -3045,10 +3049,11 @@ route defers these subjects to these owners:
   execution/recovery owner, with jobs/result/relay review and a durable coordinate/effect/ACK contract before the relevant admission Gate1 or implementation;
 - D-11/D-12 stay with the Pietto lead follow-up above.
 
-The canonical formatter `pietto fmt` is a separate step right after Phase71 and
-before Phase72 (D71.08). It needs its own dispatch, does not use Phase71
-capacity, and leaves LSP, editor integration, syntax editions and migrations
-with Phase75 and the extension owner. On 2026-10-30 the owner moved the
+The canonical formatter `pietto fmt` was planned as a separate step right
+after Phase71 and before Phase72 (D71.08). On 2026-11-04 the owner paused it as
+Phase75 content, beside LSP, editor integration, syntax editions and
+migrations, which stay with Phase75 and the extension owner; it still needs its
+own dispatch. On 2026-10-30 the owner moved the
 Phase71 completion release to `0.1.7`: `0.1.6` contains only the published
 batch B1 (S01–S03) of Phase71, whose `collect` and `unnest` spellings are
 recognized and refused with PIE-S2801 or PIE-S2802. On 2026-11-03 the owner

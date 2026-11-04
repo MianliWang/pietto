@@ -558,4 +558,4 @@ Phase71 闭合（S24 审计提交 `59b26027`，自然 CI `41543143863` attempt 1
 | PMS-6 FD 共享 | 「现在开设计 lane」：只做设计、原型与测量，不改产品；已完成的 PMS-6 部分改动不等它，随 interlude 发布。跨 JOIN 步共享 FD 结构本身是 ARCHITECTURE_DECISION，另行决定。 |
 | 预算 | focused 上限 1000；diagnostic 上限 600，一条命令算一次，命令内部的循环只算一次。 |
 
-PMS-2 的设计仍在进行：lead 要求新方案同时保留私有 pure 文档的两项可移植自检，私有标记 `pietto.module-inspection.v1` 就地修改。这些回答只覆盖这个 interlude，不是常设授权；它的提交与推送仍需所有者另行批准。
+PMS-2 的设计已完成：所有者 2026-11-04 接受 Alternative 6（含第 2 步），私有 pure 文档保留两项可移植自检，私有标记 `pietto.module-inspection.v1` 就地修改，6 种伪造文档（正的成员数与成员列表或图分量不符，且没有别的错误）的拒绝状态由 `child_count_mismatch` 改为 `inconsistent_scope_relation`；这类错误现在在模块关闭时判定，同一模块中更靠后的其他错误因此先报出。同日所有者决定：PMS-2 是这个 interlude 的最后一项，之后单独发 `0.1.8`，不等 Phase72，发行仍需自己的批准；PMS-6 跨 JOIN 步共享 FD 结构的设计现在不采纳，留作以后的 ARCHITECTURE_DECISION；`pietto fmt` 由所有者暂停，归入 Phase75。这些回答只覆盖这个 interlude，不是常设授权；它的提交与推送仍需所有者另行批准。

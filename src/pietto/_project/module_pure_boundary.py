@@ -874,6 +874,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("graph_component_member", "path"),
                 ),
             ),
+            _PureScopeRule(
+                rule=_PureScopeKind.COLLECTED_SUBSET,
+                subset=(
+                    ("readiness_cycle", ("members",)),
+                    ("graph", ("component_members",)),
+                ),
+            ),
         ),
     ),
     _PureKindSpec(
@@ -935,10 +942,20 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("cycle", _INTEGER),
             _key("members", _INTEGER),
         ),
-        counts=(("members", "readiness_cycle_member"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
         state_rules=(_PureStateRule(rule=_PureStateKind.POSITIVE, keys=("members",)),),
+        # Every blocking cycle of one module is that module's own component, so
+        # only the first cycle lists its members. Each further cycle is one
+        # counted reference whose size the module scope binds to the component.
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.SCOPE_REQUIRES_CHILD,
+                child="readiness_cycle_member",
+                child_key="path",
+                when=("cycle", "zero"),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="readiness_cycle_member",
@@ -954,6 +971,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module", "cycle"),
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("cycle",),
+                admitted=(("zero",),),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("path",),

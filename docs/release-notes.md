@@ -8,7 +8,8 @@ They come from the project-mode quality interlude that the
 change the diagnostics that a project reports and what `explain --project`
 lists, with one exit status of `explain --project`, as described below. On the
 programs measured for them, named under F5 and under Measured output below,
-the SQL is byte-identical to that of `0.1.7`.
+the SQL is byte-identical to that of `0.1.7`. Every change but PMS-2 came in
+the interlude's first batch.
 
 ### Project diagnostics
 
@@ -60,8 +61,8 @@ that the [known limitations](#known-limitations-after-017) list.
   A LEGACY_FLAT (`schema_version = 1`) project checks no JOIN, so a JOIN query
   there still reports only PIE-S2334 at the JOIN.
 
-On the 1392 generated JOIN queries probed for this batch, these changes add no
-project diagnostic that a single file does not report and `0.1.7` did not
+On the 1392 generated JOIN queries probed for the first batch, these changes add
+no project diagnostic that a single file does not report and `0.1.7` did not
 report, remove none that `0.1.7` and a single file both report, and change no
 single-file output; 504 of them now report exactly what a single file reports,
 against 116 in `0.1.7`. The 286 queries probed for F7 show no regression from
@@ -126,7 +127,7 @@ against 116 in `0.1.7`. The 286 queries probed for F7 show no regression from
   `check --project`, `emit-sql --project` and `compile_query` no longer build
   the private Project IR analysis bundle, which nothing on these paths read.
   Relational properties now take the verified Project IR result directly;
-  private Project IR inspection still builds the bundle. With the whole batch,
+  private Project IR inspection still builds the bundle. With the first batch,
   one module with 600 tables checks in about 5.2 s and 90 MiB at peak, where
   `0.1.7` took 13 s and 361 MiB; 300 tables take 2.1 s instead of 4.2 s, and
   200 modules of one source, table and query each take 3.7 s instead of 11 s.
@@ -134,14 +135,14 @@ against 116 in `0.1.7`. The 286 queries probed for F7 show no regression from
   duplicate functional dependencies are merged through an index instead of
   being compared with every one merged so far, imaged classes are ordered by a
   position lookup, and strict-rule incidence lists are built from the set bits
-  of each rule's determinant mask. With the whole batch, one query with 60
+  of each rule's determinant mask. With the first batch, one query with 60
   JOINs checks in about 1.6 s instead of 2.3 s, with 90 JOINs in 4.3 s instead
   of 9.4 s, and with 120 JOINs in 11 s and 567 MiB instead of 31 s and
   585 MiB. Every JOIN step still images the functional dependencies of its
   inputs into its own output, so the cost still grows faster than the JOIN
   count.
 - **Measured output.** Both trees were measured again for this comparison, the
-  whole batch against `0.1.7`, so the times do not separate PMS-3 from PMS-6,
+  first batch against `0.1.7`, so the times do not separate PMS-3 from PMS-6,
   on generated explicit-module projects, on the same machine with CPython
   3.13.13 on Linux x86-64; the `0.1.7` figures in its own notes come from an
   earlier measurement. The machine was shared with other work, so a run counts
@@ -158,6 +159,37 @@ against 116 in `0.1.7`. The 286 queries probed for F7 show no regression from
   300-table module and the 60-JOIN query, are byte-identical to those of
   `0.1.7` in every run; other programs were not compared byte for byte for
   this measurement.
+- **An import cycle is reported sooner (PMS-2).** Before `check --project` or
+  `emit-sql --project` reports an import cycle (PIE-S2703), the project builds
+  and self-checks its private module inspection. That inspection now lists a
+  blocked module's cycle members once, under its first readiness cycle record,
+  instead of once for each issue that blocks the module. For a cycle of N
+  modules from which modules outside it make R relation imports, its readiness
+  records now grow as N² + N·R instead of N³ + N²·R. Measured with
+  `check --project` against the first batch on generated projects, on the same
+  machine with CPython 3.13.13 on Linux x86-64: a 40-module cycle takes 0.92 s
+  instead of 2.1 s; an 80-module cycle 1.2 s and 66 MiB instead of 10 s and
+  446 MiB; a 160-module cycle 2.7 s and 108 MiB instead of 103 s and 3,075
+  MiB; a 40-module cycle with 40 outside modules that each import a table from
+  every member (R = 1,600) 4.8 s and 125 MiB instead of 55 s and 2,038 MiB.
+  Each figure is the median of three runs per tree, the two trees alternating,
+  and a pair of runs counted only when a reference CPU loop just before and
+  just after it took at most 1.40 s. The machine was shared with other work,
+  so the times show the change and are no performance promise; stdout, stderr
+  and exit status were the same on both trees in every run.
+  `emit-sql --project` was not timed. On 715 project command invocations
+  compared with the first batch, 51 of them `emit-sql --project` for
+  PostgreSQL and MySQL, the exit status, stdout and stderr are byte-identical;
+  the 26 that produced SQL are all on projects without an import cycle,
+  because PIE-S2703 blocks every emission from a project that has one. The
+  private document keeps its marker `pietto.module-inspection.v1`, since it is
+  built and checked in-process only. Its portable self-check still compares a
+  blocked module's cycle count with its cycle records and its member list with
+  the module's graph component. A forged document whose positive cycle member
+  count disagrees with its member list or with the module's graph component is
+  now refused when the module closes, as `inconsistent_scope_relation` instead
+  of `child_count_mismatch`, so another fault later in the same module is
+  reported first.
 
 ### Known limitations after 0.1.7
 
@@ -169,7 +201,10 @@ as listed there, with the timings measured for `0.1.7`.
   premise is a documented rule (both above). The 0.1.7 entries for many
   relations or many JOINs, a mixed aggregate JOIN and a repeated unknown
   SELECT item are replaced by the entries below, and an unknown QUALIFY name
-  in a mixed aggregate JOIN relation is now PIE-S2102 (see F5).
+  in a mixed aggregate JOIN relation is now PIE-S2102 (see F5). The 0.1.7
+  entry for an import cycle is replaced by PMS-2 above: a ring's readiness
+  records now grow with the square of its size, not its cube, when no module
+  outside it imports from it, and in general as N² + N·R.
 - **Many relations or many JOINs are still slower to check than in a single
   file.** In an explicit-module project, one module with 300 tables checks in
   about 2.1 s (a single file of them in 0.55 s, as the `0.1.7` notes give),
@@ -186,9 +221,9 @@ as listed there, with the timings measured for `0.1.7`.
   `where id > 1` with `select k = items.id, n = sum(items.price)` reports only
   its PIE-S2335. The [PIE-S2312 row](spec/diagnostics.md#semantic-diagnostics)
   lists the 20 cases measured for F5.
-- **Other differences from a single file.** The probes for this batch show
-  these differences in explicit-module projects too; each is as in `0.1.7` or
-  closer to a single file, and the list is not complete:
+- **Other differences from a single file.** The probes for the first batch
+  show these differences in explicit-module projects too; each is as in
+  `0.1.7` or closer to a single file, and the list is not complete:
   - When a SELECT item reports an error, such as an unknown field or the
     PIE-S2305 of a repeated output name, a JOIN query or a query without GROUP
     BY reports no error of its ORDER BY keys, unless it is a JOIN relation
@@ -222,9 +257,8 @@ refused WHERE or `let:` binding, which lets the joined aggregation stage
 analyse over a row filter that is not concrete, is to remove the differences
 above that follow a refused or failing `where` or `let:`; it has no scheduled
 phase yet (see the [roadmap](roadmap.md#project-mode-follow-up)). The other
-differences have no scheduled home yet. The import-cycle readiness records
-(PMS-2) stay in the interlude, and sharing JOIN functional dependencies across
-JOIN steps is a separate design decision.
+differences have no scheduled home yet. Sharing JOIN functional dependencies
+across JOIN steps is a separate design decision.
 
 ## Nested results and project emission public alpha release notes — 0.1.7
 
@@ -659,7 +693,9 @@ cost grows and are no performance promise.
   other is reported with one PIE-S2703, but only after the project builds
   readiness records whose number grows with the cube of the ring's size:
   `check --project` takes about 2.3 s for 40 modules, 9.4 s and 458 MB for
-  80, and 71 s and 3.1 GB for 160.
+  80, and 71 s and 3.1 GB for 160. The change after `0.1.7` that records
+  each blocked module's cycle members once is described under
+  [Unreleased changes following 0.1.7](#unreleased-changes-following-017).
 - **Many relations or many JOINs are slow to check.** A project check builds
   an assessment for every pair of relations: one module with 300 tables
   checks in about 4.7 s (a single file of them in 0.55 s), and one with 600

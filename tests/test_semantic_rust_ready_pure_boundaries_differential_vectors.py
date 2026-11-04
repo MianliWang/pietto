@@ -494,6 +494,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "module",
         "origin",
         "origin_hop",
+        "readiness_cycle",
         "readiness_cycle_member",
         "relation_resolution",
         "row_lineage",
@@ -934,7 +935,7 @@ def test_invalid_documents_never_raise_from_the_portable_boundary() -> None:
                 outcome = pure_boundary.evaluate_pure_document(mutated)
                 assert type(outcome.status) is pure_boundary.ProjectPureStatus
                 swept += 1
-    assert swept == 856
+    assert swept == 838
 
 
 def test_vector_corpus_covers_the_frozen_property_matrix() -> None:

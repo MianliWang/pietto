@@ -53,6 +53,7 @@ from pietto._project.module_exports import (
 from pietto._project.module_graph import (
     ProjectModuleGraph,
     ProjectModuleGraphIssueStatus,
+    ProjectModuleStronglyConnectedComponent,
 )
 from pietto._project.module_package_neutral_identity import (
     ProjectLayeredAvailability,
@@ -1036,6 +1037,16 @@ class ProjectModuleInspectionRecord:
             or self.readiness.fact is not self.asset.readiness
         ):
             raise ValueError("Inspected module must mirror its exact Slice 13 asset.")
+        component = self.graph.component_members
+        if any(
+            cycle.members is not component
+            and tuple(member.path for member in cycle.members)
+            != tuple(member.path for member in component)
+            for cycle in self.readiness.cycles
+        ):
+            raise ValueError(
+                "Inspected readiness cycles must be the module's own graph component."
+            )
         if any(
             declaration.identity.module_path != self.module.path
             for declaration in self.declarations
@@ -1456,12 +1467,19 @@ def _derive_inspection(
 ) -> ProjectModuleInspection:
     """Derive the one canonical inspection projection from the exact roots."""
 
-    component_by_path: dict[str, tuple[tuple[ProjectModuleIdentity, ...], bool]] = {}
+    component_by_path: dict[
+        str,
+        tuple[
+            ProjectModuleStronglyConnectedComponent,
+            tuple[ProjectModuleIdentity, ...],
+            bool,
+        ],
+    ] = {}
     for component in graph.components:
         members = tuple(member.identity for member in component.members)
         is_cyclic = component.is_cyclic
         for member in component.members:
-            component_by_path[member.identity.path] = (members, is_cyclic)
+            component_by_path[member.identity.path] = (component, members, is_cyclic)
 
     evidence_by_path: dict[str, list[ProjectInspectionImportEvidence]] = {}
     for evidence_edge in graph.evidence_edges:
@@ -1546,14 +1564,16 @@ def _derive_inspection(
     for position, module in enumerate(modules):
         path = module.path
         asset = package_identity.module_assets[position]
-        component_members, component_is_cyclic = component_by_path[path]
+        component, component_members, component_is_cyclic = component_by_path[path]
         vertex = graph.vertices[position]
         records.append(
             ProjectModuleInspectionRecord(
                 module=asset.module,
                 position=position,
                 digest=asset.digest,
-                readiness=_derive_readiness(asset.readiness),
+                readiness=_derive_readiness(
+                    asset.readiness, component, component_members
+                ),
                 graph=ProjectInspectionGraph(
                     component_members=component_members,
                     component_is_cyclic=component_is_cyclic,
@@ -1602,19 +1622,37 @@ def _derive_inspection(
 
 def _derive_readiness(
     readiness: ProjectLayeredLoaderReadinessFact,
+    component: ProjectModuleStronglyConnectedComponent,
+    component_members: tuple[ProjectModuleIdentity, ...],
 ) -> ProjectInspectionReadiness:
-    """Project one Slice 13 readiness fact and its complete cycle evidence."""
+    """Project one Slice 13 readiness fact and its complete cycle evidence.
 
+    Every blocking issue keeps one cycle entry. Slice 13 attaches an issue only
+    to the members of its own cycle component, so that component is this
+    module's graph component; when it is the same object, the entries share one
+    cycle over the graph's member tuple, so K issues of an N-member cycle cost K
+    references rather than K copies. Record admission checks the member paths
+    either way.
+    """
+
+    own: ProjectInspectionModuleCycle | None = None
     cycles: list[ProjectInspectionModuleCycle] = []
     for issue in readiness.blocking_issues:
         cycle = issue.module_cycle
         if cycle is None:
             raise ValueError("Blocking readiness evidence requires a retained cycle.")
-        cycles.append(
-            ProjectInspectionModuleCycle(
-                members=tuple(member.identity for member in cycle.component.members),
+        if cycle.component is not component:
+            cycles.append(
+                ProjectInspectionModuleCycle(
+                    members=tuple(
+                        member.identity for member in cycle.component.members
+                    ),
+                )
             )
-        )
+            continue
+        if own is None:
+            own = ProjectInspectionModuleCycle(members=component_members)
+        cycles.append(own)
     return ProjectInspectionReadiness(
         status=readiness.status,
         reason=readiness.reason,
@@ -2086,7 +2124,12 @@ def _serialize_readiness(
     module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
-    """Emit one module's loader readiness and its complete cycle evidence."""
+    """Emit one module's loader readiness and its complete cycle evidence.
+
+    Record admission proves every blocking cycle is the module's own graph
+    component, so the first cycle lists its members once and every further
+    cycle is one counted reference to that same component.
+    """
 
     readiness = record.readiness
     _record(
@@ -2106,6 +2149,8 @@ def _serialize_readiness(
             ("cycle", cycle_token),
             ("members", _integer(len(cycle.members))),
         )
+        if cycle_ordinal:
+            continue
         for member_ordinal, member in enumerate(cycle.members):
             _record(
                 emitted,

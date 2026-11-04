@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tomllib
+from typing import Any
 
 import pytest
 
@@ -26,6 +27,7 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto._project.module_carrier import ProjectModuleIdentity
+from pietto._project.module_graph import _build_project_module_graph
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/_project/module_inspection.py"
@@ -154,10 +156,10 @@ def _declaration(
     return matches[0]
 
 
-def _build_inspection(
+def _inspection_roots(
     result: ProjectSemanticResult,
     **overrides: object,
-) -> inspection_module.ProjectModuleInspectionFactSet:
+) -> tuple[Any, ...]:
     roots: dict[str, object] = {
         "modules": result.modules,
         "catalogs": result.module_catalogs,
@@ -170,18 +172,17 @@ def _build_inspection(
         "semantic": result.module_semantic_facts,
         "package_identity": result.module_package_identity_facts,
     }
+    assert overrides.keys() <= roots.keys()
     roots.update(overrides)
+    return tuple(roots.values())
+
+
+def _build_inspection(
+    result: ProjectSemanticResult,
+    **overrides: object,
+) -> inspection_module.ProjectModuleInspectionFactSet:
     return inspection_module._build_project_module_inspection_fact_set(
-        roots["modules"],  # pyright: ignore[reportArgumentType]
-        roots["catalogs"],  # pyright: ignore[reportArgumentType]
-        roots["exports"],  # pyright: ignore[reportArgumentType]
-        roots["bindings"],  # pyright: ignore[reportArgumentType]
-        roots["graph"],  # pyright: ignore[reportArgumentType]
-        roots["type_source_resolutions"],  # pyright: ignore[reportArgumentType]
-        roots["relation_resolutions"],  # pyright: ignore[reportArgumentType]
-        roots["attribution"],  # pyright: ignore[reportArgumentType]
-        roots["semantic"],  # pyright: ignore[reportArgumentType]
-        roots["package_identity"],  # pyright: ignore[reportArgumentType]
+        *_inspection_roots(result, **overrides)
     )
 
 
@@ -196,6 +197,29 @@ def _cycle_sources() -> dict[str, str]:
         ),
         "b.pietto": (
             'from "a.pietto" import shape T\nexport shape S\nshape S:\n    id: Int\n'
+        ),
+    }
+
+
+def _blocked_importer_sources() -> dict[str, str]:
+    return {
+        "a.pietto": (
+            'from "b.pietto" import table Public as Local\n'
+            "query result:\n    from Local\n    select:\n        id\n"
+        ),
+        "b.pietto": (
+            'from "c.pietto" import table projected as Public\n'
+            'from "d.pietto" import query D\n'
+            "export table Public\n"
+        ),
+        "c.pietto": (
+            _SHAPE_PREFIX + "table projected:\n    from rows\n    select:\n        id\n"
+            "export table projected\n"
+        ),
+        "d.pietto": (
+            "query D:\n    from missing\n    select:\n        id\n"
+            "export query D\n"
+            'from "b.pietto" import table Public\n'
         ),
     }
 
@@ -220,7 +244,7 @@ def _expected_record_count(
     for record in inspection.modules:
         total += 3
         total += len(record.readiness.cycles)
-        total += sum(len(cycle.members) for cycle in record.readiness.cycles)
+        total += sum(len(cycle.members) for cycle in record.readiness.cycles[:1])
         total += 1
         total += len(record.graph.component_members)
         total += len(record.graph.dependency_targets)
@@ -713,6 +737,146 @@ def test_module_cycle_records_blocked_readiness_and_complete_cycle_members(
     assert healthy.readiness.status is layering.ProjectLayeredLoaderReadiness.READY
     assert healthy.readiness.cycles == ()
     assert not healthy.graph.component_is_cyclic
+
+
+def test_blocked_readiness_lists_its_component_once_and_counts_every_issue(
+    tmp_path: Path,
+) -> None:
+    # d.pietto and b.pietto form one cycle, and the acyclic a.pietto imports a
+    # relation from it, so each cycle member keeps K = N + 1 = 3 blocking issues.
+    semantic = _semantic_project(tmp_path, _blocked_importer_sources())
+    lines = _decoded(semantic).split("\n")
+    for ordinal, path in ((1, "b.pietto"), (3, "d.pietto")):
+        record = _record(semantic, path)
+        cycles = record.readiness.cycles
+        assert len(cycles) == len(record.readiness.fact.blocking_issues) == 3
+        assert all(cycle is cycles[0] for cycle in cycles)
+        assert cycles[0].members is record.graph.component_members
+        module = f"\tmodule=i:{ordinal}\t"
+        own = [line for line in lines if module in line + "\t"]
+        assert sum(line.startswith("readiness\t") for line in own) == 1
+        assert any(
+            "cycles=i:3" in line for line in own if line.startswith("readiness\t")
+        )
+        assert [
+            line.split("\t")[2:] for line in own if line.startswith("readiness_cycle\t")
+        ] == [[f"cycle=i:{cycle}", "members=i:2"] for cycle in range(3)]
+        assert [
+            line.split("\t")[2:]
+            for line in own
+            if line.startswith("readiness_cycle_member\t")
+        ] == [
+            ["cycle=i:0", "member=i:0", "path=s:b.pietto"],
+            ["cycle=i:0", "member=i:1", "path=s:d.pietto"],
+        ]
+
+        # A cycle whose members equal the component's only by value is accepted
+        # exactly like a shared one; a later cycle of any other member paths,
+        # even of the same length or only in another order, is refused.
+        component = record.graph.component_members
+        equal = inspection_module.ProjectInspectionModuleCycle(
+            members=tuple(
+                ProjectModuleIdentity(path=member.path) for member in component
+            )
+        )
+        replace(record, readiness=replace(record.readiness, cycles=(equal,) * 3))
+        for members in (
+            (ProjectModuleIdentity(path="a.pietto"),),
+            (component[1], component[0]),
+            (
+                ProjectModuleIdentity(path="b.pietto"),
+                ProjectModuleIdentity(path="c.pietto"),
+            ),
+        ):
+            foreign = inspection_module.ProjectInspectionModuleCycle(members=members)
+            with pytest.raises(ValueError, match="own graph component"):
+                replace(
+                    record,
+                    readiness=replace(
+                        record.readiness, cycles=(cycles[0], cycles[0], foreign)
+                    ),
+                )
+
+    # The acyclic importer owns the third cycle issue, which is attached by
+    # component membership: the importer stays ready without readiness cycles,
+    # and every member carries the issue over its own graph component.
+    graph = semantic.module_graph
+    resolutions = semantic.module_relation_resolutions
+    assert graph is not None and resolutions is not None
+    cyclic = next(component for component in graph.components if component.is_cyclic)
+    owned = [
+        issue.module_cycle
+        for issue in resolutions.issues
+        if issue.owning_module_path == "a.pietto" and issue.module_cycle is not None
+    ]
+    assert [cycle.component for cycle in owned] == [cyclic]
+    assert owned[0].component is cyclic
+    for path in ("b.pietto", "d.pietto"):
+        issues = _record(semantic, path).readiness.fact.blocking_issues
+        assert sum(issue.owning_module_path == "a.pietto" for issue in issues) == 1
+        assert all(
+            issue.module_cycle is not None and issue.module_cycle.component is cyclic
+            for issue in issues
+        )
+    importer = _record(semantic, "a.pietto")
+    assert importer.readiness.status is layering.ProjectLayeredLoaderReadiness.READY
+    assert importer.readiness.fact.blocking_issues == ()
+    assert importer.readiness.cycles == ()
+    assert not importer.graph.component_is_cyclic
+    assert (
+        inspection_module.ProjectInspectionIssueFamily.RELATION,
+        "module_graph_cycle_blocked",
+        "Local",
+    ) in [(issue.family, issue.status, issue.local_name) for issue in importer.issues]
+    importer_lines = [line for line in lines if "\tmodule=i:0\t" in line + "\t"]
+    assert [line for line in importer_lines if line.startswith("readiness")] == [
+        "readiness\tmodule=i:0\tstatus=e:ready"
+        "\treason=e:trusted_local_source_resolved\tcycles=i:0"
+    ]
+
+
+def test_readiness_cycles_over_another_component_object_are_copied_and_checked(
+    tmp_path: Path,
+) -> None:
+    # The authority roots admit only the graph whose cycles the issues retain,
+    # so a built inspection always shares the module's own component. Deriving
+    # over a value-equal rebuilt graph takes the copying branch instead: each
+    # issue gets its own copy of the members, and the canonical bytes stay equal.
+    semantic = _semantic_project(tmp_path / "cyclic", _blocked_importer_sources())
+    graph = semantic.module_graph
+    bindings = semantic.module_bindings
+    selected = semantic.selected_input_index
+    assert graph is not None and bindings is not None and selected is not None
+    rebuilt = _build_project_module_graph(selected, semantic.modules, bindings)
+    assert rebuilt == graph and rebuilt.components[0] is not graph.components[0]
+    derived = inspection_module._derive_inspection(
+        *_inspection_roots(semantic, graph=rebuilt)
+    )
+    assert (
+        inspection_module._serialize_inspection(derived)
+        == _inspection(semantic).canonical_bytes
+    )
+    for ordinal, path in ((1, "b.pietto"), (3, "d.pietto")):
+        record = derived.modules[ordinal]
+        cycles = record.readiness.cycles
+        assert cycles == _record(semantic, path).readiness.cycles
+        assert len({id(cycle) for cycle in cycles}) == len(cycles) == 3
+        assert all(
+            cycle.members is not record.graph.component_members for cycle in cycles
+        )
+
+    # Without d.pietto's import of b.pietto, b.pietto's component is b.pietto
+    # alone, so its copied cycle (b.pietto, d.pietto) is refused, not replaced.
+    sources = _blocked_importer_sources()
+    sources["d.pietto"] = sources["d.pietto"].replace(
+        'from "b.pietto" import table Public\n', ""
+    )
+    acyclic = _semantic_project(tmp_path / "acyclic", sources)
+    assert acyclic.module_graph is not None and acyclic.module_graph.cycles == ()
+    with pytest.raises(ValueError, match="own graph component"):
+        inspection_module._derive_inspection(
+            *_inspection_roots(semantic, graph=acyclic.module_graph)
+        )
 
 
 def test_graph_section_records_components_dependency_targets_and_evidence(
