@@ -105,14 +105,17 @@ list. The other
 [known limitations of 0.1.7](release-notes.md#known-limitations) have no
 scheduled home yet.
 
-- A project-mode quality interlude after `0.1.7`, which starts only with its
-  own dispatch, takes these items.
-  None produces wrong SQL. Its first batch, on `main` after `0.1.7` and listed
-  under [Unreleased changes following 0.1.7](release-notes.md#unreleased-changes-following-017),
-  closes PMS-3, EXD-5 and PE-09, closes F5 and F7 except their residuals,
-  and does part of PMS-6. The change after it, listed there too, closes
-  PMS-2, the interlude's last item: on 2026-11-04 the owner decided that a
-  separate `0.1.8` release, which needs its own approvals, follows it.
+- A project-mode quality interlude after `0.1.7`, which started with its own
+  dispatch, took these items.
+  None produces wrong SQL. Its first batch `8cebe779` closes PMS-3, EXD-5 and
+  PE-09, closes F5 and F7 except their residuals, and does part of PMS-6. The
+  change after it, `d654738f`, closes PMS-2, the interlude's last item. Both
+  are listed in the
+  [0.1.8 release notes](release-notes.md#project-mode-quality-public-alpha-release-notes--018):
+  on 2026-11-04 the owner decided that `0.1.8`, a separate release of `main`
+  with only version and documentation changes, follows PMS-2 without waiting
+  for Phase72 and ships the completed interlude; PMS-2 is `d654738f`, so
+  `0.1.8` is `main` at `d654738f`.
   - PMS-2, done: before PIE-S2703 is reported, the private module inspection
     lists a blocked module's cycle members once instead of once for each
     blocking issue, so for a cycle of N modules from which modules outside it
@@ -3050,17 +3053,23 @@ route defers these subjects to these owners:
 - D-11/D-12 stay with the Pietto lead follow-up above.
 
 The canonical formatter `pietto fmt` was planned as a separate step right
-after Phase71 and before Phase72 (D71.08). On 2026-11-04 the owner paused it as
-Phase75 content, beside LSP, editor integration, syntax editions and
-migrations, which stay with Phase75 and the extension owner; it still needs its
-own dispatch. On 2026-10-30 the owner moved the
+after Phase71 and before Phase72 (D71.08). On 2026-11-04 the owner paused it,
+to have it planned with Phase74 and Phase75 in view, and resumed it the same
+day as an independent step; LSP, editor integration, syntax editions and
+migrations stay with Phase75 and the extension owner. On 2026-10-30 the owner moved the
 Phase71 completion release to `0.1.7`: `0.1.6` contains only the published
 batch B1 (S01–S03) of Phase71, whose `collect` and `unnest` spellings are
 recognized and refused with PIE-S2801 or PIE-S2802. On 2026-11-03 the owner
 approved releasing `main` at the S24 audit commit `59b26027`, the Phase71
 completion, as `0.1.7` with only version and documentation changes, and
 pre-approved its publication chain; `0.1.7` is published from `4c8348a4`
-(tag `v0.1.7`) on the GitHub pre-release and PyPI.
+(tag `v0.1.7`) on the GitHub pre-release and PyPI. On 2026-11-04 the owner
+decided to release `main` as `0.1.8` once PMS-2, the end of the project-mode
+quality interlude, is published, with only version and documentation changes
+and without waiting for Phase72; PMS-2 is `d654738f`, so `0.1.8` is `main` at
+`d654738f`; the owner pre-approved its publication chain the same day, and
+`0.1.8` is published only when its tag, GitHub pre-release and PyPI channels
+carry the accepted files.
 
 On 2026-10-28 the owner set the MySQL cadence: MySQL support may trail
 PostgreSQL by about two to three releases. New features reach PostgreSQL first,

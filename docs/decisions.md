@@ -559,3 +559,27 @@ Phase71 闭合（S24 审计提交 `59b26027`，自然 CI `41543143863` attempt 1
 | 预算 | focused 上限 1000；diagnostic 上限 600，一条命令算一次，命令内部的循环只算一次。 |
 
 PMS-2 的设计已完成：所有者 2026-11-04 接受 Alternative 6（含第 2 步），私有 pure 文档保留两项可移植自检，私有标记 `pietto.module-inspection.v1` 就地修改，6 种伪造文档（正的成员数与成员列表或图分量不符，且没有别的错误）的拒绝状态由 `child_count_mismatch` 改为 `inconsistent_scope_relation`；这类错误现在在模块关闭时判定，同一模块中更靠后的其他错误因此先报出。同日所有者决定：PMS-2 是这个 interlude 的最后一项，之后单独发 `0.1.8`，不等 Phase72，发行仍需自己的批准；PMS-6 跨 JOIN 步共享 FD 结构的设计现在不采纳，留作以后的 ARCHITECTURE_DECISION；`pietto fmt` 由所有者暂停，归入 Phase75。这些回答只覆盖这个 interlude，不是常设授权；它的提交与推送仍需所有者另行批准。
+
+## 0.1.8 release — owner decisions (2026-11-04)
+
+On 2026-11-04 the lead asked the owner, among other near-term questions, when
+to release next and where the README links of the PyPI page should point. The
+owner chose the lead's recommendation for both:
+
+| Item | Chosen rule |
+| --- | --- |
+| Release (A3) | "A separate `0.1.8` after PMS-2": once PMS-2, the last item of the project-mode quality interlude, is published, `main` is released as `0.1.8` as it is, without waiting for Phase72. Only version owners and documentation change, `0.1.8` keeps the source syntax of `0.1.7`, and it contains no Phase72 work. PMS-2 is published at `d654738f` (natural exact-head CI `41875352347` attempt 1, all 19 jobs successful), so `0.1.8` is `main` at `d654738f`: the interlude's first batch `8cebe779` and PMS-2. The [0.1.8 release notes](release-notes.md#project-mode-quality-public-alpha-release-notes--018) list its changes. |
+| README links (A4) | "Version tag at release": the PyPI long description is built from the README of the release commit, so in the release commit every README link to a repository document points at the tag `v0.1.8`, including the five links that point at `blob/main` on `main` (the logo images stay pinned to commit `fdd93dec`). The next ordinary commit after the release restores those five to `blob/main`, which the README on `main` keeps. |
+
+Later on 2026-11-04 the owner confirmed the separate release and, as for
+`0.1.7`, pre-approved its publication chain: the release commit once the one
+authoritative validation passes on its exact tree, its fast-forward push to
+`main`, and tag `v0.1.8` with the GitHub pre-release once natural exact-head
+CI passes; as before, the owner uploads to PyPI with the owner's own token.
+`0.1.8` is published only when tag `v0.1.8`, the GitHub pre-release and PyPI
+carry the accepted files; this section publishes nothing. In the same answers
+the owner did not adopt the sharing of functional-dependency structure across
+JOIN steps (PMS-6), which stays a later ARCHITECTURE_DECISION. Later the same
+day the owner resumed the `pietto fmt` step paused above as an independent
+step; the pause had only let the lead plan it with Phase74 and Phase75 in
+view. These answers are no standing authorization.

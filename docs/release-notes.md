@@ -1,15 +1,92 @@
 # Pietto release notes
 
-## Unreleased changes following 0.1.7
+## Project-mode quality public alpha release notes — 0.1.8
 
-These changes are on `main` after `0.1.7` and are in no published release yet.
-They come from the project-mode quality interlude that the
-[0.1.7 notes](#rescheduled) scheduled. They keep the source syntax. They
-change the diagnostics that a project reports and what `explain --project`
-lists, with one exit status of `explain --project`, as described below. On the
-programs measured for them, named under F5 and under Measured output below,
-the SQL is byte-identical to that of `0.1.7`. Every change but PMS-2 came in
-the interlude's first batch.
+<a id="unreleased-changes-following-017"></a>
+<!-- The id above keeps the links of the 0.1.7 notes below, written before these notes were released, pointing here. -->
+
+**Status:** These notes cover `0.1.8`, the public alpha prepared from its
+release commit, whose parent is `d654738f`. It is published only when the tag
+`v0.1.8`, the versioned GitHub pre-release and PyPI carry its accepted wheel
+and sdist; this document neither creates those channels nor substitutes for
+their byte verification. As for earlier releases, the compiler and package are
+covered on CPython 3.12 and 3.13 for Linux x86-64; other platforms and Python
+versions are not.
+
+`0.1.8` retires no source spelling of `0.1.7`. It is `main` at `d654738f`
+with only version and documentation changes: the project-mode quality
+interlude that the [0.1.7 notes](#rescheduled) scheduled, that is, its first
+batch `8cebe779` and PMS-2 `d654738f`. It changes the diagnostics that a
+project reports and what `explain --project` lists, with one exit status of
+`explain --project`, and it checks large projects faster, as described below.
+On the programs whose SQL was compared with `0.1.7`, named under F5 and under
+Measured output below, the SQL of the first batch is byte-identical to that
+of `0.1.7`, and PMS-2 changed no exit status, stdout or stderr on the project
+command invocations compared with the first batch. Every change but PMS-2
+came in the interlude's first batch. The Python execution extras keep
+the pins of `0.1.7`. The sections from 0.1.7 down describe published files.
+
+### Highlights
+
+- **Project diagnostics closer to a single file.** In an explicit-module
+  project, a JOIN relation that a single file refuses with PIE-S2312 because
+  it mixes an aggregate with another projection and has no GROUP BY (for
+  example a JOIN query whose `select:` has `customer_id` and `n = count()`
+  but no `group by`) now also reports what a single file reports beside it,
+  unless its `let:` clause or WHERE is refused, and a repeated SELECT output
+  name reports more as a single file does. Only relations that already report
+  an error change, so a program that checks still checks.
+- **`explain --project` lists the dependencies' diagnostics after a root
+  parse failure.** When the root's pin check passes and a root module then
+  fails to parse, the dependencies' diagnostics follow the root's, and in one
+  case it now exits 2 instead of 1 (see
+  [Upgrading from 0.1.7](#upgrading-from-017)).
+- **Faster project checks.** With the first batch, one module with 600 tables
+  checks in about 5.2 s where `0.1.7` took 13 s, and one query with 120 JOINs
+  in about 11 s where `0.1.7` took 31 s. With the import-cycle change
+  (PMS-2), a 160-module import cycle is reported in about 2.7 s and 108 MiB,
+  against 103 s and 3,075 MiB on the first batch (the first batch was
+  measured again beside PMS-2 on a shared machine; the `0.1.7` notes give
+  71 s for 160 modules from an earlier measurement). The [Performance](#performance) section gives how these
+  times were measured; they are no performance promise.
+- **Documented rules.** An exactly repeated environment premise of an
+  emission contract is now a documented rule, and the language
+  reference no longer describes the PostgreSQL `sum` of a `bigint` column as
+  `numeric`. Both change documentation only.
+
+### Upgrading from 0.1.7
+
+- 0.1.8 retires no source spelling, so a 0.1.7 file needs no `pietto migrate`
+  step.
+- Some project diagnostics change, only for relations that already report an
+  error: in an explicit-module project, a mixed aggregate JOIN relation
+  refused with PIE-S2312 and a repeated SELECT output name report more of
+  what a single file reports (for such a JOIN relation `0.1.7` reported
+  PIE-S2312 alone, or a bare PIE-S2333 when the only other projection was a
+  window), and an unknown QUALIFY name in such a mixed
+  aggregate JOIN relation is PIE-S2102; in an explicit-module or LEGACY_FLAT
+  project, a repeated unknown bare name outside a JOIN reports PIE-S2102 only
+  at its first item. A tool that compares the exact diagnostics of such a
+  project with those of `0.1.7` must expect these changes; see
+  [Project diagnostics](#project-diagnostics).
+- `explain --project` now lists the dependencies' diagnostics after a root
+  module that fails to parse once the root's pin check passes. When the
+  root's only failures are error diagnostics found as its modules are parsed
+  and a dependency reports a project error, it exits 2 where `0.1.7` exited 1.
+  The `pietto.project-explain.v1` shape is unchanged.
+- The private module inspection document that a project builds before it
+  reports an import cycle (PMS-2) now lists a blocked module's cycle members
+  once. It is private, built and checked in-process only, and keeps its
+  marker `pietto.module-inspection.v1`; on the invocations compared for PMS-2
+  with the interlude's first batch, the stdout, stderr and exit status of the
+  project commands are unchanged.
+- Bundles and saved-job records made by 0.1.7 or earlier are refused by the
+  changed code identity; keep their matching old environment. Pietto supplies
+  no migration or rewrite.
+- The execution extras install the same driver versions as `0.1.7`.
+- `0.1.8` is a normal version number: once it is published,
+  `pip install -U pietto` upgrades to it, and so do the pins `pietto~=0.1`
+  and `pietto<0.2`.
 
 ### Project diagnostics
 
@@ -18,7 +95,7 @@ bare name outside a JOIN (F7) applies to LEGACY_FLAT (`schema_version = 1`)
 projects too. They change only the diagnostics of relations that already
 report an error, so a program that checks still checks. Each statement
 describes the queries probed for these changes, apart from the differences
-that the [known limitations](#known-limitations-after-017) list.
+that the [known limitations](#known-limitations-of-018) list.
 
 - **A mixed aggregate JOIN reports what a single file reports (F5).** A
   relation with JOIN inputs that a single file refuses with PIE-S2312, for
@@ -191,10 +268,15 @@ against 116 in `0.1.7`. The 286 queries probed for F7 show no regression from
   of `child_count_mismatch`, so another fault later in the same module is
   reported first.
 
-### Known limitations after 0.1.7
+### Release notes
 
-These [known limitations of 0.1.7](#known-limitations) change; the others stay
-as listed there, with the timings measured for `0.1.7`.
+- The 0.1.7 notes below were corrected after publication: see
+  [Corrections after publication](#corrections-after-publication).
+
+### Known limitations of 0.1.8
+
+These [known limitations of 0.1.7](#known-limitations) change in `0.1.8`; the
+others stay as listed there, with the timings measured for `0.1.7`.
 
 - `explain --project` no longer stops at the root package when a root module
   fails to parse after the root's pin check passes, and a repeated environment
