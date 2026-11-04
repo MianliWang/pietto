@@ -35,6 +35,7 @@ from pietto._project.project_ir_joins import (
     _image_fd,
     _image_key,
     _ordered_classes,
+    _universe_positions,
 )
 from pietto._project.project_ir_properties import (
     ProjectIRJoinedRowField,
@@ -621,6 +622,7 @@ def resolved_join_properties(
                 )
             )
     frontier = _frontier(tuple(keys))
+    positions = _universe_positions(classes)
     inherited = tuple(
         image
         for properties, images, weaken in (
@@ -632,7 +634,7 @@ def resolved_join_properties(
             image := _image_fd(
                 fact,
                 images,
-                classes,
+                positions,
                 output=output,
                 strength=(
                     ProjectRowUniquenessStrength.LAX
@@ -725,6 +727,7 @@ def resolved_left_subset_properties(
         )
         for key in left.keys
     )
+    positions = _universe_positions(classes)
     # Two left FDs whose dependents differ only in order image to one FD,
     # merged once as every other JOIN kernel and the composed image merge it.
     fds = _key_fds(
@@ -738,7 +741,7 @@ def resolved_left_subset_properties(
                 image := _image_fd(
                     fact,
                     images,
-                    classes,
+                    positions,
                     output=output,
                     strength=fact.strength,
                     support=witness,

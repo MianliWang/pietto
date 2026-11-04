@@ -1,14 +1,239 @@
 # Pietto release notes
 
+## Unreleased changes following 0.1.7
+
+These changes are on `main` after `0.1.7` and are in no published release yet.
+They come from the project-mode quality interlude that the
+[0.1.7 notes](#rescheduled) scheduled. They keep the source syntax. They
+change the diagnostics that a project reports and what `explain --project`
+lists, with one exit status of `explain --project`, as described below. On the
+programs measured for them, named under F5 and under Measured output below,
+the SQL is byte-identical to that of `0.1.7`.
+
+### Project diagnostics
+
+These changes apply to explicit-module projects, and the change for a repeated
+bare name outside a JOIN (F7) applies to LEGACY_FLAT (`schema_version = 1`)
+projects too. They change only the diagnostics of relations that already
+report an error, so a program that checks still checks. Each statement
+describes the queries probed for these changes, apart from the differences
+that the [known limitations](#known-limitations-after-017) list.
+
+- **A mixed aggregate JOIN reports what a single file reports (F5).** A
+  relation with JOIN inputs that a single file refuses with PIE-S2312, for
+  mixing an aggregate with another projection without GROUP BY, now reports
+  beside that PIE-S2312 what a single file reports, unless its `let:` clause
+  or WHERE is refused: the errors of its other SELECT items, of the reads in
+  its windows, of its QUALIFY (an unknown name there is PIE-S2102, where
+  QUALIFY elsewhere in an explicit-module project still reports PIE-S2332) and
+  of its ORDER BY keys, and PIE-S2381 at each aggregate that may read rows
+  that a JOIN repeats. `0.1.7` reported PIE-S2312 alone, beside the PIE-S2305
+  of a repeated output name, or, when the only other projection was a window,
+  a bare PIE-S2333. The
+  [PIE-S2312 row](spec/diagnostics.md#semantic-diagnostics) lists the codes.
+  Compared with `0.1.7` on 44 JOIN programs and 68 grouped JOIN emissions with
+  a window, for PostgreSQL and MySQL, the SQL and the `check --project` output
+  of the programs that check are unchanged, and so are the single-file
+  diagnostics of 674 cases.
+- **A repeated SELECT output name reports more as a single file does (F7).**
+  Under owner decision Q1-A, which aligns project diagnostics with single-file
+  behaviour:
+  - A repeated unknown bare name, such as `nosuch` in
+    `select: id, nosuch, nosuch` or `x = nosuch` written twice, reports
+    PIE-S2102 `Unknown field: nosuch` at the first item and only PIE-S2305 at
+    the repeat. Outside a JOIN, `0.1.7` also reported PIE-S2102 at the repeat;
+    in a JOIN query without GROUP BY or aggregates it reported it at neither
+    item, or, after a JOIN `where` or `let:` that fails, at both.
+  - In a JOIN query, a repeated item and the item that it repeats now report
+    their other errors beside the PIE-S2305, as a single file does: an unknown
+    field (PIE-S2102 at both items of `x = rows.nosuch` written twice), a name
+    that two inputs have (PIE-S2335, `x = id`), or invalid operands or
+    arguments (PIE-S2105, `x = rows.id + 'a'`; PIE-S2104,
+    `z = abs(rows.nosuch, 1)`). Without GROUP BY, aggregates or a failing
+    `where` or `let:`, `0.1.7` reported PIE-S2305 alone, and with GROUP BY it
+    omitted the repeated item's errors.
+  - A grouped JOIN query whose `where` or `let:` fails now also reports the
+    errors of its SELECT items without an aggregate or a window, such as
+    PIE-S2102, PIE-S2318 `Grouped projection is not a GROUP BY key` and
+    PIE-S2319 at a computed output; `0.1.7` reported none of them.
+
+  A LEGACY_FLAT (`schema_version = 1`) project checks no JOIN, so a JOIN query
+  there still reports only PIE-S2334 at the JOIN.
+
+On the 1392 generated JOIN queries probed for this batch, these changes add no
+project diagnostic that a single file does not report and `0.1.7` did not
+report, remove none that `0.1.7` and a single file both report, and change no
+single-file output; 504 of them now report exactly what a single file reports,
+against 116 in `0.1.7`. The 286 queries probed for F7 show no regression from
+`0.1.7`.
+
+### `explain --project`
+
+- **A root module that fails to parse no longer hides the dependencies' errors
+  (EXD-5).** Explain reads the root package's manifest and every asset file
+  and checks their content against the root's pin before it parses any module.
+  When that check passes and a root module then fails to parse, explain now
+  loads the dependencies that the verified manifest declares and lists their
+  diagnostics after the root's, as it lists them once the root loads: the same
+  codes, messages, locations, `In dependency package ...` prefix and order,
+  and the same cycle, conflict and diamond rejections. A module fails to parse
+  when its bytes, which match the pin, are not UTF-8 (`source_read`) or when
+  it reports an error diagnostic as it is parsed: a syntax error, `PIE-S2801`
+  for `collect` or `unnest`, or any other. A root that fails before the pin
+  check still reports only its own diagnostics, because its dependency
+  declarations are not verified: when its manifest or typed-asset validation
+  fails, an asset read fails (`source_read` for a module file that is missing
+  or not accessible), or the content does not match the pin, for example a
+  stale pin. The `pietto.project-explain.v1` shape is unchanged. See the
+  [project guide](project-package.md).
+- **One exit status changes.** The exit status of such a failure now follows
+  the whole list, as it does once the root loads: 2 when the root or a
+  dependency reports a project error, such as `project_resource` for a missing
+  dependency directory, and 1 otherwise. So when the root's only failures are
+  error diagnostics found as its modules are parsed, such as a syntax error,
+  and a dependency reports a project error, explain now exits 2 where `0.1.7`
+  exited 1.
+
+### Emission contracts
+
+- **Repeated premises are documented (PE-09).**
+  [Emission contract values](project-package.md#emission-contract-values) now
+  states the rule that `0.1.7` already follows. PE-09 changes documentation
+  and tests only, so acceptance, exit codes and output bytes are those of
+  `0.1.7`. A premise declared again with the same bound scope, key and
+  canonical value is an exact repeat, accepted in any number of copies, within
+  `environment`, within one source's `premises` or across both; the SQL is
+  unchanged, `request.contract` and `target.environment` echo every copy, and
+  a requirement that uses the premise cites each copy. Each copy is still
+  checked on its own, so a field premise that disagrees with the field's
+  `domain` is BLOCKED with `PIE-B1005` however many copies there are. Two
+  declarations of one key in one bound scope with different canonical values
+  are BLOCKED with `PIE-B1005`, also on a source the statement does not read,
+  and a source described twice is INPUT_REJECTED.
+
+### Documentation
+
+- The [language reference](language.md) no longer says that PostgreSQL holds
+  the `sum` of a `bigint` column as `numeric`, so that `s / 2` with `s = 3` is
+  `1.5000000000000000`. Since `0.1.7` Pietto casts the PostgreSQL `sum` of an
+  `Int` back to `int8` and emits `s / 2`, for such a sum `s`, as an `int8`
+  division, an integer division like `DIV` on MySQL. This changes
+  documentation only.
+
+### Performance
+
+- **Faster checks of many relations (PMS-3).** In an explicit-module project,
+  `check --project`, `emit-sql --project` and `compile_query` no longer build
+  the private Project IR analysis bundle, which nothing on these paths read.
+  Relational properties now take the verified Project IR result directly;
+  private Project IR inspection still builds the bundle. With the whole batch,
+  one module with 600 tables checks in about 5.2 s and 90 MiB at peak, where
+  `0.1.7` took 13 s and 361 MiB; 300 tables take 2.1 s instead of 4.2 s, and
+  200 modules of one source, table and query each take 3.7 s instead of 11 s.
+- **Faster JOIN functional dependencies (PMS-6, in part).** At each JOIN step,
+  duplicate functional dependencies are merged through an index instead of
+  being compared with every one merged so far, imaged classes are ordered by a
+  position lookup, and strict-rule incidence lists are built from the set bits
+  of each rule's determinant mask. With the whole batch, one query with 60
+  JOINs checks in about 1.6 s instead of 2.3 s, with 90 JOINs in 4.3 s instead
+  of 9.4 s, and with 120 JOINs in 11 s and 567 MiB instead of 31 s and
+  585 MiB. Every JOIN step still images the functional dependencies of its
+  inputs into its own output, so the cost still grows faster than the JOIN
+  count.
+- **Measured output.** Both trees were measured again for this comparison, the
+  whole batch against `0.1.7`, so the times do not separate PMS-3 from PMS-6,
+  on generated explicit-module projects, on the same machine with CPython
+  3.13.13 on Linux x86-64; the `0.1.7` figures in its own notes come from an
+  earlier measurement. The machine was shared with other work, so a run counts
+  only when a reference CPU loop just before it took at most 1.40 s (the clean
+  reference runs took 1.07 to 1.39 s); this rule was set after the runs had
+  been made, because a planned fastest-of-five rule left the 300-table check
+  without a clean run, and the 90- and 120-JOIN checks had been rerun, up to
+  four times a run, until a reference loop just before them ran at normal
+  speed. Each time is the fastest such run of one command on one tree: for the
+  check times given here, 3 to 9 runs counted, out of 8 to 12. Peak memory, in
+  MiB, is the median of all runs. The times show the change and are no
+  performance promise. On these projects the stdout, stderr and exit status of
+  `check --project`, and of `emit-sql --project` for PostgreSQL for the
+  300-table module and the 60-JOIN query, are byte-identical to those of
+  `0.1.7` in every run; other programs were not compared byte for byte for
+  this measurement.
+
+### Known limitations after 0.1.7
+
+These [known limitations of 0.1.7](#known-limitations) change; the others stay
+as listed there, with the timings measured for `0.1.7`.
+
+- `explain --project` no longer stops at the root package when a root module
+  fails to parse after the root's pin check passes, and a repeated environment
+  premise is a documented rule (both above). The 0.1.7 entries for many
+  relations or many JOINs, a mixed aggregate JOIN and a repeated unknown
+  SELECT item are replaced by the entries below, and an unknown QUALIFY name
+  in a mixed aggregate JOIN relation is now PIE-S2102 (see F5).
+- **Many relations or many JOINs are still slower to check than in a single
+  file.** In an explicit-module project, one module with 300 tables checks in
+  about 2.1 s (a single file of them in 0.55 s, as the `0.1.7` notes give),
+  and one with 600 tables in about 5.2 s; 200 modules of one source, table and
+  query each take about 3.7 s. The JOIN properties of one query still grow
+  faster than its JOIN count: one query with 60 JOINs checks in about 1.6 s,
+  with 90 JOINs in about 4.3 s (a single file in 0.4 s, as the `0.1.7` notes
+  give) and with 120 JOINs in about 11 s and 567 MiB.
+- **A mixed aggregate JOIN relation whose `let:` clause or WHERE is refused.**
+  In a project such a relation still stops before its aggregates, as in
+  `0.1.7`: it reports only that refusal, and the PIE-S2305 of a repeated
+  output name, where a single file also reports PIE-S2312 and what F5 above
+  lists. For example, beside a JOIN `o` of `items` with `let p = items.price`,
+  `where id > 1` with `select k = items.id, n = sum(items.price)` reports only
+  its PIE-S2335. The [PIE-S2312 row](spec/diagnostics.md#semantic-diagnostics)
+  lists the 20 cases measured for F5.
+- **Other differences from a single file.** The probes for this batch show
+  these differences in explicit-module projects too; each is as in `0.1.7` or
+  closer to a single file, and the list is not complete:
+  - When a SELECT item reports an error, such as an unknown field or the
+    PIE-S2305 of a repeated output name, a JOIN query or a query without GROUP
+    BY reports no error of its ORDER BY keys, unless it is a JOIN relation
+    that reports PIE-S2312 (F5 above): beside `select: id, y = nosuch + 1`,
+    `order by k` reports no PIE-S2102. A relation without JOIN inputs that
+    reports PIE-S2312 checks no key either, where a single file reports
+    PIE-S2380.
+  - With GROUP BY, a computed output can report PIE-S2319 without its own
+    errors (`x = rows.nosuch + 1`).
+  - After a failing `where` or `let:`, an aggregate or a window item can
+    report fewer errors than in a single file, PIE-S2320 or PIE-S2329 can be
+    missing, and after a failing `let:` an ambiguous name can miss its
+    PIE-S2335.
+  - A JOIN relation whose projections are all aggregates and which a single
+    file refuses with PIE-S2381, or with ORDER BY PIE-S2334, is a PIE-S2333 in
+    a project, with its fan-out cause when an aggregate may read rows that a
+    JOIN repeats; so is a grouped JOIN relation whose aggregate may read such
+    rows, where a single file reports PIE-S2381 or another error of the
+    relation. A SELECT error, such as the PIE-S2305 of a repeated output name,
+    or a refused `where` or `let:` can be reported instead.
+  - An unnamed computed item in a JOIN query, such as `rows.id + 1`, is a
+    PIE-S2304 error in a project and a warning in a single file, and the other
+    items' errors can then be missing.
+  - Some diagnostics come in another order: a call such as
+    `abs(rows.nosuch, 1)` can report PIE-S2102 before PIE-S2104, and without a
+    JOIN the diagnostics of a repeated dotted or computed output are not
+    sorted by position.
+
+A later architecture item, project joined aggregation analysis beside a
+refused WHERE or `let:` binding, which lets the joined aggregation stage
+analyse over a row filter that is not concrete, is to remove the differences
+above that follow a refused or failing `where` or `let:`; it has no scheduled
+phase yet (see the [roadmap](roadmap.md#project-mode-follow-up)). The other
+differences have no scheduled home yet. The import-cycle readiness records
+(PMS-2) stay in the interlude, and sharing JOIN functional dependencies across
+JOIN steps is a separate design decision.
+
 ## Nested results and project emission public alpha release notes — 0.1.7
 
 <a id="unreleased-changes-following-016"></a>
 <!-- The id above keeps the links of the 0.1.6 notes below and of docs/phases/phase-71/slice-23.md, written before these notes were released, pointing here. -->
 
-**Status:** These notes cover `0.1.7`, the public alpha prepared from its
-release commit. It is published only when the tag `v0.1.7`, the versioned
-GitHub pre-release and PyPI carry its accepted wheel and sdist; this document
-neither creates those channels nor substitutes for their byte verification.
+**Status:** `0.1.7` was published from `4c8348a4` (tag `v0.1.7`) on the
+versioned GitHub pre-release and PyPI channels. These historical release notes
+neither publish a successor nor substitute for channel byte verification.
 As for earlier releases, the compiler and package are covered on CPython 3.12
 and 3.13 for Linux x86-64; other platforms and Python versions are not.
 
@@ -442,7 +667,9 @@ cost grows and are no performance promise.
   one source, table and query each take about 8.9 s. The JOIN properties of
   one query grow about with the cube of its JOIN count: one query with 60
   JOINs checks in about 3.0 s, with 90 JOINs in about 10 s (a single file in
-  0.4 s), and with 120 JOINs in about 32 s and 609 MB.
+  0.4 s), and with 120 JOINs in about 32 s and 609 MB. The changes after
+  `0.1.7` make these checks faster; see
+  [Unreleased changes following 0.1.7](#unreleased-changes-following-017).
 - **A bare PIE-S2333 can hide later errors.** Some relations that a single
   file accepts, or refuses with another code, are still the bare PIE-S2333
   `Project relation semantic completion is unavailable: <r>` in a project,
@@ -484,26 +711,44 @@ cost grows and are no performance promise.
   and a project does not.
   When a query has several unknown names, a project can list a SELECT item's
   diagnostic before a WHERE test's or a GROUP BY key's, where a single file
-  follows the source order.
+  follows the source order. The change after `0.1.7` that reports the
+  unknown QUALIFY name as PIE-S2102 in a mixed aggregate JOIN relation is
+  described under
+  [Unreleased changes following 0.1.7](#unreleased-changes-following-017).
 - **A mixed aggregate JOIN.** A relation with JOIN inputs that mixes an
-  aggregate with another projection reports only PIE-S2312 in a project,
-  with or without ORDER BY. A single file also reports PIE-S2381 when an
-  aggregate may read rows repeated by a JOIN and, with ORDER BY, the
-  PIE-S2380 of an ORDER BY key that reads an input field outside an
-  aggregate. A project relation whose projections are all aggregates still
-  reports that fan-out, as a PIE-S2333 with its cause.
-- **A repeated unknown SELECT item.** A SELECT item of an unknown name
-  written twice, such as `nosuch`, reports PIE-S2102 at both items in a
-  project; a single file reports it at the first, with the PIE-S2305 that
-  both report.
+  aggregate with another projection reports only PIE-S2312 in a project, with
+  or without ORDER BY, beside the PIE-S2305 of a repeated output name; a
+  relation whose aggregate has an error of its own reports that error and no
+  PIE-S2312, as a single file does. When its `let:` clause or WHERE is
+  refused, it reports only that refusal, and the PIE-S2305 of a repeated
+  output name, without PIE-S2312, and when its only other projection is a
+  window, it is a bare PIE-S2333. A single file reports PIE-S2312 in the other
+  cases, the errors of the other SELECT items and QUALIFY beside it, PIE-S2381
+  when an aggregate may read rows repeated by a JOIN and, with ORDER BY, the
+  PIE-S2380 of an ORDER BY key that reads an input field outside an aggregate.
+  A project relation whose projections are all aggregates still reports that
+  fan-out, as a PIE-S2333 with its cause. The change after `0.1.7` that aligns
+  most of these cases is described under
+  [Unreleased changes following 0.1.7](#unreleased-changes-following-017).
+- **A repeated unknown SELECT item.** A SELECT item of an unknown name written
+  twice, such as `nosuch`, reports PIE-S2102 at both items in a project
+  outside a JOIN, and in a JOIN query at neither, at the first or at both,
+  depending on GROUP BY and on whether a `where` or `let:` fails; for such a
+  bare name a single file reports it at the first, with the PIE-S2305 that
+  both report. The change after `0.1.7` that aligns it is described under
+  [Unreleased changes following 0.1.7](#unreleased-changes-following-017).
 - **`explain --project` stops at the root package.** When the root package
   of a schema 4 project fails to load, for example for a syntax error in one
   of its modules, `explain --project` reports only the root's diagnostics;
-  the errors of its dependencies appear once the root is fixed.
+  the errors of its dependencies appear once the root is fixed. The change
+  after `0.1.7` that lists them when the root's pin check passes is
+  described under
+  [Unreleased changes following 0.1.7](#unreleased-changes-following-017).
 - **A repeated environment premise.** An emission contract whose
   `environment` lists one premise twice with the same value is VERIFIED, and
   the artifact's `target.environment` lists it twice, while a repeated source
-  description is INPUT_REJECTED.
+  description is INPUT_REJECTED. After `0.1.7` this is a documented rule; see
+  [Unreleased changes following 0.1.7](#unreleased-changes-following-017).
 - **A collection selected without a JOIN.** A table or query that reads a
   relation with a Collect read and selects its collection, without a JOIN or
   an Unnest, checks, but `emit-sql --project` reports it BLOCKED with
@@ -558,6 +803,28 @@ This decision covers the debts reviewed for this release. The other known
 limitations above are carried over from `0.1.6` or come with the changes of
 this release; no decision has scheduled them yet, and they stay documented
 here until one does.
+
+### Corrections after publication
+
+These notes were corrected after `0.1.7` was published; the release itself
+is unchanged.
+
+- The status above now says that `0.1.7` is published.
+- The known limitation of a mixed aggregate JOIN said that a project reports
+  only PIE-S2312. It now also names the two cases where `0.1.7` does not: a
+  relation whose `let:` clause or WHERE is refused reports only that
+  refusal, and one whose only other projection is a window is a bare
+  PIE-S2333. It also names the errors of the other SELECT items and QUALIFY
+  that a single file reports beside PIE-S2312.
+- The known limitations that changes after `0.1.7` lift or reduce now point
+  to [Unreleased changes following 0.1.7](#unreleased-changes-following-017).
+- The known limitation of a mixed aggregate JOIN now also names the
+  PIE-S2305 of a repeated output name and a relation whose aggregate has an
+  error of its own.
+- The known limitation of a repeated unknown SELECT item said that a project
+  reports PIE-S2102 at both items. It now says that this holds outside a
+  JOIN, and that a JOIN query reports it at neither, at the first or at both
+  items.
 
 ## Corrections and MySQL parity public alpha release notes — 0.1.6
 

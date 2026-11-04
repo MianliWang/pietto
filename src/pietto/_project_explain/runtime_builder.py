@@ -44,9 +44,7 @@ from pietto._project.package_extension_signature_selectors import (
     _package_extension_signature_requirement_selectors,
 )
 from pietto._project.package_inspection import (
-    PackageInspectionFactSet,
     PackageInspectionOutcome,
-    PackageInspectionRejection,
     _build_package_inspection_fact_set,
 )
 from pietto._project.package_load_plan import (
@@ -55,6 +53,11 @@ from pietto._project.package_load_plan import (
 )
 from pietto._project.package_loader import _load_root_package
 from pietto._project.package_locator import _locate_root_package
+from pietto._project.package_rejection import (
+    PackageRejectionDiagnostic,
+    PackageRejectionProduct,
+    _diagnose_package_load_result,
+)
 from pietto._project.project_capability_environment import (
     ProjectCapabilityEnvironmentAuthority,
     ProjectEvaluatedCapabilityTarget,
@@ -235,32 +238,32 @@ def _runtime_diagnostic(
     )
 
 
-def _package_inspection_diagnostics(
-    facts: PackageInspectionFactSet,
+def _package_plan_diagnostics(
+    product: PackageRejectionProduct,
 ) -> tuple[ProjectExplainDiagnostic, ...]:
-    inspection = facts.inspection
+    plan_result = product.plan_result
     diagnostics: list[ProjectExplainDiagnostic] = [
         _project_error_diagnostic(
-            error.error,
+            error,
             ProjectExplainLogicalPathKind.PACKAGE_RELATIVE,
         )
-        for error in inspection.errors
+        for error in plan_result.errors
     ]
     diagnostics.extend(
         _source_diagnostic(
-            diagnostic.diagnostic,
+            diagnostic,
             ProjectExplainLogicalPathKind.PACKAGE_RELATIVE,
         )
-        for diagnostic in inspection.diagnostics
+        for diagnostic in plan_result.diagnostics
     )
     diagnostics.extend(
-        _rejection_diagnostic(rejection) for rejection in inspection.rejections
+        _rejection_diagnostic(rejection) for rejection in product.diagnostics
     )
     return tuple(diagnostics)
 
 
 def _rejection_diagnostic(
-    rejection: PackageInspectionRejection,
+    rejection: PackageRejectionDiagnostic,
 ) -> ProjectExplainDiagnostic:
     return ProjectExplainDiagnostic(
         code=rejection.kind.value,
@@ -499,10 +502,20 @@ def _build_project_explain_runtime(
             )
             for diagnostic in load_result.diagnostics
         )
+        # Content that verified still declares the dependencies, so their own
+        # failures follow the root's, and the outcome follows the whole list,
+        # as they would once the root loads.
+        dependency_errors: tuple[ProjectDiscoveryError, ...] = ()
+        if load_result.verified_package is not None:
+            dependency_rejection = _diagnose_package_load_result(
+                _build_package_load_plan(load_result.verified_package)
+            )
+            dependency_errors = dependency_rejection.plan_result.errors
+            load_diagnostics += _package_plan_diagnostics(dependency_rejection)
         return _failed(
             (
                 ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR
-                if load_result.errors
+                if load_result.errors or dependency_errors
                 else ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR
             ),
             load_diagnostics,
@@ -518,9 +531,11 @@ def _build_project_explain_runtime(
     )
     plan_result = _build_package_load_plan(root_package)
     package_facts = _build_package_inspection_fact_set(plan_result)
+    # The rejections come from the product the inspection outcome derives from.
+    package_rejection = package_facts.authority.rejection_product
     if package_facts.inspection.outcome is not PackageInspectionOutcome.SUCCESS:
-        package_diagnostics = root_diagnostics + _package_inspection_diagnostics(
-            package_facts
+        package_diagnostics = root_diagnostics + _package_plan_diagnostics(
+            package_rejection
         )
         return _failed(
             (
@@ -532,9 +547,7 @@ def _build_project_explain_runtime(
         )
 
     environment_result = _build_project_capability_environment(project, config)
-    prior_diagnostics = root_diagnostics + _package_inspection_diagnostics(
-        package_facts
-    )
+    prior_diagnostics = root_diagnostics + _package_plan_diagnostics(package_rejection)
     if not environment_result.ok:
         return _failed(
             ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR,

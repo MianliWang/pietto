@@ -45,6 +45,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.parser_api import parse_source
+from pietto.semantic import analyze
 from pietto.semantic.capability_facts import (
     CapabilityDomain,
     CapabilityKey,
@@ -3552,6 +3553,323 @@ def test_a_repeated_output_name_is_pie_s2305_at_each_later_item(
         repeated("grouped", 7, "c"),
         repeated("windowed", 7, "r"),
         repeated("nulled", 6, "id"),
+    ]
+
+
+def test_a_repeated_output_name_reports_as_in_a_single_file(
+    tmp_path: Path,
+) -> None:
+    """Each query reports as in a single file: its diagnostics equal those
+    of analyze() for the same text, and the pins below fix the examples.
+
+    - a repeated unknown bare name, aliased or not, is PIE-S2305 alone, and
+      the earlier item reports its unknown field (`plain`, `renamed`,
+      `known`, `grouped`, `joined`, `joined_grouped`,
+      `joined_grouped_renamed`), also in a grouped JOIN whose WHERE or
+      `let:` fails (`joined_grouped_filtered`, `joined_grouped_let`,
+      `joined_grouped_renamed_filtered`, `joined_grouped_renamed_let`);
+    - a repeated dotted field, computed output or bare name that is ambiguous
+      in a JOIN (PIE-S2335), aliased or not, also reports its own errors
+      (`fields`, `joined_fields`, `ambiguous`, `aliased`, `aliased_filtered`,
+      `aliased_let`), also in a grouped JOIN whose WHERE holds, where a
+      repeated aggregate's PIE-S2305 and own errors come in position order,
+      with GROUP BY or without (`joined_grouped_repeats`,
+      `joined_counted_repeats`);
+    - in a joined relation with a repeated name, every other item reports its
+      own errors, also a computed one with several, in single-file order even
+      where the project's analysis finds them in another (`matched`,
+      `several`, `ordered`), and so after a joined WHERE or `let:` that fails
+      (`filtered`, `let`);
+    - in a grouped JOIN whose WHERE or `let:` fails, an item that repeats no
+      name is a non-grouped field (PIE-S2318), a grouped scalar (PIE-S2319)
+      beside its own errors, or its own unknown or ambiguous field, and a
+      repeated one reports only its own errors beside PIE-S2305
+      (`joined_grouped_items_filtered`, `joined_grouped_items_let`,
+      `joined_grouped_repeats_filtered`, `joined_grouped_repeats_let`);
+    - a grouped JOIN whose repeated name is a group key or an aggregate
+      reports PIE-S2305 alone (`joined_grouped_keys`, `joined_grouped_counts`);
+    - a relation without a repeated name is equal to analyze() too
+      (`unrepeated`, `several_filtered`)."""
+    join = "    let other = others\n    inner join other on rows.id == other.id\n"
+    names = "        nosuch\n        nosuch\n"
+    dotted = "        rows.nosuch\n        rows.nosuch\n"
+    computed = "        x = nosuch + 1\n        x = nosuch + 1\n"
+    ambiguous = "        id\n        id\n"
+    several = (
+        "        y = rows.nosuch4 + other.nosuch5 * 2\n"
+        '        z = ("a" + 1) + rows.nosuch6\n'
+    )
+    aliased = "        x = rows.nosuch\n        x = rows.nosuch\n"
+    grouped_join = f"{join}    group by:\n        rows.id\n    select:\n"
+    filtered = "    where nosuch2 > 1\n"
+    unbound = "    let v = nosuch3 + 1\n"
+    holding = "    where rows.amount > 1\n"
+    renamed = "        x = nosuch\n        x = nosuch\n"
+    counted = "        n = sum(rows.nosuch)\n        n = sum(rows.nosuch)\n"
+    grouped = "    group by:\n        rows.id\n    select:\n        rows.id\n"
+    grouped_items = (
+        "        rows.amount\n"
+        "        x = rows.amount + 1\n"
+        "        y = rows.nosuch + 1\n"
+        "        w = 1 + rows.nosuch\n"
+    )
+    grouped_repeats = (
+        "        x = nosuch + 1\n"
+        "        x = rows.nosuch + 1\n"
+        "        y = nosuch\n"
+        "        y = rows.nosuch\n"
+    )
+    queries = {
+        "plain": f"    select:\n        id\n{names}",
+        "renamed": "    select:\n        x = nosuch\n        x = nosuch\n",
+        "known": "    select:\n        x = id\n        x = nosuch\n",
+        "grouped": f"    group by:\n        id\n    select:\n        id\n{names}",
+        "fields": f"    select:\n{dotted}{computed}",
+        "joined": f"{join}    select:\n        rows.id\n{names}"
+        "        x = nosuch\n        x = nosuch\n",
+        "joined_fields": f"{join}    select:\n{dotted}{computed}",
+        "matched": f"{join}    where rows.amount > 1\n    select:\n        rows.id\n"
+        f"        rows.nosuch2\n{names}        x = rows.nosuch3 + 1\n",
+        "several": f"{join}    select:\n        rows.id\n{names}{several}",
+        "ordered": f"{join}    select:\n{names}        z = abs(rows.nosuch, 1)\n",
+        "unrepeated": f"{join}    where rows.amount > 1\n    select:\n"
+        "        rows.id\n        rows.nosuch2\n",
+        "several_filtered": f"{join}    where nosuch2 > 1\n    select:\n{several}",
+        "ambiguous": f"{join}    select:\n{ambiguous}",
+        "filtered": f"{join}    where nosuch2 > 1\n    select:\n{names}{dotted}"
+        f"{ambiguous}",
+        "let": f"{join}    let v = nosuch3 + 1\n    select:\n{names}{dotted}",
+        "joined_grouped": f"{grouped_join}        rows.id\n{names}"
+        "        rows.nosuch2\n",
+        "joined_grouped_keys": f"{grouped_join}        rows.id\n        id = rows.id\n",
+        "joined_grouped_counts": f"{grouped_join}        rows.id\n"
+        "        n = count()\n        n = count()\n",
+        "joined_grouped_filtered": f"{join}{filtered}{grouped}{names}",
+        "joined_grouped_let": f"{join}{unbound}{grouped}{names}",
+        "joined_grouped_items_filtered": f"{join}{filtered}{grouped}{grouped_items}"
+        "        z = id\n",
+        "joined_grouped_items_let": f"{join}{unbound}{grouped}{grouped_items}",
+        "joined_grouped_repeats_filtered": f"{join}{filtered}{grouped}"
+        f"        rows.amount\n        amount\n{grouped_repeats}",
+        "joined_grouped_repeats_let": f"{join}{unbound}{grouped}{grouped_repeats}",
+        "aliased": f"{join}    select:\n{aliased}        y = id\n        y = id\n",
+        "aliased_filtered": f"{join}{filtered}    select:\n{aliased}"
+        "        y = id\n        y = id\n",
+        "aliased_let": f"{join}{unbound}    select:\n{aliased}",
+        "joined_grouped_renamed": f"{join}{holding}{grouped}{renamed}",
+        "joined_grouped_renamed_filtered": f"{join}{filtered}{grouped}{renamed}",
+        "joined_grouped_renamed_let": f"{join}{unbound}{grouped}{renamed}",
+        "joined_grouped_repeats": f"{join}{holding}{grouped}{dotted}{aliased}"
+        f"        y = id\n        y = id\n{counted}",
+        "joined_counted_repeats": f"{join}{holding}    select:\n{counted}",
+    }
+    text = (
+        _prefix()
+        + 'source others: Row = postgres.table("others")\n'
+        + "".join(
+            f"query {name}:\n    from rows\n{body}" for name, body in queries.items()
+        )
+    )
+    lines = text.splitlines()
+    # The 1-based line of each query's header.
+    starts = [lines.index(f"query {name}:") + 1 for name in queries]
+    _, semantic = _semantic_project(tmp_path, {"main.pietto": text})
+    project = build_project_completed_semantic_result(semantic).diagnostics
+    # `x = id, x = nosuch`: the module row fact keeps the duplicate output
+    # name as the reason the relation's own row state has, not an unknown
+    # field, since the repeat reports none.
+    known = _relation(semantic, "main.pietto", "known")
+    assert known.state.reason is ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME
+    assert known.base_row_fact.state.reason is known.state.reason
+    authored = parse_source(text, path="main.pietto")
+    assert authored.ast is not None and authored.diagnostics == ()
+
+    def by_query(
+        diagnostics: tuple[Diagnostic, ...],
+    ) -> dict[str, list[tuple[str, str, int, int]]]:
+        return {
+            name: [
+                (item.code, item.message, item.location.line, item.location.column)
+                for item in diagnostics
+                if start <= item.location.line < end
+            ]
+            for name, start, end in zip(
+                queries, starts, [*starts[1:], len(lines) + 1], strict=True
+            )
+        }
+
+    reported = by_query(project)
+    single = analyze(authored.ast).diagnostics
+    assert reported == by_query(single)
+    # Neither reports a diagnostic outside the queries.
+    assert sum(map(len, reported.values())) == len(project) == len(single)
+    at = dict(zip(queries, starts, strict=True))
+    unknown, repeated = "Unknown field: ", "Duplicate projection field: "
+    assert reported["plain"] == [
+        ("PIE-S2102", f"{unknown}nosuch", at["plain"] + 4, 9),
+        ("PIE-S2305", f"{repeated}nosuch", at["plain"] + 5, 9),
+    ]
+    assert reported["joined"] == [
+        ("PIE-S2102", f"{unknown}nosuch", at["joined"] + 6, 9),
+        ("PIE-S2305", f"{repeated}nosuch", at["joined"] + 7, 9),
+        ("PIE-S2102", f"{unknown}nosuch", at["joined"] + 8, 13),
+        ("PIE-S2305", f"{repeated}x", at["joined"] + 9, 9),
+    ]
+    assert reported["matched"] == [
+        ("PIE-S2102", f"{unknown}rows.nosuch2", at["matched"] + 7, 9),
+        ("PIE-S2102", f"{unknown}nosuch", at["matched"] + 8, 9),
+        ("PIE-S2305", f"{repeated}nosuch", at["matched"] + 9, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch3", at["matched"] + 10, 13),
+    ]
+    assert reported["unrepeated"] == [
+        ("PIE-S2102", f"{unknown}rows.nosuch2", at["unrepeated"] + 7, 9),
+    ]
+    both = ("PIE-S2335", "Ambiguous field: id; write rows.id or other.id")
+    assert reported["ambiguous"] == [
+        (*both, at["ambiguous"] + 5, 9),
+        ("PIE-S2305", f"{repeated}id", at["ambiguous"] + 6, 9),
+        (*both, at["ambiguous"] + 6, 9),
+    ]
+    assert reported["several"] == [
+        ("PIE-S2102", f"{unknown}nosuch", at["several"] + 6, 9),
+        ("PIE-S2305", f"{repeated}nosuch", at["several"] + 7, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch4", at["several"] + 8, 13),
+        ("PIE-S2102", f"{unknown}other.nosuch5", at["several"] + 8, 28),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
+            at["several"] + 9,
+            14,
+        ),
+        ("PIE-S2102", f"{unknown}rows.nosuch6", at["several"] + 9, 25),
+    ]
+    # The project's analysis finds the unknown argument before the call's
+    # arity error; a single file sorts them by position.
+    assert reported["ordered"] == [
+        ("PIE-S2102", f"{unknown}nosuch", at["ordered"] + 5, 9),
+        ("PIE-S2305", f"{repeated}nosuch", at["ordered"] + 6, 9),
+        (
+            "PIE-S2104",
+            "Invalid arguments for function abs: expected 1, got 2",
+            at["ordered"] + 7,
+            13,
+        ),
+        ("PIE-S2102", f"{unknown}rows.nosuch", at["ordered"] + 7, 17),
+    ]
+    assert reported["joined_grouped"] == [
+        ("PIE-S2102", f"{unknown}nosuch", at["joined_grouped"] + 8, 9),
+        ("PIE-S2305", f"{repeated}nosuch", at["joined_grouped"] + 9, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch2", at["joined_grouped"] + 10, 9),
+    ]
+    where_error = ("PIE-S2102", f"{unknown}nosuch2")
+    let_error = ("PIE-S2102", f"{unknown}nosuch3")
+    for name, failed in (
+        (
+            "joined_grouped_filtered",
+            (*where_error, at["joined_grouped_filtered"] + 4, 11),
+        ),
+        ("joined_grouped_let", (*let_error, at["joined_grouped_let"] + 4, 13)),
+    ):
+        assert reported[name] == [
+            failed,
+            ("PIE-S2102", f"{unknown}nosuch", at[name] + 9, 9),
+            ("PIE-S2305", f"{repeated}nosuch", at[name] + 10, 9),
+        ]
+    scalar = (
+        "PIE-S2319",
+        "Grouped scalar projection expressions are not supported yet",
+    )
+    non_grouped = (
+        "PIE-S2318",
+        "Grouped projection is not a GROUP BY key: rows.amount",
+    )
+    start = at["joined_grouped_items_filtered"]
+    assert reported["joined_grouped_items_filtered"] == [
+        (*where_error, start + 4, 11),
+        (*non_grouped, start + 9, 9),
+        (*scalar, start + 10, 13),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 11, 13),
+        (*scalar, start + 11, 13),
+        (*scalar, start + 12, 13),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 12, 17),
+        (*both, start + 13, 13),
+    ]
+    start = at["joined_grouped_repeats_filtered"]
+    assert reported["joined_grouped_repeats_filtered"] == [
+        (*where_error, start + 4, 11),
+        (*non_grouped, start + 9, 9),
+        ("PIE-S2305", f"{repeated}amount", start + 10, 9),
+        (
+            "PIE-S2335",
+            "Ambiguous field: amount; write rows.amount or other.amount",
+            start + 10,
+            9,
+        ),
+        ("PIE-S2102", f"{unknown}nosuch", start + 11, 13),
+        (*scalar, start + 11, 13),
+        ("PIE-S2305", f"{repeated}x", start + 12, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 12, 13),
+        ("PIE-S2102", f"{unknown}nosuch", start + 13, 13),
+        ("PIE-S2305", f"{repeated}y", start + 14, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 14, 13),
+    ]
+    start = at["joined_grouped_repeats_let"]
+    assert reported["joined_grouped_repeats_let"] == [
+        (*let_error, start + 4, 13),
+        ("PIE-S2102", f"{unknown}nosuch", start + 9, 13),
+        (*scalar, start + 9, 13),
+        ("PIE-S2305", f"{repeated}x", start + 10, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 10, 13),
+        ("PIE-S2102", f"{unknown}nosuch", start + 11, 13),
+        ("PIE-S2305", f"{repeated}y", start + 12, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 12, 13),
+    ]
+    start = at["aliased"]
+    assert reported["aliased"] == [
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 5, 13),
+        ("PIE-S2305", f"{repeated}x", start + 6, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 6, 13),
+        (*both, start + 7, 13),
+        ("PIE-S2305", f"{repeated}y", start + 8, 9),
+        (*both, start + 8, 13),
+    ]
+    for name, failed in (
+        ("joined_grouped_renamed", ()),
+        (
+            "joined_grouped_renamed_filtered",
+            ((*where_error, at["joined_grouped_renamed_filtered"] + 4, 11),),
+        ),
+        (
+            "joined_grouped_renamed_let",
+            ((*let_error, at["joined_grouped_renamed_let"] + 4, 13),),
+        ),
+    ):
+        assert reported[name] == [
+            *failed,
+            ("PIE-S2102", f"{unknown}nosuch", at[name] + 9, 13),
+            ("PIE-S2305", f"{repeated}x", at[name] + 10, 9),
+        ]
+    start = at["joined_grouped_repeats"]
+    assert reported["joined_grouped_repeats"] == [
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 9, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 10, 9),
+        ("PIE-S2305", f"{repeated}nosuch", start + 10, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 11, 13),
+        ("PIE-S2305", f"{repeated}x", start + 12, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 12, 13),
+        (*both, start + 13, 13),
+        ("PIE-S2305", f"{repeated}y", start + 14, 9),
+        (*both, start + 14, 13),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 15, 17),
+        ("PIE-S2305", f"{repeated}n", start + 16, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 16, 17),
+    ]
+    start = at["joined_counted_repeats"]
+    assert reported["joined_counted_repeats"] == [
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 6, 17),
+        ("PIE-S2305", f"{repeated}n", start + 7, 9),
+        ("PIE-S2102", f"{unknown}rows.nosuch", start + 7, 17),
     ]
 
 

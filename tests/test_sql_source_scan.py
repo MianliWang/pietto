@@ -627,7 +627,7 @@ def test_a_let_chain_past_the_structure_limit_is_refused_before_realization(
     assert shorter.status == "VERIFIED"
 
 
-@pytest.mark.parametrize("mode", ("cross_source", "unused_conflict"))
+@pytest.mark.parametrize("mode", ("cross_source", "unused_conflict", "exact_repeat"))
 def test_all_premise_scopes_are_bound_and_coherent(tmp_path, mode):
     item = probe.fixture("postgres")
     source = item["source"] + '\nsource unused: Row = mysql.table("unrelated")\n'
@@ -637,6 +637,55 @@ def test_all_premise_scopes_are_bound_and_coherent(tmp_path, mode):
     document["sources"].append(unused)
     checked, result = probe.build_case(tmp_path, source, probe.encoded(document))
     assert result.status == "VERIFIED"
+    if mode == "exact_repeat":
+        # A declaration repeated with the same bound scope, key and canonical
+        # value, within `environment`, within one source's premises or across
+        # both, in any number of copies, keeps each copy at its own position,
+        # echoed and cited beside the first; the SQL is unchanged.
+        base = probe.decode_public(serialize_project_sql_emission(result))
+        rows = document["sources"][0]
+        width, length = len(document["environment"]), len(rows["premises"])
+        total = width + sum(len(s["premises"]) for s in document["sources"])
+        selected = {"kind": "source", "selector": rows["selector"]}
+        scanned = rows["premises"][0]
+        for first, environment, premises in (
+            (0, [document["environment"][0]], []),
+            (width, [], [scanned]),
+            (width + 1, [{**rows["premises"][1], "scope": selected}], []),
+            (1, [], [document["environment"][1]]),
+            # Three copies: the first, one in `environment`, one in the source.
+            (width, [{**scanned, "scope": selected}], [scanned]),
+        ):
+            repeated = deepcopy(document)
+            repeated["environment"].extend(environment)
+            repeated["sources"][0]["premises"].extend(premises)
+            again = emit_project_sql(checked, probe.encoded(repeated))
+            assert again.status == "VERIFIED", (first, environment, premises)
+            public = probe.decode_public(serialize_project_sql_emission(again))
+            assert public["sql"] == base["sql"]
+            assert public["request"]["contract"] == repeated
+            assert public["target"]["environment"] == repeated["environment"]
+            # Each position's declaration in the contract without the copies.
+            unrepeated = [
+                *range(width),
+                *[first] * len(environment),
+                *range(width, width + length),
+                *[first] * len(premises),
+                *range(width + length, total),
+            ]
+            copies = {p for p, old in enumerate(unrepeated) if old == first}
+            assert len(copies) == 1 + len(environment) + len(premises)
+            cited = 0
+            for old, new in zip(
+                base["requirements"], public["requirements"], strict=True
+            ):
+                cites = set(new["premises"])
+                assert copies <= cites or not copies & cites
+                cited += copies <= cites
+                assert sorted({unrepeated[p] for p in cites}) == old["premises"]
+                assert {**new, "premises": old["premises"]} == old
+            assert cited
+        return
     if mode == "cross_source":
         assert result.artifact is not None
         site = result.artifact.request.plan.expression_sites[0]

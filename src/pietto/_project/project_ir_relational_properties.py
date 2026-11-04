@@ -30,6 +30,9 @@ from pietto._project.project_ir import (
     ProjectIROperatorFlowUseOccurrence,
     ProjectIRPlanNodeOccurrence,
 )
+from pietto._project.project_ir_evaluation_context import (
+    ProjectIREvaluationContextStage,
+)
 from pietto._project.project_ir_operators import (
     ProjectIRLogicalOperatorKind,
     ProjectIRLogicalOperatorOccurrence,
@@ -39,7 +42,10 @@ from pietto._project.project_ir_properties import (
     ProjectIRJoinedRowField,
     ProjectIRRelationRowOutput,
 )
-from pietto._project.project_ir_verification import ProjectIRAnalysisBundle
+from pietto._project.project_ir_verification import (
+    ProjectIRVerificationResult,
+    derive_project_ir_topological_order,
+)
 from pietto._project.project_row_keys import ProjectRowUniquenessStrength
 from pietto.ast_nodes import DottedNameExpr, NameExpr, SetOperationKind
 
@@ -294,18 +300,21 @@ class ProjectIROutputRelationalProperties:
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectIRRelationalPropertyStage:
     origins: ProjectGrainOriginSet = field(repr=False, compare=False, hash=False)
-    analyses: ProjectIRAnalysisBundle = field(repr=False, compare=False, hash=False)
+    verification: ProjectIRVerificationResult = field(
+        repr=False, compare=False, hash=False
+    )
     outputs: tuple[ProjectIROutputRelationalProperties, ...]
 
     def __post_init__(self) -> None:
-        if self.origins.evaluation is not self.analyses.stage:
+        order = derive_project_ir_topological_order(self.verification)
+        if self.origins.evaluation is not self.stage:
             raise ValueError("Relational stage requires exact shared snapshot roots.")
         expected = tuple(
             output
-            for node in self.analyses.topological_order
-            for output in self.analyses.stage.project_plan.structural_stage.outputs
+            for node in order
+            for output in self.stage.project_plan.structural_stage.outputs
             if output.producer is node
-            for typed in self.analyses.stage.project_plan.concrete_fragments
+            for typed in self.stage.project_plan.concrete_fragments
             for output_property in typed.property_stage.outputs
             if output_property.occurrence is output
             and type(output_property) is ProjectIRRelationRowOutput
@@ -319,14 +328,18 @@ class ProjectIRRelationalPropertyStage:
                 "Relational stage must cover topological row outputs once."
             )
 
+    @property
+    def stage(self) -> ProjectIREvaluationContextStage:
+        return self.verification.stage
+
 
 def _row_output(
-    analyses: ProjectIRAnalysisBundle,
+    verification: ProjectIRVerificationResult,
     node: ProjectIRPlanNodeOccurrence,
 ) -> ProjectIRRelationRowOutput:
     matches = tuple(
         output
-        for fragment in analyses.stage.project_plan.concrete_fragments
+        for fragment in verification.stage.project_plan.concrete_fragments
         for output in fragment.property_stage.outputs
         if type(output) is ProjectIRRelationRowOutput
         and output.occurrence.producer is node
@@ -336,10 +349,12 @@ def _row_output(
     return matches[0]
 
 
-def _operator(analyses: ProjectIRAnalysisBundle, node: ProjectIRPlanNodeOccurrence):
+def _operator(
+    verification: ProjectIRVerificationResult, node: ProjectIRPlanNodeOccurrence
+):
     matches = tuple(
         operator
-        for fragment in analyses.stage.project_plan.concrete_fragments
+        for fragment in verification.stage.project_plan.concrete_fragments
         for operator in fragment.logical_stage.operators
         if operator.node is node
     )
@@ -349,13 +364,13 @@ def _operator(analyses: ProjectIRAnalysisBundle, node: ProjectIRPlanNodeOccurren
 
 
 def _incoming(
-    analyses: ProjectIRAnalysisBundle,
+    verification: ProjectIRVerificationResult,
     node: ProjectIRPlanNodeOccurrence,
     built: dict[object, ProjectIROutputRelationalProperties],
 ) -> ProjectIROutputRelationalProperties | None:
     flows = tuple(
         use
-        for use in analyses.stage.project_plan.structural_stage.uses
+        for use in verification.stage.project_plan.structural_stage.uses
         if type(use) is ProjectIROperatorFlowUseOccurrence and use.slot.consumer is node
     )
     if flows:
@@ -364,7 +379,7 @@ def _incoming(
         return built.get(flows[0].output.ref)
     edges = tuple(
         edge
-        for edge in analyses.stage.project_plan.cross_relation_edges
+        for edge in verification.stage.project_plan.cross_relation_edges
         if edge.input_slot.consumer is node
     )
     if edges:
@@ -556,29 +571,25 @@ def _key_fds(output, classes, keys, inherited=()):
                     supports=(key,),
                 )
             )
-    merged: list[ProjectIROutputValueFD] = []
+    # Index by the exact merge identity; a merge keeps its first position. Value
+    # classes hash and compare by identity, and strength is a singleton
+    # ProjectRowUniquenessStrength member, so key equality is the `is` test.
+    merged: dict[tuple[object, ...], ProjectIROutputValueFD] = {}
     for fact in facts:
-        existing = next(
-            (
-                item
-                for item in merged
-                if item.determinants == fact.determinants
-                and item.dependents == fact.dependents
-                and item.strength is fact.strength
-            ),
-            None,
-        )
-        if existing is None:
-            merged.append(fact)
-        else:
-            merged[merged.index(existing)] = ProjectIROutputValueFD(
+        identity = (fact.determinants, fact.dependents, fact.strength)
+        existing = merged.get(identity)
+        merged[identity] = (
+            fact
+            if existing is None
+            else ProjectIROutputValueFD(
                 output=output,
                 determinants=fact.determinants,
                 dependents=fact.dependents,
                 strength=fact.strength,
                 supports=(*existing.supports, *fact.supports),
             )
-    return tuple(merged)
+        )
+    return tuple(merged.values())
 
 
 def _image_keys_and_fds(
@@ -683,14 +694,21 @@ def _compile_output_fd_index(output, universe, facts):
         for fact in facts
         if fact.strength is ProjectRowUniquenessStrength.LAX
     )
-    incidents = tuple(
-        tuple(
-            rule_position
-            for rule_position, compiled in enumerate(strict_rules)
-            if compiled.lhs_mask & (1 << position)
-        )
-        for position in range(len(universe))
-    )
+    # List each STRICT rule under the universe position of every set bit of its
+    # `lhs_mask`, lowest bit first, instead of testing every rule at every
+    # position. `mask &= mask - 1` clears the lowest set bit, and the mask is a
+    # non-negative sum of powers of two, so the loop ends. `lhs_mask` adds
+    # `1 << position` once per determinant, so only a repeated determinant can
+    # carry a bit to len(universe) or past it; such a bit is skipped, as the
+    # per-position scan never tested it.
+    incidents: list[list[int]] = [[] for _ in universe]
+    for rule_position, compiled in enumerate(strict_rules):
+        mask = compiled.lhs_mask
+        while mask:
+            position = (mask & -mask).bit_length() - 1
+            if position < len(universe):
+                incidents[position].append(rule_position)
+            mask &= mask - 1
     return ProjectIROutputFDIndex(
         output=output,
         universe=universe,
@@ -698,7 +716,7 @@ def _compile_output_fd_index(output, universe, facts):
         positions=positions,
         strict_rules=strict_rules,
         lax_rules=lax_rules,
-        incidents=incidents,
+        incidents=tuple(map(tuple, incidents)),
     )
 
 
@@ -806,17 +824,18 @@ def _source_seed(origins, output, classes):
 
 def build_project_ir_relational_property_stage(
     origins: ProjectGrainOriginSet,
-    analyses: ProjectIRAnalysisBundle,
+    verification: ProjectIRVerificationResult,
 ) -> ProjectIRRelationalPropertyStage:
-    if origins.evaluation is not analyses.stage:
+    order = derive_project_ir_topological_order(verification)
+    if origins.evaluation is not verification.stage:
         raise ValueError("Relational construction requires exact shared roots.")
     built: dict[object, ProjectIROutputRelationalProperties] = {}
     values: list[ProjectIROutputRelationalProperties] = []
-    for node in analyses.topological_order:
-        output = _row_output(analyses, node)
-        operator = _operator(analyses, node)
+    for node in order:
+        output = _row_output(verification, node)
+        operator = _operator(verification, node)
         fields = _field_occurrences(output)
-        incoming = _incoming(analyses, node, built)
+        incoming = _incoming(verification, node, built)
         if incoming is None:
             classes = _singleton_classes(output, fields)
             keys, provided_grain = _source_seed(origins, output, classes)
@@ -825,7 +844,7 @@ def build_project_ir_relational_property_stage(
             classes = _singleton_classes(output, fields)
             context = next(
                 item
-                for item in analyses.stage.aggregate_contexts
+                for item in verification.stage.aggregate_contexts
                 if item.operator is operator
             )
             origin = next(
@@ -937,7 +956,7 @@ def build_project_ir_relational_property_stage(
         built[output.occurrence.ref] = item
     return ProjectIRRelationalPropertyStage(
         origins=origins,
-        analyses=analyses,
+        verification=verification,
         outputs=tuple(values),
     )
 

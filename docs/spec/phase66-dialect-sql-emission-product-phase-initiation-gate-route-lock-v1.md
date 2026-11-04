@@ -603,6 +603,7 @@ finite_float(binary64)；每个tag只接自身列出的字段，NULL由独立nul
 选中源缺描述BLOCKED；未选源的合法不适用target描述不污染选中结果。所有重复、歧义、
 非法结构即使在unused源上也INPUT_REJECTED。声明与Slice2+实际observation分列，编译器不验证
 数据库实例，不把文件中`true`当执行证明。
+“所有重复、歧义、非法结构即使在unused源上也INPUT_REJECTED”中的“重复”“歧义”指source描述；premise重复与冲突的当前规则见[当前协议](../project-package.md#emission-contract-values)。
 
 input hard ceilings：1 MiB accepted UTF-8 contract、4096 source descriptions、32768 field
 mappings、128 JSON nesting；超限为完整typed input failure。emission hard ceilings：8 MiB SQL、

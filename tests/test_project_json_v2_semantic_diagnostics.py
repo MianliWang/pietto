@@ -668,6 +668,62 @@ def test_a_legacy_flat_check_reads_ungrouped_order_by_keys_as_a_single_file_does
     ]
 
 
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "    select:\n        id\n        nosuch\n        nosuch\n",
+            [("PIE-S2102", 10, 9), ("PIE-S2305", 11, 9)],
+        ),
+        (
+            "    select:\n        x = nosuch\n        x = nosuch\n",
+            [("PIE-S2102", 9, 13), ("PIE-S2305", 10, 9)],
+        ),
+        ("    select:\n        x = id\n        x = nosuch\n", [("PIE-S2305", 10, 9)]),
+        (
+            "    group by:\n        id\n    select:\n        id\n        nosuch\n"
+            "        nosuch\n",
+            [("PIE-S2102", 12, 9), ("PIE-S2305", 13, 9)],
+        ),
+        (
+            "    select:\n        src.nosuch\n        src.nosuch\n",
+            [("PIE-S2102", 9, 9), ("PIE-S2102", 10, 9), ("PIE-S2305", 10, 9)],
+        ),
+        (
+            "    select:\n        x = nosuch + 1\n        x = nosuch + 1\n",
+            [("PIE-S2102", 9, 13), ("PIE-S2305", 10, 9), ("PIE-S2102", 10, 13)],
+        ),
+    ),
+    ids=("bare", "renamed", "known", "grouped", "dotted", "computed"),
+)
+def test_a_legacy_flat_check_reports_a_repeated_output_name_as_a_single_file_does(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    body: str,
+    expected: list[tuple[str, int, int]],
+) -> None:
+    """A SELECT item that repeats an earlier output name with a bare name,
+    aliased or not, is PIE-S2305 alone while the earlier item reports its own
+    unknown field; a repeated dotted field or computed output also reports its
+    own errors, equal to a single file. A schema_version = 1
+    project checks no JOIN, so a JOIN that repeats a name is PIE-S2334
+    (`test_a_legacy_flat_check_refuses_a_join_or_any_whatever_else_it_holds`)."""
+    root = _project_root(tmp_path, include=("*.pietto",))
+    single = _write(root, "main.pietto", _FLAT_HEAD + "query q:\n    from src\n" + body)
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    project = _located(_read_json_document(capsys))
+    assert [(code, location[1], location[2]) for code, location, _ in project] == (
+        expected
+    )
+
+    assert cli.main(["check", str(single), "--format", "json"]) == 1
+    assert _located(_read_json_document(capsys)) == [
+        (code, (str(single), *location[1:]), message)
+        for code, location, message in project
+    ]
+
+
 _LEGACY_FLAT_JOINS_WITHOUT_ON = (
     "shape T:\n    id: Int\n    n: Int | None\n"
     'source src: T = postgres.table("src")\n'
@@ -967,6 +1023,15 @@ _LEGACY_FLAT_REFUSAL_HEAD = (
             ],
             [("PIE-S2334", (10, 12, 10, 20), _NO_DISTINCT)],
         ),
+        (
+            "    let r = d\n    inner join r on src.id == r.id\n"
+            "    select:\n        id = src.id\n        nosuch\n        nosuch\n",
+            [("PIE-S2334", (9, 18, 9, 35), "JOIN r" + _NO_JOIN)],
+            [
+                ("PIE-S2102", (12, 9, 12, 15), "Unknown field: nosuch"),
+                ("PIE-S2305", (13, 9, 13, 15), "Duplicate projection field: nosuch"),
+            ],
+        ),
     ),
     ids=(
         "join_to_an_unknown_target_whose_binding_is_read",
@@ -984,6 +1049,7 @@ _LEGACY_FLAT_REFUSAL_HEAD = (
         "duplicate_relation_name_and_an_any_in_a_relationship_predicate",
         "prefix_any_beside_an_error_elsewhere",
         "distinct_between_a_join_and_an_any",
+        "join_repeating_an_output_name",
     ),
 )
 def test_a_legacy_flat_check_refuses_a_join_or_any_whatever_else_it_holds(

@@ -28,6 +28,7 @@ from pietto._project.model import (
     ProjectSymbol,
     ProjectSymbolKind,
     ProjectSymbolNamespace,
+    _repeated_output_names,
 )
 from pietto._project.module_bindings import (
     ProjectModuleBindingEnvironment,
@@ -2953,23 +2954,16 @@ def _relation_row_state(
         )
         or _passes_unfit_field(relation_definition, source_schema)
     )
-    output_names: set[str] = set()
-    duplicate = False
-    for item in relation_definition.select_items:
-        output_name = _projection_output_name(item)
-        if output_name is None:
-            continue
-        if output_name in output_names:
-            duplicate = True
-            continue
-        output_names.add(output_name)
-
+    repeated = _repeated_output_names(relation_definition.select_items)
     fields: dict[str, ProjectRowField] = {}
     diagnostics: list[ProjectModuleRelationResolutionIssue] = []
     for item in relation_definition.select_items:
         if type(item.expression) not in {NameExpr, DottedNameExpr}:
             continue
-        if type(item.expression) is NameExpr and item.expression.name in let_names:
+        # A bare name repeating an earlier output name is PIE-S2305 alone.
+        if type(item.expression) is NameExpr and (
+            item.expression.name in let_names or id(item) in repeated
+        ):
             continue
         decoded = _direct_field_names(
             item,
@@ -3027,7 +3021,7 @@ def _relation_row_state(
     draft.issues.extend(diagnostics)
     if diagnostics:
         return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
-    if duplicate:
+    if repeated:
         return _unknown_state(ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME)
     if has_deferred_behavior:
         return ProjectRelationRowSchemaState(
@@ -3045,17 +3039,6 @@ def _relation_row_state(
         schema=ProjectRowSchema(fields=fields),
         reason=reason,
     )
-
-
-def _projection_output_name(item: SelectItem) -> str | None:
-    if item.alias is not None:
-        return item.alias
-    expression = item.expression
-    if type(expression) is NameExpr:
-        return expression.name
-    if type(expression) is DottedNameExpr:
-        return expression.parts[-1]
-    return None
 
 
 def _direct_field_names(

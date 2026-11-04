@@ -2263,12 +2263,18 @@ def _derive_reachability(
     return tuple(entries)
 
 
-def _schema_signature(
+def _final_root_shape(
     fragment: ProjectIRConcreteSingleRelationFragment,
-) -> tuple[tuple[object, ...], ...]:
+) -> ProjectIRRowShape:
     shape = fragment.root_relation_output.row_shape
     if type(shape) is not ProjectIRRowShape:
         raise ValueError("Concrete root requires a final semantic row shape.")
+    return shape
+
+
+def _schema_signature(
+    fragment: ProjectIRConcreteSingleRelationFragment,
+) -> tuple[tuple[object, ...], ...]:
     return tuple(
         (
             field.evidence.name,
@@ -2276,7 +2282,7 @@ def _schema_signature(
             field.evidence.nullability,
             field.evidence.result_role,
         )
-        for field in shape.fields
+        for field in _final_root_shape(fragment).fields
     )
 
 
@@ -2558,20 +2564,38 @@ class ProjectIRAnalysisBundle:
         return self.verification.stage
 
 
-def build_project_ir_analysis_bundle(
+def derive_project_ir_topological_order(
     verification: ProjectIRVerificationResult,
-) -> ProjectIRAnalysisBundle:
-    """Recompute every current analysis from exact direct uses and facts."""
+) -> tuple[ProjectIRPlanNodeOccurrence, ...]:
+    """Admit one exact VERIFIED result and freshly derive its Kahn order.
+
+    This is the TOPOLOGICAL_ORDER analysis behind the analysis-bundle admission:
+    an exact VERIFIED result, a fresh acyclic order (no caller-supplied order is
+    accepted), and a final row shape on every concrete root. Each check fails
+    closed with the bundle builder's message.
+    """
 
     if (
         type(verification) is not ProjectIRVerificationResult
         or not verification.verified
     ):
         raise ValueError("Only a VERIFIED exact stage may produce analyses.")
-    stage = verification.stage
-    topological = _fresh_topological_order(stage.project_plan.structural_stage)
+    plan = verification.stage.project_plan
+    topological = _fresh_topological_order(plan.structural_stage)
     if topological is None:
         raise ValueError("Verified ordinary Project IR must remain acyclic.")
+    for fragment in plan.concrete_fragments:
+        _final_root_shape(fragment)
+    return topological
+
+
+def build_project_ir_analysis_bundle(
+    verification: ProjectIRVerificationResult,
+) -> ProjectIRAnalysisBundle:
+    """Recompute every current analysis from exact direct uses and facts."""
+
+    topological = derive_project_ir_topological_order(verification)
+    stage = verification.stage
     equivalence = _derive_equivalence_assessments(stage)
     return ProjectIRAnalysisBundle(
         verification=verification,

@@ -544,3 +544,18 @@ Phase71 闭合（S24 审计提交 `59b26027`，自然 CI `41543143863` attempt 1
 同日所有者另批准了质量 interlude 的私有准备与 Phase72 开局调研的并行安排；它们在 `0.1.7` 发布之前不推送，操作细节记在私有证据中。
 
 这些回答只覆盖 `0.1.7` 发行与上述并行工作，不是常设授权。`0.1.7` 只有在 tag `v0.1.7`、GitHub pre-release 与 PyPI 上出现所接受的文件之后才算发布；本节本身不发布任何东西。D71.01–D71.12 的其余内容不变。
+
+## 项目模式质量 interlude — 所有者决定（2026-11-03）
+
+`0.1.7` 发布后，lead 就 interlude 中需要所有者决定的事项提问，所有者每一问都选了推荐。F5 与 F7 对项目诊断的改动属于 2026-10-29 已批准的一类（Q1-A：项目诊断向单文件行为对齐，每项改动写进发行说明）。
+
+| 项 | 已选规则 |
+| --- | --- |
+| EXD-5 退出码 | 「跟随整份列表」：根包的 pin 检查通过、根模块随后解析失败时，`explain --project` 接着列出依赖的诊断；列表里有 project error（例如依赖目录缺失的 `project_resource`）时退出 2，否则退出 1，与根能加载时相同。唯一改变的输入是根只有解析时报出的错误、而依赖有 project error：`0.1.7` 退出 1，之后退出 2，发行说明写明。 |
+| PE-09 重复 premise | 「保持接受并写进文档」：scope、key 与规范值都相同的重复 premise 照旧接受，[项目指南](project-package.md#emission-contract-values)写明规则；值不同仍 BLOCKED `PIE-B1005`，source 描述重复仍 INPUT_REJECTED。Phase66 路线锁中“所有重复、歧义、非法结构即使在unused源上也INPUT_REJECTED”一句按窄义理解为 source 描述，并在原处加注。 |
+| PMS-3 | 「批准 A，通过 G1–G8 才接受」：`check --project`、`emit-sql --project` 与 `compile_query` 不再构建私有 `ProjectIRAnalysisBundle`；relational property 直接接收 VERIFIED 的 verification 结果，并保留 bundle 原有的准入检查；私有 inspection 仍构建 bundle。条件是实现后的树通过 Ruff 与 pyright、新的负路径测试、差分向量与 inspection 规范字节不变、生成项目的输出与基线逐字节相同、空闲主机上的计时，以及权威全量验证。 |
+| F5 残余 | 「记为已知限制」：`let` 名与 SELECT 输出同名（PIE-S2329）的 6 个 mixed-aggregate JOIN 用例保持与单文件不同，写进发行说明与 PIE-S2312 一行，并列为后续架构项。lead 按同一规则（既有差异，本次既不引入也不加重）把 `let` 值或 WHERE 出错的 14 个用例与 F7 的残余归入同一个 ARCHITECTURE_DECISION：项目 joined aggregation 在被拒绝的 WHERE 或 `let:` 绑定旁的分析。这一归类是 lead 的裁定，所有者可以推翻。 |
+| PMS-6 FD 共享 | 「现在开设计 lane」：只做设计、原型与测量，不改产品；已完成的 PMS-6 部分改动不等它，随 interlude 发布。跨 JOIN 步共享 FD 结构本身是 ARCHITECTURE_DECISION，另行决定。 |
+| 预算 | focused 上限 1000；diagnostic 上限 600，一条命令算一次，命令内部的循环只算一次。 |
+
+PMS-2 的设计仍在进行：lead 要求新方案同时保留私有 pure 文档的两项可移植自检，私有标记 `pietto.module-inspection.v1` 就地修改。这些回答只覆盖这个 interlude，不是常设授权；它的提交与推送仍需所有者另行批准。

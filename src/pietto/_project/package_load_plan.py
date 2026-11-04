@@ -10,6 +10,7 @@ import posixpath
 from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
 from pietto._project.package_loader import (
     LoadedRootPackage,
+    VerifiedRootPackage,
     _LoadedPackageContent,
     _PackageModuleContent,
     _error,
@@ -55,7 +56,7 @@ class PackageLoadPlanBlockerKind(StrEnum):
 
 @dataclass(frozen=True, slots=True, init=False)
 class PackageDependencyOccurrence:
-    declaring_package: LoadedRootPackage | LoadedDependencyPackage = field(repr=False)
+    declaring_package: DeclaringPackage = field(repr=False)
     declaration: PackageManifestDependency
     position: int
     coordinate: PackageCoordinate
@@ -121,6 +122,8 @@ class LoadedDependencyPackage:
 
 
 LoadedPackage = LoadedRootPackage | LoadedDependencyPackage
+# A verified root that did not load still declares its dependencies.
+DeclaringPackage = LoadedPackage | VerifiedRootPackage
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -156,7 +159,7 @@ class PackageLoadPlanBlocker:
     kind: PackageLoadPlanBlockerKind
     occurrences: tuple[PackageDependencyOccurrence, ...]
     location: LocatedDependencyPackage = field(repr=False)
-    packages: tuple[LoadedPackage, ...] = field(repr=False)
+    packages: tuple[DeclaringPackage, ...] = field(repr=False)
 
     def __new__(cls) -> PackageLoadPlanBlocker:
         raise TypeError("Package load-plan blockers require canonical detection.")
@@ -179,7 +182,7 @@ class PackageLoadPlanResult:
 
 @dataclass(slots=True)
 class _Frame:
-    package: LoadedPackage
+    package: DeclaringPackage
     key: ProjectPhysicalIdentity
     occurrences: tuple[PackageDependencyOccurrence, ...]
     incoming: PackageDependencyOccurrence | None
@@ -188,11 +191,15 @@ class _Frame:
 
 
 def _validate_dependency_occurrences(
-    declaring_package: LoadedPackage,
+    declaring_package: DeclaringPackage,
 ) -> PackageDependencyValidationResult:
     """Semantically validate every exact dependency occurrence in source order."""
 
-    if type(declaring_package) not in {LoadedRootPackage, LoadedDependencyPackage}:
+    if type(declaring_package) not in {
+        LoadedRootPackage,
+        LoadedDependencyPackage,
+        VerifiedRootPackage,
+    }:
         raise TypeError("Dependency validation requires an exact loaded package.")
     declarations = _package_catalog(
         declaring_package
@@ -429,10 +436,16 @@ def _validate_dependency_manifest(
     return package, ()
 
 
-def _build_package_load_plan(root_package: LoadedRootPackage) -> PackageLoadPlanResult:
-    """Iteratively build declaration-order DFS postorder or fail closed."""
+def _build_package_load_plan(
+    root_package: LoadedRootPackage | VerifiedRootPackage,
+) -> PackageLoadPlanResult:
+    """Iteratively build declaration-order DFS postorder or fail closed.
 
-    if type(root_package) is not LoadedRootPackage:
+    A verified root that did not load yields no plan, only the failures of
+    the dependencies it declares.
+    """
+
+    if type(root_package) not in {LoadedRootPackage, VerifiedRootPackage}:
         raise TypeError("Package load planning requires an exact loaded root package.")
 
     def finish(
@@ -465,7 +478,7 @@ def _build_package_load_plan(root_package: LoadedRootPackage) -> PackageLoadPlan
             incoming=None,
         )
     ]
-    packages_by_key: dict[ProjectPhysicalIdentity, LoadedPackage] = {
+    packages_by_key: dict[ProjectPhysicalIdentity, DeclaringPackage] = {
         root_key: root_package
     }
     identity_to_key: dict[PackageIdentity, ProjectPhysicalIdentity] = {
@@ -481,6 +494,9 @@ def _build_package_load_plan(root_package: LoadedRootPackage) -> PackageLoadPlan
     while frames:
         frame = frames[-1]
         if frame.next_position == len(frame.occurrences):
+            if type(frame.package) is VerifiedRootPackage:
+                # A verified root is never planned; it is checked last below.
+                break
             entry = object.__new__(PackageLoadPlanEntry)
             object.__setattr__(entry, "package", frame.package)
             object.__setattr__(entry, "dependencies", tuple(frame.dependencies))
@@ -534,6 +550,10 @@ def _build_package_load_plan(root_package: LoadedRootPackage) -> PackageLoadPlan
                 and first_occurrence.resolved_project_path
                 == occurrence.resolved_project_path
             ):
+                # Only the root has no incoming occurrence (and it stays
+                # visiting, so a repeat of it returned a cycle above): this
+                # target is a loaded dependency.
+                assert type(existing) is LoadedDependencyPackage
                 frame.dependencies.append(_edge(occurrence, existing))
                 continue
             blocker_kind = (
@@ -603,14 +623,19 @@ def _build_package_load_plan(root_package: LoadedRootPackage) -> PackageLoadPlan
             )
         )
 
-    for entry in entries:
-        root_error = _verify_loaded_package(entry.package)
+    checked: tuple[DeclaringPackage, ...] = tuple(entry.package for entry in entries)
+    if type(root_package) is VerifiedRootPackage:
+        checked += (root_package,)
+    for package in checked:
+        root_error = _verify_loaded_package(package)
         if root_error is not None:
             return finish(
                 None,
                 errors=(root_error,),
                 diagnostics=tuple(diagnostics),
             )
+    if type(root_package) is VerifiedRootPackage:
+        return finish(None, diagnostics=tuple(diagnostics))
     plan = object.__new__(PackageLoadPlan)
     object.__setattr__(plan, "root_package", root_package)
     object.__setattr__(plan, "entries", tuple(entries))
@@ -650,7 +675,7 @@ def _conflict_blocker(
     first: PackageDependencyOccurrence | None,
     current: PackageDependencyOccurrence,
     location: LocatedDependencyPackage,
-    existing: LoadedPackage,
+    existing: DeclaringPackage,
 ) -> PackageLoadPlanBlocker:
     occurrences = (current,) if first is None else (first, current)
     return _blocker(
@@ -665,7 +690,7 @@ def _blocker(
     kind: PackageLoadPlanBlockerKind,
     occurrences: tuple[PackageDependencyOccurrence, ...],
     location: LocatedDependencyPackage,
-    packages: tuple[LoadedPackage, ...],
+    packages: tuple[DeclaringPackage, ...],
 ) -> PackageLoadPlanBlocker:
     blocker = object.__new__(PackageLoadPlanBlocker)
     object.__setattr__(blocker, "kind", kind)
@@ -677,14 +702,14 @@ def _blocker(
 
 def _occurrence_matches_package(
     occurrence: PackageDependencyOccurrence,
-    package: LoadedPackage,
+    package: DeclaringPackage,
 ) -> bool:
     return occurrence.coordinate == _package_coordinate(
         package
     ) and occurrence.content_digest_pin == _package_content_digest(package)
 
 
-def _verify_loaded_package(package: LoadedPackage) -> ProjectDiscoveryError | None:
+def _verify_loaded_package(package: DeclaringPackage) -> ProjectDiscoveryError | None:
     return _verify_package_root(
         _package_pinned_root(package),
         _package_canonical_path(package),
@@ -692,51 +717,51 @@ def _verify_loaded_package(package: LoadedPackage) -> ProjectDiscoveryError | No
     )
 
 
-def _package_catalog(package: LoadedPackage) -> TypedRootPackageAssetCatalog:
+def _package_catalog(package: DeclaringPackage) -> TypedRootPackageAssetCatalog:
     return package.catalog
 
 
-def _package_coordinate(package: LoadedPackage) -> PackageCoordinate:
+def _package_coordinate(package: DeclaringPackage) -> PackageCoordinate:
     return _package_catalog(package).root_package.coordinate
 
 
-def _package_content_digest(package: LoadedPackage) -> str:
+def _package_content_digest(package: DeclaringPackage) -> str:
     return package.content_digest
 
 
-def _package_project_path(package: LoadedPackage) -> str:
-    if type(package) is LoadedRootPackage:
+def _package_project_path(package: DeclaringPackage) -> str:
+    if type(package) is LoadedRootPackage or type(package) is VerifiedRootPackage:
         return package.located_root.activation.path
     if type(package) is LoadedDependencyPackage:
         return package.location.occurrence.resolved_project_path
     raise TypeError("Package path lookup requires an exact loaded package.")
 
 
-def _package_pinned_root(package: LoadedPackage) -> ProjectPinnedRoot:
-    if type(package) is LoadedRootPackage:
+def _package_pinned_root(package: DeclaringPackage) -> ProjectPinnedRoot:
+    if type(package) is LoadedRootPackage or type(package) is VerifiedRootPackage:
         return package.located_root.pinned_root
     if type(package) is LoadedDependencyPackage:
         return package.location.pinned_root
     raise TypeError("Package root lookup requires an exact loaded package.")
 
 
-def _package_canonical_path(package: LoadedPackage) -> Path:
-    if type(package) is LoadedRootPackage:
+def _package_canonical_path(package: DeclaringPackage) -> Path:
+    if type(package) is LoadedRootPackage or type(package) is VerifiedRootPackage:
         return package.located_root.canonical_path
     if type(package) is LoadedDependencyPackage:
         return package.location.canonical_path
     raise TypeError("Package path lookup requires an exact loaded package.")
 
 
-def _package_directory_state(package: LoadedPackage) -> ProjectFilesystemState:
-    if type(package) is LoadedRootPackage:
+def _package_directory_state(package: DeclaringPackage) -> ProjectFilesystemState:
+    if type(package) is LoadedRootPackage or type(package) is VerifiedRootPackage:
         return package.located_root.directory_state
     if type(package) is LoadedDependencyPackage:
         return package.location.directory_state
     raise TypeError("Package state lookup requires an exact loaded package.")
 
 
-def _package_physical_identity(package: LoadedPackage) -> ProjectPhysicalIdentity:
+def _package_physical_identity(package: DeclaringPackage) -> ProjectPhysicalIdentity:
     return _package_directory_state(package).physical_identity
 
 

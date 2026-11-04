@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pietto._flat_relational_admission import syntax_diagnostics
 
-from collections.abc import Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import InitVar, dataclass, field, replace
 from enum import StrEnum
 from types import MappingProxyType
@@ -180,11 +180,15 @@ from pietto._project.project_row_equivalence import (
 from pietto._project.project_relationship_uses import ProjectJoinUseState
 from pietto._project.project_joined_aggregation import (
     ProjectConcreteJoinedAggregation,
+    ProjectJoinedAggregateIssue,
     ProjectJoinedAggregationMode,
+    ProjectJoinedAggregateOccurrence,
     ProjectJoinedComputedGroupKeyOccurrence,
     ProjectJoinedGroupKeyOccurrence,
+    ProjectJoinedSelectedOutputIssueKind,
     ProjectJoinedStageOutputOccurrence,
     ProjectJoinedStageOutputRole,
+    ProjectNonConcreteJoinedAggregation,
     _mode,
 )
 from pietto._project.project_joined_qualify import (
@@ -200,6 +204,7 @@ from pietto._project.project_joined_qualify import (
     build_project_joined_tail,
 )
 from pietto._project.project_joined_row_filter import (
+    ProjectConcreteJoinedRowFilter,
     ProjectJoinedRowFilterSet,
     ProjectNonConcreteJoinedRowFilter,
     build_project_joined_row_filter,
@@ -211,11 +216,13 @@ from pietto._project.project_joined_windows import (
     ProjectSelectedWindowResultBinding,
 )
 from pietto._project.project_scalar_bindings import (
+    ProjectJoinedScalarBindingEnvironment,
     resolve_project_joined_scalar_reference,
 )
 from pietto._project.project_scalar_namespaces import (
     ProjectConcreteJoinedNamespaceExpression,
     ProjectJoinedLetReferenceResolution,
+    ProjectJoinedNamespaceExpressionResult,
     ProjectJoinedScalarNamespace,
     ProjectNonConcreteJoinedLetNamespaces,
     ProjectNonConcreteJoinedNamespaceExpression,
@@ -283,10 +290,15 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     invalid_context_diagnostic,
 )
+from pietto.semantic.analyzer import _diagnostic_order
 from pietto.semantic.expressions import (
+    _UNKNOWN_VALUE_TYPE,
     _is_bare_constant,
     _order_key_diagnostic,
+    _window_expressions,
     _window_literal_range_diagnostics,
+    append_order_key_diagnostics,
+    append_qualify_diagnostics,
     infer_row_expression,
     let_value,
     order_output_ambiguity,
@@ -297,9 +309,14 @@ from pietto._project.row_expression_type_facts import (
     scalar_read_types_within,
     add_shape_typed_diagnostics,
 )
-from pietto.semantic.group_by import _grouped_order_by_unsupported_diagnostic
+from pietto.semantic.group_by import (
+    _grouped_order_by_unsupported_diagnostic,
+    _non_grouped_projection_diagnostic,
+    _scalar_grouped_projection_diagnostic,
+)
 from pietto.semantic.model import (
     CheckMode,
+    RowField,
     RowSchema,
     TypeKind,
     ValueType,
@@ -315,6 +332,7 @@ from pietto.semantic.satisfying import no_group_satisfying_diagnostic
 from pietto.semantic.window_analysis import (
     _WindowComputationAdmissionFailure,
     analyze_window_computation,
+    analyze_window_expression,
 )
 from pietto.semantic.window_input_analysis import (
     WindowInputBinding,
@@ -4256,17 +4274,17 @@ def _joined_let_unreached_diagnostics(
     owner: ProjectDeclarationOccurrence,
     read_types: Mapping[Expression, ValueType] | None = None,
 ) -> tuple[Diagnostic, ...]:
-    """The diagnostics of the WHERE, of each SELECT item that repeats an
-    earlier output name (PIE-S2305) and, in a relation without GROUP BY or
-    aggregates, of each SELECT item outside a window, of a joined relation
-    whose `let:` clause is not concrete and leaves them untyped, as a single
-    file reports them: each is typed with the values the clause admits and the
-    type every other binding without an error of its own has as written, one
-    bound to `null` (such as `k = null`) taking its type from where it stands,
-    and with ``read_types``, the owner's typed relation reads. A read of a
-    binding with an error of its own is of unknown type, and a field that does
-    not resolve is an unknown field, as without the error. One that reads a
-    field of several bindings, or a captured field, is left to those."""
+    """The diagnostics of a joined relation whose `let:` clause is not
+    concrete and leaves its WHERE and SELECT items untyped, as a single file
+    reports them: those of the WHERE, then those of the SELECT items as
+    `_unreached_select_item_diagnostics` reports them. Each is typed with the
+    values the clause admits and the type every other binding without an
+    error of its own has as written, one bound to `null` (such as `k = null`)
+    taking its type from where it stands, and with ``read_types``, the
+    owner's typed relation reads. A read of a binding with an error of its own
+    is of unknown type, and a field that does not resolve is an unknown field,
+    as without the error. One that reads a field of several bindings, or a
+    captured field, is left to those."""
 
     namespaces = semantics.namespaces
     if type(namespaces) is not ProjectNonConcreteJoinedLetNamespaces:
@@ -4281,14 +4299,11 @@ def _joined_let_unreached_diagnostics(
         **namespaces.unadmitted_value_types,
     }
     names = {occurrence.binding.name for occurrence in namespaces.occurrences}
-    clauses: list[tuple[Expression, SelectItem | None]] = []
-    if definition.where_clause is not None:
-        clauses.append((definition.where_clause.expression, None))
-    clauses.extend((item.expression, item) for item in definition.select_items)
-    absent = _mode(definition) is ProjectJoinedAggregationMode.ABSENT
-    outputs: set[str] = set()
-    found: list[Diagnostic] = []
-    for expression, selected in clauses:
+
+    def own(
+        expression: Expression, *, where: bool, typed: bool = True
+    ) -> list[Diagnostic]:
+        found: list[Diagnostic] = []
         region = namespaces.binding_environment.region
         record = select_project_predicate_expression(
             region.conditions.predicate_expressions
@@ -4300,11 +4315,8 @@ def _joined_let_unreached_diagnostics(
         if record is not None:
             expression = record.expression
             found.extend(record.diagnostics)
-        where = selected is None
-        if selected is not None:
-            found.extend(_repeated_output_name(selected, outputs))
-            if not absent or type(expression) is WindowExpr:
-                continue
+        if not typed:
+            return found
         if where and contains_semantic_aggregate(expression):
             found.append(invalid_context_diagnostic(expression, context="where clause"))
         pending = [expression]
@@ -4314,7 +4326,7 @@ def _joined_let_unreached_diagnostics(
             captured = type(node) is CapturedFieldExpr
             pending.extend(child_expressions(node))
         if captured:
-            continue
+            return found
         value_types = scalar_read_types_within(expression, read_types)
         unresolved = False
         leaves = (
@@ -4376,7 +4388,18 @@ def _joined_let_unreached_diagnostics(
                 is not None
             ):
                 found.append(bool_diagnostic)
-    return tuple(found)
+        return found
+
+    where_clause = definition.where_clause
+    return (
+        *(() if where_clause is None else own(where_clause.expression, where=True)),
+        *_unreached_select_item_diagnostics(
+            definition,
+            lambda item, typed: own(item.expression, where=False, typed=typed),
+            environment,
+            names,
+        ),
+    )
 
 
 def _unreached_joined_select_diagnostics(
@@ -4384,10 +4407,9 @@ def _unreached_joined_select_diagnostics(
     result: ProjectNonConcreteJoinedQualify,
 ) -> tuple[Diagnostic, ...]:
     """The errors of a joined relation's WHERE that is not concrete, then those
-    of each of its SELECT items, which that WHERE leaves unreached: a repeated
-    output name (PIE-S2305) and, in a relation without GROUP BY or aggregates,
-    the errors of the item outside a window, typed as the output would be.
-    Every other stage keeps its own diagnostics."""
+    of its SELECT items, which that WHERE leaves unreached, as
+    `_unreached_select_item_diagnostics` reports them, typed as the output
+    would be. Every other stage keeps its own diagnostics."""
 
     aggregation = result.window_stage.input_aggregation
     row_filter = aggregation.input_filter
@@ -4395,19 +4417,262 @@ def _unreached_joined_select_diagnostics(
         return ()
     owner = row_filter.entry.owner
     definition = _derived_definition(owner)
-    absent = _mode(definition) is ProjectJoinedAggregationMode.ABSENT
     read_types = _semantic_facts(completion, owner).scalar_read_types
-    found = list(row_filter.diagnostics)
-    outputs: set[str] = set()
-    for item in definition.select_items:
-        found.extend(_repeated_output_name(item, outputs))
-        if absent and type(item.expression) is not WindowExpr:
-            found.extend(
+    namespace = row_filter.namespace
+    return (
+        *row_filter.diagnostics,
+        *_unreached_select_item_diagnostics(
+            definition,
+            lambda item, typed: (
                 analyze_project_joined_namespace_expression(
-                    row_filter.namespace, item.expression, read_types=read_types
+                    namespace, item.expression, read_types=read_types
                 ).diagnostics
+                if typed
+                else ()
+            ),
+            namespace.binding_environment,
+            {value.occurrence.binding.name for value in namespace.let_values},
+        ),
+    )
+
+
+def _unreached_select_item_diagnostics(
+    definition: TableDef | QueryDef,
+    errors: Callable[[SelectItem, bool], Iterable[Diagnostic]],
+    environment: ProjectJoinedScalarBindingEnvironment,
+    let_names: Collection[str],
+) -> tuple[Diagnostic, ...]:
+    """The diagnostics of the SELECT items of a joined relation whose WHERE
+    or `let:` clause is not concrete and leaves them unreached, as
+    `_select_item_diagnostics` reports them. ``errors(item, typed)`` are the
+    item's errors, its own read errors included only when ``typed``. An item
+    is typed unless it is a window or, with GROUP BY, an aggregate or a
+    Collect read; with aggregates and no GROUP BY, none is. The callers'
+    ``errors`` differ: after a failing WHERE the concrete `let:` namespace
+    analyses an item; after a failing `let:` there is none, so an item is
+    typed with the values the clause admits. A field read resolves in
+    ``environment``, a bare name in ``let_names`` being no field read.
+
+    With GROUP BY, an item that repeats no earlier output name reports as in
+    a single file (`group_by.project_grouped_schema`): a field read without
+    errors of its own is PIE-S2318 unless it reads a GROUP BY key, and any
+    other scalar is PIE-S2319 beside its own errors, in single-file order. A
+    field read is left alone while a GROUP BY key reads no one field. Any
+    other item that repeats no name keeps the order of its own errors, which
+    for a call such as `abs(rows.nosuch, 1)` is not the single-file one."""
+
+    def field_of(
+        expression: NameExpr | DottedNameExpr,
+    ) -> ProjectScalarEnvironmentField | None:
+        if type(expression) is NameExpr and expression.name in let_names:
+            return None
+        return resolve_project_joined_scalar_reference(
+            environment,
+            ProjectScalarReferenceOccurrence(
+                environment=environment.scalar_environment, expression=expression
+            ),
+        ).target
+
+    mode = _mode(definition)
+    clause = definition.group_by_clause
+    keys = () if clause is None else tuple(field_of(item.key) for item in clause.items)
+
+    def own(_: int, item: SelectItem, repeated: bool) -> tuple[Diagnostic, ...]:
+        expression = item.expression
+        typed = type(expression) is not WindowExpr and (
+            mode is ProjectJoinedAggregationMode.ABSENT
+            or mode is ProjectJoinedAggregationMode.GROUPED
+            and type(expression) is not CollectRelationExpr
+            and not contains_semantic_aggregate(expression)
+        )
+        found = tuple(errors(item, typed))
+        if not typed or repeated or mode is ProjectJoinedAggregationMode.ABSENT:
+            return found
+        if not isinstance(expression, (NameExpr, DottedNameExpr)):
+            return tuple(
+                sorted(
+                    (*found, _scalar_grouped_projection_diagnostic(expression)),
+                    key=_diagnostic_order,
+                )
             )
+        field = None if found else field_of(expression)
+        if field is None or any(key is None or key is field for key in keys):
+            return found
+        return (_non_grouped_projection_diagnostic(expression),)
+
+    return _select_item_diagnostics(definition.select_items, own)
+
+
+def _repeated_joined_select_diagnostics(
+    completion: ProjectCompletion,
+    result: ProjectConcreteJoinedQualify,
+) -> tuple[Diagnostic, ...]:
+    """The diagnostics of a joined relation whose SELECT repeats an output
+    name, every item named, as `_select_item_diagnostics` reports them, where
+    an item's own errors are those `_joined_final_fields` would report of it,
+    in single-file order. With GROUP BY or aggregates, a repeated output name
+    is an issue of the aggregation
+    (`project_joined_aggregation._build_stage_outputs`), which is then not
+    concrete and reports it (`_repeated_aggregated_select_diagnostics`), so
+    a concrete qualify reaches here only without them."""
+
+    aggregation = result.window_stage.input_aggregation
+    if aggregation.mode is not ProjectJoinedAggregationMode.ABSENT:
+        raise AssertionError("A concrete joined aggregation repeats no output name.")
+    owner = aggregation.input_filter.entry.owner
+    read_types = _semantic_facts(completion, owner).scalar_read_types
+    items = _derived_definition(owner).select_items
+    select_facts = _select_facts(completion, owner)
+    # One select fact per SELECT item, in order, as `_joined_final_fields`
+    # zips them.
+    if len(select_facts) != len(items):
+        raise AssertionError("Joined projection lost a select fact.")
+
+    def own(ordinal: int, item: SelectItem, _: bool) -> tuple[Diagnostic, ...]:
+        if type(item.expression) in {WindowExpr, CollectRelationExpr} or (
+            _joined_carry(completion, aggregation, select_facts[ordinal])
+        ):
+            return ()
+        analysis = analyze_project_joined_namespace_expression(
+            aggregation.input_filter.namespace,
+            item.expression,
+            read_types=read_types,
+        )
+        if type(analysis) is ProjectNonConcreteJoinedNamespaceExpression:
+            return tuple(sorted(analysis.diagnostics, key=_diagnostic_order))
+        if type(analysis) is not ProjectConcreteJoinedNamespaceExpression:
+            raise AssertionError("Joined projection lost its scalar result variant.")
+        # As in `_joined_final_fields`, a concrete item types its output and
+        # reports nothing.
+        return ()
+
+    return _select_item_diagnostics(items, own)
+
+
+def _repeated_aggregated_select_diagnostics(
+    completion: ProjectCompletion,
+    result: ProjectNonConcreteJoinedQualify,
+) -> tuple[Diagnostic, ...]:
+    """The diagnostics of a joined relation with GROUP BY or aggregates whose
+    WHERE holds and whose SELECT repeats an output name, as a single file
+    reports them: the aggregation's, in its order, where each repeated item's
+    PIE-S2305 and its own errors stand as `_repeated_item_diagnostics` gives
+    them. A repeated item's own errors are those of its aggregate and, with
+    GROUP BY, those of a scalar item's analysis. Without a repeated name this
+    is empty, and the aggregation reports its own diagnostics, also those of
+    an item that repeats no name."""
+
+    aggregation = result.window_stage.input_aggregation
+    if type(aggregation) is not ProjectNonConcreteJoinedAggregation:
+        return ()
+    repeats = tuple(
+        issue
+        for issue in aggregation.selected_output_issues
+        if issue.kind is ProjectJoinedSelectedOutputIssueKind.DUPLICATE_OUTPUT_NAME
+    )
+    if not repeats:
+        return ()
+    input_filter = repeats[0].input_filter
+    owner = input_filter.entry.owner
+    grouped = _mode(_derived_definition(owner)) is ProjectJoinedAggregationMode.GROUPED
+    read_types = _semantic_facts(completion, owner).scalar_read_types
+    groups: dict[int, tuple[Diagnostic, ...]] = {}
+    ordinals: dict[int, int] = {}
+    for issue in repeats:
+        ordinal, item = issue.selected_output_ordinal, issue.item
+        if ordinal is None or item is None:
+            raise AssertionError("A repeated output name is one SELECT item.")
+        reported = (
+            *issue.diagnostics,
+            *(
+                diagnostic
+                for aggregate in aggregation.aggregate_results
+                if type(aggregate) is ProjectJoinedAggregateIssue
+                and aggregate.selected_output_ordinal == ordinal
+                for diagnostic in aggregate.diagnostics
+            ),
+        )
+        ordinals.update((id(diagnostic), ordinal) for diagnostic in reported)
+        expression = item.expression
+        own: tuple[Diagnostic, ...] = ()
+        if (
+            grouped
+            and type(expression) not in {WindowExpr, CollectRelationExpr}
+            and not contains_semantic_aggregate(expression)
+        ):
+            analysis = analyze_project_joined_namespace_expression(
+                input_filter.namespace, expression, read_types=read_types
+            )
+            if type(analysis) is ProjectNonConcreteJoinedNamespaceExpression:
+                own = analysis.diagnostics
+        groups[ordinal] = _repeated_item_diagnostics(item, (*reported, *own))
+    found: list[Diagnostic] = []
+    for diagnostic in aggregation.diagnostics:
+        ordinal = ordinals.get(id(diagnostic))
+        if ordinal is None:
+            found.append(diagnostic)
+        elif ordinal in groups:
+            found.extend(groups.pop(ordinal))
+    if groups:
+        raise AssertionError("A repeated output name lost its PIE-S2305.")
     return tuple(found)
+
+
+def _select_item_diagnostics(
+    items: Sequence[SelectItem],
+    own: Callable[[int, SelectItem, bool], Iterable[Diagnostic]],
+) -> tuple[Diagnostic, ...]:
+    """In item order, the errors ``own(ordinal, item, repeated)`` of each
+    SELECT item, with PIE-S2305 at an item that repeats an earlier output
+    name, as a single file reports them: a repeated item's as
+    `_repeated_item_diagnostics` gives them, and every other item's in the
+    order ``own`` gives them. Of the callers,
+    `_repeated_joined_select_diagnostics` gives each item's errors sorted;
+    `_unreached_select_item_diagnostics` sorts only a grouped scalar item's,
+    and every other item keeps the order of its analysis."""
+
+    outputs: set[str] = set()
+    found: list[Diagnostic] = []
+    for ordinal, item in enumerate(items):
+        repeated = _repeated_output_name(item, outputs)
+        errors = tuple(own(ordinal, item, bool(repeated)))
+        found.extend(
+            _repeated_item_diagnostics(item, (*repeated, *errors))
+            if repeated
+            else errors
+        )
+    return tuple(found)
+
+
+def _repeated_item_diagnostics(
+    item: SelectItem, diagnostics: Iterable[Diagnostic]
+) -> tuple[Diagnostic, ...]:
+    """The PIE-S2305 and own errors, ``diagnostics``, of a SELECT item that
+    repeats an earlier output name, as a single file reports them.
+
+    A single file reports an unknown bare name (PIE-S2102) only where it
+    builds the relation's row, which skips a repeated item
+    (`relation_schemas._project_schema`, `group_by.project_grouped_schema`),
+    so a repeated bare name, aliased or not, drops that error. It keeps every
+    other error of a repeated item: an ambiguous (PIE-S2335) or unknown dotted
+    JOIN read (`joins.join_post_pass`), an aggregate's or a computed output's
+    own errors.
+
+    A single file sorts all its diagnostics by `analyzer._diagnostic_order`
+    (`analyzer._analyze`); a project does not sort a relation's diagnostics
+    in general, so these are sorted by it here."""
+
+    bare = type(item.expression) is NameExpr
+    return tuple(
+        sorted(
+            (
+                diagnostic
+                for diagnostic in diagnostics
+                if not bare or diagnostic.code != "PIE-S2102"
+            ),
+            key=_diagnostic_order,
+        )
+    )
 
 
 def _repeated_output_name(
@@ -4794,6 +5059,302 @@ def _joined_relation_ordering(
         items=tuple(ordered),
         prepared_inputs=tuple(_prepare_relation_order_inputs(item) for item in ordered),
     )
+
+
+def mixed_aggregate_diagnostics(
+    aggregation: ProjectNonConcreteJoinedAggregation,
+    read_types: Mapping[Expression, ValueType] | None = None,
+) -> tuple[tuple[Diagnostic, ...], bool]:
+    """What a single file reports of a joined relation whose aggregate is
+    mixed with another projection without GROUP BY (PIE-S2312), which leaves
+    its SELECT items, QUALIFY and ORDER BY unchecked here, and whether one of
+    their reads fails as a single file counts it.
+
+    The errors are those of the reads that fail in a window, selected, named
+    or hidden in QUALIFY, and in QUALIFY; then of each SELECT item without an
+    aggregate, a window, a Collect read or a nested field read (which report
+    their own), such as an unknown or ambiguous field or a type error, as a
+    JOIN relation without aggregates reports them (for an item that repeats
+    an output name, those that `_repeated_item_diagnostics` keeps: a repeated
+    bare name drops its PIE-S2102); then of QUALIFY as a single file checks it
+    there (`_mixed_qualify_diagnostics`); then of each ORDER BY key, by the
+    single-file ladder `append_order_key_diagnostics`.
+
+    Only how a key reads its names differs from a single file, which narrows
+    them over its input row and `let:` and window-output value types inside
+    `type_relation_expressions`; a project JOIN relation reads them through
+    its joined scalar namespace instead, so the two share the ladder but not
+    the narrowing: a name that is both an input field and an output of another
+    value is ambiguous; a name alone that no input field or `let:` binds reads
+    the SELECT output of that name, where a window output is an unknown field
+    and a name that several outputs share reads nothing; and, as over an input
+    row of unknown type, a name that no `let:` binds is an input field, except
+    one that the joined row does not have.
+
+    A read fails, as in a single file, where a SELECT item, a window's
+    arguments and keys, QUALIFY or an ORDER BY key reads a name that several
+    inputs have or a dotted name of no field; a single file then checks no
+    aggregate's JOIN fan-out (PIE-S2381), and reports only that read's error
+    there. ``read_types`` is the owner's typed relation reads, taken by the
+    caller under the guard the joined WHERE (`build_project_joined_row_filter`)
+    and `joined_let_unreached_diagnostics` take them under: None unless the
+    owner has exactly one semantic fact, so these reads are typed as that
+    WHERE's are. tests/test_semantic_join_grouping.py compares both over the
+    same text.
+    """
+
+    input_filter = aggregation.input_filter
+    if type(input_filter) is not ProjectConcreteJoinedRowFilter:
+        return (), False
+    namespace = input_filter.namespace
+    definition = _derived_definition(input_filter.entry.owner)
+    clause = definition.order_by_clause
+    keys = () if clause is None else tuple(item.expression for item in clause.items)
+    predicate = (
+        None
+        if definition.qualify_clause is None
+        else definition.qualify_clause.expression
+    )
+    hidden = () if predicate is None else tuple(_window_expressions(predicate))
+    reported = {
+        issue.selected_output_ordinal
+        for issue in aggregation.selected_output_issues
+        if issue.kind
+        in {
+            ProjectJoinedSelectedOutputIssueKind.COLLECT_READ_PROJECTION,
+            ProjectJoinedSelectedOutputIssueKind.NESTED_FIELD_PROJECTION,
+        }
+    }
+    found: list[Diagnostic] = []
+    analyses: list[ProjectJoinedNamespaceExpressionResult] = []
+    failed: set[SourceLocation] = set()
+
+    def fails(analysis: ProjectJoinedNamespaceExpressionResult) -> bool:
+        return any(
+            type(resolution) is ProjectScalarReferenceResolution
+            and resolution.target is None
+            and (
+                resolution.status is ProjectModuleCandidateBucketStatus.AMBIGUOUS
+                or (
+                    resolution.status is ProjectModuleCandidateBucketStatus.ABSENT
+                    and type(resolution.reference.expression) is DottedNameExpr
+                )
+            )
+            for resolution in analysis.resolutions
+        )
+
+    # A window, named or not, selected or hidden in QUALIFY, and QUALIFY
+    # outside its windows report here only the reads that fail, as a single
+    # file's JOIN reads check them.
+    read_roots = (
+        *(
+            root
+            for window in (
+                *(
+                    selected.expression
+                    for selected in definition.select_items
+                    if type(selected.expression) is WindowExpr
+                ),
+                *hidden,
+            )
+            if type(window) is WindowExpr
+            for root in (
+                *window.call.arguments,
+                *window.spec.partition_by,
+                *(item.expression for item in window.spec.order_by),
+            )
+        ),
+        *(
+            root
+            for declaration in definition.named_windows
+            if declaration.spec is not None
+            for root in (
+                *declaration.spec.partition_by,
+                *(item.expression for item in declaration.spec.order_by),
+            )
+        ),
+        *(() if predicate is None else (predicate,)),
+    )
+    for root in read_roots:
+        for leaf in scalar_field_reference_leaves(root):
+            analysis = analyze_project_joined_namespace_expression(
+                namespace, leaf, read_types
+            )
+            analyses.append(analysis)
+            if fails(analysis):
+                found.extend(analysis.diagnostics)
+                failed.add(_source_location(leaf))
+    item_types = {
+        aggregate.selected_output_ordinal: aggregate.result_value_type
+        for aggregate in aggregation.aggregate_results
+        if type(aggregate) is ProjectJoinedAggregateOccurrence
+    }
+    output_names: set[str] = set()
+    for ordinal, selected in enumerate(definition.select_items):
+        # Only selects which of the item's errors are kept: its PIE-S2305 is
+        # reported with the aggregation's own diagnostics.
+
+        repeats = bool(_repeated_output_name(selected, output_names))
+        expression = selected.expression
+        if type(expression) in {CollectRelationExpr, WindowExpr}:
+            continue
+        analysis = analyze_project_joined_namespace_expression(
+            namespace, expression, read_types
+        )
+        analyses.append(analysis)
+        if type(analysis) is ProjectConcreteJoinedNamespaceExpression:
+            item_types.setdefault(ordinal, analysis.value_type)
+        if not (ordinal in reported or contains_semantic_aggregate(expression)):
+            found.extend(
+                _repeated_item_diagnostics(selected, analysis.diagnostics)
+                if repeats
+                else analysis.diagnostics
+            )
+    lets = {
+        value.occurrence.binding.name: value.normalized_expression
+        for value in namespace.let_values
+    }
+    if predicate is not None:
+        found.extend(
+            diagnostic
+            for diagnostic in _mixed_qualify_diagnostics(
+                namespace, definition, predicate, hidden, lets, item_types
+            )
+            # As a single file keeps only a failed read's own error there.
+            if diagnostic.location not in failed
+        )
+
+    def resolve(key: Expression) -> tuple[Mapping[str, Expression], set[str]]:
+        ambiguity = _joined_order_output_ambiguity(namespace, definition, key)
+        if ambiguity is not None:
+            found.append(ambiguity)
+            return lets, set()
+        analysis = analyze_project_joined_namespace_expression(
+            namespace, key, read_types
+        )
+        analyses.append(analysis)
+        name = (
+            key.name
+            if type(key) is NameExpr
+            and key.name not in lets
+            and type(analysis) is ProjectNonConcreteJoinedNamespaceExpression
+            and _joined_fallback_is_absent(analysis)
+            else None
+        )
+        outputs = tuple(
+            selected.expression
+            for selected in definition.select_items
+            if name is not None and _projection_output_name(selected) == name
+        )
+        key_lets: Mapping[str, Expression] = lets
+        if (
+            name is not None
+            and len(outputs) == 1
+            and type(outputs[0]) is not WindowExpr
+        ):
+            # The key reads that output, as a single file types it with the
+            # output's type: the name's own unknown-field error is dropped,
+            # the output's errors stand at its SELECT item, and PIE-S2380
+            # inlines the output, whose names that read nothing are no input
+            # fields.
+            key_lets = {**lets, name: outputs[0]}
+            analysis = analyze_project_joined_namespace_expression(
+                namespace, outputs[0], read_types
+            )
+        elif len(outputs) < 2:
+            found.extend(analysis.diagnostics)
+        return key_lets, {
+            reference.name
+            for resolution in analysis.resolutions
+            if type(resolution) is ProjectScalarReferenceResolution
+            and resolution.target is None
+            and resolution.status is ProjectModuleCandidateBucketStatus.ABSENT
+            and type(reference := resolution.reference.expression) is NameExpr
+        }
+
+    for key in keys:
+        # The relation has an aggregate, as its PIE-S2312 says.
+        append_order_key_diagnostics(
+            key,
+            found,
+            resolve,
+            input_schema=RowSchema(is_unknown=True),
+            aggregated=True,
+            bare_constants=True,
+        )
+    return tuple(found), any(fails(analysis) for analysis in analyses)
+
+
+def _mixed_qualify_diagnostics(
+    namespace: ProjectJoinedScalarNamespace,
+    definition: _DerivedRelation,
+    predicate: Expression,
+    hidden: tuple[WindowExpr, ...],
+    lets: Mapping[str, Expression],
+    item_types: Mapping[int, ValueType],
+) -> list[Diagnostic]:
+    """A single file's checks of the QUALIFY of a relation with aggregates and
+    no GROUP BY, which reads one group without keys: each hidden window is
+    refused (PIE-S2103) by the single-file window analysis, which reads none
+    of its inputs then, and the rest is the single-file
+    `append_qualify_diagnostics`, over the joined row as a single file types
+    it, keyed `binding.field` (`semantic.joins._joined_rows`), built here from
+    the joined scalar namespace's visible fields and their types."""
+
+    found: list[Diagnostic] = []
+    value_types: dict[Expression, ValueType] = {}
+    for ordinal, window in enumerate(hidden, len(definition.select_items)):
+        analyze_window_expression(
+            definition=definition,
+            item=SelectItem(alias=None, expression=window, span=window.span),
+            selected_output_ordinal=ordinal,
+            source_id=window.span.path or definition.name,
+            input_schema=RowSchema(is_unknown=True),
+            field_qualifier=(
+                definition.from_clause.binding_name
+                or definition.from_clause.source_name
+            ),
+            value_types={},
+            diagnostics=found,
+            let_value_types={},
+            let_expressions={},
+            let_extrema=False,
+            allow_hidden=True,
+            allow_aggregate_windows=True,
+        )
+        value_types[window] = _UNKNOWN_VALUE_TYPE
+    fields: dict[str, RowField] = {}
+    for binding in namespace.binding_environment.bindings:
+        for item in binding.fields:
+            key = f"{binding.binding.name}.{item.evidence.name}"
+            fields[key] = RowField(
+                name=key,
+                resolved_type=item.value_type.resolved_type,
+                nullability=item.value_type.nullability,
+                definition=item.evidence.field_def,
+            )
+    names = [_projection_output_name(selected) for selected in definition.select_items]
+    append_qualify_diagnostics(
+        predicate,
+        definition,
+        RowSchema(fields=fields, joined=True),
+        value_types,
+        found,
+        let_value_types={
+            value.occurrence.binding.name: value.value_type
+            for value in namespace.let_values
+        },
+        let_expressions=lets,
+        # The joined `let:` stage is concrete only without errors.
+        rejected_lets=set(),
+        output_types={
+            name: item_types.get(ordinal, _UNKNOWN_VALUE_TYPE)
+            for ordinal, name in enumerate(names)
+            if name is not None and names.count(name) == 1
+        },
+        single_file=True,
+    )
+    return found
 
 
 def _joined_row_domain(
@@ -6435,6 +6996,7 @@ def _complete_joined_output(
             diagnostics=(
                 *result.diagnostics,
                 *_unreached_joined_select_diagnostics(completion, result),
+                *_repeated_aggregated_select_diagnostics(completion, result),
             ),
             joined_qualify=result,
         )
@@ -6450,7 +7012,17 @@ def _complete_joined_output(
                 ProjectEffectiveOutputCompletionTerminalReason.PROJECTION_NON_CONCRETE
             ),
             blocker=definition.select_items,
-            diagnostics=name_diagnostics,
+            # With every item named, only a repeated name stops the outputs,
+            # so each other item still reports its own errors, as in a single
+            # file.
+            diagnostics=(
+                _repeated_joined_select_diagnostics(completion, result)
+                if all(
+                    _projection_output_name(item) is not None
+                    for item in definition.select_items
+                )
+                else name_diagnostics
+            ),
             joined_qualify=result,
         )
     fields, blocker, diagnostics = _joined_final_fields(

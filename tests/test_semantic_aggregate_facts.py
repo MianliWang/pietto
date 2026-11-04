@@ -33,10 +33,7 @@ from pietto._project.project_ir_evaluation_context import (
 from pietto._project.project_ir_relational_properties import (
     ProjectIRProvidedIntrinsicGrain,
 )
-from pietto._project.project_ir_verification import (
-    build_project_ir_analysis_bundle,
-    verify_project_ir_stage,
-)
+from pietto._project.project_ir_verification import verify_project_ir_stage
 from pietto._project.project_phase62_verification import (
     ProjectPhase62VerificationStatus,
 )
@@ -161,7 +158,7 @@ def _build(root: Path) -> multifact.ProjectMultiFactAnalysis:
     origins = project_grain.build_project_grain_origins(value_fds, evaluation)
     verified = verify_project_ir_stage(evaluation)
     base_properties = relational.build_project_ir_relational_property_stage(
-        origins, build_project_ir_analysis_bundle(verified)
+        origins, verified
     )
     use_set = relationship_uses.build_project_relationship_uses(
         semantic, base_properties

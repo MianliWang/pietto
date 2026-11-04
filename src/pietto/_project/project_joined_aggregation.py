@@ -1422,6 +1422,10 @@ def _build_stage_outputs(
                 continue
             seen_names.add(output_name)
         if type(item.expression) is WindowExpr:
+            # Beside an aggregate without GROUP BY a window is a row
+            # projection, as a single file counts it (PIE-S2312); the list is
+            # read only by that GLOBAL-mode check below.
+            non_aggregate_items.append((ordinal, item))
             continue
         if semantic_aggregates.contains_semantic_aggregate(item.expression):
             aggregate = aggregate_by_item.get(id(item))

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import fields
 import inspect
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,7 @@ import pytest
 import pietto
 import pietto.cli as cli
 import pietto._project as project_package
+import pietto._project.package_load_plan as package_load_plan
 import pietto._project_explain as project_explain_package
 import pietto._project_explain.runtime_builder as runtime_builder
 from pietto._project.capability_inspection import (
@@ -20,15 +23,18 @@ from pietto._project.capability_matrix import (
     build_package_capability_checking_matrix,
 )
 from pietto._project.config import load_project_config
+from pietto._project.model import ProjectDiscoveryError
 from pietto._project.package_capability_requirements import (
     _package_capability_requirement_binding,
 )
+from pietto._project.package_inspection import _build_package_inspection_fact_set
 from pietto._project.package_loader import (
     LoadedRootPackage,
     _compute_package_content_sha256,
     _load_root_package,
 )
 from pietto._project.package_locator import LocatedRootPackage, _locate_root_package
+from pietto._project.path_trust import ProjectFilesystemState, ProjectPinnedRoot
 from pietto._project_explain.compatibility_matrix_projection import (
     ProjectExplainCheckedStatus,
     ProjectExplainEvaluationState,
@@ -37,6 +43,7 @@ from pietto._project_explain.extension_catalog_evidence_projection import (
     ProjectExplainCatalogSelectionOutcome,
 )
 from pietto._project_explain.model import (
+    ProjectExplainDiagnostic,
     ProjectExplainEnvelope,
     ProjectExplainFormat,
     ProjectExplainLocation,
@@ -52,7 +59,9 @@ from pietto._project_explain.runtime_builder import (
     ProjectExplainRuntimeOutcome,
     _build_project_explain_runtime,
 )
+from pietto._syntax_admission import _COLLECT_UNADMITTED, _UNNEST_UNADMITTED
 from pietto.errors import Severity
+from pietto.parser_api import _DOUBLE_MINUS
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -513,6 +522,541 @@ def test_package_locations_keep_their_path_kind_and_name_a_dependency(
             "In dependency package example/dependency@1.0.0: Missing ':' before 'Int'.",
         )
     ]
+
+
+_BROKEN_SOURCE = b"shape Broken:\n\n    id Int\n"
+# Each package is (directory, source, ((name, directory), ...)); the root comes
+# last and is named root. A pin not yet written is a back edge's placeholder.
+_Layout = tuple[tuple[str, bytes, tuple[tuple[str, str], ...]], ...]
+
+
+def _at(
+    path: str = "main.pietto",
+    line: int | None = None,
+    column: int | None = None,
+    kind: ProjectExplainLogicalPathKind = ProjectExplainLogicalPathKind.PACKAGE_RELATIVE,
+    end_line: int | None = None,
+    end_column: int | None = None,
+) -> ProjectExplainLocation:
+    return ProjectExplainLocation(
+        path=ProjectExplainLogicalPath(kind=kind, value=path),
+        line=line,
+        column=column,
+        end_line=end_line,
+        end_column=end_column,
+    )
+
+
+def _text(name: str) -> str:
+    return f"namespace='example', name='{name}', version='1.0.0'"
+
+
+def _arrow(source: str, position: int, directory: str, target: str) -> str:
+    return (
+        f"{_text(source)} --dependency[{position}] path='../{directory}' "
+        f"resolved='{directory}'--> {_text(target)}"
+    )
+
+
+def _broken_dependency(name: str) -> tuple[str, str, ProjectExplainLocation]:
+    return (
+        "PIE-P1000",
+        f"In dependency package example/{name}@1.0.0: Missing ':' before 'Int'.",
+        _at(line=3, column=8),
+    )
+
+
+def _write_layout(root: Path, layout: _Layout) -> Path:
+    digests: dict[str, str] = {}
+    for directory, source, dependencies in layout:
+        digests[directory] = _write_package(
+            root / directory,
+            _manifest(
+                1,
+                name=directory,
+                dependencies=tuple(
+                    (
+                        "example",
+                        name,
+                        "1.0.0",
+                        digests.get(path, "a" * 64),
+                        f"../{path}",
+                    )
+                    for name, path in dependencies
+                ),
+            ),
+            source,
+        )
+    (root / "pietto.toml").write_text(
+        _project_config("root", digests["root"], targets=False), encoding="utf-8"
+    )
+    return root
+
+
+def _facts(
+    diagnostics: tuple[ProjectExplainDiagnostic, ...],
+) -> list[tuple[str, str, ProjectExplainLocation | None]]:
+    return [(d.code, d.message, d.location) for d in diagnostics]
+
+
+_ROOT_SYNTAX = [("PIE-P1000", "Missing ':' before 'Int'.", _at(line=3, column=8))]
+_ON_DEPENDENCY = (("dependency", "dependency"),)
+_MISSING_DEPENDENCY = [
+    (
+        "project_resource",
+        "Package dependency directory is missing, inaccessible, or changed.",
+        None,
+    )
+]
+_ROOT_MANIFEST = _at(
+    "root/pietto-package.toml", kind=ProjectExplainLogicalPathKind.PROJECT_RELATIVE
+)
+
+
+@pytest.mark.parametrize(
+    ("root_source", "packages", "root_dependencies", "outcome", "root", "dependencies"),
+    (
+        pytest.param(
+            _BROKEN_SOURCE,
+            (("dependency", _BROKEN_SOURCE, ()),),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            _ROOT_SYNTAX,
+            [_broken_dependency("dependency")],
+            id="broken",
+        ),
+        # The reported layout: the root's error follows a valid field.
+        pytest.param(
+            b"shape Customer:\n    id: Int\n    name Text\n",
+            (("dependency", _BROKEN_SOURCE, ()),),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            [("PIE-P1000", "Missing ':' before 'Text'.", _at(line=3, column=10))],
+            [_broken_dependency("dependency")],
+            id="later-field",
+        ),
+        pytest.param(
+            b"\xff\n",
+            (("dependency", _BROKEN_SOURCE, ()),),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR,
+            [("source_read", "Package module source must be valid UTF-8.", _at())],
+            [_broken_dependency("dependency")],
+            id="not-utf-8",
+        ),
+        # The dependency's resource error sets the outcome, as for a loaded root.
+        pytest.param(
+            _BROKEN_SOURCE,
+            (),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR,
+            _ROOT_SYNTAX,
+            _MISSING_DEPENDENCY,
+            id="missing",
+        ),
+        # A root module refused as it is parsed (PIE-S2801) takes the same path.
+        pytest.param(
+            b"query q:\n    from rows\n    select:\n"
+            b"        nested = collect children\n",
+            (),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR,
+            [
+                (
+                    *_COLLECT_UNADMITTED[:2],
+                    _at(line=4, column=18, end_line=4, end_column=34),
+                )
+            ],
+            _MISSING_DEPENDENCY,
+            id="collect-refusal",
+        ),
+        pytest.param(
+            b"query q:\n    from rows\n"
+            b"    let expanded = unnest(rows.children)\n    cross join expanded\n"
+            b"    select:\n        id\n",
+            (),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR,
+            [
+                (
+                    *_UNNEST_UNADMITTED[:2],
+                    _at(line=3, column=5, end_line=3, end_column=41),
+                )
+            ],
+            _MISSING_DEPENDENCY,
+            id="unnest-refusal",
+        ),
+        pytest.param(
+            _BROKEN_SOURCE,
+            (("dependency", b"\xff\n", ()),),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR,
+            _ROOT_SYNTAX,
+            [
+                (
+                    "source_read",
+                    "In dependency package example/dependency@1.0.0: Package "
+                    "module source must be valid UTF-8.",
+                    _at(),
+                )
+            ],
+            id="dependency-not-utf-8",
+        ),
+        pytest.param(
+            _BROKEN_SOURCE,
+            (("dependency", SOURCE, (("root", "root"),)),),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            _ROOT_SYNTAX,
+            [
+                (
+                    "cycle",
+                    "Dependency cycle: "
+                    + _arrow("root", 0, "dependency", "dependency")
+                    + " | "
+                    + _arrow("dependency", 0, "root", "root"),
+                    None,
+                )
+            ],
+            id="cycle",
+        ),
+        pytest.param(
+            _BROKEN_SOURCE,
+            (("b", SOURCE, (("root", "root"),)), ("a", SOURCE, (("b", "b"),))),
+            (("a", "a"),),
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            _ROOT_SYNTAX,
+            [
+                (
+                    "cycle",
+                    "Dependency cycle: "
+                    + " | ".join(
+                        (
+                            _arrow("root", 0, "a", "a"),
+                            _arrow("a", 0, "b", "b"),
+                            _arrow("b", 0, "root", "root"),
+                        )
+                    ),
+                    None,
+                )
+            ],
+            id="cycle-through-a-dependency",
+        ),
+        pytest.param(
+            _BROKEN_SOURCE,
+            (
+                ("c", SOURCE, ()),
+                ("a", SOURCE, (("c", "c"),)),
+                ("b", SOURCE, (("c", "c"),)),
+            ),
+            (("a", "a"), ("b", "b")),
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            _ROOT_SYNTAX,
+            [
+                (
+                    "diamond",
+                    "Dependency diamond: "
+                    + _arrow("a", 0, "c", "c")
+                    + " | "
+                    + _arrow("b", 0, "c", "c")
+                    + f" converge on {_text('c')}; the no-winner policy rejects "
+                    "deduplication.",
+                    None,
+                )
+            ],
+            id="diamond",
+        ),
+        # The verified root is the existing package of this conflict.
+        pytest.param(
+            _BROKEN_SOURCE,
+            (
+                ("other", SOURCE, ()),
+                ("dependency", SOURCE, (("root", "other"),)),
+            ),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            _ROOT_SYNTAX,
+            [
+                (
+                    "conflict",
+                    "Dependency conflict (one identity resolves to incompatible "
+                    "local package authorities; incompatible content digest "
+                    "pins): "
+                    + _arrow("dependency", 0, "other", "root")
+                    + ". No package winner was selected.",
+                    None,
+                )
+            ],
+            id="root-identity-conflict",
+        ),
+        # An identical repeated declaration reuses the loaded dependency.
+        pytest.param(
+            _BROKEN_SOURCE,
+            (("dependency", SOURCE, ()), ("other", _BROKEN_SOURCE, ())),
+            (*_ON_DEPENDENCY, *_ON_DEPENDENCY, ("other", "other")),
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            _ROOT_SYNTAX,
+            [_broken_dependency("other")],
+            id="repeated",
+        ),
+        pytest.param(
+            _BROKEN_SOURCE,
+            (("dependency", SOURCE, ()),),
+            _ON_DEPENDENCY,
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            _ROOT_SYNTAX,
+            [],
+            id="valid",
+        ),
+    ),
+)
+def test_a_root_module_failure_still_reports_its_dependencies_after_it(
+    tmp_path: Path,
+    root_source: bytes,
+    packages: _Layout,
+    root_dependencies: tuple[tuple[str, str], ...],
+    outcome: ProjectExplainRuntimeOutcome,
+    root: list[tuple[str, str, ProjectExplainLocation | None]],
+    dependencies: list[tuple[str, str, ProjectExplainLocation | None]],
+) -> None:
+    def explain(name: str, source: bytes) -> ProjectExplainRuntimeBuildResult:
+        layout = (*packages, ("root", source, root_dependencies))
+        return _build_project_explain_runtime(_write_layout(tmp_path / name, layout))
+
+    result = explain("failed", root_source)
+    loaded = explain("loaded", SOURCE).envelope.diagnostics
+
+    assert result.outcome is outcome
+    assert result.envelope.payload is None
+    assert _facts(result.envelope.diagnostics) == root + dependencies
+    # The dependencies report exactly what they report once the root loads.
+    assert _facts(loaded) == dependencies
+    assert result.envelope.diagnostics[len(root) :] == loaded
+
+
+def test_a_verified_root_rechecks_its_dependencies_after_planning(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verify = package_load_plan._verify_package_root
+    verified: list[str] = []
+
+    def changed_after_planning(
+        pinned_root: ProjectPinnedRoot, path: Path, state: ProjectFilesystemState
+    ) -> ProjectDiscoveryError | None:
+        # Only _verify_loaded_package reads this name. Explain plans the
+        # verified root at runtime_builder.py:511 (a loaded root at :532); the
+        # planner checks the root at package_load_plan.py:465, then each
+        # planned package in postorder at :630, which reaches the dependency
+        # first. Dependency loading uses package_loader's own binding.
+        verified.append(path.name)
+        if path.name == "dependency":
+            stat = path.stat()
+            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+        return verify(pinned_root, path, state)
+
+    monkeypatch.setattr(
+        package_load_plan, "_verify_package_root", changed_after_planning
+    )
+
+    def explain(name: str, source: bytes) -> ProjectExplainRuntimeBuildResult:
+        layout = (("dependency", SOURCE, ()), ("root", source, _ON_DEPENDENCY))
+        return _build_project_explain_runtime(_write_layout(tmp_path / name, layout))
+
+    failed = explain("failed", _BROKEN_SOURCE)
+    # The dependency's changed directory stops the post-plan check before it
+    # rechecks the root.
+    assert verified == ["root", "dependency"]
+    loaded = explain("loaded", SOURCE)
+    assert verified == ["root", "dependency"] * 2
+    changed = [
+        ("project_resource", "Located package root changed after location.", None)
+    ]
+
+    assert failed.outcome is ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR
+    assert loaded.outcome is ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR
+    assert _facts(failed.envelope.diagnostics) == _ROOT_SYNTAX + changed
+    assert _facts(loaded.envelope.diagnostics) == changed
+    assert failed.envelope.diagnostics[len(_ROOT_SYNTAX) :] == (
+        loaded.envelope.diagnostics
+    )
+
+
+def _replace_in(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    assert old in text
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("change", "expected"),
+    (
+        pytest.param(
+            lambda project: _replace_in(
+                project / "root" / "pietto-package.toml",
+                'version = "1.0.0"',
+                'version = "2.0.0"',
+            ),
+            (
+                "config_schema",
+                "Project package activation version must exactly match package "
+                "manifest version.",
+                _ROOT_MANIFEST,
+            ),
+            id="manifest",
+        ),
+        pytest.param(
+            lambda project: _replace_in(
+                project / "root" / "pietto-package.toml",
+                'kind = "module_source"',
+                'kind = "other"',
+            ),
+            (
+                "config_schema",
+                "Package manifest assets[0].kind must be module_source.",
+                _ROOT_MANIFEST,
+            ),
+            id="typed-asset",
+        ),
+        pytest.param(
+            lambda project: (project / "root" / "main.pietto").unlink(),
+            (
+                "source_read",
+                "Package asset file does not exist or is not accessible.",
+                _at(),
+            ),
+            id="asset-read",
+        ),
+        pytest.param(
+            lambda project: (project / "pietto.toml").write_text(
+                _project_config("root", "b" * 64, targets=False), encoding="utf-8"
+            ),
+            (
+                "project_resource",
+                "Package content digest does not match the declared root sha256.",
+                _at("pietto-package.toml"),
+            ),
+            id="stale-pin",
+        ),
+    ),
+)
+def test_a_root_that_fails_before_its_pin_verifies_reports_only_itself(
+    tmp_path: Path,
+    change: Callable[[Path], object],
+    expected: tuple[str, str, ProjectExplainLocation | None],
+) -> None:
+    layout: _Layout = (
+        ("dependency", _BROKEN_SOURCE, ()),
+        ("root", _BROKEN_SOURCE, _ON_DEPENDENCY),
+    )
+    project = _write_layout(tmp_path, layout)
+    change(project)
+
+    result = _build_project_explain_runtime(project)
+
+    assert result.outcome is ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR
+    assert _facts(result.envelope.diagnostics) == [expected]
+
+
+@pytest.mark.parametrize(
+    ("packages", "outcome", "expected"),
+    (
+        # `--` is two minus signs, so the dependency only warns (PIE-P1009).
+        pytest.param(
+            (
+                (
+                    "dependency",
+                    b"query q:\n    from rows\n    select:\n        x = 1 -- 2\n",
+                    (),
+                ),
+            ),
+            ProjectExplainRuntimeOutcome.SUCCESS,
+            [
+                (
+                    "PIE-P1009",
+                    f"In dependency package example/dependency@1.0.0: {_DOUBLE_MINUS}",
+                    _at(line=4, column=15, end_line=4, end_column=17),
+                )
+            ],
+            id="success-with-a-dependency-warning",
+        ),
+        pytest.param(
+            (("dependency", _BROKEN_SOURCE, ()),),
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            [_broken_dependency("dependency")],
+            id="dependency-diagnostic",
+        ),
+        pytest.param(
+            (),
+            ProjectExplainRuntimeOutcome.USAGE_OR_RESOURCE_ERROR,
+            _MISSING_DEPENDENCY,
+            id="dependency-error",
+        ),
+        pytest.param(
+            (("dependency", SOURCE, (("root", "root"),)),),
+            ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR,
+            [
+                (
+                    "cycle",
+                    "Dependency cycle: "
+                    + _arrow("root", 0, "dependency", "dependency")
+                    + " | "
+                    + _arrow("dependency", 0, "root", "root"),
+                    None,
+                )
+            ],
+            id="rejection",
+        ),
+    ),
+)
+def test_a_loaded_root_renders_what_its_package_inspection_exposes(
+    tmp_path: Path,
+    packages: _Layout,
+    outcome: ProjectExplainRuntimeOutcome,
+    expected: list[tuple[str, str, ProjectExplainLocation | None]],
+) -> None:
+    project = _write_layout(tmp_path, (*packages, ("root", SOURCE, _ON_DEPENDENCY)))
+    plan_result = package_load_plan._build_package_load_plan(_loaded_root(project))
+    facts = _build_package_inspection_fact_set(plan_result)
+    inspection = facts.inspection
+    product = facts.authority.rejection_product
+    package = ProjectExplainLogicalPathKind.PACKAGE_RELATIVE
+    # 0.1.7 rendered the inspection's errors, diagnostics and rejections.
+    before = (
+        tuple(
+            runtime_builder._project_error_diagnostic(item.error, package)
+            for item in inspection.errors
+        )
+        + tuple(
+            runtime_builder._source_diagnostic(item.diagnostic, package)
+            for item in inspection.diagnostics
+        )
+        + tuple(
+            ProjectExplainDiagnostic(
+                code=item.kind.value,
+                severity=Severity.ERROR,
+                message=item.message,
+                location=None,
+                suggestion=None,
+            )
+            for item in inspection.rejections
+        )
+    )
+
+    # Explain now renders the plan result that the inspection wraps.
+    assert product.plan_result is plan_result
+    assert tuple(item.error for item in inspection.errors) == plan_result.errors
+    assert (
+        tuple(item.diagnostic for item in inspection.diagnostics)
+        == plan_result.diagnostics
+    )
+    assert runtime_builder._package_plan_diagnostics(product) == before
+    assert _facts(before) == expected
+    result = _build_project_explain_runtime(project)
+    assert result.outcome is outcome
+    assert result.envelope.diagnostics == before
+    assert (result.envelope.payload is not None) is (
+        outcome is ProjectExplainRuntimeOutcome.SUCCESS
+    )
 
 
 _SCHEMA3_CONVERSION = (

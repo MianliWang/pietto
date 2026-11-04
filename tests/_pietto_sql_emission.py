@@ -5379,12 +5379,17 @@ def decoded_arguments(document, bindings=None):
 
 
 def _declared_sources(contract, premises):
-    """Each declared source with its own source-scoped premise positions, in order."""
+    """Each declared source with its source-scoped premise positions, in order:
+    `"source"` in its own premises, or a `{"kind": "source"}` scope selecting it."""
     result = []
     base = len(contract["environment"])
     for source in contract["sources"]:
+        selected = {"kind": "source", "selector": source["selector"]}
+        own = range(base, base + len(source["premises"]))
         positions = [
-            base + i for i, p in enumerate(source["premises"]) if p["scope"] == "source"
+            i
+            for i, p in enumerate(premises)
+            if p["scope"] == selected or (i in own and p["scope"] == "source")
         ]
         result.append((source, positions))
         base += len(source["premises"])

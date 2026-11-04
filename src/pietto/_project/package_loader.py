@@ -88,12 +88,29 @@ class LoadedRootPackage:
 
 
 @dataclass(frozen=True, slots=True, init=False)
+class VerifiedRootPackage:
+    """One integrity-verified root package whose modules did not all load.
+
+    Its verified manifest still declares the dependencies; it is never planned.
+    """
+
+    located_root: LocatedRootPackage = field(repr=False)
+    catalog: TypedRootPackageAssetCatalog
+    content_digest: str
+
+    def __new__(cls) -> VerifiedRootPackage:
+        raise TypeError("Verified root packages are created only by trusted loading.")
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class PackageLoadResult:
     """One complete loaded package or private error and diagnostic facts."""
 
     loaded_package: LoadedRootPackage | None
     errors: tuple[ProjectDiscoveryError, ...]
     diagnostics: tuple[Diagnostic, ...]
+    # Present only when loading failed after the content digest verified.
+    verified_package: VerifiedRootPackage | None
 
     def __new__(cls) -> PackageLoadResult:
         raise TypeError("Package load results are created only by trusted loading.")
@@ -144,6 +161,8 @@ class _PackageContentLoadResult:
     content: _LoadedPackageContent | None
     errors: tuple[ProjectDiscoveryError, ...]
     diagnostics: tuple[Diagnostic, ...]
+    # The catalog and digest of content that verified but did not parse.
+    verified: tuple[TypedRootPackageAssetCatalog, str] | None
 
     def __new__(cls) -> _PackageContentLoadResult:
         raise TypeError("Package content results require canonical trusted loading.")
@@ -198,12 +217,23 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
         loaded_package: LoadedRootPackage | None,
         errors: tuple[ProjectDiscoveryError, ...],
         diagnostics: tuple[Diagnostic, ...],
+        verified_package: VerifiedRootPackage | None = None,
     ) -> PackageLoadResult:
         if loaded_package is not None:
             if type(loaded_package) is not LoadedRootPackage:
                 raise TypeError("Canonical package loading requires an exact package.")
             if loaded_package.located_root is not located_root:
                 raise ValueError("Canonical package loading requires the caller root.")
+        if verified_package is not None:
+            if type(verified_package) is not VerifiedRootPackage:
+                raise TypeError("Canonical package loading requires an exact package.")
+            if (
+                loaded_package is not None
+                or verified_package.located_root is not located_root
+            ):
+                raise ValueError(
+                    "Only a failed load of the caller root keeps a verified package."
+                )
         if type(errors) is not tuple or any(
             type(error) is not ProjectDiscoveryError for error in errors
         ):
@@ -226,6 +256,7 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
         object.__setattr__(result, "loaded_package", loaded_package)
         object.__setattr__(result, "errors", errors)
         object.__setattr__(result, "diagnostics", diagnostics)
+        object.__setattr__(result, "verified_package", verified_package)
         return result
 
     content_result = _load_package_content(
@@ -238,10 +269,19 @@ def _load_root_package(located_root: LocatedRootPackage) -> PackageLoadResult:
         ),
     )
     if not content_result.ok:
+        verified_package = None
+        if content_result.verified is not None:
+            verified_package = object.__new__(VerifiedRootPackage)
+            object.__setattr__(verified_package, "located_root", located_root)
+            object.__setattr__(verified_package, "catalog", content_result.verified[0])
+            object.__setattr__(
+                verified_package, "content_digest", content_result.verified[1]
+            )
         return construct_result(
             None,
             content_result.errors,
             content_result.diagnostics,
+            verified_package,
         )
     content = content_result.content
     assert type(content) is _LoadedPackageContent
@@ -321,11 +361,13 @@ def _load_package_content(
         content: _LoadedPackageContent | None,
         errors: tuple[ProjectDiscoveryError, ...],
         diagnostics: tuple[Diagnostic, ...],
+        verified: tuple[TypedRootPackageAssetCatalog, str] | None = None,
     ) -> _PackageContentLoadResult:
         result = object.__new__(_PackageContentLoadResult)
         object.__setattr__(result, "content", content)
         object.__setattr__(result, "errors", errors)
         object.__setattr__(result, "diagnostics", diagnostics)
+        object.__setattr__(result, "verified", verified)
         return result
 
     manifest_read = _read_trusted_package_file_at(
@@ -464,7 +506,12 @@ def _load_package_content(
     if parse_errors or any(
         diagnostic.severity is Severity.ERROR for diagnostic in final_diagnostics
     ):
-        return construct_result(None, tuple(parse_errors), final_diagnostics)
+        return construct_result(
+            None,
+            tuple(parse_errors),
+            final_diagnostics,
+            (catalog, content_digest),
+        )
     if len(module_contents) != len(catalog.assets):
         raise ValueError("Trusted package loading requires every parsed module.")
 

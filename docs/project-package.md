@@ -309,9 +309,23 @@ The [capability environment contract](spec/phase58-slice11-project-capability-en
 defines profile facts, overlays and the other keys. A package may also declare
 `[[dependencies]]` (`namespace`, `name`, `version`, `sha256`, and a `path` to
 the dependency's directory relative to the declaring package), each pinned by
-its own digest. When the root package fails to load, for example because of a
-syntax error or a stale pin, explain reports only the root's diagnostics and
-loads no dependency, so a dependency's errors appear once the root loads.
+its own digest. Explain reads the root's manifest and every asset file and
+checks their content against the root's pin before it parses any module. When
+that check passes and a root module then fails the package parse step, the
+verified manifest still declares the `[[dependencies]]`, so explain loads them
+and lists their diagnostics after the root's, as it does once the root loads.
+That step fails when a module is not UTF-8 (`source_read`) or reports an error
+diagnostic as it is parsed: a syntax error, `PIE-S2801` for `collect` or
+`unnest`, or any other. The exit status then follows the whole list, as it
+does once the root loads: 2 when the root or a dependency reports a project
+error, such as `source_read` for a module that is not UTF-8 or
+`project_resource` for a missing dependency directory, and 1 otherwise. A root
+that fails before that check has no verified dependency declarations, so
+explain reports only the root's diagnostics and loads no dependency, and a
+dependency's errors appear once the root loads. This happens when the root's
+manifest or typed-asset validation fails, when an asset read fails
+(`source_read` for a module file that is missing or not accessible), or when
+the content does not match the pin, for example because of a stale pin.
 
 ## Trusted source identity
 
@@ -636,6 +650,23 @@ needs only the source premises and `client_encoding`. The statement premise
 `session_time_zone` are optional. The field premises `value_domain`,
 `encoding`, `collation`, `padding` and `comparison_prefix_bytes` are optional
 and must agree with the field's `domain`.
+
+A premise declared again with the same bound scope, key and canonical value
+is an exact repeat, and it is accepted, in any number of copies: within
+`environment`, within one source's `premises`, or across both. Each copy is
+still checked on its own, so a field premise that disagrees with the field's
+`domain` is BLOCKED with `PIE-B1005` however many copies there are. A
+`{"kind": "source", "selector": ...}` scope binds the same scope as `"source"`
+inside that source's description, and values compare as canonical JSON, so the
+order of an object's keys does not matter. The SQL is unchanged.
+`request.contract` echoes every declaration in input order, as
+`target.environment` does for those in `environment`, and a requirement that
+uses the premise cites the position of each copy (positions count
+`environment` first, then each source's `premises`). Two declarations of one
+key in one bound scope with different canonical values are BLOCKED with
+`PIE-B1005`, also on a source the statement does not read. A source is
+described once: a second description of it is INPUT_REJECTED
+(`emission_selector`, `Duplicate source description.`).
 
 The README example on MySQL declares
 `source items: Item = mysql.table("fixture.items")` and uses this contract:

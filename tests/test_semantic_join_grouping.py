@@ -4279,3 +4279,630 @@ def test_single_file_fanout_message_is_the_project_clause(
             "may read " + clause + _MATCH + ")",
         )
     ]
+
+
+_MIXED_FANOUT = """shape Item:
+    id: Int
+    price: Int
+    cat: Text
+shape Order:
+    id: Int
+    item_id: Int
+source items: Item = postgres.table("items")
+source orders: Order = postgres.table("orders")
+query q:
+    from items
+    let o = orders
+    {kind} join o on o.item_id == items.id
+    let p = items.price
+    let c = 2
+    select:
+{select}
+        price = o.item_id
+{order}"""
+
+
+def _mixed_rows(
+    tmp_path: Path, text: str
+) -> tuple[list[tuple[object, ...]], list[tuple[object, ...]]]:
+    """The diagnostics of ``text`` in a single file and in its EXPLICIT_MODULES
+    project, as (code, message, line, column, end line, end column) rows."""
+
+    def rows(
+        diagnostics: list[Diagnostic] | tuple[Diagnostic, ...],
+    ) -> list[tuple[object, ...]]:
+        return [
+            (
+                d.code,
+                d.message,
+                d.location.line,
+                d.location.column,
+                d.location.end_line,
+                d.location.end_column,
+            )
+            for d in diagnostics
+        ]
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(text, encoding="utf-8")
+    completed = build_project_completed_semantic_result(
+        build_empty_project_semantic_result(check_project_parse_only(tmp_path))
+    )
+    return rows(_single_file_diagnostics(text)), rows(completed.diagnostics)
+
+
+def _mixed_parity_codes(tmp_path: Path, text: str) -> list[str]:
+    """The codes a single file reports of ``text``, once its EXPLICIT_MODULES
+    project reports the same diagnostics: codes, messages, positions (end
+    positions included) and order.
+
+    That parity is the guard. The code lists the tests compare with document
+    which single-file rule each case reaches; a change to the single file
+    fails the parity first."""
+
+    single, project = _mixed_rows(tmp_path, text)
+    assert project == single
+    return [str(item[0]) for item in single]
+
+
+@pytest.mark.parametrize("kind", ("left", "inner"))
+@pytest.mark.parametrize(
+    ("select", "fanout"),
+    (
+        ("        k = items.id\n        n = count()", ()),
+        ("        k = items.id\n        n = sum(items.price)", ("PIE-S2381",)),
+        ("        k = items.id\n        n = sum(o.id)", ("PIE-S2381",)),
+        (
+            "        k = items.id\n        a = sum(items.price)\n"
+            "        b = sum(o.id)\n        n = count()",
+            ("PIE-S2381",) * 2,
+        ),
+        ("        n = sum(items.price)\n        k = o.id", ("PIE-S2381",)),
+    ),
+)
+@pytest.mark.parametrize(
+    ("order", "keys", "read_fails"),
+    (
+        ("", (), False),
+        ("    order by k, n, items.price, p\n", ("PIE-S2380",) * 3, False),
+        (
+            "    order by nosuch, k + 1, items.cat + 1, price\n",
+            ("PIE-S2102", "PIE-S2102", "PIE-S2105", "PIE-S2102"),
+            False,
+        ),
+        ("    order by o.nosuch, id\n", ("PIE-S2102", "PIE-S2335"), True),
+        (
+            '    order by "x", -1, c, True, None, sum(items.price), n + count()\n',
+            (*("PIE-S2380",) * 5, "PIE-S2308", "PIE-S2102", "PIE-S2308"),
+            False,
+        ),
+    ),
+)
+def test_a_mixed_aggregate_join_reports_what_a_single_file_reports(
+    tmp_path: Path,
+    kind: str,
+    select: str,
+    fanout: tuple[str, ...],
+    order: str,
+    keys: tuple[str, ...],
+    read_fails: bool,
+) -> None:
+    """Beside the mixed projection, a project reports each aggregate that may
+    read rows a JOIN repeats, in SELECT order, unless a read of a name that
+    several inputs have or of a dotted name of no field fails, and the errors
+    of each ORDER BY key: a read of an input field outside an aggregate, a
+    SELECT output or a `let` name included, an unknown or ambiguous field, a
+    type error, a bare constant and an aggregate, with the messages, positions
+    and order of a single file."""
+
+    text = _MIXED_FANOUT.format(kind=kind, select=select, order=order)
+    assert _mixed_parity_codes(tmp_path, text) == [
+        "PIE-S2312",
+        *(() if read_fails else fanout),
+        *keys,
+    ]
+
+
+_WINDOW = "row_number() window(order by items.id)"
+
+
+@pytest.mark.parametrize("kind", ("left", "inner"))
+@pytest.mark.parametrize(
+    ("select", "order", "expected"),
+    (
+        (
+            "        k = o.nosuch\n        n = sum(items.price)",
+            "    order by k\n",
+            ("PIE-S2102", "PIE-S2312", "PIE-S2380"),
+        ),
+        (
+            "        k = nosuch\n        n = count()",
+            "    order by k\n",
+            ("PIE-S2102", "PIE-S2312"),
+        ),
+        (
+            "        k = id\n        n = sum(items.price)",
+            "",
+            ("PIE-S2335", "PIE-S2312"),
+        ),
+        (
+            "        k = items.cat + 1\n        n = sum(items.price)",
+            "    order by k\n",
+            ("PIE-S2105", "PIE-S2312", "PIE-S2381", "PIE-S2380"),
+        ),
+        (
+            "        k = nofn(items.id)\n        n = sum(items.price)",
+            "",
+            ("PIE-S2103", "PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "        n = sum(items.price)\n        k = o.nosuch",
+            "    order by n\n",
+            ("PIE-S2312", "PIE-S2102"),
+        ),
+        (
+            "        k = items.id\n        m = k\n        n = count()",
+            "    order by m\n",
+            ("PIE-S2102", "PIE-S2312"),
+        ),
+        (
+            f"        k = items.id\n        w = {_WINDOW}\n        n = sum(o.id)",
+            "    order by w\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2102"),
+        ),
+        (
+            "        k = items.id\n        k = o.id\n        n = sum(items.price)",
+            "    order by k\n",
+            ("PIE-S2305", "PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "        k = o.nosuch + 1\n        n = sum(items.price)",
+            "    order by k\n",
+            ("PIE-S2102", "PIE-S2312", "PIE-S2380"),
+        ),
+        (
+            "        k = id\n        n = sum(items.price)",
+            "    order by k\n",
+            ("PIE-S2335", "PIE-S2312", "PIE-S2380"),
+        ),
+        (
+            "        n = count()\n        nosuch\n        nosuch",
+            "",
+            ("PIE-S2312", "PIE-S2102", "PIE-S2305"),
+        ),
+        (
+            "        o.nosuch\n        o.nosuch\n        n = count()",
+            "",
+            ("PIE-S2102", "PIE-S2102", "PIE-S2305", "PIE-S2312"),
+        ),
+    ),
+    ids=(
+        "dotted_unknown_item_named_by_key",
+        "bare_unknown_item_named_by_key",
+        "ambiguous_item",
+        "type_error_item",
+        "unknown_function_item",
+        "item_after_aggregate",
+        "item_reads_output",
+        "window_output_key",
+        "duplicate_output_key",
+        "dotted_unknown_expression_named_by_key",
+        "ambiguous_item_named_by_key",
+        "repeated_unknown_bare_item",
+        "repeated_unknown_dotted_item",
+    ),
+)
+def test_a_mixed_aggregate_join_reports_its_other_items_as_a_single_file_does(
+    tmp_path: Path, kind: str, select: str, order: str, expected: tuple[str, ...]
+) -> None:
+    """The errors of each SELECT item without an aggregate, such as an unknown,
+    ambiguous or output field, a type error or an unknown function, stand
+    beside the mixed projection as in a single file, where a dotted unknown or
+    ambiguous read leaves no fan-out check. An ORDER BY key that names an
+    output alone reads that output: an output that reads a dotted name of no
+    field or a name that several inputs have keeps that error at its item,
+    and the key reports PIE-S2380, while an output that reads only an unknown
+    bare name makes the key read nothing. A key that names a window output is
+    an unknown field, and one that names an output that two items share reads
+    neither. A `let` name that is also a SELECT output (PIE-S2329), or a
+    `let` value or WHERE with an error of its own, stops a project relation
+    before its aggregates instead
+    (test_a_mixed_aggregate_join_with_a_let_or_where_error_stops_before_its_aggregates)."""
+
+    text = _MIXED_FANOUT.format(kind=kind, select=select, order=order)
+    assert _mixed_parity_codes(tmp_path, text) == list(expected)
+
+
+# A window is the only projection beside the aggregates here.
+_WINDOW_MIXED = _MIXED_FANOUT.replace("        price = o.item_id\n", "").replace(
+    "    select:\n", "{lets}    select:\n"
+)
+
+
+@pytest.mark.parametrize("kind", ("left", "inner"))
+@pytest.mark.parametrize(
+    ("lets", "select", "order", "expected"),
+    (
+        ("", f"        w = {_WINDOW}\n        n = count()", "", ("PIE-S2312",)),
+        (
+            "",
+            f"        w = {_WINDOW}\n        n = sum(o.id)",
+            "    order by w\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2102"),
+        ),
+        (
+            "",
+            f"        w = {_WINDOW}\n        n = count()",
+            "    order by items.id, c\n",
+            ("PIE-S2312", "PIE-S2380", "PIE-S2380"),
+        ),
+        (
+            "",
+            "        w = row_number() window(order by o.nosuch)\n        n = sum(o.id)",
+            "",
+            ("PIE-S2102", "PIE-S2312"),
+        ),
+        (
+            "",
+            "        w = lag(o.nosuch) window(order by items.id)\n        n = sum(o.id)",
+            "",
+            ("PIE-S2102", "PIE-S2312"),
+        ),
+        (
+            "",
+            "        k = items.id\n        w = row_number() window(order by id)\n"
+            "        n = sum(o.id)",
+            "",
+            ("PIE-S2335", "PIE-S2312"),
+        ),
+        (
+            "",
+            "        w = row_number() window(order by nosuch)\n        n = count()",
+            "",
+            ("PIE-S2312",),
+        ),
+        (
+            "    let win = window(order by o.nosuch)\n",
+            "        w = row_number() window win\n        n = sum(o.id)",
+            "",
+            ("PIE-S2102", "PIE-S2312"),
+        ),
+        (
+            "    let win = window(partition by id)\n",
+            "        k = items.id\n        w = row_number() window win\n        n = count()",
+            "",
+            ("PIE-S2335", "PIE-S2312"),
+        ),
+        (
+            "    let win = window(order by items.id)\n",
+            "        w = row_number() window win\n        n = sum(o.id)",
+            "",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "",
+            "        w = lag(nofn(items.id)) window(order by items.id)\n"
+            "        n = sum(o.id)",
+            "",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "",
+            "        w = lag(items.cat + 1) window(order by items.id)\n"
+            "        n = sum(o.id)",
+            "",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "",
+            "        w = row_number() window(order by nofn(items.id))\n"
+            "        n = sum(o.id)",
+            "",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "",
+            "        k = items.id\n"
+            "        w = row_number() window(partition by items.cat + 1 order by items.id)\n"
+            "        n = sum(o.id)",
+            "",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "",
+            "        k = items.id\n        w = sum(items.cat) window(order by items.id)\n"
+            "        n = sum(o.id)",
+            "",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "    let win = window(order by nofn(items.id))\n",
+            "        k = items.id\n        w = row_number() window win\n        n = sum(o.id)",
+            "",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "    let win = window(partition by items.cat + 1)\n",
+            "        k = items.id\n        w = row_number() window win\n        n = sum(o.id)",
+            "",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+    ),
+    ids=(
+        "window_and_count",
+        "window_and_sum_key",
+        "window_and_count_keys",
+        "window_reads_dotted_unknown",
+        "window_argument_dotted_unknown",
+        "window_reads_ambiguous",
+        "window_reads_bare_unknown",
+        "named_window_reads_dotted_unknown",
+        "named_window_reads_ambiguous",
+        "named_window",
+        "window_argument_unknown_function",
+        "window_argument_type_error",
+        "window_key_unknown_function",
+        "window_partition_type_error",
+        "aggregate_window_argument_type_error",
+        "named_window_key_unknown_function",
+        "named_window_partition_type_error",
+    ),
+)
+def test_a_window_beside_a_join_aggregate_is_a_mixed_projection(
+    tmp_path: Path,
+    kind: str,
+    lets: str,
+    select: str,
+    order: str,
+    expected: tuple[str, ...],
+) -> None:
+    """A window beside an aggregate without GROUP BY is a row projection
+    (PIE-S2312) in a project JOIN relation as in a single file, also as the
+    only one, with each aggregate that may read rows a JOIN repeats and the
+    errors of each ORDER BY key; a read of a window's arguments or keys, or of
+    a named window's keys, of a dotted name of no field or a name that several
+    inputs have is its error there and leaves no fan-out check, while a bare
+    unknown name, an unknown function or a type error in a window's arguments
+    or keys reports nothing beside the mixed projection: a single file refuses
+    such a window before it types them."""
+
+    text = _WINDOW_MIXED.format(kind=kind, lets=lets, select=select, order=order)
+    assert _mixed_parity_codes(tmp_path, text) == list(expected)
+
+
+_MIXED_SUM = "        k = items.id\n        n = sum(items.price)"
+
+
+@pytest.mark.parametrize("kind", ("left", "inner"))
+@pytest.mark.parametrize(
+    ("select", "tail", "expected"),
+    (
+        (_MIXED_SUM, "    qualify o.nosuch > 1\n", ("PIE-S2312", "PIE-S2102")),
+        (_MIXED_SUM, "    qualify id > 1\n", ("PIE-S2312", "PIE-S2335")),
+        (
+            _MIXED_SUM,
+            "    qualify nosuch > 1\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2102"),
+        ),
+        (
+            "        k = items.id\n        n = count()",
+            "    qualify o.nosuch > 1 and id > 1\n",
+            ("PIE-S2312", "PIE-S2102", "PIE-S2335"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify items.price > 1\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2102"),
+        ),
+        (
+            _MIXED_SUM,
+            '    qualify cat == "a"\n',
+            ("PIE-S2312", "PIE-S2381", "PIE-S2102"),
+        ),
+        (_MIXED_SUM, "    qualify p > 1\n", ("PIE-S2312", "PIE-S2381", "PIE-S2102")),
+        (_MIXED_SUM, "    qualify k > 1\n", ("PIE-S2312", "PIE-S2381")),
+        (_MIXED_SUM, "    qualify c > 1\n", ("PIE-S2312", "PIE-S2381")),
+        (
+            "        cat = items.id\n        n = sum(items.price)",
+            "    qualify cat > 1\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2102"),
+        ),
+        (_MIXED_SUM, "    qualify k\n", ("PIE-S2312", "PIE-S2381", "PIE-S2202")),
+        (
+            _MIXED_SUM,
+            "    qualify count() > 1\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2308"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify count() > 1 and nosuch > 1\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2308", "PIE-S2102"),
+        ),
+        (
+            "        k = items.id\n        n = count()",
+            "    qualify count() > 1 and items.price > 1\n",
+            ("PIE-S2312", "PIE-S2308"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify count() > 1 and items.cat + 1 > 0\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2308", "PIE-S2105"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify nofn(items.id) > 0\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2103", "PIE-S2102"),
+        ),
+        (
+            _MIXED_SUM,
+            f"    qualify {_WINDOW} <= 3\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2103"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify row_number() window(order by o.nosuch) <= 3\n",
+            ("PIE-S2312", "PIE-S2103", "PIE-S2102"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify row_number() window(order by id) <= 3\n",
+            ("PIE-S2312", "PIE-S2103", "PIE-S2335"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify row_number() window(order by nosuch) <= 3\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2103"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify lag(o.nosuch) window(order by items.id) > 1\n",
+            ("PIE-S2312", "PIE-S2103", "PIE-S2102"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify sum(items.price) window(order by items.id) > 1\n",
+            ("PIE-S2312", "PIE-S2381", "PIE-S2103"),
+        ),
+        (
+            f"        k = items.id\n        w = {_WINDOW}\n        n = sum(items.price)",
+            "    qualify w <= 3\n",
+            ("PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            _MIXED_SUM,
+            "    qualify o.nosuch > 1\n    order by k\n",
+            ("PIE-S2312", "PIE-S2102", "PIE-S2380"),
+        ),
+    ),
+    ids=(
+        "dotted_unknown",
+        "ambiguous",
+        "bare_unknown",
+        "dotted_unknown_and_ambiguous",
+        "input_field",
+        "bare_input_field",
+        "let_reading_an_input_field",
+        "output",
+        "let",
+        "output_named_like_an_input_field",
+        "non_bool_output",
+        "aggregate",
+        "aggregate_and_bare_unknown",
+        "aggregate_and_input_field",
+        "aggregate_and_type_error",
+        "unknown_function",
+        "hidden_window",
+        "hidden_window_reads_dotted_unknown",
+        "hidden_window_reads_ambiguous",
+        "hidden_window_reads_bare_unknown",
+        "hidden_window_argument_dotted_unknown",
+        "hidden_aggregate_window",
+        "selected_window_output",
+        "with_order_by",
+    ),
+)
+def test_a_mixed_aggregate_join_checks_qualify_as_a_single_file_does(
+    tmp_path: Path, kind: str, select: str, tail: str, expected: tuple[str, ...]
+) -> None:
+    """QUALIFY of a JOIN relation that mixes an aggregate with another
+    projection reads one group without keys, in a project as in a single
+    file: a dotted name of no field (PIE-S2102) or a name that several inputs
+    have (PIE-S2335), also inside a hidden window, is that read's error and
+    leaves no fan-out check; any other input field read, bare, qualified or
+    through a `let` name, is an unknown field (PIE-S2102); a SELECT output
+    and a `let` name that reads no input field are readable, and an output
+    named like an input field is ambiguous (PIE-S2102); a hidden window is
+    refused (PIE-S2103), an aggregate is PIE-S2308, after which the predicate
+    is typed over the whole joined row (an unknown field is PIE-S2102, a
+    type error PIE-S2105, an input field is readable), an unknown function
+    PIE-S2103 and a non-Bool predicate PIE-S2202. Both run the single-file
+    `append_qualify_diagnostics`."""
+
+    text = _WINDOW_MIXED.format(kind=kind, lets="", select=select, order=tail)
+    assert _mixed_parity_codes(tmp_path, text) == list(expected)
+
+
+@pytest.mark.parametrize("kind", ("left", "inner"))
+@pytest.mark.parametrize(
+    ("clauses", "select", "order", "single_codes"),
+    (
+        (
+            "",
+            "        p = items.price\n        n = count()",
+            "    order by p\n",
+            ("PIE-S2329", "PIE-S2312"),
+        ),
+        (
+            "",
+            "        p = o.item_id\n        n = count()",
+            "    order by p\n",
+            ("PIE-S2329", "PIE-S2312"),
+        ),
+        (
+            "",
+            "        p = o.item_id\n        n = sum(items.price)",
+            "",
+            ("PIE-S2329", "PIE-S2312", "PIE-S2381"),
+        ),
+        ("    let z = o.nosuch\n", _MIXED_SUM, "", ("PIE-S2102", "PIE-S2312")),
+        ("    let z = id\n", _MIXED_SUM, "", ("PIE-S2335", "PIE-S2312")),
+        (
+            "    let z = nosuch\n",
+            _MIXED_SUM,
+            "",
+            ("PIE-S2102", "PIE-S2312", "PIE-S2381"),
+        ),
+        ("    where o.nosuch > 1\n", _MIXED_SUM, "", ("PIE-S2102", "PIE-S2312")),
+        ("    where id > 1\n", _MIXED_SUM, "", ("PIE-S2335", "PIE-S2312")),
+        (
+            "    where nosuch > 1\n",
+            _MIXED_SUM,
+            "",
+            ("PIE-S2102", "PIE-S2312", "PIE-S2381"),
+        ),
+        (
+            "    where items.cat + 1 > 0\n",
+            _MIXED_SUM,
+            "",
+            ("PIE-S2105", "PIE-S2312", "PIE-S2381"),
+        ),
+    ),
+    ids=(
+        "let_named_like_output_ordered",
+        "let_named_like_other_output_ordered",
+        "let_named_like_other_output_sum",
+        "let_dotted_unknown",
+        "let_ambiguous",
+        "let_bare_unknown",
+        "where_dotted_unknown",
+        "where_ambiguous",
+        "where_bare_unknown",
+        "where_type_error",
+    ),
+)
+def test_a_mixed_aggregate_join_with_a_let_or_where_error_stops_before_its_aggregates(
+    tmp_path: Path,
+    kind: str,
+    clauses: str,
+    select: str,
+    order: str,
+    single_codes: tuple[str, ...],
+) -> None:
+    """Pins pre-existing behaviour, unchanged from 0.1.7 (4c8348a4): the known
+    limitation of the PIE-S2312 row of docs/spec/diagnostics.md. A project JOIN
+    relation that mixes an aggregate with another projection builds no joined
+    aggregation once its `let:` clause (a `let` name that is also a SELECT
+    output, PIE-S2329, or a `let` value with an error) or its WHERE is
+    refused, so it reports what a single file reports there without PIE-S2312
+    and PIE-S2381, with the same messages and positions. The later
+    architecture item "project joined aggregation analysis beside a refused
+    WHERE/let binding" turns this into parity."""
+
+    text = _WINDOW_MIXED.format(kind=kind, lets=clauses, select=select, order=order)
+    single, project = _mixed_rows(tmp_path, text)
+    assert [item[0] for item in single] == list(single_codes)
+    assert project == [
+        item for item in single if item[0] not in {"PIE-S2312", "PIE-S2381"}
+    ]

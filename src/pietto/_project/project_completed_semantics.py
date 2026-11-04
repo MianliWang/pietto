@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from pietto._project.project_compiled_schema import unnest_field_source
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import contextvars
 import math
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from pietto.ast_nodes import Expression
     from pietto._project.model import CompiledProjectInput, ProjectResolvedType
     from pietto._project.module_attribution import CompiledDeclarationOccurrence
     from pietto._project.nested_relation_facts import ProjectNestedRelationFactSet
@@ -81,10 +82,7 @@ from pietto._project.project_ir_evaluation_context import (
 from pietto._project.project_ir_relational_properties import (
     build_project_ir_relational_property_stage,
 )
-from pietto._project.project_ir_verification import (
-    build_project_ir_analysis_bundle,
-    verify_project_ir_stage,
-)
+from pietto._project.project_ir_verification import verify_project_ir_stage
 from pietto._project.project_join_conditions import (
     ProjectJoinCondition,
     ProjectJoinConditionCompletion,
@@ -115,6 +113,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.analyzer import (
+    _diagnostic_order,
     _duplicate_enum_member_diagnostics,
     _within,
     check_module_declarations,
@@ -988,12 +987,11 @@ def _or_list(names: tuple[str, ...]) -> str:
     return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
 
 
-def _fanout_cause(entry: ProjectEffectiveOutputCompletionEntry) -> str:
-    """Name the JOINs that may repeat this relation's own aggregate rows.
-
-    Only the relation whose own joined aggregation is refused for fan-out
-    gets the clause; a relation that merely reads it keeps the bare message.
-    """
+def _refused_aggregation(
+    entry: ProjectEffectiveOutputCompletionEntry,
+) -> project_joined_aggregation.ProjectNonConcreteJoinedAggregation | None:
+    """This relation's own joined aggregation when it is refused; a relation
+    that merely reads a refused one has none."""
 
     qualify = (
         entry.joined_qualify
@@ -1001,36 +999,148 @@ def _fanout_cause(entry: ProjectEffectiveOutputCompletionEntry) -> str:
         else None
     )
     if type(qualify) is not project_joined_qualify.ProjectNonConcreteJoinedQualify:
-        return ""
+        return None
     stage = qualify.window_stage
     if type(stage) is not project_joined_windows.ProjectNonConcreteJoinedWindowStage:
-        return ""
+        return None
     aggregation = stage.input_aggregation
     if (
         type(aggregation)
         is not project_joined_aggregation.ProjectNonConcreteJoinedAggregation
-        or aggregation.reason
-        is not (
-            project_joined_aggregation.ProjectJoinedAggregationNonConcreteReason.AGGREGATE_ALGEBRA_REQUIRED
-        )
+    ):
+        return None
+    return aggregation
+
+
+def _fanout_cause(entry: ProjectEffectiveOutputCompletionEntry) -> str:
+    """Name the JOINs that may repeat this relation's own aggregate rows.
+
+    Only the relation whose own joined aggregation is refused for fan-out
+    gets the clause; a relation that merely reads it keeps the bare message.
+    """
+
+    aggregation = _refused_aggregation(entry)
+    # Fan-out is the refusal's root only when no other issue precedes it in
+    # `ProjectNonConcreteJoinedAggregation`'s reason ladder; a mixed
+    # projection (PIE-S2312) reports its fan-out at each aggregate instead.
+    if aggregation is None or aggregation.reason is not (
+        project_joined_aggregation.ProjectJoinedAggregationNonConcreteReason.AGGREGATE_ALGEBRA_REQUIRED
     ):
         return ""
-    risky = tuple(
+    risky = _fanout_linkages(aggregation)
+    clause = _fanout_clause(risky) if risky else _REPEATED_ROWS
+    # PIE-S2333 names a cause only when it names a JOIN or a remedy.
+    return "" if clause == _REPEATED_ROWS else f" ({clause})"
+
+
+def _fanout_linkages(
+    aggregation: project_joined_aggregation.ProjectNonConcreteJoinedAggregation,
+) -> tuple[project_joined_aggregation.ProjectJoinedAggregateGrainLinkage, ...]:
+    """The aggregates that may read rows a JOIN repeats, in SELECT order: those
+    whose grain linkage has a multiplicity exposure, which
+    `ProjectJoinedAggregateGrainLinkage` holds exactly when that linkage
+    requires aggregate algebra, the requirement that refuses the aggregate."""
+
+    return tuple(
         linkage
         for linkage in aggregation.grain_linkages
         if linkage.multiplicity_exposures
     )
-    return _fanout_clause(risky) if risky else ""
+
+
+def _entry_and_mixed_aggregate_diagnostics(
+    entry: ProjectEffectiveOutputCompletionEntry,
+    read_types: Mapping[Expression, ValueType] | None,
+) -> tuple[Diagnostic, ...]:
+    """The entry's own errors with `_mixed_aggregate_diagnostics` merged in
+    source order. A single file sorts its diagnostics by position, then code
+    (`analyzer._diagnostic_order`), so when `_mixed_aggregate_diagnostics`
+    reports any, and the entry's own errors and those are all located in one
+    file, they are sorted that way: a repeated dotted item's PIE-S2102 then
+    precedes its PIE-S2305. Otherwise the merge order stands."""
+
+    own = _entry_error_diagnostics(entry)
+    mixed = _mixed_aggregate_diagnostics(entry, read_types)
+    merged = module_semantic_fact_preservation.merge_in_source_order(own, mixed)
+    paths = {
+        diagnostic.location.path
+        for diagnostic in merged
+        if diagnostic.location is not None
+    }
+    if (
+        not mixed
+        or any(diagnostic.location is None for diagnostic in merged)
+        or len(paths) > 1
+    ):
+        return merged
+    return tuple(sorted(merged, key=_diagnostic_order))
+
+
+def _mixed_aggregate_diagnostics(
+    entry: ProjectEffectiveOutputCompletionEntry,
+    read_types: Mapping[Expression, ValueType] | None,
+) -> tuple[Diagnostic, ...]:
+    """What a single file also reports of a JOIN relation whose aggregate is
+    mixed with another projection without GROUP BY (PIE-S2312), which stops
+    it before its fan-out refusal, its other SELECT items, its QUALIFY and
+    its ORDER BY: a PIE-S2381 at each aggregate that may read rows a JOIN
+    repeats, naming what the fan-out cause names of that aggregate alone,
+    unless a read fails there, and the errors of those SELECT items, windows,
+    QUALIFY and ORDER BY keys, in a single file's order: by position, then by
+    code."""
+
+    aggregation = _refused_aggregation(entry)
+    if aggregation is None or not any(
+        issue.kind
+        is project_joined_aggregation.ProjectJoinedSelectedOutputIssueKind.MIXED_GLOBAL_ROW_PROJECTION
+        for issue in aggregation.selected_output_issues
+    ):
+        return ()
+    found, read_fails = project_final_outputs.mixed_aggregate_diagnostics(
+        aggregation, read_types
+    )
+    fanout: list[Diagnostic] = []
+    # The aggregates whose fan-out `_fanout_cause` names when it is the
+    # refusal's root; here PIE-S2312 is.
+    for linkage in () if read_fails else _fanout_linkages(aggregation):
+        # A cause that names no JOIN and no remedy is the bare one, as a
+        # single file's PIE-S2381 states it.
+        cause = _fanout_clause((linkage,))
+        span = linkage.aggregate.call.span
+        fanout.append(
+            Diagnostic(
+                code="PIE-S2381",
+                severity=Severity.ERROR,
+                message=cause[0].upper() + cause[1:],
+                location=SourceLocation(
+                    path=span.path,
+                    line=span.line,
+                    column=span.column,
+                    end_line=span.end_line,
+                    end_column=span.end_column,
+                ),
+            )
+        )
+    return tuple(
+        sorted(
+            (*fanout, *found),
+            key=lambda item: (item.location.line, item.location.column, item.code),
+        )
+    )
 
 
 type _Factors = frozenset[project_grain.ProjectGrainFactorIdentity]
 type _Dependency = tuple[_Factors, _Factors]
 
+_REPEATED_ROWS = "an aggregate may read rows that a JOIN repeats"
+
 
 def _fanout_clause(
     risky: tuple[project_joined_aggregation.ProjectJoinedAggregateGrainLinkage, ...],
 ) -> str:
-    """Name the repeating JOINs and only remedies the grain engine accepts.
+    """Name the repeating JOINs and only remedies the grain engine accepts,
+    as the bare text of the fan-out cause: `_REPEATED_ROWS` alone when it
+    names no JOIN and no remedy.
 
     Every remedy is checked with the engine's own dependency closure: applied
     alone, it must bring each refused aggregate's closure to the full JOIN
@@ -1228,14 +1338,12 @@ def _fanout_clause(
         remedies.append(f"match {noun} of {_and_list(picked)} in `on`, {others}")
     elif grouped(keyed):
         remedies.append(others)
-    if not repeated and not remedies:
-        return ""
     cause = (
         f"an aggregate may read rows repeated by {_and_list(tuple(dict.fromkeys(repeated)))}"
         if repeated
-        else "an aggregate may read rows that a JOIN repeats"
+        else _REPEATED_ROWS
     )
-    return f" ({cause}{'; ' + ', or '.join(remedies) if remedies else ''})"
+    return f"{cause}{'; ' + ', or '.join(remedies) if remedies else ''}"
 
 
 def _and_list(names: tuple[str, ...]) -> str:
@@ -1721,11 +1829,15 @@ def _final_diagnostics(
             for facts in owner_facts
             for diagnostic in facts.nested_references.distinct
         )
+        read_types = owner_facts[0].scalar_read_types if len(owner_facts) == 1 else None
         errors = tuple(
             diagnostic
             for diagnostic in (
                 *module_semantic_fact_preservation.merge_in_source_order(
-                    () if completed else _entry_error_diagnostics(entry), distinct
+                    ()
+                    if completed
+                    else _entry_and_mixed_aggregate_diagnostics(entry, read_types),
+                    distinct,
                 ),
                 *unnest_field_diagnostics(owner_facts),
                 *(
@@ -1734,8 +1846,7 @@ def _final_diagnostics(
                     for diagnostic in _read_diagnostics(facts)
                 ),
                 *project_final_outputs.joined_let_unreached_diagnostics(
-                    entry,
-                    owner_facts[0].scalar_read_types if len(owner_facts) == 1 else None,
+                    entry, read_types
                 ),
             )
             if id(diagnostic) not in retired_ids
@@ -1968,8 +2079,7 @@ def _build_phase62_verification(
     origins = project_grain.build_project_grain_origins(value_fds, evaluation)
     base_verification = verify_project_ir_stage(evaluation)
     base_relational = build_project_ir_relational_property_stage(
-        origins,
-        build_project_ir_analysis_bundle(base_verification),
+        origins, base_verification
     )
     uses = project_relationship_uses.build_project_relationship_uses(
         semantic_result, base_relational

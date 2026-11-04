@@ -1546,69 +1546,18 @@ def type_relation_expressions(
                 )
                 if name is not None and selected_output_name_counts[name] == 1
             }
-            qualify_input, qualify_lets = input_schema, let_value_types or {}
-            grouped_input = None
-            if single_file and (
-                definition.group_by_clause is not None
-                or any(
-                    contains_semantic_aggregate(selected.expression)
-                    for selected in definition.select_items
-                )
-            ):
-                grouped_input = _grouped_qualify_input(
-                    definition,
-                    input_schema,
-                    qualify_lets,
-                    let_expressions or {},
-                )
-            for name in _bare_names(qualify):
-                ambiguity = qualify_output_ambiguity(
-                    name,
-                    definition,
-                    input_schema,
-                    let_names={*(let_value_types or {}), *rejected_lets},
-                    readable=None if grouped_input is None else grouped_input[0],
-                )
-                if ambiguity is not None:
-                    diagnostics.append(ambiguity)
-            start = len(diagnostics)
-            if single_file:
-                # An aggregate is read through the selected output computing it.
-                _append_invalid_count_context_diagnostic(
-                    qualify, diagnostics, context="qualify clause"
-                )
-                if len(diagnostics) == start and grouped_input is not None:
-                    qualify_input, qualify_lets = grouped_input
-            qualify_type = _infer(
+            append_qualify_diagnostics(
                 qualify,
-                qualify_input,
+                definition,
+                input_schema,
                 value_types,
                 diagnostics,
-                report_unknown_name=True,
-                field_qualifier=(
-                    definition.from_clause.binding_name
-                    or definition.from_clause.source_name
-                ),
-                bare_value_types={**qualify_lets, **output_types},
-                bare_value_expressions=let_expressions,
-                suppressed_unknown_names=rejected_lets,
+                let_value_types=let_value_types,
+                let_expressions=let_expressions,
+                rejected_lets=rejected_lets,
+                output_types=output_types,
+                single_file=single_file,
                 type_expansions=type_expansions,
-            )
-            _append_condition_diagnostic(
-                qualify,
-                "qualify clause",
-                value_types,
-                diagnostics,
-                type_expansions,
-                explained=qualify_type.kind is ValueTypeKind.KNOWN
-                or unknown_explained(
-                    qualify,
-                    diagnostics[start:],
-                    input_schema,
-                    let_expressions,
-                ),
-                row_schema=input_schema,
-                lets=let_expressions,
             )
         if (
             definition.order_by_clause is not None
@@ -1630,92 +1579,82 @@ def type_relation_expressions(
                 and type(selected.expression) is not WindowExpr
                 and selected_output_name_counts[name] == 1
             }
-            for item in definition.order_by_clause.items:
-                key_diagnostic_count = len(diagnostics)
-                _append_invalid_count_context_diagnostic(
-                    item.expression,
-                    diagnostics,
-                    context="order by",
-                )
+
+            # The resolver reads them as narrowed here.
+            order_definition, order_schema = definition, input_schema
+
+            def resolve_order_key(
+                key: Expression,
+            ) -> tuple[Mapping[str, Expression], set[str]]:
                 order_bare_value_types = let_value_types
-                if (
-                    type(item.expression) is NameExpr
-                    and item.expression.name in window_alias_value_types
-                ):
+                if type(key) is NameExpr and key.name in window_alias_value_types:
                     order_bare_value_types = dict(window_alias_value_types)
                     order_bare_value_types.update(let_value_types or {})
                 elif (
-                    type(item.expression) is NameExpr
-                    and item.expression.name in duplicate_window_output_names
+                    type(key) is NameExpr and key.name in duplicate_window_output_names
                 ):
                     order_bare_value_types = {
-                        item.expression.name: _UNKNOWN_VALUE_TYPE,
+                        key.name: _UNKNOWN_VALUE_TYPE,
                         **(let_value_types or {}),
                     }
                 ambiguity = (
                     order_output_ambiguity(
-                        item.expression,
-                        definition,
-                        input_schema,
+                        key,
+                        order_definition,
+                        order_schema,
                         let_expressions,
                         let_names={*(let_value_types or {}), *rejected_lets},
                     )
-                    if type(item.expression) is NameExpr
+                    if type(key) is NameExpr
                     else None
                 )
                 order_lets: Mapping[str, Expression] = let_expressions or {}
                 if ambiguity is not None:
                     diagnostics.append(ambiguity)
                 elif (
-                    type(item.expression) is NameExpr
-                    and item.expression.name in selected_output_name_counts
-                    and not _names_window_output(definition, item.expression.name)
-                    and item.expression.name not in rejected_lets
-                    and item.expression.name not in (order_bare_value_types or {})
-                    and not input_schema.is_unknown
-                    and not has_bare_field(input_schema, item.expression.name)
+                    type(key) is NameExpr
+                    and key.name in selected_output_name_counts
+                    and not _names_window_output(order_definition, key.name)
+                    and key.name not in rejected_lets
+                    and key.name not in (order_bare_value_types or {})
+                    and not order_schema.is_unknown
+                    and not has_bare_field(order_schema, key.name)
                 ):
-                    output = outputs.get(item.expression.name)
+                    output = outputs.get(key.name)
                     order_bare_value_types = {
                         **(let_value_types or {}),
-                        item.expression.name: _UNKNOWN_VALUE_TYPE
+                        key.name: _UNKNOWN_VALUE_TYPE
                         if output is None
                         else value_types.get(output, _UNKNOWN_VALUE_TYPE),
                     }
                     if output is not None:
-                        order_lets = {**order_lets, item.expression.name: output}
+                        order_lets = {**order_lets, key.name: output}
                 _infer(
-                    item.expression,
-                    input_schema,
+                    key,
+                    order_schema,
                     value_types,
                     diagnostics,
                     report_unknown_name=True,
                     field_qualifier=(
-                        definition.from_clause.binding_name
-                        or definition.from_clause.source_name
+                        order_definition.from_clause.binding_name
+                        or order_definition.from_clause.source_name
                     ),
                     bare_value_types=order_bare_value_types,
                     bare_value_expressions=let_expressions,
                     suppressed_unknown_names=rejected_lets,
                     type_expansions=type_expansions,
                 )
-                # A key that already reported its own error gets no PIE-S2380.
-                # A bare constant key needs no field knowledge: with an unknown
-                # input row a `let:` name is inlined, as emission inlines it.
-                problem = (
-                    None
-                    if len(diagnostics) > key_diagnostic_count
-                    else _order_key_problem(
-                        item.expression,
-                        input_schema,
-                        order_lets,
-                        aggregated=aggregated,
-                        bare_constants=single_file,
-                        rejected_lets=rejected_lets,
-                    )
+                return order_lets, rejected_lets
+
+            for item in definition.order_by_clause.items:
+                append_order_key_diagnostics(
+                    item.expression,
+                    diagnostics,
+                    resolve_order_key,
+                    input_schema=input_schema,
+                    aggregated=aggregated,
+                    bare_constants=single_file,
                 )
-                if problem is not None:
-                    diagnostics.append(_order_key_diagnostic(item.expression, problem))
 
     return (
         value_types,
@@ -1733,6 +1672,94 @@ def _window_expressions(expression: Expression) -> Iterator[WindowExpr]:
         return
     for child in _captured_field_children(expression):
         yield from _window_expressions(child)
+
+
+def append_qualify_diagnostics(
+    qualify: Expression,
+    definition: TableDef | QueryDef,
+    input_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    let_value_types: Mapping[str, ValueType] | None,
+    let_expressions: Mapping[str, Expression] | None,
+    rejected_lets: set[str],
+    output_types: Mapping[str, ValueType],
+    single_file: bool,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
+) -> None:
+    """Check a relation's QUALIFY once its hidden windows are typed into
+    ``value_types``, for a single file and for a project JOIN relation alike:
+    a name that is both an input field and a SELECT output (PIE-S2102), an
+    aggregate (PIE-S2308), the predicate typed over what it reads (in a
+    grouped relation, or one with aggregates and no GROUP BY, the input
+    `_grouped_qualify_input` leaves, unless it holds an aggregate) and a
+    condition that is not a Bool (PIE-S2202). ``output_types`` are the types
+    of the SELECT outputs that one item alone names."""
+
+    qualify_input, qualify_lets = input_schema, let_value_types or {}
+    grouped_input = None
+    if single_file and (
+        definition.group_by_clause is not None
+        or any(
+            contains_semantic_aggregate(selected.expression)
+            for selected in definition.select_items
+        )
+    ):
+        grouped_input = _grouped_qualify_input(
+            definition,
+            input_schema,
+            qualify_lets,
+            let_expressions or {},
+        )
+    for name in _bare_names(qualify):
+        ambiguity = qualify_output_ambiguity(
+            name,
+            definition,
+            input_schema,
+            let_names={*(let_value_types or {}), *rejected_lets},
+            readable=None if grouped_input is None else grouped_input[0],
+        )
+        if ambiguity is not None:
+            diagnostics.append(ambiguity)
+    start = len(diagnostics)
+    if single_file:
+        # An aggregate is read through the selected output computing it.
+        _append_invalid_count_context_diagnostic(
+            qualify, diagnostics, context="qualify clause"
+        )
+        if len(diagnostics) == start and grouped_input is not None:
+            qualify_input, qualify_lets = grouped_input
+    qualify_type = _infer(
+        qualify,
+        qualify_input,
+        value_types,
+        diagnostics,
+        report_unknown_name=True,
+        field_qualifier=(
+            definition.from_clause.binding_name or definition.from_clause.source_name
+        ),
+        bare_value_types={**qualify_lets, **output_types},
+        bare_value_expressions=let_expressions,
+        suppressed_unknown_names=rejected_lets,
+        type_expansions=type_expansions,
+    )
+    _append_condition_diagnostic(
+        qualify,
+        "qualify clause",
+        value_types,
+        diagnostics,
+        type_expansions,
+        explained=qualify_type.kind is ValueTypeKind.KNOWN
+        or unknown_explained(
+            qualify,
+            diagnostics[start:],
+            input_schema,
+            let_expressions,
+        ),
+        row_schema=input_schema,
+        lets=let_expressions,
+    )
 
 
 def _grouped_qualify_input(
@@ -2002,6 +2029,41 @@ def _let_chain(
         expression = let_expressions[expression.name]
         chain.append(expression)
     return chain
+
+
+def append_order_key_diagnostics(
+    key: Expression,
+    diagnostics: list[Diagnostic],
+    resolve: Callable[[Expression], tuple[Mapping[str, Expression], set[str]]],
+    *,
+    input_schema: RowSchema,
+    aggregated: bool,
+    bare_constants: bool,
+) -> None:
+    """Check one ORDER BY key of a relation without GROUP BY, for a single file
+    and for a project JOIN relation alike: an aggregate in the key
+    (PIE-S2308), then ``resolve``, which appends the key's own errors as its
+    relation reads its names and returns the `let:` values the key reads (a
+    SELECT output that it names alone included) and the names that read
+    nothing, and, for a key without an error of its own, PIE-S2380 by
+    `_order_key_problem`. A bare constant key needs no field knowledge: with
+    an unknown input row a `let:` name is inlined, as emission inlines it."""
+
+    start = len(diagnostics)
+    _append_invalid_count_context_diagnostic(key, diagnostics, context="order by")
+    lets, rejected = resolve(key)
+    if len(diagnostics) > start:
+        return
+    problem = _order_key_problem(
+        key,
+        input_schema,
+        lets,
+        aggregated=aggregated,
+        bare_constants=bare_constants,
+        rejected_lets=rejected,
+    )
+    if problem is not None:
+        diagnostics.append(_order_key_diagnostic(key, problem))
 
 
 def _order_key_problem(

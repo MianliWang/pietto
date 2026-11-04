@@ -8,7 +8,7 @@ authority is commit `88dbfb51a35504b0b753e299c6c90b6303a8e450`, tree
 `724f2b8ce113bf01072e83f7cd4792cae4a9d8be`, natural CI `33491899112`.
 
 ```text
-verified Project IR + fresh analyses + Slice-4 keys + Slice-5 FDs + Slice-6 grain
+verified Project IR + fresh Kahn order + Slice-4 keys + Slice-5 FDs + Slice-6 grain
 -> output-occurrence relational properties
 ```
 
@@ -20,9 +20,11 @@ validator inventory. A ninth path is `READER_CLOSURE_DRIFT`.
 
 ## Construction and occurrence identity
 
-Construction follows `ProjectIRAnalysisBundle.topological_order` and exact
-output refs. `origins.evaluation is analyses.stage` is mandatory. Each output
-field occurrence retains its exact `ProjectIRRelationRowOutput`, output ref,
+Construction follows `derive_project_ir_topological_order`: the fresh Kahn
+order of the exact `VERIFIED` result, derived the same way as
+`ProjectIRAnalysisBundle.topological_order`, plus exact output refs.
+`origins.evaluation is verification.stage` is mandatory. Each output field
+occurrence retains its exact `ProjectIRRelationRowOutput`, output ref,
 position, and row-shape evidence. Semantic field, output occurrence, derived
 value class, and bit position remain distinct.
 

@@ -28,10 +28,7 @@ from pietto._project.project_ir_construction import (
 from pietto._project.project_ir_evaluation_context import (
     build_project_ir_evaluation_context_stage,
 )
-from pietto._project.project_ir_verification import (
-    build_project_ir_analysis_bundle,
-    verify_project_ir_stage,
-)
+from pietto._project.project_ir_verification import verify_project_ir_stage
 from pietto._project.project_phase62_verification import (
     ProjectPhase62VerificationResult,
 )
@@ -155,8 +152,7 @@ def _phase62(semantic: ProjectSemanticResult) -> ProjectPhase62VerificationResul
     origins = project_grain.build_project_grain_origins(value_fds, evaluation)
     base_verification = verify_project_ir_stage(evaluation)
     base_relational = relational.build_project_ir_relational_property_stage(
-        origins,
-        build_project_ir_analysis_bundle(base_verification),
+        origins, base_verification
     )
     use_set = relationship_uses.build_project_relationship_uses(
         semantic, base_relational

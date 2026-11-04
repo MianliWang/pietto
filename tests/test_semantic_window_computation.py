@@ -8,6 +8,7 @@ import pytest
 import _pietto_project_join_aggregate as slice9
 from pietto._project import project_completion as completion
 from pietto._project import project_completed_semantics as completed_semantics
+from pietto._project import project_joined_aggregation as aggregation
 from pietto._project import project_joined_row_filter as row_filter
 from pietto._project import project_joined_windows as windows
 from pietto._project.module_semantic_fact_preservation import (
@@ -361,10 +362,11 @@ def test_joined_input_is_occurrence_safe_and_let_admission_is_bounded(
         and result.post_window is None
         for result in (ambiguous, computed, fallback)
     )
-    ambiguous_attempt = cast(
-        windows.ProjectNonConcreteJoinedWindowStage,
-        ambiguous,
-    ).attempts[0]
+    refused = cast(windows.ProjectNonConcreteJoinedWindowStage, ambiguous)
+    assert refused.reason is (
+        windows.ProjectJoinedWindowStageNonConcreteReason.SELECTED_COMPUTATION_NON_CONCRETE
+    )
+    ambiguous_attempt = refused.attempts[0]
     assert type(ambiguous_attempt) is windows.ProjectNonConcreteWindowComputation
     ambiguous_resolution = next(
         item
@@ -424,8 +426,26 @@ def test_global_and_upstream_terminals_remain_fail_closed(built: _Built) -> None
     assert global_absent.computations == ()
     assert global_absent.post_window.selected_results == ()
     assert type(global_window) is windows.ProjectNonConcreteJoinedWindowStage
+    # A window beside an aggregate without GROUP BY is a mixed projection
+    # (PIE-S2312), refused before the window stage, as in a single file. This
+    # replaces the earlier expectation SELECTED_COMPUTATION_NON_CONCRETE here,
+    # which a selected window can no longer reach in a GLOBAL aggregation:
+    # that reason needs a concrete aggregation, a GLOBAL one has an aggregate
+    # occurrence for every item with an aggregate (`_build_aggregate_results`)
+    # and `_build_stage_outputs` refuses each other selected window beside
+    # them (MIXED_GLOBAL_ROW_PROJECTION) or as a repeated output name, so a
+    # concrete GLOBAL stage has no selected window site. `_analyze_site`'s
+    # GLOBAL admission refusal still applies to a hidden window
+    # (test_hidden_inline_reuses_kernel_but_never_becomes_nameable), and
+    # `window_ambiguous` keeps SELECTED_COMPUTATION_NON_CONCRETE covered.
     assert global_window.reason is (
-        windows.ProjectJoinedWindowStageNonConcreteReason.SELECTED_COMPUTATION_NON_CONCRETE
+        windows.ProjectJoinedWindowStageNonConcreteReason.UPSTREAM_AGGREGATION_NON_CONCRETE
+    )
+    assert global_window.attempts == ()
+    refused = global_window.input_aggregation
+    assert type(refused) is aggregation.ProjectNonConcreteJoinedAggregation
+    assert tuple(issue.kind for issue in refused.selected_output_issues) == (
+        aggregation.ProjectJoinedSelectedOutputIssueKind.MIXED_GLOBAL_ROW_PROJECTION,
     )
     assert global_window.post_window is None
     assert type(upstream) is windows.ProjectNonConcreteJoinedWindowStage
@@ -554,6 +574,12 @@ def test_hidden_inline_reuses_kernel_but_never_becomes_nameable(built: _Built) -
         _selected_expression(stage, 0),
     )
     assert type(hidden_global) is windows.ProjectNonConcreteWindowComputation
+    # The GLOBAL admission refusal of `_analyze_site`, which only a hidden
+    # window reaches (see test_global_and_upstream_terminals_remain_fail_closed).
+    assert hidden_global.semantic_failure is not None
+    assert hidden_global.semantic_failure.reason.startswith(
+        "no-group aggregate context does not admit "
+    )
     assert hidden_global.site.occurrence is None
     assert hidden_global.result_binding is None
 

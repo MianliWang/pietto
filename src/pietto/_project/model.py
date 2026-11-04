@@ -3268,6 +3268,7 @@ def _project_direct_relation_row_schema(
             captured_value_types=captured_value_types,
         )
 
+    repeated = _repeated_output_names(definition.select_items)
     for item in definition.select_items:
         if type(item.expression) is WindowExpr:
             continue
@@ -3409,7 +3410,7 @@ def _project_direct_relation_row_schema(
 
             # A read of a let whose value type is not known here is no unknown
             # field: the let's own diagnostics, or its completion, report it.
-            if (
+            if not (type(item.expression) is NameExpr and id(item) in repeated) and (
                 report_untyped_let_reads
                 or type(item.expression) is not NameExpr
                 or lookup_name not in let_scope_facts.binding_expressions
@@ -3457,6 +3458,34 @@ def _project_direct_relation_row_schema(
         )
 
     return _ProjectRelationRowSchemaResult(schema=ProjectRowSchema(fields=fields))
+
+
+def _projection_output_name(item: SelectItem) -> str | None:
+    if item.alias is not None:
+        return item.alias
+    expression = item.expression
+    if type(expression) is NameExpr:
+        return expression.name
+    if type(expression) is DottedNameExpr:
+        return expression.parts[-1]
+    return None
+
+
+def _repeated_output_names(items: tuple[SelectItem, ...]) -> frozenset[int]:
+    """The ids of the SELECT items whose output name repeats an earlier
+    item's, as a single file finds them (`relation_schemas._project_schema`).
+    Each is PIE-S2305; a bare name among them, aliased or not, reports no
+    unknown field (PIE-S2102) beside it, as in a single file."""
+
+    seen: set[str] = set()
+    repeated: set[int] = set()
+    for item in items:
+        output_name = _projection_output_name(item)
+        if output_name in seen:
+            repeated.add(id(item))
+        elif output_name is not None:
+            seen.add(output_name)
+    return frozenset(repeated)
 
 
 def _project_direct_field_projection(

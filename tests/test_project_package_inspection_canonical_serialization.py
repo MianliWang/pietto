@@ -35,7 +35,10 @@ from pietto._project.package_load_plan import (
     PackageLoadPlanBlockerKind,
     PackageLoadPlanResult,
 )
-from pietto._project.package_rejection import PackageConflictReason
+from pietto._project.package_rejection import (
+    PackageConflictReason,
+    _diagnose_package_load_result,
+)
 from _pietto_project_package import (
     _SOURCE_A,
     _SOURCE_B,
@@ -308,6 +311,19 @@ def test_canonical_bytes_change_with_each_retained_authority_fact(
 def test_rejections_and_project_errors_preserve_complete_ordered_evidence(
     tmp_path: Path,
 ) -> None:
+    def rejected(result: PackageLoadPlanResult) -> PackageInspection:
+        facts = _build_package_inspection_fact_set(result)
+        rejections = facts.inspection.rejections
+        # Explain renders kind and message from the authority's rejection
+        # product (a loaded root) or from a fresh one (a verified root).
+        product = facts.authority.rejection_product.diagnostics
+        assert tuple(item.diagnostic for item in rejections) == product
+        assert _diagnose_package_load_result(result).diagnostics == product
+        assert [(item.kind, item.message) for item in rejections] == [
+            (item.kind, item.message) for item in product
+        ]
+        return facts.inspection
+
     cycle_project = tmp_path / "cycle"
     child_digest = _write_package(
         cycle_project,
@@ -321,7 +337,7 @@ def test_rejections_and_project_errors_preserve_complete_ordered_evidence(
         dependencies=(("example", "child", "1.0.0", child_digest, "../deps/child"),),
     )
     cycle_result = _plan(cycle_project, "root", root_digest)
-    cycle = _build_package_inspection_fact_set(cycle_result).inspection
+    cycle = rejected(cycle_result)
     assert cycle.outcome is PackageInspectionOutcome.REJECTED
     assert cycle.packages == () and cycle.root_coordinate is None
     assert cycle.rejections[0].kind is PackageLoadPlanBlockerKind.CYCLE
@@ -352,9 +368,7 @@ def test_rejections_and_project_errors_preserve_complete_ordered_evidence(
             ("example", "same", "2.0.0", two_digest, "../deps/two"),
         ),
     )
-    conflict = _build_package_inspection_fact_set(
-        _plan(conflict_project, "root", conflict_root)
-    ).inspection.rejections[0]
+    conflict = rejected(_plan(conflict_project, "root", conflict_root)).rejections[0]
     assert conflict.kind is PackageLoadPlanBlockerKind.CONFLICT
     assert conflict.conflict_reasons == (
         PackageConflictReason.IDENTITY_DIFFERENT_PHYSICAL_ROOT,
@@ -384,9 +398,7 @@ def test_rejections_and_project_errors_preserve_complete_ordered_evidence(
             ("example", "right", "1.0.0", right_digest, "../deps/right"),
         ),
     )
-    diamond = _build_package_inspection_fact_set(
-        _plan(diamond_project, "root", diamond_root)
-    ).inspection.rejections[0]
+    diamond = rejected(_plan(diamond_project, "root", diamond_root)).rejections[0]
     assert diamond.kind is PackageLoadPlanBlockerKind.DIAMOND
     assert tuple(
         occurrence.declaring_coordinate.identity.name

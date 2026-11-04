@@ -19,6 +19,7 @@ from pietto._project.package_pure_boundary import (
     package_pure_text,
 )
 from pietto._project.package_load_plan import (
+    DeclaringPackage,
     DependencyLocatorKind,
     LoadedDependencyPackage,
     LocatedDependencyPackage,
@@ -371,10 +372,12 @@ def _validate_plan(plan: PackageLoadPlan) -> None:
                 )
 
 
-def _validate_loaded_package(
-    package: LoadedRootPackage | LoadedDependencyPackage,
-) -> None:
-    if type(package) not in {LoadedRootPackage, LoadedDependencyPackage}:
+def _validate_loaded_package(package: DeclaringPackage) -> None:
+    # A verified root that did not load never reaches inspection; two exact
+    # type tests, unlike set membership, narrow it out for `package.modules`.
+    if type(package) is not LoadedRootPackage and (
+        type(package) is not LoadedDependencyPackage
+    ):
         raise TypeError("Package inspection requires exact loaded packages.")
     catalog = _package_catalog(package)
     if type(catalog) is not TypedRootPackageAssetCatalog:

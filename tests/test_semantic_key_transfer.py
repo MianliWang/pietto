@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import fields, replace
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
 from pietto._project import check as project_check
 from pietto._project import project_grain as grain
+from pietto._project import project_ir_joins as joins
 from pietto._project import project_ir_relational_properties as relational
+from pietto._project import project_ir_verification as ir_verification
 from pietto._project import project_row_keys as row_keys
 from pietto._project import project_value_fds as value_fds
 from pietto._project.model import (
@@ -20,7 +25,15 @@ from pietto._project.project_ir_construction import ProjectIRAllocationState
 from pietto._project.project_ir_evaluation_context import (
     build_project_ir_evaluation_context_stage,
 )
+from pietto._project.project_ir_properties import (
+    ProjectIRRelationRowOutput,
+    ProjectIRStageRowShape,
+)
 from pietto._project.project_ir_verification import (
+    ProjectIRVerificationIssue,
+    ProjectIRVerificationIssueKind,
+    ProjectIRVerificationResult,
+    ProjectIRVerificationStatus,
     build_project_ir_analysis_bundle,
     verify_project_ir_stage,
 )
@@ -111,9 +124,9 @@ query global_total:
     return build_empty_project_semantic_result(parsed)
 
 
-def _stage(
+def _roots(
     root: Path, source: str | None = None
-) -> relational.ProjectIRRelationalPropertyStage:
+) -> tuple[grain.ProjectGrainOriginSet, ProjectIRVerificationResult]:
     semantic = _semantic(root, source)
     keys = row_keys.build_project_row_keys(semantic)
     fds = value_fds.build_project_value_fds(keys)
@@ -126,9 +139,16 @@ def _stage(
         allocation=ProjectIRAllocationState(scope=ProjectIRSnapshotScope()),
     )
     evaluation = build_project_ir_evaluation_context_stage(plan)
-    origins = grain.build_project_grain_origins(fds, evaluation)
-    analyses = build_project_ir_analysis_bundle(verify_project_ir_stage(evaluation))
-    return relational.build_project_ir_relational_property_stage(origins, analyses)
+    return (
+        grain.build_project_grain_origins(fds, evaluation),
+        verify_project_ir_stage(evaluation),
+    )
+
+
+def _stage(
+    root: Path, source: str | None = None
+) -> relational.ProjectIRRelationalPropertyStage:
+    return relational.build_project_ir_relational_property_stage(*_roots(root, source))
 
 
 def _outputs(stage, name):
@@ -141,11 +161,135 @@ def _outputs(stage, name):
 
 def test_stage_covers_verified_topological_outputs(tmp_path: Path) -> None:
     stage = _stage(tmp_path)
-    assert stage.origins.evaluation is stage.analyses.stage
-    assert (
-        tuple(item.output.occurrence.producer for item in stage.outputs)
-        == stage.analyses.topological_order
+    assert stage.origins.evaluation is stage.stage is stage.verification.stage
+    # The analysis bundle stays an independent oracle for the fresh Kahn order.
+    oracle = build_project_ir_analysis_bundle(stage.verification).topological_order
+    producers = tuple(item.output.occurrence.producer for item in stage.outputs)
+    assert len(producers) == len(oracle)
+    assert all(item is node for item, node in zip(producers, oracle, strict=True))
+
+
+def test_stage_admits_only_exact_verified_roots_and_fresh_topology(
+    tmp_path: Path,
+) -> None:
+    origins, verified = _roots(tmp_path / "main")
+    build = relational.build_project_ir_relational_property_stage
+    stage = build(origins, verified)
+    bundle = build_project_ir_analysis_bundle(verified)
+    invalid = ProjectIRVerificationResult(
+        stage=verified.stage,
+        status=ProjectIRVerificationStatus.INVALID,
+        issues=(
+            ProjectIRVerificationIssue(
+                kind=ProjectIRVerificationIssueKind.ACTUAL_USE_CYCLE
+            ),
+        ),
     )
+    carrier = SimpleNamespace(
+        stage=verified.stage,
+        verified=True,
+        topological_order=bundle.topological_order,
+    )
+    for rejected in (invalid, bundle, carrier):
+        with pytest.raises(ValueError, match=r"^Only a VERIFIED exact stage"):
+            build(origins, cast(Any, rejected))
+        with pytest.raises(ValueError, match=r"^Only a VERIFIED exact stage"):
+            replace(stage, verification=cast(Any, rejected))
+    # An exact VERIFIED result can carry neither issues nor a stand-in stage.
+    with pytest.raises(ValueError, match="status and issue collection disagree"):
+        replace(verified, issues=invalid.issues)
+    stand_in = SimpleNamespace(project_plan=verified.stage.project_plan)
+    with pytest.raises(TypeError, match="requires the exact checked stage"):
+        replace(verified, stage=cast(Any, stand_in))
+    for outputs in (
+        tuple(reversed(stage.outputs)),
+        stage.outputs[:-1],
+        (*stage.outputs, stage.outputs[-1]),
+    ):
+        with pytest.raises(ValueError, match="cover topological row outputs once"):
+            replace(stage, outputs=outputs)
+    other_origins, other_verified = _roots(tmp_path / "other")
+    for left, right in ((other_origins, verified), (origins, other_verified)):
+        with pytest.raises(ValueError, match="construction requires exact shared"):
+            build(left, right)
+    with pytest.raises(ValueError, match="requires exact shared snapshot roots"):
+        replace(stage, origins=other_origins)
+    with pytest.raises(ValueError, match="requires exact shared snapshot roots"):
+        replace(stage, verification=other_verified)
+    # Stage equality compares outputs only, so check identities: a second
+    # VERIFIED result over the same stage is retained as given, with the same
+    # stage, origins and output objects.
+    reverified = verify_project_ir_stage(stage.stage)
+    rebuilt = replace(stage, verification=reverified)
+    assert reverified is not stage.verification
+    assert rebuilt.verification is reverified
+    assert rebuilt.stage is stage.stage and rebuilt.origins is stage.origins
+    assert all(
+        item is old for item, old in zip(rebuilt.outputs, stage.outputs, strict=True)
+    )
+
+
+def test_stage_fails_closed_without_a_fresh_kahn_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origins, verified = _roots(tmp_path)
+    build = relational.build_project_ir_relational_property_stage
+    stage = build(origins, verified)
+    monkeypatch.setattr(ir_verification, "_fresh_topological_order", lambda _: None)
+    # The bundle and the relational stage share one Kahn admission.
+    for attempt in (
+        lambda: build(origins, verified),
+        lambda: replace(stage, verification=verified),
+        lambda: build_project_ir_analysis_bundle(verified),
+    ):
+        with pytest.raises(ValueError, match=r"^Verified ordinary Project IR must"):
+            attempt()
+
+
+def test_stage_rejects_a_forged_verified_root_without_a_final_row_shape(
+    tmp_path: Path,
+) -> None:
+    origins, verified = _roots(tmp_path)
+    build = relational.build_project_ir_relational_property_stage
+    stage = build(origins, verified)
+    plan = verified.stage.project_plan
+    fragment, intermediate = next(
+        (fragment, output)
+        for fragment in plan.concrete_fragments
+        for output in fragment.property_stage.outputs
+        if type(output) is ProjectIRRelationRowOutput
+        and type(output.row_shape) is ProjectIRStageRowShape
+    )
+
+    def unsafe(value: Any, **changes: object) -> Any:
+        clone = copy(value)
+        for name, replacement in changes.items():
+            object.__setattr__(clone, name, replacement)
+        return clone
+
+    # Point one concrete root at an intermediate stage row, then forge VERIFIED
+    # over the corrupted stage through the public result constructor.
+    fragments = tuple(
+        unsafe(item, root_relation_output=intermediate) if item is fragment else item
+        for item in plan.fragments
+    )
+    forged_stage = unsafe(
+        verified.stage, project_plan=unsafe(plan, fragments=fragments)
+    )
+    assert not verify_project_ir_stage(forged_stage).verified
+    forged = ProjectIRVerificationResult(
+        stage=forged_stage, status=ProjectIRVerificationStatus.VERIFIED
+    )
+    # 4c8348a4 rejected it in the bundle's equivalence derivation, before the
+    # relational roots check; each admission now rejects it the same way.
+    for attempt in (
+        lambda: ir_verification._derive_equivalence_assessments(forged_stage),
+        lambda: build_project_ir_analysis_bundle(forged),
+        lambda: build(origins, forged),
+        lambda: replace(stage, verification=forged),
+    ):
+        with pytest.raises(ValueError, match=r"^Concrete root requires a final"):
+            attempt()
 
 
 def test_source_and_unary_outputs_transfer_keys_fds_and_grain(tmp_path: Path) -> None:
@@ -377,6 +521,137 @@ def test_output_fd_index_strict_closure_lax_boundary_and_witness_order(
     assert index.lax_rules[0].fact is lax_ac
     with pytest.raises(ValueError, match="exact output-local universe"):
         relational.strict_output_fd_closure(output.fd_index, seed)
+    strict_ab_c = replace(strict_ab, determinants=(a, b), dependents=(c,))
+    # Determinants (c, c) add `1 << 2` twice, so `lhs_mask` carries to bit 3 =
+    # len(universe). No universe position has that bit, so the incidence loop
+    # skips it and lists that rule under no position.
+    strict_cc_a = replace(strict_ab, determinants=(c, c), dependents=(a,))
+    shared = relational._compile_output_fd_index(
+        output.output,
+        output.value_classes,
+        (strict_ab, lax_ac, strict_bc, strict_ab_c, strict_cc_a),
+    )
+    assert shared.strict_rules[3].lhs_mask == 1 << len(output.value_classes)
+    assert shared.incidents == ((0, 2), (1, 2), ())
+
+
+def test_output_fd_merge_keeps_first_position_and_support_order(
+    tmp_path: Path,
+) -> None:
+    output = _outputs(_stage(tmp_path), "filtered")[-1]
+    a, b, c = output.value_classes
+    strict = row_keys.ProjectRowUniquenessStrength.STRICT
+    lax = row_keys.ProjectRowUniquenessStrength.LAX
+    first, other, second, loose = object(), object(), object(), object()
+    a_bc = relational.ProjectIROutputValueFD(
+        output=output.output,
+        determinants=(a,),
+        dependents=(b, c),
+        strength=strict,
+        supports=(first,),
+    )
+    b_c = replace(a_bc, determinants=(b,), dependents=(c,), supports=(other,))
+    lax_a_bc = replace(a_bc, strength=lax, supports=(loose,))
+    key = relational.ProjectIROutputCandidateKey(
+        output=output.output, determinants=(a,), strength=strict, supports=(output,)
+    )
+    merged = relational._key_fds(
+        output.output,
+        output.value_classes,
+        (key,),
+        (a_bc, b_c, replace(a_bc, supports=(second,)), lax_a_bc),
+    )
+    assert [(fact.determinants, fact.dependents, fact.strength) for fact in merged] == [
+        ((a,), (b, c), strict),
+        ((b,), (c,), strict),
+        ((a,), (b, c), lax),
+    ]
+    assert merged[0].supports == (first, second, key)
+    assert merged[1] is b_c and merged[2] is lax_a_bc
+
+
+def test_join_fd_image_orders_by_universe_and_drops_determined_dependents(
+    tmp_path: Path,
+) -> None:
+    """`_image_fd` orders imaged classes by universe position, collapses
+    repeated images and drops dependents imaged onto a determinant.
+
+    The out-of-universe assertions pin the PRE-EXISTING `_ordered_classes`
+    contract, under which such an image is silently omitted; they do not make
+    that contract desired. Neither JOIN caller can reach it, because each takes
+    its images and its universe from the same `_classes_for_output` calls.
+    Refusing such an image (fail closed) is a separate open follow-up."""
+    output = _outputs(_stage(tmp_path), "filtered")[-1]
+    a, b, c = output.value_classes
+    lax = row_keys.ProjectRowUniquenessStrength.LAX
+    a_bc = relational.ProjectIROutputValueFD(
+        output=output.output,
+        determinants=(a,),
+        dependents=(b, c),
+        strength=row_keys.ProjectRowUniquenessStrength.STRICT,
+        supports=(output,),
+    )
+    ab_c = replace(a_bc, determinants=(a, b), dependents=(c,))
+    # Three dependents need a fourth value class.
+    wide = _outputs(
+        _stage(
+            tmp_path / "wide",
+            "shape Wide:\n"
+            + "".join(f"    f{position}: Int\n" for position in range(4))
+            + 'source wide: Wide = postgres.table("wide")\n',
+        ),
+        "wide",
+    )[0]
+    w, x, y, z = wide.value_classes
+    w_xyz = replace(
+        a_bc,
+        output=wide.output,
+        determinants=(w,),
+        dependents=(x, y, z),
+        supports=(wide,),
+    )
+    witness = object()
+
+    # The default universe order differs from the authored, imaged and insertion
+    # orders.
+    def image(fact: relational.ProjectIROutputValueFD, images, universe=(c, b, a)):
+        imaged = joins._image_fd(
+            fact,
+            images,
+            joins._universe_positions(universe),
+            # A relation fixture: `_image_fd` only forwards `output` to the FD,
+            # which accepts any relational row output.
+            output=fact.output,  # pyright: ignore[reportArgumentType]
+            strength=lax,
+            support=witness,
+        )
+        if imaged is None:
+            return None
+        assert imaged.strength is lax
+        assert imaged.supports == (*fact.supports, witness)
+        return imaged.determinants, imaged.dependents
+
+    assert image(a_bc, {a: a, b: b, c: c}) == ((a,), (c, b))
+    assert image(ab_c, {a: a, b: c, c: b}) == ((c, a), (b,))
+    # Repeated images collapse; a dependent imaged onto a determinant is dropped.
+    assert image(ab_c, {a: b, b: b, c: a}) == ((b,), (a,))
+    assert image(a_bc, {a: c, b: a, c: c}) == ((c,), (a,))
+    assert image(a_bc, {a: c, b: c, c: c}) is None
+    # Two dependents imaged onto one non-determinant class leave one survivor.
+    assert image(a_bc, {a: a, b: c, c: c}) == ((a,), (c,))
+    # Dependents imaged to (z, x, z), or to (z, w, x) with determinant w, leave
+    # x and z in universe order, not in first-image order.
+    order = (x, y, z, w)
+    assert image(w_xyz, {w: w, x: z, y: x, z: z}, order) == ((w,), (x, z))
+    assert image(w_xyz, {w: w, x: z, y: w, z: x}, order) == ((w,), (x, z))
+    # PRE-EXISTING contract, unreachable from the JOIN callers (see the
+    # docstring): an image outside the universe is omitted, as
+    # `_ordered_classes` omits it.
+    assert joins._ordered_classes((a, b), (c, a)) == (a,)
+    assert image(ab_c, {a: a, b: b, c: c}, (c, a)) == ((a,), (c,))
+    assert image(a_bc, {a: a, b: b, c: c}, (a, c)) == ((a,), (c,))
+    with pytest.raises(ValueError, match="distinct value-class universe"):
+        joins._universe_positions((a, b, a))
 
 
 def test_output_fd_masks_support_more_than_seventy_value_classes(

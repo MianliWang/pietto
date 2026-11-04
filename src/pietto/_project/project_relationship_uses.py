@@ -368,7 +368,7 @@ class ProjectRelationshipUseSet:
             or semantic.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES
             or semantic.module_relation_resolutions is None
             or type(self.relational) is not ProjectIRRelationalPropertyStage
-            or self.relational.analyses.stage.project_plan.semantic_facts
+            or self.relational.stage.project_plan.semantic_facts
             is not semantic.module_semantic_facts
         ):
             raise ValueError("JOIN uses require one exact semantic snapshot.")
@@ -434,7 +434,7 @@ def _final_output(
 ) -> ProjectIROutputRelationalProperties | None:
     fragments = tuple(
         fragment
-        for fragment in relational.analyses.stage.project_plan.concrete_fragments
+        for fragment in relational.stage.project_plan.concrete_fragments
         if fragment.semantic_facts.owner is target.target_occurrence
     )
     if not fragments:

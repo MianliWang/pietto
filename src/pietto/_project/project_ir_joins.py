@@ -7,6 +7,7 @@ owner as a non-concrete region and allocates nothing; current JOIN regions
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import cast, TypeGuard
 
@@ -124,7 +125,7 @@ class ProjectIRJoinRegionStage:
         if (
             type(self.base_plan) is not ProjectIRProjectPlan
             or type(self.base_relational) is not ProjectIRRelationalPropertyStage
-            or self.base_relational.analyses.stage.project_plan is not self.base_plan
+            or self.base_relational.stage.project_plan is not self.base_plan
             or type(self.uses) is not ProjectRelationshipUseSet
             or self.uses.semantic_result.module_semantic_facts
             is not self.base_plan.semantic_facts
@@ -227,24 +228,51 @@ def _image_key(
     )
 
 
+def _universe_positions(
+    universe: tuple[ProjectIROutputValueClass, ...],
+) -> dict[ProjectIROutputValueClass, int]:
+    # Callers: `resolved_join_properties`, whose universe concatenates the left
+    # and right `_classes_for_output` results (built there or passed as
+    # `prepared` by `_properties`), and `resolved_left_subset_properties`, whose
+    # universe is one such result. Each `_classes_for_output` call allocates a
+    # new value class per input class, and value classes compare by identity
+    # (`eq=False`), so the two results share no class, even in a self-join, and
+    # neither caller's universe repeats one. The ValueError is an internal
+    # invariant check, like the IR constructor checks; no user input reaches it.
+    positions = {item: position for position, item in enumerate(universe)}
+    if len(positions) != len(universe):
+        raise ValueError("JOIN FD image requires a distinct value-class universe.")
+    return positions
+
+
+def _positioned_classes(
+    values: Iterable[ProjectIROutputValueClass],
+    positions: Mapping[ProjectIROutputValueClass, int],
+    excluded: tuple[ProjectIROutputValueClass, ...] = (),
+) -> tuple[ProjectIROutputValueClass, ...]:
+    """`_ordered_classes` over a `_universe_positions` universe, minus `excluded`,
+    by position lookup instead of a scan of the whole universe. A value outside
+    the universe is omitted, keeping the pre-existing `_ordered_classes`
+    contract; no JOIN caller reaches that case, because each takes its images
+    and its universe from the same `_classes_for_output` calls."""
+    selected = (positions.keys() & values).difference(excluded)
+    return tuple(sorted(selected, key=positions.__getitem__))
+
+
 def _image_fd(
     fact: ProjectIROutputValueFD,
     images: dict[ProjectIROutputValueClass, ProjectIROutputValueClass],
-    universe: tuple[ProjectIROutputValueClass, ...],
+    positions: Mapping[ProjectIROutputValueClass, int],
     *,
     output: ProjectIRJoinRowOutput,
     strength: ProjectRowUniquenessStrength,
     support: object,
 ) -> ProjectIROutputValueFD | None:
-    determinants = _ordered_classes(
-        tuple(images[item] for item in fact.determinants), universe
+    determinants = _positioned_classes(
+        map(images.__getitem__, fact.determinants), positions
     )
-    dependents = tuple(
-        item
-        for item in _ordered_classes(
-            tuple(images[item] for item in fact.dependents), universe
-        )
-        if item not in determinants
+    dependents = _positioned_classes(
+        map(images.__getitem__, fact.dependents), positions, determinants
     )
     if not dependents:
         return None
@@ -473,7 +501,7 @@ def build_project_ir_join_region(
     if (
         type(base_plan) is not ProjectIRProjectPlan
         or type(base_relational) is not ProjectIRRelationalPropertyStage
-        or base_relational.analyses.stage.project_plan is not base_plan
+        or base_relational.stage.project_plan is not base_plan
         or type(uses) is not ProjectRelationshipUseSet
         or uses.semantic_result.module_semantic_facts is not base_plan.semantic_facts
         or allocation is not base_plan.ending_allocation

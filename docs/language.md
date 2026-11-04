@@ -518,13 +518,26 @@ constant such as `1 + 1` sorts nothing and is accepted. In a query with
 aggregates and no GROUP BY, a key that reads an input field outside an
 aggregate is PIE-S2380 too, also from a source without a shape, where any name
 that no `let` binds is an input field, while a key that names an aggregate
-output is accepted (`order by n` with `select n = count()`). A JOIN relation
-with an aggregate and no GROUP BY instead refuses the entire ORDER BY clause
-with PIE-S2334. A grouped key stays PIE-S2321. When a SELECT item would capture a key that is a bare input
-field once `let` names and SELECT output names are inlined (an output of the
-same name, which MySQL compares case-insensitively, or any unaliased item,
-which PostgreSQL and MySQL each name by rules of their own), the emitted SQL qualifies the key with the name FROM
-already gives the input, as in `FROM "sales"."orders" ... ORDER BY
+output is accepted (`order by n` with `select n = count()`). In a single
+file, a JOIN relation whose projections are all aggregates, without GROUP BY,
+instead refuses the entire ORDER BY clause with PIE-S2334; an EXPLICIT_MODULES
+project refuses that relation with PIE-S2333, naming the repeating JOINs when
+an aggregate may read rows that a JOIN repeats. A JOIN relation that mixes an
+aggregate with another projection, a window included, and whose aggregates
+have no error of their own reports PIE-S2312,
+the errors of its other SELECT items and QUALIFY and the errors of each key as
+above, in a single file and in a project (see PIE-S2312 and PIE-S2380 in the
+[diagnostics](spec/diagnostics.md)), except that a project relation whose
+`let:` clause or WHERE is refused, such as by a `let` name that is also a
+SELECT output name (PIE-S2329), by an unknown or ambiguous field in a `let` value or WHERE or by a type error in WHERE, still reports only that refusal and the
+PIE-S2305 of a repeated output name, a known limitation that the PIE-S2312
+row lists case by case.
+A grouped key stays PIE-S2321. When a SELECT item would capture a key that is
+a bare input field once `let` names and SELECT output names are inlined (an
+output of the same name, which MySQL compares case-insensitively, or any
+unaliased item, which PostgreSQL and MySQL each name by rules of their own),
+the emitted SQL qualifies the key with the name FROM already gives the input,
+as in `FROM "sales"."orders" ... ORDER BY
 "orders"."amount"`; the FROM clause is unchanged. MySQL documents that it
 looks every ORDER BY name up among the SELECT output names first, so on MySQL
 such an input field inside a key's expression is qualified the same way:
@@ -2074,11 +2087,10 @@ with a `Status` field.
 
 `/` follows SQL division. `Int / Int` is an `Int` truncated toward zero (`7 /
 2` is `3`, `-7 / 2` is `-3`): PostgreSQL emits `a / b`, and MySQL, whose `/`
-would return a DECIMAL, emits `a DIV b`. PostgreSQL does not yet truncate an
-`Int` operand that it holds as `numeric`, such as `sum` of a `bigint` column
-(see [Aggregates and grouping](#aggregates-and-grouping)): there `s / 2` with
-`s = 3` is `1.5000000000000000`, while MySQL's `DIV` gives `1`, so a filter on
-it can keep different rows. With a `Float` operand the result is a
+would return a DECIMAL, emits `a DIV b`. This holds for the `sum` of an `Int`
+too, which PostgreSQL emits as a checked `int8` (see
+[Aggregates and grouping](#aggregates-and-grouping)): `s / 2` with `s = 3` is
+`1` on both targets. With a `Float` operand the result is a
 `Float`, emitted as a bare `a / b` on both targets; Pietto never inserts a
 cast. Because Python's `/` keeps the fraction, every `/` whose two operands are
 `Int` (an alias of `Int` included) reports the warning PIE-S2106 in every check
@@ -2964,6 +2976,16 @@ A filtered relationship may preserve an upper bound but does not prove coverage.
 OR, NOT, a source name, a same-shaped row or a key on the aggregated side alone
 does not supply the missing proof. Nullable keys retain their existing
 NULL-sensitive restrictions, especially after RIGHT/FULL unmatched rows.
+A project refuses such an aggregate with PIE-S2333 at the relation, naming
+the JOINs that PIE-S2381 names. A JOIN relation that also mixes an aggregate
+with another projection without GROUP BY (PIE-S2312) reports PIE-S2381 at
+each refused aggregate after that PIE-S2312 instead, in a project as in a
+single file, except where the project relation's `let:` clause or WHERE is
+refused: it then reports neither PIE-S2312 nor PIE-S2381 (a known limitation;
+see PIE-S2312 in the [diagnostics](spec/diagnostics.md)). Neither a single
+file nor a project reports that PIE-S2381 when a SELECT item, a window,
+QUALIFY or an ORDER BY key reads a name that several inputs have (PIE-S2335)
+or a dotted name of no field (PIE-S2102).
 
 The bounded RIGHT/FULL proof starts only when each left row has at most one
 RHS match. A RIGHT or FULL JOIN can then keep unmatched right rows beside an
@@ -3317,7 +3339,12 @@ result: under GROUP BY, the selected keys and aggregates by their output
 names. A name that such an output shares with an input field whose value it
 is not, such as `cat` for `cat = max(price)` grouped by `cat`, is ambiguous
 there too (PIE-S2102), in a hidden or a selected window. In an EXPLICIT_MODULES project, the existing query-block rule remains:
-only selected window results form QUALIFY's selected namespace.
+only selected window results form QUALIFY's selected namespace. A project
+relation with JOIN inputs that mixes an aggregate with another projection
+without GROUP BY (PIE-S2312) checks its QUALIFY by the single-file rules
+above beside that error, unless its `let:` clause or WHERE is refused, when
+it reports only that refusal (a known limitation; see PIE-S2312 in the
+[diagnostics](spec/diagnostics.md)).
 
 An EXPLICIT_MODULES QUALIFY requires at least one selected or hidden window
 computation. A single-file QUALIFY has no corresponding window-presence gate,
