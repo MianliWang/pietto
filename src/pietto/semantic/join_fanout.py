@@ -408,8 +408,6 @@ def _earlier_reads(info: RelationJoinsInfo, join: JoinInfo) -> tuple[int, ...]:
     return tuple(sorted(read))
 
 
-
-
 def _anti_join_dependencies(
     definition: TableDef | QueryDef,
     info: RelationJoinsInfo,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pietto._asof_join import latest_row_ranges, missing_on_message
 from pietto._project.project_compiled_schema import unnest_field_source
 
 from collections.abc import Iterable, Mapping
@@ -324,6 +325,41 @@ def _non_concrete_reason(
     return None
 
 
+def _without_latest_rows(
+    semantic_result: ProjectSemanticResult,
+    diagnostics: tuple[Diagnostic, ...],
+) -> tuple[Diagnostic, ...]:
+    """Drop what an asof JOIN's latest-row test restates of its authored `on`,
+    so long as an error remains; without one, keep every diagnostic."""
+
+    ranges = frozenset().union(
+        *(
+            latest_row_ranges(module.parsed_input.script)
+            for module in semantic_result.modules
+            if module.parsed_input is not None
+        )
+    )
+    if not ranges:
+        return diagnostics
+    kept = tuple(
+        item
+        for item in diagnostics
+        if (
+            item.location.path,
+            item.location.line,
+            item.location.column,
+            item.location.end_line,
+            item.location.end_column,
+        )
+        not in ranges
+    )
+    if len(kept) == len(diagnostics) or not any(
+        item.severity is Severity.ERROR for item in kept
+    ):
+        return diagnostics
+    return kept
+
+
 def _named_calls(
     semantic_result: ProjectSemanticResult,
     diagnostics: tuple[Diagnostic, ...],
@@ -569,7 +605,9 @@ class ProjectConcreteCompletedSemanticResult:
         diagnostics = _with_untyped_null_warnings(
             tuple(module.path for module in semantic_result.modules),
             self.roots.effective_outputs,
-            tuple(dict.fromkeys(self.roots.diagnostics)),
+            _without_latest_rows(
+                semantic_result, tuple(dict.fromkeys(self.roots.diagnostics))
+            ),
         )
         single_matches = ProjectSingleMatchSet(
             root=effective_outputs, requests=self.single_match_requests
@@ -1061,7 +1099,9 @@ def _join_causes(
             found.append(
                 (
                     use.clause,
-                    f"JOIN {use.clause.target_binding_name}: write `on` with the "
+                    missing_on_message(names[0], use.clause.target_binding_name)
+                    if use.clause.asof and names
+                    else f"JOIN {use.clause.target_binding_name}: write `on` with the "
                     f"condition that matches {_or_list(names)} to "
                     f"{use.clause.target_relation_name}",
                 )
@@ -1412,8 +1452,8 @@ def _fanout_clause(
     else:
         picked = ()
 
-    repeated = tuple(
-        f"JOIN {join.use.target_binding.name}"
+    repeating = tuple(
+        join
         for join in joins
         if (
             any(
@@ -1434,6 +1474,10 @@ def _fanout_clause(
             )
         )
     )
+    repeated = tuple(f"JOIN {join.use.target_binding.name}" for join in repeating)
+    if repeating and all(join.use.clause.asof for join in repeating):
+        # An asof JOIN already matches its keys in `on`.
+        picked = ()
     remedies = []
     others = (
         "use `any(...)` for an input that only filters rows, or "

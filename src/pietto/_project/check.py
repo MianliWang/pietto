@@ -582,6 +582,7 @@ def _parse_selected_input(
             ),
             diagnostics,
         )
+    from pietto._asof_join import lower_latest_rows
     from pietto.semantic.existence_generators import (
         AnyValueTrace,
         collect_any_values,
@@ -598,6 +599,8 @@ def _parse_selected_input(
     try:
         existence_diagnostics: tuple[Diagnostic, ...] = ()
         if explicit_modules:
+            # An admitted asof JOIN reads its latest row through `not any(...)`.
+            script = lower_latest_rows(script)
             any_trace = AnyValueTrace(script)
             script, existence_generators, existence_diagnostics = (
                 normalize_existence_generators(

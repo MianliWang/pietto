@@ -122,3 +122,68 @@ def asof_query(
     return SHAPES.format(connector=connector) + (
         f"\nquery q:\n    from orders\n    {let}\n    {join}\n{after}    {select}\n"
     )
+
+
+def project_contract(target: str = "postgres") -> str:
+    """The emission contract of `CANONICAL`'s two sources, in schema ``shop``."""
+
+    import json
+
+    pg = target == "postgres"
+    fields = {
+        "orders": ("id", "product_id", "ordered_at"),
+        "prices": ("product_id", "valid_from", "amount_cents"),
+    }
+
+    def representation(name: str) -> dict[str, object]:
+        if name in {"ordered_at", "valid_from"}:
+            return {
+                "storage": {
+                    "kind": "pg_timestamp" if pg else "my_datetime",
+                    "fractional_seconds": 6,
+                },
+                "nullable": False,
+                "domain": {"kind": "timestamp"},
+            }
+        return {
+            "storage": {"kind": "pg_int8" if pg else "my_bigint"},
+            "nullable": False,
+            "domain": {"kind": "int_range", "min": "0", "max": "10000000"},
+        }
+
+    environment = {
+        "client_encoding": "UTF8" if pg else "utf8mb4",
+        "operator_environment": "builtin_only",
+        "identifier_case": "quoted_exact" if pg else "lower_case_table_names=0",
+    }
+    return json.dumps(
+        {
+            "format": "pietto.emission-contract.v1",
+            "target": {"family": target, "release": "18.6" if pg else "8.4.12"},
+            "sources": [
+                {
+                    "selector": {"module": "main.pietto", "kind": "source", "name": n},
+                    "relation": {"namespace": "shop", "name": n},
+                    "scan": "relation_rows",
+                    "fields": [
+                        {
+                            "ordinal": i,
+                            "name": f,
+                            "column": f,
+                            "representation": representation(f),
+                        }
+                        for i, f in enumerate(names)
+                    ],
+                    "premises": [
+                        {"key": "row_domain_matches", "scope": "source", "value": True},
+                        {"key": "read_only_object", "scope": "source", "value": True},
+                    ],
+                }
+                for n, names in fields.items()
+            ],
+            "environment": [
+                {"key": key, "scope": "statement", "value": value}
+                for key, value in environment.items()
+            ],
+        }
+    )

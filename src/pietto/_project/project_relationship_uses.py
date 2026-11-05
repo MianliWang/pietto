@@ -36,6 +36,7 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIRRelationalPropertyStage,
 )
 from pietto._project.project_ir_properties import ProjectIRRowShape
+from pietto._asof_join import ASOF_KIND_MESSAGE, ASOF_KINDS
 from pietto.ast_nodes import (
     AuthoredJoinKind,
     FromClause,
@@ -542,9 +543,8 @@ def project_join_mode(clause: JoinClause) -> str:
 
 
 def project_join_combination_error(clause: JoinClause) -> str | None:
-    if clause.asof:
-        # No asof JOIN reaches the project SQL plan or the portable encoder.
-        return "asof JOIN is not available in projects yet."
+    if clause.asof and clause.kind not in ASOF_KINDS:
+        return ASOF_KIND_MESSAGE
     if clause.kind is AuthoredJoinKind.CROSS and clause.on_clause is not None:
         return "CROSS JOIN cannot have ON or VIA."
     return None

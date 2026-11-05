@@ -7,6 +7,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from collections.abc import Mapping
 
+from pietto import _asof_join as asof
 from pietto._flat_relational_admission import availability_diagnostic
 from pietto._project.model import ProjectRowFieldNullability
 from pietto._project.project_current_join_inputs import (
@@ -53,11 +54,14 @@ from pietto.ast_nodes import (
     AuthoredJoinKind,
     BinaryExpr,
     CallExpr,
+    CollectRelationExpr,
     ComparisonExpr,
     DottedNameExpr,
     Expression,
     IsNullExpr,
     NameExpr,
+    ShapeDef,
+    SourceDef,
     Span,
 )
 from pietto.errors import Diagnostic, Severity
@@ -71,6 +75,7 @@ from pietto.semantic.expressions import (
 from pietto.semantic.model import (
     RelationshipCallInfo,
     RowSchema,
+    TypeKind,
     ValueType,
     ValueTypeKind,
 )
@@ -539,6 +544,15 @@ class ProjectJoinCondition:
             if id(item) not in owned
         )
         combination = project_join_combination_error(clause)
+        if combination is None and clause.asof:
+            clauses = getattr(
+                self.use.target_binding.owner.definition, "join_clauses", ()
+            )
+            position = next(
+                (index for index, item in enumerate(clauses) if item is clause), 0
+            )
+            if any(item.asof for item in clauses[:position]):
+                combination = asof.ASOF_SECOND_MESSAGE
         if combination is not None:
             diagnostics.append(_diagnostic(clause.span, combination, code="PIE-S2336"))
         # A JOIN with `on` and a CROSS JOIN read the FROM input; a JOIN without
@@ -646,6 +660,16 @@ class ProjectJoinCondition:
                                 "JOIN ON expression type is unavailable.",
                             )
                         )
+        if (
+            clause.asof
+            and expression is not None
+            and not unavailable
+            and not any(d.severity is Severity.ERROR for d in diagnostics)
+        ):
+            # A conjunct with its own error gets no form message.
+            checked = _asof_diagnostic(self, env, references)
+            if checked is not None:
+                diagnostics.append(checked)
         state = (
             ProjectJoinConditionState.INVALID
             if any(d.severity is Severity.ERROR for d in diagnostics)
@@ -711,6 +735,144 @@ class ProjectJoinCondition:
                 if ready and _null_rejection_reason(conjunct, reference) is not None
             ),
         )
+
+
+def _asof_diagnostic(
+    condition: ProjectJoinCondition,
+    env: ProjectJoinConditionEnvironment,
+    references: tuple[ProjectJoinConditionReference, ...],
+) -> Diagnostic | None:
+    """An asof JOIN's form, flat inputs, time and key types and uniqueness
+    (PIE-S2336, PIE-S2386), as a single file checks them."""
+
+    clause = condition.use.clause
+    target = condition.use.target_binding
+    earlier = tuple(
+        dict.fromkeys(
+            item.binding.name for item in env.fields if item.binding is not target
+        )
+    )
+    first = earlier[0] if earlier else target.name
+    form = asof.asof_form(clause, earlier, first)
+    if isinstance(form, asof.AsofRefusal):
+        return _diagnostic(form.span, form.message, code="PIE-S2336")
+    owner = target.owner.definition
+    if _collects_or_unnests(owner) or any(
+        item.binding is not target
+        and is_nested_relation_field(item.input_field.evidence)
+        for item in env.fields
+    ):
+        return _diagnostic(
+            clause.span,
+            "Do the asof JOIN in a query with only flat fields first.",
+            code="PIE-S2336",
+        )
+    if any(
+        item.binding is target and is_nested_relation_field(item.input_field.evidence)
+        for item in env.fields
+    ):
+        return _diagnostic(
+            clause.span,
+            "The joined source's shape has a nested field; declare a source over "
+            "the same table whose shape lists only flat fields (with the covering "
+            "unique(...)), and asof-join that source.",
+            code="PIE-S2336",
+        )
+    types = {
+        id(reference.expression): reference.target.value_type
+        for reference in references
+        if reference.target is not None
+    }
+
+    def canonical(leaf: Expression) -> str | None:
+        found = types.get(id(leaf))
+        return (
+            found.resolved_type.name
+            if found is not None and found.resolved_type.kind is TypeKind.BUILTIN
+            else None
+        )
+
+    for left, right in form.keys:
+        message = asof.key_type_message(canonical(left)) or asof.key_type_message(
+            canonical(right)
+        )
+        if message is not None:
+            return _diagnostic(left.span, message, code="PIE-S2336")
+    message = asof.time_type_message(canonical(form.time[0]), canonical(form.time[1]))
+    if message is not None:
+        return _diagnostic(form.time[0].span, message, code="PIE-S2336")
+    relation = None if target.target is None else target.target.target_occurrence
+    source = None if relation is None else relation.definition
+    if type(source) is not SourceDef or source.shape_name is None:
+        return _diagnostic(clause.span, asof.ASOF_SOURCE_MESSAGE, code="PIE-S2386")
+    shape = _key_shape(() if target.output is None else target.output.keys)
+    message = asof.unique_message(
+        form,
+        first=first,
+        target=target.name,
+        shape=source.shape_name if shape is None else shape.name,
+        uniques=()
+        if shape is None
+        else [(item.name, item.field_names) for item in shape.uniques],
+        earlier_fields=[
+            (
+                name,
+                {
+                    item.input_field.evidence.name
+                    for item in env.fields
+                    if item.binding.name == name
+                },
+            )
+            for name in earlier
+        ],
+    )
+    if message is not None:
+        return _diagnostic(clause.span, message, code="PIE-S2386")
+    if not asof.lowered(clause):
+        # Only the latest-row test keeps one joined row; fail closed without it.
+        return _diagnostic(
+            clause.span,
+            "asof JOIN is not available in projects yet.",
+            code="PIE-S2336",
+        )
+    return None
+
+
+def _key_shape(keys: tuple[object, ...]) -> ShapeDef | None:
+    """The shape whose declared UNIQUE supports one of ``keys``, or None."""
+
+    pending = list(keys)
+    while pending:
+        item = pending.pop(0)
+        occurrence = getattr(
+            getattr(item, "declaration", None), "shape_occurrence", None
+        )
+        if occurrence is not None and type(occurrence.definition) is ShapeDef:
+            return occurrence.definition
+        pending.extend(getattr(item, "supports", ()))
+    return None
+
+
+def _collects_or_unnests(definition: object) -> bool:
+    """Whether a relation body collects a relation or unnests a field."""
+
+    pending: list[object] = [
+        *(item.expression for item in getattr(definition, "select_items", ())),
+        *(item.expression for item in getattr(definition, "naming_declarations", ())),
+    ]
+    while pending:
+        node = pending.pop()
+        if type(node) is CollectRelationExpr:
+            return True
+        if (
+            type(node) is CallExpr
+            and type(node.callee) is NameExpr
+            and node.callee.name == "unnest"
+        ):
+            return True
+        if isinstance(node, Expression):
+            pending.extend(child_expressions(node))
+    return False
 
 
 def _nested_reference_diagnostic(

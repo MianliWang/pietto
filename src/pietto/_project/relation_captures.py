@@ -453,6 +453,9 @@ def _lateral_diagnostics(
     """
 
     if join.kind not in LATERAL_JOINS:
+        if join.asof:
+            # The asof JOIN's own kind refusal (PIE-S2336) reports it.
+            return []
         return [
             _diagnostic(
                 "kind",

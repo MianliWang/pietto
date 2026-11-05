@@ -9,14 +9,38 @@ most one. Each refused variant is one diagnostic with its hint.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from _pietto_semantic_join_asof import CANONICAL, JOIN_LINE, KEY, TIME, asof_query
+from _pietto_semantic_join_asof import (
+    CANONICAL,
+    JOIN_LINE,
+    KEY,
+    SHAPES,
+    TIME,
+    asof_query,
+)
+from pietto._asof_join import (
+    ASOF_KIND_MESSAGE,
+    ASOF_SOURCE_MESSAGE,
+    AsofForm,
+    asof_form,
+    lower_latest_rows,
+)
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
+)
+from pietto.ast_nodes import (
+    AnyExpr,
+    BinaryExpr,
+    ComparisonExpr,
+    DottedNameExpr,
+    QueryDef,
+    Script,
+    UnaryExpr,
 )
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
@@ -45,6 +69,7 @@ _TYPES = (
 )
 _TIE = "Several rows of price may be the latest for one orders row; Pietto does not pick one. "
 _ONLY_ORDERS = "select order_id = orders.id"
+_BOTH = "select order_id = orders.id, c = price.amount_cents"
 
 
 def _diagnostics(source: str) -> list[tuple[int, str, str]]:
@@ -78,111 +103,111 @@ def test_admitted_asof_joins_check_clean(kind: str, join: str, let: str) -> None
 
 
 _REFUSED = {
-    "asof_right": ("asof right join price on {KEY} and {TIME}", "S2336", _KIND),
-    "asof_full": ("asof full join price on {KEY} and {TIME}", "S2336", _KIND),
-    "asof_cross": ("asof cross join price", "S2336", _KIND),
-    "asof_semi": ("asof semi join price on {KEY} and {TIME}", "S2336", _KIND),
-    "asof_anti": ("asof anti join price on {KEY} and {TIME}", "S2336", _KIND),
+    "asof_right": ("asof right join price on {KEY} and {TIME}", "PIE-S2336", _KIND),
+    "asof_full": ("asof full join price on {KEY} and {TIME}", "PIE-S2336", _KIND),
+    "asof_cross": ("asof cross join price", "PIE-S2336", _KIND),
+    "asof_semi": ("asof semi join price on {KEY} and {TIME}", "PIE-S2336", _KIND),
+    "asof_anti": ("asof anti join price on {KEY} and {TIME}", "PIE-S2336", _KIND),
     "missing_on": (
         "asof left join price",
-        "S2335",
+        "PIE-S2335",
         "JOIN price: write `on` with the keys, then one time test: "
         "`on orders.k == price.k and orders.t >= price.t`",
     ),
     "no_time": (
         "asof left join price on {KEY}",
-        "S2336",
+        "PIE-S2336",
         "Add one time test last: `and orders.t >= price.t`.",
     ),
     "strict": (
         "asof left join price on {KEY} and orders.ordered_at > price.valid_from",
-        "S2336",
+        "PIE-S2336",
         _STRICT,
     ),
     "strict_reversed": (
         "asof left join price on {KEY} and price.valid_from < orders.ordered_at",
-        "S2336",
+        "PIE-S2336",
         _STRICT,
     ),
     "reversed_time": (
         "asof left join price on {KEY} and price.valid_from <= orders.ordered_at",
-        "S2336",
+        "PIE-S2336",
         "Write the earlier input first in each test: "
         "`orders.ordered_at >= price.valid_from`.",
     ),
     "reversed_key": (
         "asof left join price on price.product_id == orders.product_id and {TIME}",
-        "S2336",
+        "PIE-S2336",
         "Write the earlier input first in each test: "
         "`orders.product_id == price.product_id`.",
     ),
     "forward_le": (
         "asof left join price on {KEY} and orders.ordered_at <= price.valid_from",
-        "S2336",
+        "PIE-S2336",
         _FORWARD,
     ),
     "forward_lt": (
         "asof left join price on {KEY} and orders.ordered_at < price.valid_from",
-        "S2336",
+        "PIE-S2336",
         _FORWARD,
     ),
     "forward_reversed_ge": (
         "asof left join price on {KEY} and price.valid_from >= orders.ordered_at",
-        "S2336",
+        "PIE-S2336",
         _FORWARD,
     ),
     "forward_reversed_gt": (
         "asof left join price on {KEY} and price.valid_from > orders.ordered_at",
-        "S2336",
+        "PIE-S2336",
         _FORWARD,
     ),
     "time_first": (
         "asof left join price on {TIME} and {KEY}",
-        "S2336",
+        "PIE-S2336",
         "Write the keys first and the one time test last.",
     ),
     "key_twice": (
         "asof left join price on {KEY} and {KEY} and {TIME}",
-        "S2336",
+        "PIE-S2336",
         "Match each key once: remove the repeated "
         "`orders.product_id == price.product_id`.",
     ),
     "second_time_inner": (
         "asof inner join price on {KEY} and {TIME} and "
         "price.valid_from >= orders.week_start",
-        "S2336",
+        "PIE-S2336",
         "An asof `on` takes one time test; test the chosen row after the JOIN "
         "instead: `where price.valid_from >= orders.week_start`.",
     ),
     "second_time_left": (
         "asof left join price on {KEY} and {TIME} and "
         "price.valid_from >= orders.week_start",
-        "S2336",
+        "PIE-S2336",
         _LEFT_EXTRA.format(test="price.valid_from >= orders.week_start"),
     ),
     "chain": (
         "asof left join price on {KEY} and "
         "orders.ordered_at >= price.valid_from >= orders.week_start",
-        "S2336",
+        "PIE-S2336",
         _LEFT_EXTRA.format(test="price.valid_from >= orders.week_start"),
     ),
     "lower_before_inner": (
         "asof inner join price on {KEY} and orders.week_start <= price.valid_from "
         "and {TIME}",
-        "S2336",
+        "PIE-S2336",
         "An asof `on` takes one time test; test the chosen row after the JOIN "
         "instead: `where orders.week_start <= price.valid_from`.",
     ),
     "lower_before_left": (
         "asof left join price on {KEY} and orders.week_start <= price.valid_from "
         "and {TIME}",
-        "S2336",
+        "PIE-S2336",
         _LEFT_EXTRA.format(test="orders.week_start <= price.valid_from"),
     ),
     "chain_le_left": (
         "asof left join price on {KEY} and "
         "orders.week_start <= price.valid_from <= orders.ordered_at",
-        "S2336",
+        "PIE-S2336",
         _LEFT_EXTRA.format(test="orders.week_start <= price.valid_from").replace(
             "test; ", "test; keep `orders.ordered_at >= price.valid_from` in `on`; "
         ),
@@ -190,7 +215,7 @@ _REFUSED = {
     "chain_le_inner": (
         "asof inner join price on {KEY} and "
         "orders.week_start <= price.valid_from <= orders.ordered_at",
-        "S2336",
+        "PIE-S2336",
         "An asof `on` takes one time test; keep `orders.ordered_at >= "
         "price.valid_from` in `on`; test the chosen row after the JOIN instead: "
         "`where orders.week_start <= price.valid_from`.",
@@ -198,7 +223,7 @@ _REFUSED = {
     "chain_lt_le_left": (
         "asof left join price on {KEY} and "
         "orders.week_start < price.valid_from <= orders.ordered_at",
-        "S2336",
+        "PIE-S2336",
         _LEFT_EXTRA.format(test="orders.week_start < price.valid_from").replace(
             "test; ", "test; keep `orders.ordered_at >= price.valid_from` in `on`; "
         ),
@@ -206,103 +231,103 @@ _REFUSED = {
     "chain_lt_le_inner": (
         "asof inner join price on {KEY} and "
         "orders.week_start < price.valid_from <= orders.ordered_at",
-        "S2336",
+        "PIE-S2336",
         "An asof `on` takes one time test; keep `orders.ordered_at >= "
         "price.valid_from` in `on`; test the chosen row after the JOIN instead: "
         "`where orders.week_start < price.valid_from`.",
     ),
     "arithmetic": (
         "asof inner join price on {KEY} and orders.amount >= price.amount_cents + 1",
-        "S2336",
+        "PIE-S2336",
         "An asof `on` takes one time test; test the chosen row after the JOIN "
         "instead: `where orders.amount >= price.amount_cents + 1`.",
     ),
     "validity_range": (
         "asof left join price on {KEY} and {TIME} and "
         "orders.ordered_at < price.valid_to",
-        "S2336",
+        "PIE-S2336",
         "For a validity range, use `left join price on` with both tests.",
     ),
-    "or": ("asof left join price on {KEY} or {TIME}", "S2336", _OTHER),
+    "or": ("asof left join price on {KEY} or {TIME}", "PIE-S2336", _OTHER),
     "not_equal": (
         "asof left join price on orders.region != price.region and {TIME}",
-        "S2336",
+        "PIE-S2336",
         _OTHER,
     ),
     "literal": (
         "asof left join price on price.amount_cents == 3 and {TIME}",
-        "S2336",
+        "PIE-S2336",
         _OTHER,
     ),
     "same_input": (
         "asof left join price on orders.product_id == orders.amount and {TIME}",
-        "S2336",
+        "PIE-S2336",
         _OTHER,
     ),
     "call": (
         "asof left join price on abs(orders.product_id) == price.product_id and {TIME}",
-        "S2336",
+        "PIE-S2336",
         _OTHER,
     ),
     "relationship_call": (
         "asof left join price on order_price(orders, price) and {TIME}",
-        "S2336",
+        "PIE-S2336",
         _OTHER,
     ),
     "in_list": (
         'asof left join price on {KEY} and price.region in ("a", "b") and {TIME}',
-        "S2336",
+        "PIE-S2336",
         _OTHER,
     ),
     "is_none": (
         "asof left join price on price.region is None and {TIME}",
-        "S2336",
+        "PIE-S2336",
         _OTHER,
     ),
     "bare": (
         "asof left join price on {KEY} and ordered_at >= price.valid_from",
-        "S2336",
+        "PIE-S2336",
         "Qualify each field with its input.",
     ),
     "date_and_timestamp": (
         "asof left join price on {KEY} and orders.ordered_on >= price.valid_from",
-        "S2336",
+        "PIE-S2336",
         _TYPES.format("Date", "Timestamp"),
     ),
     "int_time": (
         "asof left join price on {KEY} and orders.amount >= price.amount_cents",
-        "S2336",
+        "PIE-S2336",
         _TYPES.format("Int", "Int"),
     ),
     "text_time": (
         "asof left join price on {KEY} and orders.region >= price.region",
-        "S2336",
+        "PIE-S2336",
         _TYPES.format("Text", "Text"),
     ),
     "float_key": (
         "asof left join price on orders.score == price.score and {TIME}",
-        "S2336",
+        "PIE-S2336",
         "An asof key cannot be Float.",
     ),
     # Precedence: a conjunct with its own error gets no form message.
     "cross_family": (
         "asof left join price on {KEY} and orders.region >= price.valid_from",
-        "S2105",
+        "PIE-S2105",
         "Invalid operands for operator >=: expected comparable operands",
     ),
     "unknown_earlier": (
         "asof left join price on orders.nope == price.product_id and {TIME}",
-        "S2335",
+        "PIE-S2335",
         "JOIN ON reference is unknown: orders.nope",
     ),
     "unknown_joined": (
         "asof left join price on {KEY} and orders.ordered_at >= price.nope",
-        "S2335",
+        "PIE-S2335",
         "JOIN ON reference is unknown: price.nope",
     ),
     "kind_before_form": (
         "asof right join price on {KEY} and orders.ordered_at > price.valid_from",
-        "S2336",
+        "PIE-S2336",
         _KIND,
     ),
 }
@@ -318,53 +343,53 @@ def test_each_refused_asof_form_has_one_diagnostic_and_its_hint(name: str) -> No
         else ("select order_id = orders.id, c = price.amount_cents"),
     )
     found = _diagnostics(source)
-    assert [(code, message)] == [(item[1][4:], item[2]) for item in found]
+    assert [(code, message)] == [(item[1], item[2]) for item in found]
     assert found[0][0] == JOIN_LINE
 
 
-@pytest.mark.parametrize(
-    ("let", "message"),
-    [
-        (
-            "let price = price_table",
-            "asof JOIN joins only a source: one latest row is proved by the "
-            "source shape's unique(...).",
-        ),
-        (
-            "let price = prices_none",
-            _TIE + "If the data has one row per product_id and valid_from, "
-            "declare `price_key = unique(product_id, valid_from)` in shape PriceNone.",
-        ),
-        (
-            "let price = prices_id",
-            _TIE + "If the data has one row per product_id and valid_from, "
-            "declare `price_key = unique(product_id, valid_from)` in shape PriceId.",
-        ),
-        (
-            "let price = prices_two",
-            _TIE + "PriceTwo.b_key = unique(product_id, region, valid_from) has "
-            "region, which `on` does not match: add `orders.region == price.region`.",
-        ),
-        (
-            "let price = prices3",
-            _TIE + "Price3.p3_key = unique(product_id, region, valid_from) has "
-            "region, which `on` does not match: add `orders.region == price.region`.",
-        ),
-        (
-            "let price = prices_on",
-            _TIE + "PriceOn.on_key = unique(product_id, valid_on) has valid_on, "
-            "which `on` does not match: match price.valid_on in `on`.",
-        ),
-    ],
-    ids=[
-        "table",
-        "no_unique",
-        "unique_id",
-        "surrogate_first",
-        "unique_outside_on",
-        "unique_unmatched",
-    ],
+_UNIQUE = (
+    (
+        "let price = price_table",
+        "asof JOIN joins only a source: one latest row is proved by the "
+        "source shape's unique(...).",
+    ),
+    (
+        "let price = prices_none",
+        _TIE + "If the data has one row per product_id and valid_from, "
+        "declare `price_key = unique(product_id, valid_from)` in shape PriceNone.",
+    ),
+    (
+        "let price = prices_id",
+        _TIE + "If the data has one row per product_id and valid_from, "
+        "declare `price_key = unique(product_id, valid_from)` in shape PriceId.",
+    ),
+    (
+        "let price = prices_two",
+        _TIE + "PriceTwo.b_key = unique(product_id, region, valid_from) has "
+        "region, which `on` does not match: add `orders.region == price.region`.",
+    ),
+    (
+        "let price = prices3",
+        _TIE + "Price3.p3_key = unique(product_id, region, valid_from) has "
+        "region, which `on` does not match: add `orders.region == price.region`.",
+    ),
+    (
+        "let price = prices_on",
+        _TIE + "PriceOn.on_key = unique(product_id, valid_on) has valid_on, "
+        "which `on` does not match: match price.valid_on in `on`.",
+    ),
 )
+_UNIQUE_IDS = (
+    "table",
+    "no_unique",
+    "unique_id",
+    "surrogate_first",
+    "unique_outside_on",
+    "unique_unmatched",
+)
+
+
+@pytest.mark.parametrize(("let", "message"), _UNIQUE, ids=_UNIQUE_IDS)
 def test_one_latest_row_needs_a_source_unique_within_keys_and_time(
     let: str, message: str
 ) -> None:
@@ -417,7 +442,283 @@ def _project_diagnostics(root: Path, source: str) -> list[tuple[str, str]]:
     return [(item.code, item.message) for item in project.diagnostics]
 
 
-def test_a_project_refuses_every_asof_join_before_its_sql_plan(tmp_path: Path) -> None:
-    assert _project_diagnostics(tmp_path / "p", CANONICAL) == [
-        ("PIE-S2336", "asof JOIN is not available in projects yet.")
+def test_a_project_admits_the_asof_join_example(tmp_path: Path) -> None:
+    assert _project_diagnostics(tmp_path / "p", CANONICAL) == []
+
+
+@pytest.mark.parametrize(
+    "name",
+    [*sorted(_REFUSED), *(f"unique_{item}" for item in _UNIQUE_IDS), "second_asof"],
+)
+def test_a_project_refuses_each_asof_form_as_a_single_file_does(
+    tmp_path: Path, name: str
+) -> None:
+    if name.startswith("unique_"):
+        let = _UNIQUE[_UNIQUE_IDS.index(name[7:])][0]
+        source = asof_query(
+            f"asof left join price on {KEY} and {TIME}", let=let, select=_ONLY_ORDERS
+        )
+    elif name == "second_asof":
+        source = asof_query(
+            f"asof left join price on {KEY} and {TIME}",
+            after="    let p2 = prices\n    asof inner join p2 on orders.product_id "
+            "== p2.product_id and orders.ordered_at >= p2.valid_from\n",
+            select=_ONLY_ORDERS,
+        )
+    else:
+        join = _REFUSED[name][0].format(KEY=KEY, TIME=TIME)
+        source = asof_query(
+            join,
+            select=_ONLY_ORDERS if "semi" in join or "anti" in join else _BOTH,
+        )
+    single = [(code, message) for _, code, message in _diagnostics(source)]
+    assert single
+    if name == "missing_on":
+        # A project reports every JOIN without `on` as its relation's PIE-S2333.
+        single = [
+            (
+                "PIE-S2333",
+                f"Project relation semantic completion is unavailable: q ({message})",
+            )
+            for _, message in single
+        ]
+    assert _project_diagnostics(tmp_path / "p", source) == single
+
+
+_ON = "{e}.product_id == price.product_id and {e}.ordered_at >= price.valid_from"
+_LET_BLOCK = "    let price:\n        {capture}from prices\n{where}        select:\n"
+_LET_BLOCK += "            product_id\n            valid_from\n"
+_FLAT = "    from orders\n    let price = prices\n    asof left join price on "
+_FLAT += _ON.format(e="orders") + "\n"
+# Where existence normalization takes no any(...) in the JOIN's `on`.
+_UNLOWERED = {
+    "set_earlier": (
+        "    let both:\n        union all orders, orders\n    from both\n"
+        "    let price = prices\n    asof left join price on "
+        + _ON.format(e="both")
+        + "\n    select order_id = both.id\n"
+    ),
+    "values_earlier": (
+        "    let seed:\n        values(id: Int, product_id: Int, ordered_at: "
+        "Timestamp):\n            1, 2, None\n    from seed\n"
+        "    let price = prices\n    asof left join price on "
+        + _ON.format(e="seed")
+        + "\n    select order_id = seed.id\n"
+    ),
+    "table_function": (
+        "    from generate_series(1, 31, 1) as n\n    let rate = rates\n"
+        "    asof left join rate on n.n >= rate.valid_from\n    select x = n.n\n"
+    ),
+    "target_let_block": (
+        _LET_BLOCK.format(capture="", where="")
+        + "    from orders\n    asof left join price on "
+        + _ON.format(e="orders")
+        + "\n    select order_id = orders.id\n"
+    ),
+    "target_capture_let": (
+        _LET_BLOCK.format(
+            capture="capture orders\n        ",
+            where="        where prices.product_id == orders.product_id\n",
+        )
+        + "    from orders\n    asof left join price on "
+        + _ON.format(e="orders")
+        + "\n    select order_id = orders.id\n"
+    ),
+    "in_let_body": (
+        "    let inner_q:\n"
+        + _FLAT.replace("    ", "        ")
+        + "        select:\n            id = orders.id\n"
+        "    from inner_q\n    select i = inner_q.id\n"
+    ),
+    "beside_a_let": (
+        "    let other:\n        from prices\n        select:\n"
+        "            product_id\n"
+        + _FLAT
+        + "    where orders.product_id in other\n    select order_id = orders.id\n"
+    ),
+}
+_NOT_YET = ("PIE-S2336", "asof JOIN is not available in projects yet.")
+_SOURCE_ONLY = ("PIE-S2386", ASOF_SOURCE_MESSAGE)
+_VALUES_TYPE = (
+    "PIE-S2361",
+    "VALUES column type must be Bool, Int, Float or Text, optionally followed by "
+    "'| None'.",
+)
+_CROSS = ("PIE-S2105", "Invalid operands for operator {}: expected comparable operands")
+
+
+@pytest.mark.parametrize(
+    ("name", "strict", "expected"),
+    [
+        ("set_earlier", False, _NOT_YET),
+        ("set_earlier", True, ("PIE-S2336", _STRICT)),
+        ("values_earlier", False, _VALUES_TYPE),
+        ("table_function", False, (_CROSS[0], _CROSS[1].format(">="))),
+        ("table_function", True, (_CROSS[0], _CROSS[1].format(">"))),
+        ("target_let_block", False, _SOURCE_ONLY),
+        ("target_let_block", True, ("PIE-S2336", _STRICT)),
+        ("target_capture_let", False, _SOURCE_ONLY),
+        ("target_capture_let", True, ("PIE-S2336", _STRICT)),
+        ("in_let_body", False, _NOT_YET),
+        ("in_let_body", True, ("PIE-S2336", _STRICT)),
+        ("beside_a_let", False, _NOT_YET),
+        ("beside_a_let", True, ("PIE-S2336", _STRICT)),
+    ],
+)
+def test_a_project_lowers_an_asof_join_only_where_normalization_takes_its_any(
+    tmp_path: Path, name: str, strict: bool, expected: tuple[str, str]
+) -> None:
+    """Elsewhere the JOIN stays as written: its own checks, then the refusal;
+    no diagnostic of the internal any(...) reaches the author."""
+
+    source = SHAPES.format(connector="postgres") + "\nquery q:\n" + _UNLOWERED[name]
+    if strict:
+        source = source.replace("ordered_at >= price", "ordered_at > price")
+        source = source.replace("n.n >= rate", "n.n > rate")
+    assert _project_diagnostics(tmp_path / "p", source) == [expected]
+    parsed = parse_source(source, path="main.pietto")
+    assert parsed.ast is not None
+    assert lower_latest_rows(parsed.ast) is parsed.ast
+
+
+@pytest.mark.parametrize("name", ["target_capture_let", "target_let_block"])
+def test_an_unlowered_project_asof_join_keeps_its_kind_refusal(
+    tmp_path: Path, name: str
+) -> None:
+    """A capture-let target gives the asof kind text, not its own JOIN-kind
+    refusal, whose hint offers `cross join`."""
+
+    source = SHAPES.format(connector="postgres") + "\nquery q:\n" + _UNLOWERED[name]
+    source = source.replace("asof left join", "asof right join")
+    assert _project_diagnostics(tmp_path / "p", source) == [
+        ("PIE-S2336", ASOF_KIND_MESSAGE)
     ]
+
+
+@pytest.mark.parametrize("name", ["beside_a_let", "in_let_body"])
+def test_an_unlowered_project_asof_join_keeps_its_uniqueness_proof(
+    tmp_path: Path, name: str
+) -> None:
+    source = SHAPES.format(connector="postgres") + "\nquery q:\n" + _UNLOWERED[name]
+    source = source.replace("let price = prices\n", "let price = prices_none\n")
+    message = _UNIQUE[_UNIQUE_IDS.index("no_unique")][1]
+    assert _project_diagnostics(tmp_path / "p", source) == [("PIE-S2386", message)]
+
+
+def test_a_project_refuses_an_aggregate_over_an_asof_join(tmp_path: Path) -> None:
+    """v1: a project proves no single joined row, so it refuses an aggregate
+    after an asof JOIN that a single file admits over the earlier input."""
+
+    source = asof_query(
+        f"asof left join price on {KEY} and {TIME}",
+        after="    group by orders.product_id\n",
+        select="select p = orders.product_id, n = sum(orders.amount)",
+    )
+    assert _diagnostics(source) == []
+    assert _project_diagnostics(tmp_path / "p", source) == [
+        (
+            "PIE-S2333",
+            "Project relation semantic completion is unavailable: q (an aggregate "
+            "may read rows repeated by JOIN price; use `any(...)` for an input that "
+            "only filters rows, or aggregate in a separate query first)",
+        )
+    ]
+
+
+def test_a_project_admits_an_aggregate_when_the_asof_keys_match_a_unique_key(
+    tmp_path: Path,
+) -> None:
+    """The ordinary JOIN proof: the asof `on` key matches `unique(id)`."""
+
+    source = asof_query(
+        "asof left join price on orders.id == price.id and "
+        "orders.ordered_at >= price.valid_from",
+        let="let price = prices_id",
+        after="    group by orders.product_id\n",
+        select="select p = orders.product_id, n = sum(orders.amount)",
+    )
+    assert _diagnostics(source) == []
+    assert _project_diagnostics(tmp_path / "p", source) == []
+
+
+@pytest.mark.parametrize(
+    ("lines", "relation"),
+    [
+        ("    let price = prices\n    asof left join price", "prices"),
+        ("    let p = prices\n    let price = p\n    asof left join price", "prices"),
+        ("    asof inner join prices", "prices"),
+    ],
+    ids=["let", "let_chain", "direct"],
+)
+def test_a_project_lowers_an_asof_join_to_its_latest_row_test(
+    lines: str, relation: str
+) -> None:
+    target = lines.rsplit(" ", 1)[1]
+    source = SHAPES.format(connector="postgres") + (
+        f"\nquery q:\n    from orders\n{lines} on orders.product_id == "
+        f"{target}.product_id and orders.ordered_at >= {target}.valid_from\n"
+        "    select order_id = orders.id\n"
+    )
+    parsed = parse_source(source, path="asof.pietto")
+    assert parsed.ast is not None
+    lowered = lower_latest_rows(parsed.ast)
+    (clause,) = _query(lowered).join_clauses
+    assert clause.on_clause is not None
+    on = clause.on_clause.expression
+    assert type(on) is BinaryExpr and on.operator == "and"
+    authored, latest = on.left, on.right
+    (written,) = _query(parsed.ast).join_clauses
+    assert written.on_clause is not None
+    assert authored is written.on_clause.expression
+    assert type(latest) is UnaryExpr and latest.operator == "not"
+    found = latest.operand
+    assert type(found) is AnyExpr
+    assert (found.binding_name, found.relation_name) == (
+        "_pietto_asof_later_1",
+        relation,
+    )
+    later = found.binding_name
+    assert _tests(found.predicate) == [
+        ("orders.product_id", "==", f"{later}.product_id"),
+        ("orders.ordered_at", ">=", f"{later}.valid_from"),
+        (f"{later}.valid_from", ">", f"{target}.valid_from"),
+    ]
+    spans = [node.span for node in _nodes(latest)]
+    assert all(span.occurrence for span in spans)
+    assert len(set(spans)) == len(spans)
+    # Semantics reads the authored form: the latest-row test is no conjunct of it.
+    form = asof_form(clause, {"orders"}, "orders")
+    assert type(form) is AsofForm
+    assert [
+        (".".join(a.parts), ".".join(b.parts)) for a, b in (*form.keys, form.time)
+    ] == [
+        ("orders.product_id", f"{target}.product_id"),
+        ("orders.ordered_at", f"{target}.valid_from"),
+    ]
+    # A refused form is not lowered.
+    strict = parse_source(source.replace(">=", ">"), path="asof.pietto")
+    assert strict.ast is not None
+    assert lower_latest_rows(strict.ast) is strict.ast
+
+
+def _tests(node: object) -> list[tuple[str, str, str]]:
+    if type(node) is BinaryExpr and node.operator == "and":
+        return [*_tests(node.left), *_tests(node.right)]
+    assert type(node) is ComparisonExpr
+    assert type(node.left) is DottedNameExpr and type(node.right) is DottedNameExpr
+    return [(".".join(node.left.parts), node.operator, ".".join(node.right.parts))]
+
+
+def _query(script: Script) -> QueryDef:
+    query = script.definitions[-1]
+    assert type(query) is QueryDef
+    return query
+
+
+def _nodes(node: Any) -> list[Any]:
+    found = [node]
+    for name in ("operand", "predicate", "left", "right"):
+        child = getattr(node, name, None)
+        if child is not None:
+            found.extend(_nodes(child))
+    return found

@@ -453,6 +453,7 @@ _ACTIONS = {
     "column_identifier_unrepresentable_or_colliding": "Map each source field to its actual physical column, using distinct target-representable identifiers; do not invent columns or aliases in the contract.",
     "output_label_unrepresentable": "Choose a projection label within the requested target's identifier limits.",
     "set_row_equivalence_domain_unsupported": "Use Int, Bool, Text, Decimal or Float with exact matching carriers. On MySQL a Float set is limited to UNION ALL, a window distribution result is limited to UNION ALL on both targets, and Timestamp to UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project.",
+    "asof_join_not_admitted_on_target": "MySQL has no ASOF JOIN yet; emit with --dialect postgres.",
     "join_shape_not_admitted_in_slice7": "Use the admitted JOIN shape and scalar SELECT projection, or keep this query in check/plan; complex ON, joined LET and WHERE sites remain separately restricted.",
     "scalar_projection_requires_later_slice": "Use an admitted scalar SELECT projection; keep other unsupported expression sites in check/plan.",
     "offset_range_requires_exactly_one_order_key": "Use exactly one reviewed ORDER key for an offset RANGE frame, or keep this frame in check/plan.",

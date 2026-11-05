@@ -8,10 +8,14 @@ from _pietto_execution_compiled import retained_unmapped_source
 from _pietto_execution_refinement import capabilities
 from _pietto_execution_rows_cases import CASES, build
 from _pietto_execution_guard_cases import manifest, case_preparation
+from _pietto_semantic_join_asof import CANONICAL, project_contract
 from pietto._project.project_compiled_build import CompiledBuild, build_compiled
 from pietto._project.project_compiled_loading import load_compiled
 from pietto._project.project_compiled_lowering import emit_compiled
-from pietto._project.project_execution_template import BindingError
+from pietto._project.project_execution_template import (
+    BindingError,
+    prepare_live_template,
+)
 from pietto._project.project_result_output import prepare_output
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 
@@ -3156,3 +3160,43 @@ def test_a_mysql_description_of_an_ordered_block_read_is_refused(tmp_path, monke
     )
     with pytest.raises(CompiledError, match="^COMPILED_MYSQL_CORRELATED_ORDER$"):
         _load(encode(description), built)
+
+
+@pytest.mark.parametrize("kind", ("left", "inner"))
+def test_an_asof_join_emits_its_latest_row_as_an_anti_join_and_replays(tmp_path, kind):
+    """A project asof JOIN is the JOIN plus `not any(...)` of a later row: the
+    emitted, compiled-replay and live-template SQL are one statement; MySQL
+    refuses it at its plan JOIN."""
+    source = CANONICAL.replace("query order_prices", "query result").replace(
+        "asof left join", f"asof {kind} join"
+    )
+    checked, outcome = emission.build_case(tmp_path / "pg", source, project_contract())
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql
+    assert (
+        f'{kind.upper()} JOIN "shop"."prices" AS "m1" ON ((("m0"."product_id" = '
+        '"m1"."product_id") AND ("m0"."ordered_at" >= "m1"."valid_from")) AND (NOT '
+        'EXISTS (SELECT 1 FROM "shop"."prices" AS "e0" WHERE ((("m0"."product_id" = '
+        '"e0"."product_id") AND ("m0"."ordered_at" >= "e0"."valid_from")) AND '
+        '("e0"."valid_from" > "m1"."valid_from")))))'
+    ).encode() in sql
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    values = tuple(value.value for value in outcome.artifact.fixed_values)
+    assert emit_compiled(loaded, values).rendered.sql == sql
+    assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
+    _, blocked = emission.build_case(
+        tmp_path / "my",
+        source.replace("postgres.table", "mysql.table"),
+        project_contract("mysql"),
+    )
+    assert blocked.status == "BLOCKED" and blocked.artifact is None
+    assert [(item.code, item.detail) for item in blocked.blockers] == [
+        ("PIE-B1003", "asof_join_not_admitted_on_target")
+    ]

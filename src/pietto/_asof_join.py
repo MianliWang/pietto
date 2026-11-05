@@ -6,15 +6,20 @@ reads only the AST and names: ``asof_form`` accepts exactly
 keys, one final time test) and names the first offending conjunct in source
 order otherwise; within one conjunct a forward test outranks a strict one,
 and that a reversed one. The type and uniqueness texts take names only.
+``lower_latest_rows`` gives a project's admitted asof JOIN its latest-row
+test, which project emission renders as an anti-join.
 """
 
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass
-from typing import cast
+from dataclasses import dataclass, replace
+from itertools import count
+from typing import Any, cast
 
+from pietto._generated_names import generated_name
 from pietto.ast_nodes import (
+    AnyExpr,
     AuthoredJoinKind,
     BetweenExpr,
     BinaryExpr,
@@ -24,7 +29,9 @@ from pietto.ast_nodes import (
     JoinClause,
     LiteralExpr,
     NameExpr,
+    Script,
     Span,
+    UnaryExpr,
 )
 
 __all__ = ()
@@ -44,6 +51,7 @@ _OTHER = (
 )
 _FLIPPED = {">=": "<=", ">": "<", "<=": ">=", "<": ">"}
 TIME_TYPES = ("Date", "Timestamp")
+_LATER = "_pietto_asof_later"
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +106,9 @@ def asof_form(
 
     assert clause.on_clause is not None
     target = clause.target_binding_name
-    parts = conjuncts(clause.on_clause.expression)
+    parts = tuple(
+        item for item in conjuncts(clause.on_clause.expression) if not _latest(item)
+    )
     kinds = [_classify(item, earlier, target) for item in parts]
     times = [index for index, item in enumerate(kinds) if item[0] in {"time", "extra"}]
     keys = [index for index, item in enumerate(kinds) if item[0] == "key"]
@@ -171,9 +181,180 @@ def asof_form(
     return AsofForm(keys=tuple(form_keys), time=time)
 
 
+def lowered(clause: JoinClause) -> bool:
+    """Whether a project gave this asof JOIN its latest-row test."""
+
+    return clause.on_clause is not None and any(
+        _latest(item) for item in conjuncts(clause.on_clause.expression)
+    )
+
+
+def lower_latest_rows(script: Script) -> Script:
+    """Each asof JOIN whose `on` has the admitted form, with its latest-row test.
+
+    `on K and E.t >= T.t` becomes `on K and E.t >= T.t and not any(K' and
+    E.t >= L.t and L.t > T.t for L in R)`: R is the joined relation (through
+    its `let` aliases) and K' the keys over L. With the unique that semantics
+    proves, at most one T row is left per earlier row, the latest; a None key
+    or time matches no row. Every new node is a fresh occurrence of the
+    clause's `on` word (``latest_row_ranges``). A JOIN in another form, or
+    where existence normalization takes no `any(...)` in its `on`, stays as
+    written.
+    """
+
+    from pietto.semantic.existence_generators import _any_inventory
+    from pietto.semantic.inline_functions import (
+        _last_occurrence,
+        _rebuild,
+        _tree_nodes,
+    )
+
+    nodes = _tree_nodes(script)
+    if not any(type(node) is JoinClause and node.asof for node in nodes):
+        return script
+    used = {
+        name.casefold()
+        for node in nodes
+        for name in (
+            *(
+                getattr(node, attribute, None)
+                for attribute in (
+                    "name",
+                    "binding_name",
+                    "source_name",
+                    "target_binding_name",
+                )
+            ),
+            *(node.parts[:1] if type(node) is DottedNameExpr else ()),
+        )
+        if isinstance(name, str)
+    }
+    occurrences = count(1 + _last_occurrence(script))
+    names = frozenset(used)
+    # Each authored asof JOIN that is left as written, and each latest-row
+    # test made, by the id of its authored JOIN.
+    kept: set[int] = set()
+    made: dict[int, AnyExpr] = {}
+
+    def fresh(span: Span) -> Span:
+        return replace(span, occurrence=next(occurrences))
+
+    def lower(clause: JoinClause, aliases: dict[str, str]) -> JoinClause:
+        if not clause.asof or clause.on_clause is None or id(clause) in kept:
+            return clause
+        target = clause.target_binding_name
+        expression = clause.on_clause.expression
+        named = {
+            node.parts[0]
+            for node in _tree_nodes(expression)
+            if type(node) is DottedNameExpr and node.parts[0] != target
+        }
+        form = asof_form(clause, named, target)
+        if isinstance(form, AsofRefusal):
+            return clause
+        relation, seen = clause.target_relation_name, set()
+        while relation in aliases and relation not in seen:
+            seen.add(relation)
+            relation = aliases[relation]
+        later = generated_name((f"{_LATER}_{n}" for n in count(1)), used)
+        whole = _on_word(clause)
+
+        def field(node: DottedNameExpr, binding: str) -> DottedNameExpr:
+            return replace(node, span=fresh(whole), parts=(binding, node.parts[1]))
+
+        def test(left: Expression, operator: str, right: Expression) -> Expression:
+            return ComparisonExpr(
+                span=fresh(whole), left=left, operator=operator, right=right
+            )
+
+        tests = [
+            test(field(left, left.parts[0]), "==", field(right, later))
+            for left, right in form.keys
+        ]
+        earlier, joined = form.time
+        tests.append(test(field(earlier, earlier.parts[0]), ">=", field(joined, later)))
+        tests.append(test(field(joined, later), ">", field(joined, target)))
+        predicate = tests[0]
+        for item in tests[1:]:
+            predicate = BinaryExpr(
+                span=fresh(whole), left=predicate, operator="and", right=item
+            )
+        made[id(clause)] = AnyExpr(
+            span=fresh(whole),
+            predicate=predicate,
+            binding_name=later,
+            binding_span=fresh(whole),
+            relation_name=relation,
+            relation_span=fresh(whole),
+        )
+        latest = UnaryExpr(span=fresh(whole), operator="not", operand=made[id(clause)])
+        on = BinaryExpr(
+            span=fresh(whole), left=expression, operator="and", right=latest
+        )
+        return replace(clause, on_clause=replace(clause.on_clause, expression=on))
+
+    def visit(before: object, after: object) -> object:
+        clauses = getattr(after, "join_clauses", None)
+        if not clauses or not any(item.asof for item in clauses):
+            return after
+        declared = (
+            *getattr(after, "naming_declarations", ()),
+            *getattr(getattr(after, "let_clause", None), "bindings", ()),
+        )
+        aliases = {
+            item.name: item.expression.name
+            for item in declared
+            if type(item.expression) is NameExpr
+        }
+        rebuilt = tuple(lower(item, aliases) for item in clauses)
+        if all(new is old for new, old in zip(rebuilt, clauses, strict=True)):
+            return after
+        return replace(cast(Any, after), join_clauses=rebuilt)
+
+    rebuilt = _rebuild(script, visit)
+    # Only where normalization takes an `any(...)` in that JOIN's `on`; any
+    # other asof JOIN keeps its own checks and the project refusal.
+    taken = {id(item[0]) for item in _any_inventory(cast(Script, rebuilt))}
+    kept.update(key for key, test in made.items() if id(test) not in taken)
+    if kept:
+        used.clear()
+        used.update(names)
+        rebuilt = _rebuild(script, visit)
+    assert type(rebuilt) is Script
+    return rebuilt
+
+
+def latest_row_ranges(script: Script) -> frozenset[tuple[object, ...]]:
+    """The source ranges of the latest-row tests in ``script``: a diagnostic
+    there restates one of the authored `on`, which semantics also checks."""
+
+    from pietto.semantic.inline_functions import _tree_nodes
+
+    return frozenset(
+        _range(_on_word(node))
+        for node in _tree_nodes(script)
+        if type(node) is JoinClause and node.asof and lowered(node)
+    )
+
+
+def _on_word(clause: JoinClause) -> Span:
+    """The range of the word `on`: inside the `on` clause, as an `any(...)`
+    value must be, and the range of no authored node."""
+
+    assert clause.on_clause is not None
+    start = clause.on_clause.span
+    return replace(
+        start, end_line=start.line, end_column=start.column + 2, occurrence=0
+    )
+
+
+def _range(span: Span) -> tuple[object, ...]:
+    return (span.path, span.line, span.column, span.end_line, span.end_column)
+
+
 def time_type_message(earlier: str | None, target: str | None) -> str | None:
     """The refusal of a time test whose canonical types are not one of Date or
-    Timestamp on both sides; None when they are. Cross-family is S2105."""
+    Timestamp on both sides; None when they are. Cross-family is PIE-S2105."""
 
     if earlier == target and earlier in TIME_TYPES:
         return None
@@ -200,7 +381,7 @@ def unique_message(
     uniques: Sequence[tuple[str, tuple[str, ...]]],
     earlier_fields: Sequence[tuple[str, Collection[str]]],
 ) -> str | None:
-    """S2386 unless a declared unique lies within the keys and the time;
+    """PIE-S2386 unless a declared unique lies within the keys and the time;
     ``earlier_fields`` lists each earlier binding with its field names."""
 
     matched = {right.parts[1] for _, right in form.keys} | {form.time[1].parts[1]}
@@ -391,6 +572,18 @@ def _render(node: Expression) -> str | None:
         texts = (_render(node.lower), _render(node.value), _render(node.upper))
         return None if None in texts else f"{texts[0]} <= {texts[1]} <= {texts[2]}"
     return None
+
+
+def _latest(node: Expression) -> bool:
+    """Whether ``node`` is the latest-row test ``lower_latest_rows`` wrote."""
+
+    return (
+        type(node) is UnaryExpr
+        and node.operator == "not"
+        and node.span.occurrence != 0
+        and type(node.operand) is AnyExpr
+        and node.operand.binding_name.startswith(_LATER)
+    )
 
 
 def _dotted(node: object) -> str:
