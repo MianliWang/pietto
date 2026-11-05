@@ -186,7 +186,9 @@ DEFINITION_ERRORS = {
     "builtin_aggregate_and_window_names": (
         "def lower(a: Text) -> Text: return a\n"
         "def count(a: Int) -> Int: return a\n"
-        "def rank(a: Int) -> Int: return a\n",
+        "def rank(a: Int) -> Int: return a\n"
+        # Lane F: `stddev` is an aggregate, so it is reserved like `count`.
+        "def stddev(a: Int) -> Int: return a\n",
         [
             (
                 "PIE-S2398",
@@ -195,7 +197,12 @@ DEFINITION_ERRORS = {
                 f"Def {name} has the name of a built-in "
                 "function; a def cannot shadow one",
             )
-            for line, name in ((1, "lower"), (2, "count"), (3, "rank"))
+            for line, name in (
+                (1, "lower"),
+                (2, "count"),
+                (3, "rank"),
+                (4, "stddev"),
+            )
         ],
     ),
     "callable_namespace_duplicates": (
@@ -365,6 +372,22 @@ def test_each_definition_error_is_reported_at_the_def(
     source: str, expected: list[tuple[str, int, int, str]]
 ) -> None:
     assert _errors(source) == expected
+
+
+def test_only_a_def_stddev_is_told_to_rename_for_the_new_aggregate() -> None:
+    parsed = parse_source(
+        "def stddev(a: Int) -> Int: return a\ndef avg(a: Int) -> Int: return a\n",
+        path="m.pietto",
+    )
+    assert parsed.ast is not None
+    assert [(d.code, d.suggestion) for d in analyze(parsed.ast).diagnostics] == [
+        (
+            "PIE-S2398",
+            "Rename this def: `stddev` is now the built-in sample standard "
+            "deviation aggregate, and a call to stddev always means it.",
+        ),
+        ("PIE-S2398", None),
+    ]
 
 
 def test_a_body_comparison_or_arithmetic_of_non_null_operands_is_non_null() -> None:

@@ -444,6 +444,16 @@ def _single_file_grouping_diagnostics(
     while roots:
         node = roots.pop()
         if (
+            type(node) is CallExpr
+            and semantic_aggregate_call_name(node) == "stddev"
+            and len(node.arguments) == 1
+            and type(node.arguments[0]) is NameExpr
+            and node.arguments[0].name in lets
+        ):
+            # A `stddev` takes no `let` name in a project either: the single
+            # file's PIE-S2315 of that direct argument is its error.
+            continue
+        if (
             (type(node) is NameExpr and (node.name in lets or node.name in nested))
             or (type(node) is DottedNameExpr and node.parts[-1] in nested)
             or type(node)

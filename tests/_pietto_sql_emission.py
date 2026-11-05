@@ -191,6 +191,8 @@ VARIANTS = {
     "V_aggregate_blocked": (
         "sum_direct",
         "avg_direct",
+        "stddev_direct",
+        "stddev_float",
         "sum_hidden_right",
         "float_key",
         "bool_domain_key",
@@ -402,6 +404,7 @@ AGGREGATE_SPELLINGS = {
     "MIN(": "min",
     "MAX(": "max",
     "string_agg(": "string_agg",
+    "VAR_SAMP(": "stddev",
 }
 # The eleven admitted Slice9 identities, keyed by the exact emitted call token.
 WINDOW_SPELLINGS = {
@@ -474,6 +477,7 @@ COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
 # Q1/Q2 evidence: a bigint result the target's checked operation bounds.
 TARGET_CHECKED = "target_checked_signed64_narrowing"
+TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
 AGGREGATE_DEMAND_RULES = {
     "aggregation": "R12",
     "group_key": "R12",
@@ -1480,6 +1484,16 @@ query result:
     select:
         a = avg(value)
 """,
+    ("V_aggregate_blocked", "stddev_direct"): """query result:
+    from agg
+    select:
+        d = stddev(value)
+""",
+    ("V_aggregate_blocked", "stddev_float"): """query result:
+    from agg
+    select:
+        d = stddev(ratio)
+""",
     ("V_aggregate_blocked", "sum_hidden_right"): """table g:
     from agg
     select:
@@ -1564,6 +1578,8 @@ AGGREGATE_LABELS = {
     ("Z_aggregate_membership", None): ("a",),
     ("Z_aggregate_transport", None): ("a", "b"),
     ("V_aggregate_blocked", "avg_direct"): ("a",),
+    ("V_aggregate_blocked", "stddev_direct"): ("d",),
+    ("V_aggregate_blocked", "stddev_float"): ("d",),
     ("V_aggregate_blocked", "sum_direct"): ("s",),
     ("V_aggregate_blocked", "sum_hidden_right"): ("a",),
 }
@@ -1594,6 +1610,8 @@ AGGREGATE_LOGICAL = {
     ("Z_aggregate_membership", None): ("Int",),
     ("Z_aggregate_transport", None): ("Int", "Int"),
     ("V_aggregate_blocked", "avg_direct"): ("Float",),
+    ("V_aggregate_blocked", "stddev_direct"): ("Float",),
+    ("V_aggregate_blocked", "stddev_float"): ("Float",),
     ("V_aggregate_blocked", "sum_direct"): ("Int",),
     ("V_aggregate_blocked", "sum_hidden_right"): ("Int",),
 }
@@ -4339,6 +4357,16 @@ PER_TARGET_STATUS = {
     ("V_row_blocked", "int_overflow"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ("V_row_blocked", "unary_overflow"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ("V_aggregate_blocked", "sum_direct"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    # Lane F: stddev is SQRT(CAST(VAR_SAMP(x) AS float8)) on PostgreSQL; MySQL
+    # keeps Int refused (it computes BIGINT in DOUBLE) and Float unproved.
+    ("V_aggregate_blocked", "stddev_direct"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
+    ("V_aggregate_blocked", "stddev_float"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
     ("V_aggregate_blocked", "sum_hidden_right"): {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
@@ -9382,12 +9410,23 @@ def _decode_fixed_public(document, limits):
         start = lexical[cursor][0]["start"]
         subject = lexical[cursor][0]["subject"]
         _need(subject["kind"] == "aggregate", "aggregate occurrence kind")
+        root = peek() == "aggregate_root_open"
+        if root:
+            take("syntax", "aggregate_root_open", "SQRT(", subject)
         result_cast = None
         if peek() == "aggregate_result_cast_open":
             take("syntax", "aggregate_result_cast_open", "CAST(", subject)
             result_cast = "pg_catalog.int8"
         _, spelling = take("syntax", "aggregate_open", subject=subject)
         _need(spelling in AGGREGATE_SPELLINGS, "aggregate spelling")
+        # Only a PostgreSQL stddev is SQRT(CAST(VAR_SAMP(x) AS float8)).
+        _need(
+            root is (spelling == "VAR_SAMP(")
+            and (not root or family == "postgres" and result_cast is not None),
+            "stddev square root",
+        )
+        if root:
+            result_cast = "pg_catalog.float8"
         distinct, argument, delimiter, order_by = False, None, None, []
         argument_cast = None
         if peek() == "aggregate_row_count":
@@ -9433,10 +9472,18 @@ def _decode_fixed_public(document, limits):
         closed, _ = take("syntax", "aggregate_close", ")", subject)
         if result_cast is not None:
             # Q1: only a PostgreSQL SUM is narrowed by a checked bigint CAST.
-            _need(family == "postgres" and spelling == "SUM(", "sum result cast")
-            closed, _ = take(
-                "syntax", "aggregate_result_cast_close", " AS pg_catalog.int8)", subject
+            _need(
+                family == "postgres" and spelling in {"SUM(", "VAR_SAMP("},
+                "sum result cast",
             )
+            closed, _ = take(
+                "syntax",
+                "aggregate_result_cast_close",
+                f" AS {result_cast})",
+                subject,
+            )
+        if root:
+            closed, _ = take("syntax", "aggregate_root_close", ")", subject)
         expected_ranges.append(("aggregate", subject, start, closed["end"]))
         return {
             "aggregate": subject,
@@ -9454,7 +9501,27 @@ def _decode_fixed_public(document, limits):
         function, argument, argument_cast, delimiter=None, order_by=(), result_cast=None
     ):
         """This result's own domain: a count is not its argument's value range."""
-        _need((result_cast is not None) is (function == "sum"), "sum result cast")
+        _need(
+            (result_cast is not None) is (function in {"sum", "stddev"}),
+            "sum result cast",
+        )
+        if function == "stddev":
+            # The sample deviation of an Int or a finite binary64 Float,
+            # NULL below two values.
+            _need(
+                family == "postgres"
+                and argument is not None
+                and argument["tag"] in {"Int", "Float"}
+                and argument_cast is None
+                and result_cast == "pg_catalog.float8",
+                "stddev casts",
+            )
+            return {
+                "tag": "Float",
+                "storage": {"kind": "pg_float8"},
+                "nullable": True,
+                "domain": {"kind": "finite_float", "format": "binary64"},
+            }
         if function == "sum":
             # Q1: an exact PostgreSQL sum narrowed to bigint by a checked CAST,
             # NULL for an empty input; MySQL emits no SUM of an Int.
@@ -10199,7 +10266,11 @@ def _decode_fixed_public(document, limits):
                     "qualifier": qualifier["subject"],
                 }
                 row_stage_ports.add(encoded(port).decode())
-            elif peek() in ("aggregate_open", "aggregate_result_cast_open"):
+            elif peek() in (
+                "aggregate_open",
+                "aggregate_result_cast_open",
+                "aggregate_root_open",
+            ):
                 node = {"kind": "aggregate", **aggregate_parse(block)}
             elif peek() == "window_open":
                 node = {"kind": "window", **window_parse(block)}
@@ -10798,6 +10869,7 @@ def _decode_fixed_public(document, limits):
                         )
                     )
             elif node["kind"] == "aggregate":
+                requirement = len(row_generated)
                 row_generated.append(
                     (
                         "aggregate",
@@ -10831,6 +10903,10 @@ def _decode_fixed_public(document, limits):
                         _need(
                             argument["tag"] == "Int"
                             or (
+                                node["function"] == "stddev"
+                                and argument["tag"] == "Float"
+                            )
+                            or (
                                 node["function"] in {"count", "count_distinct"}
                                 and argument["tag"] in {"Timestamp", "Date", "UUID"}
                             )
@@ -10863,6 +10939,16 @@ def _decode_fixed_public(document, limits):
                     order_by,
                     node["result_cast"],
                 )
+                if node["function"] == "stddev":
+                    # Evidence follows the function and argument tag: only a
+                    # Float deviation rests on the target's overflow check.
+                    assert argument is not None
+                    row_generated[requirement] = (
+                        *row_generated[requirement][:4],
+                        [{"overflow": TARGET_CHECKED_BINARY64}]
+                        if argument["tag"] == "Float"
+                        else None,
+                    )
                 read, field, literal, root = None, None, None, None
                 origin = {
                     "role": "aggregate_result",

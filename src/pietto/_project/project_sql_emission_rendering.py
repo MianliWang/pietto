@@ -21,6 +21,7 @@ from pietto._project.project_sql_emission_ast import (
     resource_limits,
 )
 from pietto._project.project_sql_emission_aggregation import (
+    ROOT_FUNCTIONS,
     AggregateKeyColumn,
     AggregateProjectionColumn,
     AggregateValueColumn,
@@ -935,6 +936,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     """One aggregate occurrence: its own spelling over its own exact argument."""
     reference = column.aggregate.ref
     start = w.offset
+    if column.function in ROOT_FUNCTIONS:
+        w.emit("SQRT(", "syntax", "aggregate_root_open", reference)
     if column.result_cast is not None:
         w.emit("CAST(", "syntax", "aggregate_result_cast_open", reference)
     w.emit(column.spelling + "(", "syntax", "aggregate_open", reference)
@@ -986,6 +989,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
             "aggregate_result_cast_close",
             reference,
         )
+    if column.function in ROOT_FUNCTIONS:
+        w.emit(")", "syntax", "aggregate_root_close", reference)
     w.enclose("aggregate", reference, start)
 
 

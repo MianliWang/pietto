@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 import json
+import math
+import statistics
 
 import pytest
 
@@ -57,3 +59,58 @@ def test_avg_int_witness_does_not_accept_failed_resource_cleanup(tmp_path, monke
     report = json.loads((directory / "report.json").read_text())
     assert report["status"] == "FAILED"
     assert report["cleanup"]["failures"] == ["container remains"]
+
+
+_STDDEV = {(name, tag): values for name, tag, values in witness.STDDEV_CASES}
+
+
+@pytest.mark.parametrize("name, tag, values", witness.STDDEV_CASES)
+def test_stddev_tolerance_passes_the_oracle_and_refuses_a_null_mismatch(
+    name, tag, values
+):
+    if name == "O2":
+        with pytest.raises(ValueError, match="unrepresentable"):
+            witness.tolerance(tag, values, 1.0)
+        return
+    oracle = witness.stddev_oracle(values)
+    assert witness.tolerance(tag, values, oracle) == 0.0
+    with pytest.raises(ValueError, match="NULL mismatch"):
+        witness.tolerance(tag, values, 1.0 if oracle is None else None)
+
+
+@pytest.mark.parametrize("observed", (-1.0, math.inf, math.nan))
+def test_stddev_tolerance_refuses_a_negative_or_non_finite_value(observed):
+    with pytest.raises(ValueError, match="finite non-negative"):
+        witness.tolerance("Float", _STDDEV["N2", "Float"], observed)
+
+
+def test_stddev_tolerance_has_the_two_tiers():
+    """Within the Int tier 2*eps*s passes and twice it fails; IS is exact."""
+    values = _STDDEV["IS", "Int"]
+    oracle = witness.stddev_oracle(values)
+    assert oracle is not None and oracle == 70710678.11865476
+    step = 2 * witness.EPSILON * oracle
+    # oracle + step rounds to the nearest binary64, a little below the tier.
+    assert 0.9 < witness.tolerance("Int", values, oracle + step) <= 1
+    assert witness.tolerance("Int", values, oracle + 2 * step) > 1
+    # Equal Int values deviate by exactly 0, so any other value fails.
+    assert witness.tolerance("Int", _STDDEV["R3", "Int"], 1e-300) == math.inf
+
+
+@pytest.mark.parametrize(
+    "name, tag, discriminates",
+    (
+        ("M8", "Int", True),
+        ("N2", "Int", True),
+        ("F1", "Float", True),
+        ("IN", "Int", True),
+        # FN is an accuracy cell only: its population deviation is inside B.
+        ("FN", "Float", False),
+    ),
+)
+def test_stddev_tolerance_tells_the_population_deviation_apart(
+    name, tag, discriminates
+):
+    values = _STDDEV[name, tag]
+    population = statistics.pstdev([value for value in values if value is not None])
+    assert (witness.tolerance(tag, values, population) > 1) is discriminates

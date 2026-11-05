@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Sequence
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -30,6 +31,7 @@ from pietto.ir import (
     build_ir,
 )
 from pietto.ir.lowering import lower_expr
+from pietto.ir.model import aggregate_call_contract
 from pietto.parser_api import parse_source
 from pietto.semantic import SemanticResult, analyze
 
@@ -266,6 +268,8 @@ def test_direct_field_aggregate_lowering_remains_unchanged() -> None:
         "        average_score = avg(score)\n"
         "        smallest_amount = min(amount)\n"
         "        largest_score = max(score)\n"
+        "        amount_spread = stddev(amount)\n"
+        "        score_spread = stddev(score)\n"
     )
     semantic_result = analyze(script)
 
@@ -325,6 +329,45 @@ def test_direct_field_aggregate_lowering_remains_unchanged() -> None:
         NullabilityIR.NULLABLE,
         ("score",),
     )
+    for name, field in (("amount_spread", "amount"), ("score_spread", "score")):
+        _assert_direct_aggregate(
+            projections[name].expression,
+            "stddev",
+            "Float",
+            NullabilityIR.NULLABLE,
+            (field,),
+        )
+
+
+def test_stddev_aggregate_call_contract_is_one_int_or_float_field() -> None:
+    """The IR contract admits `stddev` of one Int or Float field with a
+    nullable Float result, and nothing a renderer could be handed besides."""
+    script = _parse(
+        SOURCE_PREFIX + "table spreads:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        amount_spread = stddev(amount)\n"
+        "        price_low = min(price)\n"
+        "        total = sum(amount)\n"
+    )
+    ir_result = build_ir(script, analyze(script).model)
+    assert ir_result.ir is not None
+    projections = _projections(_relation_ir(ir_result.ir))
+    call = cast(AggregateCallIR, projections["amount_spread"].expression)
+    price = cast(AggregateCallIR, projections["price_low"].expression).arguments[0]
+    total = cast(AggregateCallIR, projections["total"].expression)
+    float_result = call.value_type
+
+    assert aggregate_call_contract("stddev", call.arguments, float_result)
+    for arguments, value_type in (
+        ((), float_result),
+        ((*call.arguments, *call.arguments), float_result),
+        ((price,), float_result),
+        ((total,), float_result),
+        (call.arguments, replace(float_result, nullability=NullabilityIR.NON_NULL)),
+        (call.arguments, total.value_type),
+    ):
+        assert not aggregate_call_contract("stddev", arguments, value_type)
 
 
 @pytest.mark.parametrize(

@@ -1226,6 +1226,31 @@ query q:
             ],
         ),
         (
+            "    select m = stddev(label)\n",
+            [
+                (
+                    "PIE-S2314",
+                    "Aggregate function stddev expects Int or Float field "
+                    "argument, got Text",
+                    8,
+                    16,
+                )
+            ],
+        ),
+        # Lane F: `stddev` takes no `let` name, in a project as in a file.
+        (
+            "    let w = qty\n    select m = stddev(w)\n",
+            [
+                (
+                    "PIE-S2315",
+                    "Aggregate function stddev requires a direct field argument; "
+                    "expression arguments are not supported yet",
+                    9,
+                    16,
+                )
+            ],
+        ),
+        (
             "    select m = max(count())\n",
             [("PIE-S2311", "Nested aggregate count() is not supported", 8, 20)],
         ),
@@ -1391,6 +1416,8 @@ query q:
         "grouped_order",
         "argument_type",
         "argument_expression",
+        "stddev_argument_type",
+        "stddev_let_argument",
         "nested",
         "grouped_expression",
         "having_input_field",

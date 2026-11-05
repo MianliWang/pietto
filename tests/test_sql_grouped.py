@@ -1327,6 +1327,60 @@ def test_avg_int_casts_the_target_result_to_the_finite_float_carrier(tmp_path, t
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
+    ("variant", "field", "evidence", "mysql_blocker"),
+    (
+        (
+            "stddev_direct",
+            "value é",
+            [],
+            ("PIE-B1003", "stddev_int_not_admitted_on_target"),
+        ),
+        (
+            "stddev_float",
+            "ratio value",
+            [{"overflow": "target_checked_binary64_overflow"}],
+            ("PIE-B1004", "float_aggregate_finite_result_proof_missing"),
+        ),
+    ),
+)
+def test_stddev_is_the_postgres_root_of_the_float8_sample_variance(
+    tmp_path, target, variant, field, evidence, mysql_blocker
+):
+    """Lane F: PostgreSQL emits SQRT(CAST(VAR_SAMP(x) AS float8)) for an Int
+    with no range evidence, and for a Float with the binary64 overflow token;
+    MySQL keeps both refused, each with a suggestion."""
+    outcome = emit(tmp_path, target, "V_aggregate_blocked", variant)
+    if target == "mysql":
+        data = public(outcome)
+        assert data["status"] == "BLOCKED"
+        (blocker,) = data["blockers"]
+        assert (blocker["code"], blocker["subject"]["detail"]) == mysql_blocker
+        assert blocker["suggestion"]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    data = public(outcome)
+    assert column(data, "d")["logical_type"] == {
+        "kind": "builtin",
+        "name": "Float",
+        "parameters": None,
+    }
+    assert column(data, "d")["representation"] == {
+        "storage": {"kind": "pg_float8"},
+        "nullable": True,
+        "domain": {"kind": "finite_float", "format": "binary64"},
+    }
+    assert (
+        f'SQRT(CAST(VAR_SAMP("s0"."{field}") AS pg_catalog.float8)) AS "c0"'
+        in data["sql"]
+    )
+    assert "STDDEV" not in data["sql"] and "VAR_SAMP(CAST(" not in data["sql"]
+    assert [
+        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+    ] == [evidence]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
     ("expression", "detail"),
     (
         ("sum(amount)", "decimal_aggregate_range_proof_missing"),

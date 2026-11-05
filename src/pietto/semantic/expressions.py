@@ -6301,10 +6301,6 @@ _UNKNOWN_FUNCTION_HINTS = {
             "group_concat",
             "mean",
             "median",
-            "std",
-            "stddev",
-            "stddev_pop",
-            "stddev_samp",
             "string_agg",
             "var",
             "var_pop",
@@ -6313,6 +6309,17 @@ _UNKNOWN_FUNCTION_HINTS = {
         ),
         f"the available aggregates are {', '.join(_AGGREGATE_NAMES[:-1])} and "
         f"{_AGGREGATE_NAMES[-1]}",
+    ),
+    **dict.fromkeys(
+        ("stdev", "stddev_samp", "statistics.stdev"),
+        "write `stddev`, the sample standard deviation (Python `statistics.stdev`)",
+    ),
+    # Only a spelling other than lowercase `stddev` (an aggregate) reaches here.
+    **dict.fromkeys(
+        ("std", "pstdev", "stddev", "stddev_pop", "statistics.pstdev"),
+        "`stddev` is the sample standard deviation (Python `statistics.stdev`); "
+        "MySQL `STD`/`STDDEV` and numpy `std` are the population deviation, "
+        "which is not available",
     ),
 }
 

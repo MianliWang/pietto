@@ -726,6 +726,42 @@ def test_a_let_read_only_by_relation_reads_binds_its_header_reads(tmp_path, targ
         )
 
 
+def test_a_stddev_template_binds_its_header_read_and_renders_the_same_sql(tmp_path):
+    """Lane F: a live PostgreSQL template of Int and Float `stddev` under a
+    WHERE header parameter binds and renders byte-equal SQL."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    body = (
+        "query result(low: Int):\n    from rows\n    where id > low\n"
+        "    select:\n        spread = stddev(id)\n"
+        "        ratio_spread = stddev(ratio)\n"
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    bound = bind_values(
+        template, (), tuple(zip(template.parameters, (3,), strict=True))
+    )
+    assert bound.artifact.rendered.sql == template.artifact.rendered.sql
+    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+    assert bound.artifact.rendered.sql.count(b"SQRT(CAST(VAR_SAMP(") == 2
+    assert bound.arguments == (3,)
+
+
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
 HEADER_IN_CAPTURES = """query result(cut: Int, hi: Int | None):
     let later:

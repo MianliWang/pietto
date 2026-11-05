@@ -6,9 +6,12 @@ Run explicitly; importing this module creates no database or Docker resource.
 from __future__ import annotations
 
 import argparse
+from fractions import Fraction
 import json
 import math
 from pathlib import Path
+import random
+import statistics
 from typing import Any
 
 from _pietto_target_conformance_resources import Resources, error_fact
@@ -22,6 +25,92 @@ CASES = (
     ("all_null", (None, None), None),
     ("near_2_53", ((1 << 53), (1 << 53) + 1), float(1 << 53)),
 )
+
+
+# Lane F campaign 3 cells for `stddev`: (id, tag, values). Their statements
+# come from the emitter at run time; only these values and `tolerance` live here.
+_BASICS = (
+    ("E0", ()),
+    ("E1", (7,)),
+    ("E1N", (7, None, None)),
+    ("EN", (None, None)),
+    ("N2", (1, 2)),
+    ("M8", (2, 4, 4, 4, 5, 5, 7, 9)),
+    ("R3", (5, 5, 5)),
+    ("WN", (1, None, 3)),
+)
+_SEEDED = random.Random(72)
+STDDEV_CASES = (
+    *((name, "Int", values) for name, values in _BASICS),
+    ("I53", "Int", tuple((1 << 53) + offset for offset in (1, 3, 5))),
+    ("I64", "Int", (-(1 << 63), (1 << 63) - 1)),
+    ("IS", "Int", (0, 100000000)),
+    ("IN", "Int", tuple(_SEEDED.randint(-(10**6), 10**6) for _ in range(10000))),
+    *(
+        (name, "Float", tuple(None if v is None else float(v) for v in values))
+        for name, values in _BASICS
+    ),
+    ("F1", "Float", (0.1, 0.2, 0.3)),
+    ("F2", "Float", (0.1, 0.1, 0.1)),
+    ("FO", "Float", (1e9 + 0.1, 1e9 + 0.1, 1e9 + 0.1, 1e9 + 0.2)),
+    ("FL", "Float", (1e150, 3e150, 5e150)),
+    ("FT", "Float", (1e-300, 3e-300, 5e-300)),
+    ("FZ", "Float", (-0.0, 0.0)),
+    ("FN", "Float", tuple(1e6 + i * 0.001 for i in range(100000))),
+    ("O1", "Float", (1e200, -1e200)),
+    ("O2", "Float", (1.7e308, -1.7e308)),
+)
+EPSILON = 2.0**-52
+
+
+def stddev_oracle(values) -> float | None:
+    """`statistics.stdev` of the non-None values; None below two of them.
+    Raises OverflowError when the deviation exceeds binary64 (cell O2)."""
+    present = [value for value in values if value is not None]
+    return statistics.stdev(present) if len(present) >= 2 else None
+
+
+def stddev_bound(tag: str, values, oracle: float) -> float:
+    """The accuracy tier: Int 2*eps*s; Float B = 4*eps*s +
+    8*n*eps*sqrt(S2/(n-1)) + 2*sqrt(n*2^-1074), with S2 = exact sum of squares."""
+    if tag == "Int":
+        return 2 * EPSILON * oracle
+    present = [value for value in values if value is not None]
+    n = len(present)
+    squares = sum((Fraction(value) ** 2 for value in present), Fraction(0))
+    mean_square = squares / (n - 1)
+    # Logarithms keep sqrt(S2/(n-1)) finite where S2 itself is not (O1).
+    root = (
+        0.0
+        if mean_square == 0
+        else math.exp(
+            (math.log(mean_square.numerator) - math.log(mean_square.denominator)) / 2
+        )
+    )
+    return 4 * EPSILON * oracle + 8 * n * EPSILON * root + 2 * math.sqrt(n * 2.0**-1074)
+
+
+def tolerance(tag: str, values, observed) -> float:
+    """|t - s| over the cell's tier (at most 1 passes). A NULL mismatch, a
+    negative or non-finite value, or any value for an unrepresentable oracle
+    raises ValueError; the hex compare is never used for `stddev`."""
+    if tag not in {"Int", "Float"}:
+        raise ValueError("stddev tier")
+    try:
+        oracle = stddev_oracle(values)
+    except OverflowError:
+        raise ValueError("stddev oracle unrepresentable; only an error passes")
+    if oracle is None or observed is None:
+        if oracle is not observed:
+            raise ValueError("stddev NULL mismatch")
+        return 0.0
+    if type(observed) is not float or not math.isfinite(observed) or observed < 0:
+        raise ValueError("stddev result is not a finite non-negative float")
+    bound = stddev_bound(tag, values, oracle)
+    difference = abs(observed - oracle)
+    if bound == 0:
+        return 0.0 if difference == 0 else math.inf
+    return difference / bound
 
 
 def sql(target: str) -> tuple[str, str, str, str]:

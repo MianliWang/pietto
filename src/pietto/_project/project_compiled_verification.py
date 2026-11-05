@@ -1340,7 +1340,7 @@ def verify_description(value: Description) -> None:
                     and len(arguments) == 2
                     and bool(order_by)
                     or get("function")
-                    in ("count", "count_distinct", "sum", "avg", "min", "max")
+                    in ("count", "count_distinct", "sum", "avg", "min", "max", "stddev")
                     and len(arguments) <= 1
                     and not order_by
                     and (bool(arguments) or get("function") == "count")
@@ -5738,7 +5738,9 @@ def _verify_compiled_emission(artifact, request):
                     column.argument_cast
                     == grouping.argument_cast(request.family, function, column.argument)
                     and column.result_cast
-                    == ("pg_catalog.int8" if function == "sum" else None),
+                    == {"sum": "pg_catalog.int8", "stddev": "pg_catalog.float8"}.get(
+                        function
+                    ),
                     "EMISSION_AGGREGATE_CAST",
                 )
                 origin = column.column.aggregate

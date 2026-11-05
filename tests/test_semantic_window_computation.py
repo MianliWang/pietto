@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import io
+import json
+from contextlib import redirect_stdout
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import cast
 
 import pytest
 
 import _pietto_project_join_aggregate as slice9
+from pietto import cli
 from pietto._project import project_completion as completion
 from pietto._project import project_completed_semantics as completed_semantics
 from pietto._project import project_joined_aggregation as aggregation
@@ -735,6 +740,7 @@ _ORDER = "order by id"
 _COMPUTED_ORDER = "order by id + 1"
 _UNSUPPORTED = "Unsupported window computation for function"
 _AGGREGATE = "Aggregate window functions are not implemented:"
+_WINDOW_AGGREGATES = "; window aggregates are sum, count, avg, min and max"
 
 
 @pytest.mark.parametrize(
@@ -746,6 +752,7 @@ _AGGREGATE = "Aggregate window functions are not implemented:"
         ("result = min(value)", _ORDER, f"{_AGGREGATE} min"),
         ("result = max(value)", _ORDER, f"{_AGGREGATE} max"),
         ("result = count_distinct(value)", _ORDER, f"{_AGGREGATE} count_distinct"),
+        ("result = stddev(value)", _ORDER, f"{_AGGREGATE} stddev"),
         ("result = median(value)", _ORDER, "Unknown function: median"),
         ("result = row_numbr()", _ORDER, "Unknown function: row_numbr"),
         ("result = SUM(value)", _ORDER, "Unknown function: SUM"),
@@ -821,6 +828,45 @@ def test_refused_window_computations_name_their_reason(
         (diagnostic.code, diagnostic.message, diagnostic.location.column)
         for diagnostic in diagnostics
     ] == [("PIE-S2103", message, 18)]
+
+
+@pytest.mark.parametrize("project", (False, True), ids=("single_file", "project"))
+def test_only_a_single_file_names_the_window_aggregates_it_admits(
+    tmp_path: Path, project: bool
+) -> None:
+    """A single file, which admits aggregate windows, names them when it
+    refuses another aggregate window; a project, which admits none, does not."""
+    source = tmp_path / "main.pietto"
+    source.write_text(
+        "shape Row:\n"
+        "    id: Int\n"
+        "    value: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query result:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        a = count_distinct(value) window(order by id)\n"
+        "        b = stddev(value) window(order by id)\n",
+        encoding="utf-8",
+    )
+    target = ["--project", str(tmp_path)] if project else [str(source)]
+    if project:
+        (tmp_path / "pietto.toml").write_text(
+            'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+        )
+    out = io.StringIO()
+    with redirect_stdout(out):
+        exit_code = cli.main(["check", *target, "--format", "json"])
+    suffix = "" if project else _WINDOW_AGGREGATES
+    assert exit_code == 1
+    assert [
+        (item["code"], item["location"]["line"], item["message"])
+        for item in json.loads(out.getvalue())["diagnostics"]
+    ] == [
+        ("PIE-S2103", 9, f"{_AGGREGATE} count_distinct{suffix}"),
+        ("PIE-S2103", 10, f"{_AGGREGATE} stddev{suffix}"),
+    ]
 
 
 def test_window_stage_preserves_rows_grain_properties_and_ledger(

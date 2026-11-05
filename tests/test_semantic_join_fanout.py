@@ -311,6 +311,7 @@ query set_insensitive:
         high = max(r.id)
         labels = count_distinct(r.label)
         k = count(r.id)
+        spread = stddev(r.id)
 query chain_admitted:
     from orders
     let c = customers
@@ -545,11 +546,13 @@ def test_an_aggregate_that_may_read_repeated_rows_is_refused_at_its_call(
 def test_count_and_set_insensitive_aggregates_are_exempt(fanout: JoinScript) -> None:
     """`count()` counts JOIN rows; `min`, `max` and `count_distinct` depend only
     on the set of values a group holds, which a repeated row cannot change.
-    `count` of a field reads the rows a JOIN repeats and is refused."""
+    `count` of a field and `stddev` read the rows a JOIN repeats; each is
+    refused once, in select order."""
 
     message = _repeated("JOIN r", _match("orders"))
     assert located(fanout.fanout("set_insensitive")) == [
-        ("PIE-S2381", message, *_at("set_insensitive", "count(r.id)"))
+        ("PIE-S2381", message, *_at("set_insensitive", call))
+        for call in ("count(r.id)", "stddev(r.id)")
     ]
 
 

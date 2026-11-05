@@ -834,6 +834,8 @@ def _render_aggregate_call(
         )
     elif expression.function == "count_distinct":
         sql = _render_count_distinct_aggregate(expression)
+    elif expression.function == "stddev":
+        sql = _render_stddev_aggregate(expression)
     elif (
         function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
     ) is not None:
@@ -1236,6 +1238,18 @@ def _render_extrema_aggregate(
             "match approved logical shape"
         )
     return f"{function_name}({_render_expression_sql(argument, nested=True)})"
+
+
+def _render_stddev_aggregate(expression: AggregateCallIR) -> str:
+    # The sample deviation: VAR_SAMP of an integer is exact numeric and of a
+    # double is double, so one cast rounds once and SQRT rounds correctly.
+    # STDDEV_SAMP of an integer would round the numeric square root first.
+    if not aggregate_call_contract(
+        "stddev", expression.arguments, expression.value_type
+    ):
+        raise ValueError("PostgreSQL aggregate stddev violates its IR contract")
+    argument_sql = _render_expression_sql(expression.arguments[0], nested=True)
+    return f"SQRT(CAST(VAR_SAMP({argument_sql}) AS double precision))"
 
 
 def _has_builtin_type(

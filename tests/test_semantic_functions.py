@@ -341,7 +341,16 @@ def test_unknown_function_reports_pie_s2103() -> None:
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
 
 
-_AGGREGATES = "the available aggregates are avg, count, count_distinct, max, min, string_agg and sum"
+_AGGREGATES = (
+    "the available aggregates are avg, count, count_distinct, max, min, stddev, "
+    "string_agg and sum"
+)
+_SAMPLE = "write `stddev`, the sample standard deviation (Python `statistics.stdev`)"
+_POPULATION = (
+    "`stddev` is the sample standard deviation (Python `statistics.stdev`); "
+    "MySQL `STD`/`STDDEV` and numpy `std` are the population deviation, which "
+    "is not available"
+)
 _COLLECT = (
     "a Collect read is the select item `name = collect relation` in an "
     "EXPLICIT_MODULES project"
@@ -358,8 +367,19 @@ _COLLECT = (
             "it is a table function, read with `from generate_series(start, stop, "
             "step) as n` in an EXPLICIT_MODULES project",
         ),
-        ("stddev(count)", _AGGREGATES),
+        ("variance(count)", _AGGREGATES),
         ("mean(count)", _AGGREGATES),
+        # Lane F: the sample spellings name `stddev`; the population ones say
+        # why they are not available, also where a capital makes `STDDEV`.
+        ("stdev(count)", _SAMPLE),
+        ("stddev_samp(count)", _SAMPLE),
+        ("statistics.stdev(count)", _SAMPLE),
+        ("std(count)", _POPULATION),
+        ("pstdev(count)", _POPULATION),
+        ("stddev_pop(count)", _POPULATION),
+        ("statistics.pstdev(count)", _POPULATION),
+        ("STDDEV(count)", _POPULATION),
+        ("Stddev(count)", _POPULATION),
         # D71.01/D71.02: the nested-relation spellings are no calls.
         ("collect(email)", _COLLECT),
         ("list(email)", _COLLECT),

@@ -323,6 +323,10 @@ REFUSED = {
         GROUPED + "        n = count(cutoff)\n",
         [(POSITION, 7, 19)],
     ),
+    "stddev_of_parameter": (
+        GROUPED + "        s = stddev(cutoff)\n",
+        [(POSITION, 7, 20)],
+    ),
     "aggregate_of_expression": (
         GROUPED + "        n = count(id + cutoff)\n",
         [(POSITION, 7, 24)],

@@ -1241,6 +1241,10 @@ def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
         + query("fanout_risk")
         .replace("fanout_risk", "on_risk")
         .replace("account_events(accounts, event)", "accounts.id == event.account_id")
+        # Lane F: a `stddev` reads the repeated rows as `sum` does.
+        + query("fanout_risk")
+        .replace("fanout_risk", "stddev_risk")
+        .replace("sum(accounts.metric)", "stddev(accounts.metric)")
     )
     (tmp_path / "pietto.toml").write_text(
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
@@ -1268,6 +1272,7 @@ def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
         ),
         ("PIE-S2333", f"{_UNAVAILABLE}qualified_risk{event}", at("qualified_risk"), 1),
         ("PIE-S2333", f"{_UNAVAILABLE}on_risk{event}", at("on_risk"), 1),
+        ("PIE-S2333", f"{_UNAVAILABLE}stddev_risk{event}", at("stddev_risk"), 1),
     ]
 
 
@@ -4839,6 +4844,23 @@ def test_a_mixed_aggregate_join_checks_qualify_as_a_single_file_does(
     assert _mixed_parity_codes(tmp_path, text) == list(expected)
 
 
+@pytest.mark.parametrize("function", ("stddev", "count_distinct"))
+def test_a_mixed_aggregate_join_names_no_window_aggregates_it_refuses(
+    tmp_path: Path, function: str
+) -> None:
+    """Where QUALIFY admits no hidden window, a refused aggregate window that
+    is no window aggregate names none of them, in a single file as in a
+    project."""
+
+    tail = f"    qualify {function}(items.price) window(order by items.id) > 1\n"
+    text = _WINDOW_MIXED.format(kind="inner", lets="", select=_MIXED_SUM, order=tail)
+    single, project = _mixed_rows(tmp_path, text)
+    assert project == single
+    assert [(row[0], row[1]) for row in single][2:] == [
+        ("PIE-S2103", f"Aggregate window functions are not implemented: {function}")
+    ]
+
+
 @pytest.mark.parametrize("kind", ("left", "inner"))
 @pytest.mark.parametrize(
     ("clauses", "select", "order", "single_codes"),
@@ -5039,6 +5061,22 @@ _JOINED_PROOFS: dict[str, tuple[str, tuple[str, ...], str | None]] = {
         "        avg_amount = avg(orders.amount)\n",
         (),
         None,
+    ),
+    # `stddev` skips the NULL-extended row as `sum` does, and reads
+    # the repeated rows as `sum` does.
+    "stddev_of_the_left_many_side_from_its_matched_key": (
+        "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        spread = stddev(orders.amount)\n",
+        (),
+        None,
+    ),
+    "stddev_of_the_repeated_side": (
+        "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        spread = stddev(customers.id)\n",
+        ("stddev(customers.id)",),
+        "JOIN orders; " + _keyed("orders"),
     ),
     # Where an order is NULL-extended, the `on` of items finds no match, so
     # each item's quantity is None there too.

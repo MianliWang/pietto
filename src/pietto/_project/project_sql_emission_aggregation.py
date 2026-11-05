@@ -29,7 +29,15 @@ SPELLING = {
     "min": "MIN",
     "max": "MAX",
     "string_agg": "string_agg",
+    # PostgreSQL only: SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8)), the
+    # outer SQRT fixed by the function (ROOT_FUNCTIONS).
+    "stddev": "VAR_SAMP",
 }
+# The aggregates whose rendering wraps the result (cast) in SQRT( ... ).
+ROOT_FUNCTIONS = frozenset({"stddev"})
+# Evidence that a binary64 result is finite because the target refuses an
+# overflowing accumulation (SQLSTATE 22003) instead of returning inf or NULL.
+TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
 DISTINCT_FUNCTIONS = frozenset({"count_distinct"})
 COUNTING_FUNCTIONS = frozenset({"count", "count_distinct"})
 EXTREMA_FUNCTIONS = frozenset({"min", "max"})
@@ -421,6 +429,19 @@ def result_realization(family: str, function: str, argument, retained):
         ):
             return None, ("PIE-B1002", "sum_result_logical_type_or_argument_drift")
         return rows._checked_int({"kind": "pg_int8"}, *rows.SIGNED64, True), None
+    if function == "stddev":
+        if (
+            family != "postgres"
+            or argument is None
+            or argument.realization.tag not in {"Int", "Float"}
+            or tag != "Float"
+            or nullable is not True
+        ):
+            return None, ("PIE-B1002", "stddev_result_logical_type_or_argument_drift")
+        return (
+            rows.Realization("Float", {"kind": "pg_float8"}, True, rows.FINITE_FLOAT),
+            None,
+        )
     if function == "avg":
         if (
             argument is None
@@ -500,6 +521,23 @@ def resolved_argument_problem(
         if rows.proven_int_bounds(realization) is None:
             return "PIE-B1004", "avg_int_range_evidence_missing"
         return None
+    if function == "stddev":
+        # PostgreSQL VAR_SAMP of any signed 64-bit integer is exact numeric
+        # below 2^128, so its float8 cast is finite; of a finite double it
+        # raises SQLSTATE 22003 on overflow. MySQL computes BIGINT in DOUBLE.
+        if realization.tag == "Int":
+            if family == "postgres" and realization.storage.get("kind") in {
+                "pg_int2",
+                "pg_int4",
+                "pg_int8",
+            }:
+                return None
+            return "PIE-B1003", "stddev_int_not_admitted_on_target"
+        if realization.tag == "Float":
+            if family == "postgres" and rows.float_carrier(realization, family):
+                return None
+            return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
+        return "PIE-B1003", "stddev_argument_outside_reviewed_int_domain"
     if function == "sum" and realization.tag == "Int":
         # PostgreSQL sums exactly and narrows to bigint with its checked CAST;
         # MySQL's CAST(DECIMAL AS SIGNED) would clamp an out-of-range sum.
@@ -546,12 +584,27 @@ def argument_cast(family: str, function: str, argument) -> str | None:
 def result_cast(family: str, function: str, argument) -> str | None:
     """Q1: PostgreSQL SUM(Int) accumulates exactly and its result is narrowed
     to bigint by a checked CAST, which refuses an out-of-range sum with
-    SQLSTATE 22003 instead of returning a wrong value."""
+    SQLSTATE 22003 instead of returning a wrong value. A PostgreSQL VAR_SAMP
+    is cast to float8 once, under its fixed SQRT."""
+    if function == "stddev":
+        if family != "postgres" or argument is None:
+            raise ValueError("VAR_SAMP result cast requires a PostgreSQL argument")
+        return "pg_catalog.float8"
     if function != "sum":
         return None
     if family != "postgres" or argument is None or argument.realization.tag != "Int":
         raise ValueError("SUM result cast requires a PostgreSQL Int argument")
     return "pg_catalog.int8"
+
+
+def aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, ...]:
+    """R13's evidence beyond the rule, from the function and its argument's
+    tag: a checked bigint sum, or a binary64 deviation the target checks."""
+    if function == "sum" and argument_tag == "Int":
+        return (rows.TARGET_CHECKED_SIGNED64,)
+    if function == "stddev" and argument_tag == "Float":
+        return (TARGET_CHECKED_BINARY64,)
+    return ()
 
 
 def _input_terminals(value) -> tuple[Any, ...]:

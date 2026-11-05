@@ -986,16 +986,31 @@ def _is_pg_int(realization) -> bool:
 # Q1/Q2 evidence: a bigint result bounded by the target's checked signed
 # 64-bit operation or narrowing (SQLSTATE 22003), not by a static range.
 _TARGET_CHECKED = "target_checked_signed64_narrowing"
+# A PostgreSQL stddev(Float): the target refuses an overflowing VAR_SAMP
+# accumulation with SQLSTATE 22003, so a returned deviation is finite.
+_TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
 
 
 def _aggregate_casts(family: str, function: str) -> tuple[str | None, str | None]:
     """The reviewed argument and result casts of one aggregate: AVG(Int)
-    averages binary64 and PostgreSQL SUM(Int) is bigint before and after."""
+    averages binary64, PostgreSQL SUM(Int) is bigint before and after, and a
+    PostgreSQL VAR_SAMP is cast to float8 under its SQRT."""
     if function == "avg":
         return ("pg_catalog.float8" if family == "postgres" else "DOUBLE"), None
     if function == "sum":
         return "pg_catalog.int8", "pg_catalog.int8"
+    if function == "stddev":
+        return None, "pg_catalog.float8"
     return None, None
+
+
+def _aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, ...]:
+    """R13 evidence from the function and its argument tag, never a cast."""
+    if function == "sum" and argument_tag == "Int":
+        return (_TARGET_CHECKED,)
+    if function == "stddev" and argument_tag == "Float":
+        return (_TARGET_CHECKED_BINARY64,)
+    return ()
 
 
 def _is_pg_order_value(realization) -> bool:
@@ -1758,6 +1773,7 @@ class _Check:
                 "max": "MAX",
                 "avg": "AVG",
                 "string_agg": "string_agg",
+                "stddev": "VAR_SAMP",
             }.get(column["function"])
             _require(
                 expected is not None and column["spelling"] == expected,
@@ -1793,6 +1809,22 @@ class _Check:
                     )
                     and doc[doc[column["column"]]["realization"]]["nullable"] is True,
                     "sum result",
+                )
+            if column["function"] == "stddev":
+                # PostgreSQL only: one signed PostgreSQL Int or finite binary64
+                # Float argument, a nullable finite binary64 result.
+                argument = _value_realization(doc, column["argument"])
+                result = doc[doc[column["column"]]["realization"]]
+                _require(
+                    family == "postgres"
+                    and (
+                        _is_pg_float(argument)
+                        or _is_pg_int(argument)
+                        and argument["storage"]["kind"].startswith("pg_")
+                    )
+                    and _is_pg_float(result)
+                    and result["nullable"] is True,
+                    "stddev result",
                 )
             if column["function"] == "string_agg":
                 result = doc[doc[column["column"]]["realization"]]
@@ -2648,7 +2680,8 @@ class _Tokens:
                     "string_agg token sequence",
                 )
             else:
-                expected = []
+                root = column["function"] == "stddev"
+                expected = [("aggregate_root_open", "SQRT(")] if root else []
                 if column["result_cast"] is not None:
                     expected.append(("aggregate_result_cast_open", "CAST("))
                 expected.append(("aggregate_open", column["spelling"] + "("))
@@ -2672,6 +2705,8 @@ class _Tokens:
                             " AS " + column["result_cast"] + ")",
                         )
                     )
+                if root:
+                    expected.append(("aggregate_root_close", ")"))
                 _require(aggregate_tokens == expected, "aggregate token sequence")
         parameters_in_order = [
             event["subject"] for event in self.events if event["kind"] == "parameter"
@@ -4008,7 +4043,14 @@ class _Requirements:
                     item["aggregate"],
                     "R13",
                     operators,
-                    () if item["result_cast"] is None else (_TARGET_CHECKED,),
+                    _aggregate_evidence(
+                        item["function"],
+                        None
+                        if item["argument"] is None
+                        else (_value_realization(doc, item["argument"]) or {}).get(
+                            "tag"
+                        ),
+                    ),
                 )
                 if item["argument"] is not None:
                     self.value(item["argument"])

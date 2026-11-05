@@ -709,6 +709,10 @@ def verify_emission_generation(value, target, expected):
                     # not reach this blocked-outcome branch.
                     "sum_direct": "PIE-B1004",
                     "sum_hidden_right": "PIE-B1004",
+                    # Lane F: MySQL refuses an Int stddev (it computes it in
+                    # DOUBLE) and keeps a Float one without its finite proof.
+                    "stddev_direct": "PIE-B1003",
+                    "stddev_float": "PIE-B1004",
                     "float_key": "PIE-B1003",
                     "bool_domain_key": "PIE-B1002",
                     "decimal_parameter_key": "PIE-B1002",

@@ -190,6 +190,135 @@ table grouped_stats:
     assert f"HAVING\n    {checked_sum} > 0" in artifacts[1].sql
 
 
+STDDEV_SOURCE = """shape Row:
+    bucket: Int
+    value: Int
+    ratio: Float
+source rows: Row = {target}.table("rows")
+table global_spread:
+    from rows
+    select:
+        spread = {call}
+table grouped_spread:
+    from rows
+    group by bucket
+    select:
+        bucket
+        spread = {call}
+    having:
+        spread > 1.0
+"""
+
+
+def _stddev_result(target: str, call: str) -> SqlResult:
+    parsed = parse_source(STDDEV_SOURCE.format(target=target, call=call))
+    assert parsed.ast is not None
+    lowered = build_ir(parsed.ast, analyze(parsed.ast).model)
+    assert lowered.ir is not None, lowered.diagnostics
+    emit = emit_postgres_sql if target == "postgres" else emit_mysql_sql
+    return emit(lowered.ir)
+
+
+@pytest.mark.parametrize("field", ("value", "ratio"))
+def test_postgres_stddev_casts_the_exact_sample_variance_once(field: str) -> None:
+    """Int and Float share SQRT(CAST(VAR_SAMP(x) AS double precision)): the
+    integer variance is exact numeric, so it is rounded once by the cast and
+    the square root rounds correctly; STDDEV_SAMP(int8) would round twice."""
+    result = _stddev_result("postgres", f"stddev({field})")
+    spread = f'SQRT(CAST(VAR_SAMP("{field}") AS double precision))'
+
+    assert result.diagnostics == ()
+    global_sql, grouped_sql = (artifact.sql for artifact in result.artifacts)
+    assert global_sql.count(spread) == 1
+    assert f"HAVING\n    {spread} > 1.0" in grouped_sql
+    for sql in (global_sql, grouped_sql):
+        # Never a population or double-rounding spelling, nor an argument cast.
+        assert not any(
+            token in sql
+            for token in (
+                "STD(",
+                "STDDEV(",
+                "STDDEV_POP(",
+                "STDDEV_SAMP(",
+                "VAR_SAMP(CAST(",
+            )
+        )
+
+
+def test_mysql_stddev_is_the_sample_deviation_of_a_float_only() -> None:
+    result = _stddev_result("mysql", "stddev(ratio)")
+
+    assert result.diagnostics == ()
+    global_sql, grouped_sql = (artifact.sql for artifact in result.artifacts)
+    assert "STDDEV_SAMP(`ratio`) AS `spread`" in global_sql
+    assert "HAVING\n    STDDEV_SAMP(`ratio`) > 1.0" in grouped_sql
+    for sql in (global_sql, grouped_sql):
+        assert not any(token in sql for token in ("STD(", "STDDEV(", "STDDEV_POP("))
+
+    refused = _stddev_result("mysql", "stddev(value)")
+    assert refused.artifacts == ()
+    assert [(d.code, d.message) for d in refused.diagnostics] == [
+        (
+            "PIE-B1000",
+            f"MySQL SQL emission is not implemented for RelationIR: {name}. "
+            "MySQL aggregate stddev of an Int argument is not supported",
+        )
+        for name in ("global_spread", "grouped_spread")
+    ]
+
+
+@pytest.mark.parametrize(
+    "emitter",
+    (emit_postgres_sql, emit_mysql_sql),
+)
+@pytest.mark.parametrize(
+    "case", ("decimal_argument", "expression_argument", "non_null_result")
+)
+def test_malformed_hand_built_stddev_ir_fails_closed_with_pie_b1000(
+    emitter: Callable[[ScriptIR], SqlResult], case: str
+) -> None:
+    script_ir = _compile(
+        POSTGRES_INPUT if emitter is emit_postgres_sql else MYSQL_INPUT
+    )
+    relation = _relation_ir(script_ir)
+    score = _field("score", replace(FLOAT_NULLABLE, nullability=NullabilityIR.NON_NULL))
+    bad = {
+        "decimal_argument": _aggregate(
+            "stddev", FLOAT_NULLABLE, _field("price", DECIMAL_NON_NULL)
+        ),
+        "expression_argument": _aggregate(
+            "stddev",
+            FLOAT_NULLABLE,
+            BinaryIR(
+                span=SPAN,
+                value_type=score.value_type,
+                left=score,
+                operator="+",
+                right=score,
+            ),
+        ),
+        "non_null_result": _aggregate(
+            "stddev", replace(FLOAT_NULLABLE, nullability=NullabilityIR.NON_NULL), score
+        ),
+    }[case]
+    bad_relation = replace(
+        relation,
+        projections=(replace(relation.projections[1], expression=bad),),
+    )
+
+    result = emitter(
+        ScriptIR(
+            definitions=tuple(
+                bad_relation if definition is relation else definition
+                for definition in script_ir.definitions
+            )
+        )
+    )
+
+    assert result.artifacts == ()
+    assert [d.code for d in result.diagnostics] == ["PIE-B1000"]
+
+
 @pytest.mark.parametrize(
     ("input_path", "dialect", "golden_name"),
     [

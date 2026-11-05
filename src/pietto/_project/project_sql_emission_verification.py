@@ -2072,6 +2072,22 @@ def _aggregate_result_realization(family, function, argument, retained):
             {"kind": "int_range", "min": str(low), "max": str(high)},
             (low, high),
         )
+    if function == "stddev":
+        # SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8)), NULL below two values.
+        if (
+            family != "postgres"
+            or argument is None
+            or argument.realization.tag not in {"Int", "Float"}
+            or tag != "Float"
+            or nullable is not True
+        ):
+            raise ValueError("stddev result domain")
+        return rows.Realization(
+            "Float",
+            {"kind": "pg_float8"},
+            True,
+            {"kind": "finite_float", "format": "binary64"},
+        )
     if function == "avg":
         if (
             argument is None
@@ -2316,8 +2332,10 @@ def _verify_aggregate_body(
             or column.distinct is not (function in grouping.DISTINCT_FUNCTIONS)
             or column.argument_cast
             != grouping.argument_cast(request.family, function, argument)
-            # Q1: SUM(Int) is cast to bigint before and after it accumulates.
-            or column.result_cast != ("pg_catalog.int8" if function == "sum" else None)
+            # Q1: SUM(Int) is cast to bigint before and after it accumulates;
+            # a VAR_SAMP is cast to float8 once, under its SQRT.
+            or column.result_cast
+            != {"sum": "pg_catalog.int8", "stddev": "pg_catalog.float8"}.get(function)
             or (
                 function != "string_agg"
                 and (column.delimiter is not None or column.order_by)
@@ -7524,6 +7542,8 @@ def verify_row_bytes(query, rendered):
         def aggregate_value(column, alias):
             reference = column.aggregate.ref
             start = offset
+            if column.function in grouping.ROOT_FUNCTIONS:
+                take("syntax", "aggregate_root_open", reference, "SQRT(")
             if column.result_cast is not None:
                 take("syntax", "aggregate_result_cast_open", reference, "CAST(")
             take("syntax", "aggregate_open", reference, column.spelling + "(")
@@ -7573,6 +7593,8 @@ def verify_row_bytes(query, rendered):
                     reference,
                     " AS " + column.result_cast + ")",
                 )
+            if column.function in grouping.ROOT_FUNCTIONS:
+                take("syntax", "aggregate_root_close", reference, ")")
             spans.append(("aggregate", reference, start, offset))
 
         def window_specification(specification, reference, alias):
@@ -8732,7 +8754,13 @@ def verify_row_generated_requirements(request, query, generated):
                 continue
             if type(column) is grouping.AggregateValueColumn:
                 # Q1: only a PostgreSQL SUM(Int) rests on the target's checked
-                # bigint narrowing rather than a static range.
+                # bigint narrowing rather than a static range, and only a
+                # PostgreSQL stddev(Float) on its checked binary64 overflow.
+                argument_tag = (
+                    None
+                    if column.argument is None
+                    else rows.realization_of(column.argument, request.family).tag
+                )
                 expected.append(
                     (
                         "aggregate",
@@ -8741,6 +8769,10 @@ def verify_row_generated_requirements(request, query, generated):
                         operators,
                         (TARGET_CHECKED,)
                         if column.function == "sum" and request.family == "postgres"
+                        else (grouping.TARGET_CHECKED_BINARY64,)
+                        if column.function == "stddev"
+                        and request.family == "postgres"
+                        and argument_tag == "Float"
                         else (),
                     )
                 )

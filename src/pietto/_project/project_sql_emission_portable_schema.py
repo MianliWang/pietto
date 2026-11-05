@@ -890,7 +890,7 @@ JOIN_SPELLING = {
 MEMBERSHIP_SPELLING = {"exists": " WHERE EXISTS (", "not_exists": " WHERE NOT EXISTS ("}
 DIRECTIONS = {"asc": " ASC", "desc": " DESC"}
 CARRIERS = frozenset({"ordinary", "rebound", "completed"})
-AGGREGATE_SPELLING = {"COUNT", "SUM", "MIN", "MAX", "AVG", "string_agg"}
+AGGREGATE_SPELLING = {"COUNT", "SUM", "MIN", "MAX", "AVG", "string_agg", "VAR_SAMP"}
 WINDOW_SPELLING = {
     "row_number": "ROW_NUMBER",
     "rank": "RANK",
@@ -951,6 +951,8 @@ SYNTAX = {
     "aggregate_distinct": "DISTINCT ",
     "aggregate_argument_cast_open": "CAST(",
     "aggregate_result_cast_open": "CAST(",
+    "aggregate_root_open": "SQRT(",
+    "aggregate_root_close": ")",
     "aggregate_separator": ", ",
     "aggregate_order": " ORDER BY ",
     "aggregate_order_separator": ", ",
@@ -1058,8 +1060,8 @@ OVERLAYS = {
     "relation_membership": (("in_open",), ("in_close",)),
     "is_null": (("is_null_open",), ("is_null_close",)),
     "aggregate": (
-        ("aggregate_open", "aggregate_result_cast_open"),
-        ("aggregate_close", "aggregate_result_cast_close"),
+        ("aggregate_open", "aggregate_result_cast_open", "aggregate_root_open"),
+        ("aggregate_close", "aggregate_result_cast_close", "aggregate_root_close"),
     ),
     "window": (("window_open",), ("window_spec_close", "window_reference")),
     "window_specification": (("window_spec_open",), ("window_spec_close",)),

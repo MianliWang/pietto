@@ -89,6 +89,10 @@ _RESERVED_NAMES = frozenset(
         "generate_series",
     }
 ) - {"concat"}
+_STDDEV_RENAME = (
+    "Rename this def: `stddev` is now the built-in sample standard deviation "
+    "aggregate, and a call to stddev always means it."
+)
 # One expansion, with its arguments, has at most this many expression nodes
 # and this nesting depth.
 _MAX_EXPANSION_NODES = 1000
@@ -781,14 +785,17 @@ def _signature_diagnostics(
 ) -> list[Diagnostic]:
     found: list[Diagnostic] = []
     if function.name in _RESERVED_NAMES:
-        found.append(
-            _diagnostic(
-                "PIE-S2398",
-                f"Def {function.name} has the name of a built-in function; "
-                "a def cannot shadow one",
-                function.span,
-            )
+        reserved = _diagnostic(
+            "PIE-S2398",
+            f"Def {function.name} has the name of a built-in function; "
+            "a def cannot shadow one",
+            function.span,
         )
+        # Lane F (Q1): `stddev` became a built-in aggregate in this release, so
+        # an existing `def stddev` is told how to migrate.
+        if function.name == "stddev":
+            reserved = replace(reserved, suggestion=_STDDEV_RENAME)
+        found.append(reserved)
     seen: set[str] = set()
     for parameter in function.parameters:
         if parameter.name in seen:

@@ -846,6 +846,68 @@ def test_sum_casts_and_checked_evidence_are_closed_data_relations(tmp_path_facto
         assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
 
 
+BINARY64_CHECKED = "target_checked_binary64_overflow"
+
+
+@pytest.mark.parametrize(
+    ("variant", "evidence"),
+    (("stddev_direct", []), ("stddev_float", [BINARY64_CHECKED])),
+)
+def test_stddev_root_cast_and_evidence_are_closed_data_relations(
+    tmp_path_factory, variant, evidence
+):
+    """Lane F: a public consumer admits PostgreSQL stddev only as VAR_SAMP
+    under its float8 result cast and fixed SQRT, with evidence keyed on the
+    argument: none for an Int, only the binary64 overflow token for a Float."""
+    artifact, data = _observed(
+        tmp_path_factory, "postgres", "V_aggregate_blocked", variant
+    )
+    document = json.loads(data)
+    (column,) = _records(document, "aggregate_value_column")
+    assert (
+        column["function"],
+        column["spelling"],
+        column["argument_cast"],
+        column["result_cast"],
+    ) == ("stddev", "VAR_SAMP", None, "pg_catalog.float8")
+    assert [
+        r["evidence"]
+        for r in _records(document, "generated_requirement")
+        if r["kind"] == "aggregate"
+    ] == [evidence]
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def field(name, value):
+        def edit(candidate):
+            _records(candidate, "aggregate_value_column")[0][name] = value
+
+        return edit
+
+    def claimed(value):
+        def edit(candidate):
+            for requirement in _records(candidate, "generated_requirement"):
+                if requirement["kind"] == "aggregate":
+                    requirement["evidence"] = value
+
+        return edit
+
+    swapped = [TARGET_CHECKED] if evidence else [BINARY64_CHECKED]
+    for edit in (
+        field("result_cast", None),
+        field("result_cast", "pg_catalog.int8"),
+        field("argument_cast", "pg_catalog.float8"),
+        field("spelling", "AVG"),
+        field("spelling", "STDDEV_SAMP"),
+        field("function", "avg"),
+        claimed(swapped),
+        claimed([*evidence, *swapped]),
+        claimed([] if evidence else [BINARY64_CHECKED]),
+    ):
+        assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
+
+
 @pytest.mark.parametrize(
     ("expression", "static_expression", "kind"),
     (

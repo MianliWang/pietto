@@ -1191,6 +1191,13 @@ def aggregate_call_contract(
                 value_type, argument_type, NullabilityIR.NULLABLE
             )
         )
+    if function == "stddev" and len(arguments) == 1:
+        return (
+            isinstance(arguments[0], FieldRefIR)
+            and arguments[0].field is not None
+            and _aggregate_window_builtin_type(arguments[0]) in {"Int", "Float"}
+            and _aggregate_window_has_type(value_type, "Float", NullabilityIR.NULLABLE)
+        )
     return False
 
 

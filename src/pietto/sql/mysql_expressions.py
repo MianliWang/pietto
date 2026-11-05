@@ -566,6 +566,8 @@ def _render_aggregate_call(
         )
     elif expression.function == "count_distinct":
         sql = _render_count_distinct_aggregate(expression)
+    elif expression.function == "stddev":
+        sql = _render_stddev_aggregate(expression)
     elif (
         function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
     ) is not None:
@@ -917,6 +919,21 @@ def _render_extrema_aggregate(
             "approved logical shape"
         )
     return f"{function_name}({_render_mysql_expression(argument, nested=True)})"
+
+
+def _render_stddev_aggregate(expression: AggregateCallIR) -> str:
+    if not aggregate_call_contract(
+        "stddev", expression.arguments, expression.value_type
+    ):
+        raise MySqlRenderError("MySQL aggregate stddev violates its IR contract")
+    argument = expression.arguments[0]
+    if argument.value_type.canonical_name != "Float":
+        # MySQL computes BIGINT input in DOUBLE, which loses Int accuracy.
+        raise MySqlRenderError(
+            "MySQL aggregate stddev of an Int argument is not supported"
+        )
+    # STDDEV_SAMP is the sample deviation; STD and STDDEV are the population one.
+    return f"STDDEV_SAMP({_render_mysql_expression(argument, nested=True)})"
 
 
 def _has_builtin_type(

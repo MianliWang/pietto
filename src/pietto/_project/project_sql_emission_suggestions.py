@@ -173,6 +173,7 @@ _GROUPS = (
                 "set_column_physical_representation_mismatch",
                 "string_agg_result_logical_type_drift",
                 "substring_index_outside_physical_range",
+                "stddev_result_logical_type_or_argument_drift",
                 "sum_result_logical_type_or_argument_drift",
                 "text_length_outside_physical_range",
                 "unary_logical_type_mismatch",
@@ -457,6 +458,7 @@ _ACTIONS = {
     "offset_range_requires_exactly_one_order_key": "Use exactly one reviewed ORDER key for an offset RANGE frame, or keep this frame in check/plan.",
     "offset_range_requires_a_non_null_order_key": "Use a non-null signed-Int ORDER key for an offset RANGE frame; do not declare a nullable source non-null in the contract.",
     "offset_range_requires_a_signed_int_order_key": "Use a signed-Int ORDER key for an offset RANGE frame, or keep the frame in check/plan.",
+    "stddev_int_not_admitted_on_target": "Emit this Int stddev for PostgreSQL, or keep it in check/plan: MySQL computes an integer deviation in DOUBLE, which loses Int accuracy; casting the input does not restore it.",
 }
 for _details, _action in _GROUPS:
     for _detail in _details:
@@ -481,7 +483,7 @@ def blocker_suggestion(code: str, detail: str, family: str | None) -> str:
         return _ACTIONS[detail]
     if detail in {
         f"{name}_argument_outside_reviewed_int_domain"
-        for name in ("sum", "avg", "count", "count_distinct", "min", "max")
+        for name in ("sum", "avg", "count", "count_distinct", "min", "max", "stddev")
     }:
         return "Use the aggregate's reviewed direct argument carrier, or keep it in check/plan; do not coerce its input to force emission."
     if detail in {

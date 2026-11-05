@@ -106,6 +106,34 @@ def test_postgresql_checked_bigint_replays_from_compiled_input(tmp_path, case, v
     assert [r.evidence for r in candidate.generated_requirements] == evidence
 
 
+@pytest.mark.parametrize(
+    "variant,evidence",
+    (
+        ("stddev_direct", ()),
+        ("stddev_float", ("target_checked_binary64_overflow",)),
+    ),
+)
+def test_postgresql_stddev_replays_from_compiled_input(tmp_path, variant, evidence):
+    """Lane F: SQRT(CAST(VAR_SAMP(x) AS float8)), its Float result and the
+    argument-keyed R13 evidence replay from compiled input."""
+    original = build(tmp_path, "postgres", "V_aggregate_blocked", variant)
+    assert original.status == "VERIFIED" and original.artifact is not None
+    candidate = _compare(original.artifact, refinement=False)
+    assert b"SQRT(CAST(VAR_SAMP(" in candidate.rendered.sql
+    # The R2 refinement page reads no aggregate cast, as for SUM and AVG.
+    with pytest.raises(ValueError, match="^REFINEMENT_NATIVE_SQL$"):
+        _compare_refinement(original.artifact)
+    aggregate = [
+        r.evidence
+        for r in original.artifact.generated_requirements
+        if r.kind == "aggregate"
+    ]
+    assert aggregate == [evidence]
+    assert [r.evidence for r in candidate.generated_requirements] == [
+        r.evidence for r in original.artifact.generated_requirements
+    ]
+
+
 def test_a_postgresql_uuid_order_replays_from_compiled_input(tmp_path):
     """Q3: a UUID comparison and window and result ORDER keys replay."""
     checked, original = emission.temporal_case(

@@ -1540,6 +1540,13 @@ def aggregate_rows(target, case, variant):
         # The qualified `value` carrier contributes 10, 20 and 30; AVG's
         # selected target cast publishes their exact binary64 mean.
         return [[_float(20.0)]]
+    if (case, variant) == ("V_aggregate_blocked", "stddev_direct"):
+        # PostgreSQL only: the sample deviation of 10, 20 and 30 is exactly 10,
+        # so the receipt comparator stays exact.
+        return [[_float(10.0)]]
+    if (case, variant) == ("V_aggregate_blocked", "stddev_float"):
+        # PostgreSQL only: five equal 1.5 values deviate by exactly 0.0.
+        return [[_float(0.0)]]
     if (case, variant) == ("X_aggregate_grouped", "visible"):
         return [
             [_bool(target, flag), _maybe(key), _maybe(key), _integer(str(total))]

@@ -423,6 +423,9 @@ def _window_name_reads(
     return found
 
 
+_WINDOW_AGGREGATE_NAMES = frozenset({"sum", "count", "avg", "min", "max"})
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _WindowComputationAdmissionFailure:
     reason: str
@@ -614,14 +617,7 @@ def _analyze_recognized_window_expression(
                 )
 
     if (
-        semantic_aggregate_call_name(source_expression.call)
-        in {
-            "sum",
-            "count",
-            "avg",
-            "min",
-            "max",
-        }
+        semantic_aggregate_call_name(source_expression.call) in _WINDOW_AGGREGATE_NAMES
         and allow_aggregate_windows
     ):
         aggregate_analysis = _analyze_aggregate_window_expression(
@@ -681,6 +677,7 @@ def _analyze_recognized_window_expression(
         admission_failure=admission,
         type_expansions=type_expansions,
         computed_let_names=computed_let_names(let_expressions or {}),
+        aggregate_windows_admitted=allow_aggregate_windows,
     )
     if type(computation) is WindowComputationUnsupported:
         return WindowExpressionUnsupported(
@@ -975,12 +972,16 @@ def analyze_window_computation(
     prepare_inputs: Callable[[WindowExpr], None] | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     computed_let_names: frozenset[str] = frozenset(),
+    aggregate_windows_admitted: bool = False,
 ) -> WindowComputationAnalysis | WindowComputationUnsupported:
     """Analyze one window computation without selected-output identity.
 
     A PARTITION BY or ORDER BY name in ``computed_let_names`` (the `let:`
     names whose value is not a field reference) is no direct field, as its
-    value written in its place is not.
+    value written in its place is not. Only where aggregate windows are
+    admitted (``aggregate_windows_admitted``, a single file) and this
+    relation context admits windows (no ``admission_failure``) does a refused
+    aggregate window name the admitted ones.
     """
 
     if type(expression) is not WindowExpr:
@@ -1008,6 +1009,8 @@ def analyze_window_computation(
         raise TypeError("window computation input preparation must be callable")
     if type(computed_let_names) is not frozenset:
         raise TypeError("window computation computed let names must be a frozenset")
+    if type(aggregate_windows_admitted) is not bool:
+        raise TypeError("window computation aggregate-window admission must be exact")
 
     advance_policy = _ranking_policy(expression)
     distribution_definition = _distribution_definition(expression)
@@ -1028,6 +1031,13 @@ def analyze_window_computation(
                 f"Unknown function: {_source_function_name(expression.call)}"
                 if aggregate_name is None
                 else f"Aggregate window functions are not implemented: {aggregate_name}"
+                + (
+                    "; window aggregates are sum, count, avg, min and max"
+                    if aggregate_windows_admitted
+                    and admission_failure is None
+                    and aggregate_name not in _WINDOW_AGGREGATE_NAMES
+                    else ""
+                )
             ),
         )
 

@@ -3452,9 +3452,12 @@ def _row_body_requirements(request, body, naming):
                     column.aggregate.ref,
                     "R13",
                     operators,
-                    ()
-                    if column.result_cast is None
-                    else (rows.TARGET_CHECKED_SIGNED64,),
+                    grouping.aggregate_evidence(
+                        column.function,
+                        None
+                        if column.argument is None
+                        else rows.realization_of(column.argument, request.family).tag,
+                    ),
                 )
             )
             if column.argument is not None:

@@ -226,6 +226,15 @@ def test_int_proofs_drive_avg_range_and_set_consumers() -> None:
     assert (
         aggregation.resolved_argument_problem("avg", True, source, "postgres") is None
     )
+    # Lane F: stddev needs no range evidence on PostgreSQL, whose VAR_SAMP of
+    # any signed 64-bit input is finite; MySQL computes it in DOUBLE.
+    assert (
+        aggregation.resolved_argument_problem("stddev", True, declared_only, "postgres")
+        is None
+    )
+    assert aggregation.resolved_argument_problem(
+        "stddev", True, _integer("mysql"), "mysql"
+    ) == ("PIE-B1003", "stddev_int_not_admitted_on_target")
 
     order = SimpleNamespace(direction="asc", read=SimpleNamespace(realization=source))
     assert windows.range_arithmetic_problem(

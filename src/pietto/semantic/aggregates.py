@@ -50,11 +50,15 @@ AGGREGATE_NAMES = frozenset(
 )
 MIN_AGGREGATE_NAME = "min"
 MAX_AGGREGATE_NAME = "max"
+# The sample standard deviation (Python `statistics.stdev`) of an Int or Float
+# direct field; its result is a nullable Float.
+STDDEV_AGGREGATE_NAME = "stddev"
 SEMANTIC_AGGREGATE_NAMES = AGGREGATE_NAMES | frozenset(
     {
         COUNT_DISTINCT_AGGREGATE_NAME,
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
+        STDDEV_AGGREGATE_NAME,
     }
 )
 LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES = frozenset(
@@ -321,6 +325,7 @@ def expected_semantic_aggregate_arity(function_name: str) -> int:
         COUNT_DISTINCT_AGGREGATE_NAME,
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
+        STDDEV_AGGREGATE_NAME,
     }:
         return 1
     raise AssertionError(f"Unsupported aggregate function: {function_name}")
@@ -462,7 +467,11 @@ def extremum_reads_let(
     the name's binding type. Over an unknown input row, unread `let:` names
     are checked separately."""
 
-    if function_name not in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
+    if function_name not in {
+        MIN_AGGREGATE_NAME,
+        MAX_AGGREGATE_NAME,
+        STDDEV_AGGREGATE_NAME,
+    }:
         return False
     if not let_expansions or input_schema.is_unknown:
         return False
@@ -836,7 +845,15 @@ def is_supported_semantic_aggregate_argument(
         return is_supported_extrema_argument(value_type)
     if function_name == STRING_AGGREGATE_NAME:
         return _is_builtin(value_type, "Text")
+    if function_name == STDDEV_AGGREGATE_NAME:
+        return is_supported_stddev_argument(value_type)
     return False
+
+
+def is_supported_stddev_argument(value_type: ValueType) -> bool:
+    """Return whether `stddev` accepts this direct field argument type."""
+
+    return _is_builtin(value_type, "Int") or _is_builtin(value_type, "Float")
 
 
 def aggregate_result_value_type(
@@ -884,6 +901,12 @@ def semantic_aggregate_result_value_type(
         return (
             COUNT_VALUE_TYPE
             if is_supported_count_distinct_argument(argument_type)
+            else None
+        )
+    if function_name == STDDEV_AGGREGATE_NAME:
+        return (
+            FLOAT_NULLABLE_VALUE_TYPE
+            if argument_type is not None and is_supported_stddev_argument(argument_type)
             else None
         )
     if function_name not in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
@@ -1011,7 +1034,11 @@ def wrong_argument_type_diagnostic(
             else (
                 "Int, Float, Decimal, Date, or Timestamp"
                 if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
-                else "Int, Float, or Decimal"
+                else (
+                    "Int or Float"
+                    if name == STDDEV_AGGREGATE_NAME
+                    else "Int, Float, or Decimal"
+                )
             )
         )
     )

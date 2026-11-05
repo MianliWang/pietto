@@ -251,7 +251,7 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             (
                 "PIE-S2103",
                 "Unknown function: median; the available aggregates are avg, "
-                "count, count_distinct, max, min, string_agg and sum",
+                "count, count_distinct, max, min, stddev, string_agg and sum",
             ),
         ),
     ],
@@ -331,6 +331,124 @@ def test_sum_avg_unknown_field_suppresses_aggregate_cascade(
             f"        {projection}\n"
         )
     )
+
+    assert _errors(result) == [expected]
+
+
+def test_stddev_of_an_int_or_float_field_is_a_nullable_float() -> None:
+    """`stddev` is the sample deviation of an Int or Float direct field, an
+    alias of either or a qualified field; below two values it is None."""
+    script = _parse(
+        SOURCE_PREFIX + "type Ratio = Float\n"
+        "shape Reading:\n"
+        "    ratio: Ratio\n"
+        'source readings: Reading = postgres.table("readings")\n'
+        "table by_status:\n"
+        "    from orders\n"
+        "    group by status\n"
+        "    select:\n"
+        "        status\n"
+        "        spread = stddev(amount)\n"
+        "        score_spread = stddev(orders.score)\n"
+        "    qualify:\n"
+        "        spread > 1.0\n"
+        "table ratio_spread:\n"
+        "    from readings\n"
+        "    select:\n"
+        "        spread = stddev(ratio)\n"
+    )
+    result = analyze(script)
+
+    assert _errors(result) == []
+    grouped, plain = script.definitions[-2], script.definitions[-1]
+    assert isinstance(grouped, (QueryDef, TableDef))
+    assert isinstance(plain, (QueryDef, TableDef))
+    for relation, names in (
+        (grouped, ("spread", "score_spread")),
+        (plain, ("spread",)),
+    ):
+        fields = result.model.relation_row_schemas[relation].fields
+        for name in names:
+            _assert_field(fields[name], "Float", EffectiveNullability.NULLABLE)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    select:\n        x = stddev(price)\n",
+            (
+                "PIE-S2314",
+                "Aggregate function stddev expects Int or Float field argument, "
+                "got Decimal",
+            ),
+        ),
+        (
+            "    select:\n        x = stddev(status)\n",
+            (
+                "PIE-S2314",
+                "Aggregate function stddev expects Int or Float field argument, "
+                "got Text",
+            ),
+        ),
+        (
+            "    select:\n        x = stddev()\n",
+            ("PIE-S2309", "Aggregate function stddev expects 1 arguments, got 0"),
+        ),
+        (
+            "    select:\n        x = stddev(amount, score)\n",
+            ("PIE-S2309", "Aggregate function stddev expects 1 arguments, got 2"),
+        ),
+        (
+            "    select:\n        stddev(amount)\n",
+            ("PIE-S2313", "Aggregate stddev() projection requires an explicit alias"),
+        ),
+        (
+            "    select:\n        x = stddev(sum(amount))\n",
+            ("PIE-S2311", "Nested aggregate sum() is not supported"),
+        ),
+        (
+            "    select:\n        x = stddev(amount) + 1.0\n",
+            (
+                "PIE-S2310",
+                "Aggregate projection must be a direct aggregate call; "
+                "composition around stddev() is not supported yet",
+            ),
+        ),
+        *(
+            (
+                body,
+                (
+                    "PIE-S2315",
+                    "Aggregate function stddev requires a direct field argument; "
+                    "expression arguments are not supported yet",
+                ),
+            )
+            for body in (
+                "    select:\n        x = stddev(amount + 1)\n",
+                "    select:\n        x = stddev(1)\n",
+                "    let w = amount\n    select:\n        x = stddev(w)\n",
+            )
+        ),
+        *(
+            (
+                "    group by status\n    select:\n        status\n"
+                f"        x = stddev(amount)\n    {clause}:\n"
+                "        stddev(amount) > 1.0\n",
+                (
+                    "PIE-S2308",
+                    f"Aggregate stddev() is not allowed in {clause} clause; use it "
+                    "only as a direct aliased select projection",
+                ),
+            )
+            for clause in ("having", "qualify")
+        ),
+    ],
+)
+def test_stddev_misuse_keeps_the_aggregate_diagnostics(
+    body: str, expected: tuple[str, str]
+) -> None:
+    result = analyze(_parse(SOURCE_PREFIX + "table t:\n    from orders\n" + body))
 
     assert _errors(result) == [expected]
 
