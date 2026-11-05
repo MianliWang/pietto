@@ -3068,8 +3068,8 @@ decided to release `main` as `0.1.8` once PMS-2, the end of the project-mode
 quality interlude, is published, with only version and documentation changes
 and without waiting for Phase72; PMS-2 is `d654738f`, so `0.1.8` is `main` at
 `d654738f`; the owner pre-approved its publication chain the same day, and
-`0.1.8` is published only when its tag, GitHub pre-release and PyPI channels
-carry the accepted files.
+`0.1.8` is published from `61b05586` (tag `v0.1.8`) on the GitHub pre-release
+and PyPI.
 
 On 2026-10-28 the owner set the MySQL cadence: MySQL support may trail
 PostgreSQL by about two to three releases. New features reach PostgreSQL first,

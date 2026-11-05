@@ -51,7 +51,7 @@ the `pietto` command in an environment of its own.
 The compiler and CLI are verified with CPython 3.12 and 3.13 on Linux x86-64.
 This version's [GitHub release](https://github.com/MianliWang/pietto/releases)
 also attaches the same wheel and sdist with `SHA256SUMS`; see
-[installing a release](https://github.com/MianliWang/pietto/blob/v0.1.8/docs/project-package.md#installing-a-release)
+[installing a release](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)
 to check them.
 
 Coming from 0.1.7? A 0.1.7 source file needs no `pietto migrate` step. Project
@@ -296,7 +296,7 @@ older legacy-flat mode (`schema_version = 1`) checks no JOIN and no `any(...)`
 `pietto explain --project` reads only a `schema_version = 4` package-root
 project, which has no `[sources]`; for a schema 2 project use `check --project`
 and `emit-sql --project`.
-[Explaining a package-root project](https://github.com/MianliWang/pietto/blob/v0.1.8/docs/project-package.md#explaining-a-package-root-project)
+[Explaining a package-root project](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#explaining-a-package-root-project)
 shows a layout in which `check --project` and `explain --project` read the
 same files.
 
@@ -384,7 +384,7 @@ also needs the statement premise
 (`identifier_case_declaration_missing`). `Timestamp` and `UUID` fields need
 the contract-qualified carriers described in
 [Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.8/docs/language.md#timestamp-and-uuid-source-meaning).
-[Project SQL emission](https://github.com/MianliWang/pietto/blob/v0.1.8/docs/project-package.md#project-sql-emission)
+[Project SQL emission](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#project-sql-emission)
 lists the premises with their PostgreSQL and MySQL values and when each is needed,
 gives a MySQL contract, and lists the forms that `check --project` accepts but
 project emission refuses, such as `count` of a `Text` field, a comparison of a
@@ -421,7 +421,7 @@ see
 A `--literal-policy bind-safe` artifact must be consumed together with its
 `fixed_values` and `parameter_uses`; its SQL alone is not a complete
 statement. The complete contract is the
-[Slice13 specification](https://github.com/MianliWang/pietto/blob/v0.1.8/docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
+[Slice13 specification](https://github.com/MianliWang/pietto/blob/main/docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
 
 ## Optional extras and Python execution
 
@@ -514,7 +514,7 @@ checking. Natural CI runs the final Python 3.12 and 3.13 validation coverage.
 
 Pietto is an early preview. These are the goals it is working toward; they are
 not promises or dates, and the detailed plan lives in the
-[roadmap](https://github.com/MianliWang/pietto/blob/v0.1.8/docs/roadmap.md).
+[roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md).
 
 - **Everyday SQL**: CASE, CAST, COALESCE/NULLIF, IN lists, NOT, LIKE, and common
   string, number and date functions.

@@ -1,17 +1,19 @@
 # Pietto release notes
 
+## Unreleased changes following 0.1.8
+
+These changes are on `main` after `0.1.8` and are in no published release yet.
+
 ## Project-mode quality public alpha release notes — 0.1.8
 
 <a id="unreleased-changes-following-017"></a>
 <!-- The id above keeps the links of the 0.1.7 notes below, written before these notes were released, pointing here. -->
 
-**Status:** These notes cover `0.1.8`, the public alpha prepared from its
-release commit, whose parent is `d654738f`. It is published only when the tag
-`v0.1.8`, the versioned GitHub pre-release and PyPI carry its accepted wheel
-and sdist; this document neither creates those channels nor substitutes for
-their byte verification. As for earlier releases, the compiler and package are
-covered on CPython 3.12 and 3.13 for Linux x86-64; other platforms and Python
-versions are not.
+**Status:** `0.1.8` was published from `61b05586` (tag `v0.1.8`) on the
+versioned GitHub pre-release and PyPI channels. These historical release notes
+neither publish a successor nor substitute for channel byte verification.
+As for earlier releases, the compiler and package are covered on CPython 3.12
+and 3.13 for Linux x86-64; other platforms and Python versions are not.
 
 `0.1.8` retires no source spelling of `0.1.7`. It is `main` at `d654738f`
 with only version and documentation changes: the project-mode quality
