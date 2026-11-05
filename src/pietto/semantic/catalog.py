@@ -65,6 +65,7 @@ SPECIAL_BUILTIN_FUNCTION_NAMES = frozenset(
         "round",
         "date_trunc",
         "concat",
+        "same_value",
     }
 )
 

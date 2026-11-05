@@ -1524,10 +1524,6 @@ _UNAVAILABLE = (
             _UNAVAILABLE,
         ),
         (
-            "\n    let n = None\n    select:\n        id\n        f = n is None\n",
-            _UNAVAILABLE,
-        ),
-        (
             '\n    let m = name like "a!"\n    select:\n        id\n        mm = m\n',
             "main.pietto:8:13 " + _LIKE_PATTERN,
         ),
@@ -1591,7 +1587,6 @@ _UNAVAILABLE = (
     ids=(
         "unknown-type-aliased",
         "unknown-type-unaliased",
-        "unknown-type-in-expression",
         "own-error",
         "own-error-through-let",
         "null-cast-through-let",
@@ -1623,6 +1618,32 @@ def test_explicit_project_select_read_of_an_untyped_let_is_not_an_unknown_field(
     text = capsys.readouterr()
     assert text.out == ""
     assert text.err == expected
+
+
+def test_explicit_project_select_test_of_an_untyped_let_completes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # `n is None` over `let n = None` is a Bool, as in a single file, so its
+    # relation completes; project SQL refuses the untyped NULL it reads.
+    root = _project(
+        tmp_path / "q1",
+        "shape Row:\n"
+        "    id: Int\n"
+        "    name: Text\n"
+        'source rows: Row = postgres.table("app.rows")\n'
+        "query result:\n"
+        "    from rows\n"
+        "\n    let n = None\n    select:\n        id\n        f = n is None\n",
+    )
+
+    assert cli.main(["check", "--project", str(root)]) == 0
+    assert capsys.readouterr().err == (
+        "main.pietto:11:13 PIE-S2385 warning: Project SQL emission is "
+        "unavailable because `f` reads an untyped all-None value; this warning "
+        "does not change check's exit status, but emit-sql will refuse this "
+        "relation.\n"
+    )
 
 
 def test_explicit_project_order_keys_follow_the_name_rule_after_select(
@@ -3609,7 +3630,7 @@ def test_readers_follow_a_producer_that_reports_only_its_fallback(
         "shape Row:\n    id: Int\n"
         'source items: Row = postgres.table("items")\n'
         "query b:\n    from items\n    select:\n        bid = id\n"
-        "        bad = None + None\n"
+        "        bad = abs(id + (-None))\n"
         "query q:\n    from items\n    let o = b\n"
         "    inner join o on items.id == o.bid\n    select:\n        id = items.id\n"
         "query r:\n    from q\n    select:\n        id\n"

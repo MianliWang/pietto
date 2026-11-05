@@ -739,6 +739,62 @@ _JOINED = (
 )
 
 
+_SAME_VALUE = (
+    "shape Order:\n"
+    "    id: Int\n"
+    "    customer_id: Int | None\n"
+    "    code: Text\n"
+    "    note: Text | None\n"
+    "shape Customer:\n"
+    "    id: Int\n"
+    "    ref: Int | None\n"
+    'source orders: Order = mysql.table("shop.orders")\n'
+    'source customers: Customer = mysql.table("shop.customers")\n'
+)
+
+
+def test_same_value_is_the_null_safe_operator_in_select_where_and_join_on() -> None:
+    selected = emit_mysql_sql(
+        _compile(
+            _SAME_VALUE + "table matched:\n"
+            "    from orders\n"
+            "    where same_value(note, code)\n"
+            "    select:\n"
+            "        id\n"
+            "        same = same_value(customer_id, id)\n"
+            "        other = not same_value(note, code)\n"
+        )
+    )
+    joined = emit_mysql_sql(
+        _compile(
+            _SAME_VALUE + "query q:\n"
+            "    from orders\n"
+            "    left join customers on same_value(customers.ref, orders.customer_id)\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = customers.id\n"
+        )
+    )
+
+    assert selected.diagnostics == joined.diagnostics == ()
+    assert selected.artifacts[0].sql == (
+        "SELECT\n"
+        "    `id` AS `id`,\n"
+        "    (`customer_id` <=> `id`) AS `same`,\n"
+        "    NOT (`note` <=> `code`) AS `other`\n"
+        "FROM `shop`.`orders`\n"
+        "WHERE (`note` <=> `code`)"
+    )
+    assert joined.artifacts[0].sql == (
+        "SELECT\n"
+        "    `orders`.`id` AS `oid`,\n"
+        "    `customers`.`id` AS `cid`\n"
+        "FROM `shop`.`orders` AS `orders`\n"
+        "LEFT JOIN `shop`.`customers` AS `customers` "
+        "ON (`customers`.`ref` <=> `orders`.`customer_id`)"
+    )
+
+
 def test_a_join_reads_a_relation_of_the_file_as_a_cte() -> None:
     result = emit_mysql_sql(
         _compile(

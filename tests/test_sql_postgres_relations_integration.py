@@ -231,7 +231,7 @@ def test_pipeline_refuses_null_arithmetic_and_read_null_outputs_on_postgresql() 
         )
     ]
     assert [artifact.sql for artifact in result.artifacts] == [
-        'SELECT\n    "n" + NULL AS "e",\n    NULL AS "f"\nFROM "accts"',
+        'SELECT\n    "n" + CAST(NULL AS bigint) AS "e",\n    NULL AS "f"\nFROM "accts"',
     ]
 
 

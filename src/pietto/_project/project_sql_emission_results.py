@@ -715,6 +715,9 @@ def build_result_body(
                         field.ref,
                         location,
                     )
+                refused = rows.mysql_same_value_problem(request.family, read)
+                if refused is not None:
+                    return problem(*refused[0], field.ref, refused[1])
                 stage_fields[port.ref] = field
             distinct = ResultDistinct(value, boundary, tuple(fields))
         elif boundary.kind is KINDS.ORDER:

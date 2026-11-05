@@ -1227,6 +1227,43 @@ def test_capture_lines_bind_outer_row_inputs_by_qualified_name(
     assert _check(tmp_path, body) == (1 if expected else 0, expected)
 
 
+@pytest.mark.parametrize(
+    "value,reads",
+    (
+        ("lhs.key + (-None)", "is an untyped all-None output"),
+        (
+            "same_value(coalesce(None, None), lhs.key)",
+            "reads an untyped all-None value",
+        ),
+    ),
+)
+def test_a_capturing_let_output_with_an_untyped_null_is_typed_over_its_capture(
+    tmp_path: Path, value: str, reads: str
+) -> None:
+    """A capturing let's output with an untyped NULL beside a captured field
+    completes as any such output, typed over the let's capture environment,
+    with its PIE-S2385 warning (emission refuses it); the let's other outputs,
+    such as `k = lhs.key`, are typed by its rows and get none."""
+
+    body = CAPTURE.replace(
+        "            id\n    from lhs",
+        f"            id\n            k = lhs.key\n            o = {value}\n    from lhs",
+    )
+    assert _check(tmp_path, body) == (
+        0,
+        [
+            (
+                "PIE-S2385",
+                f"Project SQL emission is unavailable because `o` {reads}; this "
+                "warning does not change check's exit status, but emit-sql will "
+                "refuse this relation.",
+                14,
+                17,
+            )
+        ],
+    )
+
+
 # Phase70 S14: `scalar m.c`, `v in m` and `v not in m` read a let with capture
 # lines like `exists m`: once, in WHERE or the SELECT of an ungrouped
 # declaration body. The scalar (S07) and IN (S09) position, column and width

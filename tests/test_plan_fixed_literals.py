@@ -1004,7 +1004,7 @@ def test_verification_and_inspection_never_allocate_classify_or_infer(
 
 @pytest.mark.parametrize(
     "body,code",
-    (("    select:\n        x = None\n", "PIE-S2333"),),
+    (("    select:\n        x = None\n", "expression_evidence_unavailable"),),
 )
 def test_unsupported_prerequisites_are_not_preserved_transport_success(
     tmp_path, body, code

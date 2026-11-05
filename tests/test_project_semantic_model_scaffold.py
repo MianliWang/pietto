@@ -657,41 +657,25 @@ def test_a_project_def_reads_local_aliases_and_null_comparisons_once(
     ]
 
 
-def test_a_project_keeps_the_typed_twin_diagnostic_of_a_null_number(
+def test_a_project_types_a_null_number_beside_numbers_as_a_single_file_does(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A NULL number beside numbers of other types, which a single file types
-    as the database does, keeps its typed twin's diagnostic at the expression
-    in a project, whose relations do not complete with it."""
+    """A NULL number beside numbers of other types takes the widest of their
+    types (D-12) in a project, as in a single file, and a nullable numeric
+    `def` parameter takes one of another numeric type."""
     source = (
         "shape Row:\n    id: Int\n    n: Int | None\n    d: Decimal(9, 2)\n"
         '    fl: Float\nsource rows: Row = postgres.table("rows")\n'
         "def fn(x: Float | None) -> Float | None: return x\n"
         "query q:\n    from rows\n    select:\n        id\n"
         "        a = (None + d) + 1.5\n        b = coalesce(None + fl, 1)\n"
-        "        c = fn(None + n)\n"
+        "        c = fn(None + n)\n        e = coalesce(None + n, d)\n"
+        "        f = (None + n) if n > 1 else 1.5\n        g = sign(None + fl)\n"
     )
-    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
-        (
-            "PIE-S2105",
-            "a.pietto",
-            12,
-            13,
-            "Invalid operands for operator +: expected numeric operands",
-        ),
-        (
-            "PIE-S2104",
-            "a.pietto",
-            13,
-            13,
-            "Invalid argument types for function coalesce: expected same "
-            "canonical type",
-        ),
-        _mismatch("fn", 14, 13, "Float | None", "Int | None"),
-    ]
+    assert _def_check(tmp_path, capsys, {"a.pietto": source}) == []
 
 
-def test_a_legacy_flat_project_keeps_the_typed_twin_diagnostic_of_a_null_number(
+def test_a_legacy_flat_project_types_a_null_number_as_a_single_file_does(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = tmp_path / "project"
@@ -710,14 +694,161 @@ def test_a_legacy_flat_project_keeps_the_typed_twin_diagnostic_of_a_null_number(
         "        b = coalesce(None + fl, 1)\n",
     )
 
-    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
-    diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 0
+    assert json.loads(capsys.readouterr().out)["diagnostics"] == []
+
+
+_ALWAYS_NULL_HEAD = (
+    "shape Order:\n    id: Int\n    amount: Int\n    price: Decimal(10, 2)\n"
+    "    rate: Float\n    label: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
+    "table t0:\n    from orders\n"
+)
+_READER = "query q1:\n    from t0\n    select:\n        id\n"
+
+
+@pytest.mark.parametrize(
+    ("upstream", "reader"),
+    (
+        *(
+            (f"    select:\n        id\n        o = {value}\n", "")
+            for value in (
+                "None - 3.0",
+                "amount + None",
+                "None * 2",
+                "amount / None",
+                "-(amount + None)",
+                "-None",
+                "None + None",
+                "(None + price) + 1.5",
+                "coalesce(None + amount, price)",
+                "sign(None + rate)",
+                "(None + amount) if amount > 1 else 1.5",
+            )
+        ),
+        *(
+            (f"    select:\n        id\n        o = {value}\n", _READER + tail)
+            for value, tail in (
+                ("amount + 3", "    limit -1\n"),
+                ("amount + 3", "        x = nope\n"),
+                ("None - 3.0", "    limit -1\n"),
+                ("None - 3.0", "        x = nope\n"),
+                ("None - 3.0", "        w = o % 2\n"),
+                ("None * 2", '        z = o + "a"\n'),
+                ("None + None", "    limit -1\n"),
+                ("amount + None", "    limit -1\n"),
+                ("None", "    limit -1\n"),
+                ("amount + (-None)", "    limit -1\n"),
+                ("(None + None) + amount", "    limit -1\n"),
+                ("same_value(coalesce(None, None), amount)", "    limit -1\n"),
+                ("same_value(coalesce(None, None), amount)", "        z = o + 1\n"),
+                ("coalesce(None, None) == amount", "    limit -1\n"),
+            )
+        ),
+        ("    let z = None - 3.0\n    select:\n        id\n        o = z\n", ""),
+        (
+            "    let n = coalesce(None, None)\n    select:\n        id\n"
+            "        o = same_value(n, amount)\n",
+            _READER + "    limit -1\n",
+        ),
+        (
+            "    select:\n        id\n"
+            "        o = same_value(coalesce(None, None), amount)\n",
+            "query q1:\n    from orders\n    let t = t0\n"
+            "    inner join t on t.id == orders.id\n"
+            "    select:\n        id = orders.id\n        z = t.o\n",
+        ),
+    ),
+)
+def test_an_always_null_output_checks_as_in_a_single_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], upstream: str, reader: str
+) -> None:
+    """A relation whose output is always NULL (D-12, or of no type at all), or
+    reads an untyped always-NULL value beside typed ones, completes as in a
+    single file, so it and each relation that reads it report the errors a
+    single file reports (F2), not a bare PIE-S2333, and an output with an
+    untyped part gets the emission warning (PIE-S2385) on its line."""
+    source = _ALWAYS_NULL_HEAD + upstream + reader
+    single = tmp_path / "single.pietto"
+    single.write_text(source, encoding="utf-8")
+    root = tmp_path / "project"
+    _write(
+        root, "pietto.toml", 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    _write(root, "a.pietto", source)
+    reports = []
+    for argv in (["check", str(single)], ["check", "--project", str(root)]):
+        code = cli.main([*argv, "--format", "json"])
+        diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+        errors = [
+            (d["code"], d["location"]["line"], d["message"])
+            for d in diagnostics
+            if d["severity"] == "error"
+        ]
+        assert code == (1 if errors else 0)
+        warnings = [
+            (d["code"], d["location"]["line"])
+            for d in diagnostics
+            if d["code"] == "PIE-S2385"
+        ]
+        reports.append((errors, warnings))
+    assert reports[1] == reports[0]
+
+
+def test_a_relation_a_set_operation_reads_keeps_its_untyped_null_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A relation that completes again for a `union all` reader still gets the
+    PIE-S2385 warning at its typed output that reads an untyped all-None
+    value, as for a `from` reader (a single file has no set operations)."""
+    root = tmp_path / "project"
+    _write(
+        root, "pietto.toml", 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    _write(
+        root,
+        "a.pietto",
+        _ALWAYS_NULL_HEAD + "    select:\n        id\n"
+        "        o = same_value(coalesce(None, None), amount)\n"
+        "table t1:\n    from orders\n    select:\n        id\n        o = amount > 1\n"
+        "query u:\n    union all t0, t1\n",
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 0
     assert [
-        (item["code"], item["location"]["line"], item["location"]["column"])
-        for item in diagnostics
+        (d["code"], d["location"]["line"], d["message"])
+        for d in json.loads(capsys.readouterr().out)["diagnostics"]
     ] == [
-        ("PIE-S2105", 11, 13),
-        ("PIE-S2104", 12, 13),
+        (
+            "PIE-S2385",
+            12,
+            "Project SQL emission is unavailable because `o` reads an untyped "
+            "all-None value; this warning does not change check's exit status, "
+            "but emit-sql will refuse this relation.",
+        )
+    ]
+
+
+def test_an_untyped_output_warning_keeps_project_module_order(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The PIE-S2385 warning of a module that has no other diagnostic comes
+    before the diagnostics of later modules, not after all of them."""
+    untyped = _ALWAYS_NULL_HEAD + "    select:\n        id\n        o = None + None\n"
+    files = {
+        "a.pietto": untyped,
+        "b.pietto": _ALWAYS_NULL_HEAD + "    select:\n        o = amount + label\n",
+        "c.pietto": untyped,
+        "d.pietto": _ALWAYS_NULL_HEAD
+        + "    select:\n        o = same_value(amount, None)\n",
+    }
+    assert [
+        (code, path, line)
+        for code, path, line, _, _ in _def_check(tmp_path, capsys, files)
+    ] == [
+        ("PIE-S2385", "a.pietto", 12),
+        ("PIE-S2105", "b.pietto", 11),
+        ("PIE-S2385", "c.pietto", 12),
+        ("PIE-S2104", "d.pietto", 11),
     ]
 
 

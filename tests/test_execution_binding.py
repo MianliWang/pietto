@@ -661,7 +661,8 @@ def test_the_qualify_obligation_alone_refuses_its_overflowing_binding(tmp_path, 
 # DISTINCT ORDER key's constant leaf, MIN over a dependent LET and SATISFYING
 # over a JOIN; then two cross-feature templates: a computed parameter key with
 # a window and QUALIFY over the grouped output, and one parameter as a LET
-# value, a window count and a QUALIFY operand under a LET ORDER key and LIMIT.
+# value, a window count and a QUALIFY operand under a LET ORDER key and LIMIT;
+# and Int arithmetic with a typed NULL (D-12) in SELECT and a LET.
 COMPILED_POSITIONS = {
     "builtins_distinct": (
         """query result(low: Int, label: Text | None):
@@ -738,6 +739,20 @@ COMPILED_POSITIONS = {
     limit 3
 """,
         {"step": 1, "fill": None},
+    ),
+    "typed_null_arithmetic": (
+        """query result(low: Int):
+    from rows
+    let y = id + None
+    where id > low
+    select:
+        id
+        plus = id + None
+        times = None * 2
+        negated = -(id + None)
+        y
+""",
+        {"low": 0},
     ),
 }
 

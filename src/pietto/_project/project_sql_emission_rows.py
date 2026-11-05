@@ -200,6 +200,28 @@ class StageColumn:
     """One grouped determinant or aggregate result this value ultimately is."""
     window: Any = None
     """One window occurrence result this value ultimately is."""
+    same_value: Any = None
+    """The span of the `same_value` call this value is, carried through reads:
+    MySQL returns its `<=>` result grouped or deduplicated as a 4-byte INT,
+    not the declared `my_signed_bool` (real-DB campaign 2)."""
+
+
+def mysql_same_value_problem(family: str, read: StageColumn):
+    """A MySQL GROUP BY key or DISTINCT column that is a `same_value` value."""
+    if family == "mysql" and read.same_value is not None:
+        return ("PIE-B1003", "scalar_call_signature_not_admitted"), read.same_value
+    return None
+
+
+def same_value_span(value) -> Any:
+    """The call span when one realized value is a `same_value` call."""
+    if (
+        type(value) is SQLOperation
+        and value.kind == "scalar_call"
+        and value.original.callee_symbol.name == "same_value"
+    ):
+        return value.original.expression.span
+    return None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -488,6 +510,11 @@ def _typed_null(realization: Realization) -> bool:
         and realization.storage == {"kind": "typed_null"}
         and realization.domain == {"kind": "typed_null"}
     )
+
+
+def typed_null_decimal(realization: Realization) -> bool:
+    """A Decimal typed NULL (`abs(None)`) has no precision for an output type."""
+    return realization.tag == "Decimal" and _typed_null(realization)
 
 
 def _concrete_values(values):
@@ -1423,6 +1450,10 @@ def resolved_binary_realization(
         )
     if tag != "Int" or left.tag != "Int" or right.tag != "Int":
         return None, ("PIE-B1003", "arithmetic_requires_signed_int_operands")
+    if _typed_null(left) is not _typed_null(right):
+        return _null_int_arithmetic(
+            family, right if _typed_null(left) else left, nullable
+        )
     left_bounds, right_bounds = proven_int_bounds(left), proven_int_bounds(right)
     if left_bounds is None or right_bounds is None:
         return None, ("PIE-B1004", "int_range_proof_missing")
@@ -1441,6 +1472,35 @@ def resolved_binary_realization(
     if checked is None:
         return None, ("PIE-B1002", "arithmetic_outside_physical_range")
     return checked, None
+
+
+def _null_int_arithmetic(family, other: Realization, nullable):
+    """Int arithmetic with one typed NULL operand is NULL on every row. Its
+    rendering CASTs the NULL to the target's Int carrier (`null_cast`), which
+    types the result beside any integer operand, and no row has a value for
+    a range to bound: the result claims the single value 0, which holds for
+    no row, so no operation over it is held to the other operand's range."""
+    if _arithmetic_storage(family, other, other) is None:
+        return None, ("PIE-B1002", "arithmetic_outside_physical_range")
+    return _checked_int(
+        {"kind": parameters.PHYSICAL[family]["Int"]}, 0, 0, nullable
+    ), None
+
+
+def null_cast(operation, position: int) -> bool:
+    """Whether operand ``position`` of one realized operation is the typed
+    NULL of Int arithmetic (D-12), which its rendering CASTs to the target's
+    Int carrier: a bare NULL takes the type the target chooses, and MySQL
+    types `n + NULL` as DOUBLE."""
+    return (
+        operation.kind == "arithmetic"
+        and operation.realization.tag == "Int"
+        and type(operation.operands[position]) is parameters.SQLNull
+    )
+
+
+def null_cast_close(family: str) -> str:
+    return parameters.anchor_suffix(parameters.PHYSICAL[family]["Int"])
 
 
 def _comparison(
@@ -1985,6 +2045,12 @@ def resolved_scalar_call_realization(
         result = _text_carrier_result(family, values, nullable, sum(widths))
         if result is not None:
             return result, None
+    if name == "same_value" and len(values) == 2:
+        # NULL-safe equality of two operands that `==` compares; never NULL.
+        if nullable is not False:
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+        left, right = values
+        return resolved_comparison_realization(family, tag, nullable, left, right, "==")
     if (
         name in {"contains", "starts_with", "ends_with"}
         and len(values) == 2

@@ -423,7 +423,7 @@ def _expression_warnings(
                     beside_typed(node, "a conditional", node.when_true, node.when_false)
             elif type(node) is CallExpr and type(node.callee) is NameExpr:
                 name = node.callee.name
-                if name in {"coalesce", "nullif"}:
+                if name in {"coalesce", "nullif", "same_value"}:
                     beside_typed(node, name, *node.arguments)
                 elif name == "count" and len(node.arguments) == 1:
                     argument = node.arguments[0]

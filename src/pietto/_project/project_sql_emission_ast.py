@@ -2526,6 +2526,15 @@ def realize_rows(request):
                         assert problem is not None
                         add(*problem)
                         return None
+                    if selected and rows.typed_null_decimal(built.column.realization):
+                        # `lag(x)` of a Decimal typed NULL has no precision either.
+                        add(
+                            "PIE-B1003",
+                            "scalar_call_signature_not_admitted",
+                            item.ref,
+                            item.semantic.item.span,
+                        )
+                        continue
                     columns.append(built)
                     continue
                 expression = expression_by_ref.get(item.expression)
@@ -2570,6 +2579,19 @@ def realize_rows(request):
                     # Every unsupported value in this body keeps its own cause.
                     assert problem is not None
                     add(*problem, item.ref, item.site.occurrence.span)
+                    continue
+                if (
+                    kind == "projection"
+                    and selected
+                    and rows.typed_null_decimal(rows.realization_of(value, family))
+                ):
+                    # A visible output has no Decimal precision to report.
+                    add(
+                        "PIE-B1003",
+                        "scalar_call_signature_not_admitted",
+                        item.ref,
+                        item.site.occurrence.span,
+                    )
                     continue
                 if kind == "let" and export.source is not item.expression:
                     add("PIE-B1001", "let_export_expression_drift", export)
@@ -2959,7 +2981,13 @@ def _value_column_image(request, value, position, label, export, terminal, famil
             realization,
             literal=parameters.LiteralOrigin(value, export, terminal),
         )
-    return rows.StageColumn(position, label, terminal.ref, realization)
+    return rows.StageColumn(
+        position,
+        label,
+        terminal.ref,
+        realization,
+        same_value=rows.same_value_span(value),
+    )
 
 
 def node_premises(request, realization, operands, kind):

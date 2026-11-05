@@ -778,7 +778,7 @@ def test_missing_expression_evidence_is_a_planning_limitation_after_join(
     tmp_path: Path, site: str
 ):
     source = (
-        _source("inner", "(lhs.id + None) > 0")
+        _source("inner", "-None == lhs.id")
         if site == "on"
         else _source(
             "inner", tail='    select:\n        label = unsupported("value")\n'

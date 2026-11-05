@@ -772,6 +772,9 @@ def build_stage(
         if problem is not None:
             item = getattr(key.source, "item", None)
             return None, None, ((*problem, key.ref, getattr(item, "span", None)),)
+        refused = rows.mysql_same_value_problem(family, read)
+        if refused is not None:
+            return None, None, ((*refused[0], key.ref, refused[1]),)
         label = f"c{index}"
         column = AggregateKeyColumn(
             index,

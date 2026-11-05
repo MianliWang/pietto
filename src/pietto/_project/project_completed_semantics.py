@@ -565,7 +565,11 @@ class ProjectConcreteCompletedSemanticResult:
         # also reports, or a read in a comparison chain's inner operand, for
         # one); the public result reports each value once, in first-occurrence
         # order.
-        diagnostics = tuple(dict.fromkeys(self.roots.diagnostics))
+        diagnostics = _with_untyped_null_warnings(
+            tuple(module.path for module in semantic_result.modules),
+            self.roots.effective_outputs,
+            tuple(dict.fromkeys(self.roots.diagnostics)),
+        )
         single_matches = ProjectSingleMatchSet(
             root=effective_outputs, requests=self.single_match_requests
         )
@@ -609,6 +613,108 @@ class ProjectConcreteCompletedSemanticResult:
 type ProjectCompletedSemanticResult = (
     ProjectConcreteCompletedSemanticResult | ProjectNonConcreteCompletedSemanticResult
 )
+
+
+def _with_untyped_null_warnings(
+    module_paths: tuple[str, ...],
+    effective_outputs: ProjectEffectiveOutputCompletion,
+    diagnostics: tuple[Diagnostic, ...],
+) -> tuple[Diagnostic, ...]:
+    """``diagnostics`` with PIE-S2385 at each output of a relation without an
+    error that its completion typed by `untyped_null_type` (the field's
+    ``untyped_null`` provenance: `None`, `-None`, `amount + (-None)` or
+    `same_value(coalesce(None, None), amount)`), which project SQL emission
+    refuses on every target, as a single file warns where its emission
+    refuses one; that includes a relation replayed for a JOIN or
+    set-operation reader. Each is placed before the first later diagnostic
+    of its module, or, in a module with none, before the first diagnostic of
+    a later module in ``module_paths`` (selected-module) order; the others
+    keep their order."""
+
+    from pietto._project.model import ProjectResolvedTypeKind
+
+    rank: dict[str | None, int] = {
+        path: index for index, path in enumerate(module_paths)
+    }
+    result = list(diagnostics)
+    for entry in effective_outputs.entries:
+        if type(entry) is ProjectExistingEffectiveOutput:
+            schema = entry.fragment.semantic_facts.state.schema
+        elif type(entry) is ProjectCompletedEffectiveOutput and (
+            type(entry.root) is project_final_outputs.ProjectConcreteNoJoinReplay
+        ):
+            schema = entry.schema
+        else:
+            continue
+        definition = entry.owner.definition
+        if (
+            not isinstance(definition, (TableDef, QueryDef))
+            or schema is None
+            or schema.is_unknown
+            or any(
+                diagnostic.severity is Severity.ERROR
+                and diagnostic.location is not None
+                and _within(diagnostic.location, definition.span)
+                for diagnostic in diagnostics
+            )
+        ):
+            continue
+        for item in definition.select_items:
+            field = None if item.alias is None else schema.fields.get(item.alias)
+            provenance = None if field is None else field.provenance
+            if (
+                field is None
+                or provenance is None
+                or provenance.location is None
+                or not provenance.untyped_null
+            ):
+                continue
+            location = provenance.location
+            untyped = field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+            warning = Diagnostic(
+                code="PIE-S2385",
+                severity=Severity.WARNING,
+                message=(
+                    "Project SQL emission is unavailable because "
+                    f"`{field.name}` "
+                    + (
+                        "is an untyped all-None output"
+                        if untyped
+                        else "reads an untyped all-None value"
+                    )
+                    + "; this warning does not change check's exit status, but "
+                    "emit-sql will refuse this relation."
+                ),
+                location=location,
+            )
+            same = [
+                (index, diagnostic.location)
+                for index, diagnostic in enumerate(result)
+                if diagnostic.location is not None
+                and diagnostic.location.path == location.path
+            ]
+            later = [
+                index
+                for index, other in same
+                if (other.line, other.column) > (location.line, location.column)
+            ]
+            if later:
+                position = later[0]
+            elif same:
+                position = same[-1][0] + 1
+            else:
+                module = rank.get(location.path, len(rank))
+                position = next(
+                    (
+                        index
+                        for index, diagnostic in enumerate(result)
+                        if diagnostic.location is not None
+                        and rank.get(diagnostic.location.path, -1) > module
+                    ),
+                    len(result),
+                )
+            result.insert(position, warning)
+    return tuple(result)
 
 
 def _entry_error_diagnostics(
@@ -2330,6 +2436,20 @@ def _compiled_parameter_values(records, parameters, family):
     return declared, {r.address: v for r, v in zip(declared, parameters, strict=True)}
 
 
+def _null_arithmetic_type(token, typed, operand_kinds):
+    """Arithmetic with a NULL operand, which takes the other operand's type, is
+    NULL on every row: of the operator's result type, nullable (D-12)."""
+    from pietto.semantic.model import EffectiveNullability, ValueType, ValueTypeKind
+
+    if (
+        token in ("+", "-", "*")
+        and typed.kind is ValueTypeKind.KNOWN
+        and "null_literal" in operand_kinds
+    ):
+        return ValueType(typed.resolved_type, EffectiveNullability.NULLABLE)
+    return typed
+
+
 def derive_compiled_semantics(root, values, parameters=None):
     """Derive resolved scalar inputs without calling any source elaborator.
 
@@ -2646,6 +2766,16 @@ def derive_compiled_semantics(root, values, parameters=None):
                         candidates.append("Bool")
                     elif role == "conditional" and position in (0, 2):
                         sibling = parent_operands[2 if position == 0 else 0]
+                        if sibling in facts:
+                            candidates.append(facts[sibling].value_type)
+                    elif (
+                        role == "binary"
+                        and token in ("+", "-", "*")
+                        and len(parent_operands) == 2
+                    ):
+                        # An arithmetic NULL takes its other operand's type (D-12),
+                        # the Int its rendering CASTs to.
+                        sibling = parent_operands[1 - position]
                         if sibling in facts:
                             candidates.append(facts[sibling].value_type)
                     elif role in {"membership", "scalar_call"} and (
@@ -3020,6 +3150,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                     and len(arguments) == 2
                 ):
                     typed, error = resolved_binary_value_type(token, *arguments)
+                    typed = _null_arithmetic_type(
+                        token, typed, tuple(child.kind for child in operands)
+                    )
                 elif (
                     role == "comparison"
                     and token in ("==", "!=", "<", "<=", ">", ">=", "like", "not like")
@@ -3137,7 +3270,18 @@ def derive_compiled_semantics(root, values, parameters=None):
                 elif role == "scalar_call":
                     from pietto.semantic.catalog import builtin_signature
 
-                    if token in {"coalesce", "nullif"}:
+                    if token == "same_value":
+                        # NULL-safe equality of `==` operands is never NULL.
+                        error = (
+                            resolved_comparison_value_type(*arguments)[1]
+                            if len(arguments) == 2
+                            else "same_value operands"
+                        )
+                        typed = ValueType(
+                            ResolvedType("Bool", TypeKind.BUILTIN),
+                            EffectiveNullability.NON_NULL,
+                        )
+                    elif token in {"coalesce", "nullif"}:
                         error = (
                             None
                             if (
@@ -3851,6 +3995,14 @@ def verify_compiled_semantics(value):
                         sibling = parent_operands[2 if position == 0 else 0]
                         if sibling in by_address:
                             candidates.append(by_address[sibling].value_type)
+                    elif (
+                        role == "binary"
+                        and token in ("+", "-", "*")
+                        and len(parent_operands) == 2
+                    ):
+                        sibling = parent_operands[1 - position]
+                        if sibling in by_address:
+                            candidates.append(by_address[sibling].value_type)
                     elif role in {"membership", "scalar_call"} and (
                         role == "membership" or token in {"coalesce", "nullif"}
                     ):
@@ -4198,6 +4350,9 @@ def verify_compiled_semantics(value):
                     typed, problem = resolved_binary_value_type(
                         token, *(i.value_type for i in inputs)
                     )
+                    typed = _null_arithmetic_type(
+                        token, typed, tuple(i.address.kind for i in inputs)
+                    )
                 elif role == "comparison":
                     typed, problem = (
                         resolved_like_value_type(*(i.value_type for i in inputs))
@@ -4322,7 +4477,17 @@ def verify_compiled_semantics(value):
                     from pietto.semantic.catalog import builtin_signature
 
                     arguments = tuple(item.value_type for item in inputs)
-                    if token in {"coalesce", "nullif"}:
+                    if token == "same_value":
+                        problem = (
+                            resolved_comparison_value_type(*arguments)[1]
+                            if len(arguments) == 2
+                            else "same_value operands"
+                        )
+                        typed = ValueType(
+                            ResolvedType("Bool", TypeKind.BUILTIN),
+                            EffectiveNullability.NON_NULL,
+                        )
+                    elif token in {"coalesce", "nullif"}:
                         problem = (
                             None
                             if (

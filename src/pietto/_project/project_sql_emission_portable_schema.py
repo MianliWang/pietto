@@ -865,6 +865,7 @@ OPERATORS = {
         "round",
         "date_trunc",
         "concat",
+        "same_value",
     ),
 }
 COMPARISON_SPELLING = {
@@ -934,6 +935,7 @@ SYNTAX = {
     "anchor_open": "CAST(",
     "int8_widen_open": "CAST(",
     "int8_widen_close": " AS pg_catalog.int8)",
+    "null_cast_open": "CAST(",
     "value_qualifier": ".",
     "is_null_open": "(",
     "is_null_close": ")",
@@ -1037,6 +1039,7 @@ OVERLAYS = {
     "unary": (("unary_open",), ("unary_close",)),
     "anchor": (("anchor_open",), ("anchor_close",)),
     "int8_widen": (("int8_widen_open",), ("int8_widen_close",)),
+    "null_cast": (("null_cast_open",), ("null_cast_close",)),
     "reference": (("value_scope",), ("value_column",)),
     "capture": (("capture_scope",), ("capture_column",)),
     "binary": (("binary_open",), ("binary_close",)),

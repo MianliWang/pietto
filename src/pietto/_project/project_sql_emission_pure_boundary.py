@@ -1601,6 +1601,7 @@ class _Check:
                     "nullif": {2},
                     "round": {1, 2},
                     "date_trunc": {2},
+                    "same_value": {2},
                 }
                 count = len(op["operands"])
                 _require(
@@ -2130,6 +2131,7 @@ class _Tokens:
         self.bindings()
         self.overlay_alignment()
         self.int8_widening()
+        self.null_casts()
         self.origins()
 
     def partition(self) -> None:
@@ -2798,7 +2800,9 @@ class _Tokens:
                 },
             }[self.family]
             if role == "scalar_call_open":
-                if name == "substr":
+                if name == "same_value":
+                    expected = "("
+                elif name == "substr":
                     expected = (
                         "substring(" if self.family == "postgres" else "SUBSTRING("
                     )
@@ -2836,7 +2840,8 @@ class _Tokens:
                 _require(bool(expected) and text == expected, "scalar call spelling")
             elif role == "scalar_call_close":
                 if (
-                    name in {"substr", "starts_with", "ends_with", "concat"}
+                    name
+                    in {"substr", "starts_with", "ends_with", "concat", "same_value"}
                     or name in simple
                 ):
                     expected = ")"
@@ -2859,6 +2864,12 @@ class _Tokens:
                         if self.family == "postgres" and name == "substr"
                         else {" || "}
                         if self.family == "postgres" and name == "concat"
+                        else {
+                            " IS NOT DISTINCT FROM "
+                            if self.family == "postgres"
+                            else " <=> "
+                        }
+                        if name == "same_value"
                         else {", "}
                     ),
                     "scalar call separator",
@@ -2923,6 +2934,11 @@ class _Tokens:
                 "comparison_operator": schema.COMPARISON_SPELLING.get(operator),
             }[role]
             _require(text == expected, "operator spelling")
+        elif role == "null_cast_close":
+            _require(
+                text == schema.ANCHOR_SUFFIX[schema.PHYSICAL[self.family]["Int"]],
+                "typed NULL cast",
+            )
         elif role == "anchor_close":
             anchor = self.one(anchors, subject, "anchor subject")
             _require(
@@ -3116,6 +3132,43 @@ class _Tokens:
             )
             seen.append(subject)
         _require(len(seen) == len(set(seen)) and set(seen) == expected, "int8 widening")
+
+    def null_casts(self) -> None:
+        """Each typed NULL operand of an Int arithmetic operation, and nothing
+        else, is CAST to the target's Int carrier (D-12): an untyped NULL
+        takes the type the target chooses."""
+        doc = self.doc
+        expected: dict[PlanRef, Ref] = {}
+        for ref in doc.all("sql_operation"):
+            op = doc[ref]
+            nulls = [item for item in op["operands"] if item.kind == "sql_null"]
+            if op["kind"] == "arithmetic" and doc[op["realization"]]["tag"] == "Int":
+                _require(len(nulls) <= 1, "typed NULL cast")
+                if nulls:
+                    expected[op["original"]] = doc[nulls[0]]["site"]
+        starts = {event["start"]: i for i, event in enumerate(self.events)}
+        ends = {event["end"]: i for i, event in enumerate(self.events)}
+        seen: list[PlanRef] = []
+        for overlay in self.overlays:
+            if overlay["role"] != "null_cast":
+                continue
+            subject = overlay["subject"]
+            i, j = starts[overlay["start"]], ends[overlay["end"]]
+            _require(
+                subject in expected
+                and j == i + 2
+                and self.events[i + 1]["kind"] == "literal"
+                and self.events[i + 1]["subject"] == expected[subject]
+                and self.events[i - 1]["subject"] == subject
+                and self.events[i - 1]["role"]
+                in ("binary_open", "arithmetic_operator"),
+                "typed NULL cast",
+            )
+            seen.append(subject)
+        _require(
+            len(seen) == len(set(seen)) and set(seen) == set(expected),
+            "typed NULL cast",
+        )
 
     def origins(self) -> None:
         by_subject: dict[PlanRef, tuple[Ref, ...]] = {}

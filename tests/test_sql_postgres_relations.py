@@ -135,6 +135,62 @@ def test_concat_nests_in_every_position_and_casts_an_operand_of_unknown_type() -
     )
 
 
+_SAME_VALUE = (
+    "shape Order:\n"
+    "    id: Int\n"
+    "    customer_id: Int | None\n"
+    "    code: Text\n"
+    "    note: Text | None\n"
+    "shape Customer:\n"
+    "    id: Int\n"
+    "    ref: Int | None\n"
+    'source orders: Order = postgres.table("public.orders")\n'
+    'source customers: Customer = postgres.table("public.customers")\n'
+)
+
+
+def test_same_value_is_not_distinct_from_in_select_where_and_join_on() -> None:
+    selected = emit_postgres_sql(
+        _compile(
+            _SAME_VALUE + "table matched:\n"
+            "    from orders\n"
+            "    where same_value(note, code)\n"
+            "    select:\n"
+            "        id\n"
+            "        same = same_value(customer_id, id)\n"
+            "        other = not same_value(note, code)\n"
+        )
+    )
+    joined = emit_postgres_sql(
+        _compile(
+            _SAME_VALUE + "query q:\n"
+            "    from orders\n"
+            "    left join customers on same_value(customers.ref, orders.customer_id)\n"
+            "    select:\n"
+            "        oid = orders.id\n"
+            "        cid = customers.id\n"
+        )
+    )
+
+    assert selected.diagnostics == joined.diagnostics == ()
+    assert selected.artifacts[0].sql == (
+        "SELECT\n"
+        '    "id" AS "id",\n'
+        '    ("customer_id" IS NOT DISTINCT FROM "id") AS "same",\n'
+        '    NOT ("note" IS NOT DISTINCT FROM "code") AS "other"\n'
+        'FROM "public"."orders"\n'
+        'WHERE ("note" IS NOT DISTINCT FROM "code")'
+    )
+    assert joined.artifacts[0].sql == (
+        "SELECT\n"
+        '    "orders"."id" AS "oid",\n'
+        '    "customers"."id" AS "cid"\n'
+        'FROM "public"."orders" AS "orders"\n'
+        'LEFT JOIN "public"."customers" AS "customers" '
+        'ON ("customers"."ref" IS NOT DISTINCT FROM "orders"."customer_id")'
+    )
+
+
 def test_relation_without_filter_omits_where() -> None:
     script_ir = _compile(
         SOURCE + "query user_emails:\n    from users\n    select:\n        email\n"

@@ -664,12 +664,14 @@ def test_all_non_concrete_states_require_matching_exact_evidence(
         'source rows: Row = postgres.table("rows")\n'
         "query pending:\n"
         "    from rows\n"
+        "    group by:\n"
+        "        amount\n"
         "    select:\n"
-        "        unset = None\n"
+        "        amount\n"
         "query result:\n"
         "    from pending\n"
         "    select:\n"
-        "        unset\n",
+        "        amount\n",
     )
     blocked = _semantic_project(
         tmp_path / "blocked",

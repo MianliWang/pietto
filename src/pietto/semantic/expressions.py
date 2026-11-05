@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import bisect
-import contextlib
-import contextvars
 import dataclasses
 import functools
 import itertools
@@ -100,6 +98,7 @@ _UNKNOWN_VALUE_TYPE = ValueType(
     kind=ValueTypeKind.UNKNOWN,
 )
 _NULLIF_SIGNATURE = BuiltinFunction("nullif", ("T", "T"), "T")
+_SAME_VALUE_SIGNATURE = BuiltinFunction("same_value", ("T", "T"), "Bool")
 _SIGN_SIGNATURE = BuiltinFunction("sign", ("Int|Decimal",), "Int")
 
 
@@ -3544,6 +3543,10 @@ def _binary_value_type(
                         result = dataclasses.replace(
                             typed, nullability=EffectiveNullability.NULLABLE
                         )
+                        # The null is of the type it takes, as SQL types it.
+                        value_types[null] = _contextual_null_literal_type(
+                            canonical.resolved_type
+                        )
                     elif _of_numbers(
                         (canonical, canonical),
                         type_expansions,
@@ -4243,6 +4246,17 @@ def _call_value_type(
             expression, argument_types, type_expansions, diagnostics
         )
 
+    if function_name == "same_value":
+        return _same_value_call_type(
+            expression,
+            argument_types,
+            nulls,
+            diagnostics,
+            explained=explained,
+            row_schema=row_schema,
+            lets=bare_value_expressions,
+            type_expansions=type_expansions,
+        )
     if is_semantic_aggregate_call(expression):
         if function_name == "string_agg" and not expression.aggregate_order_by:
             diagnostics.append(
@@ -4922,24 +4936,6 @@ def _number_call_type(
 # The numeric types, each implicitly converted to the next where the database
 # needs one type for two numbers.
 _NUMBER_NAMES = ("Int", "Decimal", "Float")
-# Whether a NULL number fits beside numbers of other types (`_null_number_type`)
-# and a `def` parameter of another numeric type (`_fits_null_number`): in a
-# single file (`null_numbers`). A project relation does not complete with one,
-# so it keeps the typed twin's diagnostic there.
-_NULL_NUMBERS: contextvars.ContextVar[bool] = contextvars.ContextVar(
-    "_NULL_NUMBERS", default=False
-)
-
-
-@contextlib.contextmanager
-def null_numbers() -> Iterator[None]:
-    """Type NULL numbers beside numbers of other types inside the block."""
-
-    token = _NULL_NUMBERS.set(True)
-    try:
-        yield
-    finally:
-        _NULL_NUMBERS.reset(token)
 
 
 def _fits_null_number(
@@ -4952,8 +4948,7 @@ def _fits_null_number(
     does, so no value depends on the parameter's own number type."""
 
     return (
-        _NULL_NUMBERS.get()
-        and canonical.name in _NUMBER_NAMES
+        canonical.name in _NUMBER_NAMES
         and slot.type_name in _NUMBER_NAMES
         and is_null()
     )
@@ -4997,10 +4992,8 @@ def _null_number_type(
     ``remainder`` takes no `Float`, which PostgreSQL has no `%` for. The
     operands that are not always null keep the operator's own rule
     (``shared``), so a NULL number lets no other numbers of different types
-    mix. None outside `null_numbers`."""
+    mix."""
 
-    if not _NULL_NUMBERS.get():
-        return None
     names = []
     for value_type in value_types:
         canonical = _canonical_value_type(value_type, type_expansions)
@@ -5104,6 +5097,68 @@ def _coalesce_value_type(
     else:
         nullability = EffectiveNullability.NULLABLE
     return ValueType(resolved_type=canonical, nullability=nullability)
+
+
+def _same_value_call_type(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+    nulls: tuple[bool, ...],
+    diagnostics: list[Diagnostic],
+    *,
+    explained: bool,
+    row_schema: RowSchema,
+    lets: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType:
+    """NULL-safe equality: a `Bool` that is never null, of two operands that
+    compare as for `==`. A `None` operand, also a `let:` name bound to it,
+    is refused: `x is None` tests it."""
+
+    if len(argument_types) != 2:
+        diagnostics.append(_wrong_arity_diagnostic(expression, _SAME_VALUE_SIGNATURE))
+        return _UNKNOWN_VALUE_TYPE
+    if any(nulls):
+        hint = "" if all(nulls) else "; write `x is None` instead"
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    "Invalid argument type for function same_value at position "
+                    f"{nulls.index(True) + 1}: expected a non-None value, got None"
+                    f"{hint}"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    if explained:
+        return _UNKNOWN_VALUE_TYPE
+    left, right = expression.arguments
+    _, expected = resolved_comparison_value_type(
+        *argument_types,
+        type_expansions,
+        comparison_literals(left, right, row_schema, lets),
+    )
+    if expected is None:
+        expected = _number_misfit(
+            lambda types: resolved_comparison_value_type(
+                types[0], types[1], type_expansions
+            )[1],
+            argument_types,
+            type_expansions,
+        )
+    if expected is not None:
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    f"Invalid argument types for function same_value: expected {expected}"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    return _builtin_value_type("Bool", EffectiveNullability.NON_NULL)
 
 
 def _nullif_value_type(

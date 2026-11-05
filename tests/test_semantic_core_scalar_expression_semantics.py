@@ -330,9 +330,11 @@ def test_null_arithmetic_has_the_type_of_its_known_operand() -> None:
     # exist), and MySQL divided `(null + n) / 2` with `/`. The result, always
     # null, is now of the type the operator gives two operands of that type,
     # as for its typed twin `f1 % f1`, and with a `Decimal` operand a quotient
-    # is a number of unknown type (`got numeric`). A scalar error caused by
-    # that typed NULL stays specific inside count; bare NULL arithmetic still
-    # has the unsupported aggregate shape, PIE-S2315.
+    # is a number of unknown type (`got numeric`). The null itself is of the
+    # type it takes, so SQL writes it as a typed NULL, which keeps MySQL from
+    # typing the result as DOUBLE. A scalar error caused by that typed NULL
+    # stays specific inside count; bare NULL arithmetic still has the
+    # unsupported aggregate shape, PIE-S2315.
     head = (
         "shape Row:\n"
         "    id: Int\n"
@@ -365,7 +367,10 @@ def test_null_arithmetic_has_the_type_of_its_known_operand() -> None:
         "        v = (None + n) / 2\n"
         "        w = None % f1\n"
     )
-    w_type = semantic.model.expression_value_types[_select_expression(script, 1)]
+    w = _select_expression(script, 1)
+    assert isinstance(w, BinaryExpr)
+    w_type = semantic.model.expression_value_types[w]
+    null_type = semantic.model.expression_value_types[w.left]
 
     assert [
         (d.code, d.location.line, d.location.column, d.message)
@@ -407,12 +412,14 @@ def test_null_arithmetic_has_the_type_of_its_known_operand() -> None:
         ),
     ]
     assert semantic.diagnostics == ()
-    assert (w_type.resolved_type.name, w_type.nullability) == (
-        "Int",
-        EffectiveNullability.NULLABLE,
+    assert (
+        (w_type.resolved_type.name, w_type.nullability)
+        == ((null_type.resolved_type.name, null_type.nullability))
+        == ("Int", EffectiveNullability.NULLABLE)
     )
     assert emit_mysql_sql(script_ir).artifacts[0].sql == (
-        "SELECT\n    (NULL + `n`) DIV 2 AS `v`,\n    NULL % `f1` AS `w`\nFROM `rows`"
+        "SELECT\n    (CAST(NULL AS SIGNED) + `n`) DIV 2 AS `v`,\n"
+        "    CAST(NULL AS SIGNED) % `f1` AS `w`\nFROM `rows`"
     )
 
 
@@ -441,6 +448,8 @@ def test_a_null_number_fits_beside_numbers_as_the_database_reads_it(
     # twin's exact numeric rules: beside numbers of another type it takes the
     # widest of them, as PostgreSQL and MySQL convert `Int` to `Decimal` and
     # either to `Float`, and the 0.1.4 SQL of each accepted use runs on both.
+    # SQL writes each such NULL as a typed NULL, and one beside a `Float`
+    # result as that `Float`, so the column has the type Pietto gives it.
     # The other operands of `coalesce` and `in` keep their typed twin's rule,
     # `%` takes no `Float`, which PostgreSQL has no remainder for, and a
     # nullable numeric `def` parameter takes a NULL number of another numeric
@@ -494,6 +503,11 @@ def test_a_null_number_fits_beside_numbers_as_the_database_reads_it(
         ("Float", EffectiveNullability.NON_NULL),
     ]
     quote = '"' if connector == "postgres" else "`"
+    integer, decimal, double = (
+        ("bigint", "numeric", "double precision")
+        if connector == "postgres"
+        else ("SIGNED", "DECIMAL", "DOUBLE")
+    )
     emitted = (
         (
             emit_postgres_sql(script_ir)
@@ -504,18 +518,23 @@ def test_a_null_number_fits_beside_numbers_as_the_database_reads_it(
         .sql
     )
     for written in (
-        "(NULL + {q}d{q}) + 1.5",
-        "(NULL + {q}d{q}) % 2",
-        "-(NULL + {q}d{q})",
-        "(NULL + {q}fl{q}) IN (1, 2)",
-        "CASE WHEN {q}b{q} THEN (NULL + {q}d{q}) ELSE 1 END",
-        "COALESCE((NULL + {q}fl{q}), 1)",
-        "NULLIF((NULL + {q}d{q}), 1)",
-        "NULL + {q}n{q} AS {q}m{q}",
-        "NULL + {q}d{q} AS {q}o{q}",
-        "COALESCE((NULL + {q}n{q}), (NULL + {q}d{q}), {q}fl{q})",
+        "CAST((CAST(NULL AS {d}) + {q}d{q}) AS {f}) + 1.5",
+        "(CAST(NULL AS {d}) + {q}d{q}) % 2",
+        "-(CAST(NULL AS {d}) + {q}d{q})",
+        "(CAST(NULL AS {f}) + {q}fl{q}) IN (1, 2)",
+        "CASE WHEN {q}b{q} THEN (CAST(NULL AS {d}) + {q}d{q}) ELSE 1 END",
+        "CASE WHEN {q}b{q} THEN CAST((CAST(NULL AS {i}) + {q}n{q}) AS {f}) "
+        "ELSE 1.5 END",
+        "COALESCE((CAST(NULL AS {f}) + {q}fl{q}), 1)",
+        "NULLIF((CAST(NULL AS {d}) + {q}d{q}), 1)",
+        "CAST(NULL AS {i}) + {q}n{q} AS {q}m{q}",
+        "CAST(NULL AS {d}) + {q}d{q} AS {q}o{q}",
+        "COALESCE(CAST((CAST(NULL AS {i}) + {q}n{q}) AS {f}), "
+        "CAST((CAST(NULL AS {d}) + {q}d{q}) AS {f}), {q}fl{q})",
     ):
-        assert written.format(q=quote) in emitted
+        assert written.format(q=quote, i=integer, d=decimal, f=double) in emitted, (
+            emitted
+        )
 
     refused = analyze(
         _parse(
@@ -586,6 +605,73 @@ def test_a_null_number_fits_beside_numbers_as_the_database_reads_it(
             "membership operands",
         ),
     ]
+
+
+@pytest.mark.parametrize("connector", ["postgres", "mysql"])
+def test_sql_types_an_always_null_number_as_pietto_types_it(connector: str) -> None:
+    # An untyped NULL takes its type from the database: PostgreSQL types
+    # `NULL * 2` as integer and `NULL - 3.0` as numeric, MySQL `amount + NULL`
+    # as DOUBLE, so the column type was not the Int or Float Pietto checks.
+    # A NULL operand of arithmetic is now a typed NULL, and an always-null
+    # number beside a Float result is cast to it; an untyped one stays NULL.
+    # Each read of a let-bound `None` is typed as an inline `None` there.
+    _, _, script_ir = _compile(
+        "shape Order:\n    id: Int\n    amount: Int\n    price: Decimal(10, 2)\n"
+        f'    rate: Float\nsource orders: Order = {connector}.table("orders")\n'
+        "table t0:\n    from orders\n    let k = None\n    select:\n        id\n"
+        "        o0 = None - 3.0\n        o1 = amount + None\n"
+        "        o2 = None * 2\n        o3 = amount / None\n"
+        "        o4 = -(amount + None)\n        o6 = (None + price) + 1.5\n"
+        "        o7 = coalesce(None + amount, price)\n        o9 = sign(None + rate)\n"
+        "        o10 = (None + amount) if amount > 1 else 1.5\n"
+        "        o12 = amount + k\n        o13 = k - 3.0\n"
+    )
+    if connector == "postgres":
+        sql = emit_postgres_sql(script_ir).artifacts[0].sql
+        expected = (
+            '"id" AS "id"',
+            'CAST(NULL AS double precision) - 3.0 AS "o0"',
+            '"amount" + CAST(NULL AS bigint) AS "o1"',
+            'CAST(NULL AS bigint) * 2 AS "o2"',
+            '"amount" / CAST(NULL AS bigint) AS "o3"',
+            '-("amount" + CAST(NULL AS bigint)) AS "o4"',
+            'CAST((CAST(NULL AS numeric) + "price") AS double precision) + 1.5 AS "o6"',
+            'COALESCE((CAST(NULL AS bigint) + "amount"), "price") AS "o7"',
+            'CAST(sign((CAST(NULL AS double precision) + "rate")) AS bigint) AS "o9"',
+            'CASE WHEN ("amount" > 1) THEN CAST((CAST(NULL AS bigint) + "amount") '
+            'AS double precision) ELSE 1.5 END AS "o10"',
+            '"amount" + CAST(NULL AS bigint) AS "o12"',
+            'CAST(NULL AS double precision) - 3.0 AS "o13"',
+        )
+        table = '"orders"'
+    else:
+        sql = emit_mysql_sql(script_ir).artifacts[0].sql
+        expected = (
+            "`id` AS `id`",
+            "CAST(NULL AS DOUBLE) - 3.0 AS `o0`",
+            "`amount` + CAST(NULL AS SIGNED) AS `o1`",
+            "CAST(NULL AS SIGNED) * 2 AS `o2`",
+            "`amount` DIV CAST(NULL AS SIGNED) AS `o3`",
+            "-(`amount` + CAST(NULL AS SIGNED)) AS `o4`",
+            "CAST((CAST(NULL AS DECIMAL) + `price`) AS DOUBLE) + 1.5 AS `o6`",
+            "COALESCE((CAST(NULL AS SIGNED) + `amount`), `price`) AS `o7`",
+            "SIGN((CAST(NULL AS DOUBLE) + `rate`)) AS `o9`",
+            "CASE WHEN (`amount` > 1) THEN CAST((CAST(NULL AS SIGNED) + `amount`) "
+            "AS DOUBLE) ELSE 1.5 END AS `o10`",
+            "`amount` + CAST(NULL AS SIGNED) AS `o12`",
+            "CAST(NULL AS DOUBLE) - 3.0 AS `o13`",
+        )
+        table = "`orders`"
+    assert sql == "SELECT\n    " + ",\n    ".join(expected) + f"\nFROM {table}"
+    untyped = _compile(
+        "shape Order:\n    id: Int\n"
+        'source orders: Order = mysql.table("orders")\n'
+        "table t0:\n    from orders\n    select:\n"
+        "        o5 = -None\n        o11 = None + None\n"
+    )[2]
+    assert emit_mysql_sql(untyped).artifacts[0].sql == (
+        "SELECT\n    -NULL AS `o5`,\n    NULL + NULL AS `o11`\nFROM `orders`"
+    )
 
 
 @pytest.mark.parametrize("grouped", [False, True], ids=["global", "grouped"])

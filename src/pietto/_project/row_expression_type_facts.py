@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from pietto._project.model import (
     ProjectResolvedType,
@@ -33,7 +34,11 @@ from pietto.errors import (
     SourceLocation,
 )
 from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.expressions import (
+    _reads_only_null,
+    always_null,
+    infer_row_expression,
+)
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -43,6 +48,9 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
+
+if TYPE_CHECKING:
+    from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
 
 _PROJECT_BUILTIN_TYPE_NAMES = frozenset(
     {
@@ -501,6 +509,102 @@ def build_project_row_expression_value_types(
         value_types.update(scratch_value_types)
 
     return MappingProxyType(value_types)
+
+
+def untyped_null_parts(
+    expression: Expression,
+    value_types: Mapping[Expression, ValueType],
+    lets: Mapping[str, Expression],
+) -> bool:
+    """Whether ``expression``, each part of it typed in ``value_types``, has
+    a part of no known type and each outermost such part is NULL on every row
+    by NULL propagation: `always_null` (a `None`; a sign, arithmetic or
+    comparison with such an operand; a conditional or `coalesce` whose every
+    value is one) with the `let:` names of ``lets`` written in, or a value
+    that reads only `None` (`_reads_only_null`, as `nullif(None, None)`). So
+    are `-None`, `amount + (-None)` and the `coalesce(None, None)` of
+    `same_value(coalesce(None, None), amount)`; `amount + None` has none, as
+    its `None` takes the type of `amount`."""
+
+    names: dict[str, bool] = {}
+    for name, value in lets.items():
+        names[name] = always_null(value, names)
+    untyped = False
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        value_type = value_types.get(node)
+        if value_type is None:
+            return False
+        if value_type.kind is ValueTypeKind.KNOWN:
+            pending.extend(child_expressions(node))
+        elif _reads_only_null(node, lets) or always_null(node, names):
+            untyped = True
+        else:
+            return False
+    return untyped
+
+
+def untyped_null_type(
+    expression: Expression,
+    input_schema: ProjectRowSchema,
+    let_scope: ProjectRelationLetScopeFacts | None,
+    *,
+    relation_qualifier: str | None,
+    read_types: Mapping[Expression, ValueType] | None,
+    captured_value_types: Mapping[CapturedFieldExpr, ValueType | Diagnostic] | None,
+) -> tuple[ProjectResolvedType, ProjectRowFieldNullability] | None:
+    """The type and nullability of ``expression``, a SELECT output over
+    ``input_schema`` with the bindings of ``let_scope`` that have no error of
+    their own, typed as `build_project_row_expression_value_types` types it
+    (with the owner's relation reads and capture environment), when it is
+    typed without an error and its parts of no type are always NULL
+    (`untyped_null_parts`), as a single file completes it: no type for
+    `None`, `-None` or `amount + (-None)`, a Bool for
+    `same_value(coalesce(None, None), amount)`. Its readers see that type;
+    the relation's completion asks this for an output its row typing leaves
+    open and marks the field it builds (`ProjectRowFieldProvenance`), which
+    its PIE-S2385 warning reads, and SQL emission refuses it."""
+
+    if input_schema.is_unknown:
+        return None
+    let_types = None if let_scope is None else let_scope.binding_value_types or None
+    lets = (
+        {}
+        if let_scope is None
+        else {name: let_scope.binding_expressions[name] for name in let_types or ()}
+    )
+    diagnostics: list[Diagnostic] = []
+    value_types = scalar_read_types_within(expression, read_types)
+    value_type = infer_row_expression(
+        expression,
+        project_row_schema_to_semantic_row_schema(input_schema),
+        value_types,
+        diagnostics,
+        report_unknown_name=True,
+        field_qualifier=relation_qualifier,
+        bare_value_types=let_types,
+        bare_value_expressions=None if let_types is None else lets,
+        relation_columns=read_types,
+        captured_value_types=captured_value_types,
+    )
+    value_types[expression] = value_type
+    if diagnostics or not untyped_null_parts(expression, value_types, lets):
+        return None
+    if value_type.kind is ValueTypeKind.UNKNOWN:
+        return ProjectResolvedType(
+            name=_UNKNOWN_PROJECT_FIELD_VALUE_TYPE.resolved_type.name,
+            kind=ProjectResolvedTypeKind.UNKNOWN,
+        ), ProjectRowFieldNullability.NULLABLE
+    resolved = value_type.resolved_type
+    if (
+        resolved.kind is not TypeKind.BUILTIN
+        or resolved.name not in _PROJECT_BUILTIN_TYPE_NAMES
+    ):
+        return None
+    return ProjectResolvedType(
+        name=resolved.name, kind=ProjectResolvedTypeKind.BUILTIN
+    ), ProjectRowFieldNullability(value_type.nullability.value)
 
 
 def reports_unfit_def_argument(

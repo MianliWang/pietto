@@ -536,6 +536,86 @@ def test_bounded_field_and_constant_arithmetic_is_admitted(tmp_path, target):
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_int_arithmetic_with_a_typed_null_casts_it_to_the_int_carrier(tmp_path, target):
+    """Int arithmetic with a `None` operand is NULL in every row (D-12): the
+    NULL is CAST to the target's Int carrier, as a bare NULL takes the type
+    the target chooses (MySQL types `n + NULL` as DOUBLE), and the result in
+    that carrier claims the single value 0, which no row has, so a sign over
+    it is held to no range of the other operand."""
+    source = row_source(
+        target,
+        "    from rows\n    select:\n"
+        "        plus = id + None\n"
+        "        times = None * 2\n"
+        "        negated = -(id + None)\n",
+    )
+    _, outcome = probe.build_case(
+        tmp_path, source, stage_contract(target), "preserve_literals"
+    )
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert outcome.status == "VERIFIED", public
+    assert [c["logical_type"]["name"] for c in public["columns"]] == ["Int"] * 3
+    carrier = "pg_int8" if target == "postgres" else "my_signed_int"
+    assert [c["representation"]["storage"] for c in public["columns"]] == [
+        {"kind": carrier}
+    ] * 3
+    assert all(c["representation"]["nullable"] for c in public["columns"])
+    assert [c["representation"]["domain"] for c in public["columns"]] == [
+        {"kind": "int_range", "min": "0", "max": "0"}
+    ] * 3
+    if target == "postgres":
+        assert (
+            '("s0"."order.id" + CAST(NULL AS pg_catalog.int8)) AS "plus"'
+            in public["sql"]
+        )
+        assert (
+            "(CAST(NULL AS pg_catalog.int8) * CAST(2 AS pg_catalog.int8))"
+            in public["sql"]
+        )
+    else:
+        assert " + CAST(NULL AS SIGNED)) AS `plus`" in public["sql"]
+        assert "(CAST(NULL AS SIGNED) * CAST(2 AS SIGNED)) AS `times`" in public["sql"]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "value,detail",
+    (
+        ("None", "expression_evidence_unavailable"),
+        ("-None", "expression_evidence_unavailable"),
+        ("None - 2.5", "float_literal_operands_required"),
+        ("(None + money) + 1.5", "decimal_direct_source_operands_required"),
+        ("sign(None + ratio)", "float_literal_operands_required"),
+        ("id + (-None)", "expression_evidence_unavailable"),
+        ("(None + None) + id", "expression_evidence_unavailable"),
+        ("same_value(coalesce(None, None), id)", "expression_evidence_unavailable"),
+        ("coalesce(None, None) == id", "expression_evidence_unavailable"),
+    ),
+)
+def test_an_always_null_value_outside_the_row_boundary_names_its_rule(
+    tmp_path, target, value, detail
+):
+    """An untyped NULL output, Float arithmetic with a NULL, a NULL number of
+    another type beside a Float and an untyped NULL beside a typed value pass
+    check (D-12), those with an untyped part with its emission warning, and
+    stay blocked with the rule they miss, never with a bare PIE-S2333."""
+    source = row_source(
+        target, f"    from rows\n    select:\n        id\n        value = {value}\n"
+    )
+    _, outcome = probe.build_case(
+        tmp_path, source, stage_contract(target), "preserve_literals"
+    )
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert outcome.status == "BLOCKED" and public["artifact"] is None
+    untyped = detail == "expression_evidence_unavailable"
+    assert [d["code"] for d in public["diagnostics"]] == ["PIE-S2385"] * untyped
+    assert ("PIE-B1003", detail) in [
+        (blocker["code"], blocker["subject"]["detail"])
+        for blocker in public["blockers"]
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_abs_keeps_the_unary_range_proof_and_its_argument_carrier(tmp_path, target):
     """`abs` of an Int has the range unary `-` proves, in the same integer
     type; of a Float or a Decimal it keeps the argument's carrier."""

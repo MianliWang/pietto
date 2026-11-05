@@ -1228,6 +1228,271 @@ def test_concat_reads_an_imported_text_alias_field_as_text(tmp_path, target):
     )
 
 
+SAME_VALUE_BODY = """table result:
+    from rows
+    where same_value(nullif(id, 0), id)
+    select:
+        id
+        both_null = same_value(nullif(id, id), nullif(id, id))
+        texts = same_value(text, nullif(text, "x"))
+        amounts = same_value(money, money)
+        typed = same_value(id + None, id)
+"""
+SAME_VALUE_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "s0"."order.id" AS "c0", '
+        '"s0"."flag value" AS "c1", "s0"."text `""é" AS "c2", '
+        '"s0"."amount value" AS "c3", "s0"."ratio value" AS "c4" '
+        'FROM "public"."phase66 source é" AS "s0" '
+        'WHERE (NULLIF("s0"."order.id", CAST(0 AS pg_catalog.int8)) '
+        'IS NOT DISTINCT FROM "s0"."order.id")) '
+        'SELECT "t1"."c0" AS "id", (NULLIF("t1"."c0", "t1"."c0") '
+        'IS NOT DISTINCT FROM NULLIF("t1"."c0", "t1"."c0")) AS "both_null", '
+        '("t1"."c2" IS NOT DISTINCT FROM NULLIF("t1"."c2", '
+        'CAST(E\'\\170\' AS pg_catalog.text) COLLATE "C")) AS "texts", '
+        '("t1"."c3" IS NOT DISTINCT FROM "t1"."c3") AS "amounts", '
+        '(("t1"."c0" + CAST(NULL AS pg_catalog.int8)) IS NOT DISTINCT FROM "t1"."c0") '
+        'AS "typed" FROM "p0" AS "t1"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, "
+        '`s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, '
+        "`s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4` "
+        "FROM `phase66`.`phase66 source é` AS `s0` "
+        "WHERE (NULLIF(`s0`.`order.id`, CAST(0 AS SIGNED)) <=> `s0`.`order.id`)) "
+        "SELECT `t1`.`c0` AS `id`, (NULLIF(`t1`.`c0`, `t1`.`c0`) "
+        "<=> NULLIF(`t1`.`c0`, `t1`.`c0`)) AS `both_null`, "
+        "(`t1`.`c2` <=> NULLIF(`t1`.`c2`, CAST(X'78' AS CHAR CHARACTER SET utf8mb4) "
+        "COLLATE utf8mb4_0900_bin)) AS `texts`, "
+        "(`t1`.`c3` <=> `t1`.`c3`) AS `amounts`, "
+        "((`t1`.`c0` + CAST(NULL AS SIGNED)) <=> `t1`.`c0`) AS `typed` "
+        "FROM `p0` AS `t1`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_same_value_is_a_null_safe_never_null_bool(tmp_path, target, policy):
+    checked, outcome = emit(tmp_path, target, SAME_VALUE_BODY, policy)
+    assert checked.verified and outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    columns = {column["label"]: column for column in document["columns"]}
+    for label in ("both_null", "texts", "amounts", "typed"):
+        assert columns[label]["logical_type"]["name"] == "Bool"
+        assert columns[label]["nullable"] is False
+    # Both policies keep these literals, so the SQL is the same.
+    assert document["sql"] == SAME_VALUE_SQL[target]
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == target
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "operands", (("ratio", "ratio"), ("flag", "flag"), ("money", "id"))
+)
+def test_same_value_emission_refuses_the_operands_equality_refuses(
+    tmp_path, target, operands
+):
+    def blockers(name, value):
+        _, outcome = emit(
+            tmp_path / name,
+            target,
+            f"table result:\n    from rows\n    select:\n        value = {value}\n",
+        )
+        return outcome.status, [blocker.detail for blocker in outcome.blockers]
+
+    left, right = operands
+    same = blockers("call", f"same_value({left}, {right})")
+    assert same[0] == "BLOCKED"
+    assert same == blockers("equality", f"{left} == {right}")
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_same_value_is_not_yet_a_project_join_match_condition(tmp_path, target):
+    # A JOIN `on` admits no built-in call yet; a joined SELECT does.
+    item = probe.join_witness(
+        target,
+        "query result:\n    from lhs\n    let r = rhs\n"
+        "    left join r on same_value(lhs.id, r.id)\n"
+        "    select:\n        a = lhs.id\n",
+    )
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "BLOCKED"
+    assert "match_condition_not_in_row_domain" in [
+        blocker.detail for blocker in outcome.blockers
+    ]
+
+
+GROUPED_OR_DISTINCT = {
+    "group_key": "table result:\n    from rows\n"
+    "    let k = {value}\n    group by k\n"
+    "    select:\n        k\n        n = count()\n",
+    "distinct_column": "table result:\n    from rows\n"
+    "    select distinct:\n        id\n        e = {value}\n",
+    "distinct_let": "table result:\n    from rows\n    let k = {value}\n"
+    "    select distinct:\n        id\n        e = k\n",
+    "distinct_after_union": "table t0:\n    from rows\n    select:\n"
+    "        e = {value}\n"
+    "table t1:\n    from rows\n    select:\n        e = {value}\n"
+    "query u:\n    union all t0, t1\n"
+    "table result:\n    from u\n    select distinct:\n        e\n",
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "form,location",
+    (
+        ("group_key", (10, 13)),
+        ("distinct_column", (12, 13)),
+        ("distinct_let", (10, 13)),
+        ("distinct_after_union", (11, 13)),
+    ),
+)
+def test_mysql_project_same_value_refuses_a_group_key_or_distinct_column(
+    tmp_path, target, form, location
+):
+    # Real MySQL returns `<=>` grouped or deduplicated as a 4-byte INT, not the
+    # declared my_signed_bool; `==` keeps its carrier here.
+    def outcome_of(name, value):
+        checked, outcome = emit(
+            tmp_path / name, target, GROUPED_OR_DISTINCT[form].format(value=value)
+        )
+        assert checked.verified
+        return outcome
+
+    same = outcome_of("same", "same_value(nullif(id, 0), id)")
+    equal = outcome_of("equal", "nullif(id, 0) == id")
+    assert equal.status == "VERIFIED"
+    if target == "postgres":
+        assert same.status == "VERIFIED"
+        return
+    assert same.status == "BLOCKED"
+    assert public_blockers(same) == [
+        ("PIE-B1003", "scalar_call_signature_not_admitted", *location)
+    ]
+
+
+def public_blockers(outcome):
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    return [
+        (
+            item["code"],
+            item["subject"]["detail"],
+            item["location"]["line"],
+            item["location"]["column"],
+        )
+        for item in document["blockers"]
+    ]
+
+
+ABS_DEFS = (
+    "def fa(x: Float | None) -> Float | None: return abs(x)\n"
+    "def fi(x: Int | None) -> Int | None: return abs(x)\n"
+)
+RESULT = "table result:\n    from rows\n"
+SELECT_O = RESULT + "    select:\n        id\n        o = {}\n"
+T0 = "table t0:\n    from rows\n    select:\n        id\n        x = abs(None)\n"
+FROM_T0 = T0 + "table result:\n    from t0\n"
+POLICIES = ("preserve_literals", "bind_safe_literals")
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("policy", POLICIES)
+@pytest.mark.parametrize(
+    "body,line",
+    (
+        (SELECT_O.format("abs(None)"), 14),
+        (SELECT_O.format("fa(None)"), 14),
+        (SELECT_O.format("fi(None)"), 14),
+        (SELECT_O.format("abs(abs(None))"), 14),
+        (SELECT_O.format("abs(None)") + "    order by id\n", 14),
+        (SELECT_O.format("abs(None)") + "    limit 3\n", 14),
+        (RESULT + "    let x = abs(None)\n    select:\n        id\n        x\n", 15),
+        (RESULT + "    let y = fa(None)\n    select:\n        id\n        o = y\n", 15),
+        (FROM_T0 + "    select:\n        id\n        x\n", 19),
+        (
+            FROM_T0
+            + "    select:\n        id\n        o = lag(x) window(order by id)\n",
+            19,
+        ),
+        (
+            FROM_T0
+            + "    select:\n        id\n        o = first_value(x) window(order by id)\n",
+            19,
+        ),
+    ),
+)
+def test_a_typed_null_decimal_output_refuses_instead_of_crashing(
+    tmp_path, target, policy, body, line
+):
+    # Each visible output needs a Decimal precision that the typed NULL lacks;
+    # every form here raised KeyError in 0.1.7.
+    checked, outcome = emit(tmp_path, target, ABS_DEFS + body, policy)
+    assert checked.verified and outcome.status == "BLOCKED"
+    assert public_blockers(outcome) == [
+        ("PIE-B1003", "scalar_call_signature_not_admitted", line, 9)
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("policy", POLICIES)
+@pytest.mark.parametrize(
+    "body",
+    (
+        SELECT_O.format("abs(None) is None"),
+        SELECT_O.format("abs(None) is not None"),
+        SELECT_O.format("fa(None) is None"),
+        SELECT_O.format("fi(None) is None"),
+        SELECT_O.format("coalesce(abs(None), money)"),
+        SELECT_O.format("coalesce(abs(None), abs(money))"),
+        SELECT_O.format("sign(abs(None))"),
+        SELECT_O.format("abs(None) if flag else money"),
+        SELECT_O.format("abs(None) is None") + "    order by id\n",
+        RESULT + "    where abs(None) is None\n    select:\n        id\n",
+        RESULT
+        + "    let x = abs(None)\n    where x is None\n    select:\n        id\n",
+        RESULT
+        + "    let x = abs(None)\n    select:\n        id\n        o = x is None\n",
+        RESULT + "    let y = fa(None)\n    where y is None\n    select:\n        id\n",
+        FROM_T0 + "    where x is None\n    select:\n        id\n",
+    ),
+)
+def test_readers_of_a_typed_null_decimal_abs_stay_verified(
+    tmp_path, target, policy, body
+):
+    # Each form is VERIFIED in 0.1.7 too.
+    checked, outcome = emit(tmp_path, target, ABS_DEFS + body, policy)
+    assert checked.verified and outcome.status == "VERIFIED"
+
+
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
 def test_q1_int_and_bool_carriers_accept_compatible_literal_anchors(

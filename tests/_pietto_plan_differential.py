@@ -1208,7 +1208,7 @@ NEGATIVE_CORPUS = (
     ),
     (
         "general_call",
-        CONTROL.replace("    select:\n", "    where (id + None) > 0\n    select:\n"),
+        CONTROL.replace("    select:\n", "    where -None == id\n    select:\n"),
         "expression_evidence_unavailable",
     ),
     (

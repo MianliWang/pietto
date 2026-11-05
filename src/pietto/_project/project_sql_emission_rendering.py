@@ -447,7 +447,20 @@ class _Writer:
 
     def operand(self, value, position, alias):
         """One operation operand; a bigint-computed narrow operation CASTs its
-        first operand to pg_catalog.int8."""
+        first operand to pg_catalog.int8, and Int arithmetic its typed NULL
+        operand to the target's Int carrier."""
+        if rows.null_cast(value, position):
+            start, reference = self.offset, value.original.ref
+            self.emit("CAST(", "syntax", "null_cast_open", reference)
+            self.scalar(value.operands[position], alias)
+            self.emit(
+                rows.null_cast_close(self.request.family),
+                "syntax",
+                "null_cast_close",
+                reference,
+            )
+            self.enclose("null_cast", reference, start)
+            return
         if position or not rows.int8_widened(self.request.family, value):
             self.scalar(value.operands[position], alias)
             return
@@ -715,6 +728,23 @@ class _Writer:
                     self.emit(")", "syntax", "scalar_call_close", reference)
                 self.enclose("scalar_call", reference, start)
                 return
+            if name == "same_value":
+                if len(value.operands) != 2:
+                    raise ValueError("unrenderable scalar call")
+                self.emit("(", "syntax", "scalar_call_open", reference)
+                self.scalar(value.operands[0], alias)
+                self.emit(
+                    " IS NOT DISTINCT FROM "
+                    if self.request.family == "postgres"
+                    else " <=> ",
+                    "syntax",
+                    "scalar_call_separator",
+                    reference,
+                )
+                self.scalar(value.operands[1], alias)
+                self.emit(")", "syntax", "scalar_call_close", reference)
+                self.enclose("scalar_call", reference, start)
+                return
             if name in {"contains", "starts_with", "ends_with"}:
                 if len(value.operands) != 2:
                     raise ValueError("unrenderable scalar call")
@@ -888,7 +918,7 @@ class _Writer:
         self.emit("(", "syntax", opening, reference)
         self.operand(value, 0, alias)
         self.emit(operator_token(value), "syntax", operator, reference)
-        self.scalar(value.operands[1], alias)
+        self.operand(value, 1, alias)
         self.emit(")", "syntax", closing, reference)
         self.enclose(role, reference, start)
 

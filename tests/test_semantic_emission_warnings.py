@@ -337,6 +337,11 @@ _TEXT_NULL = "PostgreSQL types a CASE, coalesce or nullif of only None values as
             f"{_TEXT_NULL}, and operator in has no common type for text and Int",
         ),
         (
+            "x = same_value(coalesce(None, None), id)",
+            13,
+            f"{_TEXT_NULL}, and same_value has no common type for text and Int",
+        ),
+        (
             "x = coalesce(coalesce(None, None), 1)",
             13,
             f"{_TEXT_NULL}, and coalesce has no common type for text and Int",
@@ -368,6 +373,7 @@ _TEXT_NULL = "PostgreSQL types a CASE, coalesce or nullif of only None values as
         ),
         ("x = Float(id if id > 0 else None)", None, None),
         ("x = text == coalesce(None, None)", None, None),
+        ("x = same_value(text, coalesce(None, None))", None, None),
         ("x = None and None", None, None),
         ("x = id + None", None, None),
         ("x = substr(text, 2147483647, 2)", None, None),

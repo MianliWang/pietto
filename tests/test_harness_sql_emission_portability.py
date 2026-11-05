@@ -2041,6 +2041,44 @@ def test_int8_widening_is_a_closed_data_relation(tmp_path):
         )
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_typed_null_cast_is_a_closed_data_relation(tmp_path, target):
+    """A public consumer admits the CAST of a typed NULL operand of Int
+    arithmetic (D-12) exactly where the arithmetic has one."""
+    base = emission.fixture(target, "T_row_direct", "table_preserve")
+    head = base["source"].split("table result:", 1)[0]
+    _, outcome = emission.build_case(
+        tmp_path,
+        head + "table result:\n    from rows\n    select:\n        plus = id + None\n",
+        base["contract"],
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    data = observed.canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+    document = json.loads(data)
+    ranges = _records(document, "rendered")[0]["expression_ranges"]
+    assert [_record(document, ref)["role"] for ref in ranges].count("null_cast") == 1
+
+    def uncast(candidate):
+        rendered = _records(candidate, "rendered")[0]
+        rendered["expression_ranges"] = [
+            ref
+            for ref in rendered["expression_ranges"]
+            if _record(candidate, ref)["role"] != "null_cast"
+        ]
+
+    assert _status(_mutated(data, uncast, recanonical=True)) == (
+        pure.Status.INVALID_RELATION,
+        "typed NULL cast",
+    )
+
+
 def test_a_date_orders_a_postgresql_string_agg_for_a_public_consumer(tmp_path):
     """The string_agg ORDER BY carrier domain the emitter admits through the
     GROUP BY equality law, a Date included, is the one a consumer accepts."""

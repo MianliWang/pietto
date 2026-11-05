@@ -817,9 +817,9 @@ def test_deferred_relation_declaration_propagates_without_concretization(
         tmp_path,
         {
             "main.pietto": (
-                _SHAPE_PREFIX + "query pending:\n    from rows\n    select:\n"
-                "        unset = None\n"
-                "query result:\n    from pending\n    select:\n        unset\n"
+                _SHAPE_PREFIX + "query pending:\n    from rows\n    group by:\n"
+                "        amount\n    select:\n        amount\n"
+                "query result:\n    from pending\n    select:\n        amount\n"
             )
         },
     )

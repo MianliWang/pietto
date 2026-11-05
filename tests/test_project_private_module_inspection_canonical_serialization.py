@@ -1057,9 +1057,9 @@ def test_relation_declaration_states_concrete_unknown_deferred_and_blocked(
         ),
         (
             "deferred",
-            _SHAPE_PREFIX + "query pending:\n    from rows\n    select:\n"
-            "        unset = None\n"
-            "query result:\n    from pending\n    select:\n        unset\n",
+            _SHAPE_PREFIX + "query pending:\n    from rows\n    group by:\n"
+            "        amount\n    select:\n        amount\n"
+            "query result:\n    from pending\n    select:\n        amount\n",
             ProjectRelationRowSchemaStatus.DEFERRED,
         ),
         (

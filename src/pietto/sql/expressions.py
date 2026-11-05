@@ -281,11 +281,13 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         _refuse_text_null_beside_typed(
             "a conditional", expression.when_true, expression.when_false
         )
+        condition = _render_expression_sql(expression.condition, nested=True)
+        when_true = _render_expression_sql(expression.when_true, nested=True)
+        when_false = _render_expression_sql(expression.when_false, nested=True)
         sql = (
-            "CASE WHEN "
-            f"{_render_expression_sql(expression.condition, nested=True)} THEN "
-            f"{_render_expression_sql(expression.when_true, nested=True)} ELSE "
-            f"{_render_expression_sql(expression.when_false, nested=True)} END"
+            f"CASE WHEN {condition} THEN "
+            f"{_number_operand(expression, expression.when_true, when_true)} ELSE "
+            f"{_number_operand(expression, expression.when_false, when_false)} END"
         )
     elif isinstance(expression, MembershipIR):
         value_sql = _render_expression_sql(expression.value, nested=True)
@@ -377,9 +379,11 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         _refuse_text_null_operand(
             f"operator {expression.operator}", expression.left, expression.right
         )
+        left = _render_expression_sql(expression.left, nested=True)
+        right = _render_expression_sql(expression.right, nested=True)
         sql = (
-            f"{_render_expression_sql(expression.left, nested=True)} {operator} "
-            f"{_render_expression_sql(expression.right, nested=True)}"
+            f"{_number_operand(expression, expression.left, left)} {operator} "
+            f"{_number_operand(expression, expression.right, right)}"
         )
     else:
         raise ValueError(
@@ -387,6 +391,82 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         )
 
     return f"({sql})" if nested else sql
+
+
+_NUMBER_SQL_TYPES = {"Int": "bigint", "Decimal": "numeric", "Float": "double precision"}
+_ARITHMETIC_OPERATORS = frozenset({"+", "-", "*", "/", "%"})
+
+
+def _number_operand(parent: ExpressionIR, operand: ExpressionIR, rendered: str) -> str:
+    """``rendered``, the SQL of ``operand`` of an arithmetic operator, a
+    conditional, `coalesce` or `nullif`, with an always-null number typed as
+    Pietto types it (D-12); called after rendering, so it adds no recursion."""
+
+    return null_number_operand_sql(parent, operand, rendered, _NUMBER_SQL_TYPES)
+
+
+def null_number_operand_sql(
+    parent: ExpressionIR,
+    operand: ExpressionIR,
+    rendered: str,
+    sql_types: dict[str, str],
+) -> str:
+    """``rendered`` with an always-null number typed as Pietto types it: a
+    `None` operand of an arithmetic operator is a NULL of the type it takes,
+    which an untyped NULL may not be (PostgreSQL types `NULL * 2` as integer,
+    MySQL `n + NULL` as DOUBLE), and an always-null `Int` or `Decimal` beside
+    a `Float` result is that `Float`, which SQL would not convert it to beside
+    a literal such as `1.5`, a decimal in SQL."""
+
+    name = _builtin_type_name(operand)
+    if name not in sql_types:
+        return rendered
+    if (
+        type(parent) is BinaryIR
+        and parent.operator in _ARITHMETIC_OPERATORS
+        and type(operand) is LiteralIR
+        and operand.value is None
+    ):
+        rendered = f"CAST(NULL AS {sql_types[name]})"
+    if (
+        name != "Float"
+        and _builtin_type_name(parent) == "Float"
+        and _is_always_null(operand)
+    ):
+        rendered = f"CAST({rendered} AS {sql_types['Float']})"
+    return rendered
+
+
+def _is_always_null(expression: ExpressionIR) -> bool:
+    """Whether ``expression`` is a number NULL on every row, as the semantic
+    `always_null` decides: a NULL literal, a sign or arithmetic with such an
+    operand, or a CASE or COALESCE whose every value is one. It walks an
+    explicit stack, as deep chains of arithmetic are admitted."""
+
+    results: dict[int, bool] = {}
+    pending: list[tuple[ExpressionIR, bool]] = [(expression, False)]
+    while pending:
+        node, ready = pending.pop()
+        if type(node) is UnaryIR and node.operator in {"+", "-"}:
+            children: tuple[ExpressionIR, ...] = (node.operand,)
+        elif type(node) is BinaryIR and node.operator in _ARITHMETIC_OPERATORS:
+            children = (node.left, node.right)
+        elif type(node) is ConditionalIR:
+            children = (node.when_true, node.when_false)
+        elif type(node) is CallIR and node.callee == "coalesce":
+            children = node.arguments
+        else:
+            results[id(node)] = type(node) is LiteralIR and node.value is None
+            continue
+        if not ready:
+            pending.append((node, True))
+            pending.extend((child, False) for child in children)
+            continue
+        values = [results[id(child)] for child in children]
+        results[id(node)] = (
+            any(values) if type(node) in (UnaryIR, BinaryIR) else all(values)
+        )
+    return results[id(expression)]
 
 
 def _refuse_untyped_null_arithmetic(operator: str, *operands: ExpressionIR) -> None:
@@ -1185,7 +1265,9 @@ def _render_call(expression: CallIR) -> str:
         return (
             "COALESCE("
             + ", ".join(
-                _render_expression_sql(argument, nested=True)
+                _number_operand(
+                    expression, argument, _render_expression_sql(argument, nested=True)
+                )
                 for argument in expression.arguments
             )
             + ")"
@@ -1213,6 +1295,15 @@ def _render_call(expression: CallIR) -> str:
         return _render_round_call(expression)
     if expression.callee == "date_trunc":
         return _render_date_trunc_call(expression)
+    if expression.callee == "same_value":
+        if len(expression.arguments) != 2:
+            raise ValueError("PostgreSQL function same_value expects 2 argument(s)")
+        _refuse_text_null_beside_typed("same_value", *expression.arguments)
+        left, right = (
+            _render_expression_sql(argument, nested=True)
+            for argument in expression.arguments
+        )
+        return f"({left} IS NOT DISTINCT FROM {right})"
     if expression.callee not in _FUNCTION_ARITIES:
         raise ValueError(f"Unsupported PostgreSQL function call: {expression.callee}")
     expected_arity = _FUNCTION_ARITIES[expression.callee]
@@ -1234,7 +1325,11 @@ def _render_call(expression: CallIR) -> str:
         return f"{arguments[0]} ~ {arguments[1]}"
     if expression.callee == "nullif":
         _refuse_text_null_beside_typed("nullif", *expression.arguments)
-        return f"NULLIF({arguments[0]}, {arguments[1]})"
+        first, second = (
+            _number_operand(expression, argument, sql)
+            for argument, sql in zip(expression.arguments, arguments, strict=True)
+        )
+        return f"NULLIF({first}, {second})"
     if expression.callee == "substr":
         if any(
             type(index) is LiteralIR

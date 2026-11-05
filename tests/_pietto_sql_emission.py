@@ -6484,6 +6484,22 @@ def _decode_fixed_public(document, limits):
         expected_ranges.append(("int8_widen", original, opened["start"], closed["end"]))
         return operand, True
 
+    def null_cast_operand(block, port_kind, original):
+        """One typed NULL operand of Int arithmetic, CAST to the target's
+        Int carrier."""
+        if peek() != "null_cast_open":
+            return None, False
+        opened, _ = take("syntax", "null_cast_open", "CAST(", original)
+        operand = row_parse(block, port_kind)
+        _need(
+            operand["kind"] == "constant" and operand["value"]["value"] is None,
+            "typed NULL cast operand",
+        )
+        close = " AS pg_catalog.int8)" if family == "postgres" else " AS SIGNED)"
+        closed, _ = take("syntax", "null_cast_close", close, original)
+        expected_ranges.append(("null_cast", original, opened["start"], closed["end"]))
+        return operand, True
+
     def constant_ahead():
         index = cursor
         while index < len(lexical) and lexical[index][0]["role"] == "unary_open":
@@ -7191,14 +7207,7 @@ def _decode_fixed_public(document, limits):
                     "COALESCE(": "coalesce",
                 },
             }[family]
-            if opening == "(" and family == "postgres":
-                operands = [row_parse(block, port_kind)]
-                while peek() == "scalar_call_separator":
-                    take("syntax", "scalar_call_separator", " || ", original)
-                    operands.append(row_parse(block, port_kind))
-                _need(len(operands) >= 2, "concat arity")
-                name, close = "concat", ")"
-            elif opening == "round(" and family == "postgres":
+            if opening == "round(" and family == "postgres":
                 operands = [row_parse(block, port_kind)]
                 if peek() == "scalar_call_separator":
                     take("syntax", "scalar_call_separator", ", CAST(", original)
@@ -7290,6 +7299,29 @@ def _decode_fixed_public(document, limits):
                         original,
                     )
                 name, close = "substr", ")"
+            elif opening == "(":
+                # PostgreSQL `concat` and `same_value` both open with `(`; the
+                # separator after the first operand tells them apart.
+                operands = [row_parse(block, port_kind)]
+                if (
+                    family == "postgres"
+                    and cursor < len(lexical)
+                    and lexical[cursor][1] == " || "
+                ):
+                    while peek() == "scalar_call_separator":
+                        take("syntax", "scalar_call_separator", " || ", original)
+                        operands.append(row_parse(block, port_kind))
+                    _need(len(operands) >= 2, "concat arity")
+                    name, close = "concat", ")"
+                else:
+                    take(
+                        "syntax",
+                        "scalar_call_separator",
+                        " IS NOT DISTINCT FROM " if family == "postgres" else " <=> ",
+                        original,
+                    )
+                    operands.append(row_parse(block, port_kind))
+                    name, close = "same_value", ")"
             elif opening in {"(strpos(", "(INSTR("}:
                 _need(opening == ("(strpos(" if family == "postgres" else "(INSTR("))
                 first = row_parse(block, port_kind)
@@ -7592,10 +7624,15 @@ def _decode_fixed_public(document, limits):
             }
         _need(role in {"binary_open", "comparison_open"}, "row expression node")
         take("syntax", role, "(", original)
-        left, widened = widened_operand(block, port_kind, original)
+        left, left_cast = null_cast_operand(block, port_kind, original)
+        widened = False
+        if not left_cast:
+            left, widened = widened_operand(block, port_kind, original)
         operator_role = peek()
         _, token = take("syntax", operator_role, subject=original)
-        right = row_parse(block, port_kind)
+        right, right_cast = null_cast_operand(block, port_kind, original)
+        if not right_cast:
+            right = row_parse(block, port_kind)
         if operator_role == "comparison_operator" and token in {" LIKE ", " NOT LIKE "}:
             take("syntax", "comparison_escape", " ESCAPE '!'", original)
         closing = "binary_close" if role == "binary_open" else "comparison_close"
@@ -7614,6 +7651,7 @@ def _decode_fixed_public(document, limits):
                 _need(token in COMPARISON_TOKENS, "operator")
             kind, enclosure = "comparison", "comparison"
         _need(not widened or kind == "arithmetic", "int8 widening")
+        _need(kind == "arithmetic" or not (left_cast or right_cast), "typed NULL cast")
         expected_ranges.append((enclosure, original, start, closed["end"]))
         return {
             "kind": kind,
@@ -7621,6 +7659,7 @@ def _decode_fixed_public(document, limits):
             "operator": token,
             "operands": [left, right],
             "widened": widened,
+            "null_casts": [left_cast, right_cast],
         }
 
     def row_resolve(node, incoming, alias, owner, scopes=None, context=None):
@@ -8139,6 +8178,45 @@ def _decode_fixed_public(document, limits):
             literal = value.get("value") or value.get("literal")
             return None if literal is None else literal.get("value")
 
+        def comparison_pair(left, right, operator):
+            if left["tag"] == "UUID":
+                # Q3: PostgreSQL orders a uuid by its unsigned big-endian
+                # bytes; MySQL compares BINARY(16) values for equality only.
+                _need(
+                    operator
+                    in (COMPARISON_TOKENS if family == "postgres" else {" = ", " <> "})
+                    and compatible(left, right),
+                    "uuid comparison pair",
+                )
+            elif left["tag"] in {"Timestamp", "Date"}:
+                # One temporal carrier orders by its exact instant or day.
+                _need(
+                    operator in COMPARISON_TOKENS and compatible(left, right),
+                    "temporal comparison pair",
+                )
+            else:
+                _need(
+                    left["tag"] in COMPARABLE and left["tag"] == right["tag"],
+                    "comparison type pair",
+                )
+            if left["tag"] == "Text":
+                _need(
+                    all(
+                        left["domain"].get(k) == right["domain"].get(k) is not None
+                        for k in ("encoding", "collation", "padding")
+                    ),
+                    "text comparison domain",
+                )
+            if left["tag"] == "Decimal":
+                _need(
+                    left["storage"] == right["storage"]
+                    and all(
+                        left["domain"].get(k) == right["domain"].get(k) is not None
+                        for k in ("precision", "scale")
+                    ),
+                    "decimal comparison parameters",
+                )
+
         def scalar_result(name):
             nonlocal nullable
             if name == "round":
@@ -8313,6 +8391,11 @@ def _decode_fixed_public(document, limits):
                         if not item.get("null")
                     ),
                 )
+            if name == "same_value":
+                # NULL-safe equality of two values `==` compares: never NULL.
+                _need(len(operands) == 2, "same_value arity")
+                comparison_pair(operands[0], operands[1], " = ")
+                return row_bool(False)
             if name in {"contains", "starts_with", "ends_with"} and len(operands) == 2:
                 _need(
                     operands[0]["tag"] == operands[1]["tag"] == "Text",
@@ -8596,6 +8679,18 @@ def _decode_fixed_public(document, limits):
                     "domain": {"kind": "finite_float", "format": "binary64"},
                     "float_value": value,
                 }
+            elif [bool(item.get("null")) for item in operands].count(True) == 1:
+                # D-12: a typed NULL operand nulls every row; it is CAST to the
+                # target's Int carrier, which types the result, which claims
+                # the single value 0, as no row has one.
+                _need(
+                    node["null_casts"] == [bool(item.get("null")) for item in operands],
+                    "typed NULL cast",
+                )
+                (other,) = (item for item in operands if not item.get("null"))
+                result = row_int(
+                    (other, {"storage": {"kind": "pg_int8"}}), 0, 0, nullable
+                )
             else:
                 (low_l, high_l), (low_r, high_r) = (row_interval(o) for o in operands)
                 if node["operator"] == " + ":
@@ -8732,44 +8827,7 @@ def _decode_fixed_public(document, limits):
         elif node["kind"] == "scalar_call":
             result = scalar_result(node["name"])
         else:
-            left, right = operands
-            if left["tag"] == "UUID":
-                # Q3: PostgreSQL orders a uuid by its unsigned big-endian
-                # bytes; MySQL compares BINARY(16) values for equality only.
-                _need(
-                    node["operator"]
-                    in (COMPARISON_TOKENS if family == "postgres" else {" = ", " <> "})
-                    and compatible(left, right),
-                    "uuid comparison pair",
-                )
-            elif left["tag"] in {"Timestamp", "Date"}:
-                # One temporal carrier orders by its exact instant or day.
-                _need(
-                    node["operator"] in COMPARISON_TOKENS and compatible(left, right),
-                    "temporal comparison pair",
-                )
-            else:
-                _need(
-                    left["tag"] in COMPARABLE and left["tag"] == right["tag"],
-                    "comparison type pair",
-                )
-            if left["tag"] == "Text":
-                _need(
-                    all(
-                        left["domain"].get(k) == right["domain"].get(k) is not None
-                        for k in ("encoding", "collation", "padding")
-                    ),
-                    "text comparison domain",
-                )
-            if left["tag"] == "Decimal":
-                _need(
-                    left["storage"] == right["storage"]
-                    and all(
-                        left["domain"].get(k) == right["domain"].get(k) is not None
-                        for k in ("precision", "scale")
-                    ),
-                    "decimal comparison parameters",
-                )
+            comparison_pair(operands[0], operands[1], node["operator"])
             result = row_bool(nullable)
         _need(within(cause(original), cause(owner)))
         spelling = (
@@ -8830,6 +8888,8 @@ def _decode_fixed_public(document, limits):
             result_strict = any(item["nullable"] is False for item in operands)
         elif node["kind"] == "scalar_call" and node["name"] == "nullif":
             result_strict = False
+        elif node["kind"] == "scalar_call" and node["name"] == "same_value":
+            result_strict = True
         # The semantic NON_NULL proof a carried computed value may claim mirrors
         # the let value's own typing, not physical strictness: comparison,
         # logical, arithmetic and BETWEEN results stay UNKNOWN there.
@@ -8844,6 +8904,8 @@ def _decode_fixed_public(document, limits):
             result_proof = any(proofs)
         elif node["kind"] == "scalar_call" and node["name"] == "nullif":
             result_proof = False
+        elif node["kind"] == "scalar_call" and node["name"] == "same_value":
+            result_proof = True
         else:
             result_proof = node["kind"] in {
                 "sign",

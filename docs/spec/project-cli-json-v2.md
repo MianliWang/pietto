@@ -408,6 +408,14 @@ The additive `ranges` roles for these PostgreSQL forms are
 `int8_widen_close`, `aggregate_result_cast_open` and
 `aggregate_result_cast_close`.
 
+`Int` arithmetic with a `None` operand (D-12, kind `arithmetic`) writes that
+NULL as `CAST(NULL AS pg_catalog.int8)` on PostgreSQL and
+`CAST(NULL AS SIGNED)` on MySQL, with the additive `ranges` roles
+`expression_range` role `null_cast` and `syntax` roles `null_cast_open` and
+`null_cast_close`, all with the operation as subject. Its result is in that
+carrier (`pg_int8`, `my_signed_int`) with `int_range` 0..0, which holds for
+no row, as every row is NULL.
+
 `pietto.sql-emission.v1` stays frozen. Only a `VERIFIED` document whose
 selected query declares header parameters is tagged
 `"format": "pietto.sql-emission.v2"` (D70.02, D70.08); every other document,

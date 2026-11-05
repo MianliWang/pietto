@@ -182,6 +182,15 @@ def test_concat_uses_the_null_propagating_postgres_operator() -> None:
         render_expression_sql(_call("concat", code))
 
 
+def test_same_value_is_parenthesised_is_not_distinct_from() -> None:
+    assert (
+        render_expression_sql(_call("same_value", _field("code"), _literal("x")))
+        == "(\"code\" IS NOT DISTINCT FROM 'x')"
+    )
+    with pytest.raises(ValueError, match="same_value expects 2"):
+        render_expression_sql(_call("same_value", _field("code")))
+
+
 def test_len_call_uses_postgres_length() -> None:
     assert render_expression_sql(_call("len", _field("email"))) == 'length("email")'
 

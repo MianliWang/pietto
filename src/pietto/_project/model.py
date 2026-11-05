@@ -853,11 +853,16 @@ class ProjectRowFieldProvenanceKind(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ProjectRowFieldProvenance:
-    """Inert private origin metadata for a future project row field."""
+    """Inert private origin metadata for a future project row field.
+
+    ``untyped_null`` marks a derived output its relation completes by
+    `untyped_null_type`, which project SQL emission refuses and PIE-S2385
+    warns of; it takes no part in equality."""
 
     kind: ProjectRowFieldProvenanceKind
     symbol: ProjectSymbol | None = None
     location: SourceLocation | None = None
+    untyped_null: bool = field(default=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -3131,6 +3136,7 @@ def _project_direct_relation_row_schema(
         nested_reference_diagnostic,
         project_row_schema_to_semantic_row_schema,
         reports_unfit_def_argument,
+        untyped_null_type,
     )
 
     fields: dict[str, ProjectRowField] = {}
@@ -3335,12 +3341,43 @@ def _project_direct_relation_row_schema(
                 fallback_path=fallback_path,
             )
             if result.status is not ProjectExpressionSchemaStatus.CONCRETE:
-                return _ProjectRelationRowSchemaResult(
-                    schema=None,
-                    state_reason=(
-                        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
+                # An output with untyped always-NULL parts has the field a
+                # single file types it with (no type for `-None`); a relation
+                # with a Collect read completes by replay, which types no such
+                # output, so it stays deferred.
+                untyped = (
+                    None
+                    if any(
+                        type(selected.expression) is CollectRelationExpr
+                        for selected in definition.select_items
+                    )
+                    else untyped_null_type(
+                        item.expression,
+                        source_schema,
+                        let_scope_facts,
+                        relation_qualifier=(
+                            definition.from_clause.binding_name
+                            or definition.from_clause.source_name
+                        ),
+                        read_types=read_types,
+                        captured_value_types=captured_value_types,
+                    )
+                )
+                if untyped is None or item.alias in fields:
+                    return deferred
+                fields[item.alias] = ProjectRowField(
+                    name=item.alias,
+                    resolved_type=untyped[0],
+                    nullability=untyped[1],
+                    field_def=None,
+                    provenance=ProjectRowFieldProvenance(
+                        kind=ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION,
+                        symbol=source_symbol,
+                        location=result.location,
+                        untyped_null=True,
                     ),
                 )
+                continue
 
             if item.alias in fields:
                 is_unknown = True

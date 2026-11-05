@@ -140,6 +140,15 @@ def test_concat_uses_mysql_concat() -> None:
         render_mysql_expression(_call("concat", _field("code")))
 
 
+def test_same_value_is_the_parenthesised_null_safe_operator() -> None:
+    assert (
+        render_mysql_expression(_call("same_value", _field("code"), _literal("x")))
+        == "(`code` <=> 'x')"
+    )
+    with pytest.raises(MySqlRenderError, match="same_value expects 2"):
+        render_mysql_expression(_call("same_value", _field("code")))
+
+
 def test_mysql_only_emits_proven_decimal_round_and_int_text_cast() -> None:
     decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
     int_type = _builtin_type("Int", NullabilityIR.NON_NULL)

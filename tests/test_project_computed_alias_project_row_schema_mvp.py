@@ -11,6 +11,7 @@ from pietto._project.model import (
     ProjectParsedInput,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
+    ProjectResolvedTypeKind,
     ProjectRowField,
     ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
@@ -161,7 +162,7 @@ def test_computed_alias_schema_propagates_through_query_to_query_multi_hop(
     )
 
 
-def test_unknown_and_null_stay_non_concrete_while_division_and_aggregate_are_concrete(
+def test_unknown_stays_non_concrete_while_null_division_and_aggregate_are_concrete(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -204,15 +205,28 @@ def test_unknown_and_null_stay_non_concrete_while_division_and_aggregate_are_con
         ProjectRelationRowSchemaStatus.CONCRETE,
         ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
     )
-    for name in ("nullish", "missing"):
-        definition = _derived_definition(parse_result, name)
-        assert definition not in semantic_result.model.relation_row_schemas
-        _assert_state(
-            semantic_result,
-            definition,
-            ProjectRelationRowSchemaStatus.DEFERRED,
-            ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
-        )
+    # An untyped NULL output completes its relation as in a single file: its
+    # readers see a value of unknown type.
+    nullish = _derived_definition(parse_result, "nullish")
+    nothing = semantic_result.model.relation_row_schemas[nullish].fields["nothing"]
+    assert (nothing.resolved_type.kind, nothing.nullability) == (
+        ProjectResolvedTypeKind.UNKNOWN,
+        ProjectRowFieldNullability.NULLABLE,
+    )
+    _assert_state(
+        semantic_result,
+        nullish,
+        ProjectRelationRowSchemaStatus.CONCRETE,
+        ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
+    )
+    missing = _derived_definition(parse_result, "missing")
+    assert missing not in semantic_result.model.relation_row_schemas
+    _assert_state(
+        semantic_result,
+        missing,
+        ProjectRelationRowSchemaStatus.DEFERRED,
+        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+    )
 
     aggregate = _derived_definition(parse_result, "aggregate")
     aggregate_schema = semantic_result.model.relation_row_schemas[aggregate]

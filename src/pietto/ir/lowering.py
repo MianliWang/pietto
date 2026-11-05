@@ -1035,7 +1035,7 @@ def _lower_expr_node(
                     expanded,
                     "let binding expression value type",
                 )
-            return _lower_expr_node(
+            lowered = _lower_expr_node(
                 expanded,
                 semantic_model,
                 fields=fields,
@@ -1046,6 +1046,15 @@ def _lower_expr_node(
                 join_reads=join_reads,
                 window_input_expressions=window_inputs,
             )
+            # Each read copies the let's value: a `None` is of the type its
+            # read takes, as an inline `None` there is (D-12).
+            if (
+                type(lowered) is LiteralIR
+                and lowered.value is None
+                and value_type.canonical_kind is TypeKindIR.BUILTIN
+            ):
+                return LiteralIR(value=None, span=lowered.span, value_type=value_type)
+            return lowered
         if join_reads is not None:
             return join_reads.field_ref(
                 expression, span=lower_span(expression.span), value_type=value_type

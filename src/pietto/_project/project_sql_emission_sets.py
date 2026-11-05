@@ -450,7 +450,15 @@ def build_set_unit(
                 realization,
                 symbol(ordinal + 1, export.ref, label),
                 label,
-                rows.StageColumn(ordinal, label, terminal.ref, realization),
+                rows.StageColumn(
+                    ordinal,
+                    label,
+                    terminal.ref,
+                    realization,
+                    same_value=next(
+                        (c.same_value for c in positional if c.same_value), None
+                    ),
+                ),
             )
         )
     unit = SetBody(

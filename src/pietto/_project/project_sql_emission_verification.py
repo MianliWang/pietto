@@ -1511,6 +1511,26 @@ def resolved_row_realization(
         )
     if tag != "Int" or any(item.tag != "Int" for item in operands):
         raise ValueError("arithmetic domain")
+    nulls = [
+        item.nullable is True
+        and item.storage == {"kind": "typed_null"}
+        and item.domain == {"kind": "typed_null"}
+        for item in operands
+    ]
+    if kind == "binary" and nulls.count(True) == 1:
+        # A typed NULL operand nulls every row; rendered as a CAST to the
+        # target's Int carrier, which types the result beside any integer
+        # operand, it claims the single value 0, which holds for no row.
+        other = operands[nulls.index(False)]
+        if rows._arithmetic_storage(family, other, other) is None:
+            raise ValueError("typed null arithmetic carrier")
+        return rows.Realization(
+            "Int",
+            {"kind": "pg_int8" if family == "postgres" else "my_signed_int"},
+            nullable,
+            {"kind": "int_range", "min": "0", "max": "0"},
+            (0, 0),
+        )
     bounds = []
     for item in operands:
         interval = rows.proven_int_bounds(item)
@@ -1665,6 +1685,17 @@ def _target_checked(family, value):
     else:
         return False
     return low < -(1 << 63) or high > (1 << 63) - 1
+
+
+def _null_cast(value, position):
+    """An Int arithmetic operand that is a typed NULL: rendered as a CAST to
+    the target's Int carrier, as the checked realization requires."""
+    return (
+        type(value) is rows.SQLOperation
+        and value.kind == "arithmetic"
+        and value.realization.tag == "Int"
+        and type(value.operands[position]) is parameters.SQLNull
+    )
 
 
 def _int8_widened(family, value):
@@ -6341,6 +6372,20 @@ def verify_row_bytes(query, rendered):
             # A narrow PostgreSQL Int operation computed in bigint CASTs its
             # first operand; independently read from the checked realizations.
             start = offset
+            if _null_cast(value, position):
+                reference = value.original.ref
+                take("syntax", "null_cast_open", reference, "CAST(")
+                scalar(value.operands[position], alias)
+                take(
+                    "syntax",
+                    "null_cast_close",
+                    reference,
+                    parameters.anchor_suffix(
+                        parameters.PHYSICAL[request.family]["Int"]
+                    ),
+                )
+                spans.append(("null_cast", reference, start, offset))
+                return
             if position or not _int8_widened(request.family, value):
                 scalar(value.operands[position], alias)
                 return
@@ -6830,6 +6875,23 @@ def verify_row_bytes(query, rendered):
                     )
                     spans.append(("scalar_call", reference, start, offset))
                     return
+                if name == "same_value":
+                    if len(value.operands) != 2:
+                        raise ValueError("scalar call arity")
+                    take("syntax", "scalar_call_open", reference, "(")
+                    scalar(value.operands[0], alias)
+                    take(
+                        "syntax",
+                        "scalar_call_separator",
+                        reference,
+                        " IS NOT DISTINCT FROM "
+                        if query.request.family == "postgres"
+                        else " <=> ",
+                    )
+                    scalar(value.operands[1], alias)
+                    take("syntax", "scalar_call_close", reference, ")")
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
                 if name in {"contains", "starts_with", "ends_with"}:
                     if len(value.operands) != 2:
                         raise ValueError("scalar call arity")
@@ -7003,7 +7065,7 @@ def verify_row_bytes(query, rendered):
             take("syntax", opening, reference, "(")
             operation_operand(value, 0, alias)
             take("syntax", operator, reference, operator_token(value))
-            scalar(value.operands[1], alias)
+            operation_operand(value, 1, alias)
             take("syntax", closing, reference, ")")
             spans.append((role, reference, start, offset))
 

@@ -537,6 +537,210 @@ def test_q1_closed_builtin_catalog_has_typed_nullable_results() -> None:
     )
 
 
+_SAME_VALUE_SOURCE = (
+    "enum Status: open, closed\n"
+    "type Code = Text\n"
+    "shape Item:\n"
+    "    id: Int\n"
+    "    owner_id: Int | None\n"
+    "    count: Int\n"
+    "    amount: Decimal | None\n"
+    "    ratio: Float | None\n"
+    "    code: Code\n"
+    "    note: Text | None\n"
+    "    opened_on: Date | None\n"
+    "    status: Status | None\n"
+    "    pk = unique(id)\n"
+    'source items: Item = postgres.table("items")\n'
+    "shape Tag:\n"
+    "    id: Int\n"
+    "    item_id: Int | None\n"
+    "    pk = unique(id)\n"
+    'source tags: Tag = postgres.table("tags")\n'
+)
+
+
+def test_same_value_is_a_bool_that_is_never_none() -> None:
+    # Each cell of the operands' nullability gives a non-null Bool, and the
+    # operands compare as for `==`.
+    result = analyze(
+        _parse(
+            _SAME_VALUE_SOURCE + "table projected:\n"
+            "    from items\n"
+            "    where same_value(owner_id, count)\n"
+            "    select:\n"
+            "        both_values = same_value(count, id)\n"
+            "        left_null = same_value(owner_id, count)\n"
+            "        right_null = same_value(count, owner_id)\n"
+            "        both_null = same_value(owner_id, owner_id)\n"
+            "        numbers = same_value(amount, ratio)\n"
+            '        texts = same_value(code, "x")\n'
+            '        day = same_value(opened_on, "2024-01-02")\n'
+            '        label = same_value(status, "open")\n'
+            "        typed_null = same_value(count + None, owner_id)\n"
+        )
+    )
+    table = _table(result)
+    types = tuple(
+        result.model.expression_value_types[expression]
+        for expression in (
+            *(item.expression for item in table.select_items),
+            _where_expression(result),
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert {
+        (value_type.resolved_type.name, value_type.nullability) for value_type in types
+    } == {("Bool", EffectiveNullability.NON_NULL)}
+
+
+def test_same_value_in_join_on_matches_no_key() -> None:
+    # NULL-safe equality may match many rows of a unique key that admits NULL,
+    # so it is no key match and an aggregate over the JOIN is refused.
+    def check(predicate: str) -> list[tuple[str, int]]:
+        result = analyze(
+            _parse(
+                _SAME_VALUE_SOURCE + "query joined:\n"
+                "    from items\n"
+                "    let tag = tags\n"
+                f"    left join tag on {predicate}\n"
+                "    group by items.id\n"
+                "    select:\n"
+                "        id = items.id\n"
+                "        total = sum(items.count)\n"
+            )
+        )
+        return [(item.code, item.location.line) for item in result.diagnostics]
+
+    assert check("tag.id == items.owner_id") == []
+    assert check("same_value(tag.id, items.owner_id)") == [("PIE-S2381", 27)]
+
+
+def test_same_value_in_where_does_not_reject_unmatched_left_join_rows() -> None:
+    # `same_value(tag.item_id, items.owner_id)` is True for an unmatched row
+    # whose `owner_id` is None, so WHERE keeps it, as `==` would not.
+    def warnings(predicate: str) -> list[str]:
+        result = analyze(
+            _parse(
+                _SAME_VALUE_SOURCE + "query joined:\n"
+                "    from items\n"
+                "    let tag = tags\n"
+                "    left join tag on tag.item_id == items.id\n"
+                f"    where {predicate}\n"
+                "    select:\n"
+                "        id = items.id\n"
+            )
+        )
+        return [item.code for item in result.diagnostics]
+
+    assert warnings("tag.id == items.owner_id") == ["PIE-S2383"]
+    assert warnings("same_value(tag.id, items.owner_id)") == []
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (
+            "same_value(owner_id, None)",
+            "Invalid argument type for function same_value at position 2: "
+            "expected a non-None value, got None; write `x is None` instead",
+        ),
+        (
+            "same_value(nothing, count)",
+            "Invalid argument type for function same_value at position 1: "
+            "expected a non-None value, got None; write `x is None` instead",
+        ),
+        (
+            "same_value(None, None)",
+            "Invalid argument type for function same_value at position 1: "
+            "expected a non-None value, got None",
+        ),
+        (
+            "same_value(count)",
+            "Invalid arguments for function same_value: expected 2, got 1",
+        ),
+        (
+            "same_value(count, count, count)",
+            "Invalid arguments for function same_value: expected 2, got 3",
+        ),
+        (
+            "same_value(count, code)",
+            "Invalid argument types for function same_value: "
+            "expected comparable operands",
+        ),
+        (
+            "same_value(opened_on, count)",
+            "Invalid argument types for function same_value: "
+            "expected comparable operands",
+        ),
+        (
+            'same_value(status, "gone")',
+            "Invalid argument types for function same_value: "
+            "expected comparable operands",
+        ),
+        (
+            "same_value(amount / 2, code)",
+            "Invalid argument types for function same_value: "
+            "expected comparable operands",
+        ),
+    ],
+)
+def test_same_value_refuses_none_and_operands_that_do_not_compare(
+    call: str, message: str
+) -> None:
+    result = analyze(
+        _parse(
+            _SAME_VALUE_SOURCE + "table projected:\n"
+            "    from items\n"
+            "    let nothing = None\n"
+            "    select:\n"
+            f"        value = {call}\n",
+            path="main.pietto",
+        )
+    )
+
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in result.diagnostics
+    ] == [("PIE-S2104", message, 24, 17)]
+    # Operands that `same_value` refuses for their types, `==` refuses too.
+    if "comparable" in message:
+        operands = call.removeprefix("same_value(").removesuffix(")")
+        compared = analyze(
+            _parse(
+                _SAME_VALUE_SOURCE
+                + "table projected:\n"
+                "    from items\n"
+                "    select:\n"
+                "        value = {} == {}\n".format(*operands.split(", "))
+            )
+        )
+        assert [item.code for item in compared.diagnostics] == ["PIE-S2105"]
+
+
+def test_same_value_refuses_none_reaching_it_through_a_def_argument() -> None:
+    result = analyze(
+        _parse(
+            _SAME_VALUE_SOURCE + "def eqs(x: Int | None, y: Int | None) -> Bool:\n"
+            "    return same_value(x, y)\n"
+            "table projected:\n"
+            "    from items\n"
+            "    select:\n"
+            "        value = eqs(None, count)\n",
+            path="main.pietto",
+        )
+    )
+
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-S2104",
+            "Invalid argument type for function same_value at position 1: "
+            "expected a non-None value, got None; write `x is None` instead",
+        )
+    ]
+
+
 _CONCAT_SOURCE = (
     "type Label = Text\n"
     "shape Item:\n"

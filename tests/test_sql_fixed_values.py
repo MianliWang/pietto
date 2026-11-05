@@ -258,8 +258,15 @@ def test_untyped_null_retains_the_original_unavailable_root(tmp_path, target):
     assert not checked.verified and checked.envelope is None
     document = probe.decode_public(serialize_project_sql_emission(outcome))
     assert document["status"] == "BLOCKED" and document["artifact"] is None
-    assert [d["code"] for d in document["diagnostics"]] == ["PIE-S2333"]
-    assert all(b["code"] == "PIE-B1003" for b in document["blockers"])
+    # The untyped NULL output completes its relation, as in a single file,
+    # with the emission warning; its SQL has no type to take, so the plan has
+    # no evidence for it.
+    assert [(d["code"], d["severity"]) for d in document["diagnostics"]] == [
+        ("PIE-S2385", "warning")
+    ]
+    assert [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] == [
+        ("PIE-B1003", "expression_evidence_unavailable")
+    ]
 
 
 @pytest.mark.parametrize("spelling", ("inf", "-inf", "nan", "0x1p+1024"))

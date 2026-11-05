@@ -43,6 +43,7 @@ from pietto.ir.model import (
     WindowNullTreatmentIR,
     WindowSpecIR,
 )
+from pietto.sql.expressions import null_number_operand_sql
 from pietto.sql.mysql_render import (
     MySqlRenderError,
     quote_identifier,
@@ -197,11 +198,13 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         sql = _render_call(expression)
         return f"({sql})" if nested and expression.callee in _COMPOUND_CALLS else sql
     if isinstance(expression, ConditionalIR):
+        condition = _render_mysql_expression(expression.condition, nested=True)
+        when_true = _render_mysql_expression(expression.when_true, nested=True)
+        when_false = _render_mysql_expression(expression.when_false, nested=True)
         sql = (
-            "CASE WHEN "
-            f"{_render_mysql_expression(expression.condition, nested=True)} THEN "
-            f"{_render_mysql_expression(expression.when_true, nested=True)} ELSE "
-            f"{_render_mysql_expression(expression.when_false, nested=True)} END"
+            f"CASE WHEN {condition} THEN "
+            f"{_number_operand(expression, expression.when_true, when_true)} ELSE "
+            f"{_number_operand(expression, expression.when_false, when_false)} END"
         )
     elif isinstance(expression, MembershipIR):
         value_sql = _render_mysql_expression(expression.value, nested=True)
@@ -270,9 +273,11 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
             # MySQL `/` of integers is DECIMAL; DIV truncates toward zero as
             # PostgreSQL's integer `/` does.
             operator = "DIV"
+        left = _render_mysql_expression(expression.left, nested=True)
+        right = _render_mysql_expression(expression.right, nested=True)
         sql = (
-            f"{_render_mysql_expression(expression.left, nested=True)} {operator} "
-            f"{_render_mysql_expression(expression.right, nested=True)}"
+            f"{_number_operand(expression, expression.left, left)} {operator} "
+            f"{_number_operand(expression, expression.right, right)}"
         )
     else:
         raise MySqlRenderError(
@@ -280,6 +285,17 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         )
 
     return f"({sql})" if nested else sql
+
+
+_NUMBER_SQL_TYPES = {"Int": "SIGNED", "Decimal": "DECIMAL", "Float": "DOUBLE"}
+
+
+def _number_operand(parent: ExpressionIR, operand: ExpressionIR, rendered: str) -> str:
+    """``rendered``, the SQL of ``operand`` of an arithmetic operator, a
+    conditional, `coalesce` or `nullif`, with an always-null number typed as
+    Pietto types it (D-12); called after rendering, so it adds no recursion."""
+
+    return null_number_operand_sql(parent, operand, rendered, _NUMBER_SQL_TYPES)
 
 
 def _is_integer_division(expression: BinaryIR) -> bool:
@@ -932,7 +948,11 @@ def _render_call(expression: CallIR) -> str:
             expression.callee.upper()
             + "("
             + ", ".join(
-                _render_mysql_expression(argument, nested=True)
+                _number_operand(
+                    expression,
+                    argument,
+                    _render_mysql_expression(argument, nested=True),
+                )
                 for argument in expression.arguments
             )
             + ")"
@@ -941,6 +961,14 @@ def _render_call(expression: CallIR) -> str:
         return _render_round_call(expression)
     if expression.callee == "date_trunc":
         return _render_date_trunc_call(expression)
+    if expression.callee == "same_value":
+        if len(expression.arguments) != 2:
+            raise MySqlRenderError("MySQL function same_value expects 2 argument(s)")
+        left, right = (
+            _render_mysql_expression(argument, nested=True)
+            for argument in expression.arguments
+        )
+        return f"({left} <=> {right})"
     if expression.callee not in _FUNCTION_ARITIES:
         raise MySqlRenderError(f"Unsupported MySQL function call: {expression.callee}")
     expected_arity = _FUNCTION_ARITIES[expression.callee]
@@ -953,7 +981,11 @@ def _render_call(expression: CallIR) -> str:
         for argument in expression.arguments
     )
     if expression.callee == "nullif":
-        return f"NULLIF({arguments[0]}, {arguments[1]})"
+        first, second = (
+            _number_operand(expression, argument, sql)
+            for argument, sql in zip(expression.arguments, arguments, strict=True)
+        )
+        return f"NULLIF({first}, {second})"
     if expression.callee == "substr":
         return f"SUBSTRING({arguments[0]}, {arguments[1]}, {arguments[2]})"
     if expression.callee == "replace":

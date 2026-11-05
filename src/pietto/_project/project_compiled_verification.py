@@ -1845,6 +1845,7 @@ def verify_description(value: Description) -> None:
                         "round",
                         "date_trunc",
                         "concat",
+                        "same_value",
                     },
                     None,
                 ),
