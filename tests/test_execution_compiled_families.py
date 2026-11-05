@@ -14,6 +14,7 @@ from pietto._project.project_compiled_loading import load_compiled
 from pietto._project.project_compiled_lowering import emit_compiled
 from pietto._project.project_execution_template import (
     BindingError,
+    bind_values,
     prepare_live_template,
 )
 from pietto._project.project_result_output import prepare_output
@@ -83,6 +84,54 @@ def test_abs_replays_from_compiled_input(tmp_path, target):
     assert checked.verified and original.status == "VERIFIED"
     # The R2 refinement page verifier reads no scalar call yet (fails closed).
     _compare(original.artifact, refinement=False)
+
+
+# Each scalar family's select lines and the SQL each target writes for it;
+# MySQL project SQL refuses `concat`.
+SCALAR_FAMILIES = {
+    "typed_null": (
+        "        plus = id + None\n        times = None * 2\n"
+        "        negated = -(id + None)\n",
+        {"postgres": "CAST(NULL AS pg_catalog.int8)", "mysql": "CAST(NULL AS SIGNED)"},
+    ),
+    "same_value": (
+        "        both_null = same_value(nullif(id, id), nullif(id, id))\n"
+        '        texts = same_value(text, nullif(text, "x"))\n'
+        "        amounts = same_value(money, money)\n"
+        "        typed = same_value(id + None, id)\n"
+        "        floats = same_value(ratio, 1.5)\n",
+        {"postgres": " IS NOT DISTINCT FROM ", "mysql": " <=> "},
+    ),
+    "concat": (
+        '        joined = concat(text, "x", text)\n        nulled = concat(text, None)\n',
+        {"postgres": " || "},
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    "target,family", [(t, f) for f, (_, sql) in SCALAR_FAMILIES.items() for t in sql]
+)
+def test_scalar_families_replay_and_bind_their_live_template(tmp_path, target, family):
+    """Int arithmetic with a typed NULL (D-12), `same_value` and PostgreSQL
+    `concat` build, load and replay from compiled input, and their live
+    template renders the emitted SQL and binds its WHERE literal."""
+    body, sql = SCALAR_FAMILIES[family]
+    item = emission.fixture(target, "T_row_direct", "query_bind")
+    source = item["source"].split("query result:", 1)[0] + (
+        "query result:\n    from rows\n    where id > 0\n    select:\n        id\n"
+        + body
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    assert original.artifact is not None
+    assert sql[target].encode() in original.artifact.rendered.sql
+    # The R2 refinement page verifier reads no scalar call (REFINEMENT_NATIVE_SQL)
+    # and no typed NULL (REFINEMENT_SCALAR) yet; both fail closed.
+    _compare(original.artifact, refinement=False)
+    assert _live(original.artifact).values[0] == 0
 
 
 @pytest.mark.parametrize(
@@ -173,10 +222,11 @@ def test_a_postgresql_uuid_order_replays_from_compiled_input(tmp_path):
 def test_float_equality_and_order_replay_from_compiled_input(tmp_path, target, variant):
     """Lane E: Float ORDER, GROUP BY, DISTINCT, INTERSECT, JOIN and correlated
     equalities and literal comparisons replay; R2 refuses a Float coordinate,
-    as it refuses a UUID one."""
+    as it refuses a UUID one; the live template renders the same SQL."""
     original = build(tmp_path, target, emission.FLOAT_CASE, variant)
     assert original.status == "VERIFIED" and original.artifact is not None
     _compare(original.artifact, refinement=False)
+    _live(original.artifact)
     if variant == "fo_ascending":
         with pytest.raises(ValueError, match="^REFINEMENT_COMPARISON_DOMAIN$"):
             _compare_refinement(original.artifact)
@@ -757,6 +807,90 @@ def test_unmatched_row_value_proofs_replay_with_the_compiled_records(
     assert not linkage.multiplicity_exposures
 
 
+JOINED_AGGREGATE_HEADER = """shape Row:
+    id: Int
+    key: Int | None
+    row_key = unique(id)
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
+query per_key:
+    from rhs
+    group by:
+        key
+    select:
+        key
+        n = count()
+"""
+# The JOINs, WHERE and aggregates of `result` grouped by `lhs.key`.
+JOINED_AGGREGATES = {
+    "set_insensitive": (
+        "    let r = rhs\n    left join r on r.key == lhs.key\n"
+        "    let p = rhs\n    left join p on p.key == lhs.key\n",
+        "top = max(r.id)\n        low = min(p.id)\n        n = count_distinct(r.key)",
+    ),
+    "left_many_side": (
+        "    let r = rhs\n    left join r on r.key == lhs.id\n",
+        "n = count(r.id)",
+    ),
+    "anti_join": (
+        "    let r = rhs\n    left join r on r.key == lhs.key\n    where r.id is None\n",
+        "n = count(lhs.id)",
+    ),
+    "grouped_key": (
+        "    let g = per_key\n    left join g on g.key == lhs.id\n",
+        "n = count(lhs.id)\n        m = count(g.n)",
+    ),
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("name", JOINED_AGGREGATES)
+def test_sound_joined_aggregates_replay_and_bind_their_live_template(
+    tmp_path, target, name
+):
+    """D-11 and B14: MIN, MAX and COUNT DISTINCT over JOINs that repeat rows,
+    a count of a LEFT JOIN's many side, an anti-join through a never-None
+    field and a JOIN on every GROUP BY key of a grouped query build, load and
+    replay from compiled input, and their live template renders the emitted
+    SQL."""
+    joins, aggregates = JOINED_AGGREGATES[name]
+    item = emission.join_witness(
+        target,
+        {
+            "main.pietto": JOINED_AGGREGATE_HEADER.format(target=target)
+            + "query result:\n    from lhs\n"
+            + joins
+            + "    group by lhs.key\n    select:\n        k = lhs.key\n"
+            + f"        {aggregates}\n"
+        },
+    )
+    _, original = emission.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert original.status == "VERIFIED", original.blockers
+    assert original.artifact is not None
+    sql = original.artifact.rendered.sql
+    assert b" LEFT JOIN " in sql and b" GROUP BY " in sql
+    if name == "grouped_key":
+        # A compiled JOIN also reads a grouped input's GROUP BY key as a key
+        # its `on` matches, which the live `on` proof does not reach (0.1.8
+        # already replays more keys, FDs and grain for a plain JOIN on such a
+        # key). Here the replayed grain gains the dependency lhs -> g, and the
+        # aggregate evidence's common grain gains the candidate lhs and turns
+        # ambiguous instead of unique, so only the SQL is compared.
+        built = build_compiled(original.artifact)
+        loaded = load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+        assert emit_compiled(loaded, ()).rendered.sql == sql
+    else:
+        _compare(original.artifact)
+    _live(original.artifact)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_joined_single_read_computed_key_replays_as_computed(tmp_path, target):
     """`r.rid + 0` reads one field through an operation: replay keeps it a
@@ -921,6 +1055,22 @@ def _compare(artifact, *, refinement=True, built: CompiledBuild | None = None):
         )
     )
     return candidate
+
+
+def _live(artifact):
+    """The live template renders the emitted SQL, and binding the emitted
+    literal values renders it again and sends the emission's arguments."""
+    from pietto._project.project_execution_binding_verification import (
+        native_arguments,
+    )
+
+    template = prepare_live_template(artifact)
+    assert template.artifact.rendered.sql == artifact.rendered.sql
+    values = tuple(v.value for v in artifact.fixed_values)
+    bound = bind_values(template, tuple(zip(template.slots, values, strict=True)))
+    assert bound.artifact.rendered.sql == artifact.rendered.sql
+    assert bound.arguments == native_arguments(artifact, values)
+    return bound
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
