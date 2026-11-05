@@ -223,8 +223,6 @@ def test_every_nested_occurrence_is_an_error_in_source_order(
     )
     assert {d.severity for d in result.diagnostics} == {Severity.ERROR}
     assert result.model.mode is (mode or CheckMode.CHECKED)
-    loose = _analyzed("mode loose\n" + NESTED)
-    assert [d.code for d in loose.diagnostics] == [c for c, _, _ in NESTED_EXPECTED]
 
 
 _TO_EXPLICIT_MODULES = (

@@ -16,7 +16,6 @@ from pietto._project.project_current_join_inputs import ProjectCurrentInputField
 from pietto._project.project_current_join_inputs import ProjectCurrentMaterializedInput
 from pietto._project.project_join_conditions import ProjectJoinConditionCompletion
 from pietto import cli
-from pietto.semantic.model import CheckMode
 from pietto._project.project_grain import ProjectJoinGrainFactorIdentity
 from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
 from pietto._project.project_join_conditions import (
@@ -424,11 +423,8 @@ def test_foreign_stale_field_condition_dependency_and_allocation_roots_fail(
         )
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
-def test_real_project_check_json_success_in_each_mode(
-    tmp_path: Path, capsys, mode: CheckMode
-) -> None:
-    completed = _completed(tmp_path, f"mode {mode.value}\n" + _source("lhs.id == r.id"))
+def test_real_project_check_json_success(tmp_path: Path, capsys) -> None:
+    completed = _completed(tmp_path, _source("lhs.id == r.id"))
     assert completed.ok
     assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 0
     captured = capsys.readouterr()

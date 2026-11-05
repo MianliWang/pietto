@@ -51,11 +51,10 @@ SPEC_HEADINGS = (
 )
 
 
-def _project_files(*, mode: str | None = None) -> dict[str, str]:
-    header = "" if mode is None else f"mode {mode}\n"
+def _project_files() -> dict[str, str]:
     return {
         "a.pietto": (
-            header + 'from "b.pietto" import shape RemoteRow as ImportedRow\n'
+            'from "b.pietto" import shape RemoteRow as ImportedRow\n'
             "shape UserRow:\n"
             "    id: Int\n"
             "    tenant_id: Int | None\n"
@@ -92,7 +91,7 @@ def _project_files(*, mode: str | None = None) -> dict[str, str]:
             "        tenant_id\n"
         ),
         "b.pietto": (
-            header + "shape RemoteRow:\n"
+            "shape RemoteRow:\n"
             "    remote_id: Int\n"
             "    remote_key = unique(remote_id)\n"
             "export shape RemoteRow\n"
@@ -100,25 +99,21 @@ def _project_files(*, mode: str | None = None) -> dict[str, str]:
     }
 
 
-def _semantic_project(
-    root: Path,
-    *,
-    mode: str | None = None,
-) -> ProjectSemanticResult:
+def _semantic_project(root: Path) -> ProjectSemanticResult:
     root.mkdir(parents=True, exist_ok=True)
     (root / "pietto.toml").write_text(
         'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
         encoding="utf-8",
     )
-    for relative, source in _project_files(mode=mode).items():
+    for relative, source in _project_files().items():
         (root / relative).write_text(source, encoding="utf-8")
     parsed = project_check.check_project_parse_only(root)
     assert parsed.ok
     return build_empty_project_semantic_result(parsed)
 
 
-def _row_keys(root: Path, *, mode: str | None = None) -> row_keys.ProjectRowKeySet:
-    return row_keys.build_project_row_keys(_semantic_project(root, mode=mode))
+def _row_keys(root: Path) -> row_keys.ProjectRowKeySet:
+    return row_keys.build_project_row_keys(_semantic_project(root))
 
 
 def _evidence(
@@ -235,20 +230,6 @@ def test_null_policy_strength_trust_and_enforcement_are_exact(tmp_path: Path) ->
     assert tuple(row_keys.ProjectUniqueNullPolicy) == (
         row_keys.ProjectUniqueNullPolicy.NULLS_DISTINCT,
         row_keys.ProjectUniqueNullPolicy.NULLS_NOT_DISTINCT,
-    )
-
-
-@pytest.mark.parametrize("mode", ["loose", "checked", "strict"])
-def test_check_mode_does_not_change_authored_contract_trust(
-    tmp_path: Path,
-    mode: str,
-) -> None:
-    result = _row_keys(tmp_path / mode, mode=mode)
-    evidence = _evidence(result, "users_one", "id_key")[0]
-    assert evidence.origin is row_keys.ProjectConstraintEvidenceOrigin.AUTHORED_CONTRACT
-    assert evidence.trust is row_keys.ProjectConstraintEvidenceTrust.TRUSTED
-    assert evidence.enforcement is (
-        row_keys.ProjectConstraintEnforcementPosture.MODEL_CONTRACT
     )
 
 

@@ -391,7 +391,11 @@ def _parse_source(
         trees.append(tree)
     if modern and admit:
         ordered_diagnostics = _source_ordered(
-            (*ordered_diagnostics, *_double_minus_warnings(raw_tokens, path))
+            (
+                *ordered_diagnostics,
+                *_double_minus_warnings(raw_tokens, path),
+                *_header_warnings(tree, path),
+            )
         )
     return ParseResult(ast=ast, diagnostics=ordered_diagnostics)
 
@@ -434,6 +438,48 @@ def _double_minus_warnings(
         else:
             reported = False
         previous = token
+
+
+def _header_warnings(
+    tree: ParserRuleContext, path: str | Path | None
+) -> Iterator[Diagnostic]:
+    """PIE-P1012 at each header line: the header is retired (owner decision
+    2026-10-11), first with this warning, then removed."""
+
+    header = cast(Any, tree).header()
+    for line in () if header is None else header.getChildren():
+        keyword, value = line.start.text, line.getChild(1)
+        last = cast(
+            Token, value.stop if isinstance(value, ParserRuleContext) else value.symbol
+        )
+        hint = _header_hint(keyword, value.getText())
+        yield Diagnostic(
+            code="PIE-P1012",
+            severity=Severity.WARNING,
+            message=f"The header line `{keyword} {value.getText()}` is deprecated "
+            f"and will be removed. {hint}",
+            location=SourceLocation(
+                path=source_path(path),
+                line=line.start.line,
+                column=line.start.column + 1,
+                end_line=last.line,
+                end_column=last.column + len(last.text) + 1,
+            ),
+            suggestion=hint,
+        )
+
+
+def _header_hint(keyword: str, value: str) -> str:
+    """How to migrate one header line, which ``migrate`` also states."""
+
+    if keyword == "mode" and value != "checked":
+        return (
+            f"Delete it; in a single file pass `--check-mode {value}` instead; "
+            "a project ignores it."
+        )
+    if keyword == "dialect" and value in ("postgres", "mysql"):  # the CLI's set
+        return f"Delete it; it has no effect; `emit-sql` takes `--dialect {value}`."
+    return "Delete it; it has no effect."
 
 
 class _PiettoParser(PiettoParser):

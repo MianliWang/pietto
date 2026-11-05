@@ -55,13 +55,21 @@ def test_check_mode_overrides_the_header_and_defaults_to_checked(
 ) -> None:
     path = _write(tmp_path, header)
     line = 5 if header else 4
+    mode = header.removeprefix("mode ").strip()
+    warning = (
+        f"{path}:1:1 PIE-P1012 warning: The header line `mode {mode}` is deprecated "
+        f"and will be removed. Delete it; in a single file pass `--check-mode {mode}` "
+        "instead; a project ignores it.\n"
+        if header
+        else ""
+    )
 
     code = cli.main(["check", str(path), *options])
 
     captured = capsys.readouterr()
     assert code == (1 if severity == "error" else 0)
     assert captured.out == ("" if severity == "error" else f"OK: {path}\n")
-    assert captured.err == (
+    assert captured.err == warning + (
         "" if severity is None else f"{path}:{line}:1 PIE-S2303 {severity}: {MESSAGE}\n"
     )
 
@@ -93,7 +101,11 @@ def test_check_and_emit_json_keep_their_shapes_in_every_mode(
         "diagnostics",
         "cli_errors",
     ]
-    assert [item["severity"] for item in checked["diagnostics"]] == severities
+    assert [item["severity"] for item in checked["diagnostics"]] == [
+        "warning",
+        *severities,
+    ]
+    assert checked["diagnostics"][0]["code"] == "PIE-P1012"
     assert checked["ok"] is (code == 0)
 
     emit = ["emit-sql", str(path), "--dialect", "postgres", "--format", "json"]
@@ -112,7 +124,10 @@ def test_check_and_emit_json_keep_their_shapes_in_every_mode(
         "artifacts",
         "output",
     ]
-    assert [item["severity"] for item in emitted["diagnostics"]] == severities
+    assert [item["severity"] for item in emitted["diagnostics"]] == [
+        "warning",
+        *severities,
+    ]
     assert [item["sql"] for item in emitted["artifacts"]] == ([] if code else [SQL])
 
 
@@ -152,6 +167,62 @@ def test_emit_sql_and_explain_text_follow_the_selected_mode(
     )
     explained = json.loads(capsys.readouterr().out)
     assert explained["ok"] is True and explained["diagnostics"] == []
+
+
+HEADER = "pietto 0.9\nmode strict\ndialect mysql\nencoding utf8\n"
+
+
+@pytest.mark.parametrize("command", ["check", "explain"])
+def test_each_header_line_warns_in_a_single_file_and_a_project(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    path = _write(tmp_path, HEADER)
+
+    assert cli.main([command, str(path), "--format", "json"]) == 1
+    document = json.loads(capsys.readouterr().out)
+    assert [
+        (item["code"], item["severity"], item["location"]["line"])
+        for item in document["diagnostics"]
+    ] == [
+        *(("PIE-P1012", "warning", line) for line in (1, 2, 3, 4)),
+        ("PIE-S2303", "error", 8),
+    ]
+    if command == "explain":
+        return
+    # A project reports the same warnings; it refuses the source without a shape.
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 1
+    project = json.loads(capsys.readouterr().out)
+    assert [
+        (item["code"], item["severity"], item["location"]["line"])
+        for item in project["diagnostics"]
+        if item["code"] == "PIE-P1012"
+    ] == [("PIE-P1012", "warning", line) for line in (1, 2, 3, 4)]
+
+
+@pytest.mark.parametrize(
+    ("command", "out"),
+    [
+        (["check"], "OK: {path}\n"),
+        (["emit-sql", "--dialect", "postgres"], f"-- all_users\n{SQL};\n"),
+        (["explain"], "Semantic Metadata Artifact v1\n"),
+    ],
+)
+def test_a_header_line_warns_in_text_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: list[str], out: str
+) -> None:
+    path = _write(tmp_path, "dialect mysql\n")
+
+    assert cli.main([*command, str(path), "--check-mode", "loose"]) == 0
+    captured = capsys.readouterr()
+    assert captured.out.startswith(out.format(path=path))
+    assert captured.err == (
+        f"{path}:1:1 PIE-P1012 warning: The header line `dialect mysql` is "
+        "deprecated and will be removed. Delete it; it has no effect; `emit-sql` "
+        "takes `--dialect mysql`.\n"
+    )
 
 
 @pytest.mark.parametrize(

@@ -16,7 +16,7 @@ from pietto.errors import Severity
 from pietto.ir import RelationIR, ScriptIR, build_ir
 from pietto.ir.model import LimitIR
 from pietto.parser_api import parse_source
-from pietto.semantic import analyze
+from pietto.semantic import CheckMode, analyze
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -126,9 +126,9 @@ def test_invalid_captured_limit_has_one_dedicated_diagnostic(
     operand: str,
     mode: str,
 ) -> None:
-    script = _parse(f"mode {mode}\n" + POSTGRES_PREFIX + _relation_source("", operand))
+    script = _parse(POSTGRES_PREFIX + _relation_source("", operand))
 
-    result = analyze(script)
+    result = analyze(script, mode_override=CheckMode(mode))
     errors = [
         diagnostic
         for diagnostic in result.diagnostics

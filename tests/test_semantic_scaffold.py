@@ -29,7 +29,10 @@ def test_analyze_accepts_mode_overrides(mode: CheckMode) -> None:
 
 
 def test_analyze_uses_header_mode_and_override_takes_precedence() -> None:
-    script = _parse("mode loose\n")
+    parsed = parse_source("mode loose\n")
+    assert [item.code for item in parsed.diagnostics] == ["PIE-P1012"]
+    assert parsed.ast is not None
+    script = parsed.ast
 
     assert analyze(script).model.mode is CheckMode.LOOSE
     assert (

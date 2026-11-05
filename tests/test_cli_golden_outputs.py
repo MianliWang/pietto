@@ -110,7 +110,7 @@ def test_emit_sql_json_matches_structural_golden(
 
 
 _INT_DIVISIONS = {
-    "tests/fixtures/postgres/compatibility_expressions.pietto": (34, 19),
+    "tests/fixtures/postgres/compatibility_expressions.pietto": (29, 19),
 }
 
 

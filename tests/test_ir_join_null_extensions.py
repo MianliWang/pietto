@@ -34,7 +34,6 @@ from pietto.ast_nodes import AuthoredJoinKind, QueryDef
 from pietto.ir import RelationIR, build_ir
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-from pietto.semantic.model import CheckMode
 from _pietto_project_join_output import (
     _output,
     _tail_source,
@@ -698,14 +697,11 @@ def test_completed_order_limit_window_and_qualify_outputs_are_new_kind_inputs(
 
 
 @pytest.mark.parametrize("kind", ("cross", "right", "full"))
-@pytest.mark.parametrize("mode", tuple(CheckMode))
-def test_real_project_check_json_succeeds_for_each_kind_and_mode(
-    tmp_path: Path, capsys, kind: str, mode: CheckMode
+def test_real_project_check_json_succeeds_for_each_kind(
+    tmp_path: Path, capsys, kind: str
 ) -> None:
     predicate = None if kind == "cross" else "lhs.id == r.id"
-    completed = _completed(
-        tmp_path, f"mode {mode.value}\n" + _source(predicate, kind=kind)
-    )
+    completed = _completed(tmp_path, _source(predicate, kind=kind))
     assert completed.ok, completed.diagnostics
     assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 0
     captured = capsys.readouterr()

@@ -26,7 +26,6 @@ from pietto._project.project_query_block_ir import build_project_query_block_ir
 from pietto.ast_nodes import SetRelationDef
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-from pietto.semantic.model import CheckMode
 from pietto.ir import build_ir
 from pietto import cli
 
@@ -331,11 +330,10 @@ def test_set_is_not_a_single_match_proof_but_downstream_own_limit_is(
         )
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
 def test_real_explicit_check_text_and_json(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], mode: CheckMode
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    completed = _completed(tmp_path, f"mode {mode.value}\n" + _source())
+    completed = _completed(tmp_path, _source())
     assert completed.ok, completed.diagnostics
     assert cli.main(["check", "--project", str(tmp_path)]) == 0
     capsys.readouterr()

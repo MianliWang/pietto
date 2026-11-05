@@ -65,12 +65,14 @@ def migrate_source(source: str, *, path: str | Path | None = None) -> MigrationR
     modern = _modern_parse(source, path)
     legacy, tree = parser_api._parse_migration_source(source, path=path)
     script, legacy_tokens = legacy.ast, True
+    prefix = "\ufeff" if source.startswith("\ufeff") else ""
+    body = source[len(prefix) :]
     if script is None or tree is None:
-        if modern.ast is not None:
-            return MigrationResult(source, modern.diagnostics)
         # Modern tokens the old reader cannot read, such as `T | None`, beside
         # spellings the modern syntax retired: read it as modern to migrate.
         read, tree = parser_api._parse_migration_source(source, path=path, modern=True)
+        if modern.ast is not None:
+            return _without_header(prefix, body, _header(tree, body, path), modern)
         if read.ast is None or tree is None:
             return MigrationResult(None, legacy.diagnostics)
         script, legacy_tokens = read.ast, False
@@ -79,9 +81,8 @@ def migrate_source(source: str, *, path: str | Path | None = None) -> MigrationR
     # whole source parses as modern, or the tree was read with modern tokens.
     ambiguous = modern.ast is not None or script is not legacy.ast
 
-    prefix = "\ufeff" if source.startswith("\ufeff") else ""
-    body = source[len(prefix) :]
-    diagnostics: list[Diagnostic] = []
+    header = _header(tree, body, path)
+    diagnostics: list[Diagnostic] = list(header[1])
     float_is_callable = any(
         definition.name == "Float"
         for definition in script.definitions
@@ -106,7 +107,7 @@ def migrate_source(source: str, *, path: str | Path | None = None) -> MigrationR
         ]
         if not visited:
             if modern.ast is not None and _modern_only_context(context):
-                return MigrationResult(source, modern.diagnostics)
+                return _without_header(prefix, body, header, modern)
             pending.append((context, True))
             pending.extend((child, False) for child in reversed(children))
             continue
@@ -128,12 +129,12 @@ def migrate_source(source: str, *, path: str | Path | None = None) -> MigrationR
         diagnostics.sort(key=lambda item: (item.location.line, item.location.column))
         return MigrationResult(None, tuple(diagnostics))
     if modern.ast is not None:
-        return MigrationResult(source, modern.diagnostics)
+        return _without_header(prefix, body, header, modern)
 
     changes = edits[id(tree)]
     if not changes:
         return MigrationResult(None, modern.diagnostics)
-    migrated = prefix + _render(body, 0, len(body), changes)
+    migrated = prefix + _render(body, 0, len(body), [*changes, *header[0]])
     checked = _modern_parse(migrated, path)
     if checked.ast is None:
         first = min(changes, key=lambda edit: edit[0])[0]
@@ -150,6 +151,51 @@ def migrate_source(source: str, *, path: str | Path | None = None) -> MigrationR
             ),
         )
     return MigrationResult(migrated, checked.diagnostics)
+
+
+type _Header = tuple[list[_Edit], list[Diagnostic]]
+
+# The rest of a header line after its value: up to a comment, or through the
+# line break.
+_HEADER_LINE_END = re.compile(r"[ \t]*(?:(?=#)|\r\n|\n|\r|\Z)")
+
+
+def _header(tree: _Context | None, body: str, path: str | Path | None) -> _Header:
+    """The deletion of each header line that has no effect, and PIE-P1011 at
+    a `mode loose` or `mode strict` line, which sets the check mode."""
+
+    edits: list[_Edit] = []
+    manual: list[Diagnostic] = []
+    header = None if tree is None else tree.header()
+    for line in () if header is None else header.getChildren():
+        keyword, value = line.start.text, _last_token(line)
+        if keyword == "mode" and value.text != "checked":
+            hint = parser_api._header_hint(keyword, value.text)
+            refusal = _manual(
+                line.start,
+                path,
+                f"The header line `mode {value.text}` needs manual migration, as "
+                f"it sets the check mode. {hint} No migrated source was emitted.",
+                end=value,
+            )
+            manual.append(replace(refusal, suggestion=hint))
+        else:
+            end = _HEADER_LINE_END.match(body, value.stop + 1)
+            assert end is not None
+            edits.append((line.start.start, end.end(), ""))
+    return edits, manual
+
+
+def _without_header(
+    prefix: str, body: str, header: _Header, modern: parser_api.ParseResult
+) -> MigrationResult:
+    """A modern source without its header lines, byte-for-byte otherwise."""
+
+    if header[1]:
+        return MigrationResult(None, tuple(header[1]))
+    return MigrationResult(
+        prefix + _render(body, 0, len(body), header[0]), modern.diagnostics
+    )
 
 
 def _modern_parse(source: str, path: str | Path | None) -> parser_api.ParseResult:

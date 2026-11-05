@@ -9,7 +9,10 @@ from antlr4.Token import Token
 
 import pietto.parser_api as parser_api
 from pietto.ast_nodes import EnumDef, Header, Script, ShapeDef, Span, TypeDef
+from pietto.errors import Severity
 from pietto.parser_api import parse_file, parse_source
+
+_NO_EFFECT = "Delete it; it has no effect."
 
 
 # Parser-only owner: no storage, native, generated, golden or package premise.
@@ -77,7 +80,40 @@ def test_leading_bom_does_not_shift_tab_diagnostic_location() -> None:
 def test_complete_header_parses() -> None:
     result = parse_source("pietto 0.9\nmode checked\ndialect postgres\nencoding utf8\n")
 
-    assert result.diagnostics == ()
+    # Each header line is retired: one warning at each, with its own hint.
+    assert [
+        (
+            item.code,
+            item.severity,
+            item.location.line,
+            item.location.column,
+            item.location.end_line,
+            item.location.end_column,
+            item.suggestion,
+        )
+        for item in result.diagnostics
+    ] == [
+        ("PIE-P1012", Severity.WARNING, 1, 1, 1, 11, _NO_EFFECT),
+        ("PIE-P1012", Severity.WARNING, 2, 1, 2, 13, _NO_EFFECT),
+        (
+            "PIE-P1012",
+            Severity.WARNING,
+            3,
+            1,
+            3,
+            17,
+            f"{_NO_EFFECT[:-1]}; `emit-sql` takes `--dialect postgres`.",
+        ),
+        ("PIE-P1012", Severity.WARNING, 4, 1, 4, 14, _NO_EFFECT),
+    ]
+    assert result.diagnostics[0].message == (
+        f"The header line `pietto 0.9` is deprecated and will be removed. {_NO_EFFECT}"
+    )
+    assert parse_source("dialect mysql\n").diagnostics[0].suggestion == (
+        f"{_NO_EFFECT[:-1]}; `emit-sql` takes `--dialect mysql`."
+    )
+    # A dialect the CLI does not accept gets no `--dialect` advice.
+    assert parse_source("dialect sqlite\n").diagnostics[0].suggestion == _NO_EFFECT
     assert isinstance(result.ast, Script)
     assert result.ast.header is not None
     assert result.ast.header == Header(
@@ -92,7 +128,10 @@ def test_complete_header_parses() -> None:
 def test_partial_header_without_final_newline_parses() -> None:
     result = parse_source("mode strict")
 
-    assert result.diagnostics == ()
+    assert [item.suggestion for item in result.diagnostics] == [
+        "Delete it; in a single file pass `--check-mode strict` instead; "
+        "a project ignores it."
+    ]
     assert result.ast is not None
     assert result.ast.header is not None
     assert result.ast.header.mode == "strict"

@@ -17,7 +17,6 @@ from pietto._project.project_single_match import (
 )
 from pietto._project.project_final_outputs import ProjectRelationLimit
 from pietto._project.project_join_conditions import ProjectRelationshipMaximumBound
-from pietto.semantic.model import CheckMode
 from pietto.errors import Severity
 from pietto.ast_nodes import TableDef, QueryDef
 from pietto._project.check import check_project_parse_only
@@ -47,12 +46,9 @@ def test_default_authored_compilation_has_no_implicit_single_match(
     assert completed.single_matches.obligations == ()
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize("kind", ("inner", "left", "right", "full"))
-def test_unproved_actual_matches_warn_on_success_in_every_mode(
-    tmp_path: Path, mode: CheckMode, kind: str
-) -> None:
-    original = _completed(tmp_path, f"mode {mode.value}\n" + _source("True", kind=kind))
+def test_unproved_actual_matches_warn_on_success(tmp_path: Path, kind: str) -> None:
+    original = _completed(tmp_path, _source("True", kind=kind))
     request = _request(original)
     checked = with_project_single_match_requests(original, (request,))
     assert (
@@ -93,13 +89,8 @@ def test_unproved_actual_matches_warn_on_success_in_every_mode(
     assert json.loads(json.dumps(document))["diagnostics"][0]["severity"] == "warning"
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
-def test_cross_request_is_invalid_not_implicit_on_true(
-    tmp_path: Path, mode: CheckMode
-) -> None:
-    original = _completed(
-        tmp_path, f"mode {mode.value}\n" + _source(None, kind="cross")
-    )
+def test_cross_request_is_invalid_not_implicit_on_true(tmp_path: Path) -> None:
+    original = _completed(tmp_path, _source(None, kind="cross"))
     checked = with_project_single_match_requests(original, (_request(original),))
     entry = checked.single_matches.entries[0]
     assert not checked.ok and original.ok
@@ -578,20 +569,18 @@ query result:
     assert bound.row_count_upper_bound == 1
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize("output_format", ("text", "json"))
 def test_real_cli_diagnostic_consumer_renders_private_warning_without_new_option(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    mode: CheckMode,
     output_format: str,
 ) -> None:
     from pietto import cli
     from pietto._project import project_completed_semantics
     from pietto._project.model import ProjectSemanticResult
 
-    _completed(tmp_path, f"mode {mode.value}\n" + _source("True", kind="left"))
+    _completed(tmp_path, _source("True", kind="left"))
     builder = project_completed_semantics.build_project_completed_semantic_result
     observed: list[ProjectConcreteCompletedSemanticResult] = []
 

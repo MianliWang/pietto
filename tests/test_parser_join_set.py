@@ -674,15 +674,13 @@ def test_public_join_emission_and_set_refusal_follow_dialect_support(
     source: str,
 ) -> None:
     path = tmp_path / "main.pietto"
-    path.write_text(
-        f"mode {mode}\n" + source.replace("postgres.table", f"{dialect}.table")
-    )
+    path.write_text(source.replace("postgres.table", f"{dialect}.table"))
     for command in (
         ["check", str(path), "--format", "json"],
         ["emit-sql", str(path), "--dialect", dialect, "--format", "json"],
     ):
         refused = source in NEW_SOURCES[4:]
-        assert cli.main(command) == int(refused)
+        assert cli.main([*command, "--check-mode", mode]) == int(refused)
         captured = capsys.readouterr()
         assert not captured.err
         document = json.loads(captured.out)

@@ -30,7 +30,6 @@ from pietto._project.project_query_block_ir import build_project_query_block_ir
 from pietto._project.project_current_join_inputs import ProjectCurrentPreMatchInputs
 from pietto import cli
 from pietto.errors import Diagnostic, Severity
-from pietto.semantic.model import CheckMode
 from pietto.parser_api import parse_source
 from pietto.semantic.analyzer import analyze_project_namespace
 from pietto.semantic import analyze
@@ -594,13 +593,10 @@ def test_foreign_roots_roles_prefix_and_forged_positive_are_rejected(
 
 
 @pytest.mark.parametrize("kind", ("semi", "anti"))
-@pytest.mark.parametrize("mode", tuple(CheckMode))
 def test_real_explicit_project_check_and_unchanged_json_shape(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], kind: str, mode: CheckMode
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], kind: str
 ) -> None:
-    completed = _completed(
-        tmp_path, f"mode {mode.value}\n" + _existence_source("lhs.id == r.id", kind)
-    )
+    completed = _completed(tmp_path, _existence_source("lhs.id == r.id", kind))
     assert completed.ok, completed.diagnostics
     assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 0
     captured = capsys.readouterr()

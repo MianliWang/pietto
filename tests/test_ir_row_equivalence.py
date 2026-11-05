@@ -30,7 +30,6 @@ from pietto._project.project_final_outputs import ProjectDistinctUnsupported
 from pietto.parser_api import parse_source
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.semantic import analyze
-from pietto.semantic.model import CheckMode
 from pietto.errors import Severity
 from pietto.ir import build_ir
 from pietto import cli
@@ -136,7 +135,6 @@ def test_unapproved_spellings_rejected(spelling: str) -> None:
     assert parsed.diagnostics and parsed.diagnostics[0].code == "PIE-P1000"
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize(
     "type_name",
     (
@@ -150,8 +148,8 @@ def test_unapproved_spellings_rejected(spelling: str) -> None:
         "Float",
     ),
 )
-def test_support_domain(tmp_path: Path, mode: CheckMode, type_name: str) -> None:
-    result = _completed(tmp_path, f"mode {mode.value}\n" + _source(type_name))
+def test_support_domain(tmp_path: Path, type_name: str) -> None:
+    result = _completed(tmp_path, _source(type_name))
     assert result.ok, result.diagnostics
     entry = _entry(result)
     distinct = entry.row_domain.distinct
@@ -173,19 +171,17 @@ def test_support_domain(tmp_path: Path, mode: CheckMode, type_name: str) -> None
         assert evidence.decimal_type_expr is entry.fields[0].field.field_def.type_expr
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize(
     "type_name",
     ("Any", "Bytes", "Json", "Decimal", "Decimal(0, 2)", "Decimal(8, 9)"),
 )
 @pytest.mark.parametrize("nullability", ("| None", ""))
 def test_unsupported_domains_never_publish_proofs(
-    tmp_path: Path, mode: CheckMode, type_name: str, nullability: str
+    tmp_path: Path, type_name: str, nullability: str
 ) -> None:
     result = _completed(
         tmp_path,
-        f"mode {mode.value}\n"
-        + _source(type_name).replace(
+        _source(type_name).replace(
             f"{type_name} | None", f"{type_name} {nullability}".rstrip()
         ),
     )
@@ -197,7 +193,7 @@ def test_unsupported_domains_never_publish_proofs(
         first = diagnostics[0]
         assert (first.code, first.location.line, first.location.column) == (
             "PIE-S2004",
-            3,
+            2,
             12,
         )
         diagnostics = diagnostics[1:]
@@ -860,12 +856,11 @@ def test_order_evidence_cannot_be_removed(tmp_path: Path) -> None:
         )
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize("type_name", ("Int", "Float", "Json"))
 def test_public_explicit_check_keeps_json_shape(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], mode: CheckMode, type_name: str
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], type_name: str
 ) -> None:
-    _completed(tmp_path, f"mode {mode.value}\n" + _source(type_name))
+    _completed(tmp_path, _source(type_name))
     code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
     captured = capsys.readouterr()
     document = json.loads(captured.out)

@@ -529,13 +529,11 @@ query result:
     assert fact.references[0].target.binding.name == "d"
 
 
-@pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize("schema", (1, 2))
-def test_project_check_modes_admit_only_completed_explicit_module_conditions(
-    tmp_path: Path, mode: CheckMode, schema: int
+def test_project_check_admits_only_completed_explicit_module_conditions(
+    tmp_path: Path, schema: int
 ) -> None:
-    source = f"mode {mode.value}\n" + _source("lhs.id == r.id")
-    _completed(tmp_path, source)
+    _completed(tmp_path, _source("lhs.id == r.id"))
     (tmp_path / "pietto.toml").write_text(
         f'schema_version = {schema}\n[sources]\ninclude = ["*.pietto"]\n'
     )
@@ -557,8 +555,7 @@ def test_public_sql_condition_admission_and_no_partial_artifact(
 ) -> None:
     path = tmp_path / "main.pietto"
     path.write_text(
-        f"mode {mode.value}\n"
-        + _source("lhs.id == r.id" if valid else "1").replace(
+        _source("lhs.id == r.id" if valid else "1").replace(
             "postgres.table", f"{dialect}.table"
         )
     )
@@ -566,7 +563,7 @@ def test_public_sql_condition_admission_and_no_partial_artifact(
         ["check", str(path), "--format", "json"],
         ["emit-sql", str(path), "--dialect", dialect, "--format", "json"],
     ):
-        assert cli.main(command) == (0 if valid else 1)
+        assert cli.main([*command, "--check-mode", mode.value]) == (0 if valid else 1)
         captured = capsys.readouterr()
         assert not captured.err
         document = json.loads(captured.out)

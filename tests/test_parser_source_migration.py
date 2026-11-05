@@ -291,22 +291,83 @@ def test_invalid_input_produces_original_parser_diagnostic() -> None:
     assert result.diagnostics[0].location.path == "bad.pietto"
 
 
-def test_modern_input_is_byte_identical_and_header_stays_metadata() -> None:
-    source = (
-        "pietto 3.7\n"
-        "# already migrated\n"
-        "shape Maybe:\n"
-        "    value: Int | None\n"
-        'source data = postgres.table("data")\n'
-        "query q:\n"
-        "    from data\n"
-        "    select amount = 1_000, missing = None, valid = True, invalid = False\n"
-    )
+MODERN = (
+    "# already migrated\n"
+    "shape Maybe:\n"
+    "    value: Int | None\n"
+    'source data = postgres.table("data")\n'
+    "query q:\n"
+    "    from data\n"
+    "    select amount = 1_000, missing = None, valid = True, invalid = False\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("header", "kept"),
+    [
+        ("", ""),
+        ("pietto 3.7\n", ""),
+        ("pietto 0.9\nmode checked\ndialect postgres\nencoding utf8\n", ""),
+        ("\npietto 1   # was 0.9\r\nencoding utf8\n", "\n# was 0.9\r\n"),
+    ],
+)
+def test_modern_input_is_byte_identical_without_its_header_lines(
+    header: str, kept: str
+) -> None:
+    # Each header line without effect is deleted, a comment on it kept;
+    # `check` warns at it (PIE-P1012), and `migrate` reports nothing.
+    source = "\ufeff" + header + MODERN
+    assert all(item.code == "PIE-P1012" for item in parse_source(source).diagnostics)
 
     result = migrate_source(source)
 
     assert result.diagnostics == ()
-    assert result.source == source
+    assert result.source == "\ufeff" + kept + MODERN
+
+
+@pytest.mark.parametrize("mode", ["loose", "strict"])
+def test_mode_header_that_sets_the_check_mode_needs_manual_migration(
+    mode: str,
+) -> None:
+    hint = (
+        f"Delete it; in a single file pass `--check-mode {mode}` instead; "
+        "a project ignores it."
+    )
+
+    modern = migrate_source(f"pietto 1\nmode {mode}\n" + MODERN)
+    # With a retired spelling, every refusal is reported in source order.
+    legacy = migrate_source(
+        f"mode {mode}\nshape S:\n    id: Int not null\n"
+        "query q:\n    from rows\n    select truth = True\n"
+    )
+
+    assert modern.source is legacy.source is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.location.end_column)
+        for item in modern.diagnostics
+    ] == [("PIE-P1011", 2, 1, 6 + len(mode))]
+    assert modern.diagnostics[0].message == (
+        f"The header line `mode {mode}` needs manual migration, as it sets the "
+        f"check mode. {hint} No migrated source was emitted."
+    )
+    assert modern.diagnostics[0].suggestion == hint
+    assert [(item.code, item.location.line) for item in legacy.diagnostics] == [
+        ("PIE-P1011", 1),
+        ("PIE-P1011", 6),
+    ]
+
+
+def test_legacy_spelling_migrates_with_its_header_lines_deleted() -> None:
+    result = migrate_source(
+        "pietto 0.9\nmode checked\n"
+        'source users is postgres.table("users")\n'
+        "shape S:\n    maybe: Int nullable\n"
+    )
+
+    assert result.diagnostics == ()
+    assert result.source == (
+        'source users = postgres.table("users")\nshape S:\n    maybe: Int | None\n'
+    )
 
 
 def test_inline_colons_without_spaces_keep_keyword_boundaries() -> None:
