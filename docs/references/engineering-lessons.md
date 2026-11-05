@@ -337,3 +337,14 @@ Phase70 开局按下列条目调整（见 [Phase70 brief](../phases/phase-70/bri
 5. 版本字样不是构建身份，文档也会滞后：`8cc6d5cb` 的包版本仍是 `0.1.2`，但 extras 已选 `pyarrow==26.0.0`，与已发行 `0.1.2` 的依赖闭包不同；原生或安装证据绑定实际构建输入，
    不因版本字样相同而混用发行字节或旧驱动证据。提交时写下的 pending 或 candidate 措辞在 CI 之后没有专门提交更新，由下一个生命周期提交同步；删除或改名测试、升级 pin 时，
    同时搜索文档中的旧路径与旧版本（Phase70 路线发布更正了 `docs/execution.md`、`docs/project-package.md` 与 `docs/development.md` 中这样的滞后文字）。
+
+## Phase72
+
+These apply from the Phase73 lanes on; the [Phase72 completion audit](../phases/phase-72/completion-audit.md) keeps the failed histories.
+
+1. Lanes must type-check the tests they touch. The first batch-1 Gate 2 failed on 14 errors in four lane tests: the lanes had run `pyright` on `src/` only. Every lane brief requires `pyright --project pyrightconfig.tests.json` on the changed tests before the diff is handed over.
+2. Repository-wide locks fail only on the integrated tree: the layering policy of the project model, a source-substring guard and the canonical `PIE-` code form each failed after lanes that passed alone were merged. Before Gate 2 the integration runs the repository-wide owners (the `test_repo_*` files, the layering and code-form tests) on the merged tree, and a lane runs them on its own tree.
+3. A relayed owner message is for the lead. Messages relayed into running subagents were answered instead of the task, a verifier then checked an empty diff, and one subagent wrote an owner-answer file. Each brief says so; only the lead records owner answers; a verifier first checks that the diff it reviews is not empty.
+4. A verdict comes only from real outputs. One lane left a comparison verdict built from fabricated outputs. A comparer writes its verdict only from the outputs of the run it judges, and its self-test feeds fabricated outputs that must fail every fail-open shape.
+5. A real-database result binds the SQL bytes it ran. After a lane repair, re-emit every statement of the earlier runs from the new tree and compare the bytes; only changed statements need a new run. The total campaign is this replay plus the forms no run has covered.
+6. Check a reader's real tolerance before refusing for it. The batch-1 MySQL refusal of a project `same_value` GROUP BY key rested on a wrong premise about the result reader; one probe of the shipped `==` form disproved it.

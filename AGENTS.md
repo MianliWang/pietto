@@ -41,16 +41,15 @@ commands, diagnostics, and commit messages in English.
 - Place each test by product function in the owner of the deepest product
   layer it observes; a test that drives the CLI belongs to that layer's owner
   unless it asserts the CLI contract itself. Extend the existing owner, which
-  may still be a phase-named file until the whole-tree reorganization lands;
+  may still have a history-named file until the second whole-tree pass;
   add an owner only for a new feature or a measured aspect split, named
   `tests/test_<area>_<feature>[_<aspect>].py` (areas: parser, semantic,
   project, ir, plan, sql, cli, results, execution, jobs, release, ci, repo,
   harness). Never add phase-, slice- or interlude-named test files,
   route-lock or completion-audit tests, changed-path or count locks, or
   per-slice version or prose pins. New shared helpers are flat
-  `tests/_pietto_<area>_*.py`, and new or moved tests do not import test
-  modules; existing phase-named helpers and test-to-test imports stay until
-  the whole-tree pass removes them.
+  `tests/_pietto_<area>_*.py`, and tests do not import test modules; the
+  Phase72 whole-tree pass left no phase-named helper or test-to-test import.
 - Do not edit generated parser files by hand. Change the grammar and run the
   documented generation and reproducibility checks.
 - Use focused tests and Ruff while implementing. Before a normal Gate 2 seal,

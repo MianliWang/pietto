@@ -583,3 +583,70 @@ JOIN steps (PMS-6), which stays a later ARCHITECTURE_DECISION. Later the same
 day the owner resumed the `pietto fmt` step paused above as an independent
 step; the pause had only let the lead plan it with Phase74 and Phase75 in
 view. These answers are no standing authorization.
+
+## Phase72 — owner decisions (2026-11-04 and 2026-11-05)
+
+On 2026-11-04 the owner accepted the lead's recommendations B1–B15 as the
+Phase72 Gate 1 (Gate 0: `main` `8cebe779`, natural exact-head CI
+`41766849826`):
+
+| Item | Rule |
+| --- | --- |
+| Must-do set | D-11, D-12, F2, `concat`, `stddev`, the `Float` value contract line, `same_value` and the backward asof JOIN. `now()` gets only its meaning, the UTC statement snapshot; Phase72 does not implement it. |
+| Not in Phase72 | Multi-level collections stay unsupported, as do nested GROUP/DISTINCT keys and whole-value equality of nested values. Automatic fan-out repair, automatic reaggregation and list aggregates are not Phase72 work; for Phase73 the owner chose (C6) no automatic repair or reaggregation: the explicit two-level aggregation that already works gets documentation, tests and a PIE-S2381 hint instead. |
+| `Float` (B15) | One finite binary64 meaning in both modes. Phase72 does row equivalence (DISTINCT, the five non-ALL set forms, `let` keys) and project comparison, ordering and grouping; field arithmetic, negation and division come later. Single-file GROUP BY keeps its output for ±0. Each merged row carries the value of some member of its class, which member is unspecified; project emission keeps refusing a `Float` beside an `Int` literal and may hint `1.0`. |
+| `concat` | Only `Text`; `None` when any argument is `None`; `Text` `+` stays an error that hints `concat`; no `\|\|`. |
+| `stddev` | The sample standard deviation (Python `statistics.stdev`) of an `Int` or `Float`, `None` below two values, under this one name. |
+| `same_value` | Admitted; a `None` literal argument is refused with a hint to `is None`. |
+| Asof JOIN | First version backward, INNER or LEFT, one per query; a latest row that is not provably one row is refused; MySQL refuses it. |
+| MySQL | Only a form that a real MySQL differential checked opens on MySQL; every other form fails closed. |
+| New syntax | A new spelling must have one canonical form that `pietto fmt` keeps, and a usability row. |
+| B14 | The GROUP BY keys of a grouped query count as a unique key for a JOIN. |
+| Budget | C150/F600/D400/S8; the same day D rose once to 1200. At any cap the lead stops and asks. |
+| Release | `0.1.8` is released separately after PMS-2; Phase72 changes the package version once, at its close. |
+
+On 2026-11-05 the owner accepted the joint Phase72–75 plan with its
+recommendations J1–J25 and J27–J29 (J26 was dropped as not an owner
+decision). The answers for Phase73, Phase74 and Phase75 are
+provisional until that phase's Gate 1 confirms them; the
+[roadmap](roadmap.md#future-roadmap-v6) states them. For Phase72:
+
+- Layered closure, a general rule of the plan: a newly admitted value,
+  relation, reuse or call family, and a spelling the documents newly
+  recommend, needs at least one emission, one compiled-bundle and one
+  live-template witness before it enters a batch or the documents call it
+  usable.
+- One token sequence, also a general rule: the first `fmt` step changes only
+  whitespace and never breaks lines, so until `fmt` has a line-breaking rule
+  a new construct accepts one token sequence and layout and refuses the other
+  with a hint.
+- J1: the first asof JOIN does not combine with `collect` or `unnest`. The
+  approved spelling is `asof inner|left join NAME on EARLIER.k == NAME.k and
+  EARLIER.t >= NAME.t`, on one line, keys in written order and the time test
+  last; the joined input is a source, and nullable unique fields are
+  accepted.
+- J2: the header-line warning ships with the Phase72 release; Phase75
+  removes the header syntax.
+- J3: the routed items are listed in the
+  [Phase73 handoff](phases/phase-72/phase73-handoff.md).
+- J4: the independent steps have their own caps: `pietto fmt` C20/F40/D150/S1,
+  the header warning C15/F30/D120/S1, the whole-tree test reorganization
+  C15/F40/D200/S1.
+- J15: the `fmt` output may change before the Phase82 freeze, and each change
+  is listed in the release notes.
+- J27, J21: the editor extension is set aside until the work before Phase75
+  is done.
+- J29: `stddev` is reserved like every aggregate: `def stddev` is PIE-S2398
+  with a rename hint.
+
+The same day the owner approved the push of Phase72 batch 1 and allowed up to
+ten coding lanes at once, each at `nice -n 19` with at most `pytest -n 2`,
+and one real-database run at a time. Asked to speed Phase72 up, the owner
+then let Gate 2 run on the integration host when ready, announced first by
+the lead, without waiting for idle Windows applications; let Phase73 start
+before Phase72 closes, with its Gate 1 accepted as recommended and its lanes
+working on the batch-2 integration tree, publishing only after `0.1.9`; and
+pre-approved the push of batch 2 and the `v0.1.9` tag and GitHub
+pre-release. These answers are no standing authorization. The owner also set
+the release numbering: after `0.1.9` versions stay on `0.1.x` patches,
+`0.1.10` next, until about the end of Phase80, when `0.2.0` is used.

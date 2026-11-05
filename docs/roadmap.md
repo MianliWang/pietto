@@ -17,6 +17,11 @@ These are deferred commitments, not dropped work or permission to restore
 incorrect SQL. The Pietto lead owns their follow-up after the JOIN demo;
 this stability batch does not implement that relaxation.
 
+Phase72 restored the D-11 and D-12 cases that its Gate 1 case list accepted
+(see the [0.1.9 release notes](release-notes.md)); real fan-out and the
+cases that list did not accept stay refused. The remaining relaxation stays with
+the Pietto lead, with a full review before any further one.
+
 
 Pietto is a readable, typed, modular SQL authoring compiler. Future work must
 be selected by current user/product need, not by an inherited phase number.
@@ -32,6 +37,18 @@ Phase67 is `COMPLETED`, N67=16; Slices01–16 are published. Its external S16 cl
 Phase68 is COMPLETED; S01–S20 and C01 are published. The post-Phase68 CI/validation performance interlude is COMPLETED. Phase69 is `COMPLETED / PUBLISHED`: S01–S21 closed at `177c2e18` with natural exact-head CI `38342155897`, including the verified `0.1.2` GitHub/PyPI release; see the [completion audit](phases/phase-69/completion-audit.md). The phase inserted after Phase69 is `COMPLETED / PUBLISHED` at `de887b62` (natural exact-head CI `38489278446`). Phase70 is `COMPLETED / PUBLISHED`: its [20-Slice route](phases/phase-70/slices.md) closed as 25 actual slices; S19 published `0.1.3` from `6ac82d68` after natural exact-head CI `38809622132` accepted 19/19 jobs and 36 artifacts, and the S20 audit commit `51cac2ab` passed natural exact-head CI `38844191993`; see the [completion audit](phases/phase-70/completion-audit.md). The post-Phase70 stability batches, the lone-CR fix and the Python-style syntax batch form the `0.1.4` public alpha, published from `4e043a0b` on the GitHub pre-release and PyPI. The modern source syntax, the single-file JOIN MVP and fix batch 7 form the `0.1.5` public alpha, published from `6d0f6c6c` on the GitHub pre-release and PyPI. Phase71 started with the publication of its [24-Slice route](phases/phase-71/slices.md) by the documentation-only commit `6e9d7be6`, whose natural exact-head CI `40250919248` locked the route. Batch B1 (S01–S03) is published at `8e0a77d8`, whose natural exact-head CI `40770576938` attempt 1 accepted all 19 jobs. The post-Phase70 correction (`1de5d87a`, natural exact-head CI `40902926684`), the dependency maintenance `ddd6609e` and `5031a7fb` and the MySQL single-file parity `06d18554` followed. Under the owner decision of 2026-10-30 they form, with B1 and the project-mode correction `60adc230`, the `0.1.6` public alpha, released from the release commit `bdb3f567` (tag `v0.1.6`) on the GitHub pre-release and PyPI; later Phase71 batches are not part of `0.1.6`, and the Phase71 completion release is `0.1.7`. Batch B2 (S04–S07), built on the `0.1.6` release commit, is published: its four slice commits and the project-mode fixes of the `0.1.6` audit were fast-forward pushed together, and natural exact-head CI `41128410841` attempt 1 on the batch head `81f0d3b5` accepted all 19 jobs. Batch B3 (S08–S11), built on `main` at `81f0d3b5`, is published at `c6ae07ab` (tree `88e19f85`): its four slice commits were fast-forward pushed together and natural exact-head CI `41153438678` attempt 2 accepted all 19 jobs. The owner authorized this full rerun after attempt 1 failed on an artifact-upload `ECONNRESET`; the failed attempt remains recorded. The first project-emission interlude is published at `e169cb88f17d54234a96fc275766cb0995a2be37` (tree `43efe9fd355213b74b3061a51c3356abd9004303`); natural exact-head CI `41200621631` attempt 1 accepted all 19 jobs. B4 (S12 with AC-F7, S13 and S17) is published at `9df0003f020c0d5e61fb32e4528cfd20d9125142` (tree `fa5e45c8c794207a360b3a195474e738ac2f49e9`); natural exact-head CI `41272976489` attempt 1 accepted all 19 jobs. The midpoint S/H/L/K/Q review passed. Its CI health has insufficient comparable history and a WATCH screen, so it authorizes no scheduler changes. The batch-emission interlude is published at `a6a78c2bde3f84290ee41e8b159f7690a5a593f4` (tree `934c7ca1bc08c138fcc5a4cefa647f781356248c`); natural exact-head CI `41285328101` attempt 1 accepted all 19 jobs.
 
 Phase71 is `COMPLETED / PUBLISHED`. S01–S23 are published through B8 `28dc36fdd54b90d406e07a4e82d3c10c2bad5e35` (tree `b0b8b21e036356afd82e77a8bf90e13f555aa0ef`), natural CI `41518702589` attempt1,19/19, and under its ordinary-commit/natural-CI closure rule the [S24 final audit](phases/phase-71/slice-24.md) commit `59b26027f2fecd0b99fd877e2e8f3beb94b2f2b3` (tree `347078b99e361231ab1d95dd5c8cc3daeaee7820`) passed natural exact-head CI `41543143863` attempt 1 on all 19 jobs. The [Phase72 handoff](phases/phase-71/phase72-handoff.md) retains unsupported domains and separate formatter/release dispatches. On 2026-11-03 the owner approved releasing `main` at `59b26027` as `0.1.7`, changing only version and documentation, and pre-approved its publication chain (see the [decision record](decisions.md)). `0.1.7` is published from the release commit `4c8348a479351ff38f770b5826475cab701484a6` (tag `v0.1.7`), whose natural exact-head CI `41627328851` attempt 1 accepted all 19 jobs, on the versioned GitHub pre-release and PyPI.
+
+Phase72 started from `main` at `8cebe779` (natural CI `41766849826`) under its
+Gate 1 of 2026-11-04; `0.1.8` was then released from `61b05586` without
+Phase72 work, and batch 1 was built on it. Batch 1 is
+published at `2fc9c427` (tree `6ce654b6`), natural exact-head CI `42000149840`
+attempt 1, 19/19 jobs. Batch 2 ends with the [completion audit](phases/phase-72/completion-audit.md),
+the [Phase73 handoff](phases/phase-72/phase73-handoff.md) and the `0.1.9`
+release commit; Phase72 closes when the batch-2 head passes natural CI. Its
+eight must-do items are admitted, and multi-level collections stay
+unsupported. On 2026-11-05 the owner let Phase73 start before Phase72
+closes; Phase73 publishes nothing before `0.1.9`.
+
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
 
@@ -154,18 +171,16 @@ scheduled home yet.
     error, have no scheduled home.
 - The layered JOIN DAG above stays with a later phase as an
   ARCHITECTURE_DECISION.
-- The Phase72 Gate 1 scope decision considers these candidates, which are not
-  admitted until that Gate 1 accepts them: the remaining D-11 and D-12
-  restoration that the [follow-up after the single-file JOIN demo](#follow-up-after-the-single-file-join-demo)
-  describes (sound outer-JOIN aggregates that `check` still refuses with
-  PIE-S2381, and typed-NULL arithmetic in a project SELECT); F2, the bare
-  PIE-S2333 of a project relation whose SELECT output is an always-null number,
-  which hides later errors of the relations that read it; the `concat` and
-  `stddev` functions, which the owner placed after Phase71 on 2026-10-30 and
-  the [Phase72 handoff](phases/phase-71/phase72-handoff.md) carries into this
-  Gate 1; and `now()`, which needs a semantic design first (see the
-  [design draft](phases/phase-71/now-function-design-draft.md)). None of them
-  is available in `0.1.7`.
+- The Phase72 Gate 1 took these candidates, and Phase72 delivered them for
+  `0.1.9`: the D-11 and D-12 restoration that the
+  [follow-up after the single-file JOIN demo](#follow-up-after-the-single-file-join-demo)
+  describes, for the cases its case list accepted; F2, so an always-null
+  number in a project SELECT no longer hides later errors of the relations
+  that read it; and the `concat` and `stddev` functions, which the owner
+  placed after Phase71 on 2026-10-30. For `now()` the Gate 1 fixed only its
+  meaning, the UTC statement snapshot (see the
+  [design draft](phases/phase-71/now-function-design-draft.md)); the owner's
+  provisional answer of 2026-11-05 puts its implementation in Phase73.
 
 ## Phase67 当前路线
 
@@ -2950,9 +2965,9 @@ Phase-64+ Slice route or implementation.
 | 70 | Open/composite plans, nonrecursive CTE/subqueries, VALUES/table functions, outer captures, EXISTS/IN, LATERAL, bounded decorrelation, effect authority |
 | 71 | NestedRelation, Collect, Unnest, flatten, outer/inner grain, nested Arrow |
 | 72 | Advanced equality/types/nullability and temporal/range/ASOF relationships |
-| 73 | Aggregate algebra/state, grouping extensions, fanout-safe reaggregation |
-| 74 | Reusable local semantic assets, derived relationships, function/plugin SPI |
-| 75 | Formatter, LSP, editor, diagnostics, syntax editions and migrations |
+| 73 | Explicit two-level aggregation, list aggregates, per-group detail lists, nested GROUP/DISTINCT keys and small scalar features |
+| 74 | Cross-module reuse of `def` and relationships, relationship parameters that take table/query rows, MySQL catch-up |
+| 75 | Formatter follow-ups, LSP, editor, diagnostics, compile API, column view and migrations |
 | 76 | PostgreSQL deep adaptation |
 | 77 | MySQL deep adaptation |
 | 78 | SQLite deep adaptation |
@@ -2975,6 +2990,23 @@ measure/metric definitions in Phase74; Cube/dbt export in Phase74 or Phase84;
 and Windows CI in Phase81. Each remains a candidate for that phase's own
 scope decision. The current batch-emission work only designs the Python API.
 
+On 2026-11-05 the owner accepted the recommendations of the joint
+Phase72–75 plan; the answers for Phase73, Phase74 and Phase75 are provisional
+until the Gate 1 of that phase confirms them, and the rows 73–75 above state
+them. Phase73 offers an explicit two-level aggregation route instead of
+automatic fan-out repair or reaggregation and adds no aggregate state
+contract; grouping extensions (ROLLUP, CUBE, GROUPING SETS) leave Phase73
+and stay unscheduled until a named use case (J8). Measure/metric definitions
+are unscheduled; user-written table functions and the function/plugin SPI
+leave Phase74, and the Phase76 Gate 1 takes or reroutes them together with
+the PostgreSQL extension functions (J9–J11). Cube/dbt export goes to
+Phase84, and the scalar-function effect catalog (D70.06) to Phase88.
+Phase75 introduces no syntax editions (J14); `schema --json` becomes the
+column view of `explain --project` and the compile API stays in Phase75
+(J17, J18). A longer beginner example comes with the Phase73 demo, an Arrow
+data-analysis example is a Phase80 candidate and a readability and
+compile-time benchmark a Phase81 candidate (J25).
+
 The controlling Phase-63 Slice-1 contract contains the complete old-owner ->
 new-owner ledger, including every former Phase-63–70 subject and every new
 ownerless subject.
@@ -2996,7 +3028,10 @@ Phase75, to finish before the Phase82 freeze: first remove the headers left in
 the repository's other files and warn on header lines, then remove the header
 syntax after at least one release has carried that warning. The early step,
 `--check-mode` and removing the headers from README, the examples and the
-language reference, precedes Phase69's alpha documentation.
+language reference, precedes Phase69's alpha documentation. On 2026-11-05 the
+owner moved the warning earlier (J2): PIE-P1012 and the `migrate` rule that
+deletes header lines without effect ship with the Phase72 release `0.1.9`,
+and Phase75 still removes the header syntax.
 
 The Phase 70 row above is unchanged. At the Phase70 phase start the owner
 moved its bounded decorrelation out of Phase70: decorrelation and every other
@@ -3017,7 +3052,8 @@ S19's actual channel closure is limited to the published `0.1.3` bytes and
 their verification. It does not begin Phase71, change a later owner's scope,
 or amend the unchanged Phase 70 row above.
 
-The Phase 71 and Phase 75 rows above are unchanged. At the Phase71 phase start
+The Phase 71 row above is unchanged (the Phase 75 row was too, until the
+answers of 2026-11-05 above). At the Phase71 phase start
 the owner adopted the [24-Slice route](phases/phase-71/slices.md) with capacity
 25 (D71.01–D71.12 in the [decision record](decisions.md), D71.12 being the
 runner acceptance rule); `6e9d7be6` published it and natural exact-head CI
@@ -3036,12 +3072,16 @@ route defers these subjects to these owners:
   relation reads), go to later nested-extension or core semantic/SQL plan
   backlogs held by the NestedRelation semantic owner (multi-level) and ProjectSQLPlan owner (refused combinations); their first dependent design freeze/admission Gate1 is the decision point;
 - a capture let reading another capture let stays with the scope/capture semantic owner, with SQL-plan review before any nested-correlation admission Gate1;
-- nested equality, hash, grouping and DISTINCT go to Phase72;
-- implicit group capture, automatic safe reaggregation, and aggregation over
-  lists (`len`, `sum(o.total for o in c.recent_orders)`, `any(...)` over a
-  list) go to Phase73;
-- general functions/plugin SPI and user-written array table functions go to
-  Phase74;
+- nested equality, hash, grouping and DISTINCT went to Phase72, which kept
+  them refused: nested GROUP/DISTINCT keys go to Phase73 (C1), and the
+  Phase73 Gate 1 decides on `==`, `same_value` and ordering of nested values
+  and on set operations over them (J3);
+- per-group detail lists and aggregation over lists (`len`,
+  `sum(o.total for o in c.recent_orders)`, `any(...)` over a list) go to
+  Phase73, which replaces automatic safe reaggregation with an explicit
+  two-level route;
+- general functions/plugin SPI and user-written array table functions are
+  unscheduled; the Phase76 Gate 1 takes or reroutes them;
 - editor and extension depth goes to the extension owner and Phase75;
 - the PostgreSQL ADBC nested route and database-native array and JSON columns
   go to Phase76, MySQL nested output and `JSON_TABLE` to Phase77, pandas/Polars
@@ -3050,13 +3090,17 @@ route defers these subjects to these owners:
 - automatic flatten, decorrelation and CSE go to Phase88/93;
 - child-level recovery, R2 and nested sink effects go to a later
   execution/recovery owner, with jobs/result/relay review and a durable coordinate/effect/ACK contract before the relevant admission Gate1 or implementation;
-- D-11/D-12 stay with the Pietto lead follow-up above.
+- D-11/D-12 stay with the Pietto lead follow-up above, after the cases
+  Phase72 restored.
 
 The canonical formatter `pietto fmt` was planned as a separate step right
 after Phase71 and before Phase72 (D71.08). On 2026-11-04 the owner paused it,
 to have it planned with Phase74 and Phase75 in view, and resumed it the same
-day as an independent step; LSP, editor integration, syntax editions and
-migrations stay with Phase75 and the extension owner. On 2026-10-30 the owner moved the
+day as an independent step; LSP, editor integration and migrations stay with
+Phase75 and the extension owner. Its first step, `pietto fmt PATH`, is in
+Phase72 batch 1 (`8f4d7020`) and ships with `0.1.9`; its follow-ups (J15)
+belong to Phase75. The editor extension is set aside until the work before
+Phase75 is done (owner, 2026-11-05). On 2026-10-30 the owner moved the
 Phase71 completion release to `0.1.7`: `0.1.6` contains only the published
 batch B1 (S01–S03) of Phase71, whose `collect` and `unnest` spellings are
 recognized and refused with PIE-S2801 or PIE-S2802. On 2026-11-03 the owner
@@ -3074,7 +3118,7 @@ and PyPI.
 On 2026-10-28 the owner set the MySQL cadence: MySQL support may trail
 PostgreSQL by about two to three releases. New features reach PostgreSQL first,
 which finds the problems, and MySQL catches up in later batches. The Phase 77
-row and the other rows above are unchanged, and until MySQL catches up with a
+row is unchanged, Phase74 holds a MySQL catch-up batch, and until MySQL catches up with a
 feature, its MySQL paths keep failing closed with deterministic diagnostics.
 
 ## Tentative later ownership
