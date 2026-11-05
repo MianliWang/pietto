@@ -213,10 +213,15 @@ compare with `<`, `<=`, `>`, `>=`, in WHERE and in a JOIN ON condition
 alike, order a result or a window, and are `min`/`max` arguments on
 PostgreSQL, where UUID values also compare and order by their unsigned
 big-endian bytes; `min`/`max` of a UUID (refused by `check` with
-`PIE-S2314`), MySQL UUID ordering, full joins on these keys, range or
-as-of relationships (such as matching only the latest earlier row), timezone
-conversion, parsing and other casts remain unavailable. See
+`PIE-S2314`), MySQL UUID ordering, full joins on these keys, range
+relationships, timezone conversion, parsing and other casts remain
+unavailable; on PostgreSQL, `asof left join` and `asof inner join` pick the
+latest earlier row. See
 [Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.8/docs/language.md#timestamp-and-uuid-source-meaning).
+
+`emit-sql` prints SQL for you to run yourself; to run a query of a project
+from Python and get its rows, see the
+[execution documentation](https://github.com/MianliWang/pietto/blob/v0.1.8/docs/execution.md).
 
 ## Reusable row predicates and migration
 
@@ -389,7 +394,7 @@ the contract-qualified carriers described in
 [Project SQL emission](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#project-sql-emission)
 lists the premises with their PostgreSQL and MySQL values and when each is needed,
 gives a MySQL contract, and lists the forms that `check --project` accepts but
-project emission refuses, such as `count` of a `Text` field, a comparison of a
+project emission refuses, such as `count` of a `Text` field, arithmetic on a
 `Float` field, and `/`.
 
 Emit the artifact as JSON on stdout (`--format json` and

@@ -47,7 +47,12 @@ backends.
 
 A file may still begin with the older header lines `pietto <number>`,
 `mode <mode>`, `dialect <name>`, and `encoding <name>`, each optional but in
-that order, for example `pietto 0.9` followed by `mode checked`. The number is
+that order, for example `pietto 0.9` followed by `mode checked`. They are
+deprecated, and a later release removes them: once the source parses, every
+command and project that parses source, dependency packages included, except
+`migrate`, reports the warning PIE-P1012 at each header line, in every check
+mode (`emit-sql --project` keeps it only in a document refused before
+semantic analysis, as it keeps PIE-P1009). The number is
 digits with at most one `.` between them, such as `1` or `0.9`: a bare `pietto`
 line or a three-part version such as `pietto 0.1.3` is a syntax error
 (PIE-P1000), and the number is not compared with the Pietto version. These
@@ -55,6 +60,15 @@ lines do not select a language version: the compiler defaults to the modern
 syntax below, and the header never enables legacy spelling. Only `mode` has an
 effect, and only in single-file commands, where `--check-mode` overrides it;
 `dialect` never selects the SQL backend.
+
+To migrate, delete the header lines. `pietto migrate FILE > FILE.new` deletes
+each one that has no effect (`pietto <number>`, `mode checked`, `dialect`,
+`encoding`; a comment on the line stays) and writes the result to standard
+output only. A `mode loose` or `mode strict` line sets the check mode, so
+`migrate` refuses it with PIE-P1011 (manual migration): delete it and pass
+`--check-mode loose` or `--check-mode strict` to the single-file `check`,
+`explain` or `emit-sql` instead; a project ignores the line. `emit-sql` takes
+its dialect (`postgres` or `mysql`) from `--dialect`.
 
 Top-level declarations are `type`, `enum`, `constraint`, `derive`, `def`,
 `shape`, `source`, `table`, and `query`. Shape-typed `relationship` predicates
@@ -169,7 +183,8 @@ The public parser uses modern spelling by default. Retired spellings receive
 PIE-P1000 before AST normalization; its message states the located rewrite,
 which JSON output also carries as the diagnostic's suggestion. The
 private legacy reader exists for diagnostics and migration, not as another
-public compiler mode. The `pietto NUMBER` header remains metadata; there is no
+public compiler mode. The `pietto NUMBER` header selects nothing and is
+deprecated (see [Source structure](#source-structure)); there is no
 syntax-selector flag or required new header number.
 
 ```bash
@@ -401,6 +416,67 @@ selected backend. PostgreSQL's untyped NULL restrictions and the project
 physical-carrier requirements described below remain in force. Only emission
 for the selected target establishes that a source can emit for that target.
 
+A project relation without a JOIN input of its own whose SELECT output is
+NULL of no type by NULL propagation (a `None`; a sign or arithmetic with such
+an operand; a conditional or `coalesce` whose every value is such a value),
+such as `o = None`, `-None`, `None + None` or `amount + (-None)`, completes as
+in a single file, its output of unknown type, and so does one whose output has
+a type of its own and reads such a value, also through a `let` name, as
+`same_value(coalesce(None, None), amount)`, `coalesce(None, None) == amount`
+or `n is None` after `let n = None`, its output of the type a single file
+gives it (`Bool`); with a JOIN input of its own, only a typed output that
+reads such a value directly completes, and in a `select distinct` relation
+an output of no type does not complete (bare PIE-S2333, where a single file
+refuses `select distinct` with PIE-S2334). The relations that read a typed
+output report their own errors (an invalid LIMIT, an unknown field). One
+that only tests an untyped output in WHERE (`where o is None`) completes too
+and reports its own errors as a single file does, an invalid LIMIT among
+them; one that selects or passes it through (`z = o` or `o`) completes too
+and reports its own errors as a single file does, except an invalid LIMIT
+(PIE-S2307), for which it still reports the bare PIE-S2333 instead; and a
+relation with a JOIN input of its own whose output has no type, or reads
+such a value through a `let` name, still fails with the bare PIE-S2333,
+where a single file accepts it. Project SQL refuses such an output
+(PIE-B1003 `expression_evidence_unavailable`). A relation that computes
+with, groups by or aggregates an output of unknown type it reads, or reads
+its relation as a JOIN input, still fails closed with the bare PIE-S2333,
+and so does one that reads as a JOIN input a relation whose typed output
+reads such a value through a `let` name, a relation with a Collect read
+beside such an output, and one whose output has no type but is not always
+NULL, because such a NULL stands beside a typed value in a function call
+other than `coalesce` (`abs(amount + (-None))`), a `coalesce` with a typed
+value (`coalesce(-None, amount)`), an `in` list (`(-None) in (1, 2)`) or an
+`and`/`or` (`(-None) and True`), or whose output is only a `let` name bound
+to such a value (`o = m` after `let m = amount + (-None)`), outputs a single
+file completes with no type. An explicit-module project check warns at each
+such output that completes in a relation without an error and without a JOIN
+input of its own, also when a JOIN or `union all` reads the relation,
+PIE-S2385 ``Project SQL emission is unavailable because `o` is an untyped
+all-None output; ...`` (``... because `o` reads an untyped all-None value;
+...`` for a typed output), at the output of the relation that computes the
+value (not at the output of a relation that selects or passes it through, as
+`z = o`), where a single file warns at the untyped value itself, as a single
+file warns where its SQL emission refuses one; unlike a single file, it also
+warns at such an output that nothing reads, since project SQL refuses every
+one. A typed output that completes in a relation with a JOIN input of its own
+gets no warning; project SQL refuses it the same way.
+
+### Feature support by target
+
+The features added after 0.1.8 emit as follows. "Project" is
+`emit-sql --project` of an explicit-module project; the sections named in the
+first column give every rule.
+
+| Feature | PostgreSQL single file | MySQL single file | PostgreSQL project | MySQL project |
+| --- | --- | --- | --- | --- |
+| `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
+| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; not `Float` or `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, and not a GROUP BY key or DISTINCT column |
+| `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
+| Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
+| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
+| JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
+| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | refused (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, as in a single file; an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | refused (PIE-B1003 `asof_join_not_admitted_on_target`) |
+
 ## Types and shapes
 
 The builtin scalar names are:
@@ -443,7 +519,9 @@ declaration is a trusted Pietto model contract whose authored NULL policy
 defaults to `NULLS_DISTINCT`. On an exact source row output, all-`NON_NULL` determinants provide strict row uniqueness;
 otherwise the evidence remains lax and usable under standard equality.
 This does not claim runtime validation, catalog enforcement, DDL, or physical
-database UNIQUE behavior.
+database UNIQUE behavior. A `unique(...)` key over a `Float` field means that
+no two rows are `==` equal, so a source holding both `-0.0` and `0.0` in that
+key violates it.
 
 Constraints and derivations return one explicit expression:
 
@@ -460,6 +538,50 @@ As with `def`, the `return` line may instead follow the header's ':', as in
 
 This source spelling does not turn constraints or derivations into general
 runtime-callable functions; their existing semantic roles remain unchanged.
+
+### Float values
+
+A `Float` is a finite IEEE-754 binary64 value. NaN and ±Infinity are not
+Pietto values: no spelling makes one, and a project source contract's
+`finite_float` domain excludes them. `-0.0` and `0.0` are two encodings of one
+value.
+
+- **Equality.** `a == b` is Python's float equality: `-0.0 == 0.0`, and every
+  other pair is equal exactly when its bits are. `!=` is its negation. The
+  same law serves comparisons, `in`, `nullif`, `any`/`exists` predicates,
+  JOIN equalities, GROUP BY keys, DISTINCT, the set operations and declared
+  `unique(...)` keys. NULL rules do not change.
+- **Order.** Floats order by real value; `-0.0` and `0.0` tie, and tied rows
+  have no promised relative order.
+- **Merged rows.** GROUP BY, DISTINCT, UNION DISTINCT and INTERSECT/EXCEPT
+  are exact about which classes of `==`-equal rows appear and how often. Each
+  merged row carries the value of some member of its class; which member is
+  unspecified. A group key, DISTINCT row or set row whose class holds both
+  `-0.0` and `0.0` may therefore show a zero sign that some of its members do
+  not have. A class whose members share one sign shows that sign.
+- **No later step can tell.** Every Float operation Pietto admits gives
+  `==`-equal results for `==`-equal inputs. So no later filter, comparison,
+  group key or set operation can tell which zero a merge kept; only the
+  shown value's sign can differ.
+- **Transport.** Projection, `let` carry, WHERE and JOIN filtering, ORDER BY,
+  LIMIT and UNION ALL keep the stored bits, so the sign of a zero survives.
+- **Literals.** In project SQL a Float literal is a typed binary64 carrier and
+  `-0.0` is a real negative zero. Single-file SQL writes a Float literal as SQL
+  number text; the `-0.0` it writes arrives as `+0` on both PostgreSQL and
+  MySQL, so a negative zero in single-file output never comes from a `-0.0`
+  literal (it can come from stored data or from negating or multiplying a
+  Float field).
+- **Identity.** A literal's or a bound parameter's identity is its bits:
+  `-0.0` and `0.0` are different literals and different bindings, which
+  compare equal.
+
+Single-file GROUP BY over a Float keeps the target's own GROUP BY, which puts
+`-0.0` and `0.0` in one group and shows one member's sign as the key. On
+MySQL a single-file GROUP BY that groups a Float together with a wide Text key
+can put `-0.0` and `0.0` in different groups (observed on MySQL 8.4.12 beside
+a `VARCHAR(1000)` or wider key; a `VARCHAR(64)` key merged them). Project
+emission refuses those MySQL forms instead (see
+[project SQL emission](project-package.md#project-sql-emission)).
 
 ## Sources and relations
 
@@ -953,9 +1075,15 @@ emptiness does not change labels. Unknown types never match themselves.
 For one row-equivalence class with left/right counts m/n, UNION ALL gives m+n,
 INTERSECT ALL min(m,n), and EXCEPT ALL max(m-n,0). Their DISTINCT counterparts
 give one exactly when either side, both sides, or only the left side is present.
-NULL is equivalent to NULL. Only UNION ALL needs no row equivalence, allowing
-matching concrete Float/Any/Bytes/Json types. The other five forms reject these
-types; Float and aliases remain deferred to Phase 72 without a finite exception.
+NULL is equivalent to NULL, and Float rows compare by Float equality
+(`-0.0 == 0.0`; see [Float values](#float-values)). Only UNION ALL needs no
+row equivalence, allowing matching concrete Any/Bytes/Json types. The other
+five forms reject these types. On PostgreSQL project emission admits every
+Float set form, except that a window `percent_rank` or `cume_dist` result
+keeps UNION ALL only, on both targets. On MySQL it refuses Float INTERSECT
+and EXCEPT (MySQL compares `-0.0` and `0.0` as different values there) and
+UNION DISTINCT (MySQL kept them apart beside a wide key), and keeps UNION
+ALL.
 PIE-S2342 covers unavailable inputs/width, PIE-S2343 exact types/Decimal, and
 PIE-S2344 required row equivalence. Failed sets keep their original admission
 causes; only successful exact owners retire PIE-S2334.
@@ -982,10 +1110,14 @@ representative or inventing ordering, a smaller key, or total cardinality <= 1.
 The [Slice-8 support contract](spec/phase64-slice8-row-equivalence-distinct-quotient-grain-origin-v1.md)
 requires exact type identity and validated identical Decimal precision/scale;
 missing or unpropagated Decimal parameters fail closed. Any, Bytes and Json are
-unsupported. D07-FLOAT-DEFERRED also excludes Float and resolved Float aliases,
-including finite literals and computed/aggregate/window results; Float row
-equivalence belongs to Phase 72. Unselected Float fields do not cause rejection,
-and other Float operations, including count_distinct, retain existing behavior.
+unsupported. Float, resolved Float aliases, finite Float literals and computed,
+aggregate and window Float results compare by Float equality: each DISTINCT
+class merges `-0.0` with `0.0` and shows one member's value
+([Float values](#float-values)). Project emission emits Float DISTINCT on
+PostgreSQL. MySQL refuses it at emission (MySQL kept `-0.0` and `0.0` apart
+beside a wide key), and so do both targets for a window
+`percent_rank`/`cume_dist` result. Other Float operations, including
+`count_distinct`, retain existing behavior.
 
 DISTINCT preserves canonical output fields and gives non-global results a new
 quotient grain domain, including inputs with UNKNOWN grain. Sound GLOBAL or
@@ -1262,6 +1394,99 @@ an aggregate without GROUP BY remains PIE-S2334. Aggregates over JOIN rows
 follow the conservative rule in [Aggregates and grouping](#aggregates-and-grouping).
 DISTINCT, relation lets, LATERAL capture, set inputs, VALUES and table
 functions retain their separate project-only boundaries.
+
+### Backward asof JOIN
+
+`asof left join NAME on ...` keeps, for each earlier row, the latest row of
+`NAME` whose keys match and whose time is at or before the earlier row's time:
+for each order, the price that was valid when it was placed. This is the rule
+of pandas `merge_asof` with its defaults (backward, exact matches allowed).
+`asof inner join` does the same and drops the earlier rows that find none.
+
+```pietto
+shape Order:
+    id: Int
+    product_id: Int
+    ordered_at: Timestamp
+
+shape Price:
+    product_id: Int
+    valid_from: Timestamp
+    amount_cents: Int
+    price_key = unique(product_id, valid_from)
+
+source orders: Order = postgres.table("shop.orders")
+
+source prices: Price = postgres.table("shop.prices")
+
+query order_prices:
+    from orders
+    let price = prices
+    asof left join price on orders.product_id == price.product_id and orders.ordered_at >= price.valid_from
+    select order_id = orders.id, price_cents = price.amount_cents
+```
+
+- **Form.** The `on` is zero or more keys `EARLIER.k == NAME.k`, then one time
+  test `EARLIER.t >= NAME.t`, joined with `and`, on one line and without
+  parentheses. Each test names the earlier input first, and the keys keep
+  their written order in the SQL. Both sides of the time test are `Date` or
+  both are `Timestamp`, and a key is not a `Float`. A table without keys,
+  such as one exchange rate per moment, has only the time test:
+  `asof inner join rate on orders.ordered_at >= rate.valid_from`. Another
+  spelling of the line, such as `left asof join` or an `on` in parentheses,
+  is PIE-P1000, with this form as its hint. Another `on` is PIE-S2336, with
+  its rewrite where one exists. A JOIN without `on` is PIE-S2335, and so is
+  a field name without its input that both inputs have, as in any JOIN.
+- **One latest row.** `NAME` is a `source` whose shape declares a
+  `unique(...)` whose fields all lie within the matched key fields and the
+  time field: `price_key = unique(product_id, valid_from)` above, or
+  `unique(valid_from)` for a rate table without keys. Pietto never picks one
+  of several tied rows: without such a unique the JOIN is refused
+  (PIE-S2386), and the message names the unique to declare or the key to
+  match. A table, a query or a `let NAME:` block is no such input
+  (PIE-S2386). The unique is a trusted declaration, not checked at run time:
+  on data that breaks it, a single file returns one of the tied rows and a
+  project returns each of them.
+- **None.** A `None` key or time, on either side, matches nothing. A matched
+  row whose other fields are `None` is still a match.
+- **Rows.** `asof left join` keeps every earlier row, with the joined fields
+  `None` where nothing matches; `asof inner join` drops those rows. Equal
+  earlier rows each get their own row, and one joined row may serve many
+  earlier rows.
+- **After the JOIN.** A `where` test of a joined field tests the chosen row
+  and never falls back to an earlier one. After `asof left join` such a test
+  also drops the rows without a match and warns (PIE-S2383), as after
+  `left join`; to keep them, test the chosen row in `select`:
+  `x = price.amount_cents if price.amount_cents > 100 else None`.
+- **Aggregates.** The JOIN repeats no earlier row, so in a single file an
+  aggregate of earlier fields after it, such as `sum(orders.quantity)`, is
+  accepted. An aggregate of a joined field, such as `sum(price.amount_cents)`,
+  may count one price for several orders and is refused (PIE-S2381).
+- **Limits.** One asof JOIN per query: put the first into its own query and
+  `from` it. There is no lower bound or tolerance, no forward or nearest
+  direction, no strict `>` and no validity range; each is PIE-S2336, with
+  a rewrite where one exists. For a validity range, write a plain `left join price`
+  whose `on` has the keys and both tests,
+  `orders.ordered_at >= price.valid_from and orders.ordered_at < price.valid_to`.
+- **PostgreSQL only.** MySQL refuses an asof JOIN (single file PIE-B1000,
+  project PIE-B1003 `asof_join_not_admitted_on_target`); emit it with
+  `--dialect postgres`. PostgreSQL finds the latest row fastest with an index
+  on the joined table's keys and time, such as `(product_id, valid_from)`.
+- **Projects.** An explicit-module project checks an asof JOIN with the same
+  rules and messages, except that it reports a JOIN without `on` as
+  PIE-S2333. It also needs flat fields: no `collect` or `unnest` in that
+  query and no nested-relation field on either side (PIE-S2336). It emits the
+  JOIN in a table or query
+  without a relation `let NAME:` block whose FROM is not a table function;
+  elsewhere, such as a query whose earlier input is a `let NAME:`
+  block or whose asof JOIN is inside one, the JOIN is checked and then
+  refused with `asof JOIN is not available in projects yet.` (PIE-S2336).
+  An aggregate after an asof JOIN is accepted only where its `on` keys match
+  a `unique(...)` of the joined source, as after any JOIN, and is otherwise
+  refused (PIE-S2333): do the asof JOIN in one query and aggregate in a query
+  that reads it with `from`.
+- `asof` stays an ordinary name everywhere else: `select asof = orders.id` is
+  a valid output.
 
 ## Relation blocks and relation references
 
@@ -2104,10 +2329,14 @@ when_false`. The conditional binds loosest and nests to the right, so
 `"a" if n > 1 else "b" if n > 0 else "c"` reads as `"a" if n > 1 else ("b" if
 n > 0 else "c")`. There is no `case when ... end` form and no `||` operator;
 both are syntax errors (PIE-P1000), and `+` does not join `Text` values
-(PIE-S2105). Numeric literals may contain separators such as `1_000` and `1_000.25_0`;
+(PIE-S2105): write `concat(a, b)`. Numeric literals may contain separators such as `1_000` and `1_000.25_0`;
 they retain the existing length and finite-value bounds. `lower <= value <= upper`
 uses the existing inclusive-range semantics, including NULL bounds, and other
-admitted comparison chains preserve source order. A single-file expression nests at most 450 levels: each operator,
+admitted comparison chains preserve source order. For a half-open range, such
+as the timestamps of one month, write `start <= ts < stop`, which includes
+`start` and excludes `stop`; it means `start <= ts and ts < stop`, and SQL
+writes it so (`('2026-03-01 00:00:00' <= "seen_at") AND ("seen_at" <
+'2026-04-01 00:00:00')`). A single-file expression nests at most 450 levels: each operator,
 operand, call, cast or conditional on its deepest path counts one, so a chain
 such as `a and b and c` or `x + y + z` nests one level per operand, and a `def`
 call counts as its expansion (see [Inline functions](#inline-functions-def)). A
@@ -2175,7 +2404,9 @@ query rates:
 divides binary floating-point values. Any other known operand type, such as
 `Text`, `Bytes`, `Json`, `Any` or an enum, is PIE-S2105, as for `+`, `-` and
 `*`. Division by zero follows the target: PostgreSQL
-raises an error, while MySQL `/` and `DIV` return NULL. Dividing the smallest
+raises an error, while MySQL `/` and `DIV` return NULL. Single-file MySQL
+`CONCAT` and `REPLACE` also return NULL for a result longer than
+`max_allowed_packet`; Pietto still types them by their arguments. Dividing the smallest
 `Int` by -1 overflows the signed 64-bit range; what each target does then is
 not specified here. Division with a `Decimal` operand is not specified yet: it
 has no result type and emits a bare `/`, so each target applies its own
@@ -2230,11 +2461,38 @@ nullable numeric `def` parameter also takes such a number of another numeric
 type, and the call is typed with that number in place, as its SQL is: with
 `def fn(x: Float | None) -> Float | None: return x`, `fn(None + n)` is an
 `Int`, while `fn(n)` and, with a `Text | None` parameter, `tn(None + n)` are
-PIE-S2395. This expression relaxation applies to single-file checks only. A
-`def` body, typed with its declared parameter types, must still have its
-declared result type (PIE-S2402). Both project modes keep the typed twin's
-diagnostic at an incompatible expression (PIE-S2104, PIE-S2105 or PIE-S2395).
-Only an EXPLICIT_MODULES relation refuses `n + None` with PIE-S2333.
+PIE-S2395. This expression relaxation applies to single-file and project
+checks alike. A `def` body, typed with its declared parameter types, must
+still have its declared result type (PIE-S2402). A relation whose SELECT
+output is such an always-null number completes in a project as in a single
+file, so the relations that read it report their own errors.
+SQL types an always-null number as Pietto does. Single-file SQL writes a
+`None` operand of `+`, `-`, `*`, `/` or `%` as a NULL of the type it takes,
+`CAST(NULL AS bigint)`, `numeric` or `double precision` on PostgreSQL and
+`CAST(NULL AS SIGNED)`, `DECIMAL` or `DOUBLE` on MySQL (an untyped NULL is
+`integer` in PostgreSQL's `NULL * 2`, `numeric` in `NULL - 3.0`, and
+`DOUBLE` in MySQL's `n + NULL`), so MySQL divides `n / None` with `DIV`; and
+it casts an always-null `Int` or `Decimal` operand of a `Float` result of
+arithmetic, a conditional, `coalesce` or `nullif` to `double precision`
+(MySQL `DOUBLE`), as `CAST((CAST(NULL AS numeric) + "d") AS double
+precision) + 1.5` for `(None + d) + 1.5`, where SQL would otherwise keep the
+decimal type of the literal `1.5`. An untyped NULL, as in `None + None`,
+stays `NULL`. A `let` name bound to `None` is typed at each read as an
+inline `None` there, so `amount + k` after `let k = None` writes
+`"amount" + CAST(NULL AS bigint)`. Project SQL (`emit-sql --project`)
+emits `Int` arithmetic with a `None` operand on both targets with the NULL
+cast to the target's `Int` carrier, `("s0"."amount" + CAST(NULL AS
+pg_catalog.int8))` on PostgreSQL and `` (`s0`.`amount` + CAST(NULL AS
+SIGNED)) `` on MySQL; the column is in that carrier (`pg_int8`,
+`my_signed_int`) and claims the single value 0 as its `int_range`, which
+holds for no row, so a sign or arithmetic over it is held to no range of
+the other operand. Other always-null numbers stay refused with the rule
+they miss: `Float` arithmetic (`float_literal_operands_required`),
+`Decimal` arithmetic (`decimal_direct_source_operands_required`), a
+`coalesce` or conditional of numbers of different types
+(`scalar_call_signature_not_admitted`, `conditional_realization_not_admitted`),
+and arithmetic over a `let` name bound to `None`
+(`expression_evidence_unavailable`).
 PostgreSQL types no
 arithmetic whose every operand is `None`, so single-file PostgreSQL emission
 refuses `None + None` and `-None`, also as `coalesce(-None, n)` or as
@@ -2336,9 +2594,100 @@ type in a project relation with JOIN inputs makes the relation fail closed
 with PIE-S2333. Single-file `check` types an authored QUALIFY and its selected
 or hidden windows (see [QUALIFY](#qualify)).
 
+`same_value(a, b)` is NULL-safe equality: a `Bool` that is never `None`.
+It is True when both operands are `None` or both are equal values, and False
+when only one of them is `None`, as Python's `a == b` is for `None`; `a == b`
+in Pietto follows SQL instead, and is unknown when either operand is NULL.
+The two operands compare exactly as for `==`: the same type families, a
+`Text` literal beside a `Date`, `Timestamp`, `UUID`, `Bytes` or `Json` value,
+or an enum label beside an enum value, and the same refusals (PIE-S2104
+`Invalid argument types for function same_value: expected comparable
+operands`). A `None` operand, also a `let` name bound to it or a `def`
+argument that is one (reported at the `def` call), is refused with
+``Invalid argument type for function same_value at position N: expected a
+non-None value, got None; write `x is None` instead``: write `x is None` to
+test for `None`.
+
+```pietto
+shape Member:
+    id: Int
+    ref: Text | None
+
+shape Visit:
+    id: Int
+    member_ref: Text | None
+    note: Text | None
+    code: Text | None
+
+source members: Member = postgres.table("members")
+
+source visits: Visit = postgres.table("visits")
+
+query matched_visits:
+    from visits
+    let m = members
+    left join m on same_value(m.ref, visits.member_ref)
+    where not same_value(visits.note, visits.code)
+    select:
+        visit_id = visits.id
+        same_ref = same_value(visits.member_ref, m.ref)
+```
+
+PostgreSQL writes `(a IS NOT DISTINCT FROM b)` and MySQL `(a <=> b)`.
+On MySQL a `Text` comparison follows the target's binary collation premise
+`utf8mb4_0900_bin`; under another collation `'a'` and `'A'` would be the same
+value. A JOIN `on` with `same_value` matches no key: NULL keys match each
+other, so a unique key that admits `None` may match many rows, and an
+aggregate over that JOIN is refused as for any other `on` that matches no key
+of its target (PIE-S2381). Nor does `same_value` count as a WHERE test that
+drops a LEFT JOIN's unmatched rows (PIE-S2383): it is True for an unmatched
+row whose other operand is `None`.
+
+In an EXPLICIT_MODULES project, `emit-sql --project` admits `same_value`
+wherever it admits a built-in call: a select item, WHERE and `let` of one
+relation, and a select item after a JOIN, over the operand pairs that `==`
+admits there, except `Float`. It refuses `Bool` operands, as it refuses a
+`Bool` `==`, and a `Float` `same_value` on both targets (PIE-B1003
+`comparison_type_pair_not_admitted`), although it emits a `Float` `==` on
+PostgreSQL and, against a literal or a header parameter, on MySQL:
+`same_value(ratio, 1.5)` is refused where `ratio == 1.5` is emitted, as no
+database run has checked a NULL-safe `Float` equality yet. On MySQL, a
+`same_value` value that is a GROUP BY key (`let k = same_value(a, b)`,
+`group by k`) or a SELECT DISTINCT column, also when that value is read
+through a `let` name, a named relation (`from t0`, also after a JOIN or
+`union all`) or another module, is PIE-B1003
+`scalar_call_signature_not_admitted` at the call, which is then in the
+upstream relation, possibly in another file; it is reported before the
+relation's aggregate blockers. A set operation's own deduplication
+(`union distinct`, `intersect distinct`, `except distinct` over such a
+column) is not refused; it was not run on a database. MySQL returns
+`<=>` grouped or deduplicated as a 4-byte `INT`, not the declared
+`my_signed_bool`. PostgreSQL emits both. A JOIN `on` or a
+WHERE after a JOIN admits no built-in call yet, so there `same_value` is
+PIE-B1003, as `contains` is: in a JOIN `on` with
+`match_condition_not_in_row_domain` beside
+`scalar_projection_requires_later_slice` and
+`join_shape_not_admitted_in_slice7`, and in a WHERE after a JOIN with
+`scalar_projection_requires_later_slice` and
+`join_shape_not_admitted_in_slice7`. A query
+header parameter is not yet a `same_value` operand: `where same_value(a, k)`
+is PIE-S2355 (`Query parameters are not available in this position`), while
+`where a == k` is admitted. A `having:` condition admits no function call, so
+`having: same_value(c, 3)` is PIE-S2327 (`Unsupported having expression form:
+function call`) in single files and projects alike, as any call there is.
+Beside an untyped all-`None` value, as in `same_value(coalesce(None, None),
+a)` or `same_value(n, a)` after `let n = coalesce(None, None)`, a project
+relation without a JOIN input of its own completes as in a single file, its
+output a never-`None` `Bool`, with a PIE-S2385 warning at that output;
+project SQL refuses it (PIE-B1003 `expression_evidence_unavailable`), as it
+refuses `coalesce(None, None) == a`. With a JOIN input of its own, the direct
+form completes without the warning and is refused the same way, and the
+`let` form still fails with the bare PIE-S2333, where a single file accepts
+it.
+
 The closed scalar surface has explicit signatures, and no argument is
-converted to fit one, except for the single-file always-null numeric D-12 rule
-described above:
+converted to fit one, except for the always-null numeric D-12 rule described
+above:
 
 ```text
 lower(Text) -> Text
@@ -2348,11 +2697,13 @@ len(Text) -> Int
 matches(Text, Text) -> Bool
 substr(Text, Int, Int) -> Text
 replace(Text, Text, Text) -> Text
+concat(Text, Text, ...) -> Text
 contains(Text, Text) -> Bool
 starts_with(Text, Text) -> Bool
 ends_with(Text, Text) -> Bool
 coalesce(T, T, ...) -> T
 nullif(T, T) -> T
+same_value(T, T) -> Bool
 abs(Int) -> Int
 abs(Float) -> Float
 abs(Decimal) -> Decimal
@@ -2365,8 +2716,8 @@ minute(Timestamp) -> Int
 date_of(Timestamp) -> Date
 ```
 
-`sign` returns -1, 0 or 1 as an `Int`. In a single file, D-12 also admits an
-always-null Float numeric expression such as `sign(None + fl)`, which is a
+`sign` returns -1, 0 or 1 as an `Int`. D-12 also admits an always-null Float
+numeric expression such as `sign(None + fl)`, which is a
 nullable `Int`. PostgreSQL `sign` itself returns
 `double precision` for an integer argument and `numeric` for a numeric one, so
 PostgreSQL SQL casts the result: single-file `emit-sql` renders
@@ -2385,8 +2736,48 @@ PIE-S2104 (`got numeric`), and any other type, such as `Text`, is PIE-S2104
 type. Project SQL (`emit-sql --project`) proves an `Int` result as it proves
 unary `-` (see Aggregates and grouping).
 
-`coalesce` requires at least two same-canonical-type arguments. In a single
-file, D-12 permits an always-null numeric argument of another numeric type;
+`concat` joins two or more `Text` values in order; an alias of `Text` is a
+`Text` there, also one imported from another module. It is `None` when any
+argument is `None`, so it is `Text | None` when an argument may be `None`, and
+a `None` argument is read as a `Text`, as for `lower`. One argument (or none)
+is PIE-S2104 (`Invalid arguments for function concat: expected at least 2,
+got 1`), and a known argument of another type is PIE-S2104 at its position
+(`Invalid argument type for function concat at position 2: expected Text,
+got Int`, and `got numeric` for a number of unknown type such as
+`amount / 2`); write `Text(n)` for an `Int`. Pietto has no `||` operator (its
+parser hint reads ``Write `concat(a, b)` to join Text, or `or` for a
+condition.``), and `+` does not join Text: `label + label` stays PIE-S2105,
+whose message ends ``use `concat(...)` to join Text values`` beside a `Text`,
+the null literal or a number of unknown type, ``use `concat(...)` with
+`Text(n)` to join Text values`` beside an `Int`, and at `expected numeric
+operands` beside a value of another type. `CONCAT(...)` and other spellings
+are PIE-S2103 with the hint ``write `concat(...)` in lowercase``. None of
+these hints applies where `concat` names a callable of the program's own (see
+the constructor paragraph).
+
+PostgreSQL SQL, in single files and projects, renders `(a || b || c)`, not
+PostgreSQL `concat()`, which skips NULL arguments; in a single file an
+argument whose type is not known to be `Text`, such as a field of a source
+without a shape, is rendered `CAST(x AS text)`, since `||` of a `jsonb`, an
+array or a `bytea` value is no text concatenation. Single-file MySQL SQL
+renders `CONCAT(a, b, c)`. PostgreSQL project SQL (`emit-sql --project`)
+gives the result the arguments' one Text profile and a width of the sum of
+their widths (a `None` argument adds none); it refuses `concat` of only
+`None` values (PIE-B1003 `scalar_call_signature_not_admitted`) and of a
+`Text` whose width each binding fixes (PIE-B1004
+`text_concat_result_bound_missing`). MySQL project emission refuses `concat`
+(PIE-B1003 `scalar_call_signature_not_admitted`, at the `let`, clause or
+select item that holds the call, also through a `def` body), as it refuses
+`round` and `date_trunc`: MySQL types a `CONCAT` result from its arguments'
+storage lengths and counts the literal anchors project SQL writes by their
+UTF-8 bytes, so the result type would not be the declared width. A query
+header parameter read in a `concat` argument is PIE-S2355, as for `replace`.
+Single-file `explain` types each `concat`; `explain --project` keeps its
+scope (an explicit-module project is `config_schema`, and a package-root
+explain does not type expressions).
+
+`coalesce` requires at least two same-canonical-type arguments. D-12 permits
+an always-null numeric argument of another numeric type;
 the remaining operands still follow this rule, and the result uses the widest
 numeric type as described above. Beside an argument of unknown type its
 arguments of known type must still compare with each other (see Comparisons),
@@ -2411,9 +2802,24 @@ the corresponding Int-to-Text and `Text(expression)` wording. No other
 primitive conversion is introduced. A constructor call with other than one
 argument is PIE-S2104 (`Invalid arguments for constructor Float: expected 1,
 got N` or `Invalid arguments for constructor Text: expected 1, got N`). A local
-`def Float` or `def Text` takes precedence regardless of its declaration order
-or arity; a same-named `constraint`, `derive` or relationship template also
-keeps its existing meaning. Qualified calls are not constructors.
+`def Float`, `def Text` or `def concat` takes precedence regardless of its
+declaration order or arity; a same-named `constraint`, `derive` or
+relationship template also keeps its existing meaning, in the file's queries
+and in its `def` bodies alike. In such a file a `concat` call that no
+relationship call binds is PIE-S2103 with its earlier message: ``Unknown
+function: concat; concat is a derive, which cannot be called; write a `def`
+instead`` beside a `derive` (`concat is a constraint` beside a
+`constraint`), and `Unknown function: concat; string concatenation is not
+supported yet` beside a relationship template. In a schema_version = 1
+project, whose files are one namespace, such a callable of any file keeps
+that meaning in all its files. There, and in a file that declares such a
+callable, the `||`, `+` and `CONCAT(...)` messages keep their earlier text,
+which does not point to `concat(...)`: ``String concatenation with `||` is
+not supported yet.``, `+` of a `Text` ending `expected numeric operands;
+string concatenation is not supported yet` beside any operand, and
+`CONCAT(...)` with the hint `string concatenation is not supported yet`. A
+callable that only another module declares leaves the builtin in place, as it
+leaves `Float`. Qualified calls are not constructors.
 
 PostgreSQL supports `round(value[, digits])` and `date_trunc(unit, value)` in
 both single-file and project SQL emission. Single-file MySQL emission supports
@@ -2648,10 +3054,12 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   cycle, and the message names the cycle (`f -> g -> f`).
 - Calls: a call passes exactly one argument per parameter (PIE-S2395). Each
   argument's type, after alias expansion, must be the parameter type, with no
-  conversion (an `Int` value does not fit a `Decimal` parameter). In a
-  single-file check, an always-null numeric argument also fits a nullable
-  numeric parameter of another numeric type, while retaining its own type; it
-  does not fit a Text or non-null parameter. An argument
+  conversion (an `Int` value does not fit a `Decimal` parameter). An
+  always-null numeric argument also fits a nullable numeric parameter of
+  another numeric type, while retaining its own type, in a project as in a
+  single file (`fn(None + amount)` for `def fn(x: Float | None)`), and project
+  SQL writes the inlined argument as above; it does not fit a Text or
+  non-null parameter. An argument
   that is nullable, or whose nullability is unknown, does not fit a parameter
   without `| None`; `id + 1` is such an argument even when `id` is never None.
   An argument that is always null (`None`; a sign, `not`, arithmetic or
@@ -2826,7 +3234,7 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
 The current aggregate family is:
 
 ```text
-count count_distinct sum avg min max string_agg
+count count_distinct sum avg min max stddev string_agg
 ```
 
 `string_agg(value, delimiter, order by key[, key ...])` accepts two Text row
@@ -2883,9 +3291,8 @@ spelling, or database default rounding rule is not such proof. `min` and `max`
 retain their bounded direct-field surface; in EXPLICIT_MODULES projects they
 also accept one row `let` name, and the result keeps that value's proven range
 while admitting NULL. With JOIN inputs the argument reads the exact JOIN-side
-fields of that value under the same fan-out law as a direct field argument; a
-value that reads no joined field, such as `level = 3` or a header parameter,
-links no JOIN side, so the group keys alone must fix every side. In a single
+fields of that value; `min` and `max` need no fan-out proof, over a field or a
+value that reads no joined field, such as `level = 3` or a header parameter. In a single
 file `min` and `max` accept no `let` name. Over an input row of known shape,
 the argument of a `min` or `max` that is a whole aliased SELECT item and reads
 a `let` name is never accepted, even where the argument with each name's
@@ -2924,6 +3331,44 @@ targets: as in project SQL, its argument is cast before averaging (PostgreSQL
 `AVG(CAST(x AS double precision))`, MySQL `AVG(CAST(x AS DOUBLE))`), so the
 target returns a binary64 average instead of its own decimal one.
 
+`stddev(x)` is the sample standard deviation, as Python's `statistics.stdev`,
+of the non-None values of one direct `Int` or `Float` field (or an alias of
+either). Its result is a nullable `Float`: fewer than two values, an empty
+input or an all-None input give None, where Python raises. Any other argument
+type, `Decimal` included, is PIE-S2314 (`expects Int or Float field
+argument`); an expression, a literal or a `let` name is PIE-S2315 in a single
+file and in a project (where `min` and `max` take a `let` name and `stddev`
+does not). In a project a query header parameter argument is refused earlier,
+with PIE-S2355, as for every aggregate outside `count`, `avg`, `min` and
+`max`.
+`stddev` takes the positions of the other non-window aggregates; in a window
+it is PIE-S2103, in a single file with the suffix `window aggregates are sum,
+count, avg, min and max`, in a project (which admits no aggregate window)
+without one, as in a single file where the relation admits no such window (a
+hidden QUALIFY window in a query with aggregates and no GROUP BY).
+
+PostgreSQL emits `stddev` of an `Int` or a `Float` as
+`SQRT(CAST(VAR_SAMP(x) AS double precision))` in a single file and
+`SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8))` in a project. The variance of
+an integer is exact `numeric`, so it is rounded once by the cast and the
+square root rounds correctly: the result is within 2·ε·s of
+`statistics.stdev` (ε = 2^-52). PostgreSQL never casts the argument, and
+`STDDEV_SAMP(int8)` is never emitted, as it rounds the `numeric` square root
+before the cast. A `Float` deviation is computed in binary64; its error grows
+with the number of values and with their magnitude over their spread, a
+deviation below about 1e-161 may be 0, and the sign of a zero is unspecified.
+When the accumulated sum of squares overflows (about |x| > 1e154),
+PostgreSQL fails the statement with SQLSTATE 22003 instead of returning a
+value, also where the true deviation is finite. Single-file MySQL emits
+`STDDEV_SAMP(x)` for a `Float` and refuses an `Int` with PIE-B1000 (`MySQL
+aggregate stddev of an Int argument is not supported`): MySQL computes an
+integer deviation in DOUBLE. Pietto never emits `STD`, `STDDEV` or
+`STDDEV_POP`, which are the population deviation on MySQL; the population
+deviation (`statistics.pstdev`, numpy `std`) is not available. A `def stddev`
+is PIE-S2398, as a `def` named after any other aggregate is; its suggestion
+says to rename the def. Semantic Metadata Artifact v1 lists no `stddev`
+aggregate, as it lists no `string_agg`.
+
 Over a source without a shape, whose fields have no type, GROUP BY keys and
 aggregate arguments read its fields by name, and an aggregate is checked as
 over a row of field types its argument allows, with one type for each field
@@ -2947,33 +3392,63 @@ over such a source also reads its outputs as of unknown type.
 
 A single-file aggregate over JOIN rows must not read rows that a JOIN may
 repeat. `count()` without an argument counts joined rows and needs no proof.
-Every other aggregate, including `min`, `max` and `count_distinct`, must pass
-the following conservative rule; a failure is PIE-S2381 at the aggregate call
-in every check mode.
+`min`, `max` and `count_distinct` need none either: each depends only on the
+set of non-None values a group holds, and a JOIN that repeats a row only
+repeats a value already in that set. Every other aggregate must pass the
+following conservative rule; a failure is PIE-S2381 at the aggregate call in
+every check mode.
 
 Start with the inputs the argument reads, following `let` values, and each
 source input whose declared unique key (`name = unique(...)` in its shape) is
 entirely in GROUP BY with every key field never None in the source shape.
 Field-renaming `let` keys count; computed keys do not. Close that set using
 only required equalities, the `==` comparisons of two fields of different rows
-among top-level `and` operands, that match every field of a declared unique
-key of an input's source to fields of inputs already in the set; the key
-fields may be nullable:
+among top-level `and` operands, that match every field of a unique key of an
+input to fields of inputs already in the set; the key fields may be nullable.
+A unique key is one that the input's source shape declares, or, for a grouped
+table or query that selects each of its GROUP BY keys as its plain read
+(`order_id` or `oid = order_id`), every output that selects one: GROUP BY
+gives one row per distinct key tuple, and a NULL key, one group, never equals
+anything under `==`. A key selected under two names (`order_id` and
+`oid = order_id`) is matched only by an `on` that matches both, as in a
+project.
 
 - In an INNER or LEFT JOIN's `on`, an equality written by hand, such as
   `orders.customer_id == customer.id`, or one in the body of a relationship
   call there, adds the JOIN's own input in this way; both spellings prove the
   same. In an INNER JOIN's `on` it may also add an earlier input, such as the
   FROM input when the equality matches its key to the JOIN's input.
+- A LEFT JOIN's `on` adds an earlier input whose key it matches, and a RIGHT
+  JOIN's `on` adds its own input, only for a `count`, `sum`, `avg` or
+  `stddev` whose argument is a field, or a `let` name of one, of an input the
+  JOIN NULL-extends (the LEFT JOIN's own input; an earlier input of the RIGHT
+  JOIN), or of an input whose INNER or LEFT JOIN `on` equates one of its
+  fields with a field of such an input, which then finds no match either.
+  Such an aggregate skips the one row the JOIN keeps for each row without a
+  match, where the match does not hold. So
+  `from customers left join orders on orders.customer_id == customers.id`
+  grouped by `customers.region` admits `sum(orders.amount)`,
+  `count(orders.id)` and `avg(orders.amount)`, and the RIGHT spelling
+  `from orders right join customers on ...` admits `sum(orders.amount)`;
+  adding `left join items on items.order_id == orders.id` also admits
+  `sum(items.qty)`. An argument that is not None there, as
+  `count(coalesce(orders.amount, 0))` or `count(customers.id)`, is
+  refused.
 - In the WHERE, only the equalities of a relationship call that is a
   top-level `and` operand may add an input, any input; a hand-written WHERE
-  equality adds none.
+  equality adds none. A top-level `and` operand `x.f is None`, where `x` is a
+  LEFT JOIN's input and its source shape declares `f` never None, adds `x`:
+  WHERE then keeps only the one row `x` NULL-extends for each row without a
+  match (`where orders.id is None` after `left join orders`). Under `or` or
+  `not`, or for a field that may be None (`orders.note`), it adds nothing,
+  and `is not None` adds nothing either.
 
 The set must then contain the FROM input and every JOIN input; the relation of
-an `any` or `not any` filter is never one. RIGHT, FULL and CROSS JOINs add no
-dependencies, and neither does an equality or a call under `or` or `not`.
-Keys are taken only from source shapes, never inferred through tables or
-queries. Outer NULL extension does not justify a RIGHT/FULL
+an `any` or `not any` filter is never one. FULL and CROSS JOINs add no
+dependencies, a RIGHT JOIN adds only the one above, and neither does an
+equality or a call under `or` or `not`. Keys are taken from source shapes and
+from the GROUP BY keys of a grouped table or query, never inferred through
+other tables or queries. Outer NULL extension does not justify a FULL
 dependency: one NULL left part may match several preserved rows. Group
 protection uses the source's never-None key so a NULL-extended part remains
 one fixed value within a group.
@@ -2982,7 +3457,23 @@ PIE-S2381 names the JOINs that may repeat the aggregate's rows, as a
 project's PIE-S2333 does, and the remedies that can close the rule: matching a
 declared unique key of each named input in `on` with a relationship call or a
 mandatory positive equality written by hand, `any(...)` for an input that only
-filters rows, or aggregating in a separate query first. The matching key may
+filters rows, or aggregating in a separate query first. Where the `on` of a
+LEFT JOIN already matches the key of an earlier input, or that of a RIGHT
+JOIN the key of its own input, the missing piece is not the key: the
+aggregate reads the rows that JOIN keeps without a match, and the remedy says
+``read no row that JOIN orders keeps without a match`` instead. Where the
+aggregate already reads none of those rows (its argument is a field of an
+input that is None on each of them, also through a later FULL JOIN's `on`),
+the missing piece is a proof a single file does not make, and the input is
+not named. A single file does not name an input whose key only the `on` of
+FULL JOINs, or of RIGHT JOINs from their own inputs, matches; it then names
+only the last two remedies. In both modes, a LEFT JOIN whose input WHERE
+keeps NULL-extended on every row (`where payments.id is None`) is not named as
+repeating, and its `on` does not count as matching a key: with
+`left join orders ... left join payments on payments.order_id == orders.id`
+and that WHERE, the refusal asks for a unique key of orders, not for rows
+that JOIN payments keeps without a match, which are the only rows WHERE
+keeps. The matching key may
 be nullable; this does not relax the separate GROUP BY requirement that a
 source key used to start the grouped set have fields that are never None. It
 never suggests grouping by such a
@@ -3019,11 +3510,17 @@ one written by hand, as in
 `inner join customers on orders.customer_id == customers.id`, proves what the
 same equality in a relationship body proves. A project also matches a key
 that a query carries from its FROM input through only `select`, a `where`
-without `any(...)`, `order by` and `limit`. An `on` equality does not match
-yet the key of a query with GROUP BY, an `any(...)` filter, a window, QUALIFY,
-`select distinct`, a JOIN or a FROM over a query block (a grouped query's key
-still protects its own GROUP BY), and a refusal then does not ask to match it.
-A single file matches only a key that a source's shape declares. A project takes these
+without `any(...)`, `order by` and `limit`, and, for an aggregate's fan-out
+proof, the GROUP BY keys of a grouped query, all of them matched by an INNER
+or LEFT JOIN's `on` (each output that selects one, when one is selected
+twice). Where a FULL JOIN's `on` already matches the key of an earlier input,
+which nothing proves, a refusal names only the last two remedies; where it
+matches the key of its own input, it names the rows that JOIN keeps without a
+match, as for RIGHT. An `on` equality does not match yet the key of a query
+with an `any(...)` filter, a window, QUALIFY, `select distinct`, a JOIN or a
+FROM over a query block, and a refusal then does not ask to match it; nor does
+a refusal ask to match a grouped query's keys. A single file matches the keys
+a source's shape declares and the GROUP BY keys of a grouped table or query. A project takes these
 equalities only from `on`, never from WHERE, not even from a relationship call
 there; a single file also takes those of a relationship call in WHERE (see
 above), never a hand-written WHERE equality.
@@ -3067,8 +3564,19 @@ of two customers, which the CROSS JOIN repeats, and are PIE-S2333. Other
 correlations, such as `c.id > 3 and c.id < 5`, which admits one `Int`, are
 not used.
 
-`count()` counts joined rows and needs no input-row fan-out proof; `min`, `max`
-and `count_distinct` have no blanket exemption. Unsupported cases remain
+A LEFT JOIN is the mirror: its `on` matching a key of an earlier input bounds
+each right row to one row of it, except on the row it keeps for a left row
+without a match, beside a NULL-extended right input that several such rows
+share. An aggregate keeps that proof when it reads none of those rows, decided
+from values as above (its argument is None there, WHERE is never true there,
+or a later JOIN drops them). One that reads only such rows, because WHERE is
+never true where the right input's never-None fields are not None (as in
+`where orders.id is None`), reads one row per left row, so its left side
+determines the right input.
+
+`count()` counts joined rows and needs no input-row fan-out proof, and neither
+do `min`, `max` and `count_distinct`, which depend only on the set of values
+a group holds. Unsupported cases remain
 PIE-S2333, whose message may identify repeating JOINs and available unique-key
 or group-key remedies. The selected SQL/compiled aggregate path still refuses
 Bool arguments: typed semantic facts for `count(predicate(...))` do not by
@@ -3122,7 +3630,9 @@ expression, an ordinal, or an output alias. Such a key is not assumed injective
 and never supplies source-row grain. It passes the same comparison-domain check
 as a field key: Int keys use the LET site's proven range, Decimal keys keep the
 value's exact precision and scale, Bool and Text keys keep their comparison
-domains, and Float keys stay refused. Grouped result ordering may name the
+domains, and Float keys compare by Float equality, so a key may show a zero
+sign some of its members do not have. Project emission emits a Float key on
+PostgreSQL; MySQL keeps it refused. Grouped result ordering may name the
 key's selected output; without JOIN inputs a `having` reference to that
 output keeps its existing rejection. With JOIN inputs the key records every JOIN
 side its value reads, including both sides of `agg.rid > r.rid`, but it never
@@ -3522,7 +4032,7 @@ of PostgreSQL `uuid_cmp`, of MySQL `BINARY(16)` byte comparison and of Python
 (PIE-B1003 for a comparison or result ORDER, PIE-B1002 for a window ORDER key)
 until a real-database differential reviews it. `min`/`max` of a UUID, a
 Timestamp compared with a Date, full joins on these keys, a RANGE frame offset
-over a temporal or UUID order key, range or as-of relationships (such as
-matching only the latest earlier row), timezone conversion, parsing, and other
-casts remain unavailable; `min` and `max` refuse a UUID argument with
+over a temporal or UUID order key, range relationships, timezone conversion,
+parsing, and other casts remain unavailable (the latest earlier row is the
+[backward asof JOIN](#backward-asof-join), PostgreSQL only); `min` and `max` refuse a UUID argument with
 PIE-S2314 before emission.

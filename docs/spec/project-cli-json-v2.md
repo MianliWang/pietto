@@ -408,6 +408,20 @@ The additive `ranges` roles for these PostgreSQL forms are
 `int8_widen_close`, `aggregate_result_cast_open` and
 `aggregate_result_cast_close`.
 
+A generated R13 `aggregate` requirement's `evidence` may also be
+`[{"overflow": "target_checked_binary64_overflow"}]`. It marks a PostgreSQL
+`stddev(Float)`, written `SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8))`, whose
+`finite_float` result is finite because PostgreSQL refuses an overflowing
+accumulation with SQLSTATE 22003; the statement may fail while it executes and
+never returns infinity or a wrong value. Evidence follows the function and its
+argument's type, never a cast: `stddev(Int)` carries none, and only
+`sum(Int)` carries `target_checked_signed64_narrowing`. A consumer that
+requires a statically proved finite result refuses a document with this
+evidence. The additive `ranges` roles for this form are the `syntax` roles
+`aggregate_root_open` (`SQRT(`) and `aggregate_root_close` (`)`), around the
+`aggregate_result_cast_open`/`aggregate_result_cast_close` pair; the
+aggregate `spelling` is `VAR_SAMP`.
+
 `Int` arithmetic with a `None` operand (D-12, kind `arithmetic`) writes that
 NULL as `CAST(NULL AS pg_catalog.int8)` on PostgreSQL and
 `CAST(NULL AS SIGNED)` on MySQL, with the additive `ranges` roles
@@ -882,3 +896,13 @@ identical physical carriers may participate in UNION ALL and UNION DISTINCT.
 ALL preserves multiplicity; DISTINCT uses the existing Timestamp equality and
 NULL row-equivalence rules. Timestamp INTERSECT/EXCEPT, Date/UUID set carriers,
 and unreviewed coercions remain refused.
+
+A finite Float compares, groups, deduplicates, orders and joins by Float
+equality (`-0.0 == 0.0`) on PostgreSQL, in every set form included; a FULL
+JOIN keeps its Int-only `on`. On MySQL, comparisons with a literal or a
+header parameter, ordering inequalities, `in`, `nullif` and UNION ALL emit;
+Float GROUP BY, DISTINCT, relation ORDER, UNION DISTINCT, INTERSECT, EXCEPT
+and an `==` or `!=` between two row reads are BLOCKED with `PIE-B1003`. A
+window `percent_rank`/`cume_dist` result compares on both targets but stays
+outside DISTINCT, GROUP BY, ORDER and the equivalence set forms. A merged row
+shows the value of some member of its class.

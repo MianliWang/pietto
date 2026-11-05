@@ -281,7 +281,8 @@ Aggregate objects contain:
 Artifact v1 covers current aggregate facts only: `count()`, `count(field)`,
 `count_distinct(field)`, `sum`, `avg`, `min`, `max`, bounded numeric aggregate
 expressions, group keys, satisfying result predicates, and grouped result
-ordering. Artifact v1 adds no aggregate functions and makes no SQL backend
+ordering. It records no `stddev` call, as it records no `string_agg` call.
+Artifact v1 adds no aggregate functions and makes no SQL backend
 acceptance claim for documented fail-closed risks such as Enum aggregate SQL
 output.
 

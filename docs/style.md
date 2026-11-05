@@ -286,6 +286,55 @@ query orders_with_customer:
     select order_id = orders.id, customer_name = customer.name
 ```
 
+### Latest earlier row: `asof`
+
+To take, for each order, the latest price at or before it, as pandas
+`merge_asof` does, name the price source with `let`, then write the whole
+asof JOIN on one line: the keys first, each with the earlier input on the
+left, then one time test with `>=`:
+
+```pietto
+shape Order:
+    id: Int
+    product_id: Int
+    ordered_at: Timestamp
+
+shape Price:
+    product_id: Int
+    valid_from: Timestamp
+    amount_cents: Int
+    price_key = unique(product_id, valid_from)
+
+source orders: Order = postgres.table("shop.orders")
+
+source prices: Price = postgres.table("shop.prices")
+
+query order_prices:
+    from orders
+    let price = prices
+    asof left join price on orders.product_id == price.product_id and orders.ordered_at >= price.valid_from
+    select order_id = orders.id, price_cents = price.amount_cents
+```
+
+`price_cents` is None for an order without an earlier price; `asof inner join`
+drops those orders. Declare the `unique(...)` that makes the latest row one
+row; without it Pietto refuses the JOIN (PIE-S2386) instead of picking one.
+Only `emit-sql --dialect postgres` writes an asof JOIN; MySQL refuses it.
+
+Not this (each is refused with a hint):
+
+- `left asof join price ...` or `asof join price ...`: write `asof left join`
+  or `asof inner join`.
+- `asof left join prices as p on ...`: first `let p = prices`.
+- `asof left join price by product_id on ...`: match the keys in `on`.
+- `price.valid_from <= orders.ordered_at`: write the earlier input first,
+  `orders.ordered_at >= price.valid_from`.
+- `orders.ordered_at > price.valid_from`: write `>=`.
+- the `on` in parentheses or over several lines: one line, no parentheses.
+
+`pietto fmt` keeps the JOIN on its one line and does not rewrite a refused
+form.
+
 ## Does a matching row exist?
 
 `any(... for ... in ...)` reads like Python's `any`. It is True when at least
@@ -341,6 +390,40 @@ database function is created. Parameters and the result follow the same None
 rule as fields. Use a `def` when several queries share an expression; inside
 one query, a `let` is enough.
 
+## Text, None-safe equality, ranges and spread
+
+```pietto
+shape Visit:
+    id: Int
+    first_name: Text
+    last_name: Text | None
+    badge: Text | None
+    guest_badge: Text | None
+    seen_at: Timestamp
+    minutes: Float
+
+source visits: Visit = postgres.table("visits")
+
+query march_visits:
+    from visits
+    where "2026-03-01 00:00:00" <= seen_at < "2026-04-01 00:00:00"
+    select:
+        id
+        full_name = concat(first_name, " ", last_name)
+        same_badge = same_value(badge, guest_badge)
+
+query visit_spread:
+    from visits
+    group by first_name
+    select first_name, minutes_spread = stddev(minutes)
+```
+
+`concat` joins Text values and is None when any of them is None, as SQL's
+`||` is. `same_value(a, b)` is the `==` of Python for None: True when both are
+None, False when only one is. Write a half-open range, such as one month, as
+one chain `start <= ts < stop`. `stddev` is the sample standard deviation,
+Python's `statistics.stdev`, and is None for fewer than two values.
+
 ## Comments
 
 Comments start with `#`, as in Python. `--` does not start a comment:
@@ -355,11 +438,16 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `x == None` | `x is None` | a comparison with None is never true (PIE-S2105) |
 | `x in ("a", None)` | `x == "a" or x is None` | an `in` list never matches None |
 | `x not in (1, 2)` when `x` may be None | `x is None or x not in (1, 2)` | for a None `x` the test is not true, so its row is dropped |
-| `first + " " + last` | not available yet | `+` does not join text (PIE-S2105) |
+| `first + " " + last` | `concat(first, " ", last)` | `+` does not join text (PIE-S2105); `concat` is None when any argument is None |
 | `email.lower()` | `lower(email)` | functions take the value as an argument; there are no methods |
 | `round(x)` expecting Python's tie rule | `round(x)`, with `round(2.5)` being `3` | a tie rounds away from zero for Float and Decimal, as PostgreSQL rounds a `numeric` (`round(-2.5)` is `-3`); Python rounds a tie to even, so its `round(2.5)` is `2` |
 | `case when ... end` | `a if condition else b` | the conditional is Python's |
-| `&&`, `\|\|`, `!` | `and`, `or`, `not` | |
+| `&&`, `\|\|`, `!` | `and`, `or`, `not` | `\|\|` does not join text either: write `concat(a, b)` |
+| `a == b` where both may be None | `same_value(a, b)` | `==` is never true when an operand is None; `same_value` is True when both are None |
+| `same_value(x, None)` | `x is None` | a `None` operand of `same_value` is an error (PIE-S2104) |
+| `start <= ts and ts < stop` | `start <= ts < stop` | one chain for a half-open range: `start` is in it, `stop` is not |
+| `statistics.stdev(xs)`, `stddev_samp(x)` | `stddev(x)` | one name, the sample deviation; None below two values, where Python raises |
+| `statistics.pstdev(xs)`, `stddev_pop(x)`, `std(x)` | not available | the population deviation; MySQL `STD`/`STDDEV` and numpy `std` mean population; Pietto never emits them |
 | `true`, `null` | `True`, `None` | |
 | `-- note` | `# note` | `--` is a minus sign followed by another |
 

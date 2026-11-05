@@ -3,10 +3,11 @@
 ## Unreleased changes following 0.1.8
 
 These changes are on `main` after `0.1.8` and are in no published release yet.
-They are the first batch of Phase72 and the formatter step `pietto fmt`. They
-add `pietto fmt`, the builtins `concat`, `same_value` and `stddev`, project
-typing of always-null numbers, fewer false JOIN fan-out refusals and one
-`Float` value contract. Each subsection lists the changes against `0.1.8`
+They are the first two batches of Phase72 and the formatter step `pietto fmt`.
+They add `pietto fmt`, the builtins `concat`, `same_value` and `stddev`,
+project typing of always-null numbers, fewer false JOIN fan-out refusals, one
+`Float` value contract, the backward asof JOIN and a warning on the retired
+header lines. Each subsection lists the changes against `0.1.8`
 that a program can observe and the new refusals; the last subsection lists
 the known limitations.
 
@@ -254,6 +255,85 @@ the known limitations.
   vocabularies must accept them. Semantic metadata artifact v1 records no
   `stddev` call.
 
+### Backward asof JOIN (PostgreSQL)
+
+- `asof left join price on orders.product_id == price.product_id and
+  orders.ordered_at >= price.valid_from` keeps, for each order, the latest
+  price at or before its time (pandas `merge_asof`: backward, exact matches
+  allowed); `asof inner join` drops the orders without one. The `on` is zero
+  or more `==` keys, then one `>=` time test, each written earlier input
+  first, on one line without parentheses; both times are `Date` or both
+  `Timestamp`, and no key is a `Float`. The joined input is a source whose
+  shape declares a `unique(...)` within the keys and the time, so the latest
+  row is one row; Pietto never picks one of several tied rows. A `None` key
+  or time matches nothing. Single files and explicit-module projects check it
+  with the same rules and messages, except that a project reports a JOIN
+  without `on` as PIE-S2333 and refuses an asof JOIN beside nested fields
+  (below).
+- **SQL.** Single-file PostgreSQL SQL is `LEFT JOIN LATERAL (SELECT * FROM
+  <source> AS <b> WHERE <on> ORDER BY <b>.<time> DESC LIMIT 1) AS <b> ON
+  TRUE` (`INNER JOIN LATERAL` for `asof inner join`). Project SQL is the JOIN
+  with `AND (NOT EXISTS (...))` of a later matching row in its `ON`, in a
+  table or query without a relation `let NAME:` block whose FROM is not a
+  table function; compiled bundles and live templates replay that SQL. On
+  PostgreSQL 18.6, 34 single-file and 30 project statements returned the rows
+  of a reference implementation, and 7 of 7 mutated statements were caught.
+- The JOIN repeats no earlier row: in a single file `sum(orders.x)` after an
+  asof JOIN is accepted, and an aggregate of a joined field stays PIE-S2381.
+  A project accepts an aggregate after an asof JOIN only where the `on` keys
+  match a unique key of the joined source, as for any JOIN.
+- **New refusals.** New PIE-S2386, at the JOIN, when the joined input cannot
+  have one latest row: ``asof JOIN joins only a source: one latest row is
+  proved by the source shape's unique(...).`` for a table, query or
+  `let NAME:` block, and ``Several rows of price may be the latest for one
+  orders row; Pietto does not pick one.`` followed by the `unique(...)` to
+  declare or the key to match. An asof JOIN without `on` is PIE-S2335 in a
+  single file and the cause of PIE-S2333 in a project, with a new text:
+  `` JOIN price: write `on` with the keys, then one time test: `on
+  orders.k == price.k and orders.t >= price.t` ``. PIE-S2336 refuses another
+  kind (``ASOF JOIN is `asof left join` or `asof inner join`.``), a second
+  asof JOIN in one query
+  (``One asof JOIN per query: move the first into its own query and `from`
+  it.``), a missing, strict, reversed, forward, misplaced or second time
+  test, a repeated key, a chain, time arithmetic, a validity range, any other
+  condition, a bare field name, mixed `Date` and `Timestamp` and a `Float`
+  key, with a rewrite where one exists. A project also refuses, with
+  PIE-S2336, an asof JOIN in a query with `collect` or `unnest` or whose
+  earlier input has a nested-relation field (``Do the asof JOIN in a query
+  with only flat fields first.``) and one whose joined source has a
+  nested-relation field (``The joined source's shape has a nested field;
+  declare a source over the same table whose shape lists only flat fields
+  (with the covering unique(...)), and asof-join that source.``). PIE-P1000
+  refuses `left asof join`, `asof join`, an `as` alias, `by` keys and an `on` that is
+  broken over lines or in parentheses, with the asof form as its hint. MySQL
+  refuses every asof JOIN: single file PIE-B1000 (``... MySQL has no ASOF
+  JOIN yet; emit with --dialect postgres``), project PIE-B1003
+  `asof_join_not_admitted_on_target`.
+- **Compatibility.** `asof` is a new soft keyword of the generated parser; it
+  stays a valid name elsewhere (`select asof = orders.id`). After an
+  `asof left join`, PIE-S2383 names the asof remedies (test the chosen row
+  in `select`, or write `asof inner join`). When only asof JOINs repeat the
+  rows an aggregate reads, PIE-S2381 offers only `any(...)` or a separate
+  query, not a key match in `on`.
+
+### Header lines warn (PIE-P1012)
+
+- **Compatibility.** Each leading `pietto <number>`, `mode ...`, `dialect ...`
+  or `encoding ...` line now reports a new WARNING, PIE-P1012
+  (``The header line `<line>` is deprecated and will be removed.`` followed
+  by its hint), in every check mode, once the source parses, in every command
+  and project that parses source, dependency packages included, except
+  `migrate` (`emit-sql --project` only in a document refused before semantic
+  analysis, as for PIE-P1009). Exit codes, `ok` and every other diagnostic are
+  unchanged, but tools that compare exact diagnostics must expect it. Phase75
+  removes the header syntax.
+- `pietto migrate FILE > FILE.new` now deletes each header line without
+  effect (`pietto <number>`, `mode checked`, `dialect`, `encoding`; a comment
+  on the line stays), also from a source that it returned byte for byte in
+  `0.1.8`, and refuses `mode loose` and `mode strict` with PIE-P1011
+  (``The header line `mode <mode>` needs manual migration, as it sets the
+  check mode.``): delete the line and pass `--check-mode` instead.
+
 ### Known limitations after 0.1.8
 
 - MySQL project SQL refuses `concat`: real MySQL 8.4.12 types a `CONCAT`
@@ -286,6 +366,25 @@ the known limitations.
   a `Decimal` typed NULL without precision.
 - MySQL single-file GROUP BY of a `Float` beside a wide `Text` key can put
   `-0.0` and `0.0` in different groups.
+- The asof JOIN is PostgreSQL only; MySQL refuses it in both modes. One asof
+  JOIN per query, and no lower bound, tolerance, forward or nearest
+  direction, strict `>` or validity range. A project emits it only in a table
+  or query without a relation `let NAME:` block whose FROM is not a table
+  function; elsewhere (a set or VALUES input in a `let NAME:` block, an
+  asof JOIN inside a `let NAME:` block, a query with any other relation
+  `let NAME:` block, a table-function FROM) the JOIN gets its own checks and
+  then `asof JOIN is not available in projects yet.` (PIE-S2336); a
+  `let NAME:` block as the joined input is PIE-S2386, as it is no source. A project
+  refuses an aggregate after an asof JOIN (PIE-S2333) unless the `on` keys
+  match a unique key of the joined source, where a single file accepts an
+  aggregate of earlier fields: aggregate in a query that reads it with
+  `from`. The project SQL pairs each earlier row with every joined row of its
+  keys at or before its time and tests each pair with `NOT EXISTS`, so on a
+  long history it costs more than the single-file SQL; an index on the joined
+  table's keys and time makes each test one index lookup. The `unique(...)`
+  that proves one latest row is trusted, not checked
+  at run time: on data that breaks it, single-file SQL returns one of the
+  tied rows and project SQL returns each of them.
 
 ## Project-mode quality public alpha release notes — 0.1.8
 

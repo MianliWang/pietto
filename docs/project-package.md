@@ -608,7 +608,15 @@ JOIN SELECT supports the already reviewed scalar calls, casts, conditional and
 membership expressions, and comparison chains. Other JOIN expression sites and
 JOIN kinds retain their existing limits. Timestamp UNION ALL/DISTINCT uses the
 existing exact civil-microsecond carrier; Timestamp INTERSECT/EXCEPT and other
-unreviewed set carriers remain refused.
+unreviewed set carriers remain refused. A finite `Float` column takes part in
+every set form on PostgreSQL, comparing by Float equality (`-0.0 == 0.0`; see
+[Float values](language.md#float-values)). On MySQL a Float set is UNION ALL
+only: INTERSECT and EXCEPT, either quantifier, are BLOCKED with `PIE-B1003`
+`set_row_equivalence_domain_unsupported` once at the set body, because MySQL
+compares `-0.0` and `0.0` as different values there, and UNION DISTINCT is
+BLOCKED with the same detail because MySQL's deduplicating hash kept them
+apart beside a wide key. A window `percent_rank`/`cume_dist` result keeps
+UNION ALL only on both targets.
 
 ### Emission contract values
 
@@ -629,6 +637,10 @@ one) and its `domain`:
 | `Timestamp` | `pg_timestamp` | `my_datetime` | `timestamp`; the storage has `fractional_seconds` 6 |
 | `Date` | `pg_date` | `my_date` | `date` |
 | `UUID` | `pg_uuid` | `my_uuid_bytes` | `uuid`, with `encoding` `standard_bytes` |
+
+`finite_float` excludes NaN and ±Infinity: `row_domain_matches` declares
+that every stored Float is finite. A row that holds one violates that premise
+and its results are undefined.
 
 Premises declare facts about the database that the compiler cannot see. A
 source premise goes in that source's `premises` with `"scope": "source"`; a
@@ -787,16 +799,33 @@ check accepts, for example, `sum` over a `Decimal` or `Float` field, or over
 an `Int` field on MySQL, and `emit-sql --project` then reports the table or
 query BLOCKED with `PIE-B1004`. Single-file `emit-sql` emits such a `SUM`.
 
+PostgreSQL project SQL emits `stddev` of one direct `Int` field, whose carrier
+is `int2`, `int4` or `int8`, as `SQRT(CAST(VAR_SAMP(x) AS
+pg_catalog.float8))`, VERIFIED with no `int_range` requirement: the variance
+of any signed 64-bit input is below 2^128, so the cast is finite. Its result is
+a nullable `Float` (`pg_float8`, `finite_float`). `stddev` of a direct `Float`
+field uses the same form; its R13 requirement carries the evidence
+`{"overflow": "target_checked_binary64_overflow"}`: PostgreSQL refuses an
+overflowing accumulation with SQLSTATE 22003, so a returned deviation is
+finite, and the statement may fail where the sum of squares overflows (about
+|x| > 1e154) even when the deviation itself is finite. MySQL project SQL keeps
+`stddev` BLOCKED: an `Int` argument with `PIE-B1003`
+(`stddev_int_not_admitted_on_target`), a `Float` argument with `PIE-B1004`
+(`float_aggregate_finite_result_proof_missing`).
+
 `check --project` also accepts the following forms, which
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract
 declares:
 
 - `count`, `count_distinct`, `min` and `max` of a `Text`, `Float` or `Decimal`
   argument; of an `Int` argument they are admitted, and so is `count()`;
-- a comparison of a `Float` value (`price > 1.5`, `price > 1`,
-  `price > other_price`) or of a `Decimal` value with a literal
-  (`amount > 1.5`);
-- `order by` or `group by` a `Float` value;
+- a comparison of a `Float` with an `Int` (`price > 1`; write `price > 1.0`)
+  or of a `Decimal` value with a literal (`amount > 1.5`);
+- `group by`, `order by`, `select distinct:` and the set forms other than
+  UNION ALL over a window `percent_rank` or `cume_dist` result (its
+  comparisons, such as `qualify percent_rank() ... > 0.5`, emit);
+- window `partition by` or `order by` a `Float`, `string_agg(..., order by`
+  a Float `)`, and a FULL JOIN on a Float equality;
 - arithmetic on a `Float` field (`price * 2.0`, `price + price`);
 - `/` and `%`, whatever their operand types, `Float(x) / y` included;
 - `matches(...)`;
@@ -810,6 +839,22 @@ declares:
   are admitted, as they are over `my_int`, and `qty + 1` over `pg_int8` is
   admitted with the checked `bigint` rule above, while `qty + 1` over
   `my_bigint` is BLOCKED with `PIE-B1002`.
+
+On MySQL `emit-sql --project` also reports BLOCKED `group by`, `order by` and
+`select distinct:` over a `Float`, a Float UNION DISTINCT, INTERSECT or
+EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
+`on`, a WHERE comparison across inputs, a correlated
+`any`/`exists`/scalar/capture predicate, or two fields of one row, such as
+`price == cost` or `not (price != cost)`); PostgreSQL emits them. A
+comparison with a literal or a header parameter (`price == 0.0`,
+`price == p`) and every ordering inequality (`price < cost`) emit on both
+dialects. On MySQL 8.4.12, DISTINCT, GROUP BY and UNION DISTINCT kept
+`-0.0` and `0.0` apart beside a `VARCHAR(1000)` or wider key, INTERSECT and
+EXCEPT compared them as different values, and a semijoin forced to
+materialize over such a key returned outer rows twice. Narrow keys and every
+JOIN tried matched `-0.0` with `0.0`, but Pietto does not choose MySQL's
+plan, and MySQL's parser turns `NOT (x <> y)` into `x = y`. A relation
+`order by` follows the `select distinct:` rule.
 
 Admitting these forms needs reviewed SQL and a real-database differential on
 PostgreSQL and MySQL, which the PostgreSQL/MySQL parity batch plans (see the
