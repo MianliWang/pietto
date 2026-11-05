@@ -3,6 +3,288 @@
 ## Unreleased changes following 0.1.8
 
 These changes are on `main` after `0.1.8` and are in no published release yet.
+They are the first batch of Phase72 and the formatter step `pietto fmt`. They
+add `pietto fmt`, the builtins `concat`, `same_value` and `stddev`, project
+typing of always-null numbers, fewer false JOIN fan-out refusals and one
+`Float` value contract. Each subsection lists the changes against `0.1.8`
+that a program can observe and the new refusals; the last subsection lists
+the known limitations.
+
+### Formatter: `pietto fmt`
+
+- `pietto fmt PATH` writes the formatted source of one file to stdout and
+  never changes the file. `pietto fmt --check PATH` never writes: it exits 0
+  when the file is formatted, and 1 with `would reformat: PATH` on stderr when
+  it is not. `pietto fmt --write PATH` replaces the file atomically, only when
+  formatting changes it, and keeps its permission bits. `--check` with
+  `--write`, a directory, `--project` and `--format` are usage errors
+  (exit 2). There is no configuration.
+- `fmt` changes only the whitespace around tokens, never a token, its order
+  or the spaces between two tokens of a line (`a -- b` still reports
+  PIE-P1009): four-space blocks; a continuation line inside parentheses keeps
+  its indentation relative to the line it continues; a comment line takes the
+  indentation of the line that follows it in its block; two spaces before an
+  end-of-line comment; one blank line between top-level declarations, none
+  between consecutive imports and exports; the comment lines at the left
+  margin over a declaration belong to it; comment lines that no declaration
+  follows keep their written blank lines, one at most in a row; no trailing
+  whitespace; every line ends with the file's first line ending and a
+  non-empty file ends with one; a leading BOM and the header lines (`pietto`,
+  `mode`, `dialect`, `encoding`) are kept as written.
+- The result is lexed again and must give the input's tokens, blocks, logical
+  lines, code and comments; otherwise, or when it would exceed the source size
+  limit, `fmt` prints and writes nothing and exits 1. A file with parser
+  errors is refused with the diagnostics `check` reports and exit 1, also with
+  `--check` and `--write`. `--write` refuses with exit 2 a symbolic link or a
+  file that is not regular, before reading it, and, when the file needs
+  changing, a read-only file, a file owned by another user, a file whose bytes
+  changed after it was read, or a failed replace.
+- No diagnostic code, JSON shape, SQL output or existing command changes. The
+  `pietto` code blocks of `README.md`, `docs/language.md` and `docs/style.md`
+  are now in this layout, and `tests/test_repo_docs_examples.py` keeps them
+  so.
+
+### `concat` joins Text
+
+- `concat(a, b, ...)` takes two or more `Text` values (a `Text` alias
+  included, also one imported from another module) and is `None` when any
+  argument is, in `check`, single-file `explain`, `emit-sql` and
+  `emit-sql --project`. One argument or a non-Text argument is PIE-S2104
+  (`Invalid arguments for function concat: expected at least 2, got N`,
+  `Invalid argument type for function concat at position P: expected Text,
+  got X`); write `Text(n)` for an `Int`.
+- PostgreSQL SQL, single file and project, is `(a || b)`; in a single file an
+  argument not known to be `Text`, such as a field of a source without a
+  shape, is `CAST(x AS text)`. Single-file MySQL SQL is `CONCAT(a, b)`.
+- Project SQL refuses, on PostgreSQL, `concat` of only `None` (PIE-B1003
+  `scalar_call_signature_not_admitted`) and of a binding-width `Text` (new
+  detail PIE-B1004 `text_concat_result_bound_missing`), and on MySQL every
+  `concat` (PIE-B1003 `scalar_call_signature_not_admitted`, at the statement
+  part that holds the call, also through a `def`).
+- **Diagnostic text changes.** The PIE-P1000 hint for `||` is now ``Write
+  `concat(a, b)` to join Text, or `or` for a condition.``; PIE-S2103 for
+  `CONCAT(...)`, `Concat(...)` and other non-lowercase spellings now hints
+  ``write `concat(...)` in lowercase``; PIE-S2105 for `+` with a `Text`
+  operand now ends ``; use `concat(...)` to join Text values`` beside a
+  `Text`, the null literal or a number of unknown type, ``; use `concat(...)`
+  with `Text(n)` to join Text values`` beside an `Int`, and at `expected
+  numeric operands` beside another type.
+- **A file's own `concat` keeps its meaning.** A `def concat` (still
+  accepted, not PIE-S2398), or a `constraint`, `derive` or relationship
+  template named `concat`, keeps its `0.1.8` meaning in its own file, and in
+  every file of a `schema_version = 1` project; there the messages above keep
+  their `0.1.8` text. A callable that only another module declares does not
+  hide the builtin, so a module's `concat(a, b)` that `0.1.8` reported as
+  PIE-S2103 is now the builtin.
+
+### `same_value`: NULL-safe equality
+
+- `same_value(a, b)` is a `Bool` that is never `None`: true when both
+  operands are `None` or equal, false when only one is `None`. Its operands
+  compare as for `==`. PostgreSQL SQL is `(a IS NOT DISTINCT FROM b)`, MySQL
+  SQL `(a <=> b)`, in `select`, `where`, `let`, conditions and JOIN `on` in
+  single files, and in explicit-module project checks. Project SQL admits it
+  in a relation's select items, WHERE and `let`, and in select items after a
+  JOIN, on both targets.
+- **Compatibility.** `same_value` is now a reserved builtin name: a
+  `def same_value(...)` is PIE-S2398 (``Def same_value has the name of a
+  built-in function; a def cannot shadow one``), so its project `emit-sql`
+  documents go from VERIFIED to BLOCKED and `emit-sql --all` fails the batch
+  with no items. A call is no longer PIE-S2103.
+- **New refusals.** A `None` argument, also through a `let` name or a `def`
+  argument, is PIE-S2104 ``Invalid argument type for function same_value at
+  position N: expected a non-None value, got None; write `x is None`
+  instead`` (no hint when both are `None`); operands that `==` refuses are
+  PIE-S2104 `Invalid argument types for function same_value: expected
+  comparable operands`; a wrong count is PIE-S2104 `expected 2, got N`. On
+  PostgreSQL a single-file `same_value` beside a CASE/`coalesce`/`nullif` of
+  only `None` warns PIE-S2385 at check and is refused at emission, as `==`
+  is. Project SQL refuses `Float` or `Bool` operands and `same_value` in a
+  JOIN `on` or in a WHERE after a JOIN with the existing PIE-B1003 details,
+  and, on MySQL, a `same_value` GROUP BY key or SELECT DISTINCT column, also
+  when read through a `let` name, a named relation or another module
+  (PIE-B1003 `scalar_call_signature_not_admitted` at the call; real MySQL
+  8.4.12 returned a 4-byte `INT` there).
+
+### Always-null numbers in projects (D-12)
+
+- In an explicit-module project an always-null number (`amount + None`,
+  `None * 2`, `None - 3.0`) is typed as in a single file, the widest-type
+  rule included (`(None + d) + 1.5` is a `Float`), so its relation completes
+  where `0.1.8` reported the bare PIE-S2333, and the relations that read it
+  report their own errors. A `schema_version = 1` project takes the same
+  widest-type rule: such programs that failed with PIE-S2104 or PIE-S2105
+  there now pass.
+- A relation without a JOIN input of its own and without `select distinct`
+  that selects an untyped NULL (`o = None`, `-None`, `None + None`), or a typed
+  output that reads one (`coalesce(None, None) == amount`, `n is None` after
+  `let n = None`), now completes with a PIE-S2385 warning at that output,
+  which every emission document of the project also carries; project SQL
+  refuses it with PIE-B1003 `expression_evidence_unavailable`.
+- **SQL changes.** Single-file SQL writes a `None` operand of `+`, `-`, `*`,
+  `/` or `%` as a typed NULL (PostgreSQL `CAST(NULL AS bigint|numeric|double
+  precision)`, MySQL `CAST(NULL AS SIGNED|DECIMAL|DOUBLE)`), also in WHERE,
+  `sign`/`abs`, comparisons, `coalesce`/`nullif`, conditionals, a `let` name
+  bound to `None` and a `None` argument inlined from a `def`; it casts an
+  always-null `Int` or `Decimal` operand beside a `Float` result to `double
+  precision` / `DOUBLE`; MySQL divides `amount / None` with `DIV`. This
+  changes the SQL text of every program with such an expression: `0.1.8`
+  typed PostgreSQL `NULL * 2` as `integer` and `NULL - 3.0` as `numeric`, and
+  MySQL `amount + NULL` as `DOUBLE`.
+- Project SQL now emits `Int` arithmetic with a `None` operand on PostgreSQL
+  and MySQL (`("s0"."amount" + CAST(NULL AS pg_catalog.int8))`), in the
+  target's `Int` carrier with `int_range` 0..0, wherever it is read: a `let`
+  value and a GROUP BY key over it, a JOIN output, a WHERE condition,
+  `sign`/`abs`, comparisons, `coalesce`, conditionals, an `in` list, a grouped
+  aggregate (MySQL `sum` keeps PIE-B1004
+  `sum_int_aggregate_range_proof_missing`) and a `union all` branch. Its
+  compiled bundle now emits and builds a live template, where `0.1.8` raised
+  `COMPILED_NULL_CONTEXT`. Emission observations gain the additive `ranges`
+  roles `expression_range` `null_cast` and `syntax` `null_cast_open`,
+  `null_cast_close`. `Float` and `Decimal` arithmetic with a `None` operand
+  and arithmetic over a `let` name bound to `None` stay refused.
+- **Fixed crash.** Project SQL of `o = abs(None)` crashed with
+  `KeyError: 'precision'` on both targets (also in `0.1.7`). A visible output
+  whose value or window result is that precision-less `Decimal` typed NULL is
+  now BLOCKED PIE-B1003 `scalar_call_signature_not_admitted` at the output
+  item, also through a `let` name, ORDER BY, LIMIT, a named relation or a
+  `def`. Every reader of it that `0.1.8` emitted (`abs(None) is None`,
+  `coalesce(abs(None), price)`, `sign(abs(None))`, ...) emits the same
+  document, and every form `0.1.8` refused keeps its blockers, with that
+  PIE-B1003 added in source order when the relation also has such an output.
+- Unchanged: comparisons with `None` and `label + None` stay PIE-S2105, and
+  `sum(None + amount)` stays PIE-S2315.
+
+### JOIN aggregates: fewer false fan-out refusals
+
+- Single files (PIE-S2381) and explicit-module projects (PIE-S2333) now
+  accept, and emit as one grouped JOIN: `min`, `max` and `count_distinct` over
+  any JOIN; `count`, `sum`, `avg` and `stddev` of a field of the many side
+  of a LEFT JOIN (or the same RIGHT JOIN) whose `on` matches the other side's
+  unique key, and of a further LEFT JOIN on that side; the anti-join
+  `where orders.id is None` after such a JOIN when the tested field is never
+  `None`; and a JOIN on all the GROUP BY keys of a named grouped query.
+- Real fan-out stays refused: `sum`/`count`/`avg`/`stddev` over a JOIN that
+  repeats rows, an anti-join on a field that may be `None` or under `or`,
+  `is not None`, a JOIN on only part of a grouped query's keys, and a
+  hand-written WHERE equality.
+- The PIE-S2381 message no longer asks to match a unique key that the `on`
+  already matches: for a LEFT or RIGHT JOIN it says ``read no row that JOIN
+  NAME keeps without a match``, and where only a FULL JOIN's `on` matches it
+  names only the other remedies. MySQL project SQL keeps refusing `sum(Int)`
+  with PIE-B1004.
+
+### `Float` value contract
+
+- `Float` has one meaning in both modes: a finite IEEE-754 binary64 value
+  whose equality is Python's float equality, so `-0.0 == 0.0`. Single-file SQL
+  bytes are unchanged.
+- `check --project` accepts `select distinct` over `Float` values and UNION
+  DISTINCT, INTERSECT and EXCEPT over `Float` columns; PIE-S2339 and PIE-S2344
+  no longer report them, and their message tail "Float equality is not
+  supported yet" is retired.
+- PostgreSQL project SQL admits same-carrier finite `Float` comparisons in
+  WHERE, SELECT, `let`, HAVING, QUALIFY, INNER and LEFT JOIN `on` and
+  correlated predicates, and `Float` GROUP BY, DISTINCT, ORDER BY and every
+  set form, a window `percent_rank`/`cume_dist` result included in
+  comparisons. Each merged row carries the value of some member of its class,
+  so a key whose class holds both zeros may show either sign.
+- MySQL project SQL admits `Float` comparisons with a literal or a header
+  parameter and every ordering inequality. `Float` GROUP BY
+  (`group_key_type_outside_reviewed_comparison_domain`), relation ORDER
+  (`order_comparison_domain_unsupported`) and `==`/`!=` between two row reads
+  (`comparison_type_pair_not_admitted`) keep their PIE-B1003 blockers;
+  `Float` DISTINCT, UNION DISTINCT,
+  INTERSECT and EXCEPT are BLOCKED at emission with
+  `distinct_field_comparison_domain_unsupported` or
+  `set_row_equivalence_domain_unsupported` (real MySQL 8.4.12 kept `-0.0` and
+  `0.0` apart beside a wide key).
+- **Compatibility.** No VERIFIED `0.1.8` document changes bytes. Some
+  refusals move: a MySQL `Float` DISTINCT or equivalence set form, and those
+  forms over a window distribution result on both targets, pass the check and
+  are BLOCKED by emission with one PIE-B1003 and no diagnostics (two on MySQL
+  when the only inputs are typed VALUES bodies, the second
+  `zero_physical_source_not_admitted_on_target`); a FULL JOIN whose `on`
+  compares a `Float` is now refused by the FULL JOIN rule (subject reference
+  `join`: PostgreSQL `full_join_equality_outside_reviewed_int_domain` or a
+  shape detail, MySQL `mysql_full_join_approved_non_support`, except MySQL
+  `==`/`!=` between two row reads, which keeps
+  `comparison_type_pair_not_admitted`); and every FULL JOIN rule refusal now
+  carries the location of the JOIN's `on` clause, for every type, on both
+  targets. The suggestion of `set_row_equivalence_domain_unsupported` names
+  the per-target limits.
+- Still refused: `Float` beside `Int` (`price > 1`; write `1.0`), `Float`
+  field arithmetic, unary minus on a field, `/` and `%`, `Float` `sum`, `avg`,
+  `count`, `count_distinct`, `min` and `max`, a window PARTITION or ORDER BY a
+  `Float`, a FULL JOIN on a `Float` equality, and DISTINCT, GROUP BY, ORDER and
+  equivalence set forms over a window distribution result.
+
+### `stddev` aggregate
+
+- `stddev(x)` is the sample standard deviation (Python `statistics.stdev`)
+  of a direct `Int` or `Float` field: a nullable `Float`, `None` below two
+  values. PostgreSQL SQL is `SQRT(CAST(VAR_SAMP(x) AS double precision))`
+  (project: `pg_catalog.float8`), VERIFIED in projects for `Int` and, with the
+  new evidence token `target_checked_binary64_overflow`, for `Float`.
+  Single-file MySQL SQL is `STDDEV_SAMP(x)` for a `Float`.
+- **New refusals.** MySQL `stddev` of an `Int` is refused in both modes
+  (single file PIE-B1000, project PIE-B1003
+  `stddev_int_not_admitted_on_target`); MySQL project `Float` `stddev` is
+  PIE-B1004. Over a JOIN that repeats rows it is PIE-S2381, as `sum` is, and
+  where `sum` is accepted after a JOIN it is too.
+- **Compatibility.** `def stddev` is now PIE-S2398 (``Def stddev has the name
+  of a built-in function; a def cannot shadow one``) with the suggestion
+  ``Rename this def: `stddev` is now the built-in sample standard deviation
+  aggregate, and a call to stddev always means it.``; a `constraint stddev` or
+  `derive stddev` called as `stddev(...)`, which was PIE-S2103, now means the
+  aggregate. In a single file, the refusal of a non-window aggregate with a
+  `window`, `count_distinct` included, gains the suffix `; window aggregates
+  are sum, count, avg, min and max`, unless the relation admits no such
+  window; a project keeps the text without a suffix.
+- PIE-S2103 hints (the lookup ignores letter case): `stdev`, `stddev_samp` and
+  `statistics.stdev` hint ``write `stddev`, the sample standard deviation
+  (Python `statistics.stdev`)``; `std`, `pstdev`, `stddev_pop`,
+  `statistics.pstdev` and `stddev` in a letter case other than lowercase say
+  that the population deviation is not available; the aggregate list of the
+  other hints now names `stddev`.
+- Project JSON v2 gains the additive syntax roles `aggregate_root_open` and
+  `aggregate_root_close`, the aggregate spelling `VAR_SAMP` and the evidence
+  token `target_checked_binary64_overflow`; a strict reader of those
+  vocabularies must accept them. Semantic metadata artifact v1 records no
+  `stddev` call.
+
+### Known limitations after 0.1.8
+
+- MySQL project SQL refuses `concat`: real MySQL 8.4.12 types a `CONCAT`
+  result from its arguments' storage lengths and counts the literal anchor
+  that project SQL writes by its UTF-8 bytes, so the declared width does not
+  hold. MySQL project `REPLACE` and the other Text calls whose result can grow
+  have the same typing and are still emitted as in `0.1.8`; a MySQL project
+  `replace` wider than the 16383-character bound stays the generic PIE-B1003.
+  Single-file MySQL `CONCAT` returns NULL above `max_allowed_packet`.
+- MySQL project SQL of `union distinct`, `intersect distinct` and
+  `except distinct` over a `same_value` column is VERIFIED but was not run on a
+  database. `same_value` is not emitted in a project JOIN `on` or a WHERE
+  after a JOIN, `having:` admits no call, a header parameter cannot be its
+  operand (PIE-S2355), and on MySQL a `Text` operand relies on the
+  `utf8mb4_0900_bin` collation premise. Project SQL refuses a `Float`
+  `same_value` on both targets (PIE-B1003 `comparison_type_pair_not_admitted`)
+  although project SQL now admits a `Float` `==` on PostgreSQL and, against a
+  literal, on MySQL (`same_value(ratio, 1.5)` is refused where
+  `ratio == 1.5` is emitted): no database run has checked a NULL-safe `Float`
+  equality yet.
+- Project typing of untyped NULL values still fails with the bare PIE-S2333
+  in a relation with a JOIN input of its own whose output has no type or reads
+  one through a `let` name, a `select distinct` relation whose output has no
+  type, a relation that computes with, groups by, aggregates or JOINs an
+  untyped output it reads, a SELECT output with no type that is not always
+  NULL (`abs(amount + (-None))`), and a relation with a `Decimal` quotient
+  output; a relation that passes an untyped output through and has an invalid
+  LIMIT still reports PIE-S2333 in place of PIE-S2307. A project places
+  PIE-S2385 at the output, a single file at the value. Single-file SQL writes
+  a `Decimal` typed NULL without precision.
+- MySQL single-file GROUP BY of a `Float` beside a wide `Text` key can put
+  `-0.0` and `0.0` in different groups.
 
 ## Project-mode quality public alpha release notes — 0.1.8
 
